@@ -1,12 +1,10 @@
 import {
-  ArrowDownIcon,
   ArrowUpRightIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   FlaskConicalIcon,
   CodeIcon,
   HexagonIcon,
-  InfoIcon,
   LayoutDashboardIcon,
   ListChecksIcon,
   RadioIcon,
@@ -28,9 +26,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { DocumentWorkspace } from '@/components/document-workspace'
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -157,7 +155,7 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
       </CardContent>
       <CardFooter>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          The web UI and CLI use the same application service. No chemical engine or model data is included.
+          The web UI and CLI use the same application service. No chemical analysis engine or model data is included.
         </p>
       </CardFooter>
     </Card>
@@ -179,7 +177,7 @@ function App() {
               <HexagonIcon aria-hidden="true" className="size-5" />
             </span>
             <span className="text-lg font-semibold tracking-tight">Chemifree</span>
-            <Badge variant="secondary" className="hidden sm:inline-flex">Early scaffold</Badge>
+            <Badge variant="secondary" className="hidden sm:inline-flex">Early preview</Badge>
           </a>
           <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href={repositoryUrl} target="_blank" rel="noreferrer">
             <CodeIcon data-icon="inline-start" aria-hidden="true" />
@@ -211,51 +209,25 @@ function App() {
             </div>
             <h1 id="workspace-title" className="text-3xl font-semibold tracking-tight sm:text-4xl">A clear space for chemistry.</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-              An open-source chemical drawing workspace for humans and agents. The foundation is here; the chemistry tools come next.
+              An open-source chemical drawing workspace for humans and agents. Draw, undo, save, and reopen structures locally; chemistry analysis comes later.
             </p>
           </section>
 
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle><h2>Drawing workspace</h2></CardTitle>
-                <CardDescription>A dedicated home for your structures and ideas.</CardDescription>
-                <CardAction><Badge variant="outline">Planned</Badge></CardAction>
-              </CardHeader>
-              <CardContent className="flex flex-1">
-                <Empty className="min-h-64 border sm:min-h-72">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon"><HexagonIcon aria-hidden="true" /></EmptyMedia>
-                    <EmptyTitle>The canvas is still taking shape</EmptyTitle>
-                    <EmptyDescription>
-                      Drawing, importing, and saving chemical documents are not implemented yet. This starter connects the interface to the local runtime.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                  <EmptyContent>
-                    <a className={buttonVariants({ variant: 'outline' })} href="#capabilities">
-                      Explore capabilities<ArrowDownIcon data-icon="inline-end" aria-hidden="true" />
-                    </a>
-                  </EmptyContent>
-                </Empty>
-              </CardContent>
-              <CardFooter className="gap-2">
-                <InfoIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                <p className="text-xs leading-relaxed text-muted-foreground">An empty workspace. No documents or scientific results are simulated.</p>
-              </CardFooter>
-            </Card>
+            <DocumentWorkspace />
 
             <div className="flex min-w-0 flex-col gap-5">
               <RuntimeCard state={state} refresh={refresh} />
               <Card size="sm">
                 <CardHeader>
                   <CardTitle><h2>Also at your terminal</h2></CardTitle>
-                  <CardDescription>Inspect the same local application directly.</CardDescription>
+                  <CardDescription>Inspect and edit the same documents directly.</CardDescription>
                   <CardAction><TerminalIcon aria-hidden="true" className="size-4" /></CardAction>
                 </CardHeader>
                 <CardContent>
-                  <code className="block break-words rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">cargo run -p chemifree-cli -- capabilities --json</code>
+                  <code className="block break-words rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">cargo run -p chemifree-cli -- documents list</code>
                 </CardContent>
-                <CardFooter><p className="text-xs text-muted-foreground">Runs locally without an HTTP server.</p></CardFooter>
+                <CardFooter><p className="text-xs text-muted-foreground">Runs locally without an HTTP server, on the same data directory.</p></CardFooter>
               </Card>
             </div>
           </div>
@@ -264,7 +236,7 @@ function App() {
 
           <footer className="flex flex-wrap items-center justify-between gap-3 pb-2 text-xs text-muted-foreground">
             <p>Chemifree · Independently authored · MIT</p>
-            <p>Local, read-only foundation · v0.1.0</p>
+            <p>Local-first workspace · v0.1.0</p>
           </footer>
         </main>
       </div>

@@ -1,7 +1,25 @@
-//! Shared use cases and v1 response contracts for HTTP and CLI entry adapters.
+//! Shared use cases and v1 contracts for HTTP and CLI entry adapters.
+
+mod contract;
+mod documents;
+mod error;
+mod repository;
 
 use chemifree_domain::Capability;
 use serde::Serialize;
+
+pub use contract::{
+    AtomView, BondOrderDto, BondToDto, BondView, CloseRequest, CloseResponse, CommandDto,
+    CreateDocumentRequest, DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView,
+    PointDto, PositionView, RevisionRequest, SessionView, TransactionRequest, UnreadableDocument,
+};
+pub use documents::{
+    DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
+};
+pub use error::{ApplicationError, ErrorCode, ErrorResponse};
+pub use repository::{DocumentRepository, StorageError};
+
+use documents::Documents;
 
 pub const API_VERSION: &str = "v1";
 
@@ -10,13 +28,19 @@ pub trait CapabilityCatalog: Send + Sync {
     fn capabilities(&self) -> Vec<Capability>;
 }
 
-pub struct Application<P> {
-    catalog: P,
+/// The single application service. Entry adapters translate transport details only;
+/// `request_id` is optional here so in-process callers without retries may omit it.
+pub struct Application<C, R> {
+    catalog: C,
+    documents: Documents<R>,
 }
 
-impl<P: CapabilityCatalog> Application<P> {
-    pub fn new(catalog: P) -> Self {
-        Self { catalog }
+impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    pub fn new(catalog: C, repository: R) -> Self {
+        Self {
+            catalog,
+            documents: Documents::new(repository),
+        }
     }
 
     /// Liveness only. This does not assert that a scientific engine is available.
@@ -45,6 +69,69 @@ impl<P: CapabilityCatalog> Application<P> {
                 })
                 .collect(),
         }
+    }
+
+    pub fn list_documents(&self) -> Result<DocumentListResponse, ApplicationError> {
+        self.documents.list()
+    }
+
+    pub fn create_document(
+        &self,
+        request_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.create(request_id, title)
+    }
+
+    pub fn document(&self, id: &str) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.get(id)
+    }
+
+    pub fn apply_transaction(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        commands: Vec<CommandDto>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents
+            .transact(id, request_id, expected_revision, commands)
+    }
+
+    pub fn undo(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.undo(id, request_id, expected_revision)
+    }
+
+    pub fn redo(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.redo(id, request_id, expected_revision)
+    }
+
+    pub fn save(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.save(id, request_id, expected_revision)
+    }
+
+    pub fn close(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        discard_unsaved: bool,
+    ) -> Result<CloseResponse, ApplicationError> {
+        self.documents.close(id, request_id, discard_unsaved)
     }
 }
 
