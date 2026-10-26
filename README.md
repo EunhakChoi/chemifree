@@ -4,6 +4,8 @@ An independently authored, open-source chemical drawing workspace for humans and
 
 **Scaffold stage.** The web shell, local read-only API, CLI, and shared application boundary work. Document editing, chemical calculations, import/export, model loading, persistence, authentication, and Windows integration are **not implemented**. There are no simulated chemical results, vendor engines, or proprietary datasets in this repository.
 
+Continuing in a new session? Start with [the handoff](docs/HANDOFF.ko.md) and [project instructions](AGENTS.md). They record the completed baseline, current limits, and the proposed next implementation slice.
+
 ## Run locally
 
 Use Node **22.22.2**, npm **11.13.0**, and Rust **1.95.0**. The repository includes `.nvmrc`, `packageManager`, and `rust-toolchain.toml`.

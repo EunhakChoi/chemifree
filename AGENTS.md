@@ -2,9 +2,13 @@
 
 Chemifree is an independently authored, open-source chemical drawing workspace for humans and agents.
 
-## Current scope
+## Current stage and session handoff
 
-Build scaffolding only: a web application shell, a local Rust API, a CLI, explicit layer boundaries, development commands, CI, and architecture documentation. Do not implement chemical algorithms, import/export engines, model loaders, persistence, authentication, or Windows integration in this stage. Report those capabilities as not implemented.
+Scaffolding is complete. Start a new session with docs/HANDOFF.ko.md, then README.md and docs/CONTRACT.md. If present, private/SESSION_CONTEXT.ko.md contains local routing metadata for the approved functional specifications; it contains no vendor source or model payload and must stay outside Git.
+
+The current product exposes only runtime inspection. Chemical algorithms, document editing, import/export, model loading, persistence, authentication, and Windows integration remain not implemented. Report their actual status.
+
+Use the user's next request to determine the next implementation scope. Reading the handoff alone does not authorize feature expansion. When implementation is requested, build the requested bounded feature and its checks rather than restarting the completed scaffold or analysis.
 
 ## Independent implementation
 
