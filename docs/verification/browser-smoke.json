@@ -1,0 +1,13 @@
+{
+  "api_unavailable_is_visible": true,
+  "retry_recovers_actual_api": true,
+  "refresh_refetches_both_endpoints": true,
+  "available_runtime_and_seven_unimplemented_features": true,
+  "semantic_link_navigation": true,
+  "mobile_390_and_320_without_horizontal_overflow": true,
+  "system_dark_mode": true,
+  "rejects_wrong_version": true,
+  "rejects_duplicate_id": true,
+  "rejects_malformed_capability": true,
+  "uncaught_browser_errors": []
+}

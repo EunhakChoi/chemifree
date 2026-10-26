@@ -1,0 +1,43 @@
+{
+  "status": "passed",
+  "tool": "@shadcn/lint 0.2.3 / ESLint",
+  "default_configuration": {
+    "plugin_registered": true,
+    "design_rules_enabled": []
+  },
+  "probe_scope": "Rules temporarily enabled by ESLint CLI flags for stdin input only. Project configuration and source files were not changed.",
+  "cases": [
+    {
+      "case": "violating",
+      "input": "import { Button } from \"@/components/ui/button\"\nexport function DesignProbe() { return <Button className=\"bg-red-500 p-4\">Probe</Button> }\n",
+      "findings": [
+        {
+          "rule": "shadcn/no-raw-colors",
+          "severity": 1,
+          "line": 2,
+          "message": "\"bg-red-500\" uses the raw Tailwind palette. Nearest theme tokens: bg-destructive. Use one of those, or declare --color-<name> in src/index.css for a new color."
+        },
+        {
+          "rule": "shadcn/no-restyle",
+          "severity": 1,
+          "line": 2,
+          "message": "\"bg-red-500\" is not allowed on <Button>: <Button> owns its color. Use a variant: default, outline, secondary, ghost, destructive, link. Add a new variant in src/components/ui/button.tsx only if the design explicitly calls for a treatment none of these provides."
+        },
+        {
+          "rule": "shadcn/no-restyle",
+          "severity": 1,
+          "line": 2,
+          "message": "\"p-4\" is not allowed on <Button>: <Button> owns its spacing. Use a size (default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg), or margin here or gap on the parent for space around it. Add a size in src/components/ui/button.tsx only if the design explicitly calls for one."
+        }
+      ],
+      "exit_code": 0
+    },
+    {
+      "case": "allowed",
+      "input": "import { Button } from \"@/components/ui/button\"\nexport function DesignProbe() { return <Button variant=\"outline\" size=\"sm\" className=\"w-full\">Probe</Button> }\n",
+      "findings": [],
+      "exit_code": 0
+    }
+  ],
+  "components_config_sha256": "156858e2da20785ac0f1853580c7e34d5b8496f519e8839d2176e85947d4f779"
+}

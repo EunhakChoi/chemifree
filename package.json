@@ -1,0 +1,28 @@
+{
+  "name": "chemifree",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An independently authored chemical drawing workspace for humans and agents. Scaffold stage.",
+  "license": "MIT",
+  "packageManager": "npm@11.13.0",
+  "engines": {
+    "node": ">=22.22.2 <23",
+    "npm": ">=11.13.0 <12"
+  },
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev": "concurrently --kill-others --names api,web \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "cargo run --locked --package chemifree-api",
+    "dev:web": "npm run dev --workspace @chemifree/web",
+    "build": "npm run build:web && cargo build --workspace --locked",
+    "build:web": "npm run build --workspace @chemifree/web",
+    "lint": "npm run lint --workspace @chemifree/web",
+    "typecheck": "npm run typecheck --workspace @chemifree/web",
+    "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
+    "test:contracts": "node scripts/contract-smoke.mjs",
+    "check": "npm run lint && npm run typecheck && npm run build:web && npm run check:rust && npm run test:contracts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
