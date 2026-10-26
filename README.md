@@ -44,7 +44,7 @@ npm run check            # All of the above
 npm run build            # Web assets and debug Rust binaries
 ```
 
-The contract smoke builds the workspace, starts an API on an ephemeral loopback port, compares HTTP JSON with actual CLI JSON, verifies capability status and error routes, and terminates its server. GitHub Actions runs `npm ci` and `npm run check` with pinned tools. Browser smoke is a manual verification step at this stage; there is no bundled browser test runner.
+The contract smoke builds the workspace, starts an API on an ephemeral loopback port, compares HTTP JSON with actual CLI JSON, verifies capability status and error routes, and terminates its server. GitHub Actions installs npm 11.13.0 into an isolated runner-temporary prefix, adds its binaries to `PATH`, and verifies the selected version before running `npm ci` and `npm run check` with pinned tools. Browser smoke is a manual verification step at this stage; there is no bundled browser test runner.
 
 `npm run preview --workspace @chemifree/web` previews built assets on port 4173 and inherits the local API proxy; run the API separately. Vite's preview server is a local verification tool. For a production deployment, serve `/api/v1/*` to the Rust API through the same origin. Hosting, authentication, and a production deployment configuration are future work.
 
