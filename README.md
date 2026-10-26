@@ -71,6 +71,8 @@ Dependencies point inward: `application → domain`; `providers → application 
 
 ## API and implementation status
 
+The [interactive architecture document](docs/architecture.html) maps these layers to the actual source files, current contracts, UI decisions, and next implementation steps. Download the HTML and open it in a browser; GitHub's file viewer displays its source. It is self-contained and works offline. See also the [shadcn review](docs/SHADCN_REVIEW.ko.md) and [contract reference](docs/CONTRACT.md).
+
 | HTTP | CLI | Meaning |
 | --- | --- | --- |
 | `GET /api/v1/health` | `status --json` | Application liveness contract; not scientific readiness |

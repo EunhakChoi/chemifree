@@ -1,0 +1,42 @@
+{
+  "status": "passed",
+  "scope": "Standalone architecture HTML only; product scaffold verification is recorded separately.",
+  "browser": "Chrome/Playwright, file URL, offline",
+  "source_baseline": "119f47765152fd564e5c97bb0c1ad6fa5b5b20c3",
+  "artifact_sha256": "382d475137a6c985c809a3c6c58748e435f476d39f56c4e57218a99669f9bb2e",
+  "checks": {
+    "two_views_and_18_component_details": "pass",
+    "seven_source_areas": "pass",
+    "three_flows_and_15_steps": "pass",
+    "play_and_pause": "pass",
+    "actual_lint_probe_comparison": "pass",
+    "real_cli_snapshot_in_contract_panels": "pass",
+    "both_markdown_exports": "pass",
+    "keyboard_mode_activation": "pass",
+    "responsive_no_horizontal_overflow": {
+      "1440": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "1024": {
+        "viewport": 1024,
+        "document": 1024
+      },
+      "768": {
+        "viewport": 768,
+        "document": 768
+      },
+      "390": {
+        "viewport": 390,
+        "document": 390
+      },
+      "320": {
+        "viewport": 320,
+        "document": 320
+      }
+    },
+    "print_action_and_pdf_render": "pass",
+    "javascript_errors": [],
+    "external_runtime_requests": []
+  }
+}

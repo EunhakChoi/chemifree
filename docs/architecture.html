@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Chemifree의 실제 스캐폴딩, 레이어 경계, API·CLI 계약, shadcn 검토 및 다음 구현 단계.">
+<title>Chemifree — Scaffolding & Architecture</title>
+<style>
+
+    :root {
+      --bg:#f5f4ef; --paper:#fffefa; --ink:#202c2c; --muted:#65716e;
+      --line:#dcdfd6; --green:#256b59; --green-light:#eaf1e8; --blue:#405e9c;
+      --blue-light:#eef1f8; --amber:#92672d; --amber-light:#f7f0e3;
+      --accent:#bd5436; --accent-light:#f9eae2; --navy:#203c39;
+      --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK KR","Malgun Gothic",sans-serif;
+      --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+    }
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:96px}
+    body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.7 var(--sans);-webkit-font-smoothing:antialiased}
+    button,a{-webkit-tap-highlight-color:transparent}button{font:inherit;color:inherit;cursor:pointer}
+    a{color:inherit;text-underline-offset:4px}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+    button:disabled{cursor:default;opacity:.5}h1,h2,h3,h4,p{margin:0}button svg,a svg{flex-shrink:0}
+    .wrap{width:min(1320px,calc(100% - 80px));margin:auto}.mono{font-family:var(--mono)}
+    .eyebrow{font:10px/1.5 var(--mono);letter-spacing:1.7px;text-transform:uppercase}
+    .muted{color:var(--muted)}.icon{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    .skip{position:fixed;left:20px;top:-60px;background:var(--navy);color:white;padding:10px;z-index:100}.skip:focus{top:12px}
+    .topbar{position:sticky;top:0;background:rgba(245,244,239,.96);backdrop-filter:blur(15px);border-bottom:1px solid var(--line);z-index:20}
+    .topbar-inner{height:76px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+    .brand{display:flex;align-items:center;gap:12px;text-decoration:none;font-size:15px;font-weight:650;letter-spacing:-.4px}
+    .brand-symbol{width:31px;height:34px;color:var(--green)}.brand small{display:block;font:9px/1.5 var(--mono);letter-spacing:1.8px;font-weight:400;color:var(--muted)}
+    .nav{display:flex;align-items:center;gap:27px}.nav a{font-size:12px;color:var(--muted);text-decoration:none}.nav a:hover{color:var(--ink)}
+    .outline-button{border:1px solid var(--line);background:transparent;border-radius:5px;padding:9px 13px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:11px;white-space:nowrap}
+    .outline-button:hover{background:var(--paper);border-color:#a6b4a9}
+    .hero{padding:60px 0 42px;display:grid;grid-template-columns:1.35fr 1fr;gap:70px;align-items:center}
+    .hero-meta{display:flex;align-items:center;gap:13px;margin-bottom:22px;color:var(--muted)}
+    .status-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+    .hero h1{font-size:clamp(36px,4vw,57px);line-height:1.23;letter-spacing:-2.8px;font-weight:650}
+    .hero h1 em{font-style:normal;color:var(--green)}.hero-copy{max-width:550px;margin-top:21px;color:var(--muted);font-size:14px;line-height:1.95;word-break:keep-all}
+    .hero-tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:25px}.tag{font:10px/1.6 var(--mono);padding:4px 8px;border:1px solid var(--line);border-radius:3px;color:var(--muted);display:inline-flex;align-items:center;gap:7px}
+    .hero-figure{background:var(--green-light);border:1px solid #d7e1d5;border-radius:7px;min-height:278px;position:relative;overflow:hidden;padding:23px 26px}
+    .hero-figure:before{content:"";position:absolute;inset:0;background-image:radial-gradient(#9eb6a5 1px,transparent 1px);background-size:20px 20px;opacity:.3}
+    .hero-figure>*{position:relative}.figure-head{display:flex;justify-content:space-between;font:9px var(--mono);letter-spacing:1.2px;color:#536f60}
+    .molecule{height:173px;display:block;margin:0 auto;width:100%;max-width:350px;overflow:visible}
+    .figure-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:11px;border-top:1px solid #c7d7c8;font:10px/1.5 var(--mono);color:#526c5d}
+    .figure-bottom strong{color:var(--green);font-weight:500}.principles{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:61px}
+    .principle{padding:20px 27px;display:flex;gap:18px;align-items:flex-start}.principle:first-child{padding-left:0}.principle+.principle{border-left:1px solid var(--line)}
+    .principle .number{font:26px/1.2 var(--mono);letter-spacing:-1px;color:var(--green)}.principle strong{display:block;font-size:12px;font-weight:600}.principle p{font-size:11px;color:var(--muted);margin-top:3px}
+    .section{margin-bottom:64px;scroll-margin-top:100px}.section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:25px;margin-bottom:24px}
+    .section-index{font:10px/1.4 var(--mono);letter-spacing:1.4px;color:var(--accent);margin-bottom:9px}.section h2{font-size:26px;line-height:1.4;font-weight:600;letter-spacing:-1px}
+    .section-description{font-size:12px;color:var(--muted);margin-top:8px;word-break:keep-all}
+    .mode-control{padding:4px;display:flex;background:#e8ebe3;border:1px solid #dce0d6;border-radius:6px;gap:3px;flex-shrink:0}
+    .mode-control button{border:0;background:none;border-radius:4px;padding:9px 15px;color:var(--muted);font-size:11px}
+    .mode-control button[aria-pressed="true"]{background:var(--paper);color:var(--green);box-shadow:0 1px 4px #203c3912;font-weight:600}
+    .mode-note{display:flex;align-items:center;gap:11px;margin-bottom:16px;font-size:11px;color:var(--muted);padding:11px 14px;background:#eceee7;border-radius:4px;min-height:45px}
+    .mode-note .icon{color:var(--green)}.mode-note strong{color:var(--ink);font-weight:550}.mode-note .mode-badge{margin-left:auto;white-space:nowrap;font:9px var(--mono);letter-spacing:1px;color:var(--green)}
+    .architecture-grid{display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:20px;align-items:start}
+    .board{border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--paper)}
+    .board-heading{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid var(--line);font-size:10px}
+    .board-heading .legend{display:flex;gap:13px;color:var(--muted);font-size:9px}.legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;background:var(--green);vertical-align:middle}.legend .later{background:transparent;border:1px solid #8c9792}
+    .layer{padding:21px 20px;display:grid;grid-template-columns:105px minmax(0,1fr);gap:16px;position:relative}
+    .layer[data-layer="presentation"]{--layer-color:var(--green);--layer-bg:var(--green-light)}
+    .layer[data-layer="logic"]{--layer-color:var(--blue);--layer-bg:var(--blue-light)}
+    .layer[data-layer="provider"]{--layer-color:var(--amber);--layer-bg:var(--amber-light)}
+    .layer-label{padding-top:5px}.layer-label .layer-number{color:var(--layer-color);font:10px var(--mono);letter-spacing:1px;display:flex;align-items:center;gap:7px;margin-bottom:12px}
+    .layer-label .layer-number:before{content:"";width:5px;height:5px;background:currentColor;border-radius:1px}
+    .layer-label h3{font-size:13px;font-weight:600;line-height:1.4}.layer-label p{font-size:10px;color:var(--muted);margin-top:6px;word-break:keep-all}
+    .layer-nodes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-content:start}
+    .node{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:1px solid var(--line);border-radius:5px;background:#fffefa;padding:13px 12px;min-height:127px;position:relative;transition:background .15s,border-color .15s,box-shadow .15s,transform .15s}
+    .node:hover{border-color:var(--layer-color);transform:translateY(-2px)}.node[aria-pressed="true"]{background:var(--layer-bg);border-color:var(--layer-color);box-shadow:0 0 0 1px var(--layer-color)}
+    .node.is-route{border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}.node.is-current{background:var(--accent-light)!important;box-shadow:0 0 0 2px var(--accent)}
+    .node-top{display:flex;justify-content:space-between;width:100%;align-items:center;margin-bottom:14px}.node-top .icon{color:var(--layer-color);width:19px;height:19px}
+    .node-status{font:8px var(--mono);color:var(--muted);letter-spacing:.7px}.node-status.later{border:1px dashed #b6beb6;border-radius:3px;padding:2px 4px}
+    .node strong{font-size:11px;font-weight:600;letter-spacing:-.1px}.node .node-description{font-size:10px;color:var(--muted);line-height:1.65;display:block;margin-top:6px;word-break:keep-all}
+    .boundary{margin:0 20px 0 141px;padding:9px 0;border-top:1px dashed #d4dbd0;border-bottom:1px dashed #d4dbd0;display:flex;align-items:center;gap:9px;color:var(--muted);font-size:9px;line-height:1.65}
+    .boundary .arrow{font-size:17px;color:#86958a}.boundary strong{font-weight:500;color:#536b5b}.board-footer{border-top:1px solid var(--line);padding:12px 20px;display:flex;flex-wrap:wrap;gap:9px 16px;font-size:9px;color:var(--muted);background:#f8f8f2}
+    .board-footer span:before{content:"+";font:10px var(--mono);color:var(--green);margin-right:5px}
+    .inspector{background:var(--navy);color:#f2f5ee;border-radius:7px;padding:23px 23px 22px;position:sticky;top:96px;min-height:548px}
+    .inspector .eyebrow{color:#bbcfbc;font-size:9px}.inspector-layer{display:flex;justify-content:space-between;align-items:center;padding-bottom:20px;border-bottom:1px solid #ffffff25;margin-bottom:21px}
+    .inspector-layer .icon{color:#b7d4ba;width:21px;height:21px}.inspector h3{font-size:21px;line-height:1.35;letter-spacing:-.6px;font-weight:500;margin-bottom:10px}
+    .inspector-summary{color:#c3d1c6;font-size:11px;line-height:1.85;word-break:keep-all}.detail-group{margin-top:22px}.detail-label{font:9px var(--mono);letter-spacing:1.1px;color:#a8c2ad;margin-bottom:8px}
+    .detail-group ul{list-style:none;padding:0;margin:0}.detail-group li{font-size:11px;color:#e5ece3;padding-left:12px;position:relative;margin-top:7px;line-height:1.75;word-break:keep-all}
+    .detail-group li:before{content:"";position:absolute;left:0;top:9px;width:3px;height:3px;background:#9cbc9e}
+    .contract-box{padding:12px;margin-top:18px;border:1px solid #ffffff25;border-radius:4px;font-size:10px;color:#cadacb;line-height:1.8;word-break:keep-all}
+    .contract-box .mono{display:block;font-size:9px;color:#a8c2ad;margin-bottom:5px}.inspector-foot{margin-top:20px;padding-top:13px;border-top:1px solid #ffffff25;color:#aac2af;font:9px/1.6 var(--mono)}
+    .runtime{margin-top:20px;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:6px;background:var(--paper);overflow:hidden}
+    .runtime-item{padding:17px 21px}.runtime-item+.runtime-item{border-left:1px solid var(--line)}.runtime-label{font:9px var(--mono);letter-spacing:1px;color:var(--muted);margin-bottom:7px}
+    .runtime-item p{font-size:11px;word-break:keep-all}.runtime-item strong{font-weight:550;color:var(--green)}
+    .flow-panel{border:1px solid var(--line);background:var(--paper);border-radius:7px;overflow:hidden}
+    .flow-controls{padding:17px 21px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:15px}
+    .scenario-buttons{display:flex;flex-wrap:wrap;gap:7px}.scenario-buttons button{padding:7px 12px;border:1px solid transparent;background:transparent;color:var(--muted);font-size:11px;border-radius:4px}
+    .scenario-buttons button[aria-pressed="true"]{background:var(--accent-light);border-color:#efd3c3;color:#a14a31}
+    .play-button{border:0;background:var(--navy);color:var(--paper);padding:9px 13px;border-radius:4px;font-size:10px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+    .flow-body{padding:25px 24px 23px}.flow-summary{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:26px}
+    .flow-summary h3{font-size:17px;letter-spacing:-.4px;font-weight:550}.flow-summary p{font-size:11px;color:var(--muted);margin-top:6px;max-width:760px;word-break:keep-all}
+    .flow-kind{font:9px/1.5 var(--mono);color:var(--accent);border:1px solid #e9cabc;border-radius:3px;padding:4px 7px;white-space:nowrap}
+    .flow-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:17px}
+    .flow-step{border:0;border-top:2px solid #e3e5db;background:none;padding:13px 0 0;min-height:118px;text-align:left;position:relative;align-self:stretch}
+    .flow-step[aria-current="step"]{border-color:var(--accent)}.flow-step .step-number{font:9px var(--mono);color:var(--muted);margin-bottom:10px;display:block}
+    .flow-step[aria-current="step"] .step-number{color:var(--accent)}.flow-step strong{font-size:11px;font-weight:600;display:block}.flow-step p{font-size:10px;color:var(--muted);line-height:1.8;margin-top:6px;word-break:keep-all}
+    .flow-step .step-scope{display:block;font:8px var(--mono);color:var(--green);margin-top:10px;letter-spacing:.6px}
+    .flow-note{background:#f5f5ef;border-top:1px solid var(--line);padding:12px 23px;font-size:10px;color:var(--muted);line-height:1.8;min-height:43px}
+    .models{display:grid;grid-template-columns:repeat(3,1fr);gap:17px}.model{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:23px}
+    .model-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.model-top .model-index{font:9px var(--mono);color:var(--muted)}.model-top svg{width:100px;height:59px;overflow:visible}
+    .model h3{font-size:16px;font-weight:550;letter-spacing:-.4px}.model .en{font:9px var(--mono);letter-spacing:.8px;color:var(--muted);margin-top:4px}
+    .model p{color:var(--muted);font-size:11px;margin-top:14px;word-break:keep-all}.model .fields{margin-top:17px;padding-top:13px;border-top:1px solid var(--line);font:9px/1.8 var(--mono);color:var(--green)}
+    .model-rule{font-size:11px;color:var(--muted);margin-top:14px;padding:10px 0;border-bottom:1px solid var(--line)}.model-rule strong{font-weight:550;color:var(--ink)}
+    .decision-layout{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}.decision{padding:21px 0;border-top:1px solid var(--line);display:grid;grid-template-columns:31px 1fr;gap:13px}
+    .decision-index{font:10px var(--mono);color:var(--accent);padding-top:2px}.decision h3{font-size:13px;font-weight:600;margin-bottom:8px}.decision p{font-size:11px;color:var(--muted);word-break:keep-all}
+    .decision .tradeoff{margin-top:8px;font-size:10px;color:#7c6e5c}.decision .tradeoff:before{content:"TRADE-OFF";font:8px var(--mono);letter-spacing:.7px;margin-right:7px;color:#9a7954}
+    .stages{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--paper)}
+    .stage{padding:24px 24px 22px}.stage+.stage{border-left:1px solid var(--line)}.stage .phase{font:9px var(--mono);letter-spacing:1.1px;color:var(--green);margin-bottom:13px}
+    .stage h3{font-size:17px;font-weight:550;letter-spacing:-.4px}.stage p{font-size:11px;color:var(--muted);margin-top:10px;word-break:keep-all}
+    .stage .gate{margin-top:22px;border-top:1px solid var(--line);padding-top:13px;font-size:10px;line-height:1.8}.stage .gate strong{display:block;font:8px var(--mono);letter-spacing:1px;color:var(--accent);margin-bottom:5px}
+    .stage .status{margin-top:16px;display:inline-block;font:8px var(--mono);letter-spacing:.7px;padding:4px 7px;background:var(--green-light);color:var(--green);border-radius:3px}
+    .stage:last-child .status{background:var(--blue-light);color:var(--blue)}.targets{margin-top:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:17px}
+    .target{padding:18px 20px;background:#eceee6;border-radius:4px}.target .target-value{font:21px/1.3 var(--mono);letter-spacing:-.8px;color:var(--green)}
+    .target strong{font-size:10px;font-weight:550;display:block;margin-top:9px}.target p{font-size:10px;line-height:1.8;color:var(--muted);margin-top:4px;word-break:keep-all}
+    .target-note{font-size:10px;color:var(--muted);margin-top:10px}.review{margin-top:26px;border:1px solid var(--line);border-radius:5px;padding:0 19px;background:var(--paper)}
+    .review summary{padding:17px 0;cursor:pointer;font-size:11px;font-weight:550}.review-body{padding:0 0 18px}.review-body p{font-size:11px;color:var(--muted);margin-bottom:8px;word-break:keep-all}
+    .review-body ul{margin:10px 0 0;padding-left:17px;font-size:10px;color:var(--muted);line-height:2}
+    .sources{border-top:1px solid var(--line);padding-top:22px;display:grid;grid-template-columns:1fr 2fr;gap:40px}.sources h3{font-size:11px;font-weight:550}.sources p{font-size:10px;color:var(--muted);margin-top:7px;word-break:keep-all}
+    .source-links{display:flex;flex-wrap:wrap;gap:7px 17px;align-content:start}.source-links a,.source-links .project-source{font-size:10px;color:var(--muted)}.source-links a:hover{color:var(--green)}
+    footer{margin-top:42px;border-top:1px solid var(--line);padding:21px 0 27px;display:flex;align-items:center;justify-content:space-between;gap:20px;color:var(--muted);font:9px/1.7 var(--mono)}
+    .footer-actions{display:flex;gap:15px}.footer-actions button{background:none;border:0;padding:0;text-decoration:underline;text-underline-offset:4px;font:9px var(--mono);color:var(--muted)}
+    .toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,15px);background:var(--navy);color:var(--paper);padding:10px 17px;font-size:11px;border-radius:5px;box-shadow:0 5px 20px #203c3920;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50;max-width:calc(100% - 40px)}
+    .toast.visible{opacity:1;transform:translate(-50%,0)}noscript{display:block;padding:20px;background:var(--accent-light);text-align:center}
+    @media(min-width:1500px){.hero{padding-top:70px}.hero-figure{min-height:290px}.molecule{height:185px}}
+    @media(max-width:1150px){.wrap{width:calc(100% - 48px)}.architecture-grid{grid-template-columns:minmax(0,1fr) 274px;gap:15px}.inspector{padding:21px 19px}.layer{grid-template-columns:83px 1fr;padding:19px 15px;gap:12px}.layer-label h3{font-size:11px}.boundary{margin-left:110px;margin-right:15px}.node{padding:11px 10px;min-height:135px}.node strong{font-size:10px}.node .node-description{font-size:9px}.hero{gap:40px}.hero h1{font-size:45px}}
+    @media(max-width:1000px){.architecture-grid{grid-template-columns:1fr}.inspector{position:static;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:0 28px;padding:24px}.inspector-layer{grid-column:1/-1;margin-bottom:18px;padding-bottom:12px}.inspector-intro{grid-row:2/4}.detail-group{margin-top:0;margin-bottom:17px}.contract-box{grid-column:1/-1;margin-top:0}.inspector-foot{grid-column:1/-1;margin-top:16px}.layer{grid-template-columns:110px 1fr;padding:22px}.node{min-height:130px;padding:15px}.node strong{font-size:12px}.node .node-description{font-size:10px}.layer-label h3{font-size:13px}.boundary{margin-left:148px;margin-right:22px}.hero{gap:30px}.hero h1{font-size:40px;letter-spacing:-2px}.hero-figure{padding:20px;min-height:260px}.hero-copy{font-size:12px}.nav{gap:18px}.flow-steps{gap:13px}.principle{padding:18px}.principle .number{font-size:22px}.models{gap:12px}.model{padding:20px}.stage{padding:22px 20px}}
+    @media(max-width:760px){html{scroll-padding-top:80px}.wrap{width:calc(100% - 36px)}.topbar-inner{height:65px;gap:14px}.brand{font-size:13px;gap:8px}.brand-symbol{width:26px;height:29px}.brand small{font-size:7px;letter-spacing:1.3px}.nav a{display:none}.nav{gap:0}.outline-button{padding:8px 10px;font-size:10px}.hero{grid-template-columns:1fr;padding:34px 0 25px;gap:27px}.hero h1{font-size:43px;letter-spacing:-2.5px}.hero-copy{font-size:12px;max-width:560px;margin-top:17px}.hero-meta{margin-bottom:17px}.hero-tags{margin-top:18px}.hero-figure{min-height:224px;padding:17px 21px}.molecule{height:140px;max-width:300px}.figure-bottom{padding-top:9px;font-size:9px}.principles{margin-bottom:39px}.principle{padding:16px 12px;gap:9px;display:block}.principle:first-child{padding-left:0}.principle .number{font-size:19px;margin-bottom:8px}.principle strong{font-size:10px}.principle p{font-size:9px}.section{margin-bottom:43px}.section h2{font-size:22px}.section-head{align-items:flex-start;flex-direction:column;gap:16px;margin-bottom:17px}.section-description{font-size:11px}.mode-control{width:100%}.mode-control button{flex:1;padding:9px 10px}.mode-note{align-items:flex-start;font-size:10px;padding:11px 12px}.mode-note .mode-badge{display:none}.board-heading{padding:13px 14px}.board-heading .eyebrow{font-size:8px;letter-spacing:1px}.board-heading .legend{font-size:8px;gap:10px}.layer{grid-template-columns:1fr;gap:14px;padding:18px 14px}.layer-label{display:flex;align-items:center;gap:12px;padding-top:0;flex-wrap:wrap}.layer-label .layer-number{margin:0;font-size:9px}.layer-label h3{font-size:12px}.layer-label p{margin:0;font-size:9px}.node{padding:11px 9px;min-height:132px}.node strong{font-size:10px}.node .node-description{font-size:9px}.node-top{margin-bottom:12px}.node-top .icon{width:16px;height:16px}.node-status{font-size:7px;letter-spacing:0}.layer-nodes{gap:7px}.boundary{margin:0 14px;font-size:8px;padding:8px 0;gap:7px}.board-footer{padding:11px 14px;gap:7px 10px;font-size:8px}.inspector{padding:21px;grid-template-columns:1fr;gap:0}.inspector-intro{grid-row:auto}.inspector-layer{grid-column:auto}.inspector h3{font-size:20px}.inspector-summary{margin-bottom:20px}.detail-group{margin-bottom:15px}.contract-box,.inspector-foot{grid-column:auto}.runtime{grid-template-columns:1fr}.runtime-item{padding:15px 17px}.runtime-item+.runtime-item{border-left:0;border-top:1px solid var(--line)}.flow-controls{padding:14px;align-items:flex-start;flex-direction:column}.scenario-buttons{gap:4px}.scenario-buttons button{font-size:10px;padding:7px 9px}.play-button{font-size:9px;padding:8px 11px}.flow-body{padding:20px 17px}.flow-summary{margin-bottom:20px;gap:12px}.flow-summary h3{font-size:15px}.flow-summary p{font-size:10px}.flow-kind{font-size:7px;padding:3px 5px}.flow-steps{grid-template-columns:1fr;gap:0}.flow-step{min-height:0;padding:13px 0 13px 35px;border-top:0;border-left:2px solid #e3e5db;margin-left:8px}.flow-step .step-number{position:absolute;left:11px;top:17px;font-size:8px}.flow-step strong{font-size:11px}.flow-step p{margin-top:3px}.flow-step .step-scope{margin-top:5px}.flow-step[aria-current="step"]{border-color:var(--accent);background:linear-gradient(90deg,#f9eae255,transparent)}.flow-note{padding:11px 17px}.models{grid-template-columns:1fr}.model{padding:21px}.model-top{margin-bottom:14px}.model p{margin-top:11px}.decision-layout{grid-template-columns:1fr}.decision{padding:18px 0}.stages{grid-template-columns:1fr}.stage{padding:22px}.stage+.stage{border-left:0;border-top:1px solid var(--line)}.stage .gate{margin-top:17px}.targets{grid-template-columns:1fr;gap:10px}.target{padding:17px 20px;display:grid;grid-template-columns:90px 1fr;gap:2px 15px;align-items:center}.target .target-value{grid-row:1/3;font-size:19px}.target strong{margin:0}.target p{margin:0}.sources{grid-template-columns:1fr;gap:17px}.sources p{max-width:500px}.source-links{gap:9px 18px}footer{font-size:8px;align-items:flex-start;flex-direction:column;gap:10px;margin-top:27px}.footer-actions button{font-size:8px}}
+    @media(max-width:365px){.wrap{width:calc(100% - 24px)}.hero h1{font-size:37px}.node{padding:10px 7px}.node strong{font-size:9px}.node .node-description{font-size:8px}.node-top .icon{width:14px;height:14px}.layer{padding:16px 11px}.brand small{display:none}.hero-meta{font-size:8px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+    @media print{@page{size:A4 landscape;margin:12mm}html{scroll-behavior:auto}.wrap{width:100%;max-width:none}.topbar{position:static;background:transparent;backdrop-filter:none}.topbar-inner{height:45px}.nav,.mode-control,.play-button,.footer-actions,.toast,.outline-button{display:none!important}.hero{padding:25px 0;gap:40px;grid-template-columns:1.3fr 1fr}.hero h1{font-size:35px}.hero-copy{font-size:11px}.hero-figure{min-height:200px}.molecule{height:110px}.principles{margin-bottom:25px}.section{margin-bottom:25px;break-inside:auto}.section-head{margin-bottom:15px}.section h2{font-size:21px}.architecture-grid{grid-template-columns:1fr 260px}.inspector{position:static;display:block;min-height:0;padding:18px}.inspector-summary,.detail-group li{font-size:9px}.detail-group{margin-top:13px}.inspector h3{font-size:18px}.layer{grid-template-columns:90px 1fr;padding:15px;gap:10px;break-inside:avoid}.layer-label{display:block}.layer-label .layer-number{margin-bottom:8px}.layer-label h3{font-size:11px}.layer-label p{margin-top:6px}.node{min-height:112px;padding:10px}.node strong{font-size:10px}.node .node-description{font-size:9px}.boundary{margin-left:115px;margin-right:15px}.node-top{margin-bottom:10px}.runtime{grid-template-columns:1fr 1fr}.runtime-item+.runtime-item{border-top:0;border-left:1px solid var(--line)}.flow-controls{display:block}.flow-steps{grid-template-columns:repeat(5,1fr)}.flow-step{border-left:0;border-top:2px solid var(--line);margin-left:0;padding:12px 0;min-height:120px}.flow-step .step-number{position:static}.models,.stages,.targets{grid-template-columns:repeat(3,1fr)}.stage+.stage{border-left:1px solid var(--line);border-top:0}.target{display:block}.target strong{margin-top:9px}.decision-layout{grid-template-columns:1fr 1fr}.model,.decision,.stage,.target,.runtime,.flow-panel,.sources{break-inside:avoid}.sources{grid-template-columns:1fr 2fr}.hero-figure,.inspector,.node,.target,.stage .status,.mode-note{print-color-adjust:exact;-webkit-print-color-adjust:exact}footer{flex-direction:row}}
+  
+.hero h1{font-size:clamp(36px,3.8vw,52px)}.hero-figure{background:#eaf1e8}.snapshot-code{margin:20px 0 17px;padding:17px;background:#ffffffaa;border:1px solid #c7d7c8;border-radius:5px;font:11px/1.95 var(--mono);color:#355d4b}.snapshot-code span{color:#8a9e8b}.figure-bottom{gap:12px}.pill-good,.pill-plan{font:8px/1.5 var(--mono);padding:3px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:5px}.pill-good{background:var(--green-light);color:var(--green)}.pill-plan{border:1px dashed #b7bdb4;color:var(--muted)}.node.is-planned{border-style:dashed;background:#f8f8f3}.node.is-planned strong{color:#78847c}.node.is-planned[aria-pressed="true"]{background:var(--layer-bg);border-style:solid}.node-code{font:8px/1.7 var(--mono);color:var(--layer-color);margin-top:auto;padding-top:9px;overflow-wrap:anywhere}.node{min-height:149px}.layer-nodes{align-items:stretch}.layer-nodes .node-status{letter-spacing:.3px}.layer-label p{max-width:95px}.inspector .file-link{font:9px/1.9 var(--mono);color:#c9daca;display:block;overflow-wrap:anywhere}.inspector .file-link:hover{color:white}.file-block{margin-top:19px;padding-top:15px;border-top:1px solid #ffffff25}.inspector-foot{font-family:var(--sans);font-size:10px;line-height:1.85}.inspector{min-height:640px}.board-footer .actual{font-family:var(--mono);color:var(--green)}
+.contract-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.contract-card{border:1px solid var(--line);border-radius:6px;background:var(--paper);overflow:hidden;min-width:0}.contract-top{display:flex;gap:11px;align-items:center;padding:15px 20px;border-bottom:1px solid var(--line);font-size:11px}.http-method{font:9px var(--mono);color:var(--green);padding:3px 6px;background:var(--green-light);border-radius:3px}.contract-top code{font-size:10px;overflow-wrap:anywhere;min-width:0}.contract-command{padding:13px 20px;color:var(--muted);font:10px/1.8 var(--mono);border-bottom:1px solid var(--line);overflow-wrap:anywhere}pre.payload{padding:18px 20px;margin:0;font:10px/1.85 var(--mono);color:#3f5f4c;overflow:auto;max-height:290px;background:#f9faf4;tab-size:2}.contract-bottom{padding:12px 20px;font-size:10px;color:var(--muted);border-top:1px solid var(--line)}.transport-note{display:flex;flex-wrap:wrap;gap:9px 21px;padding:13px 0;font-size:10px;color:var(--muted)}.transport-note strong{font-weight:500;color:var(--ink)}
+.repo-browser{display:grid;grid-template-columns:310px 1fr;background:var(--paper);border:1px solid var(--line);border-radius:6px;overflow:hidden}.repo-list{padding:10px;border-right:1px solid var(--line);background:#f0f2ea}.repo-list button{background:none;border:0;text-align:left;border-radius:4px;width:100%;padding:11px 12px;display:flex;flex-direction:column;gap:4px}.repo-list button[aria-pressed="true"]{background:var(--paper);box-shadow:0 1px 3px #24433a12}.repo-list button strong{font:10px/1.7 var(--mono);overflow-wrap:anywhere}.repo-list button span{color:var(--muted);font-size:10px}.repo-detail{padding:27px 29px;min-width:0}.repo-detail h3{font-size:20px;font-weight:550;letter-spacing:-.5px}.repo-detail .repo-path{display:block;font:10px/1.8 var(--mono);color:var(--green);margin:8px 0 19px;overflow-wrap:anywhere}.repo-detail p{font-size:12px;color:var(--muted);word-break:keep-all}.repo-detail ul{font-size:11px;color:var(--muted);padding-left:16px;line-height:2;margin:16px 0}.repo-detail pre{font:10px/1.9 var(--mono);padding:17px;background:#f1f4eb;border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere}.repo-foot{font-size:10px;color:var(--muted);margin-top:12px}
+.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.review-card{padding:26px;background:var(--paper);border:1px solid var(--line);border-radius:6px;min-width:0}.review-card h3{font-size:20px;letter-spacing:-.5px;font-weight:550;margin:12px 0}.review-card p{font-size:11px;color:var(--muted);word-break:keep-all}.component-chips{display:flex;flex-wrap:wrap;gap:6px;margin:19px 0}.component-chips span{font:9px/1.5 var(--mono);border:1px solid var(--line);border-radius:3px;padding:5px 7px;color:var(--green)}.review-card .conclusion{margin-top:20px;padding-top:15px;border-top:1px solid var(--line);font-size:11px;color:var(--ink)}.review-card .conclusion strong{color:var(--green)}.rule-controls{display:flex;gap:7px;margin:20px 0 11px}.rule-controls button{padding:6px 10px;border:1px solid var(--line);background:none;border-radius:3px;font-size:10px}.rule-controls button[aria-pressed="true"]{background:var(--green-light);border-color:#b9cdbd;color:var(--green)}.probe-code{padding:13px 14px;border-radius:4px;background:#f1f3ed;font:9px/1.8 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.probe-result{font-size:10px;margin-top:11px;min-height:40px;color:var(--accent)}.probe-result.pass{color:var(--green)}.lint-policy{padding:15px 18px;border:1px solid #e8d7be;background:var(--amber-light);border-radius:4px;margin-top:17px;font-size:10px;color:#7e602f}.review-card a{font-size:10px}.phase-mark{font:8px var(--mono);letter-spacing:.6px;color:var(--accent)}.target .target-value{font-size:19px}.sources{margin-top:25px}.draft-api{margin-top:20px;border:1px solid var(--line);border-radius:5px;background:var(--paper);padding:20px}.draft-api h3{font-size:13px;font-weight:550;margin-bottom:11px}.draft-api p{font-size:11px;color:var(--muted)}.draft-api code{font:10px/1.9 var(--mono);display:block;margin-top:10px;color:var(--green);overflow-wrap:anywhere}.mini-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:15px}.mini-table th,.mini-table td{padding:11px 13px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.mini-table th{font-size:9px;color:var(--muted);font-weight:500;font-family:var(--mono)}.mini-table td:last-child{color:var(--muted)}.mini-table-wrap{overflow:auto}.baseline{font-family:var(--mono);font-size:9px;color:var(--green);text-decoration:none}.baseline:hover{text-decoration:underline}.status-row{display:flex;align-items:center;gap:8px;margin-bottom:13px}
+@media(max-width:1150px){.repo-browser{grid-template-columns:260px 1fr}.repo-detail{padding:24px}.inspector{min-height:675px}.node-code{font-size:7px}}
+@media(max-width:1000px){.inspector{display:block;min-height:0}.inspector-summary{margin-bottom:17px}.detail-group{margin-top:18px}.file-block{margin-top:18px}.node-code{font-size:8px}.repo-browser{grid-template-columns:240px 1fr}.node{min-height:150px}}
+@media(max-width:760px){.hero h1{font-size:38px;letter-spacing:-2px}.snapshot-code{font-size:10px;margin:15px 0;padding:13px}.hero-figure{min-height:220px}.repo-browser{grid-template-columns:1fr}.repo-list{border-right:0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:3px}.repo-list button{padding:10px}.repo-list button strong{font-size:9px}.repo-list button span{font-size:9px}.repo-detail{padding:21px}.repo-detail h3{font-size:18px}.contract-grid,.review-grid{grid-template-columns:1fr}.review-card{padding:22px}.contract-top{padding:14px 17px}.contract-top code{font-size:9px}.contract-command{font-size:9px;padding:12px 17px}pre.payload{padding:16px 17px;font-size:9px}.contract-bottom{padding:12px 17px}.node{min-height:157px}.node-code{font-size:7px}.node strong{font-size:10px}.layer-label p{max-width:none}.inspector{padding:22px}.mini-table{min-width:540px}.draft-api{padding:17px}.figure-bottom{font-size:8px}.target .target-value{font-size:16px}.mode-note .icon{flex-shrink:0}.topbar .brand small{display:block}.section-description{line-height:1.9}}
+@media print{.repo-browser{grid-template-columns:240px 1fr}.repo-list button{padding:8px}.repo-detail{padding:20px}.contract-grid,.review-grid{grid-template-columns:1fr 1fr}.inspector{min-height:0;padding:18px}.node{min-height:135px}.repo-browser,.review-card,.contract-card,.models,.draft-api{break-inside:avoid}.hero h1{font-size:34px}.snapshot-code{margin:15px 0;font-size:10px}.review-card{padding:20px}.repo-detail p{font-size:10px}.rule-controls{display:none}.contract-card pre{max-height:none}.mini-table-wrap{overflow:visible}.mini-table{font-size:9px}}
+</style>
+</head>
+<body>
+<a class="skip" href="#architecture">레이어 설계로 이동</a>
+<svg aria-hidden="true" width="0" height="0" style="position:absolute;overflow:hidden"><defs>
+<symbol id="i-web" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.1m3 0h.1M8 13l-2 2 2 2m8-4 2 2-2 2"/></symbol>
+<symbol id="i-cli" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></symbol>
+<symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 21h8m-4-5v5"/></symbol>
+<symbol id="i-gateway" viewBox="0 0 24 24"><path d="M4 5h5v5H4zm11 9h5v5h-5zM9 7h8v7M7 10v7h8"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zm0 0v6h6M8 13h8m-8 4h5"/></symbol>
+<symbol id="i-chem" viewBox="0 0 24 24"><path d="m12 2 8.7 5v10L12 22l-8.7-5V7zm0 4L7 9v6l5 3 5-3V9z"/></symbol>
+<symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+<symbol id="i-data" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5M3 16l9 5 9-5"/></symbol>
+<symbol id="i-bridge" viewBox="0 0 24 24"><path d="M4 20V7m16 13V7M1 20h6m10 0h6M4 13c5-7 11-7 16 0M8 10v10m8-10v10m-4-11v11"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+</defs></svg>
+<header class="topbar"><div class="wrap topbar-inner">
+<a class="brand" href="#top"><svg class="brand-symbol" viewBox="0 0 34 38" fill="none" aria-hidden="true"><path d="m17 2 14.7 8.5v17L17 36 2.3 27.5v-17z" stroke="currentColor" stroke-width="2"/><path d="m17 9 8.7 5v10L17 29l-8.7-5V14z" stroke="currentColor" stroke-width="1.6"/><circle cx="31.7" cy="10.5" r="3.1" fill="#bd5436" stroke="#f5f4ef" stroke-width="1.5"/></svg><span>Chemifree<small>IMPLEMENTATION BLUEPRINT</small></span></a>
+<nav class="nav" aria-label="문서 섹션"><a href="#architecture">레이어</a><a href="#contracts">실제 계약</a><a href="#ui-review">UI 검토</a><a href="#next">다음 구현</a><button class="outline-button" id="download-top"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>설계 요약</button></nav>
+</div></header>
+<main class="wrap" id="top">
+<section class="hero" aria-labelledby="hero-title"><div>
+<div class="hero-meta eyebrow"><span class="status-dot"></span>Scaffold → product <span>/</span> 2026.10.27</div>
+<h1 id="hero-title">Chemifree의 기반은<br><em>이렇게 연결됩니다.</em></h1>
+<p class="hero-copy">공개 저장소에 구축한 웹·API·CLI의 실제 파일과 계약을 기준으로 정리했습니다. 현재 동작하는 기반 위에 화학 편집·계산·저장을 어떤 순서로 더할지 보여줍니다.</p>
+<div class="hero-tags"><span class="tag">PUBLIC REPOSITORY</span><span class="tag">MIT</span><span class="tag">SCAFFOLD STAGE</span></div>
+</div><div class="hero-figure">
+<div class="figure-head"><span>EUNHAKCHOI / CHEMIFREE</span><span>BASELINE 119f477</span></div>
+<div class="snapshot-code"><span>browser</span> → Vite :5173<br> &nbsp; /api → Axum :3001<br><span>CLI</span> → Application → Domain<br><span>provider</span> → CapabilityCatalog</div>
+<div class="figure-bottom"><span>REAL CONNECTION. HONEST STATUS.</span><a class="baseline" href="https://github.com/EunhakChoi/chemifree/tree/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3" target="_blank" rel="noopener noreferrer">기준 소스 보기 ↗</a></div>
+</div></section>
+<div class="principles">
+<div class="principle"><div class="number">03</div><div><strong>책임을 나눈 레이어</strong><p>Presentation · Logic · Provider</p></div></div>
+<div class="principle"><div class="number">05</div><div><strong>Rust workspace crates</strong><p>API · CLI · Domain · Application · Providers</p></div></div>
+<div class="principle"><div class="number">v1</div><div><strong>웹과 CLI가 공유하는 계약</strong><p>Health · Capabilities · 명시적 미구현 상태</p></div></div>
+</div>
+<section class="section" id="architecture" aria-labelledby="architecture-title">
+<div class="section-head"><div><div class="section-index">01 / SOURCE-ALIGNED SYSTEM MAP</div><h2 id="architecture-title">세 레이어, 실제 코드의 위치</h2><p class="section-description">구성요소를 선택하면 현재 파일·책임·추가할 기능을 확인할 수 있습니다.</p></div><div class="mode-control" role="group" aria-label="설계 관점"><button data-view="current" aria-pressed="true">구축된 기반</button><button data-view="next" aria-pressed="false">다음 구현 목표</button></div></div>
+<div class="mode-note" aria-live="polite"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><span id="mode-note"></span><span class="mode-badge" id="mode-badge"></span></div>
+<div class="architecture-grid"><div class="board">
+<div class="board-heading"><span class="eyebrow">Code baseline / 119f477</span><span class="legend"><span><i></i>기반 있음</span><span><i class="later"></i>미구현</span></span></div>
+<div class="layer" data-layer="presentation"><div class="layer-label"><span class="layer-number">LAYER 01</span><h3>Presentation</h3><p>사용자 입력과 결과 표시</p></div><div class="layer-nodes" id="nodes-presentation"></div></div>
+<div class="boundary"><span class="arrow">↓</span><span><strong>Web</strong> Vite proxy → HTTP v1 &nbsp; / &nbsp; <strong>CLI</strong> Application 직접 호출</span></div>
+<div class="layer" data-layer="logic"><div class="layer-label"><span class="layer-number">LAYER 02</span><h3>Logic</h3><p>계약 · 정책 · 도메인 규칙</p></div><div class="layer-nodes" id="nodes-logic"></div></div>
+<div class="boundary"><span class="arrow">↓</span><span><strong>실행</strong> Application → port 호출 &nbsp; / &nbsp; <strong>코드 의존</strong> Providers → Application → Domain</span></div>
+<div class="layer" data-layer="provider"><div class="layer-label"><span class="layer-number">LAYER 03</span><h3>Provider</h3><p>바깥 환경과 데이터 연결</p></div><div class="layer-nodes" id="nodes-provider"></div></div>
+<div class="board-footer"><span class="actual">현재 실제 연산: 상태 조회</span><span>독립 Rust 코어</span><span>원본 엔진·모델 미포함</span></div>
+</div><aside class="inspector" id="inspector" aria-label="구성요소 상세"></aside></div>
+<div class="runtime"><div class="runtime-item"><div class="runtime-label">ACTUAL DEVELOPMENT PROCESSES</div><p><strong>npm run dev</strong> → Vite 127.0.0.1:5173 + Rust API 127.0.0.1:3001<br>현재는 개발용 두 프로세스입니다. 운영용 정적 호스팅·배포는 아직 없습니다.</p></div><div class="runtime-item"><div class="runtime-label">CURRENT IMPLEMENTATION STATUS</div><p><strong>runtime_inspection만 available</strong><br>편집·계산·변환·모델·저장·인증·Windows 연동은 not_implemented입니다.</p></div></div>
+</section>
+<section class="section" id="repository" aria-labelledby="repository-title">
+<div class="section-head"><div><div class="section-index">02 / REPOSITORY TOUR</div><h2 id="repository-title">어디에서 다음 작업을 시작할까요?</h2><p class="section-description">폴더를 선택해 현재 책임과 의존 방향을 확인하세요. 링크는 스캐폴딩 기준 커밋에 고정됩니다.</p></div><a class="tag" href="https://github.com/EunhakChoi/chemifree" target="_blank" rel="noopener noreferrer">GITHUB ↗</a></div>
+<div class="repo-browser"><div class="repo-list" id="repo-list" role="group" aria-label="코드 영역"></div><div class="repo-detail" id="repo-detail"></div></div>
+<p class="repo-foot">Domain은 외부 의존성이 없습니다. Application이 port를 소유하고, Provider가 구현하며, API·CLI가 바깥에서 둘을 조립합니다.</p>
+</section>
+<section class="section" id="contracts" aria-labelledby="contracts-title">
+<div class="section-head"><div><div class="section-index">03 / WORKING CONTRACTS</div><h2 id="contracts-title">지금 호출할 수 있는 두 가지 계약</h2><p class="section-description">아래 JSON은 기준 버전 CLI의 실제 출력 스냅샷입니다. 이 HTML이 API에 실시간 접속하는 것은 아닙니다.</p></div><a class="tag" href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/docs/CONTRACT.md" target="_blank" rel="noopener noreferrer">CONTRACT.md ↗</a></div>
+<div class="contract-grid"><article class="contract-card"><div class="contract-top"><span class="http-method">GET</span><code>/api/v1/health</code></div><div class="contract-command">chemifree status --json</div><pre class="payload" id="health-json"></pre><div class="contract-bottom">HTTP handler 또는 CLI Application의 생존 상태입니다. 화학 엔진 준비 여부를 뜻하지 않습니다.</div></article><article class="contract-card"><div class="contract-top"><span class="http-method">GET</span><code>/api/v1/capabilities</code></div><div class="contract-command">chemifree capabilities --json</div><pre class="payload" id="capabilities-json"></pre><div class="contract-bottom">안정적인 id와 available / not_implemented 상태를 제공합니다. 소비자는 새 id·추가 필드를 허용합니다.</div></article></div>
+<div class="transport-note"><span><strong>404</strong> 미구현 경로</span><span><strong>405</strong> 지원 경로의 잘못된 method</span><span><strong>HEAD</strong> GET 경로에 대해 router 제공</span><span><strong>Browser</strong> v1·레코드·status·중복 id 검사</span></div>
+<div class="flow-panel"><div class="flow-controls"><div class="scenario-buttons" role="group" aria-label="실행 흐름"><button data-flow="web" aria-pressed="true">웹 상태 조회 · 구현</button><button data-flow="cli" aria-pressed="false">CLI 조회 · 구현</button><button data-flow="edit" aria-pressed="false">문서 편집 · 설계</button></div><button class="play-button" id="play-flow"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg><span>흐름 재생</span></button></div><div class="flow-body"><div class="flow-summary"><div><h3 id="flow-title"></h3><p id="flow-description"></p></div><span class="flow-kind" id="flow-kind"></span></div><div class="flow-steps" id="flow-steps"></div></div><div class="flow-note" id="flow-note" aria-live="polite"></div></div>
+</section>
+<section class="section" id="ui-review" aria-labelledby="ui-title">
+<div class="section-head"><div><div class="section-index">04 / UI & DESIGN POLICY</div><h2 id="ui-title">shadcn으로 구성하고, 정책은 명시합니다.</h2><p class="section-description">shadcn/ui는 도입했습니다. @shadcn/lint는 연결과 제한된 탐지를 검증했으며, 기본 디자인 규칙은 비활성 상태입니다.</p></div></div>
+<div class="review-grid"><article class="review-card"><div class="status-row"><span class="pill-good">ADOPTED</span><span class="eyebrow muted">SHADCN/UI · BASE UI / NOVA</span></div><h3>일반 UI는 검증된 컴포넌트로</h3><p>필요한 6개만 공식 registry에서 생성했습니다. 코드와 테마를 프로젝트 안에서 관리하고, 구조 편집 렌더러는 별도 제품 모듈로 개발합니다.</p><div class="component-chips"><span>Button</span><span>Card</span><span>Badge</span><span>Empty</span><span>Alert</span><span>Skeleton</span></div><div class="mini-table-wrap"><table class="mini-table"><thead><tr><th>현재 선택</th><th>설치 버전</th></tr></thead><tbody><tr><td>React / Vite</td><td>19.3.1 / 8.3.5</td></tr><tr><td>TypeScript / Tailwind</td><td>6.0.3 / 4.3.3</td></tr><tr><td>shadcn / Base UI</td><td>4.22.1 / 1.9.0</td></tr></tbody></table></div><p class="conclusion"><strong>적용 경계</strong> 메뉴·패널·폼·상태 UI에 사용합니다. 화학 그래프·분자 좌표·NMR 계산은 Rust와 전용 renderer의 책임입니다.</p></article>
+<article class="review-card"><div class="status-row"><span class="pill-good">PLUGIN WIRED</span><span class="eyebrow muted">@SHADCN/LINT 0.2.3</span></div><h3>실제 규칙 탐지는 확인했습니다.</h3><p>shadcn CLI의 lint 명령이 아닌 ESLint/Oxlint 플러그인입니다. 아래는 임시 stdin 입력에만 규칙을 켜서 얻은 실제 검토 결과입니다.</p><div class="rule-controls" role="group" aria-label="디자인 lint 대조 사례"><button data-probe="bad" aria-pressed="true">위반 입력</button><button data-probe="good" aria-pressed="false">허용 입력</button></div><pre class="probe-code" id="probe-code"></pre><div class="probe-result" id="probe-result" aria-live="polite"></div><div class="lint-policy"><strong>기본 / CI: 디자인 규칙 0개.</strong> 일반 JS·TS·React Hooks lint는 실행됩니다. no-raw-colors와 no-restyle은 좁은 범위의 경고 정책부터 검토하며, 과학 renderer의 동적 style을 전역 금지하지 않습니다.</div><p class="conclusion"><a href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/docs/SHADCN_REVIEW.ko.md" target="_blank" rel="noopener noreferrer">도입 근거·한계·실제 probe 기록 보기 ↗</a></p></article></div>
+<details class="review"><summary>브라우저 검증에서 확인한 Base UI 링크 사용 방식</summary><div class="review-body"><p>내비게이션은 일반 anchor에 buttonVariants를 적용했습니다. Base UI Button으로 anchor를 렌더링하면 링크의 의미가 button 역할로 바뀌므로 현재 공식 Button 문서의 As Link 패턴을 따릅니다. UI의 접근성은 타입 검사·디자인 lint와 별도로 확인합니다.</p><a href="https://ui.shadcn.com/docs/components/base/button#as-link" target="_blank" rel="noopener noreferrer">공식 Button 문서 ↗</a></div></details>
+</section>
+<section class="section" id="next" aria-labelledby="next-title">
+<div class="section-head"><div><div class="section-index">05 / NEXT IMPLEMENTATION SLICE</div><h2 id="next-title">다음 기능은 문서 한 장을 끝까지 다룹니다.</h2><p class="section-description">아래는 아직 구현하지 않은 제품 설계입니다. 현재 Domain에는 capability 용어만 있으며 문서·그래프·장면 모델은 다음 단계에 추가합니다.</p></div><span class="tag">PLANNED / NOT IMPLEMENTED</span></div>
+<div class="models"><article class="model"><div class="model-top"><span class="model-index">MODEL / 01</span><span class="pill-plan">PLANNED</span></div><h3>문서 모델</h3><div class="en">DOCUMENT + REVISION</div><p>페이지·객체·스타일·참조를 저장합니다. 모든 변경은 명령으로 적용하고 Undo/Redo에 필요한 역변경을 함께 관리합니다.</p><div class="fields">DocumentId · ObjectId · Revision<br>Command · Patch · History</div></article><article class="model"><div class="model-top"><span class="model-index">MODEL / 02</span><span class="pill-plan">PLANNED</span></div><h3>분자 그래프</h3><div class="en">ATOM + BOND + STEREO</div><p>원자·결합·전하·동위원소·입체화학을 별도 모델로 표현합니다. 이후 명명·물성·반응·NMR이 같은 구조를 소비합니다.</p><div class="fields">AtomId · BondId · Charge<br>Isotope · Stereo · Reaction</div></article><article class="model"><div class="model-top"><span class="model-index">MODEL / 03</span><span class="pill-plan">PLANNED</span></div><h3>장면과 기하</h3><div class="en">SCENE + GEOMETRY</div><p>좌표·라벨·도형·배치 제약을 관리합니다. 화면의 선택·확대·드래그 미리보기는 브라우저의 일시적인 상태로 둡니다.</p><div class="fields">Geometry · Bounds · Label<br>Constraints · Render primitives</div></article></div>
+<div class="draft-api"><div class="status-row"><span class="pill-plan">PROPOSED CONTRACT</span><h3>쓰기 API를 추가할 때 함께 구현할 경계</h3></div><p>로컬 세션·Host/Origin 검사와 입력 한도를 먼저 추가합니다. 서버는 변경을 검증하고 저장 트랜잭션을 커밋한 뒤 승인합니다. HTTP와 CLI는 같은 Application 유스케이스를 사용합니다.</p><code>CommandEnvelope { request_id, document_id, expected_revision, command }</code><code>→ validate → apply → commit → { revision, patch, warnings } / conflict 409</code><p style="margin-top:11px">현재 이 경로·타입·저장소는 존재하지 않습니다. 리비전 충돌, 요청 중복, 저장 실패와 재시작 복구까지 첫 수직 기능의 수용 기준에 포함합니다.</p></div>
+<div class="stages" style="margin-top:22px"><article class="stage"><div class="phase">PHASE 00 / COMPLETED SCAFFOLD</div><h3>실행 가능한 기반</h3><p>웹 셸, read-only API, CLI, inward dependency, v1 계약과 CI. 상태 조회만 실제로 제공하며 나머지 기능은 미구현으로 표시합니다.</p><div class="gate"><strong>VERIFIED</strong>clean install · build · lint · 타입 · Rust 3 tests · HTTP/CLI parity · 브라우저 오류/회복/모바일/dark</div><span class="status">BASELINE 119f477</span></article><article class="stage"><div class="phase">PHASE 01 / NEXT PRODUCT SLICE</div><h3>그리기 → 저장 → 다시 열기</h3><p>문서·그래프·장면 타입, 원자·결합 편집, Undo/Redo, 기본 SVG 렌더링과 로컬 저장. 승인된 문서 리비전을 중심으로 기능을 연결합니다.</p><div class="gate"><strong>ACCEPTANCE GATE</strong>편집 불변식 · undo 복원 · 중복 요청 · 충돌 409 · 커밋 후 ACK · 재시작 후 같은 문서</div><span class="status">NEXT / NOT IMPLEMENTED</span></article><article class="stage"><div class="phase">PHASE 02 / SCIENTIFIC COVERAGE</div><h3>호환 형식과 화학 엔진</h3><p>CDX/CDXML·MOL/SDF·SMILES, 배치·명명·물성·NMR·반응·서열을 확장합니다. 모델은 출처·버전·사용 범위를 고정한 Provider로 연결합니다.</p><div class="gate"><strong>ACCEPTANCE GATE</strong>왕복 의미 검증 · 사례별 수치 회귀 · 모델 출처 · 입력 예산 · 취소/실패 · 미지원 진단</div><span class="status">PLANNED</span></article></div>
+<div class="decision-layout" style="margin-top:21px"><article class="decision"><span class="decision-index">A</span><div><h3>먼저 모듈로 분리하고 하나의 서버로 운영</h3><p>초기에는 API·계산을 한 프로세스로 구성합니다. 계산 작업의 대기시간·메모리·CPU를 측정해 별도 worker 분리 시점을 정합니다. 현재 작업 큐와 계산 worker는 없습니다.</p></div></article><article class="decision"><span class="decision-index">B</span><div><h3>공개 소스와 개인용 모델 데이터는 별도 경계</h3><p>공개 저장소에는 엔진 바이너리·기존 모델 payload를 넣지 않습니다. 팀 서비스가 필요해지면 인증·권한·관리형 저장소와 서비스 제공 범위가 확인된 별도 데이터셋을 설계합니다.</p></div></article></div>
+</section>
+<section class="section" id="verification" aria-labelledby="verification-title">
+<div class="section-head"><div><div class="section-index">06 / EVIDENCE & LIMITS</div><h2 id="verification-title">스캐폴딩의 연결을 검증했습니다.</h2><p class="section-description">화학적 정확성 검증은 실제 기능을 구현한 뒤 수행합니다. 지금의 결과는 개발 기반과 계약 경계에 대한 것입니다.</p></div></div>
+<div class="targets"><div class="target"><span class="target-value">PASS</span><strong>npm run check</strong><p>ESLint · TypeScript · production build · fmt · clippy · Rust tests · HTTP/CLI smoke</p></div><div class="target"><span class="target-value">PASS</span><strong>실제 브라우저 확인</strong><p>연결 실패·Retry 회복·Refresh · 잘못된 계약 거절 · 320/390px · 시스템 dark</p></div><div class="target"><span class="target-value">PINNED</span><strong>재현 가능한 개발 환경</strong><p>Node 22.22.2 · npm 11.13.0 · Rust 1.95.0 · lockfiles · GitHub Actions</p></div></div>
+<p class="target-note">현재 CI는 브라우저 runner를 포함하지 않습니다. 브라우저 결과는 초기 수동 smoke 기록입니다. 디자인 lint 기본 규칙은 0개이며 화학 기능의 검증으로 집계하지 않습니다.</p>
+<div class="source-links" style="margin-top:18px"><a href="https://github.com/EunhakChoi/chemifree/actions" target="_blank" rel="noopener noreferrer">GitHub Actions 실행 내역 ↗</a><a href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/docs/verification/browser-smoke.json" target="_blank" rel="noopener noreferrer">브라우저 검증 기록 ↗</a><a href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/docs/verification/shadcn-lint-probe.json" target="_blank" rel="noopener noreferrer">디자인 lint probe ↗</a><a href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/docs/assets/scaffold-desktop.png" target="_blank" rel="noopener noreferrer">실제 웹 셸 화면 ↗</a></div>
+</section>
+<section class="sources" aria-label="참고 문서"><div><h3>설계 선택과 확인된 사실</h3><p>파일·버전·API·기능 상태는 기준 커밋에서 확인했습니다. 문서 모델·쓰기 API·과학 엔진·서비스 확장은 향후 설계안입니다. HTML은 외부 라이브러리 없이 오프라인으로 열 수 있습니다.</p></div><div class="source-links"><a href="https://github.com/EunhakChoi/chemifree/tree/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3" target="_blank" rel="noopener noreferrer">기준 저장소 ↗</a><a href="https://ui.shadcn.com/docs" target="_blank" rel="noopener noreferrer">shadcn/ui ↗</a><a href="https://github.com/shadcn-ui/lint" target="_blank" rel="noopener noreferrer">@shadcn/lint ↗</a><a href="https://github.com/shadcn-ui/lint/blob/main/docs/how-it-works.md" target="_blank" rel="noopener noreferrer">정적 분석의 한계 ↗</a><a href="https://github.com/EunhakChoi/chemifree/blob/119f47765152fd564e5c97bb0c1ad6fa5b5b20c3/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">Upstream notices ↗</a></div></section>
+<footer><span>CHEMIFREE / SCAFFOLDING ARCHITECTURE<br>2026.10.27 · baseline 119f477 · MIT</span><div class="footer-actions"><button id="download-footer">설계 요약 저장</button><button id="print-page">인쇄 / PDF</button><a href="#top">맨 위로 ↑</a></div><span>PUBLIC SOURCE. LOCAL FOUNDATION.<br>실제 구현과 계획을 구분한 설계 문서</span></footer>
+</main><div class="toast" id="toast" role="status" aria-live="polite"></div>
+<noscript>구성도와 코드 탐색에는 JavaScript를 사용합니다. UI 검토, 다음 구현 단계와 검증 범위는 그대로 읽을 수 있습니다.</noscript>
+<script id="architecture-data" type="application/json">{
+  "baseline": "119f47765152fd564e5c97bb0c1ad6fa5b5b20c3",
+  "nodes": [
+    {
+      "id": "web",
+      "layer": "presentation",
+      "icon": "web",
+      "title": "Web shell",
+      "exists": true,
+      "shortPath": "apps/web",
+      "currentShort": "실제 API 상태 조회 · Retry · empty canvas",
+      "nextShort": "문서 편집기 · SVG · 입력 도구",
+      "summary": "현재는 실제 API 상태를 읽는 React 웹 셸입니다. 화학 구조를 작성하는 편집기는 아직 없습니다.",
+      "current": [
+        "React/TypeScript/Vite, Tailwind4와 shadcn Base UI/Nova",
+        "health/capabilities 동시 조회, 5초 timeout, refresh/retry",
+        "미구현 canvas와 기능 목록, 시스템 light/dark"
+      ],
+      "next": [
+        "document snapshot과 UI 선택·viewport 상태를 분리",
+        "SVG 기반 구조 표시와 pointer preview, 첫 atom/bond 편집",
+        "Application의 명령 승인·충돌·저장 상태를 표시"
+      ],
+      "files": [
+        "apps/web/src/App.tsx",
+        "apps/web/src/hooks/use-runtime.ts",
+        "apps/web/src/lib/contract.ts"
+      ],
+      "contract": "GET /api/v1/health와 /api/v1/capabilities. 현재 TypeScript mirror가 버전·status·id 중복·레코드 형식을 검사합니다.",
+      "limit": "다음 renderer는 일반 UI controls와 분리합니다. React 화면이 분자 그래프의 최종 화학적 기준이 되지 않도록 합니다."
+    },
+    {
+      "id": "cli",
+      "layer": "presentation",
+      "icon": "cli",
+      "title": "CLI",
+      "exists": true,
+      "shortPath": "apps/cli",
+      "currentShort": "status · capabilities · JSON",
+      "nextShort": "편집 명령 · 파일 변환 · 배치",
+      "summary": "같은 Application 서비스를 프로세스 안에서 직접 호출하는 Rust/clap CLI입니다.",
+      "current": [
+        "status와 capabilities, 각각 --json 지원",
+        "서버를 띄우지 않고 공통 DTO를 그대로 출력",
+        "HTTP와의 실제 JSON 동일성을 smoke로 확인"
+      ],
+      "next": [
+        "문서·파일 작업의 유스케이스를 같은 Application에 연결",
+        "배치 오류·진단·종료 코드와 입력 예산 정의",
+        "원격 서비스 모드가 필요하면 인증된 HTTP adapter를 별도 추가"
+      ],
+      "files": [
+        "apps/cli/src/main.rs"
+      ],
+      "contract": "CLI → Application\u003cScaffoldCapabilities>. HTTP 우회가 아닌 독립적인 로컬 진입점입니다.",
+      "limit": "CLI status는 HTTP 서버의 연결 확인이 아닙니다. 현재는 편집·변환·계산 명령이 없습니다."
+    },
+    {
+      "id": "desktop",
+      "layer": "presentation",
+      "icon": "desktop",
+      "title": "Desktop shell",
+      "exists": false,
+      "shortPath": "후속 선택 / 폴더 없음",
+      "currentShort": "전용 앱·설치 패키지 없음",
+      "nextShort": "필요 시 웹 화면 재사용",
+      "summary": "웹과 CLI 이후 전용 창·설치·OS 파일 연결의 수요가 있을 때 검토합니다.",
+      "current": [
+        "Tauri/Electron 셸과 설치 프로그램은 없음",
+        "기본 사용 경로는 Windows 브라우저 + WSL 개발 서버"
+      ],
+      "next": [
+        "필요한 OS 통합을 측정해 셸 채택 여부 결정",
+        "같은 웹 화면과 Application 명령 계약 재사용"
+      ],
+      "files": [],
+      "contract": "후속 설계. 셸의 IPC도 Application use case에 연결합니다.",
+      "limit": "Windows bridge가 필요하다고 해서 전체 UI를 데스크톱 앱으로 전환할 필요는 없습니다."
+    },
+    {
+      "id": "app",
+      "layer": "logic",
+      "icon": "gateway",
+      "title": "Application + API",
+      "exists": true,
+      "shortPath": "crates/application · apps/api",
+      "currentShort": "Axum · v1 DTO · 조회 유스케이스",
+      "nextShort": "명령 · 세션 · 리비전 · 작업",
+      "summary": "HTTP는 바깥 진입 adapter이며, Application은 CLI와 공유하는 유스케이스·DTO·port를 소유합니다.",
+      "current": [
+        "Application\u003cP>가 health와 capabilities 제공",
+        "CapabilityCatalog port를 Application에 정의",
+        "Axum read-only JSON 경로, loopback :3001, 404/405"
+      ],
+      "next": [
+        "로컬 쓰기 세션·Host/Origin·입력 예산을 먼저 구현",
+        "request_id 중복과 expected_revision 충돌 처리",
+        "저장 트랜잭션, 장기 작업의 조정·취소·실패 정책"
+      ],
+      "files": [
+        "crates/application/src/lib.rs",
+        "apps/api/src/lib.rs",
+        "apps/api/src/main.rs"
+      ],
+      "contract": "api_version: v1. 도메인 상태를 DTO로 변환하고 API·CLI가 같은 use case를 호출합니다.",
+      "limit": "현재 인증·저장·SSE·계산 작업은 없습니다. 원격이나 쓰기 기능은 접근 제어와 함께 추가해야 합니다."
+    },
+    {
+      "id": "domain",
+      "layer": "logic",
+      "icon": "doc",
+      "title": "Domain boundary",
+      "exists": true,
+      "shortPath": "crates/domain",
+      "currentShort": "CapabilityId · 상태 용어",
+      "nextShort": "문서 · 분자 그래프 · 장면",
+      "summary": "외부 의존성 없는 Rust crate입니다. 지금은 capability 식별자와 구현 상태 용어만 정의합니다.",
+      "current": [
+        "CapabilityId, ImplementationStatus와 Capability",
+        "HTTP·DB·React·serde에 의존하지 않음"
+      ],
+      "next": [
+        "DocumentId·Revision·ObjectId와 참조 불변식",
+        "Atom/Bond/Stereo 화학 그래프, Scene/Geometry 분리",
+        "순수 편집 명령·patch·inverse와 Undo/Redo 검증"
+      ],
+      "files": [
+        "crates/domain/src/lib.rs",
+        "crates/domain/Cargo.toml"
+      ],
+      "contract": "도메인 타입과 규칙을 독립적으로 소유합니다. 외부 IO는 Application이 조정합니다.",
+      "limit": "문서 모델이나 화학 그래프가 이미 구현되어 있다는 뜻이 아닙니다. domain crate의 현재 역할은 capability vocabulary입니다."
+    },
+    {
+      "id": "chemistry",
+      "layer": "logic",
+      "icon": "chem",
+      "title": "Chemistry engine",
+      "exists": false,
+      "shortPath": "미구현 / 제품 모듈 예정",
+      "currentShort": "계산·명명·NMR 엔진 없음",
+      "nextShort": "구조 · 배치 · 명명 · 물성",
+      "summary": "향후 독립 Rust 구현으로 추가할 화학 규칙과 계산 모듈입니다.",
+      "current": [
+        "구조 분석·명명·배치·물성·NMR은 모두 미구현",
+        "원본 실행 엔진이나 가짜 결과를 연결하지 않음"
+      ],
+      "next": [
+        "공통 그래프를 소비하는 독립 알고리즘과 사례별 회귀",
+        "입력·옵션·엔진·모델 버전과 수치 프로필 고정",
+        "CPU/메모리 예산과 명시적 미지원 진단"
+      ],
+      "files": [],
+      "contract": "예정: graph snapshot + options + fixed model handle → result + units + diagnostics + provenance.",
+      "limit": "새 모듈의 분리는 기능을 구현할 때 결정합니다. scaffold 테스트는 과학적 정확성이나 원본 동등성의 증거가 아닙니다."
+    },
+    {
+      "id": "catalog",
+      "layer": "provider",
+      "icon": "data",
+      "title": "Scaffold provider",
+      "exists": true,
+      "shortPath": "crates/providers",
+      "currentShort": "8개 기능의 실제 준비 상태",
+      "nextShort": "내부 port를 구현하는 adapter",
+      "summary": "ScaffoldCapabilities가 안쪽의 CapabilityCatalog trait을 구현합니다. 실제 외부 IO는 아직 없습니다.",
+      "current": [
+        "runtime_inspection만 available로 반환",
+        "7개 제품·연동 기능은 not_implemented로 반환",
+        "모델·문서·자격 증명·외부 서비스에 접근하지 않음"
+      ],
+      "next": [
+        "구현한 기능과 설정된 provider를 근거로 capability 제공",
+        "DocumentRepository, ModelCatalog 등 실제 port 구현 추가",
+        "지원하지 않는 provider와 기능을 명시적으로 반환"
+      ],
+      "files": [
+        "crates/providers/src/lib.rs",
+        "crates/providers/Cargo.toml"
+      ],
+      "contract": "Providers → Application + Domain의 코드 의존 방향. Application이 소유하는 trait을 구현합니다.",
+      "limit": "이 catalog는 준비 상태용 구현입니다. 현재 DB·모델·Windows adapter가 존재한다는 의미가 아닙니다."
+    },
+    {
+      "id": "storage",
+      "layer": "provider",
+      "icon": "db",
+      "title": "Storage + models",
+      "exists": false,
+      "shortPath": "후속 port / IO 미구현",
+      "currentShort": "DB·문서·모델 로딩 없음",
+      "nextShort": "Repository · Blob · ModelCatalog",
+      "summary": "첫 문서 기능에는 로컬 저장소를, 과학 계산에는 별도의 모델 접근 port를 추가합니다.",
+      "current": [
+        "SQLite/PostgreSQL/BlobStore 연결 없음",
+        "기존 개인용 모델 payload·loader 포함하지 않음"
+      ],
+      "next": [
+        "DocumentRepository: 스냅샷·revision·명령 중복 저장",
+        "로컬 DB와 자산 파일의 커밋·복구 경계 분리",
+        "ModelCatalog: 사용 범위·출처·schema·digest 고정"
+      ],
+      "files": [],
+      "contract": "예정: Application-owned repository/transaction/model ports. 엔진은 typed model data를 받아 계산합니다.",
+      "limit": "개인용 모델과 서비스용 데이터셋은 별도 정책입니다. 공개 저장소에 기존 데이터가 자동 포함되거나 업로드되지 않습니다."
+    },
+    {
+      "id": "bridge",
+      "layer": "provider",
+      "icon": "bridge",
+      "title": "System + Windows",
+      "exists": false,
+      "shortPath": "후속 adapter / 미구현",
+      "currentShort": "파일 엔진·COM/OLE 연동 없음",
+      "nextShort": "파일 · 폰트 · 이미지 · Host",
+      "summary": "플랫폼별 차이를 파일·자원·호스트 adapter 안에 한정하는 설계입니다.",
+      "current": [
+        "화학 형식 파일 처리와 Windows bridge는 없음",
+        "브라우저 셸이 원본 프로그램을 자동화하지 않음"
+      ],
+      "next": [
+        "byte IO와 화학 형식의 의미 변환을 분리",
+        "폰트·이미지 자원과 출력 encoder의 interface 정의",
+        "COM/OLE가 필요하면 별도 Windows 프로세스에서 허용 기능만 처리"
+      ],
+      "files": [],
+      "contract": "예정: FileAccess / FontSource / ImageEncoder / HostBridge. 화학 계산 로직은 복제하지 않습니다.",
+      "limit": "브라우저 clipboard API와 Windows의 고유 형식·OLE는 서로 다른 기능 경계입니다."
+    }
+  ],
+  "repo": [
+    {
+      "id": "web",
+      "path": "apps/web",
+      "label": "Presentation / React SPA",
+      "title": "상태를 읽는 웹 셸",
+      "layer": "PRESENTATION",
+      "file": "apps/web/src/App.tsx",
+      "summary": "App이 runtime hook을 소비하고, hook은 TypeScript mirror를 통해 실제 API 응답을 검증합니다.",
+      "responsibilities": [
+        "src/hooks/use-runtime.ts: loading/ready/error와 재시도 수명주기",
+        "src/lib/contract.ts: API v1 mirror와 런타임 형식 검사",
+        "components/ui + index.css: 6개 생성 컴포넌트와 semantic theme"
+      ],
+      "boundary": "App → useRuntime → readRuntime\nGET /api/v1/{health,capabilities}\nVite proxy → 127.0.0.1:3001"
+    },
+    {
+      "id": "api",
+      "path": "apps/api",
+      "label": "Entry adapter / Axum",
+      "title": "작은 read-only HTTP 진입점",
+      "layer": "LOGIC ENTRY",
+      "file": "apps/api/src/lib.rs",
+      "summary": "Router와 wire DTO를 연결합니다. main은 항상 IPv4 loopback으로 listener를 엽니다.",
+      "responsibilities": [
+        "GET health / capabilities, versioned JSON",
+        "미구현 경로 404, 잘못된 method 405",
+        "Application과 provider를 가장 바깥에서 조립"
+      ],
+      "boundary": "Axum Router\n  → Application\u003cScaffoldCapabilities>\n  → JSON response\nbind: 127.0.0.1:3001 (port 선택 가능)"
+    },
+    {
+      "id": "cli",
+      "path": "apps/cli",
+      "label": "Presentation / clap",
+      "title": "서버 없이 같은 유스케이스 호출",
+      "layer": "PRESENTATION",
+      "file": "apps/cli/src/main.rs",
+      "summary": "화학 도구를 자동화할 진입점의 기반입니다. 현재는 상태를 텍스트 또는 JSON으로 출력합니다.",
+      "responsibilities": [
+        "status --json: 라이브러리 생존 상태",
+        "capabilities --json: 구현 기능 상태",
+        "API와 JSON 동일성을 실제 프로세스로 비교"
+      ],
+      "boundary": "clap options\n  → Application\u003cScaffoldCapabilities>\n  → stdout JSON / text\nHTTP 호출 없음"
+    },
+    {
+      "id": "domain",
+      "path": "crates/domain",
+      "label": "Inner core / dependency-free",
+      "title": "가장 안쪽의 도메인 경계",
+      "layer": "LOGIC",
+      "file": "crates/domain/src/lib.rs",
+      "summary": "외부 crate 의존성을 두지 않은 작은 출발점입니다. 도메인의 현재 범위는 capability 용어입니다.",
+      "responsibilities": [
+        "8개의 CapabilityId",
+        "Available / NotImplemented",
+        "앞으로 문서·그래프·기하 불변식을 이 경계에서 정의"
+      ],
+      "boundary": "CapabilityId\nImplementationStatus\nCapability\n\n외부 의존성: 없음"
+    },
+    {
+      "id": "application",
+      "path": "crates/application",
+      "label": "Use cases / DTO / port owner",
+      "title": "웹과 CLI가 공유하는 Application",
+      "layer": "LOGIC",
+      "file": "crates/application/src/lib.rs",
+      "summary": "구체적인 외부 구현 대신 자신이 정의한 CapabilityCatalog port를 소비합니다.",
+      "responsibilities": [
+        "API_VERSION = v1과 Health/Capabilities DTO",
+        "Application\u003cP>의 공유 조회 유스케이스",
+        "CapabilityCatalog: Send + Sync trait 소유"
+      ],
+      "boundary": "Application\u003cP: CapabilityCatalog>\n  health() → HealthResponse\n  capabilities() → CapabilitiesResponse\n\n의존: domain + serde"
+    },
+    {
+      "id": "providers",
+      "path": "crates/providers",
+      "label": "Outer adapters / port implementation",
+      "title": "바깥에서 port를 구현",
+      "layer": "PROVIDER",
+      "file": "crates/providers/src/lib.rs",
+      "summary": "ScaffoldCapabilities는 현재 코드가 실제 제공하는 기능의 상태만 반환합니다.",
+      "responsibilities": [
+        "Application-owned trait 구현",
+        "런타임 조회 available, 7개 미구현",
+        "실제 데이터 접근과 엔진 호출 없음"
+      ],
+      "boundary": "impl CapabilityCatalog for ScaffoldCapabilities\n\n의존: application + domain\nApplication은 concrete provider에 의존하지 않음"
+    },
+    {
+      "id": "checks",
+      "path": "scripts/ + .github/",
+      "label": "Repeatable checks / CI",
+      "title": "계약과 도구를 함께 고정",
+      "layer": "DEVELOPMENT",
+      "file": "scripts/contract-smoke.mjs",
+      "summary": "락파일과 도구 버전을 고정하고 웹·Rust·실제 HTTP/CLI 경계를 같은 명령으로 검증합니다.",
+      "responsibilities": [
+        "npm run check: lint·typecheck·build·Rust·contract smoke",
+        "ephemeral port로 실제 API 기동 후 CLI JSON과 비교",
+        "CI는 npm ci + npm run check; browser runner는 아직 없음"
+      ],
+      "boundary": "Node22.22.2 / npm11.13.0 / Rust1.95.0\nnpm ci → npm run check\nActions pinned by commit SHA"
+    }
+  ],
+  "flows": {
+    "web": {
+      "title": "웹에서 실제 runtime 상태를 읽을 때",
+      "description": "현재 동작하는 경로입니다. 실패·loading·재시도와 잘못된 응답 거절을 브라우저에서 확인했습니다.",
+      "kind": "IMPLEMENTED",
+      "route": [
+        "web",
+        "app",
+        "catalog",
+        "domain"
+      ],
+      "note": "서버가 준비되지 않았으면 5초 timeout 후 오류를 표시합니다. Refresh/Retry는 두 경로를 다시 조회하며, 응답 버전·형식·status와 중복 ID를 검사합니다.",
+      "steps": [
+        {
+          "node": "web",
+          "title": "동시 조회",
+          "body": "useRuntime이 health와 capabilities를 함께 요청합니다.",
+          "scope": "PRESENTATION"
+        },
+        {
+          "node": "app",
+          "title": "공유 유스케이스",
+          "body": "Axum handler가 Application을 호출합니다.",
+          "scope": "APPLICATION"
+        },
+        {
+          "node": "catalog",
+          "title": "준비 상태 제공",
+          "body": "provider가 8개 capability의 실제 구현 상태를 반환합니다.",
+          "scope": "PROVIDER"
+        },
+        {
+          "node": "domain",
+          "title": "v1 DTO로 변환",
+          "body": "CapabilityId와 상태를 문자열로 직렬화합니다.",
+          "scope": "DOMAIN → DTO"
+        },
+        {
+          "node": "web",
+          "title": "검사 후 표시",
+          "body": "호환되는 응답만 ready 상태와 UI로 반영합니다.",
+          "scope": "PRESENTATION"
+        }
+      ]
+    },
+    "cli": {
+      "title": "터미널에서 같은 준비 상태를 읽을 때",
+      "description": "현재 동작하는 경로입니다. HTTP 서버 없이 같은 Application과 provider를 조립합니다.",
+      "kind": "IMPLEMENTED",
+      "route": [
+        "cli",
+        "app",
+        "catalog",
+        "domain"
+      ],
+      "note": "CLI status는 HTTP 연결 검사가 아닙니다. test:contracts는 별도로 실제 HTTP와 CLI 프로세스를 실행해 JSON의 동일성을 확인합니다.",
+      "steps": [
+        {
+          "node": "cli",
+          "title": "옵션 해석",
+          "body": "clap이 status/capabilities와 --json을 해석합니다.",
+          "scope": "PRESENTATION"
+        },
+        {
+          "node": "app",
+          "title": "Application 호출",
+          "body": "동일한 Application 서비스의 조회 메서드를 직접 실행합니다.",
+          "scope": "APPLICATION"
+        },
+        {
+          "node": "catalog",
+          "title": "provider 조회",
+          "body": "같은 ScaffoldCapabilities 구현을 사용합니다.",
+          "scope": "PROVIDER"
+        },
+        {
+          "node": "domain",
+          "title": "공유 DTO 생성",
+          "body": "HTTP와 같은 v1 응답 타입으로 변환합니다.",
+          "scope": "DOMAIN → DTO"
+        },
+        {
+          "node": "cli",
+          "title": "표준 출력",
+          "body": "JSON 또는 사람이 읽는 상태 목록을 출력합니다.",
+          "scope": "PRESENTATION"
+        }
+      ]
+    },
+    "edit": {
+      "title": "다음 단계: 편집 명령 하나를 저장할 때",
+      "description": "아직 구현하지 않은 계획입니다. 문서 모델과 쓰기 API 보호·저장을 함께 연결하는 첫 수직 기능입니다.",
+      "kind": "PLANNED",
+      "route": [
+        "web",
+        "app",
+        "domain",
+        "storage"
+      ],
+      "note": "이 경로는 현재 서버에 없습니다. request_id 멱등성·revision 충돌·커밋 후 ACK·복구를 구현한 뒤에 capability 상태를 변경합니다.",
+      "steps": [
+        {
+          "node": "web",
+          "title": "즉시 미리보기",
+          "body": "브라우저에서 선택·viewport·드래그를 반응시킵니다.",
+          "scope": "PLANNED / UI"
+        },
+        {
+          "node": "app",
+          "title": "명령 경계",
+          "body": "세션·입력·request_id·expected_revision을 검증합니다.",
+          "scope": "PLANNED / APP"
+        },
+        {
+          "node": "domain",
+          "title": "편집 불변식",
+          "body": "문서·그래프·장면에 변경과 역변경을 적용합니다.",
+          "scope": "PLANNED / DOMAIN"
+        },
+        {
+          "node": "storage",
+          "title": "트랜잭션 저장",
+          "body": "snapshot·revision·중복 요청 결과를 커밋합니다.",
+          "scope": "PLANNED / PROVIDER"
+        },
+        {
+          "node": "web",
+          "title": "승인 반영",
+          "body": "새 revision·patch를 반영하거나 충돌을 표시합니다.",
+          "scope": "PLANNED / UI"
+        }
+      ]
+    }
+  },
+  "health": {
+    "api_version": "v1",
+    "service": "chemifree",
+    "version": "0.1.0",
+    "stage": "scaffold",
+    "status": "ok"
+  },
+  "capabilities": {
+    "api_version": "v1",
+    "capabilities": [
+      {
+        "id": "runtime_inspection",
+        "label": "Runtime inspection",
+        "status": "available",
+        "description": "Read the local service health and implementation status through HTTP or CLI."
+      },
+      {
+        "id": "document_editing",
+        "label": "Document editing",
+        "status": "not_implemented",
+        "description": "A chemical document model, editor, and renderer are planned."
+      },
+      {
+        "id": "structure_analysis",
+        "label": "Structure analysis",
+        "status": "not_implemented",
+        "description": "No chemical calculations, validation, or prediction engine is connected."
+      },
+      {
+        "id": "format_conversion",
+        "label": "Import and export",
+        "status": "not_implemented",
+        "description": "No chemical file readers, writers, or format conversion are connected."
+      },
+      {
+        "id": "local_model_loading",
+        "label": "Local model loading",
+        "status": "not_implemented",
+        "description": "No executable vendor engines or proprietary model data are included or loaded."
+      },
+      {
+        "id": "persistence",
+        "label": "Saved workspaces",
+        "status": "not_implemented",
+        "description": "No database, document storage, or workspace synchronization is connected."
+      },
+      {
+        "id": "authentication",
+        "label": "Authentication",
+        "status": "not_implemented",
+        "description": "The API is a local read-only scaffold. Accounts and access control are planned."
+      },
+      {
+        "id": "windows_bridge",
+        "label": "Windows integration",
+        "status": "not_implemented",
+        "description": "No desktop automation, COM bridge, or Windows application integration is connected."
+      }
+    ]
+  },
+  "probe": {
+    "status": "passed",
+    "tool": "@shadcn/lint 0.2.3 / ESLint",
+    "default_configuration": {
+      "plugin_registered": true,
+      "design_rules_enabled": []
+    },
+    "probe_scope": "Rules temporarily enabled by ESLint CLI flags for stdin input only. Project configuration and source files were not changed.",
+    "cases": [
+      {
+        "case": "violating",
+        "input": "import { Button } from \"@/components/ui/button\"\nexport function DesignProbe() { return \u003cButton className=\"bg-red-500 p-4\">Probe\u003c/Button> }\n",
+        "findings": [
+          {
+            "rule": "shadcn/no-raw-colors",
+            "severity": 1,
+            "line": 2,
+            "message": "\"bg-red-500\" uses the raw Tailwind palette. Nearest theme tokens: bg-destructive. Use one of those, or declare --color-\u003cname> in src/index.css for a new color."
+          },
+          {
+            "rule": "shadcn/no-restyle",
+            "severity": 1,
+            "line": 2,
+            "message": "\"bg-red-500\" is not allowed on \u003cButton>: \u003cButton> owns its color. Use a variant: default, outline, secondary, ghost, destructive, link. Add a new variant in src/components/ui/button.tsx only if the design explicitly calls for a treatment none of these provides."
+          },
+          {
+            "rule": "shadcn/no-restyle",
+            "severity": 1,
+            "line": 2,
+            "message": "\"p-4\" is not allowed on \u003cButton>: \u003cButton> owns its spacing. Use a size (default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg), or margin here or gap on the parent for space around it. Add a size in src/components/ui/button.tsx only if the design explicitly calls for one."
+          }
+        ],
+        "exit_code": 0
+      },
+      {
+        "case": "allowed",
+        "input": "import { Button } from \"@/components/ui/button\"\nexport function DesignProbe() { return \u003cButton variant=\"outline\" size=\"sm\" className=\"w-full\">Probe\u003c/Button> }\n",
+        "findings": [],
+        "exit_code": 0
+      }
+    ],
+    "components_config_sha256": "156858e2da20785ac0f1853580c7e34d5b8496f519e8839d2176e85947d4f779"
+  }
+}</script>
+<script>
+(function(){
+'use strict';
+var data=JSON.parse(document.getElementById('architecture-data').textContent);
+var view='current', selectedNode='app', selectedRepo='application', selectedFlow='web', step=-1, playing=false, timer=null, toastTimer=null;
+var layerNames={presentation:'PRESENTATION / CLIENT',logic:'LOGIC / RUST',provider:'PROVIDER / ADAPTER'};
+function esc(v){return String(v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function icon(n){return '<svg class="icon" aria-hidden="true"><use href="#i-'+n+'"/></svg>';}
+function item(id){return data.nodes.find(function(n){return n.id===id;});}
+function bullets(a){return '<ul>'+a.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ul>';}
+function sourceLink(p){return 'https://github.com/EunhakChoi/chemifree/blob/'+data.baseline+'/'+p;}
+function renderNodes(){
+ Object.keys(layerNames).forEach(function(layer){
+  document.getElementById('nodes-'+layer).innerHTML=data.nodes.filter(function(n){return n.layer===layer;}).map(function(n){
+   return '<button class="node'+(n.exists?'':' is-planned')+'" data-node="'+n.id+'" aria-pressed="'+(n.id===selectedNode)+'"><span class="node-top">'+icon(n.icon)+'<span class="node-status'+(n.exists?'':' later')+'">'+(n.exists?'SCAFFOLD':'PLANNED')+'</span></span><strong>'+esc(n.title)+'</strong><span class="node-description">'+esc(view==='current'?n.currentShort:n.nextShort)+'</span><span class="node-code">'+esc(n.shortPath)+'</span></button>';
+  }).join('');
+ });highlight();
+}
+function renderInspector(){
+ var n=item(selectedNode);
+ var files=n.files.length?n.files.map(function(p){return '<a class="file-link" href="'+sourceLink(p)+'" target="_blank" rel="noopener noreferrer">'+esc(p)+' ↗</a>';}).join(''):'<p class="inspector-summary">아직 구현 파일이 없습니다. 현재 capability는 not_implemented입니다.</p>';
+ document.getElementById('inspector').innerHTML='<div class="inspector-layer"><span class="eyebrow">'+layerNames[n.layer]+'</span>'+icon(n.icon)+'</div><h3>'+esc(n.title)+'</h3><p class="inspector-summary">'+esc(n.summary)+'</p><div class="detail-group"><div class="detail-label">'+(view==='current'?'CURRENT CODE':'NEXT IMPLEMENTATION')+'</div>'+bullets(n[view])+'</div><div class="file-block"><div class="detail-label">BASELINE SOURCE</div>'+files+'</div><div class="contract-box"><span class="mono">BOUNDARY CONTRACT</span>'+esc(n.contract)+'</div><div class="inspector-foot">'+esc(n.limit)+'</div>';
+}
+function selectNode(id){
+ selectedNode=id;document.querySelectorAll('button[data-node]').forEach(function(el){el.setAttribute('aria-pressed',String(el.dataset.node===id));});renderInspector();
+}
+function renderView(){
+ document.querySelectorAll('button[data-view]').forEach(function(el){el.setAttribute('aria-pressed',String(el.dataset.view===view));});
+ document.body.dataset.perspective=view;
+ document.getElementById('mode-note').innerHTML=view==='current'?'<strong>검증된 스캐폴딩 기준.</strong> 실선은 현재 존재하는 기반, 점선은 아직 없는 제품 기능입니다. 기반이 있다는 표시가 편집·계산의 완료를 뜻하지 않습니다.':'<strong>다음 구현을 위한 설계.</strong> 기존 폴더와 port 경계를 유지하며 문서 편집을 첫 수직 기능으로 추가합니다. 이 화면의 계획은 현재 API에 구현되지 않았습니다.';
+ document.getElementById('mode-badge').textContent=view==='current'?'BASELINE / '+data.baseline.slice(0,7):'PROPOSED / NEXT';
+ renderNodes();renderInspector();
+}
+function renderRepo(){
+ document.getElementById('repo-list').innerHTML=data.repo.map(function(r){return '<button data-repo="'+r.id+'" aria-pressed="'+(r.id===selectedRepo)+'"><strong>'+esc(r.path)+'</strong><span>'+esc(r.label)+'</span></button>';}).join('');
+ var r=data.repo.find(function(r){return r.id===selectedRepo;});
+ document.getElementById('repo-detail').innerHTML='<div class="eyebrow muted">ACTUAL SOURCE / '+esc(r.layer)+'</div><h3 style="margin-top:12px">'+esc(r.title)+'</h3><a class="repo-path" href="'+sourceLink(r.file)+'" target="_blank" rel="noopener noreferrer">'+esc(r.file)+' ↗</a><p>'+esc(r.summary)+'</p>'+bullets(r.responsibilities)+'<pre>'+esc(r.boundary)+'</pre>';
+}
+function highlight(){
+ var f=data.flows[selectedFlow], current=step>=0?f.steps[step].node:'';
+ document.querySelectorAll('button[data-node]').forEach(function(el){el.classList.toggle('is-route',f.route.indexOf(el.dataset.node)!==-1);el.classList.toggle('is-current',el.dataset.node===current);});
+}
+function renderFlow(){
+ var f=data.flows[selectedFlow];
+ document.querySelectorAll('button[data-flow]').forEach(function(el){el.setAttribute('aria-pressed',String(el.dataset.flow===selectedFlow));});
+ document.getElementById('flow-title').textContent=f.title;document.getElementById('flow-description').textContent=f.description;
+ document.getElementById('flow-kind').textContent=f.kind;document.getElementById('flow-note').textContent=f.note;
+ document.getElementById('flow-steps').innerHTML=f.steps.map(function(s,i){return '<button class="flow-step" data-step="'+i+'"'+(i===step?' aria-current="step"':'')+'><span class="step-number">0'+(i+1)+'</span><strong>'+esc(s.title)+'</strong><p>'+esc(s.body)+'</p><span class="step-scope">'+esc(s.scope)+'</span></button>';}).join('');highlight();
+}
+function updateStep(){
+ document.querySelectorAll('button[data-step]').forEach(function(el){if(Number(el.dataset.step)===step)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');});
+ if(step>=0)selectNode(data.flows[selectedFlow].steps[step].node);highlight();
+}
+function stop(){clearTimeout(timer);timer=null;playing=false;document.querySelector('#play-flow span').textContent='흐름 재생';}
+function next(){
+ if(!playing)return;step++;if(step>=data.flows[selectedFlow].steps.length){step=data.flows[selectedFlow].steps.length-1;stop();return;}updateStep();timer=setTimeout(next,1500);
+}
+function renderProbe(id){
+ var sample=id==='bad'?data.probe.cases[0]:data.probe.cases[1];
+ document.querySelectorAll('button[data-probe]').forEach(function(el){el.setAttribute('aria-pressed',String(el.dataset.probe===id));});
+ document.getElementById('probe-code').textContent=sample.input;
+ var result=document.getElementById('probe-result');result.classList.toggle('pass',id==='good');
+ result.textContent=id==='bad'?'실제 결과: no-raw-colors 1개 + no-restyle 2개 경고. Button의 variant·size와 테마 대안을 제안했습니다.':'실제 결과: 진단 0개. 이 입력은 variant·size와 허용된 layout만 사용합니다.';
+}
+function toast(message){
+ clearTimeout(toastTimer);var e=document.getElementById('toast');e.textContent=message;e.classList.add('visible');toastTimer=setTimeout(function(){e.classList.remove('visible');},2600);
+}
+function download(){
+ var lines=['# Chemifree — Scaffolding Architecture','','기준 커밋: '+data.baseline,'관점: '+(view==='current'?'구축된 기반':'다음 구현 목표'),'작성: 2026-10-27','','## 현재 실행','','npm ci','npm run dev','Web: http://127.0.0.1:5173','API: http://127.0.0.1:3001','CLI는 Application을 직접 호출한다.','','## 현재 API','','GET /api/v1/health','GET /api/v1/capabilities','runtime_inspection만 available. 나머지 7개는 not_implemented.',''];
+ data.nodes.forEach(function(n){lines.push('## '+n.title,'',n.summary,'');n[view].forEach(function(s){lines.push('- '+s);});lines.push('','파일: '+(n.files.join(', ')||'미구현'),'계약: '+n.contract,'경계: '+n.limit,'');});
+ lines.push('## UI 정책','','shadcn/ui Base UI/Nova, 공식 컴포넌트 6개. @shadcn/lint는 설치/등록했으나 기본 및 CI 디자인 규칙은 0개. 임시 stdin probe로 색/외형 위반 탐지를 검증했다.','','## 다음 수직 기능','','문서·그래프·장면 → 원자/결합 편집 → Undo/Redo → 저장 → 재시작 후 다시 열기. 로컬 쓰기 API 보호와 요청/리비전 계약을 함께 구현한다.','','이것은 설계안이며 화학 엔진 구현 완료나 수치 동등성 주장이 아니다.');
+ var url=URL.createObjectURL(new Blob(['\ufeff'+lines.join('\n')],{type:'text/markdown;charset=utf-8'}));
+ var a=document.createElement('a');a.href=url;a.download='chemifree-architecture-'+view+'.ko.md';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);toast('현재 관점의 설계 요약을 저장했습니다.');
+}
+document.addEventListener('click',function(e){
+ var b=e.target.closest('button[data-view]');if(b){stop();view=b.dataset.view;renderView();return;}
+ b=e.target.closest('button[data-node]');if(b){stop();selectNode(b.dataset.node);return;}
+ b=e.target.closest('button[data-repo]');if(b){selectedRepo=b.dataset.repo;renderRepo();document.querySelector('button[data-repo="'+selectedRepo+'"]').focus({preventScroll:true});return;}
+ b=e.target.closest('button[data-flow]');if(b){stop();selectedFlow=b.dataset.flow;step=-1;renderFlow();return;}
+ b=e.target.closest('button[data-step]');if(b){stop();step=Number(b.dataset.step);updateStep();return;}
+ b=e.target.closest('button[data-probe]');if(b)renderProbe(b.dataset.probe);
+});
+document.getElementById('play-flow').addEventListener('click',function(){if(playing){stop();return;}step=-1;playing=true;document.querySelector('#play-flow span').textContent='일시 정지';next();});
+document.getElementById('download-top').addEventListener('click',download);document.getElementById('download-footer').addEventListener('click',download);
+document.getElementById('print-page').addEventListener('click',function(){stop();window.print();});
+document.addEventListener('visibilitychange',function(){if(document.hidden)stop();});
+document.getElementById('health-json').textContent=JSON.stringify(data.health,null,2);
+document.getElementById('capabilities-json').textContent=JSON.stringify(data.capabilities,null,2);
+renderView();renderRepo();renderFlow();renderProbe('bad');
+}());
+</script></body></html>
