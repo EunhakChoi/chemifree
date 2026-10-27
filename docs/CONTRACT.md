@@ -65,7 +65,7 @@ A document is a titled drawing: atoms and bonds with one set of scene positions.
 - `element`: case-sensitive IUPAC symbol, H through Og. `charge`: −8..8. `isotope`: mass number 1..999, or `null` for natural abundance.
 - `order`: `single | double | triple`. At most one bond joins a pair of atoms; self-bonds are rejected.
 - Limits: 2000 atoms, 4000 bonds, title 1–200 characters without control characters (surrounding whitespace is trimmed).
-- `revision` increases with every effective transaction, undo, or redo: by one, or further when a working copy continues past numbers handed out for discarded states (see No reuse). It never moves backward. It stays at most 2^53 − 1 so JSON clients read it exactly; a document there accepts no further changes (`503 resource_limit`), and files beyond it are not opened.
+- `revision` increases with every effective transaction, undo, or redo: by one, or further when a working copy continues past numbers handed out for discarded states (see No reuse). It never moves backward. It stays at most 2^53 − 1 so JSON clients read it exactly, and files beyond it are not opened. Edits, undo, and redo stop at 2^53 − 2 (`503 resource_limit`); the last number is kept so a copy reopened after a discard still gets a fresh revision. When no fresh revision remains (e.g. to follow another writer's commit after that), the document returns `resource_limit` in this process and is listed under `unreadable`.
 - `session` describes the working copy held by this process. `saved_revision` is the session revision whose content is the stored commit.
 
 ## Edits
@@ -95,9 +95,32 @@ Undo, redo, and save bodies: `{ "request_id", "expected_revision" }`. Undo rever
 - **Request IDs.** `request_id` is 1–64 characters of `[A-Za-z0-9_-]`, required over HTTP. Repeating a completed request with the same ID and body returns the original response without applying it again. Reusing an ID for a different body returns `409 request_id_reused`. Replays are remembered for the latest 64 successful mutations per open document (and per process for creates and closes, so a retried close cannot end a session opened after it); failed requests are not remembered, so a retry runs again.
 - **Sessions.** The first access opens a document from storage into a per-process working copy. Edits change only the working copy until `save`. A working copy without unsaved changes follows newer commits by other writers (e.g. the CLI) on its next access, so an edit based on the older view gets `revision_conflict`. `close` ends the session; the next access reopens the committed file. Closing with unsaved changes returns `409 unsaved_changes` unless the body has `"discard_unsaved": true` together with `expected_revision`, the revision whose changes the client agreed to lose; the session is shared by all clients of the process, so a stale revision is `409 revision_conflict` and nothing is discarded. Close body: `{ "request_id", "discard_unsaved"?, "expected_revision"? }`. If a process stops, unsaved edits are lost and the last committed save remains.
 - **No reuse.** Within a process, a revision number or atom/bond ID that a client has seen never names a different state later. After a discard (or when a clean copy reloads another writer's commit) the working copy continues numbering above everything it handed out, so a stale `expected_revision` is a conflict. A restarted process cannot know what the previous one handed out. When its token is refused, the web client re-reads the document and resends an edit only if the restarted service holds exactly the drawing on screen (never an undo or redo); otherwise it asks for a reload.
-- **Create** commits the empty document before replying. It is the one write without `expected_revision`, so a client that got no response retries with the same `request_id`; the web client does this.
+- **Create** commits the empty document before replying. It is the one write without `expected_revision`, so a client that got no response retries with the same `request_id`; the web client does this. A restarted service has forgotten that `request_id`, so when the retry meets a new token the web client does not resend: the document may already exist, and the page says so and refreshes the list.
 - **Save** writes a temporary file in the same directory, flushes it, and renames it over the document; the rename is the commit. The directory is then synced where the platform supports it, and a failure of that sync does not turn the committed save into an error. The acknowledgement is sent only after the commit. A document that would encode beyond the 64 MiB read limit is not written. On failure the previous file is intact, the reply is `503 storage_failed`, and the session keeps its unsaved changes for a retry. Saving an unchanged session is a successful no-op.
 - **Concurrent writers.** A save requires storage to still hold the commit this session last saw. If another writer (another session or the CLI) committed first, the reply is `409 save_conflict` and nothing is written; close with `discard_unsaved` and reopen. The check and the rename are not a single atomic step across processes; two processes saving in the same instant can still race.
+
+## Guarantees and known limits
+
+Reviews and changes are checked against these lists. Breaking a guarantee is a defect. A known limit is current scope, not a defect; lifting one is a separate change.
+
+Guarantees:
+
+- **All or nothing.** A transaction, undo, redo, save, or close either takes full effect or changes nothing.
+- **No lost updates.** A save never replaces a commit its session did not start from; it is refused as `save_conflict`.
+- **Intact on failure.** A failed save leaves the previous commit intact and the unsaved changes in the session. Success is reported only after the commit.
+- **Reopenable.** A committed document can be opened again. A document that could not be read back is refused, never written.
+- **At most once per process.** Within one API process, a repeated `request_id` with the same body takes effect at most once (within the replay window above).
+- **No reuse per process.** Within one API process, a revision or atom/bond ID that a client has seen, including in the document list, never names different content.
+- **Honest outcomes.** Clients report success only when the service confirmed it. An outcome that cannot be known is reported as unknown, not resent where a resend could act twice.
+
+Known limits:
+
+- **Restarts.** A process keeps working copies, unsaved edits, replay logs, and the numbers it handed out in memory only. After a restart, a retried request may run again and a revision may name different content than before. The web client therefore resends an edit only when the restarted service holds the same drawing, never an undo, redo, or an unconfirmed create.
+- **One process per data directory.** Other writers are detected, not coordinated: a save conflict is refused, and a clean copy picks up a newer commit on its next access. There is no file locking, live update, or merge, and two processes saving in the same instant can race.
+- **Durability.** The rename is the commit and the directory sync is best effort, so a power loss right after a save may bring back the previous commit. A file is never left half-written.
+- **Not implemented.** Autosave, crash recovery of unsaved edits, save as copy, and read-only handling beyond `storage_failed`.
+- **Sizes.** The limits above (atoms, bonds, title, commands, history, 64 MiB files, revisions, 64 open sessions) are refused with an error, never truncated.
+- **Write token.** It keeps other websites from writing; it is not user authentication (see below).
 
 ## Write protection
 

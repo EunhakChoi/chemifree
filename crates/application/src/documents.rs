@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use chemifree_domain::document::{
-    Document, DocumentId, EditError, HistoryError, Numbering, Outcome,
+    Document, DocumentId, EditError, HistoryError, Numbering, Outcome, RevisionsExhausted,
 };
 
 use crate::API_VERSION;
@@ -99,18 +99,27 @@ struct Session {
 }
 
 impl Session {
-    /// A working copy of a stored document, numbered after what earlier copies handed out.
-    fn open(mut document: Document, retired: Option<Retired>) -> Self {
-        let stored_revision = document.revision();
-        if let Some(retired) = retired {
-            document.continue_after(retired.continue_after(stored_revision));
-        }
+    /// A working copy of a document as stored.
+    fn new(document: Document) -> Self {
         Self {
-            stored_revision,
+            stored_revision: document.revision(),
             saved_revision: document.revision(),
             document,
             replays: ReplayLog::default(),
         }
+    }
+
+    /// A working copy of a stored document, numbered after what earlier copies handed out.
+    fn open(document: Document, retired: Option<Retired>) -> Result<Self, ApplicationError> {
+        let mut session = Self::new(document);
+        if let Some(retired) = retired {
+            session
+                .document
+                .continue_after(retired.continue_after(session.stored_revision))
+                .map_err(revisions_exhausted)?;
+            session.saved_revision = session.document.revision();
+        }
+        Ok(session)
     }
 
     fn response(&self) -> DocumentResponse {
@@ -256,13 +265,24 @@ impl<R: DocumentRepository> Documents<R> {
     pub(crate) fn list(&self) -> Result<DocumentListResponse, ApplicationError> {
         let stored = self.repository.list_ids().map_err(storage_error)?;
         let mut documents = Vec::new();
-        let open: HashSet<DocumentId> = {
+        let (open, retired): (HashSet<DocumentId>, HashMap<DocumentId, Retired>) = {
             let mut sessions = self.lock();
+            let mut stale = Vec::new();
             for (id, session) in &mut sessions.open {
-                self.refresh(id, session);
+                if self.refresh(id, session).is_err() {
+                    stale.push(id.clone());
+                    continue;
+                }
                 documents.push(summary(id, &session.document, true, session.is_dirty()));
             }
-            sessions.open.keys().cloned().collect()
+            // These clean copies cannot follow a newer commit; they close and it is listed.
+            for id in &stale {
+                sessions.remove(id);
+            }
+            (
+                sessions.open.keys().cloned().collect(),
+                sessions.retired.clone(),
+            )
         };
         let mut unreadable = Vec::new();
         let remaining = MAX_LISTED_DOCUMENTS.saturating_sub(documents.len());
@@ -272,7 +292,14 @@ impl<R: DocumentRepository> Documents<R> {
             .take(remaining)
         {
             match self.repository.load(&id) {
-                Ok(Some(document)) => documents.push(summary(&id, &document, false, false)),
+                // Numbered as opening it would number it, so no listed revision is reused.
+                Ok(Some(document)) => match Session::open(document, retired.get(&id).copied()) {
+                    Ok(session) => documents.push(summary(&id, &session.document, false, false)),
+                    Err(error) => unreadable.push(UnreadableDocument {
+                        id: id.to_string(),
+                        message: error.message,
+                    }),
+                },
                 Ok(None) => {}
                 Err(error) => unreadable.push(UnreadableDocument {
                     id: id.to_string(),
@@ -314,7 +341,7 @@ impl<R: DocumentRepository> Documents<R> {
         if let Some(evicted) = eviction {
             sessions.remove(&evicted);
         }
-        let session = Session::open(document, None);
+        let session = Session::new(document);
         let response = session.response();
         sessions.created.record(request_id, mutation, &response);
         sessions.open.insert(id, session);
@@ -513,16 +540,18 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<&'a mut Session, ApplicationError> {
         let id = parse_id(id)?;
         if let Some(session) = sessions.open.get_mut(&id) {
-            self.refresh(&id, session);
+            if let Err(error) = self.refresh(&id, session) {
+                sessions.remove(&id);
+                return Err(error);
+            }
         } else {
             let document = self.load(&id)?.ok_or_else(|| not_found(&id))?;
+            let retired = sessions.retired.get(&id).copied();
+            let session = Session::open(document, retired)?;
             if let Some(evicted) = sessions.eviction(Some(&id))? {
                 sessions.remove(&evicted);
             }
-            let retired = sessions.retired.get(&id).copied();
-            sessions
-                .open
-                .insert(id.clone(), Session::open(document, retired));
+            sessions.open.insert(id.clone(), session);
         }
         Ok(sessions
             .open
@@ -533,27 +562,29 @@ impl<R: DocumentRepository> Documents<R> {
     /// A clean working copy follows newer commits by other writers (another process or the
     /// CLI), so it never shows stale content as saved. A session with unsaved changes keeps
     /// them and meets the other commit as a save conflict. Storage errors leave the copy as
-    /// it is: it is still the last commit this session saw.
-    fn refresh(&self, id: &DocumentId, session: &mut Session) {
+    /// it is: it is still the last commit this session saw. Fails when no revision remains to
+    /// name the newer commit; the caller then closes the clean copy.
+    fn refresh(&self, id: &DocumentId, session: &mut Session) -> Result<(), ApplicationError> {
         if session.is_dirty() {
-            return;
+            return Ok(());
         }
         let newer = matches!(
             self.repository.stored_revision(id),
             Ok(Some(stored)) if stored > session.stored_revision
         );
         if newer && let Ok(Some(document)) = self.repository.load(id) {
-            let replays = std::mem::take(&mut session.replays);
             // The copy being replaced named the old commit; the new one must not reuse that.
             let reached = Retired {
                 reached: session.document.numbering(),
                 clean_on: None,
             };
+            let reopened = Session::open(document, Some(reached))?;
             *session = Session {
-                replays,
-                ..Session::open(document, Some(reached))
+                replays: std::mem::take(&mut session.replays),
+                ..reopened
             };
         }
+        Ok(())
     }
 
     fn load(&self, id: &DocumentId) -> Result<Option<Document>, ApplicationError> {
@@ -618,6 +649,10 @@ fn history_error(error: HistoryError) -> ApplicationError {
         HistoryError::RevisionLimit => ErrorCode::ResourceLimit,
     };
     ApplicationError::new(code, error.to_string())
+}
+
+fn revisions_exhausted(error: RevisionsExhausted) -> ApplicationError {
+    ApplicationError::new(ErrorCode::ResourceLimit, error.to_string())
 }
 
 fn storage_error(error: StorageError) -> ApplicationError {

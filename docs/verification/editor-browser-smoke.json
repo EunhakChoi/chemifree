@@ -21,10 +21,11 @@
     "api_restart_retries_only_unchanged_drawings": true,
     "invalid_isotope_is_rejected": true,
     "lost_create_response_is_retried_without_duplicates": true,
+    "unconfirmed_create_is_not_resent_after_restart": true,
     "mobile_390_and_320_without_horizontal_overflow": true,
     "dark_mode_screenshot": true,
     "uncaught_browser_errors": [],
-    "expected_http_error_console_lines": 8
+    "expected_http_error_console_lines": 10
   },
-  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflict, rejected element, refused token after a simulated API restart, save failure, save conflict, and a connection reset that drops a create response). edits_while_a_request_is_pending delays transactions by 400 ms. Not run in CI."
+  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflict, rejected element, refused token after a simulated API restart, save failure, save conflict, connection resets that drop create responses, and a refused token before an unconfirmed create is resent). edits_while_a_request_is_pending delays transactions by 400 ms. Not run in CI."
 }

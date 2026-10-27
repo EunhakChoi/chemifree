@@ -65,9 +65,9 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 검증된 내용(첫 수직 기능):
 
-- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 47개(domain 18, application 14, providers 7, api 8).
+- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 49개(domain 19, application 15, providers 7, api 8).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구.
-- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
+- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
 - 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
 
 scaffold 시점 기록은 verification/의 기존 JSON에 남아 있다. 화학적 정확성 검증은 수행한 상태가 아니다.
@@ -76,10 +76,14 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 알려진 한계
 
+보장과 한계의 기준 목록은 CONTRACT.md의 "Guarantees and known limits"다. 리뷰와 변경은 그 목록에 맞춰 판단한다. 아래는 구현 관점의 보충이다.
+
 - 작업 사본은 API 프로세스 메모리에 있다. 저장하지 않은 편집은 프로세스 종료 시 사라지고 마지막 커밋이 남는다(의도된 정책, 테스트됨).
 - 저장의 base revision 검사와 rename은 프로세스 간 단일 원자 연산이 아니다. 두 프로세스가 같은 순간 저장하면 경쟁할 수 있다.
-- request_id 재전송 기억은 프로세스 메모리(문서당 최근 64개)에만 있다. 웹은 응답을 받지 못한 생성 요청의 ID를 재시도에 다시 쓰지만, 그 사이 API가 재시작되면 재시도가 새 문서를 만든다.
+- request_id 재전송 기억은 프로세스 메모리(문서당 최근 64개)에만 있다. 웹은 응답을 받지 못한 생성 요청의 ID를 재시도에 다시 쓴다. 그 사이 API가 재시작되면 재전송하지 않고(중복 생성 방지) 문서가 이미 생겼을 수 있다고 안내하며 목록을 새로 고친다. 확인은 사용자 몫이다.
 - 문서 삭제 기능은 아직 없다.
+- revision은 2^53 − 1까지다. 편집은 2^53 − 2에서 멈추고 마지막 번호는 버린 뒤 다시 여는 사본용으로 남긴다. 그 뒤 다른 저장을 따라갈 번호가 없으면 그 프로세스에서는 resource_limit으로 거절한다.
+- 자동 저장, 비정상 종료 후 미저장 편집 복구, 사본으로 저장, 파일 잠금은 없다.
 - revision·ID 재사용 방지 기억은 프로세스 메모리에 있다. API가 재시작되면 웹은 문서를 다시 읽어 화면과 같은 내용일 때만 편집을 재전송하고(Undo/Redo 제외), 다르면 Reload를 요구한다. CLI는 매번 저장본에서 시작한다.
 - request_id 재전송 기록은 원래 응답 전체를 보관한다(세션당 64개). 큰 문서를 많이 열면 메모리 사용이 커질 수 있다.
 - 문서 목록은 저장된 각 문서를 전부 복원·검증한다. 문서가 많고 크면 목록 조회가 느릴 수 있다(잠금 밖에서 수행).

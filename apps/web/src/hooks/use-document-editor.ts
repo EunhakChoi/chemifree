@@ -142,8 +142,17 @@ export function useDocumentEditor() {
     dismissError: useCallback(() => setError(null), []),
     refreshList,
     create: useCallback(
-      (title?: string) => run(async () => setCurrent(await client.create(title))),
-      [run, setCurrent],
+      (title?: string) =>
+        run(async () => {
+          try {
+            setCurrent(await client.create(title))
+          } catch (failure) {
+            // The list shows whether the unconfirmed document exists.
+            if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
+            throw failure
+          }
+        }),
+      [run, setCurrent, refreshList],
     ),
     open: useCallback((documentId: string) => run(async () => setCurrent(await client.get(documentId))), [run, setCurrent]),
     /** Re-reads the working copy, e.g. after a revision conflict. */

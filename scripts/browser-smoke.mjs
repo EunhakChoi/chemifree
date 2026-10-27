@@ -444,6 +444,41 @@ await page.unroute('**/api/v1/documents')
 results.lost_create_response_is_retried_without_duplicates = true
 step = 'after lost_create_response_is_retried_without_duplicates'
 
+// The same lost create, but the service restarts before the retry: it has forgotten the
+// request_id, so the page does not resend it and asks the user to check the list instead.
+await page.getByRole('button', { name: 'Close document' }).click()
+await page.getByText('No document open').waitFor()
+const beforeUnconfirmed = (await api('/api/v1/documents')).documents.length
+let createsCommitted = 0
+let createsRefused = 0
+await page.route('**/api/v1/documents', async (route) => {
+  if (route.request().method() !== 'POST') return route.continue()
+  if (createsCommitted === 0) {
+    createsCommitted += 1
+    await route.fetch()
+    return route.abort('connectionreset')
+  }
+  createsRefused += 1
+  return route.fulfill({
+    status: 401,
+    contentType: 'application/json',
+    body: JSON.stringify({ api_version: 'v1', code: 'unauthorized', message: 'missing or invalid session token' }),
+  })
+})
+await page.getByRole('button', { name: 'New document' }).click()
+await page.getByText('could not be reached', { exact: false }).waitFor()
+await page.getByRole('button', { name: 'New document' }).click()
+await page.getByText('New document not confirmed', { exact: true }).waitFor()
+await waitIdle()
+assert.equal(createsRefused, 1, 'the unconfirmed create is not resent after the restart')
+assert.equal((await api('/api/v1/documents')).documents.length, beforeUnconfirmed + 1, 'no duplicate')
+await page.unroute('**/api/v1/documents')
+await page.getByRole('button', { name: 'New document' }).click()
+await page.getByLabel('Document title').waitFor()
+assert.equal((await api('/api/v1/documents')).documents.length, beforeUnconfirmed + 2, 'a deliberate new create works')
+results.unconfirmed_create_is_not_resent_after_restart = true
+step = 'after unconfirmed_create_is_not_resent_after_restart'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

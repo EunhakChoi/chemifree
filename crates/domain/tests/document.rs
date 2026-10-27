@@ -1,7 +1,7 @@
 use chemifree_domain::document::{
     Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command, Document,
-    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, MAX_REVISION,
-    Outcome, Point, TransactionError, Vector,
+    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, MAX_EDIT_REVISION,
+    MAX_REVISION, Outcome, Point, RevisionsExhausted, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 
@@ -455,12 +455,16 @@ fn revisions_stop_at_the_largest_exact_client_number() {
     assert!(Document::restore(beyond).is_err());
 
     let mut parts = ethanol().to_parts();
-    parts.revision = MAX_REVISION;
+    parts.revision = MAX_EDIT_REVISION - 1;
     let mut document = Document::restore(parts).unwrap();
+    document.apply(&[add("N", 90.0, 0.0)]).unwrap();
+    assert_eq!(document.revision(), MAX_EDIT_REVISION);
+
     let before = document.clone();
-    let error = document.apply(&[add("N", 90.0, 0.0)]).unwrap_err();
+    let error = document.apply(&[add("N", 120.0, 0.0)]).unwrap_err();
     assert_eq!(error.error, EditError::RevisionLimit);
     assert_eq!(document.undo(), Err(HistoryError::RevisionLimit));
+    assert_eq!(document.redo(), Err(HistoryError::RevisionLimit));
     assert_eq!(document, before, "nothing changed");
     assert_eq!(
         document.apply(&[Command::MoveAtoms {
@@ -470,6 +474,29 @@ fn revisions_stop_at_the_largest_exact_client_number() {
         Ok(Outcome::Unchanged),
         "a no-op still succeeds"
     );
+}
+
+#[test]
+fn continuing_after_discarded_edits_keeps_a_fresh_revision_or_refuses() {
+    let stored = ethanol();
+    let mut discarded = stored.clone();
+    let mut parts = discarded.to_parts();
+    parts.revision = MAX_EDIT_REVISION;
+    discarded = Document::restore(parts).unwrap();
+
+    // Edits stop below the last revision, so a copy reopened after discarding them has one.
+    let mut reopened = stored.clone();
+    reopened.continue_after(discarded.numbering()).unwrap();
+    assert_eq!(reopened.revision(), MAX_REVISION);
+    assert_eq!(reopened.atoms().len(), stored.atoms().len());
+
+    // Past that, nothing is renumbered rather than a used revision named again.
+    let mut again = stored.clone();
+    assert_eq!(
+        again.continue_after(reopened.numbering()),
+        Err(RevisionsExhausted)
+    );
+    assert_eq!(again, stored);
 }
 
 #[test]

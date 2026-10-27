@@ -7,7 +7,7 @@ use chemifree_application::{
     MAX_OPEN_SESSIONS, StorageError,
 };
 use chemifree_domain::Capability;
-use chemifree_domain::document::{Document, DocumentId};
+use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
 use serde_json::json;
 
 struct NoCapabilities;
@@ -379,6 +379,57 @@ fn discarding_never_hands_out_a_revision_or_identifier_again() {
     let saved = app.save(&id, None, redrawn.document.revision).unwrap();
     assert!(!saved.session.unsaved_changes);
     assert_eq!(saved.session.saved_revision, redrawn.document.revision);
+}
+
+#[test]
+fn the_last_revision_is_kept_for_a_reopened_copy_and_never_named_twice() {
+    let (app, store) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.close(&id, None, false, None).unwrap();
+    let key = DocumentId::parse(&id).unwrap();
+    let near_limit = MAX_EDIT_REVISION - 1;
+    {
+        let mut documents = store.documents.lock().unwrap();
+        let mut parts = documents[&key].to_parts();
+        parts.revision = near_limit;
+        documents.insert(key.clone(), Document::restore(parts).unwrap());
+    }
+
+    let drawn = app
+        .apply_transaction(&id, None, near_limit, draw_ethanol())
+        .unwrap();
+    assert_eq!(drawn.document.revision, MAX_EDIT_REVISION);
+    let refused = app
+        .apply_transaction(
+            &id,
+            None,
+            MAX_EDIT_REVISION,
+            commands(json!([{"op": "rename", "title": "More"}])),
+        )
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::ResourceLimit);
+    app.close(&id, None, true, Some(MAX_EDIT_REVISION)).unwrap();
+
+    let reopened = app.document(&id).unwrap();
+    assert_eq!(reopened.document.revision, MAX_REVISION);
+    assert!(reopened.document.atoms.is_empty());
+
+    // Another writer commits different content; no revision is left to name it here.
+    let other = Application::new(NoCapabilities, store.clone());
+    other
+        .apply_transaction(&id, None, near_limit, draw_ethanol())
+        .unwrap();
+    other.save(&id, None, MAX_EDIT_REVISION).unwrap();
+
+    let exhausted = app.document(&id).unwrap_err();
+    assert_eq!(exhausted.code, ErrorCode::ResourceLimit);
+    let listed = app.list_documents().unwrap();
+    assert!(listed.documents.is_empty(), "{listed:?}");
+    assert_eq!(listed.unreadable.len(), 1);
+    assert_eq!(
+        app.document(&id).unwrap_err().code,
+        ErrorCode::ResourceLimit
+    );
 }
 
 #[test]

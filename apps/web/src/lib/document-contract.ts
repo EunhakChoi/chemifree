@@ -245,8 +245,8 @@ export class DocumentClient {
 
   /**
    * A restarted API issues a new token and has lost its working copies, so revisions this
-   * page has seen may since name different states. A create is retried with the new token;
-   * an edit to an open document is not, and asks for a reload instead.
+   * page has seen may since name different states. A first create attempt is retried with the
+   * new token; an edit to an open document is not, and asks for a reload instead.
    */
   private async write(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
     for (let attempt = 0; ; attempt += 1) {
@@ -290,17 +290,27 @@ export class DocumentClient {
 
   async create(title?: string) {
     const unconfirmed = this.unconfirmedCreate
-    const pending = unconfirmed !== null && unconfirmed.title === title ? unconfirmed : { requestId: requestId(), title }
+    const resend = unconfirmed !== null && unconfirmed.title === title
+    const pending = resend ? unconfirmed : { requestId: requestId(), title }
     this.unconfirmedCreate = pending
     try {
+      // A restarted service has forgotten the request_id of an earlier unanswered attempt, so
+      // that attempt is not resent: if it was committed, a resend would create a second document.
       const document = DocumentClient.document(
-        await this.write('/api/v1/documents', { request_id: pending.requestId, title }, 'retry'),
+        await this.write('/api/v1/documents', { request_id: pending.requestId, title }, resend ? 'reload' : 'retry'),
       )
       this.unconfirmedCreate = null
       return document
     } catch (error) {
       // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
       if (!(error instanceof ApiError && error.status === 0)) this.unconfirmedCreate = null
+      if (error instanceof ApiError && error.code === 'service_restarted') {
+        throw new ApiError(
+          'create_unconfirmed',
+          'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
+          error.status,
+        )
+      }
       throw error
     }
   }

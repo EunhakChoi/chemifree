@@ -22,8 +22,12 @@ pub const MAX_ISOTOPE_MASS_NUMBER: u16 = 999;
 /// Undo entries beyond this depth are discarded, oldest first.
 pub const HISTORY_LIMIT: usize = 100;
 /// The largest revision. Clients exchange revisions as JSON numbers, which are exact only up
-/// to 2^53 - 1; a document at this revision accepts no further changes.
+/// to 2^53 - 1.
 pub const MAX_REVISION: u64 = (1 << 53) - 1;
+/// The largest revision an edit, undo, or redo may reach. The one above it is kept for a copy
+/// reopened after those changes are discarded, which must not name the stored commit with a
+/// revision the discarded changes already used.
+pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
@@ -337,6 +341,18 @@ impl fmt::Display for HistoryError {
 }
 
 impl std::error::Error for HistoryError {}
+
+/// No revision remains above the ones already handed out.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RevisionsExhausted;
+
+impl fmt::Display for RevisionsExhausted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(REVISION_LIMIT_MESSAGE)
+    }
+}
+
+impl std::error::Error for RevisionsExhausted {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Change<T> {
@@ -911,13 +927,18 @@ impl Document {
     /// Moves the revision above `reached.revision` and the identifier counters up to
     /// `reached`'s, leaving content and history unchanged. Used when this copy replaces one
     /// that handed out revisions or identifiers for states that were never stored, so those
-    /// numbers are not handed out again for different states. Never moves anything back.
-    pub fn continue_after(&mut self, reached: Numbering) {
+    /// numbers are not handed out again for different states. Never moves anything back, and
+    /// changes nothing when no revision above `reached.revision` remains.
+    pub fn continue_after(&mut self, reached: Numbering) -> Result<(), RevisionsExhausted> {
         if self.revision <= reached.revision {
-            self.revision = reached.revision.saturating_add(1).min(MAX_REVISION);
+            if reached.revision >= MAX_REVISION {
+                return Err(RevisionsExhausted);
+            }
+            self.revision = reached.revision + 1;
         }
         self.next_atom = self.next_atom.max(reached.next_atom);
         self.next_bond = self.next_bond.max(reached.next_bond);
+        Ok(())
     }
 
     pub fn undo_depth(&self) -> usize {
@@ -954,7 +975,7 @@ impl Document {
         if changes.is_empty() {
             return Ok(Outcome::Unchanged);
         }
-        if self.revision >= MAX_REVISION {
+        if self.revision >= MAX_EDIT_REVISION {
             return Err(TransactionError {
                 index: None,
                 error: EditError::RevisionLimit,
@@ -975,7 +996,7 @@ impl Document {
     /// Reverts the latest transaction as a new revision. Identifier counters are not
     /// rewound, so a later addition never reuses an undone atom's or bond's identifier.
     pub fn undo(&mut self) -> Result<(), HistoryError> {
-        if self.revision >= MAX_REVISION {
+        if self.revision >= MAX_EDIT_REVISION {
             return Err(HistoryError::RevisionLimit);
         }
         let set = self.undo.pop_back().ok_or(HistoryError::NothingToUndo)?;
@@ -987,7 +1008,7 @@ impl Document {
     }
 
     pub fn redo(&mut self) -> Result<(), HistoryError> {
-        if self.revision >= MAX_REVISION {
+        if self.revision >= MAX_EDIT_REVISION {
             return Err(HistoryError::RevisionLimit);
         }
         let set = self.redo.pop().ok_or(HistoryError::NothingToRedo)?;

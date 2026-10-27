@@ -119,13 +119,14 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
   const title = {
     revision_conflict: 'The document changed',
     service_restarted: 'Local service restarted',
+    create_unconfirmed: 'New document not confirmed',
     save_conflict: 'Saved elsewhere',
     storage_failed: 'Save failed',
     invalid_command: 'Edit rejected',
     unreachable: 'Local service unavailable',
   }[error.code] ?? 'Request failed'
   return (
-    <Alert variant={stale || error.code === 'invalid_command' ? 'default' : 'destructive'}>
+    <Alert variant={stale || error.code === 'invalid_command' || error.code === 'create_unconfirmed' ? 'default' : 'destructive'}>
       <TriangleAlertIcon aria-hidden="true" />
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
