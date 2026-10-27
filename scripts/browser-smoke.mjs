@@ -1,6 +1,7 @@
 // Browser smoke for the document editor: create → edit → undo/redo → save → reopen, plus
-// conflict, save-failure, mobile, and dark-mode checks. It starts the API and Vite on a
-// temporary data directory (ports 3001 and 5173 must be free) and drives a real browser.
+// conflict, save-failure, autosave and crash recovery, save as copy, mobile, and dark-mode
+// checks. It starts the API and Vite on a temporary data directory (ports 3001 and 5173 must
+// be free) and drives a real browser. The API runs as its own process so it can be killed.
 //
 //   npm run test:browser
 //
@@ -9,7 +10,7 @@
 // Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory).
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright-core'
@@ -26,46 +27,77 @@ execFileSync('cargo', ['build', '--workspace', '--locked'], { stdio: 'inherit' }
 const metadata = JSON.parse(
   execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { encoding: 'utf8' }),
 )
-const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${process.platform === 'win32' ? '.exe' : ''}`)
+const suffix = process.platform === 'win32' ? '.exe' : ''
+const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
+const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
 
-const servers = spawn('npm', ['run', 'dev'], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+/** Starts a process and resolves once its output matches `ready`. */
+function start(command, args, ready, options = {}) {
+  const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], ...options })
+  let log = ''
+  const started = new Promise((resolveReady, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${command} did not start. ${log}`)), 120_000)
+    const read = (data) => {
+      log += data.toString()
+      if (ready.test(log)) {
+        clearTimeout(timer)
+        resolveReady(child)
+      }
+    }
+    child.stdout.on('data', read)
+    child.stderr.on('data', read)
+    child.once('exit', (code) => reject(new Error(`${command} exited (${code}). ${log}`)))
+  })
+  return { child, started }
+}
+const startApi = () => start(apiPath, ['--port', '3001'], /listening on http:\/\/127\.0\.0\.1:3001/)
+let apiServer = startApi()
+const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
 // Registered before anything can fail so a failed start or launch never leaves servers running.
 let browser = null
 let step = 'start'
 async function cleanup() {
   await browser?.close().catch(() => {})
+  apiServer.child.kill('SIGTERM')
   try {
-    process.kill(-servers.pid, 'SIGTERM')
+    process.kill(-web.child.pid, 'SIGTERM')
   } catch {
     // Already stopped.
   }
   if (!process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
 }
+let page = null
+const recentRequests = []
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
+  await page?.screenshot({ path: join(outDir, 'failure.png') }).catch(() => {})
+  console.error(recentRequests.join('\n'))
   await cleanup()
   process.exit(1)
 })
-let log = ''
-await new Promise((resolveReady, reject) => {
-  const timer = setTimeout(() => reject(new Error(`Servers did not start. ${log}`)), 120_000)
-  const read = (data) => {
-    log += data.toString()
-    if (/listening on http:\/\/127\.0\.0\.1:3001/.test(log) && /Local:\s+http:\/\/127\.0\.0\.1:5173/.test(log)) {
-      clearTimeout(timer)
-      resolveReady()
-    }
-  }
-  servers.stdout.on('data', read)
-  servers.stderr.on('data', read)
-  servers.once('exit', (code) => reject(new Error(`Servers exited (${code}). ${log}`)))
-})
+await Promise.all([apiServer.started, web.started])
+/** Kills the API the way a crash would and starts a new process on the same port. */
+async function crashApi() {
+  const exited = new Promise((resolveExit) => apiServer.child.once('exit', resolveExit))
+  apiServer.child.kill('SIGKILL')
+  await exited
+  apiServer = startApi()
+  await apiServer.started
+}
 
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-const page = await context.newPage()
+page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
+const started = new Map()
+page.on('request', (request) => started.set(request, Date.now()))
+const note = (request, outcome) => {
+  recentRequests.push(`${new Date().toISOString()} ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
+  if (recentRequests.length > 40) recentRequests.shift()
+}
+page.on('requestfinished', async (request) => note(request, (await request.response())?.status()))
+page.on('requestfailed', (request) => note(request, request.failure()?.errorText))
 page.on('pageerror', (error) => consoleErrors.push(String(error)))
 
 const api = (path) => page.evaluate(async (p) => (await fetch(p)).json(), path)
@@ -478,6 +510,177 @@ await page.getByLabel('Document title').waitFor()
 assert.equal((await api('/api/v1/documents')).documents.length, beforeUnconfirmed + 2, 'a deliberate new create works')
 results.unconfirmed_create_is_not_resent_after_restart = true
 step = 'after unconfirmed_create_is_not_resent_after_restart'
+
+// ── Autosave and crash recovery ─────────────────────────────────────────────────────────
+const draftState = page.getByTestId('draft-state')
+const draftKind = () => draftState.getAttribute('data-state')
+const waitDraft = (kind) =>
+  page.waitForFunction((value) => document.querySelector('[data-testid="draft-state"]')?.getAttribute('data-state') === value, kind, {
+    timeout: 15_000,
+  })
+const draftFile = () => join(dataDir, 'drafts', `${docId}.json`)
+/** Clicks and waits for the POST it causes, so the next check sees its result. */
+const clickFor = async (locator, path) => {
+  const response = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(path))
+  await locator.click()
+  await response
+  await waitIdle()
+}
+const drawPair = async () => {
+  await tool('Bond')
+  const area = await page.locator('svg[role="img"]').boundingBox()
+  const response = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/transactions'))
+  await page.mouse.click(area.x + area.width * 0.3, area.y + area.height * 0.7)
+  await response
+  await waitIdle()
+}
+const waitForTitle = (title) =>
+  page.waitForFunction((value) => document.querySelector('input[aria-label="Document title"]')?.value === value, title)
+const closeShown = async () => {
+  await page.getByRole('button', { name: 'Close document' }).click()
+  const discard = page.getByRole('button', { name: 'Discard and close' })
+  if (await discard.isVisible().catch(() => false)) await discard.click()
+  await page.getByText('No document open').waitFor()
+}
+
+await closeShown()
+const recoveryCreated = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+await page.getByRole('button', { name: 'New document' }).click()
+docId = (await (await recoveryCreated).json()).document.id
+await page.getByLabel('Document title').waitFor()
+assert.equal(await draftKind(), 'clean')
+await drawPair()
+assert.match(await page.getByTestId('file-state').textContent(), /last saved at revision 0/)
+await waitDraft('saved')
+assert.ok(existsSync(draftFile()), 'the draft is written apart from the document file')
+const drawnBeforeCrash = (await openDoc()).document
+results.autosave_writes_a_draft_and_shows_its_state = true
+step = 'after autosave_writes_a_draft_and_shows_its_state'
+
+// The API crashes. The page notices on its next request and asks for a reload; the reloaded
+// document offers the draft, and recovering it restores the drawing with its undo history.
+await crashApi()
+await drawPair()
+await page.getByText('Local service restarted', { exact: true }).waitFor()
+await page.getByRole('button', { name: 'Reload' }).click()
+await page.getByTestId('recovery-notice').waitFor()
+assert.equal(await page.getByTestId('recovery-notice').getAttribute('data-state'), 'recoverable')
+assert.equal(await saveState(), 'Saved', 'storage still holds the empty commit')
+await page.screenshot({ path: join(outDir, 'editor-recovery.png') })
+await clickFor(page.getByRole('button', { name: 'Recover', exact: true }), '/recover')
+const recoveredDoc = await openDoc()
+assert.deepEqual(recoveredDoc.document.atoms, drawnBeforeCrash.atoms)
+assert.deepEqual(recoveredDoc.document.bonds, drawnBeforeCrash.bonds)
+assert.equal(await saveState(), 'Unsaved changes')
+assert.equal(await page.getByTestId('recovery-notice').count(), 0)
+await waitDraft('saved')
+await clickFor(page.getByRole('button', { name: 'Undo' }), '/undo')
+assert.equal((await openDoc()).document.atoms.length, 0, 'undo history came back with the draft')
+await clickFor(page.getByRole('button', { name: 'Redo' }), '/redo')
+await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+assert.equal(await saveState(), 'Saved')
+assert.ok(!existsSync(draftFile()), 'saving removes the draft')
+await crashApi()
+await page.reload()
+await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+await page.getByLabel('Document title').waitFor()
+assert.equal(await page.getByTestId('recovery-notice').count(), 0, 'a saved draft never comes back')
+results.crash_recovery_restores_drawing_and_history = true
+step = 'after crash_recovery_restores_drawing_and_history'
+
+// Discarding a draft after a crash asks first, then removes it for good.
+await drawPair()
+await waitDraft('saved')
+await crashApi()
+await page.reload()
+const listItem = page.locator(`li[data-document-id="${docId}"]`)
+await listItem.getByText('Unsaved work found').waitFor()
+await listItem.getByRole('button', { name: 'Open' }).click()
+await page.getByTestId('recovery-notice').waitFor()
+await page.getByTestId('recovery-notice').getByRole('button', { name: 'Discard draft' }).click()
+await clickFor(page.getByRole('alertdialog').getByRole('button', { name: 'Discard draft' }), '/discard-draft')
+await page.getByTestId('recovery-notice').waitFor({ state: 'detached' })
+assert.ok(!existsSync(draftFile()))
+await crashApi()
+await page.reload()
+await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+await page.getByLabel('Document title').waitFor()
+assert.equal(await page.getByTestId('recovery-notice').count(), 0, 'a discarded draft never comes back')
+results.discarded_draft_stays_gone = true
+step = 'after discarded_draft_stays_gone'
+
+// A draft whose base the CLI saved over is recovered as a separate copy.
+await drawPair()
+await waitDraft('saved')
+const savedRevision = (await openDoc()).session.saved_revision
+await crashApi()
+const cliSaved = JSON.parse(
+  execFileSync(cliPath, ['documents', 'apply', docId, '--expected-revision', String(savedRevision), '--json', '--commands',
+    JSON.stringify([{ op: 'rename', title: 'Saved by the CLI' }])], { env, encoding: 'utf8' }),
+)
+assert.equal(cliSaved.document.title, 'Saved by the CLI')
+await page.reload()
+await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+await page.getByTestId('recovery-notice').waitFor()
+assert.equal(await page.getByTestId('recovery-notice').getAttribute('data-state'), 'outdated')
+const outdatedDraftAtoms = JSON.parse(readFileSync(draftFile(), 'utf8')).document.atoms.length
+const recoveredCopyResponse = page.waitForResponse((r) => r.url().endsWith('/recover-as-copy'))
+await page.getByRole('button', { name: 'Recover as copy' }).click()
+const recoveredCopy = await (await recoveredCopyResponse).json()
+await page.getByTestId('copy-notice').waitFor()
+assert.equal(recoveredCopy.document.atoms.length, outdatedDraftAtoms, 'the copy holds the draft')
+assert.equal(await page.getByLabel('Document title').inputValue(), recoveredCopy.document.title)
+assert.match(recoveredCopy.document.title, /\(recovered\)$/)
+assert.equal((await api(`/api/v1/documents/${docId}`)).document.title, 'Saved by the CLI', 'the original keeps the CLI commit')
+assert.ok(!existsSync(draftFile()))
+await page.getByRole('button', { name: 'Open original' }).click()
+await waitForTitle('Saved by the CLI')
+results.outdated_draft_is_recovered_as_a_copy = true
+step = 'after outdated_draft_is_recovered_as_a_copy'
+
+// A failed autosave is shown and retried; the saved file is untouched meanwhile.
+if (process.getuid?.() !== 0) {
+  const draftsDir = join(dataDir, 'drafts')
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await waitDraft('failed')
+  assert.equal(await saveState(), 'Unsaved changes')
+  chmodSync(draftsDir, 0o700)
+  await clickFor(page.getByRole('button', { name: 'Retry now' }), '/autosave')
+  await waitDraft('saved')
+  assert.ok(existsSync(draftFile()))
+}
+results.autosave_failure_is_shown_and_retried = true
+step = 'after autosave_failure_is_shown_and_retried'
+
+// Save as copy: the unsaved drawing becomes a new document; the original keeps its save.
+const originalFile = join(dataDir, 'documents', `${docId}.json`)
+const originalBytes = readFileSync(originalFile)
+const originalId = docId
+const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as'))
+await page.getByRole('button', { name: 'Save as copy' }).click()
+await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
+await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+const copyBody = await (await copyResponse).json()
+docId = copyBody.document.id
+await page.getByTestId('copy-notice').waitFor()
+assert.match(await page.getByTestId('copy-notice').textContent(), /Now editing the copy “Branch”/)
+await page.getByRole('dialog').waitFor({ state: 'detached' })
+await page.screenshot({ path: join(outDir, 'editor-copy.png') })
+assert.equal(await page.getByLabel('Document title').inputValue(), 'Branch')
+assert.equal(await saveState(), 'Saved')
+assert.notEqual(docId, originalId)
+assert.deepEqual(readFileSync(originalFile), originalBytes, 'the original file is untouched')
+assert.ok(!existsSync(join(dataDir, 'drafts', `${originalId}.json`)), "the original's draft went with its changes")
+await drawPair()
+await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+assert.deepEqual(readFileSync(originalFile), originalBytes, 'editing the copy leaves the original alone')
+await page.getByRole('button', { name: 'Open original' }).click()
+await page.getByTestId('copy-notice').waitFor({ state: 'detached' })
+assert.equal((await api(`/api/v1/documents/${originalId}`)).session.unsaved_changes, false)
+docId = originalId
+results.save_as_copy_is_independent = true
+step = 'after save_as_copy_is_independent'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

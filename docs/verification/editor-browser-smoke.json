@@ -22,10 +22,16 @@
     "invalid_isotope_is_rejected": true,
     "lost_create_response_is_retried_without_duplicates": true,
     "unconfirmed_create_is_not_resent_after_restart": true,
+    "autosave_writes_a_draft_and_shows_its_state": true,
+    "crash_recovery_restores_drawing_and_history": true,
+    "discarded_draft_stays_gone": true,
+    "outdated_draft_is_recovered_as_a_copy": true,
+    "autosave_failure_is_shown_and_retried": true,
+    "save_as_copy_is_independent": true,
     "mobile_390_and_320_without_horizontal_overflow": true,
     "dark_mode_screenshot": true,
     "uncaught_browser_errors": [],
-    "expected_http_error_console_lines": 10
+    "expected_http_error_console_lines": 12
   },
-  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflict, rejected element, refused token after a simulated API restart, save failure, save conflict, connection resets that drop create responses, and a refused token before an unconfirmed create is resent). edits_while_a_request_is_pending delays transactions by 400 ms. Not run in CI."
+  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflict, rejected element, refused tokens after simulated and real API restarts, save failure, save conflict, connection resets that drop create responses, a refused token before an unconfirmed create is resent, and a failed autosave). edits_while_a_request_is_pending delays transactions by 400 ms. The recovery steps kill the API process with SIGKILL and start a new one. In this environment 2 of 25 runs timed out a request (10 s) in the simulated-restart step before failure diagnostics were added; the later runs passed, and a failure now prints the last 40 requests. Not run in CI."
 }
