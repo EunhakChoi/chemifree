@@ -1099,3 +1099,138 @@ fn recovery_and_copies_reuse_their_session_slot_when_every_other_is_unsaved() {
         .count();
     assert_eq!(open, MAX_OPEN_SESSIONS, "the copy took the source's slot");
 }
+
+/// An application in process 2 holding the abandoned draft of an autosaved drawing (process 1
+/// ended), with the drawing's own session open and clean, beside `others` sessions with
+/// unsaved work and `clean_others` clean ones.
+fn full_table_beside_an_abandoned_draft(
+    others: usize,
+    clean_others: usize,
+) -> (
+    Application<NoCapabilities, MemoryStore>,
+    MemoryStore,
+    String,
+    DocumentResponse,
+) {
+    let (store, id, autosaved) = autosaved_drawing();
+    store.end_process();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    for _ in 0..others {
+        let busy = app.create_document(None, None).unwrap().document.id;
+        app.apply_transaction(&busy, None, 0, draw_ethanol())
+            .unwrap();
+    }
+    for _ in 0..clean_others {
+        app.create_document(None, None).unwrap();
+    }
+    assert_eq!(
+        app.document(&id).unwrap().recovery.unwrap().state,
+        RecoveryState::Recoverable
+    );
+    (app, store, id, autosaved)
+}
+
+fn open_ids(app: &Application<NoCapabilities, MemoryStore>) -> Vec<String> {
+    let listed = app.list_documents().unwrap();
+    listed
+        .documents
+        .into_iter()
+        .filter(|document| document.open)
+        .map(|document| document.id)
+        .collect()
+}
+
+#[test]
+fn recovering_as_a_copy_at_capacity_reports_closing_the_source_it_evicted() {
+    // Every other session has unsaved work: the clean source is the only one that can go.
+    let (app, store, id, autosaved) =
+        full_table_beside_an_abandoned_draft(MAX_OPEN_SESSIONS - 1, 0);
+    let stored_before = store.load(&DocumentId::parse(&id).unwrap()).unwrap();
+
+    let copied = app.recover_as_copy(&id, Some("copy-full"), None).unwrap();
+
+    assert!(
+        copied.source.closed,
+        "the source session was evicted for the copy, so the reply must say it closed"
+    );
+    assert!(
+        !copied.source.discarded_changes,
+        "only a clean session is evicted"
+    );
+    let open = open_ids(&app);
+    assert_eq!(open.len(), MAX_OPEN_SESSIONS);
+    assert!(!open.contains(&id), "the source is no longer open");
+    assert!(open.contains(&copied.copy.document.id));
+    assert_eq!(copied.copy.document.atoms, autosaved.document.atoms);
+    assert_eq!(store.draft_count(), 0, "the draft went into the copy");
+    assert_eq!(
+        store.load(&DocumentId::parse(&id).unwrap()).unwrap(),
+        stored_before,
+        "the source's commit is untouched"
+    );
+    assert_eq!(
+        app.document(&id).unwrap().document.revision,
+        0,
+        "the source reopens from its last save"
+    );
+}
+
+#[test]
+fn recovering_as_a_copy_at_capacity_keeps_the_source_open_when_another_session_is_clean() {
+    // The source was created first and has the lowest identifier, which eviction would pick
+    // first if it did not spare the source.
+    let (app, _store, id, _) = full_table_beside_an_abandoned_draft(MAX_OPEN_SESSIONS - 2, 1);
+
+    let copied = app.recover_as_copy(&id, None, None).unwrap();
+
+    assert!(!copied.source.closed);
+    let open = open_ids(&app);
+    assert_eq!(open.len(), MAX_OPEN_SESSIONS);
+    assert!(
+        open.contains(&id),
+        "the other clean session made room instead"
+    );
+    assert!(open.contains(&copied.copy.document.id));
+}
+
+#[test]
+fn recovering_as_a_copy_with_no_session_to_evict_changes_nothing() {
+    let (app, store, id, _) = full_table_beside_an_abandoned_draft(MAX_OPEN_SESSIONS - 1, 0);
+    // The source's own session takes unsaved work too, so no session is clean.
+    let edited = app
+        .apply_transaction(
+            &id,
+            None,
+            0,
+            commands(json!([{"op": "rename", "title": "Edited here"}])),
+        )
+        .unwrap();
+    let stored = store.list_ids().unwrap().len();
+
+    let refused = app.recover_as_copy(&id, None, None).unwrap_err();
+
+    assert_eq!(refused.code, ErrorCode::ResourceLimit);
+    assert_eq!(
+        store.list_ids().unwrap().len(),
+        stored,
+        "no copy was committed"
+    );
+    assert_eq!(
+        store
+            .draft_status(&DocumentId::parse(&id).unwrap())
+            .unwrap(),
+        DraftStatus::Abandoned(Ok(DraftInfo {
+            revision: 3,
+            base_revision: 0,
+            saved_at_ms: store.drafts.lock().unwrap()[&DocumentId::parse(&id).unwrap()]
+                .0
+                .saved_at_ms,
+        })),
+        "the draft is kept and abandoned again"
+    );
+    assert_eq!(
+        app.document(&id).unwrap(),
+        edited,
+        "the source session is as it was"
+    );
+}
