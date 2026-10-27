@@ -11,15 +11,24 @@ import {
   type DocumentView,
 } from '@/lib/document-contract'
 
-/** What the page is editing after a copy: a new document, with the original left as saved. */
+/** What became of the source document when the page moved to a copy of it. */
+export type CopiedFrom =
+  /** A recovered draft became the copy; the source's saved document is unchanged. */
+  | { kind: 'recovered' }
+  /** The source's session closed; its unsaved changes, if any, live only in the copy now. */
+  | { kind: 'closed'; discardedChanges: boolean }
+  /**
+   * The copy is committed, but the source's recovery draft could not be removed, so its
+   * session stays open with its unsaved changes rather than leave that draft behind.
+   */
+  | { kind: 'left_open' }
+
+/** What the page is editing after a copy: a new document beside the original. */
 export interface CopyNotice {
   copyId: string
   sourceId: string
   sourceTitle: string
-  /** A recovered draft rather than the working copy of an open document. */
-  recovered: boolean
-  /** The source's unsaved changes live only in the copy now. */
-  discardedChanges: boolean
+  source: CopiedFrom
 }
 
 export type ListState =
@@ -204,12 +213,17 @@ export function useDocumentEditor() {
         try {
           const copied = await make(shown)
           setCurrent(copied)
+          let source: CopiedFrom = { kind: 'recovered' }
+          if (!recovered) {
+            source = copied.source.closed
+              ? { kind: 'closed', discardedChanges: copied.source.discarded_changes }
+              : { kind: 'left_open' }
+          }
           setCopyNotice({
             copyId: copied.document.id,
             sourceId: copied.source.id,
             sourceTitle: shown.document.title,
-            recovered,
-            discardedChanges: copied.source.discarded_changes,
+            source,
           })
           refreshList()
         } catch (failure) {

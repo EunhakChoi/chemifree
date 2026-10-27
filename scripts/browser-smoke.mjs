@@ -795,6 +795,52 @@ await waitForTitle('Elsewhere')
 results.a_session_moved_elsewhere_is_drafted_once = true
 step = 'after a_session_moved_elsewhere_is_drafted_once'
 
+// Save as copy whose source draft cannot be removed (the drafts directory is read-only): the
+// copy is committed, the original stays open with its unsaved changes and its draft, and the
+// notice says so and leads back to it.
+if (process.getuid?.() !== 0) {
+  await drawPair()
+  await waitDraft('saved')
+  const keptId = docId
+  const keptTitle = await page.getByLabel('Document title').inputValue()
+  const keptDraft = readFileSync(draftFile())
+  const keptFile = join(dataDir, 'documents', `${keptId}.json`)
+  const keptStored = readFileSync(keptFile)
+  const keptView = await openDoc()
+  const draftsDir = join(dataDir, 'drafts')
+  chmodSync(draftsDir, 0o500)
+  const keptCopyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as'))
+  await page.getByRole('button', { name: 'Save as copy' }).click()
+  await page.getByRole('dialog').getByLabel('Title of the copy').fill('Kept beside')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+  const keptCopy = await (await keptCopyResponse).json()
+  chmodSync(draftsDir, 0o700)
+  assert.deepEqual(keptCopy.source, { id: keptId, closed: false, discarded_changes: false })
+  const notice = page.getByTestId('copy-notice')
+  await notice.waitFor()
+  assert.match(await notice.textContent(), new RegExp(`“${keptTitle}” is still open with its unsaved changes`))
+  assert.match(await notice.textContent(), /recovery draft could not be removed/)
+  assert.equal(await notice.getAttribute('data-source'), 'left_open')
+  await page.screenshot({ path: join(outDir, 'editor-copy-left-open.png') })
+  docId = keptCopy.document.id
+  assert.deepEqual(keptCopy.document.atoms, keptView.document.atoms, 'the copy holds what was on screen')
+  assert.deepEqual(readFileSync(keptFile), keptStored, 'the original file is untouched')
+  assert.deepEqual(readFileSync(join(draftsDir, `${keptId}.json`)), keptDraft, "the original's draft is kept")
+  await page.getByRole('button', { name: 'Open original' }).click()
+  await notice.waitFor({ state: 'detached' })
+  docId = keptId
+  await waitForTitle(keptTitle)
+  const reopened = await openDoc()
+  assert.deepEqual(
+    [reopened.document.revision, reopened.session.unsaved_changes, reopened.session.draft_revision],
+    [keptView.document.revision, true, keptView.document.revision],
+    'the original still has its unsaved changes and its draft',
+  )
+  assert.equal(await draftKind(), 'saved')
+  results.save_as_copy_reports_an_original_left_open = true
+  step = 'after save_as_copy_reports_an_original_left_open'
+}
+
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

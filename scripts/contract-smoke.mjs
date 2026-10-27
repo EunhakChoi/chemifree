@@ -473,6 +473,41 @@ try {
     assert.equal((await call('/api/v1/documents')).body.documents.length, countBefore + 1)
   }
 
+  // A copy whose source's draft cannot be removed (a permission error): the copy is committed,
+  // the source stays open with its unsaved changes and its draft, and the reply says so.
+  if (writable) {
+    const shown = (await call(draftPath)).body.document.revision
+    await write(`${draftPath}/transactions`, {
+      request_id: 'kept-edit',
+      expected_revision: shown,
+      commands: [{ op: 'rename', title: 'Kept open' }],
+    })
+    const kept = (await write(`${draftPath}/autosave`, { request_id: 'kept-auto' })).body
+    const draftBytes = readFileSync(draftFile)
+    const storedBytes = readFileSync(documentFile)
+    const draftsDir = join(dataDir, 'drafts')
+    chmodSync(draftsDir, 0o500)
+    const keptCopy = await write(`${draftPath}/save-as`, { request_id: 'kept-copy', expected_revision: kept.document.revision })
+    chmodSync(draftsDir, 0o700)
+    assert.equal(keptCopy.status, 201)
+    assert.deepEqual(keptCopy.body.source, { id: draftDoc, closed: false, discarded_changes: false })
+    assert.equal(keptCopy.body.document.title, 'Kept open (copy)')
+    assert.deepEqual(readFileSync(draftFile), draftBytes, "the source's draft is kept")
+    assert.deepEqual(readFileSync(documentFile), storedBytes, 'the source file is untouched')
+    const keptSource = (await call(draftPath)).body
+    assert.deepEqual(
+      [keptSource.document.title, keptSource.session.unsaved_changes, keptSource.session.draft_revision, keptSource.recovery],
+      ['Kept open', true, kept.document.revision, null],
+      'the source session keeps its changes and owns its draft',
+    )
+    const keptCopyId = keptCopy.body.document.id
+    assert.deepEqual((await call(`/api/v1/documents/${keptCopyId}`)).body.document, keptCopy.body.document, 'the copy opens as committed')
+    assert.ok(existsSync(join(dataDir, 'documents', `${keptCopyId}.json`)))
+    // Once the permission is back, saving the source removes its draft with the commit.
+    await write(`${draftPath}/save`, { request_id: 'kept-save', expected_revision: kept.document.revision })
+    assert.ok(!existsSync(draftFile))
+  }
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -488,7 +523,7 @@ try {
     'Contract smoke passed: HTTP = CLI; document create/edit/undo/redo/save/reopen, write guards, ' +
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
-      'unreadable, autosave failure), and save as copy verified.',
+      'unreadable, autosave failure), and save as copy (including a source draft that cannot be removed) verified.',
   )
 } finally {
   for (const child of running) await stop(child)
