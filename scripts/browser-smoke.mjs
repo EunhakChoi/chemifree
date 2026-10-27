@@ -338,6 +338,31 @@ await page.unroute('**/transactions')
 results.invalid_isotope_is_rejected = true
 step = 'after invalid_isotope_is_rejected'
 
+// A create whose response is lost: the server commits the document, the page sees a network
+// failure, and retrying must return that document instead of creating a second one.
+await page.getByRole('button', { name: 'Close document' }).click()
+await page.getByRole('button', { name: 'Discard and close' }).click()
+await page.getByText('No document open').waitFor()
+const documentsBefore = (await api('/api/v1/documents')).documents.length
+let lostCreate = null
+await page.route('**/api/v1/documents', async (route) => {
+  if (route.request().method() !== 'POST') return route.continue()
+  const response = await route.fetch()
+  if (lostCreate) return route.fulfill({ response })
+  lostCreate = await response.json()
+  return route.abort('connectionreset')
+})
+await page.getByRole('button', { name: 'New document' }).click()
+await page.getByText('could not be reached', { exact: false }).waitFor()
+const retried = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+await page.getByRole('button', { name: 'New document' }).click()
+assert.equal((await (await retried).json()).document.id, lostCreate.document.id, 'the retry replays the lost create')
+await page.getByLabel('Document title').waitFor()
+assert.equal((await api('/api/v1/documents')).documents.length, documentsBefore + 1, 'exactly one document created')
+await page.unroute('**/api/v1/documents')
+results.lost_create_response_is_retried_without_duplicates = true
+step = 'after lost_create_response_is_retried_without_duplicates'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })
@@ -354,7 +379,8 @@ step = 'after mobile_390_and_320_without_horizontal_overflow'
 results.dark_mode_screenshot = true
 step = 'after dark_mode_screenshot'
 
-results.uncaught_browser_errors = consoleErrors.filter((text) => !text.includes('409') && !text.includes('503'))
+const provoked = ['409', '503', 'ERR_CONNECTION_RESET']
+results.uncaught_browser_errors = consoleErrors.filter((text) => !provoked.some((mark) => text.includes(mark)))
 results.expected_http_error_console_lines = consoleErrors.length - results.uncaught_browser_errors.length
 console.log(JSON.stringify(results, null, 2))
 assert.deepEqual(results.uncaught_browser_errors, [])

@@ -184,6 +184,12 @@ const TIMEOUT_MS = 10_000
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
+  /**
+   * A create whose outcome is unknown (no response arrived). Creating is the one write not
+   * guarded by a revision, so retrying it reuses the request ID and the API replays the
+   * document it already committed instead of creating a second one.
+   */
+  private unconfirmedCreate: { requestId: string; title: string | undefined } | null = null
 
   private async session() {
     this.token ??= this.request('GET', '/api/v1/session').then((value) => {
@@ -273,7 +279,20 @@ export class DocumentClient {
   }
 
   async create(title?: string) {
-    return DocumentClient.document(await this.write('/api/v1/documents', { request_id: requestId(), title }))
+    const unconfirmed = this.unconfirmedCreate
+    const pending = unconfirmed !== null && unconfirmed.title === title ? unconfirmed : { requestId: requestId(), title }
+    this.unconfirmedCreate = pending
+    try {
+      const document = DocumentClient.document(
+        await this.write('/api/v1/documents', { request_id: pending.requestId, title }),
+      )
+      this.unconfirmedCreate = null
+      return document
+    } catch (error) {
+      // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
+      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmedCreate = null
+      throw error
+    }
   }
 
   async transact(id: string, expectedRevision: number, commands: Command[]) {

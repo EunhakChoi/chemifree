@@ -1,6 +1,7 @@
 use chemifree_domain::document::{
-    AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId, EditError,
-    HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, Outcome, Point, TransactionError, Vector,
+    Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, Command, Document, DocumentId,
+    EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, Outcome, Point,
+    TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 
@@ -413,6 +414,60 @@ fn restore_round_trips_and_rejects_impossible_states() {
     let mut mismatched_redo = document.to_parts();
     mismatched_redo.redo[0].bonds[0].1.before = mismatched_redo.redo[0].bonds[0].1.after.clone();
     assert!(Document::restore(mismatched_redo).is_err());
+}
+
+#[test]
+fn restore_rejects_counters_that_would_allocate_serial_zero() {
+    for (next_atom, next_bond) in [(0, 1), (1, 0)] {
+        let mut parts = empty().to_parts();
+        parts.next_atom = next_atom;
+        parts.next_bond = next_bond;
+        assert!(
+            Document::restore(parts).is_err(),
+            "next_atom {next_atom}, next_bond {next_bond}"
+        );
+    }
+}
+
+#[test]
+fn restore_rejects_change_sets_that_only_replay_one_way() {
+    let mut document = empty();
+    document.apply(&[add("C", 0.0, 0.0)]).unwrap();
+    let carbon = document.atoms().next().unwrap().1.clone();
+    let oxygen = Atom {
+        element: element("O"),
+        ..carbon.clone()
+    };
+
+    // a1 listed twice as C → O → absent walks backward cleanly but cannot be redone.
+    let mut chained = document.to_parts();
+    chained.undo[0].atoms = vec![
+        (
+            atom(1),
+            Change {
+                before: Some(oxygen.clone()),
+                after: Some(carbon.clone()),
+            },
+        ),
+        (
+            atom(1),
+            Change {
+                before: None,
+                after: Some(oxygen),
+            },
+        ),
+    ];
+    assert!(Document::restore(chained).is_err());
+
+    let mut no_op = document.to_parts();
+    no_op.undo[0].atoms.push((
+        atom(2),
+        Change {
+            before: None,
+            after: None,
+        },
+    ));
+    assert!(Document::restore(no_op).is_err());
 }
 
 #[test]

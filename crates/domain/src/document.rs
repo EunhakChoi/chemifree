@@ -355,6 +355,25 @@ impl ChangeSet {
     pub fn is_empty(&self) -> bool {
         self.title.is_none() && self.atoms.is_empty() && self.bonds.is_empty()
     }
+
+    /// The shape `between` produces: non-empty, each entity at most once, and every entry
+    /// an actual change. Only such a set replays identically backward and forward, so
+    /// restored history that passes the backward check can always be redone.
+    fn is_well_formed(&self) -> bool {
+        fn entries_valid<K: Ord, V: PartialEq>(entries: &[(K, Change<Option<V>>)]) -> bool {
+            let mut seen = BTreeSet::new();
+            entries
+                .iter()
+                .all(|(id, change)| change.before != change.after && seen.insert(id))
+        }
+        !self.is_empty()
+            && self
+                .title
+                .as_ref()
+                .is_none_or(|change| change.before != change.after)
+            && entries_valid(&self.atoms)
+            && entries_valid(&self.bonds)
+    }
 }
 
 fn diff_maps<K: Copy + Ord, V: Clone + PartialEq>(
@@ -764,9 +783,12 @@ impl Document {
                 .chain(&document.redo)
                 .flat_map(|set| set.bonds.iter().map(|(id, _)| *id)),
         );
-        if atom_ids
-            .map(AtomId::serial)
-            .any(|serial| serial >= document.next_atom)
+        // Serial 0 is not an identifier, so a counter of 0 would allocate an invalid one.
+        if document.next_atom == 0
+            || document.next_bond == 0
+            || atom_ids
+                .map(AtomId::serial)
+                .any(|serial| serial >= document.next_atom)
             || bond_ids
                 .map(BondId::serial)
                 .any(|serial| serial >= document.next_bond)
@@ -779,9 +801,11 @@ impl Document {
             .undo
             .iter()
             .chain(&document.redo)
-            .any(ChangeSet::is_empty)
+            .any(|set| !set.is_well_formed())
         {
-            return Err(invalid("history contains an empty change set"));
+            return Err(invalid(
+                "history contains an empty, repeated, or no-op change",
+            ));
         }
         let mut past = document.content.clone();
         for set in document.undo.iter().rev() {

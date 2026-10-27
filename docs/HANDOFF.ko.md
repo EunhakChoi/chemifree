@@ -65,9 +65,9 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 검증된 내용(첫 수직 기능):
 
-- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 37개(domain 14, application 10, providers 5, api 8).
+- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 39개(domain 16, application 10, providers 5, api 8).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구.
-- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
+- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
 - 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
 
 scaffold 시점 기록은 verification/의 기존 JSON에 남아 있다. 화학적 정확성 검증은 수행한 상태가 아니다.
@@ -78,7 +78,8 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 - 작업 사본은 API 프로세스 메모리에 있다. 저장하지 않은 편집은 프로세스 종료 시 사라지고 마지막 커밋이 남는다(의도된 정책, 테스트됨).
 - 저장의 base revision 검사와 rename은 프로세스 간 단일 원자 연산이 아니다. 두 프로세스가 같은 순간 저장하면 경쟁할 수 있다.
-- request_id 재전송 기억은 프로세스 메모리(문서당 최근 64개)에만 있다.
+- request_id 재전송 기억은 프로세스 메모리(문서당 최근 64개)에만 있다. 웹은 응답을 받지 못한 생성 요청의 ID를 재시도에 다시 쓰지만, 그 사이 API가 재시작되면 재시도가 새 문서를 만든다.
+- 문서 삭제 기능은 아직 없다.
 - 장면은 문서당 위치 한 벌이다. 공개 설계의 그래프/장면 인스턴스 분리, 선택의 이력 포함, 확대·이동, 텍스트·화살표 객체는 아직 없다.
 - 캔버스는 포인터 중심이다. 키보드만으로 원자를 배치하는 접근 경로는 없다(인스펙터 편집과 단축키는 있음).
 - 브라우저 smoke는 CI에서 실행하지 않는다.
@@ -87,7 +88,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 사용자 요청이 범위를 정한다. 후보:
 
-1. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion).
+1. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion). Chemifree 저장 형식은 손상 입력을 통째로 거절하지만, 외부 형식 가져오기는 공개 명세의 손상 입력 관찰(§Parsing)을 참고해 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 2. 화학 그래프 진단: 원자가·암시적 수소·분자식(structure_analysis 일부)과 공개 명세의 관찰 사례 대조.
 3. 편집기 확장: 고리 템플릿, 확대·이동, 그래프/장면 분리, 선택 이력.
 4. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.
