@@ -15,7 +15,8 @@ use crate::repository::{DocumentRepository, StorageError};
 
 pub const DEFAULT_TITLE: &str = "Untitled";
 pub const MAX_OPEN_SESSIONS: usize = 64;
-/// Successful mutations remembered per session for `request_id` replay.
+/// Successful mutations remembered per session (and per process for creates and closes)
+/// for `request_id` replay.
 pub const REPLAY_LIMIT: usize = 64;
 pub const MAX_REQUEST_ID_CHARS: usize = 64;
 pub const MAX_LISTED_DOCUMENTS: usize = 1_000;
@@ -39,18 +40,27 @@ enum Mutation {
     Save {
         expected_revision: u64,
     },
+    Close {
+        document: DocumentId,
+        discard_unsaved: bool,
+    },
 }
 
-#[derive(Default)]
-struct ReplayLog(VecDeque<(String, Mutation, DocumentResponse)>);
+struct ReplayLog<T>(VecDeque<(String, Mutation, T)>);
 
-impl ReplayLog {
+impl<T> Default for ReplayLog<T> {
+    fn default() -> Self {
+        Self(VecDeque::new())
+    }
+}
+
+impl<T: Clone> ReplayLog<T> {
     /// `Ok(Some)` replays a completed request; `Err` rejects a reused ID.
     fn find(
         &self,
         request_id: Option<&str>,
         mutation: &Mutation,
-    ) -> Result<Option<DocumentResponse>, ApplicationError> {
+    ) -> Result<Option<T>, ApplicationError> {
         let Some(request_id) = request_id else {
             return Ok(None);
         };
@@ -64,12 +74,7 @@ impl ReplayLog {
         }
     }
 
-    fn record(
-        &mut self,
-        request_id: Option<&str>,
-        mutation: Mutation,
-        response: &DocumentResponse,
-    ) {
+    fn record(&mut self, request_id: Option<&str>, mutation: Mutation, response: &T) {
         if let Some(request_id) = request_id {
             self.0
                 .push_back((request_id.to_owned(), mutation, response.clone()));
@@ -83,7 +88,7 @@ impl ReplayLog {
 struct Session {
     document: Document,
     saved_revision: u64,
-    replays: ReplayLog,
+    replays: ReplayLog<DocumentResponse>,
 }
 
 impl Session {
@@ -113,7 +118,9 @@ impl Session {
 #[derive(Default)]
 struct Sessions {
     open: HashMap<DocumentId, Session>,
-    created: ReplayLog,
+    created: ReplayLog<DocumentResponse>,
+    /// Kept outside the sessions they end, so a retried close cannot end a newer session.
+    closed: ReplayLog<CloseResponse>,
 }
 
 /// Owns open sessions. One working copy exists per document per process; a session is
@@ -302,7 +309,14 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<CloseResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
+        let mutation = Mutation::Close {
+            document: document_id.clone(),
+            discard_unsaved,
+        };
         let mut sessions = self.lock();
+        if let Some(response) = sessions.closed.find(request_id, &mutation)? {
+            return Ok(response);
+        }
         let discarded_changes = match sessions.open.get(&document_id) {
             Some(session) if session.is_dirty() && !discard_unsaved => {
                 return Err(ApplicationError::new(
@@ -322,11 +336,13 @@ impl<R: DocumentRepository> Documents<R> {
             }
         };
         sessions.open.remove(&document_id);
-        Ok(CloseResponse {
+        let response = CloseResponse {
             api_version: API_VERSION,
             id: document_id.to_string(),
             discarded_changes,
-        })
+        };
+        sessions.closed.record(request_id, mutation, &response);
+        Ok(response)
     }
 
     /// Replays a completed request, or checks the revision and applies `change`.

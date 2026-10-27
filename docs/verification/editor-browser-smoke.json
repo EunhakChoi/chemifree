@@ -15,10 +15,12 @@
     "revision_conflict_and_reload": true,
     "save_failure_and_retry": true,
     "save_conflict_with_cli": true,
+    "edits_while_a_request_is_pending": true,
+    "invalid_isotope_is_rejected": true,
     "mobile_390_and_320_without_horizontal_overflow": true,
     "dark_mode_screenshot": true,
     "uncaught_browser_errors": [],
     "expected_http_error_console_lines": 3
   },
-  "note": "expected_http_error_console_lines are the browser's own log lines for the intentionally provoked 409/503 responses (revision conflict, save failure, save conflict). Not run in CI."
+  "note": "expected_http_error_console_lines are the browser's own log lines for the intentionally provoked 409/503 responses (revision conflict, save failure, save conflict). edits_while_a_request_is_pending delays transactions by 400 ms and checks that repeated canvas clicks do not stack atoms and repeated charge clicks all apply. Not run in CI."
 }

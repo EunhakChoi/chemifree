@@ -42,7 +42,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { Separator } from '@/components/ui/separator'
@@ -52,7 +52,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
 import { useDocumentEditor, type DocumentEditor } from '@/hooks/use-document-editor'
-import type { BondOrder, DocumentResponse, DocumentView } from '@/lib/document-contract'
+import type { AtomView, BondOrder, Command, DocumentResponse, DocumentView } from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
 const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
@@ -364,7 +364,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             selection={selected}
             onSelectionChange={setSelection}
             onCommands={(commands) => void editor.apply(commands)}
-            disabled={false}
+            disabled={editor.busy}
           />
         </div>
         <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
@@ -402,6 +402,53 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/** Charge steps are applied to the latest document, so quick repeated clicks all count. */
+function changeCharge(atom: string, step: number) {
+  return (document: DocumentView): Command[] | null => {
+    const current = document.atoms.find((item) => item.id === atom)
+    return current ? [{ op: 'update_atom', atom, charge: current.charge + step }] : null
+  }
+}
+
+/** Empty text means natural abundance; anything but a mass number 1–999 is not sent. */
+function parseIsotope(text: string): number | null | undefined {
+  if (text === '') return null
+  if (!/^\d{1,3}$/.test(text)) return undefined
+  const value = Number(text)
+  return value >= 1 ? value : undefined
+}
+
+function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
+  const [invalid, setInvalid] = useState(false)
+  return (
+    <Field data-invalid={invalid || undefined}>
+      <FieldLabel htmlFor="atom-isotope">Isotope mass number</FieldLabel>
+      <Input
+        id="atom-isotope"
+        key={atom.isotope}
+        inputMode="numeric"
+        placeholder="Natural"
+        defaultValue={atom.isotope ?? ''}
+        aria-invalid={invalid || undefined}
+        aria-describedby="atom-isotope-help"
+        onKeyDown={commitOnEnter}
+        onBlur={(event) => {
+          const isotope = parseIsotope(event.currentTarget.value.trim())
+          setInvalid(isotope === undefined)
+          if (isotope !== undefined && isotope !== atom.isotope) {
+            void editor.apply([{ op: 'update_atom', atom: atom.id, isotope }])
+          }
+        }}
+      />
+      {invalid ? (
+        <FieldError id="atom-isotope-help">Enter a whole number from 1 to 999, or leave empty for natural abundance.</FieldError>
+      ) : (
+        <FieldDescription id="atom-isotope-help">Leave empty for natural abundance.</FieldDescription>
+      )}
+    </Field>
   )
 }
 
@@ -452,7 +499,7 @@ function Inspector({
                 size="icon-sm"
                 variant="outline"
                 aria-label="Decrease charge"
-                onClick={() => void editor.apply([{ op: 'update_atom', atom: atom.id, charge: atom.charge - 1 }])}
+                onClick={() => void editor.apply(changeCharge(atom.id, -1))}
               >
                 <MinusIcon aria-hidden="true" />
               </Button>
@@ -463,29 +510,13 @@ function Inspector({
                 size="icon-sm"
                 variant="outline"
                 aria-label="Increase charge"
-                onClick={() => void editor.apply([{ op: 'update_atom', atom: atom.id, charge: atom.charge + 1 }])}
+                onClick={() => void editor.apply(changeCharge(atom.id, 1))}
               >
                 <PlusIcon aria-hidden="true" />
               </Button>
             </div>
           </Field>
-          <Field>
-            <FieldLabel htmlFor="atom-isotope">Isotope mass number</FieldLabel>
-            <Input
-              id="atom-isotope"
-              key={`${atom.id}:${atom.isotope}`}
-              inputMode="numeric"
-              placeholder="Natural"
-              defaultValue={atom.isotope ?? ''}
-              onKeyDown={commitOnEnter}
-              onBlur={(event) => {
-                const text = event.currentTarget.value.trim()
-                const isotope = text === '' ? null : Number(text)
-                if (isotope !== atom.isotope) void editor.apply([{ op: 'update_atom', atom: atom.id, isotope }])
-              }}
-            />
-            <FieldDescription>Leave empty for natural abundance.</FieldDescription>
-          </Field>
+          <IsotopeField key={atom.id} atom={atom} editor={editor} />
         </FieldGroup>
       )}
       {bond && (

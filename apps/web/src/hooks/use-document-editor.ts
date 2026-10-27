@@ -6,12 +6,20 @@ import {
   type Command,
   type DocumentListResponse,
   type DocumentResponse,
+  type DocumentView,
 } from '@/lib/document-contract'
 
 export type ListState =
   | { kind: 'loading' }
   | { kind: 'ready'; list: DocumentListResponse }
   | { kind: 'error'; message: string }
+
+/**
+ * Commands for one transaction. Edits relative to the current state (such as "one more
+ * charge") pass a function, evaluated against the latest document when the queued request
+ * runs rather than against the possibly older one on screen. Returning null skips it.
+ */
+export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
 const client = new DocumentClient()
 
@@ -68,11 +76,13 @@ export function useDocumentEditor() {
   }, [])
 
   const mutate = useCallback(
-    (call: (document: DocumentResponse) => Promise<DocumentResponse>) =>
+    (call: (document: DocumentResponse) => Promise<DocumentResponse> | null) =>
       run(async () => {
         const document = currentRef.current
         if (!document) return
-        const next = await call(document)
+        const request = call(document)
+        if (!request) return
+        const next = await request
         if (currentRef.current?.document.id === next.document.id) setCurrent(next)
       }),
     [run, setCurrent],
@@ -96,7 +106,11 @@ export function useDocumentEditor() {
     /** Re-reads the working copy, e.g. after a revision conflict. */
     reload: useCallback(() => run(async () => setCurrent(await client.get(id()))), [run, setCurrent]),
     apply: useCallback(
-      (commands: Command[]) => mutate((document) => client.transact(id(), revision(document), commands)),
+      (edit: Edit) =>
+        mutate((document) => {
+          const commands = typeof edit === 'function' ? edit(document.document) : edit
+          return commands?.length ? client.transact(id(), revision(document), commands) : null
+        }),
       [mutate],
     ),
     undo: useCallback(() => mutate((document) => client.revisionAction(id(), 'undo', revision(document))), [mutate]),

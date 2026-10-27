@@ -245,6 +245,35 @@ fn request_ids_replay_completed_mutations_once() {
 }
 
 #[test]
+fn a_retried_close_replays_instead_of_closing_a_newer_session() {
+    let (app, _) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    let closed = app.close(&id, Some("close-1"), true).unwrap();
+    assert!(closed.discarded_changes);
+
+    // Another client reopens the document and edits it before the retry arrives.
+    app.apply_transaction(
+        &id,
+        None,
+        0,
+        commands(json!([{"op": "rename", "title": "Newer work"}])),
+    )
+    .unwrap();
+    let retried = app.close(&id, Some("close-1"), true).unwrap();
+    assert_eq!(retried, closed, "a retry returns the original response");
+    let session = app.document(&id).unwrap();
+    assert_eq!(
+        session.document.title, "Newer work",
+        "the newer session survives"
+    );
+    assert!(session.session.unsaved_changes);
+
+    let reused = app.close(&id, Some("close-1"), false).unwrap_err();
+    assert_eq!(reused.code, ErrorCode::RequestIdReused);
+}
+
+#[test]
 fn a_failed_save_keeps_unsaved_work_and_a_retry_commits_it() {
     let (app, store) = application();
     let id = app.create_document(None, None).unwrap().document.id;

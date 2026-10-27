@@ -30,6 +30,23 @@ const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${process.
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
 
 const servers = spawn('npm', ['run', 'dev'], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+// Registered before anything can fail so a failed start or launch never leaves servers running.
+let browser = null
+let step = 'start'
+async function cleanup() {
+  await browser?.close().catch(() => {})
+  try {
+    process.kill(-servers.pid, 'SIGTERM')
+  } catch {
+    // Already stopped.
+  }
+  if (!process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
+}
+process.on('uncaughtException', async (error) => {
+  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
+  await cleanup()
+  process.exit(1)
+})
 let log = ''
 await new Promise((resolveReady, reject) => {
   const timer = setTimeout(() => reject(new Error(`Servers did not start. ${log}`)), 120_000)
@@ -45,22 +62,7 @@ await new Promise((resolveReady, reject) => {
   servers.once('exit', (code) => reject(new Error(`Servers exited (${code}). ${log}`)))
 })
 
-const browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
-let step = 'start'
-async function cleanup() {
-  await browser.close().catch(() => {})
-  try {
-    process.kill(-servers.pid, 'SIGTERM')
-  } catch {
-    // Already stopped.
-  }
-  if (!process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
-}
-process.on('uncaughtException', async (error) => {
-  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
-  await cleanup()
-  process.exit(1)
-})
+browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
@@ -296,6 +298,45 @@ await page.getByLabel('Document title').waitFor()
 assert.equal(await page.getByLabel('Document title').inputValue(), 'CLI title')
 results.save_conflict_with_cli = true
 step = 'after save_conflict_with_cli'
+
+// Input while an edit is in flight: slow transactions so the view still shows the old revision.
+await page.route('**/transactions', async (route) => {
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  await route.continue()
+})
+await tool('Bond')
+let raceDoc = await openDoc()
+const a1r = await atomScreen(raceDoc, 'a1')
+await page.mouse.click(a1r.x, a1r.y)
+await page.mouse.click(a1r.x, a1r.y)
+await waitIdle()
+raceDoc = await openDoc()
+const positions = raceDoc.document.atoms.map(({ position }) => `${position.x},${position.y}`)
+assert.equal(new Set(positions).size, positions.length, 'no atoms drawn on top of each other')
+
+await tool('Select and move')
+await page.mouse.click(a1r.x, a1r.y)
+await page.getByRole('heading', { name: 'Atom a1' }).waitFor()
+const charge = (await openDoc()).document.atoms.find((atom) => atom.id === 'a1').charge
+await page.getByRole('button', { name: 'Increase charge' }).click()
+await page.getByRole('button', { name: 'Increase charge' }).click()
+await waitIdle()
+assert.equal((await openDoc()).document.atoms.find((atom) => atom.id === 'a1').charge, charge + 2, 'both clicks count')
+results.edits_while_a_request_is_pending = true
+step = 'after edits_while_a_request_is_pending'
+
+const isotope = page.getByLabel('Isotope mass number')
+await isotope.fill('13')
+await isotope.press('Enter')
+await waitIdle()
+await isotope.fill('abc')
+await isotope.press('Enter')
+await page.getByText('Enter a whole number from 1 to 999', { exact: false }).waitFor()
+await waitIdle()
+assert.equal((await openDoc()).document.atoms.find((atom) => atom.id === 'a1').isotope, 13, 'invalid text is not sent')
+await page.unroute('**/transactions')
+results.invalid_isotope_is_rejected = true
+step = 'after invalid_isotope_is_rejected'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

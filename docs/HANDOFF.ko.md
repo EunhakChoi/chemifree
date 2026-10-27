@@ -65,9 +65,9 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 검증된 내용(첫 수직 기능):
 
-- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 36개(domain 14, application 9, providers 5, api 8).
+- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 37개(domain 14, application 10, providers 5, api 8).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구.
-- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 저장 실패·재시도, CLI와의 저장 충돌, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
+- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
 - 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
 
 scaffold 시점 기록은 verification/의 기존 JSON에 남아 있다. 화학적 정확성 검증은 수행한 상태가 아니다.
