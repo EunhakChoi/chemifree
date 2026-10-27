@@ -628,3 +628,31 @@ fn atom_limit_is_enforced() {
         EditError::AtomLimit
     );
 }
+
+#[test]
+fn a_copy_is_independent_and_keeps_identifiers_but_not_history() {
+    let mut source = ethanol();
+    source.undo().unwrap();
+    source.redo().unwrap();
+    let id = DocumentId::parse("doc-copy").unwrap();
+    let mut copy = source.copy_as(id.clone(), " Copy ").unwrap();
+    assert_eq!(copy.id(), &id);
+    assert_eq!(copy.title(), "Copy");
+    assert_eq!(copy.revision(), 0);
+    assert_eq!((copy.undo_depth(), copy.redo_depth()), (0, 0));
+    assert!(copy.atoms().eq(source.atoms()));
+    assert!(copy.bonds().eq(source.bonds()));
+    assert_eq!(copy.numbering().next_atom, source.numbering().next_atom);
+
+    let before = source.clone();
+    copy.apply(&[add("N", 90.0, 0.0)]).unwrap();
+    assert_eq!(
+        copy.atoms().last().unwrap().0,
+        AtomId::from_serial(4).unwrap()
+    );
+    assert_eq!(source, before, "editing the copy leaves the source alone");
+    assert_eq!(
+        source.copy_as(DocumentId::parse("doc-x").unwrap(), "\u{7}"),
+        Err(EditError::InvalidTitle)
+    );
+}

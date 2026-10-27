@@ -25,8 +25,64 @@ pub trait DocumentRepository: Send + Sync {
     /// `base_revision: None` requires that nothing is stored yet. `Some(revision)` requires
     /// the stored revision to equal it, or the stored document to already equal `document`
     /// (a retried save whose acknowledgement was lost). Otherwise this is a conflict and
-    /// nothing is written.
+    /// nothing is written. The check and the commit are one step for every writer of the same
+    /// storage, including other processes.
+    ///
+    /// A recovery draft this repository owns for the document is removed with the commit: it
+    /// never outlives the save, even if the process ends between the two.
     fn save(&self, document: &Document, base_revision: Option<u64>) -> Result<(), StorageError>;
+
+    /// Who holds the document's recovery draft, if there is one.
+    fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError>;
+
+    /// Durably replaces the document's recovery draft and keeps it owned by this repository.
+    ///
+    /// Fails with `Locked` when another running process owns the draft, and with `Conflict`
+    /// when an abandoned draft is present: that one must be recovered or discarded first.
+    fn write_draft(&self, draft: &Draft) -> Result<(), StorageError>;
+
+    /// Takes over an abandoned draft (or one already owned) and returns it; `Ok(None)` means
+    /// there is none. The inner error describes a draft that cannot be read. Fails with
+    /// `Locked` when another running process owns it.
+    fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError>;
+
+    /// Gives up ownership without removing the draft, so it is abandoned again.
+    fn release_draft(&self, id: &DocumentId);
+
+    /// Removes the draft this repository owns, and gives up ownership. Succeeds when there is
+    /// nothing owned to remove.
+    fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError>;
+}
+
+/// An autosaved working copy, stored apart from the committed document so unsaved work
+/// survives the process that held it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Draft {
+    /// The working copy as it was, with history and identifier counters.
+    pub document: Document,
+    /// The stored revision the working copy started from (its last open or save).
+    pub base_revision: u64,
+    /// When the draft was written, in milliseconds since the Unix epoch.
+    pub saved_at_ms: u64,
+}
+
+/// What a draft says about itself without restoring its document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DraftInfo {
+    pub revision: u64,
+    pub base_revision: u64,
+    pub saved_at_ms: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DraftStatus {
+    None,
+    /// This repository owns it: the draft of a working copy open in this process.
+    Owned,
+    /// Another running process owns it.
+    Locked,
+    /// Its owner ended without saving or discarding. The error describes an unreadable draft.
+    Abandoned(Result<DraftInfo, String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,6 +91,8 @@ pub enum StorageError {
     Conflict { stored_revision: Option<u64> },
     /// Stored data exists but is not a valid document.
     Corrupt(String),
+    /// Another running process holds what this operation needs.
+    Locked(String),
     /// Reading or writing failed; any previously committed document is intact.
     Unavailable(String),
 }
@@ -47,7 +105,9 @@ impl fmt::Display for StorageError {
                 ..
             } => write!(formatter, "storage holds revision {revision}"),
             Self::Conflict { .. } => write!(formatter, "storage holds a different document"),
-            Self::Corrupt(message) | Self::Unavailable(message) => formatter.write_str(message),
+            Self::Corrupt(message) | Self::Locked(message) | Self::Unavailable(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }

@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
-    Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, ErrorCode,
-    MAX_OPEN_SESSIONS, StorageError,
+    Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, Draft,
+    DraftInfo, DraftStatus, ErrorCode, MAX_OPEN_SESSIONS, RecoveryState, StorageError,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -18,12 +18,47 @@ impl CapabilityCatalog for NoCapabilities {
     }
 }
 
-/// In-memory store with the port's conflict contract and a switchable write failure.
+/// In-memory store with the port's conflict and draft contracts and a switchable write
+/// failure. Clones share storage; `as_process` gives a clone that owns drafts as another
+/// process would, and `end_process` abandons a process's drafts as its exit would.
+/// A draft with its owning process; `None` once that process ended.
+type OwnedDraft = (Draft, Option<u32>);
+
 #[derive(Clone, Default)]
 struct MemoryStore {
     documents: Arc<Mutex<BTreeMap<DocumentId, Document>>>,
+    drafts: Arc<Mutex<BTreeMap<DocumentId, OwnedDraft>>>,
     next: Arc<AtomicU32>,
     fail_writes: Arc<AtomicBool>,
+    process: u32,
+}
+
+impl MemoryStore {
+    fn as_process(&self, process: u32) -> Self {
+        Self {
+            process,
+            ..self.clone()
+        }
+    }
+
+    fn end_process(&self) {
+        for (_, owner) in self.drafts.lock().unwrap().values_mut() {
+            if *owner == Some(self.process) {
+                *owner = None;
+            }
+        }
+    }
+
+    fn draft_count(&self) -> usize {
+        self.drafts.lock().unwrap().len()
+    }
+
+    fn failing(&self) -> Result<(), StorageError> {
+        if self.fail_writes.load(Ordering::SeqCst) {
+            return Err(StorageError::Unavailable("disk unavailable".into()));
+        }
+        Ok(())
+    }
 }
 
 impl DocumentRepository for MemoryStore {
@@ -41,9 +76,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn save(&self, document: &Document, base: Option<u64>) -> Result<(), StorageError> {
-        if self.fail_writes.load(Ordering::SeqCst) {
-            return Err(StorageError::Unavailable("disk unavailable".into()));
-        }
+        self.failing()?;
         let mut documents = self.documents.lock().unwrap();
         let stored = documents.get(document.id());
         let matches = match (stored, base) {
@@ -57,6 +90,81 @@ impl DocumentRepository for MemoryStore {
             });
         }
         documents.insert(document.id().clone(), document.clone());
+        let mut drafts = self.drafts.lock().unwrap();
+        if drafts
+            .get(document.id())
+            .is_some_and(|(_, owner)| *owner == Some(self.process))
+        {
+            drafts.remove(document.id());
+        }
+        Ok(())
+    }
+
+    fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
+        Ok(match self.drafts.lock().unwrap().get(id) {
+            None => DraftStatus::None,
+            Some((_, Some(owner))) if *owner == self.process => DraftStatus::Owned,
+            Some((_, Some(_))) => DraftStatus::Locked,
+            Some((draft, None)) => DraftStatus::Abandoned(Ok(DraftInfo {
+                revision: draft.document.revision(),
+                base_revision: draft.base_revision,
+                saved_at_ms: draft.saved_at_ms,
+            })),
+        })
+    }
+
+    fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
+        let mut drafts = self.drafts.lock().unwrap();
+        match drafts.get(draft.document.id()) {
+            Some((_, Some(owner))) if *owner != self.process => {
+                return Err(StorageError::Locked("owned by another process".into()));
+            }
+            Some((_, None)) => {
+                return Err(StorageError::Conflict {
+                    stored_revision: None,
+                });
+            }
+            _ => {}
+        }
+        self.failing()?;
+        drafts.insert(
+            draft.document.id().clone(),
+            (draft.clone(), Some(self.process)),
+        );
+        Ok(())
+    }
+
+    fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
+        let mut drafts = self.drafts.lock().unwrap();
+        match drafts.get_mut(id) {
+            None => Ok(None),
+            Some((_, Some(owner))) if *owner != self.process => {
+                Err(StorageError::Locked("owned by another process".into()))
+            }
+            Some((draft, owner)) => {
+                *owner = Some(self.process);
+                Ok(Some(Ok(draft.clone())))
+            }
+        }
+    }
+
+    fn release_draft(&self, id: &DocumentId) {
+        if let Some((_, owner)) = self.drafts.lock().unwrap().get_mut(id)
+            && *owner == Some(self.process)
+        {
+            *owner = None;
+        }
+    }
+
+    fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError> {
+        let mut drafts = self.drafts.lock().unwrap();
+        if drafts
+            .get(id)
+            .is_some_and(|(_, owner)| *owner == Some(self.process))
+        {
+            self.failing()?;
+            drafts.remove(id);
+        }
         Ok(())
     }
 }
@@ -577,4 +685,328 @@ fn unknown_command_fields_are_rejected_at_the_contract_boundary() {
         &absent[0],
         CommandDto::UpdateAtom { isotope: None, .. }
     ));
+}
+
+/// An application in process 1 with an ethanol drawing at revision 3 (drawn, renamed, the
+/// rename undone), unsaved and autosaved.
+fn autosaved_drawing() -> (MemoryStore, String, DocumentResponse) {
+    let store = MemoryStore::default().as_process(1);
+    let app = Application::new(NoCapabilities, store.clone());
+    let id = app
+        .create_document(None, Some("Draft"))
+        .unwrap()
+        .document
+        .id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "Renamed"}])),
+    )
+    .unwrap();
+    app.undo(&id, None, 2).unwrap();
+    let autosaved = app.autosave(&id, Some("auto-1")).unwrap();
+    assert_eq!(autosaved.session.draft_revision, Some(3));
+    assert!(autosaved.session.unsaved_changes);
+    assert_eq!(store.draft_count(), 1);
+    (store, id, autosaved)
+}
+
+#[test]
+fn a_draft_left_by_an_ended_process_recovers_with_history_and_numbering() {
+    let (store, id, before) = autosaved_drawing();
+    let running = Application::new(NoCapabilities, store.as_process(2));
+    let busy = running.document(&id).unwrap().recovery.unwrap();
+    assert_eq!(busy.state, RecoveryState::InUse, "its process still runs");
+    assert_eq!(
+        running.recover(&id, None).unwrap_err().code,
+        ErrorCode::DraftInUse
+    );
+
+    store.end_process();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    let opened = app.document(&id).unwrap();
+    assert_eq!(
+        opened.document.atoms.len(),
+        0,
+        "storage holds the empty commit"
+    );
+    let offer = opened.recovery.unwrap();
+    assert_eq!(offer.state, RecoveryState::Recoverable);
+    assert_eq!((offer.revision, offer.base_revision), (Some(3), Some(0)));
+    let listed = app.list_documents().unwrap();
+    assert_eq!(
+        listed.documents[0].recovery.as_ref().unwrap().state,
+        RecoveryState::Recoverable
+    );
+
+    let recovered = app.recover(&id, Some("rec-1")).unwrap();
+    assert_eq!(recovered.document.atoms, before.document.atoms);
+    assert_eq!(recovered.document.revision, 3);
+    assert_eq!(recovered.session.saved_revision, 0);
+    assert!(recovered.session.unsaved_changes);
+    assert_eq!(
+        (recovered.session.undo_depth, recovered.session.redo_depth),
+        (1, 1)
+    );
+    assert_eq!(recovered.session.draft_revision, Some(3));
+    assert!(
+        recovered.recovery.is_none(),
+        "the session now owns the draft"
+    );
+    assert_eq!(
+        app.recover(&id, Some("rec-1")).unwrap(),
+        recovered,
+        "replayed"
+    );
+
+    let redone = app.redo(&id, None, 3).unwrap();
+    assert_eq!(redone.document.title, "Renamed");
+    let added = app
+        .apply_transaction(
+            &id,
+            None,
+            4,
+            commands(json!([{"op": "add_atom", "element": "N", "position": {"x": 0, "y": 40}}])),
+        )
+        .unwrap();
+    assert_eq!(added.document.atoms.last().unwrap().id, "a4");
+    app.save(&id, None, 5).unwrap();
+    assert_eq!(store.draft_count(), 0, "the save removed the draft");
+
+    let later = Application::new(NoCapabilities, store.as_process(3));
+    let reopened = later.document(&id).unwrap();
+    assert!(reopened.recovery.is_none());
+    assert_eq!(reopened.document.atoms.len(), 4);
+}
+
+#[test]
+fn a_draft_whose_base_was_saved_over_is_recovered_only_as_a_copy() {
+    let (store, id, before) = autosaved_drawing();
+    store.end_process();
+    // Another writer commits different content on the draft's base.
+    let other = Application::new(NoCapabilities, store.as_process(2));
+    other
+        .apply_transaction(
+            &id,
+            None,
+            0,
+            commands(json!([{"op": "rename", "title": "Other"}])),
+        )
+        .unwrap();
+    other.save(&id, None, 1).unwrap();
+
+    let app = Application::new(NoCapabilities, store.as_process(3));
+    let offer = app.document(&id).unwrap().recovery.unwrap();
+    assert_eq!(offer.state, RecoveryState::Outdated);
+    let refused = app.recover(&id, None).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::DraftOutdated);
+    assert_eq!(refused.current_revision, Some(1));
+    assert_eq!(store.draft_count(), 1, "a refused recovery keeps the draft");
+
+    let copied = app.recover_as_copy(&id, Some("copy-1"), None).unwrap();
+    assert_ne!(copied.copy.document.id, id);
+    assert_eq!(copied.copy.document.title, "Draft (recovered)");
+    assert_eq!(copied.copy.document.atoms, before.document.atoms);
+    assert!(
+        !copied.copy.session.unsaved_changes,
+        "the copy is committed"
+    );
+    assert!(!copied.source.closed);
+    assert_eq!(store.draft_count(), 0);
+    assert_eq!(
+        app.recover_as_copy(&id, Some("copy-1"), None).unwrap(),
+        copied
+    );
+    assert_eq!(app.document(&id).unwrap().document.title, "Other");
+    assert_eq!(
+        app.recover_as_copy(&id, Some("copy-2"), None)
+            .unwrap_err()
+            .code,
+        ErrorCode::DraftNotFound
+    );
+}
+
+#[test]
+fn discarded_work_never_comes_back_as_a_draft() {
+    // Discarding the session's changes removes its draft before the session ends.
+    let (store, id, _) = autosaved_drawing();
+    let app = Application::new(NoCapabilities, store.clone());
+    app.close(&id, None, true, Some(3)).unwrap();
+    assert_eq!(store.draft_count(), 0);
+    store.end_process();
+    let later = Application::new(NoCapabilities, store.as_process(2));
+    assert!(later.document(&id).unwrap().recovery.is_none());
+
+    // An abandoned draft blocks autosave of new work until it is recovered or discarded.
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    app.apply_transaction(
+        &id,
+        None,
+        0,
+        commands(json!([{"op": "rename", "title": "New"}])),
+    )
+    .unwrap();
+    assert_eq!(
+        app.autosave(&id, None).unwrap_err().code,
+        ErrorCode::RecoveryPending
+    );
+    assert_eq!(
+        app.discard_draft(&id, Some("d1")).unwrap().id,
+        id,
+        "an abandoned draft can be discarded while the session has its own changes"
+    );
+    assert_eq!(
+        app.discard_draft(&id, Some("d1")).unwrap().id,
+        id,
+        "replayed"
+    );
+    assert_eq!(store.draft_count(), 0);
+    let autosaved = app.autosave(&id, None).unwrap();
+    assert_eq!(autosaved.session.draft_revision, Some(1));
+    assert_eq!(
+        app.discard_draft(&id, None).unwrap_err().code,
+        ErrorCode::DraftInUse,
+        "the session's own draft is dropped by discarding the session"
+    );
+    app.save(&id, None, 1).unwrap();
+    assert_eq!(store.draft_count(), 0);
+    assert_eq!(
+        app.discard_draft(&id, None).unwrap_err().code,
+        ErrorCode::DraftNotFound
+    );
+}
+
+#[test]
+fn autosave_failures_keep_the_session_and_succeed_on_retry() {
+    let (app, store) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    assert_eq!(
+        app.autosave(&id, None).unwrap().session.draft_revision,
+        None,
+        "nothing unsaved"
+    );
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let failed = app.autosave(&id, Some("auto-1")).unwrap_err();
+    assert_eq!(failed.code, ErrorCode::StorageFailed);
+    let session = app.document(&id).unwrap();
+    assert!(session.session.unsaved_changes);
+    assert_eq!(session.session.draft_revision, None);
+    store.fail_writes.store(false, Ordering::SeqCst);
+    assert_eq!(
+        app.autosave(&id, Some("auto-1"))
+            .unwrap()
+            .session
+            .draft_revision,
+        Some(1)
+    );
+    // Undoing back to the saved content is still unsaved by revision, and keeps a draft.
+    app.undo(&id, None, 1).unwrap();
+    assert_eq!(
+        app.autosave(&id, None).unwrap().session.draft_revision,
+        Some(2)
+    );
+}
+
+#[test]
+fn save_as_commits_an_independent_copy_and_leaves_the_original_as_saved() {
+    let (app, store) = application();
+    let id = app
+        .create_document(None, Some("Original"))
+        .unwrap()
+        .document
+        .id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    app.save(&id, None, 1).unwrap();
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "delete_atoms", "atoms": ["a3"]}])),
+    )
+    .unwrap();
+    app.autosave(&id, None).unwrap();
+    assert_eq!(store.draft_count(), 1);
+
+    let stale = app.save_as(&id, Some("as-0"), 1, None).unwrap_err();
+    assert_eq!(stale.code, ErrorCode::RevisionConflict);
+
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let failed = app.save_as(&id, Some("as-1"), 2, None).unwrap_err();
+    assert_eq!(failed.code, ErrorCode::StorageFailed);
+    assert!(
+        app.document(&id).unwrap().session.unsaved_changes,
+        "nothing changed"
+    );
+    assert_eq!(store.documents.lock().unwrap().len(), 1);
+    store.fail_writes.store(false, Ordering::SeqCst);
+
+    let copied = app.save_as(&id, Some("as-1"), 2, None).unwrap();
+    let copy_id = copied.copy.document.id.clone();
+    assert_ne!(copy_id, id);
+    assert_eq!(copied.copy.document.title, "Original (copy)");
+    assert_eq!(copied.copy.document.revision, 0);
+    assert_eq!(
+        copied.copy.document.atoms.len(),
+        2,
+        "the unsaved deletion is in the copy"
+    );
+    assert_eq!(
+        (
+            copied.copy.session.undo_depth,
+            copied.copy.session.redo_depth
+        ),
+        (0, 0)
+    );
+    assert!(copied.source.closed && copied.source.discarded_changes);
+    assert_eq!(
+        store.draft_count(),
+        0,
+        "the source's draft went with its session"
+    );
+    assert_eq!(
+        app.save_as(&id, Some("as-1"), 2, None).unwrap(),
+        copied,
+        "replayed"
+    );
+
+    // The original reopens from its last save; the two documents change independently.
+    let original = app.document(&id).unwrap();
+    assert_eq!(original.document.atoms.len(), 3);
+    assert!(!original.session.unsaved_changes);
+    let edited_copy = app
+        .apply_transaction(
+            &copy_id,
+            None,
+            0,
+            commands(
+                json!([{"op": "add_atom", "element": "N", "position": {"x": 0, "y": 40},
+                             "bond_to": {"atom": "a1", "order": "single"}}]),
+            ),
+        )
+        .unwrap();
+    assert_eq!(
+        edited_copy.document.atoms.last().unwrap().id,
+        "a4",
+        "counters are kept"
+    );
+    app.save(&copy_id, None, 1).unwrap();
+    assert_eq!(app.document(&id).unwrap().document.atoms.len(), 3);
+    let renamed = app
+        .apply_transaction(
+            &id,
+            None,
+            original.document.revision,
+            commands(json!([{"op": "rename", "title": "Changed"}])),
+        )
+        .unwrap();
+    app.save(&id, None, renamed.document.revision).unwrap();
+    assert_eq!(
+        app.document(&copy_id).unwrap().document.title,
+        "Original (copy)"
+    );
 }
