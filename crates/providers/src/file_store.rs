@@ -59,6 +59,10 @@ pub struct FileDocumentRepository {
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
     /// Locked owner files of the drafts this repository owns. Dropping one releases it.
     owned: Arc<Mutex<HashMap<DocumentId, File>>>,
+    /// Held while taking an owner lock and acting on it. An owner lock taken through one file
+    /// handle refuses every other handle, including this process's own, so without this two
+    /// requests served at once would each see the other's attempt as another running process.
+    adopting: Arc<Mutex<()>>,
 }
 
 /// Length, modification time, and on Unix the inode. Saves replace the file by rename, so
@@ -86,6 +90,7 @@ impl FileDocumentRepository {
             locks: root.join(LOCKS_DIR),
             probes: Arc::default(),
             owned: Arc::default(),
+            adopting: Arc::default(),
         }
     }
 
@@ -229,6 +234,10 @@ impl FileDocumentRepository {
 
     fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, File>> {
         self.owned.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn adopting(&self) -> MutexGuard<'_, ()> {
+        self.adopting.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn owns(&self, id: &DocumentId) -> bool {
@@ -417,6 +426,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
+        let _adopting = self.adopting();
         if self.owns(id) {
             return Ok(DraftStatus::Owned);
         }
@@ -446,6 +456,7 @@ impl DocumentRepository for FileDocumentRepository {
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
         let id = draft.document.id();
         let path = self.draft_path(id);
+        let adopting = self.adopting();
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -459,6 +470,7 @@ impl DocumentRepository for FileDocumentRepository {
             }
             self.owned().insert(id.clone(), owner);
         }
+        drop(adopting);
         let bytes = file_format::encode_draft(draft);
         if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
             return Err(StorageError::Unavailable(format!(
@@ -471,6 +483,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
+        let _adopting = self.adopting();
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -610,6 +623,8 @@ mod tests {
         MAX_COMMANDS, MIN_CHARGE, Point, Vector,
     };
     use chemifree_domain::element::Element;
+    use std::sync::Barrier;
+    use std::thread;
 
     use super::*;
 
@@ -944,6 +959,42 @@ mod tests {
         assert_eq!(third.draft_status(document.id()), Ok(DraftStatus::Locked));
         other.remove_draft(document.id()).unwrap();
         assert_eq!(third.draft_status(document.id()), Ok(DraftStatus::None));
+    }
+
+    #[test]
+    fn concurrent_requests_in_one_process_never_see_its_own_probe_as_another_owner() {
+        let (directory, writer) = scratch();
+        let document = drawn(&writer);
+        writer.save(&document, None).unwrap();
+        writer.write_draft(&draft_of(&document, 1)).unwrap();
+        drop(writer); // Abandoned: no running process owns it.
+
+        // One process serving several requests at once (the page lists documents twice on load).
+        let store = FileDocumentRepository::new(directory.path());
+        let threads = 8;
+        let rounds = 200;
+        let start = Arc::new(Barrier::new(threads));
+        let probes: Vec<_> = (0..threads)
+            .map(|_| {
+                let (store, start, id) = (store.clone(), Arc::clone(&start), document.id().clone());
+                thread::spawn(move || {
+                    start.wait();
+                    (0..rounds)
+                        .map(|_| store.draft_status(&id).unwrap())
+                        .filter(|status| !matches!(status, DraftStatus::Abandoned(Ok(_))))
+                        .count()
+                })
+            })
+            .collect();
+        let misread: usize = probes.into_iter().map(|probe| probe.join().unwrap()).sum();
+        assert_eq!(
+            misread, 0,
+            "probes reported the abandoned draft as owned elsewhere"
+        );
+        assert!(
+            store.claim_draft(document.id()).unwrap().is_some(),
+            "the draft is still there to claim"
+        );
     }
 
     #[test]
