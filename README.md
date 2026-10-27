@@ -2,7 +2,7 @@
 
 An independently authored, open-source chemical drawing workspace for humans and agents.
 
-**Scaffold stage.** The web shell, local read-only API, CLI, and shared application boundary work. Document editing, chemical calculations, import/export, model loading, persistence, authentication, and Windows integration are **not implemented**. There are no simulated chemical results, vendor engines, or proprietary datasets in this repository.
+**Early stage.** The first vertical slice works end to end in the browser, over HTTP, and in the CLI: **create a document → add and edit atoms and bonds → undo/redo → save → reopen.** Documents are drawings: Chemifree records atoms (element, charge, isotope, position) and single/double/triple bonds as drawn, and does **not** compute valence, implicit hydrogens, aromaticity, stereochemistry, layout, names, or properties. Chemical calculations, import/export (MOL, SMILES, CDXML…), model loading, user authentication, and Windows integration are **not implemented**. There are no simulated chemical results, vendor engines, or proprietary datasets in this repository.
 
 Continuing in a new session? Start with [the handoff](docs/HANDOFF.ko.md) and [project instructions](AGENTS.md). They record the completed baseline, current limits, and the proposed next implementation slice.
 
@@ -15,7 +15,9 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. This starts Vite and the Rust API together; Vite proxies `/api` to **127.0.0.1:3001**. Stop both with Ctrl+C. The interface reads real service status, supports refresh/retry, follows your system's light/dark preference, and presents an honest empty canvas.
+Open **http://127.0.0.1:5173**. This starts Vite and the Rust API together; Vite proxies `/api` to **127.0.0.1:3001**. Stop both with Ctrl+C. Choose **New document**, draw with the bond tool (click to start a chain, click an atom to grow it, drag to bond, click a bond to cycle its order), relabel atoms with the atom tool, inspect and edit charge or isotope with the select tool, then **Save** (Ctrl/⌘+S). Undo/redo: Ctrl/⌘+Z and Ctrl/⌘+Shift+Z. Close and reopen from **Saved documents**.
+
+Documents are stored as `documents/<id>.json` in the data directory: `--data-dir` or `CHEMIFREE_DATA_DIR`, otherwise the platform user-data directory (`$XDG_DATA_HOME/chemifree` or `~/.local/share/chemifree` on Linux, `~/Library/Application Support/chemifree` on macOS, `%APPDATA%\chemifree` on Windows). The API prints the path at startup.
 
 The first API launch compiles Rust dependencies. If that takes longer than the UI's five-second request timeout, use **Retry connection** once the API is listening. Both development ports must be available.
 
@@ -28,11 +30,20 @@ npm run dev:api
 cargo run --locked -p chemifree-cli -- status --json
 cargo run --locked -p chemifree-cli -- capabilities --json
 
-# Optional API port; the address remains 127.0.0.1.
-cargo run --locked -p chemifree-api -- --port 3002
+# Documents through the same application and data directory. Each CLI edit saves.
+cargo run --locked -p chemifree-cli -- documents create --title Ethanol
+cargo run --locked -p chemifree-cli -- documents apply <id> --expected-revision 0 --commands \
+  '[{"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+    {"op":"add_atom","element":"C","position":{"x":26,"y":15},"bond_to":{"atom":"$0","order":"single"}},
+    {"op":"add_atom","element":"O","position":{"x":52,"y":0},"bond_to":{"atom":"$1","order":"single"}}]'
+cargo run --locked -p chemifree-cli -- documents undo <id> --expected-revision 1
+cargo run --locked -p chemifree-cli -- documents show <id> --json
+
+# Optional API port and data directory; the address remains 127.0.0.1.
+cargo run --locked -p chemifree-api -- --port 3002 --data-dir ./tmp/chemifree-data
 ```
 
-The development proxy targets port 3001. If you choose another API port, update `apps/web/vite.config.ts` accordingly. The standalone CLI's `status` confirms its local application can run; it does not report whether an HTTP server is running.
+The development proxy targets port 3001. If you choose another API port, update `apps/web/vite.config.ts` accordingly. The standalone CLI's `status` confirms its local application can run; it does not report whether an HTTP server is running. The browser holds no document state of its own: each edit is a request with the revision it was based on, and the API's working copy is authoritative until saved. An open API session and the CLI can edit the same file; a later save from the other side is refused with `save_conflict` rather than overwriting.
 
 ## Check and build
 
@@ -41,12 +52,15 @@ npm run lint             # ESLint: JS/TS + React Hooks checks
 npm run typecheck        # TypeScript project references
 npm run build:web        # Production web assets in apps/web/dist
 npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
-npm run test:contracts   # Real HTTP/CLI parity and read-only/version boundary smoke
+npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
 npm run check            # All of the above
 npm run build            # Web assets and debug Rust binaries
+npm run test:browser     # Manual browser smoke (needs Chrome; not part of check/CI)
 ```
 
-The contract smoke builds the workspace, starts an API on an ephemeral loopback port, compares HTTP JSON with actual CLI JSON, verifies capability status and error routes, and terminates its server. GitHub Actions installs npm 11.13.0 into an isolated runner-temporary prefix, adds its binaries to `PATH`, and verifies the selected version before running `npm ci` and `npm run check` with pinned tools. Browser smoke is a manual verification step at this stage; there is no bundled browser test runner.
+The contract smoke builds the workspace, starts an API on an ephemeral loopback port with a temporary data directory, and compares HTTP JSON with actual CLI JSON. It runs create → edit → undo/redo → save → close → reopen, checks request-ID replay, revision and save conflicts, write guards, a save that fails because the target path is unwritable and then succeeds on retry, and that a killed API restarts with the last committed document. GitHub Actions installs npm 11.13.0 into an isolated runner-temporary prefix, adds its binaries to `PATH`, and verifies the selected version before running `npm ci` and `npm run check` with pinned tools.
+
+`npm run test:browser` starts `npm run dev` on a temporary data directory (ports 3001 and 5173 must be free) and drives the editor with `playwright-core`: drawing, editing, undo/redo with buttons and keys, moving, saving, reopening, the discard prompt, revision-conflict reload, save failure and retry, a save conflict with the CLI, 320/390 px layouts, and dark mode. Point `CHEMIFREE_BROWSER` at a Chrome/Chromium executable, or run `npx playwright-core install chromium` once. It is not run in CI; the latest result is in [docs/verification/editor-browser-smoke.json](docs/verification/editor-browser-smoke.json).
 
 `npm run preview --workspace @chemifree/web` previews built assets on port 4173 and inherits the local API proxy; run the API separately. Vite's preview server is a local verification tool. For a production deployment, serve `/api/v1/*` to the Rust API through the same origin. Hosting, authentication, and a production deployment configuration are future work.
 
@@ -55,21 +69,23 @@ The contract smoke builds the workspace, starts an API on an ephemeral loopback 
 ```text
 apps/
   web/              React + TypeScript + Vite presentation
-  api/              Axum HTTP entry adapter; loopback only
+    src/editor/     Structure canvas (SVG rendering, hit testing, gestures), separate from UI controls
+  api/              Axum HTTP entry adapter; loopback only; write guards
   cli/              clap entry adapter; shared application calls
 crates/
-  domain/           Domain vocabulary; no dependencies
-  application/      Use cases, v1 DTOs, and CapabilityCatalog port
-  providers/        Scaffold provider implementing the application-owned port
+  domain/           Elements, document graph, commands, transactions, change-set history; no dependencies
+  application/      Use cases, editing sessions, v1 DTOs, CapabilityCatalog and DocumentRepository ports
+  providers/        Capability catalog and the local JSON file repository
 scripts/
-  contract-smoke.mjs HTTP/CLI boundary verification
+  contract-smoke.mjs HTTP/CLI boundary and document-flow verification
+  browser-smoke.mjs  Manual browser verification of the editor
 docs/
   CONTRACT.md       v1 shape, compatibility rules, and capability identifiers
   architecture.html Detailed architecture and staged design
   SHADCN_REVIEW.ko.md shadcn/ui and @shadcn/lint review
 ```
 
-Dependencies point inward: `application → domain`; `providers → application + domain`; HTTP and CLI compose the application with a provider. The web mirror of the v1 contract validates responses at runtime. There is no code generation, service locator, persistence layer, or scientific engine in the starter. Future chemistry domain rules belong in the inner crates; infrastructure providers implement ports owned by those inner layers. A scientific editor/renderer should be developed separately from general UI controls.
+Dependencies point inward: `application → domain`; `providers → application + domain`; HTTP and CLI compose the application with concrete providers. Document rules (stable IDs, reference integrity, atomic transactions, undo/redo as change sets) live in `crates/domain`; sessions, revisions, request-ID replay, and save semantics live in `crates/application`; file I/O lives in `crates/providers` behind the application-owned `DocumentRepository` port. The web mirror of the v1 contract validates responses at runtime. There is no code generation, service locator, database, or scientific engine. The structure canvas in `apps/web/src/editor/` is separate from the shadcn/ui controls.
 
 ## API and implementation status
 
@@ -79,14 +95,18 @@ The [interactive architecture document](docs/architecture.html) maps these layer
 | --- | --- | --- |
 | `GET /api/v1/health` | `status --json` | Application liveness contract; not scientific readiness |
 | `GET /api/v1/capabilities` | `capabilities --json` | Actual implementation status |
+| `GET/POST /api/v1/documents` | `documents list` / `create` | List and create documents |
+| `GET /api/v1/documents/{id}` | `documents show` | Working copy |
+| `POST …/transactions`, `…/undo`, `…/redo` | `documents apply` / `undo` / `redo` | Edits with `expected_revision` |
+| `POST …/save`, `…/close` | (CLI edits save) | Commit; end session |
 
-All JSON responses include `api_version: "v1"`. Shared Rust DTOs live in `crates/application`; the TypeScript mirror lives in `apps/web/src/lib/contract.ts`. See [the contract](docs/CONTRACT.md) for version policy. Runtime inspection is the only `available` capability. All seven product/integration capabilities report `not_implemented`.
+All JSON responses include `api_version: "v1"`. Shared Rust DTOs live in `crates/application`; the TypeScript mirrors live in `apps/web/src/lib/`. See [the contract](docs/CONTRACT.md) for commands, errors, limits, the file format, and version policy. `runtime_inspection`, `document_editing` (drawing model only), and `persistence` (local files) are `available`; `structure_analysis`, `format_conversion`, `local_model_loading`, `authentication`, and `windows_bridge` report `not_implemented`.
 
-The API binds IPv4 loopback and exposes GET endpoints only (HEAD is supplied by the router). It sets no CORS permissions. Authentication and authorization are planned; the scaffold has no accounts or user data. A remote, multiuser, or write-capable service requires a separately implemented access-control boundary.
+The API binds IPv4 loopback and sets no CORS permissions. Writes require an allowed `Host`, a same-site or allowed `Origin`, a per-process session token from `GET /api/v1/session`, a JSON body, and at most 256 KiB. This blocks other websites and DNS rebinding; it is not user authentication and does not separate users of the same machine. A remote or multiuser service still requires a separately implemented access-control boundary.
 
 ## UI components and lint
 
-The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Only Button, Card, Badge, Empty, Alert, and Skeleton are installed. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Empty, Field (with Label and Separator), Input, Kbd, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Initialization used **shadcn CLI 4.22.1**:
 
@@ -96,6 +116,8 @@ npx shadcn@latest init --base base --preset nova --no-monorepo -y
 npx shadcn@latest info --json
 npx shadcn@latest docs button card badge empty alert skeleton
 npx shadcn@latest add @shadcn/button @shadcn/card @shadcn/badge @shadcn/empty @shadcn/alert @shadcn/skeleton -y
+# Editor controls (existing button.tsx kept; the registry copy differed only by our notice header)
+npx shadcn add @shadcn/toggle-group @shadcn/input @shadcn/field @shadcn/separator @shadcn/tooltip @shadcn/kbd @shadcn/alert-dialog @shadcn/spinner
 ```
 
 Use the CLI's current help when adding components; `components.json` resolves this configuration to `base-nova`. The installed CLI and dependencies are pinned by `package-lock.json`. Review generated changes before committing them.

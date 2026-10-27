@@ -6,43 +6,44 @@
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
 - 공개 저장소: https://github.com/EunhakChoi/chemifree
-- 마지막 검증된 스캐폴딩·설계 커밋: 90f2b9941919c4ba80ad0dd17cdbb85cf6666e9a.
-- 해당 커밋의 [GitHub CI 통과 기록](https://github.com/EunhakChoi/chemifree/actions/runs/40362091650).
-- HTML 설계의 코드 기준은 119f47765152fd564e5c97bb0c1ad6fa5b5b20c3이다. 그다음 커밋은 HTML과 문서 추가다.
+- 스캐폴딩·설계 기준 커밋: 90f2b99([CI](https://github.com/EunhakChoi/chemifree/actions/runs/40362091650)), 인계 문서 007a185.
+- 그 이후 첫 수직 기능(문서 생성 → 원자·결합 편집 → Undo/Redo → 저장 → 다시 열기)을 구현했다. 커밋과 CI 결과는 git log와 GitHub Actions에서 확인한다.
+- HTML 설계(architecture.html)는 scaffold 코드 기준 119f477의 스냅숏이며, 상단에 이후 변경 안내를 추가했다. 현재 계약은 CONTRACT.md가 기준이다.
 - 이후 문서나 코드가 변경될 수 있으므로 작업 시작 시 git status, git log와 현재 CI를 다시 확인한다. 기존 사용자 변경은 보존한다.
 
 ## 먼저 읽을 파일
 
 1. 프로젝트 루트의 AGENTS.md.
 2. 이 문서와 ../README.md.
-3. CONTRACT.md: 현재 v1 계약과 버전 정책.
+3. CONTRACT.md: 현재 v1 계약(문서 API·명령·오류·쓰기 보호·파일 형식)과 버전 정책.
 4. SHADCN_REVIEW.ko.md: UI 도구 선택, 현재 연결 상태와 정책 제안.
-5. architecture.html: 실제 레이어·소스 링크·다음 기능을 담은 대화형 설계안. 브라우저로 열 수 있다.
+5. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다.
 6. 같은 PC에서 존재한다면 private/SESSION_CONTEXT.ko.md: 승인된 공개 기능 명세의 로컬 경로와 기존 사용자 결정만 담은 보조 인계. Git에 포함하지 않는다.
 
 ## 완료한 기반
 
 | 영역 | 실제 상태 |
 | --- | --- |
-| apps/web | React/TypeScript/Vite 웹 셸, API 조회·timeout·refresh/retry·empty canvas·반응형·시스템 dark |
-| apps/api | Axum read-only HTTP, IPv4 loopback 바인딩, JSON 404/405 |
-| apps/cli | clap 기반 status/capabilities, --json, HTTP 없이 공통 Application 호출 |
-| crates/domain | 외부 의존성 없는 CapabilityId·ImplementationStatus 용어 |
-| crates/application | 공용 유스케이스·v1 DTO·Application-owned CapabilityCatalog port |
-| crates/providers | 위 port의 ScaffoldCapabilities 구현; 실제 데이터 IO 없음 |
-| 개발 환경 | npm/Cargo workspaces, lockfiles, 도구 버전 고정, npm run dev/check, GitHub Actions |
+| apps/web | React/TypeScript/Vite. 런타임·capability 카드와 문서 편집기: 새 문서·목록·열기, SVG 구조 캔버스(src/editor), 도구(선택·원자·결합·지우개), 원소·결합 차수, 인스펙터(원소·전하·동위원소·차수), Undo/Redo·저장·닫기(미저장 확인), 단축키, 충돌·저장 실패 안내 |
+| apps/api | Axum loopback HTTP. 문서 생성·조회·트랜잭션·undo/redo·저장·닫기. Host/Origin/Sec-Fetch-Site 검사, 프로세스별 세션 토큰, JSON·256 KiB 제한, v1 오류 envelope |
+| apps/cli | status/capabilities와 documents list·create·show·apply·undo·redo. 같은 Application을 HTTP 없이 호출, 편집마다 저장 |
+| crates/domain | 원소(1–118), 문서 그래프·안정 ID·참조 불변식, 명령, 원자적 트랜잭션, change-set Undo/Redo, 저장본 복원 검증. 외부 의존성 없음 |
+| crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 저장 커밋 후 ACK, 공유 DTO, DocumentRepository·CapabilityCatalog port |
+| crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), capability 목록 |
+| 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, 수동 test:browser, GitHub Actions |
 
 의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다.
 
-현재 동작하는 HTTP 계약은 GET /api/v1/health와 GET /api/v1/capabilities다. CLI 대응은 status --json과 capabilities --json이다. 모든 JSON에는 api_version: v1이 있다.
+HTTP 계약은 health·capabilities·session과 /api/v1/documents 아래 생성·조회·transactions·undo·redo·save·close다. CLI는 status·capabilities·documents 하위 명령으로 같은 Application을 호출한다. 모든 JSON에는 api_version: v1이 있다. 세부 내용은 CONTRACT.md에 있다.
 
-runtime_inspection만 available이다. document_editing, structure_analysis, format_conversion, local_model_loading, persistence, authentication, windows_bridge는 모두 not_implemented다. health의 ok는 화학 기능 준비 완료를 뜻하지 않는다.
+runtime_inspection, document_editing, persistence가 available이다. document_editing은 그린 그대로 기록하는 drawing 모델이며 원자가·암시적 수소·방향족성·입체·배치·명명·물성을 계산하지 않는다. persistence는 로컬 Chemifree JSON 파일이며 DB·동기화·공유는 없다. structure_analysis, format_conversion, local_model_loading, authentication, windows_bridge는 not_implemented다. 쓰기 보호(세션 토큰·Host/Origin)는 다른 웹사이트를 막는 장치이며 사용자 인증이 아니다.
 
 ## UI 결정
 
 - 웹 우선이며 데스크톱 셸은 선택적 후속 확장이다.
 - shadcn/ui의 공식 @shadcn registry, Base UI/Nova를 적용했다.
-- Button, Card, Badge, Empty, Alert, Skeleton만 설치했다.
+- 설치 컴포넌트: Alert, Alert Dialog, Badge, Button, Card, Empty, Field(Label, Separator), Input, Kbd, Skeleton, Spinner, Toggle Group(Toggle), Tooltip. 기존 button.tsx는 notice 헤더만 달라 덮어쓰지 않았다.
+- 과학 렌더러는 apps/web/src/editor에 두고 일반 UI 컨트롤과 분리했다.
 - 일반 UI는 semantic token과 variant를 사용한다. 과학 SVG/Canvas renderer는 별도 제품 모듈로 둔다.
 - @shadcn/lint는 ESLint plugin으로 등록되어 있지만 기본/CI 디자인 규칙은 0개다. 등록 사실을 디자인 정책 강제 적용으로 설명하지 않는다.
 - 임시 stdin probe에서 no-raw-colors와 no-restyle 탐지를 확인했다. 그 probe가 기본 설정을 변경하지는 않았다.
@@ -62,33 +63,45 @@ npm run check
 cargo run --locked -p chemifree-cli -- capabilities --json
 ~~~
 
-검증된 내용:
+검증된 내용(첫 수직 기능):
 
-- clean npm ci, lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 3개.
-- 실제 HTTP와 CLI의 JSON 동일성, read-only·오류·버전 경계.
-- API 미실행 오류 → 실제 API 시작 → Retry 회복, Refresh 재조회.
-- 잘못된 버전·중복 ID·잘못된 capability status 거절.
-- 모바일 320/390px, 시스템 dark, 링크 의미와 브라우저 예외 확인.
-- HTML 설계의 두 관점·구성요소·소스 탐색·실행 흐름·다운로드·인쇄.
+- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 49개(domain 19, application 15, providers 7, api 8).
+- npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구.
+- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
+- 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
 
-기록은 verification/에 있다. 브라우저 결과는 수동 smoke 기록이며 CI에 브라우저 runner는 아직 없다. 화학적 정확성 검증은 수행한 상태가 아니다.
+scaffold 시점 기록은 verification/의 기존 JSON에 남아 있다. 화학적 정확성 검증은 수행한 상태가 아니다.
 
 CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporary prefix에 npm을 설치하고 PATH에 추가하는 현재 방식을 유지한다.
 
+## 알려진 한계
+
+보장과 한계의 기준 목록은 CONTRACT.md의 "Guarantees and known limits"다. 리뷰와 변경은 그 목록에 맞춰 판단한다. 아래는 구현 관점의 보충이다.
+
+- 작업 사본은 API 프로세스 메모리에 있다. 저장하지 않은 편집은 프로세스 종료 시 사라지고 마지막 커밋이 남는다(의도된 정책, 테스트됨).
+- 저장의 base revision 검사와 rename은 프로세스 간 단일 원자 연산이 아니다. 두 프로세스가 같은 순간 저장하면 경쟁할 수 있다.
+- request_id 재전송 기억은 프로세스 메모리(문서당 최근 64개)에만 있다. 웹은 응답을 받지 못한 생성 요청의 ID를 재시도에 다시 쓴다. 그 사이 API가 재시작되면 재전송하지 않고(중복 생성 방지) 문서가 이미 생겼을 수 있다고 안내하며 목록을 새로 고친다. 확인은 사용자 몫이다.
+- 문서 삭제 기능은 아직 없다.
+- revision은 2^53 − 1까지다. 편집은 2^53 − 2에서 멈추고 마지막 번호는 버린 뒤 다시 여는 사본용으로 남긴다. 그 뒤 다른 저장을 따라갈 번호가 없으면 그 프로세스에서는 resource_limit으로 거절한다.
+- 자동 저장, 비정상 종료 후 미저장 편집 복구, 사본으로 저장, 파일 잠금은 없다.
+- revision·ID 재사용 방지 기억은 프로세스 메모리에 있다. API가 재시작되면 웹은 문서를 다시 읽어 화면과 같은 내용일 때만 편집을 재전송하고(Undo/Redo 제외), 다르면 Reload를 요구한다. CLI는 매번 저장본에서 시작한다.
+- request_id 재전송 기록은 원래 응답 전체를 보관한다(세션당 64개). 큰 문서를 많이 열면 메모리 사용이 커질 수 있다.
+- 문서 목록은 저장된 각 문서를 전부 복원·검증한다. 문서가 많고 크면 목록 조회가 느릴 수 있다(잠금 밖에서 수행).
+- 화면에서 만든 편집이 앞선 요청에 밀려 낡으면 revision_conflict로 거절되고 Reload를 안내한다(전하 ± 같은 상대 편집은 최신 상태 기준으로 계산).
+- 장면은 문서당 위치 한 벌이다. 공개 설계의 그래프/장면 인스턴스 분리, 선택의 이력 포함, 확대·이동, 텍스트·화살표 객체는 아직 없다.
+- 캔버스는 포인터 중심이다. 키보드만으로 원자를 배치하는 접근 경로는 없다(인스펙터 편집과 단축키는 있음).
+- 브라우저 smoke는 CI에서 실행하지 않는다.
+
 ## 다음 구현 단위 제안
 
-사용자가 다음 기능 구현을 요청하면 문서 한 장을 끝까지 다루는 수직 기능부터 진행한다.
+사용자 요청이 범위를 정한다. 후보:
 
-1. 문서·분자 그래프·장면 모델과 안정적인 ID·참조 불변식.
-2. 문서 생성과 원자·결합 추가/편집 명령.
-3. 브라우저의 SVG 표시·선택·pointer preview.
-4. 원자적인 명령 적용과 Undo/Redo.
-5. 로컬 저장·다시 열기와 리비전.
-6. API와 CLI가 같은 Application 유스케이스를 사용.
+1. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion). Chemifree 저장 형식은 손상 입력을 통째로 거절하지만, 외부 형식 가져오기는 공개 명세의 손상 입력 관찰(§Parsing)을 참고해 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
+2. 화학 그래프 진단: 원자가·암시적 수소·분자식(structure_analysis 일부)과 공개 명세의 관찰 사례 대조.
+3. 편집기 확장: 고리 템플릿, 확대·이동, 그래프/장면 분리, 선택 이력.
+4. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.
 
-쓰기 경로를 만들 때 로컬 세션·Host/Origin 검사·입력 한도를 함께 구현한다. request_id 멱등성, expected_revision 충돌, 저장 커밋 후 ACK, 실패·재시작 복구를 수용 기준에 포함한다. 구체적인 wire schema와 v1 호환 변경은 CONTRACT.md와 함께 검토한다.
-
-명명·NMR·물성·고급 형식·Windows bridge·팀 서비스는 이 첫 기능에 한꺼번에 넣지 않는다. 필요한 기능만 실제로 연결하고 검증한 뒤 capability 상태를 변경한다.
+명명·NMR·물성·고급 형식·Windows bridge·팀 서비스를 한꺼번에 넣지 않는다. 기능을 실제로 연결하고 검증한 뒤 capability 상태를 변경한다.
 
 ## 독립 구현 경계
 
@@ -103,9 +116,8 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 ~~~text
 이 Chemifree 프로젝트를 이어서 진행해줘.
 AGENTS.md, docs/HANDOFF.ko.md와 존재하면 private/SESSION_CONTEXT.ko.md를 먼저 읽어.
-스캐폴딩은 완료됐으니 현재 코드·CI 상태를 확인하고,
-문서 생성 → 원자·결합 편집 → Undo/Redo → 저장 → 다시 열기를
-첫 수직 기능으로 구현해줘.
+첫 수직 기능(생성 → 편집 → Undo/Redo → 저장 → 다시 열기)은 완료됐으니
+현재 코드·CI 상태를 확인하고, 다음 범위로 <원하는 기능>을 구현해줘.
 제품 코드는 공개 기능 명세와 독립 자료만 사용하고 원본 분석·바이너리는 열지 마.
 ~~~
 

@@ -1,12 +1,26 @@
-use std::error::Error;
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::PathBuf;
+use std::process::ExitCode;
 
-use chemifree_application::Application;
-use chemifree_providers::ScaffoldCapabilities;
-use clap::{Parser, Subcommand};
+use chemifree_application::{
+    Application, ApplicationError, CommandDto, DocumentListResponse, DocumentResponse, ErrorCode,
+};
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
+use clap::{Args as ClapArgs, Parser, Subcommand};
+use serde::Serialize;
+
+type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
+
+/// Command input larger than this is refused before parsing.
+const MAX_COMMAND_INPUT_BYTES: u64 = 1024 * 1024;
 
 #[derive(Parser)]
-#[command(name = "chemifree", version, about = "Chemifree local CLI (scaffold)")]
+#[command(name = "chemifree", version, about = "Chemifree local CLI")]
 struct Args {
+    /// Directory for saved documents. Defaults to the platform user-data directory.
+    #[arg(long, global = true, env = "CHEMIFREE_DATA_DIR")]
+    data_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -23,17 +37,84 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Create, inspect, and edit saved documents. Every edit is saved before exit.
+    #[command(subcommand)]
+    Documents(DocumentCommand),
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[derive(Subcommand)]
+enum DocumentCommand {
+    /// List saved documents.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create and save an empty document.
+    Create {
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a saved document.
+    Show {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Apply a JSON array of commands as one transaction, then save.
+    Apply {
+        #[command(flatten)]
+        target: Target,
+        /// Commands as a JSON array, e.g. '[{"op":"add_atom","element":"C","position":{"x":0,"y":0}}]'.
+        #[arg(
+            long,
+            conflicts_with = "commands_file",
+            required_unless_present = "commands_file"
+        )]
+        commands: Option<String>,
+        /// Read the JSON command array from this file, or `-` for standard input.
+        #[arg(long)]
+        commands_file: Option<PathBuf>,
+    },
+    /// Undo the latest saved transaction as a new revision, then save.
+    Undo {
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Redo the latest undone transaction as a new revision, then save.
+    Redo {
+        #[command(flatten)]
+        target: Target,
+    },
+}
+
+#[derive(ClapArgs)]
+struct Target {
+    id: String,
+    /// The revision the edit is based on; a different current revision is a conflict.
+    #[arg(long)]
+    expected_revision: u64,
+    #[arg(long)]
+    json: bool,
+}
+
+fn main() -> ExitCode {
     let args = Args::parse();
-    let application = Application::new(ScaffoldCapabilities);
+    let data_dir = args.data_dir.or_else(default_data_dir);
+    let documents_need_data = matches!(args.command, Command::Documents(_));
+    let Some(data_dir) = data_dir.or_else(|| (!documents_need_data).then(PathBuf::new)) else {
+        eprintln!("error: no user data directory found; pass --data-dir or set CHEMIFREE_DATA_DIR");
+        return ExitCode::FAILURE;
+    };
+    // Construction performs no I/O; status and capabilities never touch storage.
+    let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir));
 
     match args.command {
         Command::Status { json } => {
             let health = application.health();
             if json {
-                println!("{}", serde_json::to_string_pretty(&health)?);
+                print_json(&health);
             } else {
                 println!(
                     "{} {} · {} · API {} · {}",
@@ -41,11 +122,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 );
                 println!("Liveness only. Run `chemifree capabilities` for implementation status.");
             }
+            ExitCode::SUCCESS
         }
         Command::Capabilities { json } => {
             let response = application.capabilities();
             if json {
-                println!("{}", serde_json::to_string_pretty(&response)?);
+                print_json(&response);
             } else {
                 println!("Chemifree capabilities · API {}", response.api_version);
                 for capability in response.capabilities {
@@ -53,7 +135,181 @@ fn main() -> Result<(), Box<dyn Error>> {
                     println!("  {}", capability.description);
                 }
             }
+            ExitCode::SUCCESS
+        }
+        Command::Documents(command) => run_document_command(&application, command),
+    }
+}
+
+fn run_document_command(application: &LocalApplication, command: DocumentCommand) -> ExitCode {
+    match command {
+        DocumentCommand::List { json } => report(application.list_documents(), json, print_list),
+        DocumentCommand::Create { title, json } => report(
+            application.create_document(None, title.as_deref()),
+            json,
+            print_document,
+        ),
+        DocumentCommand::Show { id, json } => {
+            report(application.document(&id), json, print_document)
+        }
+        DocumentCommand::Apply {
+            target,
+            commands,
+            commands_file,
+        } => {
+            let result = read_commands(commands, commands_file).and_then(|commands| {
+                let edited = application.apply_transaction(
+                    &target.id,
+                    None,
+                    target.expected_revision,
+                    commands,
+                )?;
+                save(application, &target.id, &edited)
+            });
+            report(result, target.json, print_document)
+        }
+        DocumentCommand::Undo { target } => {
+            let result = application
+                .undo(&target.id, None, target.expected_revision)
+                .and_then(|undone| save(application, &target.id, &undone));
+            report(result, target.json, print_document)
+        }
+        DocumentCommand::Redo { target } => {
+            let result = application
+                .redo(&target.id, None, target.expected_revision)
+                .and_then(|redone| save(application, &target.id, &redone));
+            report(result, target.json, print_document)
         }
     }
-    Ok(())
+}
+
+/// The CLI's session ends with the process, so every edit is committed before success.
+fn save(
+    application: &LocalApplication,
+    id: &str,
+    edited: &DocumentResponse,
+) -> Result<DocumentResponse, ApplicationError> {
+    application.save(id, None, edited.document.revision)
+}
+
+fn read_commands(
+    inline: Option<String>,
+    file: Option<PathBuf>,
+) -> Result<Vec<CommandDto>, ApplicationError> {
+    let invalid = |message: String| ApplicationError::new(ErrorCode::InvalidRequest, message);
+    let text = match (inline, file) {
+        (Some(text), _) => text,
+        (None, Some(path)) => {
+            let reader: Box<dyn Read> = if path.as_os_str() == "-" {
+                Box::new(io::stdin())
+            } else {
+                Box::new(File::open(&path).map_err(|error| {
+                    invalid(format!("could not open {}: {error}", path.display()))
+                })?)
+            };
+            let mut text = String::new();
+            reader
+                .take(MAX_COMMAND_INPUT_BYTES + 1)
+                .read_to_string(&mut text)
+                .map_err(|error| invalid(format!("could not read commands: {error}")))?;
+            text
+        }
+        (None, None) => unreachable!("clap requires --commands or --commands-file"),
+    };
+    if text.len() as u64 > MAX_COMMAND_INPUT_BYTES {
+        return Err(invalid(format!(
+            "command input exceeds {MAX_COMMAND_INPUT_BYTES} bytes"
+        )));
+    }
+    serde_json::from_str(&text).map_err(|error| invalid(format!("invalid commands: {error}")))
+}
+
+/// Prints a success to stdout. Failures go to stdout as a v1 error envelope with `--json`
+/// (so scripts can parse them) or to stderr otherwise; both exit with status 1.
+fn report<T: Serialize>(
+    result: Result<T, ApplicationError>,
+    json: bool,
+    human: fn(&T),
+) -> ExitCode {
+    match result {
+        Ok(value) if json => {
+            print_json(&value);
+            ExitCode::SUCCESS
+        }
+        Ok(value) => {
+            human(&value);
+            ExitCode::SUCCESS
+        }
+        Err(error) if json => {
+            print_json(&error.to_response());
+            ExitCode::FAILURE
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_json<T: Serialize>(value: &T) {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).expect("responses are serializable")
+    );
+}
+
+fn print_list(response: &DocumentListResponse) {
+    if response.documents.is_empty() {
+        println!("No saved documents.");
+    }
+    for document in &response.documents {
+        println!(
+            "{}  r{}  {} atoms, {} bonds  {}",
+            document.id,
+            document.revision,
+            document.atom_count,
+            document.bond_count,
+            document.title
+        );
+    }
+    for entry in &response.unreadable {
+        eprintln!("unreadable {}: {}", entry.id, entry.message);
+    }
+}
+
+fn print_document(response: &DocumentResponse) {
+    let document = &response.document;
+    println!(
+        "{} · {} · revision {}",
+        document.title, document.id, document.revision
+    );
+    for atom in &document.atoms {
+        let isotope = atom
+            .isotope
+            .map(|mass| mass.to_string())
+            .unwrap_or_default();
+        let charge = match atom.charge {
+            0 => String::new(),
+            charge if charge > 0 => format!(" {charge:+}"),
+            charge => format!(" {charge}"),
+        };
+        println!(
+            "  {}  {isotope}{}{charge}  ({}, {})",
+            atom.id, atom.element, atom.position.x, atom.position.y
+        );
+    }
+    for bond in &document.bonds {
+        let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
+        println!(
+            "  {}  {}–{}  {}",
+            bond.id,
+            bond.begin,
+            bond.end,
+            order.as_str().unwrap_or_default()
+        );
+    }
+    println!(
+        "  undo {} · redo {}",
+        response.session.undo_depth, response.session.redo_depth
+    );
 }
