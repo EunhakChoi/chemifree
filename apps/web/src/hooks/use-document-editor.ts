@@ -1,13 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useAutosave } from '@/hooks/use-autosave'
 import {
   ApiError,
   DocumentClient,
   type Command,
+  type CopyResponse,
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
 } from '@/lib/document-contract'
+
+/** What the page is editing after a copy: a new document, with the original left as saved. */
+export interface CopyNotice {
+  copyId: string
+  sourceId: string
+  sourceTitle: string
+  /** A recovered draft rather than the working copy of an open document. */
+  recovered: boolean
+  /** The source's unsaved changes live only in the copy now. */
+  discardedChanges: boolean
+}
 
 export type ListState =
   | { kind: 'loading' }
@@ -56,6 +69,7 @@ export function useDocumentEditor() {
   const [current, setCurrentState] = useState<DocumentResponse | null>(null)
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<ApiError | null>(null)
+  const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
@@ -134,11 +148,46 @@ export function useDocumentEditor() {
   const id = () => currentRef.current?.document.id ?? ''
   const revision = (document: DocumentResponse) => document.document.revision
 
+  const reportRestart = useCallback((failure: ApiError) => {
+    failures.current += 1
+    setError(failure)
+  }, [])
+  const autosave = useAutosave(client, current, reportRestart)
+
+  /** Runs a copy, then shows the copy as the document being edited. */
+  const copy = useCallback(
+    (make: (shown: DocumentResponse) => Promise<CopyResponse>, recovered: boolean) => {
+      const shown = currentRef.current
+      if (!shown) return Promise.resolve()
+      return run(async () => {
+        try {
+          const copied = await make(shown)
+          setCurrent(copied)
+          setCopyNotice({
+            copyId: copied.document.id,
+            sourceId: copied.source.id,
+            sourceTitle: shown.document.title,
+            recovered,
+            discardedChanges: copied.source.discarded_changes,
+          })
+          refreshList()
+        } catch (failure) {
+          if (failure instanceof ApiError && failure.code === 'copy_unconfirmed') refreshList()
+          throw failure
+        }
+      })
+    },
+    [run, setCurrent, refreshList],
+  )
+
   return {
     list,
     current,
     busy: pending > 0,
     error,
+    autosave,
+    /** Shown while the copy it describes is the open document. */
+    copyNotice: copyNotice && current?.document.id === copyNotice.copyId ? copyNotice : null,
     dismissError: useCallback(() => setError(null), []),
     refreshList,
     create: useCallback(
@@ -155,6 +204,23 @@ export function useDocumentEditor() {
       [run, setCurrent, refreshList],
     ),
     open: useCallback((documentId: string) => run(async () => setCurrent(await client.get(documentId))), [run, setCurrent]),
+    saveAs: useCallback(
+      (title?: string) => copy((shown) => client.saveAs(shown.document.id, shown.document.revision, title), false),
+      [copy],
+    ),
+    /** Makes the abandoned draft the working copy, unsaved, with its undo history. */
+    recover: useCallback(() => run(async () => setCurrent(await client.recover(id()))), [run, setCurrent]),
+    recoverAsCopy: useCallback(() => copy((shown) => client.recoverAsCopy(shown.document.id), true), [copy]),
+    discardDraft: useCallback(
+      () =>
+        run(async () => {
+          const shownId = id()
+          await client.discardDraft(shownId)
+          if (currentRef.current?.document.id === shownId) setCurrent(await client.get(shownId))
+          refreshList()
+        }),
+      [run, setCurrent, refreshList],
+    ),
     /** Re-reads the working copy, e.g. after a revision conflict. */
     reload: useCallback(() => run(async () => setCurrent(await client.get(id()))), [run, setCurrent]),
     apply: useCallback(
