@@ -12,6 +12,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request, State};
@@ -138,6 +139,29 @@ pub fn router(state: Shared) -> Router {
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), allowed_host))
         .with_state(state)
+}
+
+/// Adds one line per request on standard error: `request <unix ms> <method> <path> <status>
+/// <duration>ms`, written when the response is ready. For diagnosing local runs; bodies, query
+/// strings, and headers (including the write token) are never printed.
+pub fn log_requests(router: Router) -> Router {
+    router.layer(middleware::from_fn(log_request))
+}
+
+async fn log_request(request: Request, next: Next) -> Response {
+    let started = Instant::now();
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let response = next.run(request).await;
+    let at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis());
+    eprintln!(
+        "request {at} {method} {path} {} {}ms",
+        response.status().as_u16(),
+        started.elapsed().as_millis()
+    );
+    response
 }
 
 /// An HTTP error with the v1 envelope.

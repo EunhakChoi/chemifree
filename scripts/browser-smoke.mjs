@@ -7,13 +7,17 @@
 //
 // Uses playwright-core with an installed Chrome/Chromium: set CHEMIFREE_BROWSER to its
 // executable, or install Playwright's build with `npx playwright-core install chromium`.
-// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory).
+// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory). On failure it also
+// writes failure.png, requests.log (every browser request), api.log (the API's request log), and
+// web.log there.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright-core'
+
+import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
 const results = {}
@@ -49,9 +53,11 @@ function start(command, args, ready, options = {}) {
     child.stderr.on('data', read)
     child.once('exit', (code) => reject(new Error(`${command} exited (${code}). ${log}`)))
   })
-  return { child, started }
+  return { child, started, log: () => log }
 }
-const startApi = () => start(apiPath, ['--port', '3001'], /listening on http:\/\/127\.0\.0\.1:3001/)
+/** Output of API processes that have ended (they are killed and restarted by some steps). */
+const endedApiLogs = []
+const startApi = () => start(apiPath, ['--port', '3001', '--log-requests'], /listening on http:\/\/127\.0\.0\.1:3001/)
 let apiServer = startApi()
 const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
 // Registered before anything can fail so a failed start or launch never leaves servers running.
@@ -69,10 +75,15 @@ async function cleanup() {
 }
 let page = null
 const recentRequests = []
+const allRequests = []
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
   await page?.screenshot({ path: join(outDir, 'failure.png') }).catch(() => {})
   console.error(recentRequests.join('\n'))
+  writeFileSync(join(outDir, 'requests.log'), `${allRequests.join('\n')}\n`)
+  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- API restarted\n'))
+  writeFileSync(join(outDir, 'web.log'), web.log())
+  console.error(`Diagnostics in ${outDir}: failure.png, requests.log, api.log, web.log`)
   await cleanup()
   process.exit(1)
 })
@@ -82,17 +93,22 @@ async function crashApi() {
   const exited = new Promise((resolveExit) => apiServer.child.once('exit', resolveExit))
   apiServer.child.kill('SIGKILL')
   await exited
+  endedApiLogs.push(apiServer.log())
   apiServer = startApi()
   await apiServer.started
 }
 
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+// Steps add and drop page routes; without this a request can stall when the last one goes (#8).
+await keepRequestInterception(context)
 page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
 const started = new Map()
 page.on('request', (request) => started.set(request, Date.now()))
+page.on('request', (request) => allRequests.push(`${new Date().toISOString()} start ${request.method()} ${new URL(request.url()).pathname}`))
 const note = (request, outcome) => {
+  allRequests.push(`${new Date().toISOString()} end ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
   recentRequests.push(`${new Date().toISOString()} ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
   if (recentRequests.length > 40) recentRequests.shift()
 }
@@ -425,7 +441,10 @@ const refuseToken = () =>
 const a1Charge = async () => (await openDoc()).document.atoms.find((atom) => atom.id === 'a1').charge
 const chargeBeforeRestart = await a1Charge()
 await refuseToken()
+// The edit is refused once, the page re-reads the document, and sends the edit again.
+const editRetried = page.waitForResponse((r) => r.url().endsWith('/transactions') && r.status() === 200)
 await page.getByRole('button', { name: 'Increase charge' }).click()
+await editRetried
 await waitIdle()
 assert.equal(await a1Charge(), chargeBeforeRestart + 1, 'same drawing: the edit is retried')
 assert.equal(await page.getByText('Local service restarted', { exact: true }).count(), 0)

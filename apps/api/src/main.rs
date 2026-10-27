@@ -21,6 +21,9 @@ struct Args {
     /// development and preview origins on ports 5173 and 4173.
     #[arg(long = "allow-origin", value_name = "ORIGIN")]
     allow_origins: Vec<String>,
+    /// Print one line per request (time, method, path, status, duration) to standard error.
+    #[arg(long, env = "CHEMIFREE_LOG_REQUESTS")]
+    log_requests: bool,
 }
 
 #[tokio::main]
@@ -50,7 +53,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Chemifree API listening on http://{address}");
     eprintln!("Documents: {}", documents.display());
-    axum::serve(listener, chemifree_api::router(Arc::new(state)))
+    let mut router = chemifree_api::router(Arc::new(state));
+    if args.log_requests {
+        router = chemifree_api::log_requests(router);
+    }
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())

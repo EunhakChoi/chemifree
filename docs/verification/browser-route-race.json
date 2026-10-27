@@ -1,0 +1,83 @@
+{
+  "issue": "#8 intermittent failure of the browser smoke's simulated-restart step",
+  "date": "2026-10-28",
+  "environment": {
+    "os": "Linux 6.6 (WSL2), 24 logical CPUs",
+    "browser": "Google Chrome 147.0.7727.116 (headless) via playwright-core 1.56.1",
+    "node": "22.22.2"
+  },
+  "classification": "test synchronization (Playwright request interception), not a product defect",
+  "cause": "Playwright intercepts requests only while a route is registered. When the last page route goes away (a times: 1 route that has fired, or unroute), it disables interception. A request the page starts in that window is already paused by the browser, but Playwright records it as not intercepted and never continues it, so it never reaches the server and fails only when the client aborts it after 10 s (net::ERR_ABORTED). In the smoke, the step's refused-token route (times: 1) expires right before the client re-reads the document after the 401. When that read stalls, the edit is not retried (3 !== 4) or the 'Local service restarted' alert never appears. The API request log showed the stalled request never arrived.",
+  "fix": "The smoke keeps interception on for the whole run with a pass-through context route (scripts/lib/request-interception.mjs), and the retried-edit check waits for the actual 200 transaction response. No sleeps, retries, or assertions were added or removed.",
+  "diagnostics": "The API logs one line per request with --log-requests. A failed smoke run leaves failure.png, requests.log (browser requests with status and duration), api.log, and web.log in CHEMIFREE_SMOKE_OUT.",
+  "runs": [
+    {
+      "check": "npm run test:browser:routes -- --unguarded",
+      "what": "1000 cycles against a plain HTTP server (no Chemifree code): a times: 1 route answers 401, then the page fetches another URL; more than 1000 ms counts as stalled",
+      "results": [
+        "11 of 1000 stalled",
+        "12 of 1000 stalled"
+      ],
+      "outcome": "reproduces the race (exits non-zero)"
+    },
+    {
+      "check": "npm run test:browser:routes",
+      "what": "the same 1000 cycles with the guard",
+      "results": [
+        "0 of 1000 stalled"
+      ],
+      "outcome": "pass"
+    },
+    {
+      "check": "focused harness, full stack (API, Vite, editor), without the guard",
+      "what": "the steps before and during the simulated restart repeated in one browser session, 120 iterations",
+      "results": [
+        "5 failures in 120: 3 'the edit is retried' (3 !== 4), 2 'Local service restarted' not shown within 15 s"
+      ],
+      "outcome": "reproduces both #8 signatures"
+    },
+    {
+      "check": "focused harness, full stack, with the guard",
+      "what": "same 120 iterations",
+      "results": [
+        "0 failures in 120"
+      ],
+      "outcome": "pass"
+    },
+    {
+      "check": "npm run test:browser (full smoke, guarded), 10 consecutive runs",
+      "what": "the complete browser smoke run back to back, idle machine",
+      "results": [
+        "9 of 10 passed; the simulated-restart step passed in all 10",
+        "run 3 failed after crash_recovery_restores_drawing_and_history: the page showed 'Draft in use' instead of 'Unsaved work found' (a separate product defect, below)"
+      ],
+      "outcome": "led to the draft-probe fix"
+    },
+    {
+      "check": "npm run test:browser (full smoke, guarded, with the draft-probe fix), 10 consecutive runs",
+      "what": "the complete browser smoke run back to back; for part of the time a contract smoke ran in parallel on the same machine",
+      "results": [
+        "10 of 10 passed"
+      ],
+      "outcome": "pass"
+    },
+    {
+      "check": "npm run test:browser:routes (both modes) and npm run check, final tree",
+      "what": "once each",
+      "results": [
+        "guarded: 0 of 1000 stalled",
+        "--unguarded: 11 of 1000 stalled (exits non-zero, as intended)",
+        "npm run check: pass (66 Rust tests, lint, types, build, contract smoke)"
+      ],
+      "outcome": "pass"
+    }
+  ],
+  "limits": "The focused harness is a local diagnostic script and is not committed; test:browser:routes is the committed reproduction. The race is in playwright-core 1.56.1 and may change with other versions. Not run in CI.",
+  "also_found": {
+    "classification": "product defect in the file store",
+    "symptom": "Right after the API that owned a recovery draft was killed, the reloaded page listed documents twice at once and one list reported the abandoned draft as in_use ('Draft in use').",
+    "cause": "draft_status took the draft's owner lock through a new file handle to inspect it. An OS file lock refuses every other handle, including the same process's own, so a concurrent request in the same process read the probe as another running process (also possible for write_draft and claim_draft).",
+    "fix": "The file store serializes taking and acting on owner locks within one process.",
+    "regression_test": "crates/providers file_store::tests::concurrent_requests_in_one_process_never_see_its_own_probe_as_another_owner: 8 threads x 200 probes; before the fix 1562 of 1600 probes misread the draft, after it 0."
+  }
+}
