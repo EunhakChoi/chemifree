@@ -1,0 +1,451 @@
+use std::sync::Arc;
+
+use axum::Router;
+use axum::body::{Body, to_bytes};
+use axum::http::{Request, StatusCode};
+use chemifree_api::{ApiState, LocalApplication, MAX_BODY_BYTES, SESSION_HEADER, router};
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use serde_json::{Value, json};
+use tempfile::TempDir;
+use tower::ServiceExt;
+
+const PORT: u16 = 3999;
+const HOST: &str = "127.0.0.1:3999";
+const WEB: &str = "http://127.0.0.1:5173";
+const TOKEN: &str = "test-token";
+
+struct Api {
+    router: Router,
+    data: TempDir,
+}
+
+fn api() -> Api {
+    let data = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(data.path());
+    let application = LocalApplication::new(LocalCapabilities, repository);
+    let state = ApiState::new(application, TOKEN.into(), PORT, &[WEB.into()]).unwrap();
+    Api {
+        router: router(Arc::new(state)),
+        data,
+    }
+}
+
+impl Api {
+    async fn send(&self, request: Request<Body>) -> (StatusCode, Value) {
+        let response = self.router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .is_none(),
+            "no CORS grants"
+        );
+        let body = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+        let value = if body.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&body).unwrap()
+        };
+        (status, value)
+    }
+
+    async fn get(&self, uri: &str) -> (StatusCode, Value) {
+        self.send(
+            Request::get(uri)
+                .header("host", HOST)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+    }
+
+    /// A same-origin browser write through the development proxy.
+    async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
+        self.send(write(uri).body(Body::from(body.to_string())).unwrap())
+            .await
+    }
+}
+
+fn write(uri: &str) -> axum::http::request::Builder {
+    Request::post(uri)
+        .header("host", "127.0.0.1:5173")
+        .header("origin", WEB)
+        .header("sec-fetch-site", "same-origin")
+        .header("content-type", "application/json")
+        .header(SESSION_HEADER, TOKEN)
+}
+
+fn ethanol() -> Value {
+    json!([
+        {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+        {"op": "add_atom", "element": "C", "position": {"x": 26, "y": 15},
+         "bond_to": {"atom": "a1", "order": "single"}},
+        {"op": "add_atom", "element": "O", "position": {"x": 52, "y": 0},
+         "bond_to": {"atom": "a2", "order": "single"}}
+    ])
+}
+
+#[tokio::test]
+async fn capabilities_report_connected_operations() {
+    let api = api();
+    let (status, body) = api.get("/api/v1/capabilities").await;
+    assert_eq!(status, StatusCode::OK);
+    let available: Vec<_> = body["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["status"] == "available")
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        available,
+        ["runtime_inspection", "document_editing", "persistence"]
+    );
+}
+
+#[tokio::test]
+async fn the_document_flow_works_end_to_end_over_http() {
+    let api = api();
+    let (status, session) = api.get("/api/v1/session").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(session["header"], SESSION_HEADER);
+    assert_eq!(session["token"], TOKEN);
+
+    let (status, created) = api
+        .post(
+            "/api/v1/documents",
+            json!({"request_id": "c1", "title": "Ethanol"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let id = created["document"]["id"].as_str().unwrap().to_owned();
+    let base = format!("/api/v1/documents/{id}");
+
+    let (status, edited) = api
+        .post(
+            &format!("{base}/transactions"),
+            json!({"request_id": "t1", "expected_revision": 0, "commands": ethanol()}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    assert_eq!(edited["document"]["revision"], 1);
+    assert_eq!(edited["session"]["unsaved_changes"], true);
+
+    let (_, changed) = api
+        .post(
+            &format!("{base}/transactions"),
+            json!({"request_id": "t2", "expected_revision": 1, "commands": [
+                {"op": "update_bond", "bond": "b2", "order": "double"}
+            ]}),
+        )
+        .await;
+    let (_, undone) = api
+        .post(
+            &format!("{base}/undo"),
+            json!({"request_id": "u1", "expected_revision": 2}),
+        )
+        .await;
+    assert_eq!(undone["document"]["bonds"], edited["document"]["bonds"]);
+    let (_, redone) = api
+        .post(
+            &format!("{base}/redo"),
+            json!({"request_id": "r1", "expected_revision": 3}),
+        )
+        .await;
+    assert_eq!(redone["document"]["bonds"], changed["document"]["bonds"]);
+
+    let (status, conflict) = api
+        .post(
+            &format!("{base}/save"),
+            json!({"request_id": "s0", "expected_revision": 2}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(conflict["code"], "revision_conflict");
+    assert_eq!(conflict["current_revision"], 4);
+
+    let (status, saved) = api
+        .post(
+            &format!("{base}/save"),
+            json!({"request_id": "s1", "expected_revision": 4}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["session"]["unsaved_changes"], false);
+    let (status, closed) = api
+        .post(&format!("{base}/close"), json!({"request_id": "x1"}))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(closed["discarded_changes"], false);
+
+    let (status, reopened) = api.get(&base).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reopened, saved);
+    let (_, list) = api.get("/api/v1/documents").await;
+    assert_eq!(list["documents"][0]["title"], "Ethanol");
+    assert_eq!(list["documents"][0]["atom_count"], 3);
+}
+
+#[tokio::test]
+async fn domain_errors_map_to_v1_envelopes() {
+    let api = api();
+    let (_, created) = api
+        .post("/api/v1/documents", json!({"request_id": "c1"}))
+        .await;
+    let base = format!(
+        "/api/v1/documents/{}",
+        created["document"]["id"].as_str().unwrap()
+    );
+
+    let (status, body) = api
+        .post(
+            &format!("{base}/transactions"),
+            json!({"request_id": "t1", "expected_revision": 0, "commands": [
+                {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+                {"op": "add_bond", "begin": "a1", "end": "a1", "order": "single"}
+            ]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["code"], "invalid_command");
+    assert_eq!(body["command_index"], 1);
+    assert_eq!(body["api_version"], "v1");
+
+    let (status, body) = api
+        .post(
+            &format!("{base}/undo"),
+            json!({"request_id": "u1", "expected_revision": 0}),
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::CONFLICT, Some("nothing_to_undo"))
+    );
+
+    let (status, body) = api.get("/api/v1/documents/doc-missing").await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("document_not_found"))
+    );
+}
+
+#[tokio::test]
+async fn a_failed_save_is_reported_and_the_session_keeps_its_changes() {
+    let api = api();
+    let (_, created) = api
+        .post("/api/v1/documents", json!({"request_id": "c1"}))
+        .await;
+    let id = created["document"]["id"].as_str().unwrap().to_owned();
+    let base = format!("/api/v1/documents/{id}");
+    api.post(
+        &format!("{base}/transactions"),
+        json!({"request_id": "t1", "expected_revision": 0, "commands": ethanol()}),
+    )
+    .await;
+
+    let file = api.data.path().join("documents").join(format!("{id}.json"));
+    let committed = std::fs::read(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    let (status, body) = api
+        .post(
+            &format!("{base}/save"),
+            json!({"request_id": "s1", "expected_revision": 1}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "storage_failed");
+    let (_, current) = api.get(&base).await;
+    assert_eq!(current["session"]["unsaved_changes"], true);
+    assert_eq!(current["document"]["atoms"].as_array().unwrap().len(), 3);
+
+    std::fs::remove_dir(&file).unwrap();
+    std::fs::write(&file, committed).unwrap();
+    let (status, saved) = api
+        .post(
+            &format!("{base}/save"),
+            json!({"request_id": "s1", "expected_revision": 1}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved["session"]["saved_revision"], 1);
+}
+
+#[tokio::test]
+async fn writes_require_an_allowed_host_origin_token_and_json() {
+    let api = api();
+    let create = || json!({"request_id": "c1"}).to_string();
+    let cases = [
+        (
+            Request::post("/api/v1/documents")
+                .header("host", HOST)
+                .header("origin", "https://evil.example")
+                .header("content-type", "application/json")
+                .header(SESSION_HEADER, TOKEN),
+            StatusCode::FORBIDDEN,
+            "forbidden_origin",
+        ),
+        (
+            Request::post("/api/v1/documents")
+                .header("host", HOST)
+                .header("sec-fetch-site", "cross-site")
+                .header("content-type", "application/json")
+                .header(SESSION_HEADER, TOKEN),
+            StatusCode::FORBIDDEN,
+            "forbidden_origin",
+        ),
+        (
+            Request::post("/api/v1/documents")
+                .header("host", HOST)
+                .header("content-type", "application/json"),
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+        ),
+        (
+            Request::post("/api/v1/documents")
+                .header("host", HOST)
+                .header("content-type", "application/json")
+                .header(SESSION_HEADER, "test-tokem"),
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+        ),
+        (
+            Request::post("/api/v1/documents")
+                .header("host", HOST)
+                .header("content-type", "text/plain")
+                .header(SESSION_HEADER, TOKEN),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported_media_type",
+        ),
+    ];
+    for (request, status, code) in cases {
+        let (actual, body) = api.send(request.body(Body::from(create())).unwrap()).await;
+        assert_eq!((actual, body["code"].as_str()), (status, Some(code)));
+    }
+    // A rebinding page carries its own name in Host; `insert` replaces the valid one.
+    let mut rebound = write("/api/v1/documents")
+        .body(Body::from(create()))
+        .unwrap();
+    rebound
+        .headers_mut()
+        .insert("host", "localhost.evil.example:5173".parse().unwrap());
+    let (status, body) = api.send(rebound).await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("forbidden_host"))
+    );
+
+    let (status, body) = api
+        .send(
+            Request::get("/api/v1/session")
+                .header("host", HOST)
+                .header("origin", "https://evil.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("forbidden_origin"))
+    );
+    let (status, _) = api
+        .send(Request::get("/api/v1/health").body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a missing Host is refused");
+
+    let list = api.get("/api/v1/documents").await.1;
+    assert_eq!(
+        list["documents"],
+        json!([]),
+        "no rejected write reached storage"
+    );
+}
+
+#[tokio::test]
+async fn malformed_and_oversized_bodies_are_rejected() {
+    let api = api();
+    for (body, status, code) in [
+        ("{".to_owned(), StatusCode::BAD_REQUEST, "invalid_json"),
+        (
+            json!({"request_id": "c1", "owner": "x"}).to_string(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_request",
+        ),
+        (
+            json!({"title": "missing request id"}).to_string(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_request",
+        ),
+        (
+            json!({"request_id": "c1", "title": "x".repeat(MAX_BODY_BYTES)}).to_string(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+        ),
+    ] {
+        let (actual, response) = api
+            .send(write("/api/v1/documents").body(Body::from(body)).unwrap())
+            .await;
+        assert_eq!(
+            (actual, response["code"].as_str()),
+            (status, Some(code)),
+            "{response}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn unknown_routes_and_methods_are_explicit_errors() {
+    let api = api();
+    for (method, uri, status, code) in [
+        ("POST", "/api/v1/capabilities", 405, "method_not_allowed"),
+        (
+            "DELETE",
+            "/api/v1/documents/doc-1",
+            405,
+            "method_not_allowed",
+        ),
+        ("GET", "/api/v1/unknown", 404, "not_found"),
+        ("GET", "/api/v2/health", 404, "not_found"),
+    ] {
+        let (actual, body) = api
+            .send(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("host", HOST)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(actual.as_u16(), status);
+        assert_eq!(body["code"], code);
+        assert_eq!(body["api_version"], "v1");
+    }
+}
+
+#[test]
+fn only_loopback_web_origins_are_accepted() {
+    let state = |origin: &str| {
+        let data = tempfile::tempdir().unwrap();
+        let repository = FileDocumentRepository::new(data.path());
+        let application = LocalApplication::new(LocalCapabilities, repository);
+        ApiState::new(application, TOKEN.into(), PORT, &[origin.into()]).map(|_| ())
+    };
+    for origin in [
+        "http://localhost:5173",
+        "https://127.0.0.1",
+        "http://[::1]:8080",
+    ] {
+        assert!(state(origin).is_ok(), "{origin}");
+    }
+    for origin in [
+        "http://example.com",
+        "http://localhost.evil.example",
+        "http://127.0.0.1:5173/path",
+        "http://127.0.0.1:+80",
+        "file://localhost",
+    ] {
+        assert!(state(origin).is_err(), "{origin}");
+    }
+}

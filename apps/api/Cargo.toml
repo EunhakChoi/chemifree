@@ -12,11 +12,13 @@ chemifree-application.workspace = true
 chemifree-providers.workspace = true
 axum.workspace = true
 clap.workspace = true
+getrandom.workspace = true
 serde.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 tower.workspace = true
 
 [lints]

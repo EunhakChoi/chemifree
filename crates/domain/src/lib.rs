@@ -1,4 +1,7 @@
-//! Domain vocabulary. This crate has no transport or infrastructure dependencies.
+//! Domain vocabulary and rules. This crate has no transport or infrastructure dependencies.
+
+pub mod document;
+pub mod element;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityId {
