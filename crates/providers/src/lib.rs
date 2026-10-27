@@ -56,7 +56,7 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: Persistence,
                 label: "Saved documents",
                 status: Available,
-                description: "Save and reopen documents as local Chemifree JSON files with atomic replace and revision checks. No database, sync, or sharing.",
+                description: "Save and reopen documents as local Chemifree JSON files with atomic replace, revision checks, cross-process save locks, autosaved recovery drafts, and save as copy. No database, sync, or sharing.",
             },
             Capability {
                 id: Authentication,

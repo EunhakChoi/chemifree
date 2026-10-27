@@ -36,12 +36,31 @@ export interface SessionView {
   unsaved_changes: boolean
   undo_depth: number
   redo_depth: number
+  /** The revision this session's recovery draft holds, or null when it has none. */
+  draft_revision: number | null
+}
+
+export type RecoveryState = 'recoverable' | 'outdated' | 'unreadable' | 'in_use'
+
+/** An abandoned recovery draft: unsaved work of a session whose process ended. */
+export interface RecoveryView {
+  state: RecoveryState
+  revision: number | null
+  base_revision: number | null
+  saved_at_ms: number | null
+  message: string | null
 }
 
 export interface DocumentResponse {
   api_version: typeof API_VERSION
   document: DocumentView
   session: SessionView
+  recovery: RecoveryView | null
+}
+
+/** A document saved as a new one; the copy is open in its own session. */
+export interface CopyResponse extends DocumentResponse {
+  source: { id: string; closed: boolean; discarded_changes: boolean }
 }
 
 export interface DocumentSummary {
@@ -52,6 +71,7 @@ export interface DocumentSummary {
   bond_count: number
   open: boolean
   unsaved_changes: boolean
+  recovery: RecoveryView | null
 }
 
 export interface DocumentListResponse {
@@ -121,6 +141,20 @@ function isBond(value: unknown): value is BondView {
   )
 }
 
+const isCountOrNull = (value: unknown) => value === null || isCount(value)
+
+function isRecovery(value: unknown): value is RecoveryView | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      (value.state === 'recoverable' || value.state === 'outdated' || value.state === 'unreadable' || value.state === 'in_use') &&
+      isCountOrNull(value.revision) &&
+      isCountOrNull(value.base_revision) &&
+      isCountOrNull(value.saved_at_ms) &&
+      (value.message === null || typeof value.message === 'string'))
+  )
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -147,7 +181,20 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
     isCount(session.undo_depth) &&
-    isCount(session.redo_depth)
+    isCount(session.redo_depth) &&
+    isCountOrNull(session.draft_revision) &&
+    isRecovery(value.recovery)
+  )
+}
+
+function isCopy(value: unknown): value is CopyResponse {
+  if (!isDocumentResponse(value)) return false
+  const { source } = value as { source?: unknown }
+  return (
+    isRecord(source) &&
+    typeof source.id === 'string' &&
+    typeof source.closed === 'boolean' &&
+    typeof source.discarded_changes === 'boolean'
   )
 }
 
@@ -160,7 +207,8 @@ function isSummary(value: unknown): value is DocumentSummary {
     isCount(value.atom_count) &&
     isCount(value.bond_count) &&
     typeof value.open === 'boolean' &&
-    typeof value.unsaved_changes === 'boolean'
+    typeof value.unsaved_changes === 'boolean' &&
+    isRecovery(value.recovery)
   )
 }
 
@@ -185,11 +233,11 @@ const TIMEOUT_MS = 10_000
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
   /**
-   * A create whose outcome is unknown (no response arrived). Creating is the one write not
-   * guarded by a revision, so retrying it reuses the request ID and the API replays the
-   * document it already committed instead of creating a second one.
+   * Writes that create a document and whose outcome is unknown (no response arrived), by what
+   * they asked for. They are not guarded by a revision, so a retry reuses the request ID and
+   * the API replays the document it already committed instead of creating a second one.
    */
-  private unconfirmedCreate: { requestId: string; title: string | undefined } | null = null
+  private unconfirmed = new Map<string, string>()
 
   private async session() {
     this.token ??= this.request('GET', '/api/v1/session').then((value) => {
@@ -288,30 +336,97 @@ export class DocumentClient {
     return DocumentClient.document(await this.request('GET', documentPath(id)))
   }
 
-  async create(title?: string) {
-    const unconfirmed = this.unconfirmedCreate
-    const resend = unconfirmed !== null && unconfirmed.title === title
-    const pending = resend ? unconfirmed : { requestId: requestId(), title }
-    this.unconfirmedCreate = pending
+  /**
+   * Sends a write that creates a document at most once. A restarted service has forgotten the
+   * request_id of an earlier unanswered attempt, so that attempt is not resent: if it was
+   * committed, a resend would create a second document.
+   */
+  private async createOnce(key: string, path: string, body: Record<string, unknown>, unknown: ApiError) {
+    const earlier = this.unconfirmed.get(key)
+    const id = earlier ?? requestId()
+    this.unconfirmed.set(key, id)
     try {
-      // A restarted service has forgotten the request_id of an earlier unanswered attempt, so
-      // that attempt is not resent: if it was committed, a resend would create a second document.
-      const document = DocumentClient.document(
-        await this.write('/api/v1/documents', { request_id: pending.requestId, title }, resend ? 'reload' : 'retry'),
-      )
-      this.unconfirmedCreate = null
-      return document
+      const value = await this.write(path, { request_id: id, ...body }, earlier ? 'reload' : 'retry')
+      this.unconfirmed.delete(key)
+      return value
     } catch (error) {
       // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
-      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmedCreate = null
-      if (error instanceof ApiError && error.code === 'service_restarted') {
-        throw new ApiError(
+      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmed.delete(key)
+      if (error instanceof ApiError && error.code === 'service_restarted') throw unknown
+      throw error
+    }
+  }
+
+  async create(title?: string) {
+    return DocumentClient.document(
+      await this.createOnce(
+        `create:${title ?? ''}`,
+        '/api/v1/documents',
+        { title },
+        new ApiError(
           'create_unconfirmed',
           'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
-          error.status,
-        )
-      }
-      throw error
+          401,
+        ),
+      ),
+    )
+  }
+
+  private static copy(value: unknown): CopyResponse {
+    if (!isCopy(value)) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible copy.', 200)
+    }
+    return value
+  }
+
+  private static copyUnconfirmed() {
+    return new ApiError(
+      'copy_unconfirmed',
+      'The local service restarted before confirming the copy, so it may already exist. Check Saved documents before copying again.',
+      401,
+    )
+  }
+
+  /** Saves the working copy as a new document; the source returns to its last save. */
+  async saveAs(id: string, expectedRevision: number, title?: string) {
+    return DocumentClient.copy(
+      await this.createOnce(
+        `save-as:${id}:${expectedRevision}:${title ?? ''}`,
+        `${documentPath(id)}/save-as`,
+        { expected_revision: expectedRevision, title },
+        DocumentClient.copyUnconfirmed(),
+      ),
+    )
+  }
+
+  async recoverAsCopy(id: string, title?: string) {
+    return DocumentClient.copy(
+      await this.createOnce(
+        `recover-as-copy:${id}:${title ?? ''}`,
+        `${documentPath(id)}/recover-as-copy`,
+        { title },
+        DocumentClient.copyUnconfirmed(),
+      ),
+    )
+  }
+
+  /**
+   * Writes the recovery draft. After a restart the new service holds none of this page's
+   * unsaved work, so the page must reload (where the old process's draft is offered).
+   */
+  async autosave(id: string) {
+    return DocumentClient.document(await this.write(`${documentPath(id)}/autosave`, { request_id: requestId() }, 'reload'))
+  }
+
+  /** Recovering again after a restart is safe: the draft is abandoned again either way. */
+  async recover(id: string) {
+    return DocumentClient.document(await this.write(`${documentPath(id)}/recover`, { request_id: requestId() }, 'retry'))
+  }
+
+  async discardDraft(id: string) {
+    const value = await this.write(`${documentPath(id)}/discard-draft`, { request_id: requestId() }, 'retry')
+    if (!isRecord(value) || value.api_version !== API_VERSION || typeof value.id !== 'string') {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible reply.', 200)
     }
   }
 

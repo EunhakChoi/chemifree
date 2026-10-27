@@ -1,19 +1,23 @@
-//! Document editing sessions: working copies, revisions, idempotent replays, and saves.
+//! Document editing sessions: working copies, revisions, idempotent replays, saves, recovery
+//! drafts, and copies.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chemifree_domain::document::{
-    Document, DocumentId, EditError, HistoryError, Numbering, Outcome, RevisionsExhausted,
+    Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
+    RevisionsExhausted,
 };
 
 use crate::API_VERSION;
 use crate::contract::{
-    self, CloseResponse, CommandDto, DocumentListResponse, DocumentResponse, DocumentSummary,
+    self, CloseResponse, CommandDto, CopyResponse, CopySource, DocumentListResponse,
+    DocumentResponse, DocumentSummary, DraftDiscardResponse, RecoveryState, RecoveryView,
     UnreadableDocument,
 };
 use crate::error::{ApplicationError, ErrorCode};
-use crate::repository::{DocumentRepository, StorageError};
+use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
 
 pub const DEFAULT_TITLE: &str = "Untitled";
 pub const MAX_OPEN_SESSIONS: usize = 64;
@@ -46,6 +50,22 @@ enum Mutation {
         document: DocumentId,
         discard_unsaved: bool,
         expected_revision: Option<u64>,
+    },
+    Autosave,
+    SaveAs {
+        document: DocumentId,
+        expected_revision: u64,
+        title: Option<String>,
+    },
+    Recover {
+        document: DocumentId,
+    },
+    RecoverAsCopy {
+        document: DocumentId,
+        title: Option<String>,
+    },
+    DiscardDraft {
+        document: DocumentId,
     },
 }
 
@@ -95,6 +115,8 @@ struct Session {
     /// This session's revision whose content is the stored commit. It is above
     /// `stored_revision` when the copy continued after numbers handed out by a retired copy.
     saved_revision: u64,
+    /// The revision held by this session's recovery draft, which the repository owns.
+    draft_revision: Option<u64>,
     replays: ReplayLog<DocumentResponse>,
 }
 
@@ -104,6 +126,7 @@ impl Session {
         Self {
             stored_revision: document.revision(),
             saved_revision: document.revision(),
+            draft_revision: None,
             document,
             replays: ReplayLog::default(),
         }
@@ -123,7 +146,7 @@ impl Session {
     }
 
     fn response(&self) -> DocumentResponse {
-        DocumentResponse::new(&self.document, self.saved_revision)
+        DocumentResponse::new(&self.document, self.saved_revision, self.draft_revision)
     }
 
     fn is_dirty(&self) -> bool {
@@ -200,6 +223,9 @@ struct Sessions {
     /// later in this process; a reopened copy continues after it.
     retired: HashMap<DocumentId, Retired>,
     created: ReplayLog<DocumentResponse>,
+    recovered: ReplayLog<DocumentResponse>,
+    copied: ReplayLog<CopyResponse>,
+    drafts_discarded: ReplayLog<DraftDiscardResponse>,
     /// Kept outside the sessions they end, so a retried close cannot end a newer session.
     closed: ReplayLog<CloseResponse>,
 }
@@ -241,9 +267,15 @@ impl Sessions {
 
 /// Owns open sessions. One working copy exists per document per process; a session is
 /// opened from storage on first access and replaced only after it is closed.
+///
+/// Lock order: a document's gate, then `sessions`. A save waits for storage (which may wait
+/// for another process's save) holding only its document's gate, so requests for other
+/// documents, and edits to the same one, are not held up.
 pub(crate) struct Documents<R> {
     repository: R,
     sessions: Mutex<Sessions>,
+    /// Serializes, per document, the operations that commit it or touch its recovery draft.
+    gates: Mutex<HashMap<DocumentId, Arc<Mutex<()>>>>,
 }
 
 impl<R: DocumentRepository> Documents<R> {
@@ -251,7 +283,13 @@ impl<R: DocumentRepository> Documents<R> {
         Self {
             repository,
             sessions: Mutex::new(Sessions::default()),
+            gates: Mutex::default(),
         }
+    }
+
+    fn gate(&self, id: &DocumentId) -> Arc<Mutex<()>> {
+        let mut gates = self.gates.lock().unwrap_or_else(PoisonError::into_inner);
+        gates.entry(id.clone()).or_default().clone()
     }
 
     /// Every mutation is applied to a copy or validated first, so a panic while the lock
@@ -284,6 +322,11 @@ impl<R: DocumentRepository> Documents<R> {
                 sessions.retired.clone(),
             )
         };
+        for summary in &mut documents {
+            if let Ok(id) = parse_id(&summary.id) {
+                summary.recovery = self.recovery(&id);
+            }
+        }
         let mut unreadable = Vec::new();
         let remaining = MAX_LISTED_DOCUMENTS.saturating_sub(documents.len());
         for id in stored
@@ -294,7 +337,11 @@ impl<R: DocumentRepository> Documents<R> {
             match self.repository.load(&id) {
                 // Numbered as opening it would number it, so no listed revision is reused.
                 Ok(Some(document)) => match Session::open(document, retired.get(&id).copied()) {
-                    Ok(session) => documents.push(summary(&id, &session.document, false, false)),
+                    Ok(session) => {
+                        let mut listed = summary(&id, &session.document, false, false);
+                        listed.recovery = self.recovery(&id);
+                        documents.push(listed);
+                    }
                     Err(error) => unreadable.push(UnreadableDocument {
                         id: id.to_string(),
                         message: error.message,
@@ -351,7 +398,8 @@ impl<R: DocumentRepository> Documents<R> {
     /// Returns the working copy, opening it from storage if needed.
     pub(crate) fn get(&self, id: &str) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
-        Ok(self.session(&mut sessions, id)?.response())
+        let session = self.session(&mut sessions, id)?;
+        Ok(self.respond(session))
     }
 
     pub(crate) fn transact(
@@ -410,42 +458,65 @@ impl<R: DocumentRepository> Documents<R> {
 
     /// Commits the working copy. The acknowledgement is sent only after the provider
     /// reports a durable commit; on failure the session keeps its unsaved changes.
+    ///
+    /// The commit is of the revision checked against `expected_revision`, made without
+    /// holding the session table: edits that arrive meanwhile stay unsaved after it.
     pub(crate) fn save(
         &self,
         id: &str,
         request_id: Option<&str>,
         expected_revision: u64,
     ) -> Result<DocumentResponse, ApplicationError> {
-        let repository = &self.repository;
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
         let mutation = Mutation::Save { expected_revision };
-        let response = self.mutate(id, request_id, expected_revision, mutation, |session| {
-            if session.is_dirty() {
-                repository
-                    .save(&session.document, Some(session.stored_revision))
-                    .map_err(|error| match error {
-                        StorageError::Unavailable(message) => ApplicationError::new(
-                            ErrorCode::StorageFailed,
-                            format!(
-                                "save failed; this session keeps its unsaved changes: {message}"
-                            ),
-                        ),
-                        error => storage_error(error),
-                    })?;
-                session.stored_revision = session.document.revision();
-                session.saved_revision = session.document.revision();
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let (snapshot, base) = {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &mutation)? {
+                return Ok(response);
             }
-            Ok(())
-        })?;
-        // Storage now holds a revision above everything retired copies handed out.
+            session.expect_revision(expected_revision)?;
+            if !session.is_dirty() {
+                let response = self.respond(session);
+                session.replays.record(request_id, mutation, &response);
+                return Ok(response);
+            }
+            (session.document.clone(), session.stored_revision)
+        };
+        self.repository
+            .save(&snapshot, Some(base))
+            .map_err(|error| match error {
+                StorageError::Locked(message) | StorageError::Unavailable(message) => {
+                    ApplicationError::new(
+                        ErrorCode::StorageFailed,
+                        format!("save failed; this session keeps its unsaved changes: {message}"),
+                    )
+                }
+                error => storage_error(error),
+            })?;
+        let committed = snapshot.revision();
         let mut sessions = self.lock();
-        if let Ok(id) = parse_id(id)
-            && sessions
-                .retired
-                .get(&id)
-                .is_some_and(|retired| retired.reached.revision < response.document.revision)
+        // Storage now holds a revision above everything retired copies handed out.
+        if sessions
+            .retired
+            .get(&document_id)
+            .is_some_and(|retired| retired.reached.revision < committed)
         {
-            sessions.retired.remove(&id);
+            sessions.retired.remove(&document_id);
         }
+        let Some(session) = sessions.open.get_mut(&document_id) else {
+            // Closed meanwhile; the commit stands and the next access reopens it.
+            return Ok(DocumentResponse::new(&snapshot, committed, None));
+        };
+        session.stored_revision = committed;
+        session.saved_revision = committed;
+        // The repository removed the session's draft with the commit.
+        session.draft_revision = None;
+        let response = self.respond(session);
+        session.replays.record(request_id, mutation, &response);
         Ok(response)
     }
 
@@ -463,6 +534,8 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<CloseResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
         if discard_unsaved && expected_revision.is_none() {
             return Err(ApplicationError::new(
                 ErrorCode::InvalidRequest,
@@ -501,6 +574,11 @@ impl<R: DocumentRepository> Documents<R> {
                 false
             }
         };
+        // Discarded work must not come back as an abandoned draft, so the session ends only
+        // after its draft is gone.
+        self.repository
+            .remove_draft(&document_id)
+            .map_err(storage_error)?;
         sessions.remove(&document_id);
         let response = CloseResponse {
             api_version: API_VERSION,
@@ -509,6 +587,415 @@ impl<R: DocumentRepository> Documents<R> {
         };
         sessions.closed.record(request_id, mutation, &response);
         Ok(response)
+    }
+
+    /// Writes the working copy's recovery draft when it has unsaved changes not yet in it, or
+    /// removes the session's draft when nothing is unsaved.
+    pub(crate) fn autosave(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let gate = self.gate(&parse_id(id)?);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
+            return Ok(response);
+        }
+        let revision = session.document.revision();
+        if !session.is_dirty() {
+            self.repository
+                .remove_draft(session.document.id())
+                .map_err(storage_error)?;
+            session.draft_revision = None;
+        } else if session.draft_revision != Some(revision) {
+            let draft = Draft {
+                document: session.document.clone(),
+                base_revision: session.stored_revision,
+                saved_at_ms: now_ms(),
+            };
+            self.repository
+                .write_draft(&draft)
+                .map_err(|error| match error {
+                    StorageError::Conflict { .. } => ApplicationError::new(
+                        ErrorCode::RecoveryPending,
+                        "unsaved work from an earlier session is waiting; recover or discard it \
+                         before new changes are autosaved",
+                    ),
+                    StorageError::Locked(message) => {
+                        ApplicationError::new(ErrorCode::DraftInUse, message)
+                    }
+                    StorageError::Unavailable(message) => ApplicationError::new(
+                        ErrorCode::StorageFailed,
+                        format!("autosave failed; the session keeps its changes: {message}"),
+                    ),
+                    error => storage_error(error),
+                })?;
+            session.draft_revision = Some(revision);
+        }
+        let response = self.respond(session);
+        session
+            .replays
+            .record(request_id, Mutation::Autosave, &response);
+        Ok(response)
+    }
+
+    /// Makes an abandoned draft the working copy: content, history, and identifier counters as
+    /// the draft holds them, unsaved, numbered after everything this process handed out. The
+    /// session owns the draft from then on.
+    pub(crate) fn recover(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::Recover {
+            document: document_id.clone(),
+        };
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut sessions = self.lock();
+        if let Some(response) = sessions.recovered.find(request_id, &mutation)? {
+            return Ok(response);
+        }
+        if sessions
+            .open
+            .get(&document_id)
+            .is_some_and(Session::is_dirty)
+        {
+            return Err(ApplicationError::new(
+                ErrorCode::UnsavedChanges,
+                "the open session has unsaved changes; save or discard them before recovering",
+            ));
+        }
+        let stored = self
+            .load(&document_id)?
+            .ok_or_else(|| not_found(&document_id))?;
+        let draft = self.claim_abandoned(&document_id)?;
+        let recovered = self.recovered_session(&sessions, &stored, draft);
+        // An open session is replaced in its own slot.
+        let eviction = recovered.and_then(|session| {
+            let eviction = if sessions.open.contains_key(&document_id) {
+                None
+            } else {
+                sessions.eviction(None)?
+            };
+            Ok((session, eviction))
+        });
+        let (session, eviction) = match eviction {
+            Ok(ready) => ready,
+            Err(error) => {
+                self.repository.release_draft(&document_id);
+                return Err(error);
+            }
+        };
+        if let Some(evicted) = eviction {
+            sessions.remove(&evicted);
+        }
+        let replays = sessions
+            .open
+            .remove(&document_id)
+            .map(|replaced| replaced.replays)
+            .unwrap_or_default();
+        let session = sessions
+            .open
+            .entry(document_id)
+            .insert_entry(Session { replays, ..session })
+            .into_mut();
+        let response = self.respond(session);
+        sessions.recovered.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// The working copy a draft becomes, if storage still holds its base and this process has
+    /// not handed out identifiers the draft may also use.
+    fn recovered_session(
+        &self,
+        sessions: &Sessions,
+        stored: &Document,
+        draft: Draft,
+    ) -> Result<Session, ApplicationError> {
+        if stored.revision() != draft.base_revision {
+            return Err(ApplicationError {
+                current_revision: Some(stored.revision()),
+                ..ApplicationError::new(
+                    ErrorCode::DraftOutdated,
+                    format!(
+                        "the document was saved at revision {} after this draft's base {}; \
+                         recover the draft as a copy",
+                        stored.revision(),
+                        draft.base_revision
+                    ),
+                )
+            });
+        }
+        let id = stored.id();
+        // How this process names the stored commit, and what it has handed out.
+        let (reached, saved_revision) = match sessions.open.get(id) {
+            Some(session) => (session.document.numbering(), session.saved_revision),
+            None => {
+                let session = Session::open(stored.clone(), sessions.retired.get(id).copied())?;
+                (session.document.numbering(), session.saved_revision)
+            }
+        };
+        let counters = stored.numbering();
+        if reached.next_atom > counters.next_atom || reached.next_bond > counters.next_bond {
+            return Err(ApplicationError::new(
+                ErrorCode::DraftOutdated,
+                "this process already used atom or bond identifiers the draft may reuse; \
+                 recover the draft as a copy",
+            ));
+        }
+        let mut document = draft.document;
+        document
+            .continue_after(reached)
+            .map_err(revisions_exhausted)?;
+        Ok(Session {
+            draft_revision: Some(document.revision()),
+            document,
+            stored_revision: draft.base_revision,
+            saved_revision,
+            replays: ReplayLog::default(),
+        })
+    }
+
+    /// Saves an abandoned draft as a new document, then removes the draft.
+    pub(crate) fn recover_as_copy(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<CopyResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::RecoverAsCopy {
+            document: document_id.clone(),
+            title: title.map(str::to_owned),
+        };
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut sessions = self.lock();
+        if let Some(response) = sessions.copied.find(request_id, &mutation)? {
+            return Ok(response);
+        }
+        let draft = self.claim_abandoned(&document_id)?;
+        let title = title.map_or_else(
+            || suffixed(draft.document.title(), " (recovered)"),
+            str::to_owned,
+        );
+        let copy = match self.copy(&mut sessions, &draft.document, &title, None) {
+            Ok(copy) => self.open_copy(&mut sessions, copy),
+            Err(error) => {
+                self.repository.release_draft(&document_id);
+                return Err(error);
+            }
+        };
+        // The copy is committed. If the draft cannot be removed it is abandoned again and can
+        // still be discarded; the copy is not undone.
+        if self.repository.remove_draft(&document_id).is_err() {
+            self.repository.release_draft(&document_id);
+        }
+        let response = CopyResponse {
+            copy,
+            source: CopySource {
+                id: document_id.to_string(),
+                closed: false,
+                discarded_changes: false,
+            },
+        };
+        sessions.copied.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    pub(crate) fn discard_draft(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DraftDiscardResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::DiscardDraft {
+            document: document_id.clone(),
+        };
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut sessions = self.lock();
+        if let Some(response) = sessions.drafts_discarded.find(request_id, &mutation)? {
+            return Ok(response);
+        }
+        if self
+            .repository
+            .draft_status(&document_id)
+            .map_err(storage_error)?
+            == DraftStatus::Owned
+        {
+            return Err(own_draft(&document_id));
+        }
+        // An unreadable draft is claimed and removed like any other.
+        match self.repository.claim_draft(&document_id) {
+            Ok(Some(_)) => {}
+            Ok(None) => return Err(draft_not_found(&document_id)),
+            Err(error) => return Err(draft_error(error)),
+        }
+        if let Err(error) = self.repository.remove_draft(&document_id) {
+            self.repository.release_draft(&document_id);
+            return Err(storage_error(error));
+        }
+        let response = DraftDiscardResponse {
+            api_version: API_VERSION,
+            id: document_id.to_string(),
+        };
+        sessions
+            .drafts_discarded
+            .record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// Commits the working copy as a new document. The source session closes: its working
+    /// copy, saved or not, lives on in the copy, and the source reopens from its last save.
+    pub(crate) fn save_as(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        title: Option<&str>,
+    ) -> Result<CopyResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::SaveAs {
+            document: document_id.clone(),
+            expected_revision,
+            title: title.map(str::to_owned),
+        };
+        let gate = self.gate(&document_id);
+        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut sessions = self.lock();
+        if let Some(response) = sessions.copied.find(request_id, &mutation)? {
+            return Ok(response);
+        }
+        let session = self.session(&mut sessions, id)?;
+        session.expect_revision(expected_revision)?;
+        let source = session.document.clone();
+        let discarded_changes = session.is_dirty();
+        let title = title.map_or_else(|| suffixed(source.title(), " (copy)"), str::to_owned);
+        let copy = self.copy(&mut sessions, &source, &title, Some(&document_id))?;
+        // The copy takes the source's slot. If the source's draft cannot be removed, the
+        // source stays open with its changes rather than leave a draft that would be offered
+        // for recovery later, and the copy is opened on its next access instead.
+        let closed = self.repository.remove_draft(&document_id).is_ok();
+        let copy = if closed {
+            sessions.remove(&document_id);
+            self.open_copy(&mut sessions, copy)
+        } else {
+            copy.response()
+        };
+        let response = CopyResponse {
+            copy,
+            source: CopySource {
+                id: document_id.to_string(),
+                closed,
+                discarded_changes: closed && discarded_changes,
+            },
+        };
+        sessions.copied.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// Commits `source`'s content as a new document, in a clean session for the caller to
+    /// open. `slot` is an open session the copy will replace; without one, a clean session is
+    /// evicted if the table is full.
+    fn copy(
+        &self,
+        sessions: &mut Sessions,
+        source: &Document,
+        title: &str,
+        slot: Option<&DocumentId>,
+    ) -> Result<Session, ApplicationError> {
+        let id = self.repository.allocate_id().map_err(storage_error)?;
+        let copy = source.copy_as(id, title).map_err(|error| {
+            ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
+        })?;
+        let mut eviction = match slot {
+            Some(slot) if sessions.open.contains_key(slot) => None,
+            _ => sessions.eviction(None)?,
+        };
+        self.repository.save(&copy, None).map_err(storage_error)?;
+        if let Some(evicted) = eviction.take() {
+            sessions.remove(&evicted);
+        }
+        Ok(Session::new(copy))
+    }
+
+    fn open_copy(&self, sessions: &mut Sessions, session: Session) -> DocumentResponse {
+        let response = self.respond(&session);
+        sessions.open.insert(session.document.id().clone(), session);
+        response
+    }
+
+    /// Takes over the document's abandoned draft. The draft of a session open in this process
+    /// is that session's, not abandoned.
+    fn claim_abandoned(&self, id: &DocumentId) -> Result<Draft, ApplicationError> {
+        if self.repository.draft_status(id).map_err(storage_error)? == DraftStatus::Owned {
+            return Err(own_draft(id));
+        }
+        match self.repository.claim_draft(id) {
+            Ok(Some(Ok(draft))) => Ok(draft),
+            Ok(Some(Err(message))) => {
+                self.repository.release_draft(id);
+                Err(ApplicationError::new(
+                    ErrorCode::DocumentUnreadable,
+                    format!("the recovery draft is unreadable: {message}; discard it"),
+                ))
+            }
+            Ok(None) => Err(draft_not_found(id)),
+            Err(error) => Err(draft_error(error)),
+        }
+    }
+
+    /// The session's response with any abandoned draft of the same document.
+    fn respond(&self, session: &Session) -> DocumentResponse {
+        DocumentResponse {
+            recovery: self.recovery(session.document.id()),
+            ..session.response()
+        }
+    }
+
+    /// Describes the document's draft when it is not the draft of a session in this process.
+    fn recovery(&self, id: &DocumentId) -> Option<RecoveryView> {
+        let view = |state, info: Option<&crate::repository::DraftInfo>, message| RecoveryView {
+            state,
+            revision: info.map(|info| info.revision),
+            base_revision: info.map(|info| info.base_revision),
+            saved_at_ms: info.map(|info| info.saved_at_ms),
+            message,
+        };
+        match self.repository.draft_status(id) {
+            Ok(DraftStatus::None | DraftStatus::Owned) => None,
+            Ok(DraftStatus::Locked) => Some(view(RecoveryState::InUse, None, None)),
+            Ok(DraftStatus::Abandoned(Err(message))) => {
+                Some(view(RecoveryState::Unreadable, None, Some(message)))
+            }
+            Ok(DraftStatus::Abandoned(Ok(info))) => {
+                let stored = self.repository.stored_revision(id).ok().flatten();
+                Some(if stored == Some(info.base_revision) {
+                    view(RecoveryState::Recoverable, Some(&info), None)
+                } else {
+                    view(
+                        RecoveryState::Outdated,
+                        Some(&info),
+                        Some("the document was saved elsewhere after this draft".to_owned()),
+                    )
+                })
+            }
+            Err(error) => Some(view(
+                RecoveryState::Unreadable,
+                None,
+                Some(error.to_string()),
+            )),
+        }
     }
 
     /// Replays a completed request, or checks the revision and applies `change`.
@@ -528,7 +1015,7 @@ impl<R: DocumentRepository> Documents<R> {
         }
         session.expect_revision(expected_revision)?;
         change(session)?;
-        let response = session.response();
+        let response = self.respond(session);
         session.replays.record(request_id, mutation, &response);
         Ok(response)
     }
@@ -606,6 +1093,7 @@ fn summary(
         bond_count: document.bonds().len(),
         open,
         unsaved_changes,
+        recovery: None,
     }
 }
 
@@ -651,6 +1139,47 @@ fn history_error(error: HistoryError) -> ApplicationError {
     ApplicationError::new(code, error.to_string())
 }
 
+fn draft_not_found(id: &DocumentId) -> ApplicationError {
+    ApplicationError::new(
+        ErrorCode::DraftNotFound,
+        format!("document {id} has no abandoned recovery draft"),
+    )
+}
+
+fn own_draft(id: &DocumentId) -> ApplicationError {
+    ApplicationError::new(
+        ErrorCode::DraftInUse,
+        format!(
+            "the recovery draft of document {id} belongs to its open session; save it, save it \
+             as a copy, or close it with discard_unsaved"
+        ),
+    )
+}
+
+fn draft_error(error: StorageError) -> ApplicationError {
+    match error {
+        StorageError::Locked(message) => ApplicationError::new(ErrorCode::DraftInUse, message),
+        error => storage_error(error),
+    }
+}
+
+/// `title` followed by `suffix`, shortened to fit the title limit.
+fn suffixed(title: &str, suffix: &str) -> String {
+    let room = MAX_TITLE_CHARS.saturating_sub(suffix.chars().count());
+    let mut result: String = title.chars().take(room).collect();
+    result.truncate(result.trim_end().len());
+    result.push_str(suffix);
+    result
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
 fn revisions_exhausted(error: RevisionsExhausted) -> ApplicationError {
     ApplicationError::new(ErrorCode::ResourceLimit, error.to_string())
 }
@@ -667,9 +1196,11 @@ fn storage_error(error: StorageError) -> ApplicationError {
             ErrorCode::DocumentUnreadable,
             format!("the stored document is unreadable: {message}"),
         ),
-        StorageError::Unavailable(message) => ApplicationError::new(
-            ErrorCode::StorageFailed,
-            format!("storage failed: {message}"),
-        ),
+        StorageError::Locked(message) | StorageError::Unavailable(message) => {
+            ApplicationError::new(
+                ErrorCode::StorageFailed,
+                format!("storage failed: {message}"),
+            )
+        }
     }
 }

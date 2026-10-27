@@ -46,6 +46,32 @@ pub struct CloseRequest {
     pub expected_revision: Option<u64>,
 }
 
+/// Body of autosave, recover, and discard-draft requests.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRequest {
+    pub request_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveAsRequest {
+    pub request_id: String,
+    pub expected_revision: u64,
+    /// Defaults to the source title followed by " (copy)".
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoverAsCopyRequest {
+    pub request_id: String,
+    /// Defaults to the draft's title followed by " (recovered)".
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PointDto {
@@ -271,6 +297,35 @@ pub struct DocumentResponse {
     pub api_version: &'static str,
     pub document: DocumentView,
     pub session: SessionView,
+    /// A recovery draft left by an earlier session of this document, if any.
+    pub recovery: Option<RecoveryView>,
+}
+
+/// An abandoned recovery draft: unsaved work of a session whose process ended.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RecoveryView {
+    pub state: RecoveryState,
+    /// The draft's revision, in the numbering of the process that wrote it.
+    pub revision: Option<u64>,
+    /// The stored revision the draft's session started from.
+    pub base_revision: Option<u64>,
+    /// Milliseconds since the Unix epoch.
+    pub saved_at_ms: Option<u64>,
+    /// Why the draft cannot be recovered in place, when it cannot.
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryState {
+    /// Storage still holds the draft's base: it can be recovered in place.
+    Recoverable,
+    /// Another writer saved since the draft's base: it can be recovered as a copy.
+    Outdated,
+    /// The draft cannot be read; it can only be discarded.
+    Unreadable,
+    /// Another running process owns it.
+    InUse,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -314,10 +369,16 @@ pub struct SessionView {
     pub unsaved_changes: bool,
     pub undo_depth: usize,
     pub redo_depth: usize,
+    /// The revision this session's recovery draft holds, or `null` when it has none.
+    pub draft_revision: Option<u64>,
 }
 
 impl DocumentResponse {
-    pub(crate) fn new(document: &Document, saved_revision: u64) -> Self {
+    pub(crate) fn new(
+        document: &Document,
+        saved_revision: u64,
+        draft_revision: Option<u64>,
+    ) -> Self {
         Self {
             api_version: API_VERSION,
             document: DocumentView {
@@ -352,7 +413,9 @@ impl DocumentResponse {
                 unsaved_changes: saved_revision != document.revision(),
                 undo_depth: document.undo_depth(),
                 redo_depth: document.redo_depth(),
+                draft_revision,
             },
+            recovery: None,
         }
     }
 }
@@ -374,6 +437,7 @@ pub struct DocumentSummary {
     pub bond_count: usize,
     pub open: bool,
     pub unsaved_changes: bool,
+    pub recovery: Option<RecoveryView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -388,4 +452,29 @@ pub struct CloseResponse {
     pub id: String,
     /// True when the session had unsaved changes and they were discarded.
     pub discarded_changes: bool,
+}
+
+/// A document saved as a new, independent document.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CopyResponse {
+    /// The copy, now open in its own session.
+    #[serde(flatten)]
+    pub copy: DocumentResponse,
+    pub source: CopySource,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CopySource {
+    pub id: String,
+    /// True when the source's session was closed: its working copy lives on in the copy, and
+    /// the source reopens from its last save. A recovered draft leaves its source open.
+    pub closed: bool,
+    /// True when that session had unsaved changes, which are now only in the copy.
+    pub discarded_changes: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DraftDiscardResponse {
+    pub api_version: &'static str,
+    pub id: String,
 }

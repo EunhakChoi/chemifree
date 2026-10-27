@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, CommandDto, DocumentListResponse, DocumentResponse, ErrorCode,
+    Application, ApplicationError, CommandDto, CopyResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, ErrorCode, RecoveryState,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand};
@@ -86,6 +87,35 @@ enum DocumentCommand {
     Redo {
         #[command(flatten)]
         target: Target,
+    },
+    /// Save the document as a new, independent document; the original stays as saved.
+    SaveAs {
+        #[command(flatten)]
+        target: Target,
+        /// Defaults to the original title followed by " (copy)".
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Recover the unsaved work an ended process left in a recovery draft, then save it.
+    Recover {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Save a recovery draft as a new document, e.g. when the original was saved since.
+    RecoverAsCopy {
+        id: String,
+        /// Defaults to the draft's title followed by " (recovered)".
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a recovery draft an ended process left behind.
+    DiscardDraft {
+        id: String,
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -180,6 +210,29 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
                 .and_then(|redone| save(application, &target.id, &redone));
             report(result, target.json, print_document)
         }
+        DocumentCommand::SaveAs { target, title } => report(
+            application.save_as(&target.id, None, target.expected_revision, title.as_deref()),
+            target.json,
+            print_copy,
+        ),
+        DocumentCommand::Recover { id, json } => {
+            let result = application
+                .recover(&id, None)
+                .and_then(|recovered| save(application, &id, &recovered));
+            report(result, json, print_document)
+        }
+        DocumentCommand::RecoverAsCopy { id, title, json } => report(
+            application.recover_as_copy(&id, None, title.as_deref()),
+            json,
+            print_copy,
+        ),
+        DocumentCommand::DiscardDraft { id, json } => report(
+            application.discard_draft(&id, None),
+            json,
+            |response: &DraftDiscardResponse| {
+                println!("Discarded the recovery draft of {}", response.id)
+            },
+        ),
     }
 }
 
@@ -263,8 +316,17 @@ fn print_list(response: &DocumentListResponse) {
         println!("No saved documents.");
     }
     for document in &response.documents {
+        let recovery = match document.recovery.as_ref().map(|recovery| recovery.state) {
+            None => "",
+            Some(RecoveryState::Recoverable) => "  [recovery draft: recover or discard-draft]",
+            Some(RecoveryState::Outdated) => {
+                "  [outdated recovery draft: recover-as-copy or discard-draft]"
+            }
+            Some(RecoveryState::Unreadable) => "  [unreadable recovery draft: discard-draft]",
+            Some(RecoveryState::InUse) => "  [recovery draft in use by a running process]",
+        };
         println!(
-            "{}  r{}  {} atoms, {} bonds  {}",
+            "{}  r{}  {} atoms, {} bonds  {}{recovery}",
             document.id,
             document.revision,
             document.atom_count,
@@ -275,6 +337,11 @@ fn print_list(response: &DocumentListResponse) {
     for entry in &response.unreadable {
         eprintln!("unreadable {}: {}", entry.id, entry.message);
     }
+}
+
+fn print_copy(response: &CopyResponse) {
+    print_document(&response.copy);
+    println!("  copied from {}", response.source.id);
 }
 
 fn print_document(response: &DocumentResponse) {

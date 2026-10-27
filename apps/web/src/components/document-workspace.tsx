@@ -1,6 +1,8 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
+  ArchiveRestoreIcon,
   AtomIcon,
+  CopyPlusIcon,
   EraserIcon,
   FilePlus2Icon,
   FolderOpenIcon,
@@ -31,6 +33,16 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -52,8 +64,16 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { stillApplicable } from '@/editor/commands'
 import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
-import { useDocumentEditor, type DocumentEditor } from '@/hooks/use-document-editor'
-import type { AtomView, BondOrder, Command, DocumentResponse, DocumentView } from '@/lib/document-contract'
+import type { AutosaveState } from '@/hooks/use-autosave'
+import { useDocumentEditor, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
+import type {
+  AtomView,
+  BondOrder,
+  Command,
+  DocumentResponse,
+  DocumentView,
+  RecoveryView,
+} from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
 const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
@@ -113,6 +133,17 @@ export function DocumentWorkspace() {
   )
 }
 
+/** Errors that report a state to act on rather than a failure. */
+const INFORMATIONAL = new Set([
+  'invalid_command',
+  'create_unconfirmed',
+  'copy_unconfirmed',
+  'recovery_pending',
+  'draft_outdated',
+  'draft_in_use',
+  'draft_not_found',
+])
+
 function ErrorNotice({ editor }: { editor: DocumentEditor }) {
   const error = editor.error!
   const stale = error.code === 'revision_conflict' || error.code === 'service_restarted'
@@ -120,13 +151,19 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
     revision_conflict: 'The document changed',
     service_restarted: 'Local service restarted',
     create_unconfirmed: 'New document not confirmed',
+    copy_unconfirmed: 'Copy not confirmed',
+    recovery_pending: 'Earlier unsaved work is waiting',
+    draft_outdated: 'Saved elsewhere since this draft',
+    draft_in_use: 'Draft in use',
+    draft_not_found: 'No recovery draft',
     save_conflict: 'Saved elsewhere',
     storage_failed: 'Save failed',
+    draft_not_written: 'Left work not autosaved',
     invalid_command: 'Edit rejected',
     unreachable: 'Local service unavailable',
   }[error.code] ?? 'Request failed'
   return (
-    <Alert variant={stale || error.code === 'invalid_command' || error.code === 'create_unconfirmed' ? 'default' : 'destructive'}>
+    <Alert variant={stale || INFORMATIONAL.has(error.code) ? 'default' : 'destructive'}>
       <TriangleAlertIcon aria-hidden="true" />
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
@@ -185,6 +222,7 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {item.unsaved_changes && <Badge variant="secondary">Unsaved</Badge>}
+                  {item.recovery && <Badge variant="outline">{RECOVERY_BADGES[item.recovery.state]}</Badge>}
                   <Button size="sm" variant="outline" onClick={() => void editor.open(item.id)} disabled={editor.busy}>
                     <FolderOpenIcon data-icon="inline-start" aria-hidden="true" />Open
                   </Button>
@@ -235,7 +273,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   useEffect(() => {
     function onKeyDown(event: globalThis.KeyboardEvent) {
       const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      // While a dialog is open the editor is inert, even before focus has moved into it.
+      if (window.document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       const mod = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
       if (mod && key === 'z') {
@@ -299,9 +339,19 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
               <SaveIcon data-icon="inline-start" aria-hidden="true" />Save
             </Button>
           </Hint>
+          <SaveAsButton editor={editor} document={document} unsaved={session.unsaved_changes} />
           <CloseButton editor={editor} unsaved={session.unsaved_changes} />
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span data-testid="file-state">
+          File: {session.unsaved_changes ? `last saved at revision ${session.saved_revision}` : `saved at revision ${document.revision}`}
+        </span>
+        <DraftStatus state={editor.autosave.state} onRetry={editor.autosave.retryNow} />
+      </div>
+      {current.recovery && <RecoveryNotice editor={editor} recovery={current.recovery} unsaved={session.unsaved_changes} />}
+      {editor.copyNotice && <CopyNoticeBanner editor={editor} notice={editor.copyNotice} title={document.title} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
@@ -377,6 +427,174 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select.
       </p>
     </div>
+  )
+}
+
+const RECOVERY_BADGES: Record<RecoveryView['state'], string> = {
+  recoverable: 'Unsaved work found',
+  outdated: 'Old unsaved work',
+  unreadable: 'Unreadable draft',
+  in_use: 'Draft in use',
+}
+
+const time = (ms: number | null) => (ms === null ? 'an earlier session' : new Date(ms).toLocaleTimeString())
+
+/** The recovery draft's state, apart from the saved file's. */
+function DraftStatus({ state, onRetry }: { state: AutosaveState; onRetry: () => void }) {
+  const text = {
+    clean: 'not needed',
+    waiting: 'pending…',
+    saving: 'saving…',
+    saved: state.kind === 'saved' ? `saved${state.at === null ? '' : ` ${time(state.at)}`} (revision ${state.revision})` : '',
+    failed: state.kind === 'failed' ? `failed, retrying at ${time(state.retryAt)}: ${state.message}` : '',
+    blocked:
+      state.kind === 'blocked'
+        ? state.recovery === 'in_use'
+          ? 'paused while another process holds this document’s draft'
+          : 'paused until the earlier unsaved work below is recovered or discarded'
+        : '',
+    stopped: state.kind === 'stopped' ? `stopped: ${state.message}` : '',
+  }[state.kind]
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" data-testid="draft-state" data-state={state.kind}>
+      {state.kind === 'saving' && <Spinner className="size-3" />}
+      <span className="min-w-0 break-words">Recovery draft: {text}</span>
+      {state.kind === 'failed' && (
+        <Button size="xs" variant="outline" onClick={onRetry}>Retry now</Button>
+      )}
+      {state.kind === 'blocked' && state.recovery === 'in_use' && (
+        <Button size="xs" variant="outline" onClick={onRetry}>Check again</Button>
+      )}
+    </span>
+  )
+}
+
+function RecoveryNotice({ editor, recovery, unsaved }: { editor: DocumentEditor; recovery: RecoveryView; unsaved: boolean }) {
+  const when = time(recovery.saved_at_ms)
+  const copy = {
+    recoverable: {
+      title: 'Unsaved work found',
+      description: `A session that ended without saving left changes from ${when}${recovery.revision === null ? '' : ` (revision ${recovery.revision})`}. Recover them to continue editing with their undo history, or discard them.${unsaved ? ' Save or discard the changes open now first.' : ''}`,
+    },
+    outdated: {
+      title: 'Unsaved work from an older version',
+      description: `Changes from ${when} were made on revision ${recovery.base_revision ?? '?'}, but the document was saved elsewhere since. Recover them as a separate copy, or discard them.`,
+    },
+    unreadable: {
+      title: 'Unreadable recovery draft',
+      description: `A recovery draft exists but cannot be read${recovery.message ? `: ${recovery.message}` : ''}. It can only be discarded.`,
+    },
+    in_use: {
+      title: 'Draft held by another process',
+      description: 'Another running Chemifree process holds unsaved work for this document. Finish there, or close that process to recover it here.',
+    },
+  }[recovery.state]
+  return (
+    <Alert data-testid="recovery-notice" data-state={recovery.state}>
+      <ArchiveRestoreIcon aria-hidden="true" />
+      <AlertTitle>{copy.title}</AlertTitle>
+      <AlertDescription>{copy.description}</AlertDescription>
+      {recovery.state !== 'in_use' && (
+        <AlertAction className="flex flex-wrap gap-2">
+          {recovery.state === 'recoverable' && (
+            <Button size="sm" onClick={() => void editor.recover()} disabled={unsaved || editor.busy}>Recover</Button>
+          )}
+          {recovery.state === 'outdated' && (
+            <Button size="sm" onClick={() => void editor.recoverAsCopy()} disabled={unsaved || editor.busy}>Recover as copy</Button>
+          )}
+          <DiscardDraftButton editor={editor} when={when} />
+        </AlertAction>
+      )}
+    </Alert>
+  )
+}
+
+function DiscardDraftButton({ editor, when }: { editor: DocumentEditor; when: string }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger render={<Button size="sm" variant="outline" disabled={editor.busy}>Discard draft</Button>} />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Discard the unsaved work?</AlertDialogTitle>
+          <AlertDialogDescription>
+            The recovery draft from {when} will be deleted. The saved document is not changed. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => void editor.discardDraft()}>Discard draft</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function CopyNoticeBanner({ editor, notice, title }: { editor: DocumentEditor; notice: CopyNotice; title: string }) {
+  const original = `“${notice.sourceTitle}”`
+  return (
+    <Alert data-testid="copy-notice">
+      <CopyPlusIcon aria-hidden="true" />
+      <AlertTitle>Now editing the copy “{title}”</AlertTitle>
+      <AlertDescription>
+        {notice.recovered
+          ? `The recovered work was saved as this new document. ${original} is unchanged.`
+          : `This is a new, separate document. ${original} keeps its last save${notice.discardedChanges ? '; the changes that were unsaved there are only in this copy' : ''}.`}
+      </AlertDescription>
+      <AlertAction>
+        <Button size="sm" variant="outline" onClick={() => void editor.open(notice.sourceId)} disabled={editor.busy}>
+          Open original
+        </Button>
+      </AlertAction>
+    </Alert>
+  )
+}
+
+/** The service's limit, in characters (code points) rather than UTF-16 units. */
+const MAX_TITLE_CHARS = 200
+
+/** The title the service would give the copy: cut by characters, never mid-pair, to fit the suffix. */
+function copyTitle(title: string) {
+  const suffix = ' (copy)'
+  return Array.from(title).slice(0, MAX_TITLE_CHARS - suffix.length).join('').trimEnd() + suffix
+}
+
+function SaveAsButton({ editor, document, unsaved }: { editor: DocumentEditor; document: DocumentView; unsaved: boolean }) {
+  const [open, setOpen] = useState(false)
+  const suggested = copyTitle(document.title)
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Hint label="Save as copy">
+        <DialogTrigger render={<Button size="icon" variant="ghost" aria-label="Save as copy" disabled={editor.busy} />}>
+          <CopyPlusIcon aria-hidden="true" />
+        </DialogTrigger>
+      </Hint>
+      <DialogContent>
+        <form
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const title = new FormData(event.currentTarget).get('title')?.toString().trim()
+            setOpen(false)
+            void editor.saveAs(title || undefined)
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Save as copy</DialogTitle>
+            <DialogDescription>
+              Saves what is on screen{unsaved ? ', including unsaved changes,' : ''} as a new document and opens it. “{document.title}” keeps its last save{unsaved ? ' and its unsaved changes move to the copy' : ''}.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="copy-title">Title of the copy</FieldLabel>
+            <Input id="copy-title" name="title" defaultValue={suggested} maxLength={200} autoFocus />
+          </Field>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit">Save copy</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -449,3 +449,82 @@ fn only_loopback_web_origins_are_accepted() {
         assert!(state(origin).is_err(), "{origin}");
     }
 }
+
+#[tokio::test]
+async fn autosave_save_as_and_draft_routes_map_to_v1_statuses() {
+    let api = api();
+    let (_, created) = api
+        .post(
+            "/api/v1/documents",
+            json!({"request_id": "c1", "title": "Source"}),
+        )
+        .await;
+    let id = created["document"]["id"].as_str().unwrap().to_owned();
+    let path = |action: &str| format!("/api/v1/documents/{id}/{action}");
+    api.post(
+        &path("transactions"),
+        json!({"request_id": "t1", "expected_revision": 0, "commands": ethanol()}),
+    )
+    .await;
+
+    let (status, autosaved) = api
+        .post(&path("autosave"), json!({"request_id": "a1"}))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(autosaved["session"]["draft_revision"], 1);
+    assert_eq!(autosaved["recovery"], Value::Null);
+    let draft = api.data.path().join("drafts").join(format!("{id}.json"));
+    assert!(draft.exists());
+
+    for (action, code, status) in [
+        ("recover", "unsaved_changes", StatusCode::CONFLICT),
+        ("discard-draft", "draft_in_use", StatusCode::CONFLICT),
+    ] {
+        let (actual, body) = api.post(&path(action), json!({"request_id": action})).await;
+        assert_eq!(
+            (actual, body["code"].as_str()),
+            (status, Some(code)),
+            "{action}"
+        );
+    }
+    let (status, body) = api
+        .post(&path("recover-as-copy"), json!({"request_id": "rc"}))
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::CONFLICT, Some("draft_in_use"))
+    );
+
+    let (status, copied) = api
+        .post(
+            &path("save-as"),
+            json!({"request_id": "s1", "expected_revision": 1, "title": "Copy"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(copied["document"]["title"], "Copy");
+    assert_eq!(copied["document"]["atoms"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        copied["source"],
+        json!({"id": id, "closed": true, "discarded_changes": true})
+    );
+    assert!(!draft.exists(), "the source's draft went with its session");
+
+    let (status, body) = api
+        .post(&path("discard-draft"), json!({"request_id": "d1"}))
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("draft_not_found"))
+    );
+    let (status, body) = api
+        .post(
+            &path("save-as"),
+            json!({"request_id": "s2", "expected_revision": 1, "x": 1}),
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("invalid_request"))
+    );
+}

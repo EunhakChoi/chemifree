@@ -22,8 +22,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
-    CreateDocumentRequest, DocumentListResponse, DocumentResponse, ErrorCode, ErrorResponse,
-    HealthResponse, RevisionRequest, TransactionRequest,
+    CopyResponse, CreateDocumentRequest, DocumentListResponse, DocumentResponse,
+    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
+    RecoverAsCopyRequest, RevisionRequest, SaveAsRequest, TransactionRequest,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde::Serialize;
@@ -106,6 +107,14 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/documents/{id}/redo", post(redo))
         .route("/api/v1/documents/{id}/save", post(save))
         .route("/api/v1/documents/{id}/close", post(close))
+        .route("/api/v1/documents/{id}/autosave", post(autosave))
+        .route("/api/v1/documents/{id}/save-as", post(save_as))
+        .route("/api/v1/documents/{id}/recover", post(recover))
+        .route(
+            "/api/v1/documents/{id}/recover-as-copy",
+            post(recover_as_copy),
+        )
+        .route("/api/v1/documents/{id}/discard-draft", post(discard_draft))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -155,13 +164,16 @@ impl From<ApplicationError> for ApiError {
             ErrorCode::InvalidRequest | ErrorCode::InvalidCommand => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            ErrorCode::DocumentNotFound => StatusCode::NOT_FOUND,
+            ErrorCode::DocumentNotFound | ErrorCode::DraftNotFound => StatusCode::NOT_FOUND,
             ErrorCode::RevisionConflict
             | ErrorCode::RequestIdReused
             | ErrorCode::NothingToUndo
             | ErrorCode::NothingToRedo
             | ErrorCode::UnsavedChanges
-            | ErrorCode::SaveConflict => StatusCode::CONFLICT,
+            | ErrorCode::SaveConflict
+            | ErrorCode::RecoveryPending
+            | ErrorCode::DraftInUse
+            | ErrorCode::DraftOutdated => StatusCode::CONFLICT,
             ErrorCode::StorageFailed | ErrorCode::ResourceLimit => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::DocumentUnreadable => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -393,6 +405,67 @@ async fn close(
             body.discard_unsaved,
             body.expected_revision,
         )
+    })
+    .await
+    .map(Json)
+}
+
+async fn autosave(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<DraftRequest>,
+) -> Result<Json<DocumentResponse>, ApiError> {
+    run(state, move |app| app.autosave(&id, Some(&body.request_id)))
+        .await
+        .map(Json)
+}
+
+async fn save_as(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<SaveAsRequest>,
+) -> Result<(StatusCode, Json<CopyResponse>), ApiError> {
+    let response = run(state, move |app| {
+        app.save_as(
+            &id,
+            Some(&body.request_id),
+            body.expected_revision,
+            body.title.as_deref(),
+        )
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn recover(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<DraftRequest>,
+) -> Result<Json<DocumentResponse>, ApiError> {
+    run(state, move |app| app.recover(&id, Some(&body.request_id)))
+        .await
+        .map(Json)
+}
+
+async fn recover_as_copy(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<RecoverAsCopyRequest>,
+) -> Result<(StatusCode, Json<CopyResponse>), ApiError> {
+    let response = run(state, move |app| {
+        app.recover_as_copy(&id, Some(&body.request_id), body.title.as_deref())
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn discard_draft(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<DraftRequest>,
+) -> Result<Json<DraftDiscardResponse>, ApiError> {
+    run(state, move |app| {
+        app.discard_draft(&id, Some(&body.request_id))
     })
     .await
     .map(Json)
