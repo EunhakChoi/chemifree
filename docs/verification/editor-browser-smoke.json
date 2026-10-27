@@ -1,0 +1,29 @@
+{
+  "command": "npm run test:browser",
+  "browser": "Google Chrome (headless) via playwright-core 1.56.1",
+  "date": "2026-10-27",
+  "results": {
+    "create": true,
+    "add_atoms_and_bonds": true,
+    "edit_atom": true,
+    "edit_bond": true,
+    "undo_redo": true,
+    "move": true,
+    "save": true,
+    "close_and_reopen": true,
+    "discard_requires_confirmation": true,
+    "revision_conflict_and_reload": true,
+    "save_failure_and_retry": true,
+    "save_conflict_with_cli": true,
+    "edits_while_a_request_is_pending": true,
+    "rejected_edit_stays_reported_and_field_resets": true,
+    "api_restart_retries_only_unchanged_drawings": true,
+    "invalid_isotope_is_rejected": true,
+    "lost_create_response_is_retried_without_duplicates": true,
+    "mobile_390_and_320_without_horizontal_overflow": true,
+    "dark_mode_screenshot": true,
+    "uncaught_browser_errors": [],
+    "expected_http_error_console_lines": 7
+  },
+  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflict, rejected element, refused token after a simulated API restart, save failure, save conflict, and a connection reset that drops a create response). edits_while_a_request_is_pending delays transactions by 400 ms. Not run in CI."
+}
