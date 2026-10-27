@@ -1,9 +1,9 @@
 //! Local JSON document storage with atomic replace-on-save.
 //!
 //! Layout: `<root>/documents/<id>.json`. A save writes a uniquely named temporary file in
-//! the same directory, flushes it to disk, renames it over the target, and then syncs the
-//! directory. A crash or failure at any point leaves the previously committed file intact;
-//! leftover temporary files are ignored and pruned later.
+//! the same directory, flushes it to disk, renames it over the target (the commit point), and
+//! then syncs the directory where supported. A failure before the rename leaves the previously
+//! committed file intact; leftover temporary files are ignored and pruned later.
 //!
 //! The base-revision check and the rename are not one atomic step across processes. Two
 //! processes saving the same document in the same instant can still race; within one
@@ -153,13 +153,18 @@ impl FileDocumentRepository {
             file.write_all(bytes)?;
             file.sync_all()?;
             drop(file);
-            fs::rename(&temporary, target)?;
-            sync_directory(&self.directory)
+            fs::rename(&temporary, target)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
+            return result;
         }
-        result
+        // The rename is the commit point: the new document is in place and is what the next
+        // read returns, so the save must not be reported as failed after it. Syncing the
+        // directory makes the rename survive power loss where the platform supports it; if it
+        // cannot, the save stays committed with that weaker guarantee.
+        let _ = sync_directory(&self.directory);
+        Ok(())
     }
 }
 

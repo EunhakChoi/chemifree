@@ -29,7 +29,7 @@
 | apps/cli | status/capabilities와 documents list·create·show·apply·undo·redo. 같은 Application을 HTTP 없이 호출, 편집마다 저장 |
 | crates/domain | 원소(1–118), 문서 그래프·안정 ID·참조 불변식, 명령, 원자적 트랜잭션, change-set Undo/Redo, 저장본 복원 검증. 외부 의존성 없음 |
 | crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 저장 커밋 후 ACK, 공유 DTO, DocumentRepository·CapabilityCatalog port |
-| crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename → 디렉터리 sync, base revision 검사, 손상 파일 거절), capability 목록 |
+| crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), capability 목록 |
 | 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, 수동 test:browser, GitHub Actions |
 
 의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다.
