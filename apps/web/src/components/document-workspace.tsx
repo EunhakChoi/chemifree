@@ -413,6 +413,29 @@ function changeCharge(atom: string, step: number) {
   }
 }
 
+/** Shows the atom's element again after an empty entry or a rejected symbol. */
+function ElementField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
+  const [attempt, setAttempt] = useState(0)
+  const reset = () => setAttempt((count) => count + 1)
+  return (
+    <Field>
+      <FieldLabel htmlFor="atom-element">Element</FieldLabel>
+      <Input
+        id="atom-element"
+        key={`${atom.element}:${attempt}`}
+        defaultValue={atom.element}
+        maxLength={3}
+        onKeyDown={commitOnEnter}
+        onBlur={(event) => {
+          const value = event.currentTarget.value.trim()
+          if (!value || value === atom.element) return reset()
+          void editor.apply([{ op: 'update_atom', atom: atom.id, element: value }]).then(reset)
+        }}
+      />
+    </Field>
+  )
+}
+
 /** Empty text means natural abundance; anything but a mass number 1–999 is not sent. */
 function parseIsotope(text: string): number | null | undefined {
   if (text === '') return null
@@ -478,20 +501,7 @@ function Inspector({
       )}
       {atom && (
         <FieldGroup className="gap-3">
-          <Field>
-            <FieldLabel htmlFor="atom-element">Element</FieldLabel>
-            <Input
-              id="atom-element"
-              key={`${atom.id}:${atom.element}`}
-              defaultValue={atom.element}
-              maxLength={3}
-              onKeyDown={commitOnEnter}
-              onBlur={(event) => {
-                const value = event.currentTarget.value.trim()
-                if (value && value !== atom.element) void editor.apply([{ op: 'update_atom', atom: atom.id, element: value }])
-              }}
-            />
-          </Field>
+          <ElementField key={`element-${atom.id}`} atom={atom} editor={editor} />
           <Field>
             <FieldLabel id="atom-charge">Charge</FieldLabel>
             <div role="group" aria-labelledby="atom-charge" className="flex items-center gap-2">
@@ -516,7 +526,7 @@ function Inspector({
               </Button>
             </div>
           </Field>
-          <IsotopeField key={atom.id} atom={atom} editor={editor} />
+          <IsotopeField key={`isotope-${atom.id}`} atom={atom} editor={editor} />
         </FieldGroup>
       )}
       {bond && (

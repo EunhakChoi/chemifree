@@ -15,9 +15,11 @@ export type ListState =
   | { kind: 'error'; message: string }
 
 /**
- * Commands for one transaction. Edits relative to the current state (such as "one more
- * charge") pass a function, evaluated against the latest document when the queued request
- * runs rather than against the possibly older one on screen. Returning null skips it.
+ * Commands for one transaction. A list is built from the document on screen and is sent with
+ * that revision, so if an earlier queued request changed the document first, the server
+ * rejects it as a revision conflict. Edits relative to the latest state (such as "one more
+ * charge") pass a function instead, evaluated when the queued request runs. Returning null
+ * skips the request.
  */
 export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
@@ -39,6 +41,7 @@ export function useDocumentEditor() {
   const [error, setError] = useState<ApiError | null>(null)
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
+  const failures = useRef(0)
 
   const setCurrent = useCallback((document: DocumentResponse | null) => {
     currentRef.current = document
@@ -63,13 +66,24 @@ export function useDocumentEditor() {
     setListRequest((count) => count + 1)
   }, [])
 
-  /** Queues a task behind earlier ones so each request sees the latest revision. */
+  /**
+   * Queues a task behind earlier ones. A success clears an error the user had already seen
+   * when this task was queued, never one from a request that failed while it waited.
+   */
   const run = useCallback((task: () => Promise<void>) => {
     setPending((count) => count + 1)
+    const failuresSeen = failures.current
     const next = queue.current
       .then(task)
-      .then(() => setError(null))
-      .catch((failure: unknown) => setError(asApiError(failure)))
+      .then(
+        () => {
+          if (failures.current === failuresSeen) setError(null)
+        },
+        (failure: unknown) => {
+          failures.current += 1
+          setError(asApiError(failure))
+        },
+      )
       .finally(() => setPending((count) => count - 1))
     queue.current = next
     return next
@@ -106,11 +120,17 @@ export function useDocumentEditor() {
     /** Re-reads the working copy, e.g. after a revision conflict. */
     reload: useCallback(() => run(async () => setCurrent(await client.get(id()))), [run, setCurrent]),
     apply: useCallback(
-      (edit: Edit) =>
-        mutate((document) => {
-          const commands = typeof edit === 'function' ? edit(document.document) : edit
-          return commands?.length ? client.transact(id(), revision(document), commands) : null
-        }),
+      (edit: Edit) => {
+        const shown = currentRef.current?.document
+        return mutate((document) => {
+          if (typeof edit === 'function') {
+            const commands = edit(document.document)
+            return commands?.length ? client.transact(id(), revision(document), commands) : null
+          }
+          if (!edit.length || shown?.id !== document.document.id) return null
+          return client.transact(shown.id, shown.revision, edit)
+        })
+      },
       [mutate],
     ),
     undo: useCallback(() => mutate((document) => client.revisionAction(id(), 'undo', revision(document))), [mutate]),

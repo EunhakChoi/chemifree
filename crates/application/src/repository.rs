@@ -14,6 +14,12 @@ pub trait DocumentRepository: Send + Sync {
     /// `Ok(None)` means no document is stored under this identifier.
     fn load(&self, id: &DocumentId) -> Result<Option<Document>, StorageError>;
 
+    /// The stored revision, used to notice another writer's save. Providers should answer
+    /// without restoring the whole document.
+    fn stored_revision(&self, id: &DocumentId) -> Result<Option<u64>, StorageError> {
+        Ok(self.load(id)?.map(|document| document.revision()))
+    }
+
     /// Durably and atomically replaces the stored document; returns only after the commit.
     ///
     /// `base_revision: None` requires that nothing is stored yet. `Some(revision)` requires

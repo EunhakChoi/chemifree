@@ -1,6 +1,6 @@
 //! Document editing sessions: working copies, revisions, idempotent replays, and saves.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use chemifree_domain::document::{Document, DocumentId, HistoryError, Outcome};
@@ -144,30 +144,28 @@ impl<R: DocumentRepository> Documents<R> {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Open sessions are summarized under the lock; other stored documents are restored
+    /// without holding it, so listing does not stall edits to open documents.
     pub(crate) fn list(&self) -> Result<DocumentListResponse, ApplicationError> {
-        let sessions = self.lock();
-        let mut ids = self.repository.list_ids().map_err(storage_error)?;
-        ids.extend(sessions.open.keys().cloned());
-        ids.sort();
-        ids.dedup();
+        let stored = self.repository.list_ids().map_err(storage_error)?;
         let mut documents = Vec::new();
-        let mut unreadable = Vec::new();
-        for id in ids.into_iter().take(MAX_LISTED_DOCUMENTS) {
-            let summary = |document: &Document, open, unsaved_changes| DocumentSummary {
-                id: id.to_string(),
-                title: document.title().to_owned(),
-                revision: document.revision(),
-                atom_count: document.atoms().len(),
-                bond_count: document.bonds().len(),
-                open,
-                unsaved_changes,
-            };
-            if let Some(session) = sessions.open.get(&id) {
-                documents.push(summary(&session.document, true, session.is_dirty()));
-                continue;
+        let open: HashSet<DocumentId> = {
+            let mut sessions = self.lock();
+            for (id, session) in &mut sessions.open {
+                self.refresh(id, session);
+                documents.push(summary(id, &session.document, true, session.is_dirty()));
             }
+            sessions.open.keys().cloned().collect()
+        };
+        let mut unreadable = Vec::new();
+        let remaining = MAX_LISTED_DOCUMENTS.saturating_sub(documents.len());
+        for id in stored
+            .into_iter()
+            .filter(|id| !open.contains(id))
+            .take(remaining)
+        {
             match self.repository.load(&id) {
-                Ok(Some(document)) => documents.push(summary(&document, false, false)),
+                Ok(Some(document)) => documents.push(summary(&id, &document, false, false)),
                 Ok(None) => {}
                 Err(error) => unreadable.push(UnreadableDocument {
                     id: id.to_string(),
@@ -373,7 +371,9 @@ impl<R: DocumentRepository> Documents<R> {
         id: &str,
     ) -> Result<&'a mut Session, ApplicationError> {
         let id = parse_id(id)?;
-        if !sessions.open.contains_key(&id) {
+        if let Some(session) = sessions.open.get_mut(&id) {
+            self.refresh(&id, session);
+        } else {
             make_room(&mut sessions.open, Some(&id))?;
             let document = self.load(&id)?.ok_or_else(|| not_found(&id))?;
             let session = Session {
@@ -389,8 +389,43 @@ impl<R: DocumentRepository> Documents<R> {
             .expect("session was just ensured"))
     }
 
+    /// A clean working copy follows newer commits by other writers (another process or the
+    /// CLI), so it never shows stale content as saved. A session with unsaved changes keeps
+    /// them and meets the other commit as a save conflict. Storage errors leave the copy as
+    /// it is: it is still the last commit this session saw.
+    fn refresh(&self, id: &DocumentId, session: &mut Session) {
+        if session.is_dirty() {
+            return;
+        }
+        let newer = matches!(
+            self.repository.stored_revision(id),
+            Ok(Some(stored)) if stored > session.saved_revision
+        );
+        if newer && let Ok(Some(document)) = self.repository.load(id) {
+            session.saved_revision = document.revision();
+            session.document = document;
+        }
+    }
+
     fn load(&self, id: &DocumentId) -> Result<Option<Document>, ApplicationError> {
         self.repository.load(id).map_err(storage_error)
+    }
+}
+
+fn summary(
+    id: &DocumentId,
+    document: &Document,
+    open: bool,
+    unsaved_changes: bool,
+) -> DocumentSummary {
+    DocumentSummary {
+        id: id.to_string(),
+        title: document.title().to_owned(),
+        revision: document.revision(),
+        atom_count: document.atoms().len(),
+        bond_count: document.bonds().len(),
+        open,
+        unsaved_changes,
     }
 }
 

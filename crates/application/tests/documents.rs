@@ -300,6 +300,37 @@ fn a_failed_save_keeps_unsaved_work_and_a_retry_commits_it() {
 }
 
 #[test]
+fn a_clean_session_follows_another_writers_save() {
+    let (viewer, store) = application();
+    let id = viewer.create_document(None, None).unwrap().document.id;
+
+    let other = Application::new(NoCapabilities, store.clone());
+    other
+        .apply_transaction(&id, None, 0, draw_ethanol())
+        .unwrap();
+    other.save(&id, None, 1).unwrap();
+
+    let seen = viewer.document(&id).unwrap();
+    assert_eq!(seen.document.revision, 1, "the clean copy reloads");
+    assert_eq!(seen.session.saved_revision, 1);
+    assert!(!seen.session.unsaved_changes);
+    let listed = viewer.list_documents().unwrap();
+    assert_eq!(listed.documents[0].revision, 1);
+
+    // An edit based on the old view is a revision conflict, not a later save conflict.
+    let stale = viewer
+        .apply_transaction(
+            &id,
+            None,
+            0,
+            commands(json!([{"op": "rename", "title": "Stale"}])),
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, ErrorCode::RevisionConflict);
+    assert_eq!(stale.current_revision, Some(1));
+}
+
+#[test]
 fn concurrent_writers_produce_a_save_conflict_instead_of_lost_updates() {
     let (editor, store) = application();
     let id = editor.create_document(None, None).unwrap().document.id;

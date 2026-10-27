@@ -334,7 +334,19 @@ await isotope.press('Enter')
 await page.getByText('Enter a whole number from 1 to 999', { exact: false }).waitFor()
 await waitIdle()
 assert.equal((await openDoc()).document.atoms.find((atom) => atom.id === 'a1').isotope, 13, 'invalid text is not sent')
+// A rejected element followed at once by a successful edit: the rejection stays visible and the
+// field shows the atom's element again.
+const elementField = page.getByLabel('Element', { exact: true })
+const elementBefore = (await openDoc()).document.atoms.find((atom) => atom.id === 'a1').element
+await elementField.fill('Xx')
+await elementField.press('Enter')
+await page.getByRole('button', { name: 'Increase charge' }).click()
+await waitIdle()
+await page.getByText('Edit rejected', { exact: true }).waitFor()
+assert.equal(await elementField.inputValue(), elementBefore, 'the field is reset to the stored element')
+await page.getByRole('button', { name: 'Dismiss' }).click()
 await page.unroute('**/transactions')
+results.rejected_edit_stays_reported_and_field_resets = true
 results.invalid_isotope_is_rejected = true
 step = 'after invalid_isotope_is_rejected'
 
@@ -379,7 +391,7 @@ step = 'after mobile_390_and_320_without_horizontal_overflow'
 results.dark_mode_screenshot = true
 step = 'after dark_mode_screenshot'
 
-const provoked = ['409', '503', 'ERR_CONNECTION_RESET']
+const provoked = ['409', '422', '503', 'ERR_CONNECTION_RESET']
 results.uncaught_browser_errors = consoleErrors.filter((text) => !provoked.some((mark) => text.includes(mark)))
 results.expected_http_error_console_lines = consoleErrors.length - results.uncaught_browser_errors.length
 console.log(JSON.stringify(results, null, 2))

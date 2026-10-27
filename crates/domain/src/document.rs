@@ -757,7 +757,9 @@ impl Document {
         content
             .validate()
             .map_err(|error| RestoreError(format!("invalid document content: {error}")))?;
-        if parts.undo.len() > HISTORY_LIMIT || parts.redo.len() > HISTORY_LIMIT {
+        // Editing keeps undo + redo within the limit (undo and redo only move entries between
+        // them), so a larger stored history would let a redo grow undo past it.
+        if parts.undo.len() + parts.redo.len() > HISTORY_LIMIT {
             return Err(invalid("history exceeds its limit"));
         }
         let document = Self {

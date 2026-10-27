@@ -1,6 +1,6 @@
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, Command, Document, DocumentId,
-    EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, Outcome, Point,
+    Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command, Document,
+    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, Outcome, Point,
     TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
@@ -414,6 +414,28 @@ fn restore_round_trips_and_rejects_impossible_states() {
     let mut mismatched_redo = document.to_parts();
     mismatched_redo.redo[0].bonds[0].1.before = mismatched_redo.redo[0].bonds[0].1.after.clone();
     assert!(Document::restore(mismatched_redo).is_err());
+}
+
+#[test]
+fn restore_rejects_more_history_than_editing_can_produce() {
+    let mut document = empty();
+    for index in 0..HISTORY_LIMIT {
+        document
+            .apply(&[Command::Rename {
+                title: format!("Title {index}"),
+            }])
+            .unwrap();
+    }
+    // Undo and redo together never exceed the limit, so a redo cannot grow undo past it.
+    let mut parts = document.to_parts();
+    parts.redo.push(ChangeSet {
+        title: Some(Change {
+            before: parts.title.clone(),
+            after: "One more".into(),
+        }),
+        ..ChangeSet::default()
+    });
+    assert!(Document::restore(parts).is_err());
 }
 
 #[test]

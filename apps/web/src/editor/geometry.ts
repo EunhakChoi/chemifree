@@ -109,8 +109,18 @@ export function neighbors(document: DocumentView, atomId: string) {
   )
 }
 
-export function degree(document: DocumentView, atomId: string) {
-  return document.bonds.filter((bond) => bond.begin === atomId || bond.end === atomId).length
+/** Bond count per atom in one pass over the bonds. */
+export function degrees(document: DocumentView) {
+  const counts = new Map<string, number>()
+  for (const { begin, end } of document.bonds) {
+    counts.set(begin, (counts.get(begin) ?? 0) + 1)
+    counts.set(end, (counts.get(end) ?? 0) + 1)
+  }
+  return counts
+}
+
+export function sameHit(a: Hit, b: Hit) {
+  return a === b || (a !== null && b !== null && a.kind === b.kind && a.id === b.id)
 }
 
 /** Carbon is drawn as a bare vertex unless it is isolated, charged, or isotope-labeled. */

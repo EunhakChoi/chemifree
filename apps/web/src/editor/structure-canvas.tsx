@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from 'react'
+import { useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { BondOrder, Command, DocumentView, Position } from '@/lib/document-contract'
@@ -6,11 +6,12 @@ import {
   atomIndex,
   bondSegments,
   chargeText,
-  degree,
+  degrees,
   distance,
   freeNeighborPosition,
   hitTest,
   round,
+  sameHit,
   showsLabel,
   snappedEndpoint,
   viewBox,
@@ -66,7 +67,12 @@ export function StructureCanvas({
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Hit>(null)
 
-  const atoms = atomIndex(document)
+  // Derived per document, not per render: pointer moves re-render the canvas.
+  const atoms = useMemo(() => atomIndex(document), [document])
+  const labeled = useMemo(() => {
+    const counts = degrees(document)
+    return new Map(document.atoms.map((atom) => [atom.id, showsLabel(atom, counts.get(atom.id) ?? 0)]))
+  }, [document])
   const box = viewBox(document.atoms.map((atom) => atom.position))
 
   function toDocument(event: PointerEvent<SVGSVGElement>): Position {
@@ -132,7 +138,8 @@ export function StructureCanvas({
     const point = toDocument(event)
     const gesture = drag.current
     if (!gesture) {
-      setHover(disabled ? null : hitTest(document, point))
+      const next = disabled ? null : hitTest(document, point)
+      setHover((current) => (sameHit(current, next) ? current : next))
       return
     }
     if (distance(point, gesture.start) < DRAG_THRESHOLD) return
@@ -246,7 +253,6 @@ export function StructureCanvas({
     }
     return atom.position
   }
-  const labeled = new Map(document.atoms.map((atom) => [atom.id, showsLabel(atom, degree(document, atom.id))]))
 
   return (
     <svg

@@ -150,6 +150,29 @@ pub(crate) fn encode(document: &Document) -> Vec<u8> {
 }
 
 /// Parses and fully validates a stored document, including its history.
+/// Reads only the header and revision; `decode` remains the validating reader.
+pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
+    #[derive(Deserialize)]
+    struct Probe {
+        format: String,
+        format_version: u32,
+        document: RevisionOnly,
+    }
+    #[derive(Deserialize)]
+    struct RevisionOnly {
+        revision: u64,
+    }
+    let probe: Probe =
+        serde_json::from_slice(bytes).map_err(|error| format!("invalid document file: {error}"))?;
+    if probe.format != FORMAT || probe.format_version != FORMAT_VERSION {
+        return Err(format!(
+            "unsupported format {:?} version {}",
+            probe.format, probe.format_version
+        ));
+    }
+    Ok(probe.document.revision)
+}
+
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let file: FileV1 =
         serde_json::from_slice(bytes).map_err(|error| format!("invalid document file: {error}"))?;

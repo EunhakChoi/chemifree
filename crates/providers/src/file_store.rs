@@ -77,21 +77,9 @@ impl FileDocumentRepository {
 
     fn read(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
         let path = self.path(id);
-        let file = match File::open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(unavailable("open", &path, &error)),
+        let Some(bytes) = self.read_bytes(&path)? else {
+            return Ok(None);
         };
-        let mut bytes = Vec::new();
-        file.take(MAX_DOCUMENT_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| unavailable("read", &path, &error))?;
-        if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-            return Err(StorageError::Corrupt(format!(
-                "{} exceeds {MAX_DOCUMENT_BYTES} bytes",
-                path.display()
-            )));
-        }
         let document = file_format::decode(&bytes).map_err(StorageError::Corrupt)?;
         if document.id() != id {
             return Err(StorageError::Corrupt(format!(
@@ -101,6 +89,25 @@ impl FileDocumentRepository {
             )));
         }
         Ok(Some(document))
+    }
+
+    fn read_bytes(&self, path: &Path) -> Result<Option<Vec<u8>>, StorageError> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(unavailable("open", path, &error)),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_DOCUMENT_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| unavailable("read", path, &error))?;
+        if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+            return Err(StorageError::Corrupt(format!(
+                "{} exceeds {MAX_DOCUMENT_BYTES} bytes",
+                path.display()
+            )));
+        }
+        Ok(Some(bytes))
     }
 
     fn write_atomically(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -165,6 +172,12 @@ impl DocumentRepository for FileDocumentRepository {
         }
         ids.sort();
         Ok(ids)
+    }
+
+    fn stored_revision(&self, id: &DocumentId) -> Result<Option<u64>, StorageError> {
+        self.read_bytes(&self.path(id))?
+            .map(|bytes| file_format::decode_revision(&bytes).map_err(StorageError::Corrupt))
+            .transpose()
     }
 
     fn load(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
@@ -311,6 +324,20 @@ mod tests {
         assert_eq!((loaded.undo_depth(), loaded.redo_depth()), (1, 1));
         loaded.redo().unwrap();
         assert_eq!(loaded.title(), "Stored twice");
+    }
+
+    #[test]
+    fn stored_revision_reads_the_committed_revision_only() {
+        let (_directory, repository) = scratch();
+        let document = drawn(&repository);
+        assert_eq!(repository.stored_revision(document.id()), Ok(None));
+        repository.save(&document, None).unwrap();
+        assert_eq!(repository.stored_revision(document.id()), Ok(Some(3)));
+        fs::write(repository.path(document.id()), b"{}").unwrap();
+        assert!(matches!(
+            repository.stored_revision(document.id()),
+            Err(StorageError::Corrupt(_))
+        ));
     }
 
     #[test]
