@@ -39,8 +39,9 @@ const TEMPORARY_SUFFIX: &str = ".tmp";
 /// Larger files are refused before parsing.
 pub const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 const STALE_TEMPORARY_AGE: Duration = Duration::from_secs(60 * 60);
-/// How long a save waits for another process's save of the same document.
-pub const SAVE_LOCK_WAIT: Duration = Duration::from_secs(10);
+/// How long a save waits for another process's save of the same document. It stays well
+/// below the web client's 10 s request deadline, so a timeout reaches it as `storage_failed`.
+pub const SAVE_LOCK_WAIT: Duration = Duration::from_secs(5);
 const LOCK_POLL: Duration = Duration::from_millis(10);
 /// Debug builds pause this many milliseconds inside the save lock, between the base check and
 /// the commit, so tests can race saves and kill a process that holds the lock.

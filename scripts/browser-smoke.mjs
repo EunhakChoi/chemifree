@@ -657,6 +657,27 @@ step = 'after autosave_failure_is_shown_and_retried'
 const originalFile = join(dataDir, 'documents', `${docId}.json`)
 const originalBytes = readFileSync(originalFile)
 const originalId = docId
+// An autosave of the original is held until the page has moved to the copy, then answered
+// with a pausing error. It must not pause autosave for the copy.
+let releaseStale
+const staleReleased = new Promise((resolve) => (releaseStale = resolve))
+let staleHeld
+const staleArrived = new Promise((resolve) => (staleHeld = resolve))
+await page.route(
+  `**/documents/${originalId}/autosave`,
+  async (route) => {
+    staleHeld()
+    await staleReleased
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ api_version: 'v1', code: 'recovery_pending', message: 'an earlier draft is waiting' }),
+    })
+  },
+  { times: 1 },
+)
+await drawPair()
+await staleArrived
 const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as'))
 await page.getByRole('button', { name: 'Save as copy' }).click()
 await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
@@ -672,7 +693,12 @@ assert.equal(await saveState(), 'Saved')
 assert.notEqual(docId, originalId)
 assert.deepEqual(readFileSync(originalFile), originalBytes, 'the original file is untouched')
 assert.ok(!existsSync(join(dataDir, 'drafts', `${originalId}.json`)), "the original's draft went with its changes")
+const staleAnswered = page.waitForResponse((r) => r.url().endsWith(`/${originalId}/autosave`))
+releaseStale()
+await staleAnswered
 await drawPair()
+await waitDraft('saved')
+results.late_autosave_reply_leaves_the_next_document_autosaving = true
 await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
 assert.deepEqual(readFileSync(originalFile), originalBytes, 'editing the copy leaves the original alone')
 await page.getByRole('button', { name: 'Open original' }).click()

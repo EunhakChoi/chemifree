@@ -47,8 +47,11 @@ export function useAutosave(
     const id = document.document.id
     saving.current = true
     setState({ kind: 'saving' })
+    // A reply that arrives after the page moved to another document says nothing about it.
+    const moved = () => latest.current?.document.id !== id
     try {
       const response = await client.autosave(id)
+      if (moved()) return
       attempts.current = 0
       const revision = response.session.draft_revision
       // Revisions only grow, so a draft at or past the page's revision is the newest work. A
@@ -56,6 +59,7 @@ export function useAutosave(
       covered.current = { id, revision: revision ?? response.document.revision }
       setState(revision === null ? { kind: 'clean' } : { kind: 'saved', revision, at: Date.now() })
     } catch (failure) {
+      if (moved()) return
       const error = failure instanceof ApiError ? failure : new ApiError('unexpected', 'Autosave failed.', 0)
       if (PAUSING.has(error.code)) {
         paused.current = { until: 'recovery' }

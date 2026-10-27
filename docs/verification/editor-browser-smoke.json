@@ -27,6 +27,7 @@
     "discarded_draft_stays_gone": true,
     "outdated_draft_is_recovered_as_a_copy": true,
     "autosave_failure_is_shown_and_retried": true,
+    "late_autosave_reply_leaves_the_next_document_autosaving": true,
     "save_as_copy_is_independent": true,
     "mobile_390_and_320_without_horizontal_overflow": true,
     "dark_mode_screenshot": true,
