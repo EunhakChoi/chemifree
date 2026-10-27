@@ -788,6 +788,26 @@ impl Document {
         })
     }
 
+    /// An independent document with this one's atoms, bonds, and identifier counters under a
+    /// new identifier and title, at revision 0 with no history. Atom and bond identifiers are
+    /// kept, so commands that name them mean the same entities in the copy.
+    pub fn copy_as(&self, id: DocumentId, title: &str) -> Result<Self, EditError> {
+        let title = title.trim();
+        validate_title(title)?;
+        Ok(Self {
+            id,
+            revision: 0,
+            content: Content {
+                title: title.to_owned(),
+                ..self.content.clone()
+            },
+            next_atom: self.next_atom,
+            next_bond: self.next_bond,
+            undo: VecDeque::new(),
+            redo: Vec::new(),
+        })
+    }
+
     /// Rebuilds a stored document, rejecting any state commands could not have produced,
     /// including history entries that do not replay cleanly from the current state.
     pub fn restore(parts: DocumentParts) -> Result<Self, RestoreError> {

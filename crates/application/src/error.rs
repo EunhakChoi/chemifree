@@ -27,6 +27,14 @@ pub enum ErrorCode {
     StorageFailed,
     DocumentUnreadable,
     ResourceLimit,
+    /// An abandoned recovery draft must be recovered or discarded before new work is
+    /// autosaved over it.
+    RecoveryPending,
+    /// Another running process owns the recovery draft.
+    DraftInUse,
+    /// Storage changed since the draft's base; it can be recovered only as a copy.
+    DraftOutdated,
+    DraftNotFound,
 }
 
 impl ErrorCode {
@@ -44,6 +52,10 @@ impl ErrorCode {
             Self::StorageFailed => "storage_failed",
             Self::DocumentUnreadable => "document_unreadable",
             Self::ResourceLimit => "resource_limit",
+            Self::RecoveryPending => "recovery_pending",
+            Self::DraftInUse => "draft_in_use",
+            Self::DraftOutdated => "draft_outdated",
+            Self::DraftNotFound => "draft_not_found",
         }
     }
 }

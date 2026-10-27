@@ -1,42 +1,64 @@
-//! Local JSON document storage with atomic replace-on-save.
+//! Local JSON document storage with atomic replace-on-save, cross-process save locks, and
+//! recovery drafts.
 //!
-//! Layout: `<root>/documents/<id>.json`. A save writes a uniquely named temporary file in
-//! the same directory, flushes it to disk, renames it over the target (the commit point), and
-//! then syncs the directory where supported. A failure before the rename leaves the previously
-//! committed file intact; leftover temporary files are ignored and pruned later.
+//! Layout under the data directory:
 //!
-//! The base-revision check and the rename are not one atomic step across processes. Two
-//! processes saving the same document in the same instant can still race; within one
-//! process the application serializes saves.
+//! - `documents/<id>.json`: the committed document. A save writes a uniquely named temporary
+//!   file in the same directory, flushes it to disk, renames it over the target (the commit
+//!   point), and then syncs the directory where supported. A failure before the rename leaves
+//!   the previously committed file intact; leftover temporary files are pruned later.
+//! - `locks/<id>.lock`: an advisory OS lock held from the base-revision check through the
+//!   commit, so saves from every process are serialized per document. The operating system
+//!   releases it when its holder exits, however it exits. Lock files are never deleted:
+//!   deleting a lock file while another process waits on it would let two holders in.
+//! - `drafts/<id>.json`: the recovery draft of a working copy with unsaved changes, and
+//!   `drafts/<id>.owner`, whose lock its owning process holds while it runs. A draft whose
+//!   owner lock is free was abandoned by a process that ended.
+//! - `drafts/<id>.committing`: an owned draft set aside during a save. If the saving process
+//!   ends before removing it, the next lock holder settles it: the commit happened exactly
+//!   when storage no longer holds the draft's base revision.
 
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant, SystemTime};
 
-use chemifree_application::{DocumentRepository, StorageError};
+use chemifree_application::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
 use chemifree_domain::document::{Document, DocumentId};
 
 use crate::file_format;
 
 const DOCUMENTS_DIR: &str = "documents";
+const DRAFTS_DIR: &str = "drafts";
+const LOCKS_DIR: &str = "locks";
 const EXTENSION: &str = "json";
 const TEMPORARY_SUFFIX: &str = ".tmp";
 /// Larger files are refused before parsing.
 pub const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 const STALE_TEMPORARY_AGE: Duration = Duration::from_secs(60 * 60);
+/// How long a save waits for another process's save of the same document. It stays well
+/// below the web client's 10 s request deadline, so a timeout reaches it as `storage_failed`.
+pub const SAVE_LOCK_WAIT: Duration = Duration::from_secs(5);
+const LOCK_POLL: Duration = Duration::from_millis(10);
+/// Debug builds pause this many milliseconds inside the save lock, between the base check and
+/// the commit, so tests can race saves and kill a process that holds the lock.
+pub const COMMIT_DELAY_VARIABLE: &str = "CHEMIFREE_TEST_COMMIT_DELAY_MS";
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
 pub struct FileDocumentRepository {
     directory: PathBuf,
+    drafts: PathBuf,
+    locks: PathBuf,
     /// Revisions read by `stored_revision`, keyed by a stamp of the file, so polling an
     /// unchanged file does not re-read it.
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
+    /// Locked owner files of the drafts this repository owns. Dropping one releases it.
+    owned: Arc<Mutex<HashMap<DocumentId, File>>>,
 }
 
 /// Length, modification time, and on Unix the inode. Saves replace the file by rename, so
@@ -55,12 +77,15 @@ impl FileStamp {
 }
 
 impl FileDocumentRepository {
-    /// Uses `<root>/documents`. Nothing is touched until the first save, which creates the
-    /// directory (owner-only on Unix).
+    /// Uses `<root>/documents`, `<root>/drafts`, and `<root>/locks`. Nothing is touched until
+    /// the first write, which creates the directories (owner-only on Unix).
     pub fn new(root: &Path) -> Self {
         Self {
             directory: root.join(DOCUMENTS_DIR),
+            drafts: root.join(DRAFTS_DIR),
+            locks: root.join(LOCKS_DIR),
             probes: Arc::default(),
+            owned: Arc::default(),
         }
     }
 
@@ -72,26 +97,36 @@ impl FileDocumentRepository {
         self.directory.join(format!("{id}.{EXTENSION}"))
     }
 
-    /// Removes temporary files that interrupted saves abandoned more than an hour ago.
-    /// Younger ones may belong to a save in progress in another process.
+    fn draft_path(&self, id: &DocumentId) -> PathBuf {
+        self.drafts.join(format!("{id}.{EXTENSION}"))
+    }
+
+    fn set_aside_path(&self, id: &DocumentId) -> PathBuf {
+        self.drafts.join(format!("{id}.committing"))
+    }
+
+    /// Removes temporary files that interrupted writes abandoned more than an hour ago.
+    /// Younger ones may belong to a write in progress in another process.
     pub fn prune_stale_temporaries(&self) {
-        let Ok(entries) = fs::read_dir(&self.directory) else {
-            return;
-        };
         let now = SystemTime::now();
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let is_temporary = name
-                .to_str()
-                .is_some_and(|name| name.starts_with('.') && name.ends_with(TEMPORARY_SUFFIX));
-            let stale = entry
-                .metadata()
-                .and_then(|metadata| metadata.modified())
-                .ok()
-                .and_then(|modified| now.duration_since(modified).ok())
-                .is_some_and(|age| age > STALE_TEMPORARY_AGE);
-            if is_temporary && stale {
-                let _ = fs::remove_file(entry.path());
+        for directory in [&self.directory, &self.drafts] {
+            let Ok(entries) = fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let is_temporary = name
+                    .to_str()
+                    .is_some_and(|name| name.starts_with('.') && name.ends_with(TEMPORARY_SUFFIX));
+                let stale = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| now.duration_since(modified).ok())
+                    .is_some_and(|age| age > STALE_TEMPORARY_AGE);
+                if is_temporary && stale {
+                    let _ = fs::remove_file(entry.path());
+                }
             }
         }
     }
@@ -138,8 +173,11 @@ impl FileDocumentRepository {
         Ok(Some(bytes))
     }
 
+    /// Writes beside `target` and renames over it; see the module notes.
     fn write_atomically(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
-        let temporary = self.directory.join(format!(
+        let directory = target.parent().unwrap_or(Path::new("."));
+        create_private_dir(directory)?;
+        let temporary = directory.join(format!(
             ".{}.{}.{}{TEMPORARY_SUFFIX}",
             target
                 .file_stem()
@@ -159,11 +197,99 @@ impl FileDocumentRepository {
             let _ = fs::remove_file(&temporary);
             return result;
         }
-        // The rename is the commit point: the new document is in place and is what the next
-        // read returns, so the save must not be reported as failed after it. Syncing the
+        // The rename is the commit point: the new file is in place and is what the next read
+        // returns, so the write must not be reported as failed after it. Syncing the
         // directory makes the rename survive power loss where the platform supports it; if it
-        // cannot, the save stays committed with that weaker guarantee.
-        let _ = sync_directory(&self.directory);
+        // cannot, the write stays committed with that weaker guarantee.
+        let _ = sync_directory(directory);
+        Ok(())
+    }
+
+    /// Waits for the document's save lock. The returned file holds it until dropped.
+    fn lock_document(&self, id: &DocumentId) -> Result<File, StorageError> {
+        let path = self.locks.join(format!("{id}.lock"));
+        let file = open_lock_file(&path).map_err(|error| unavailable("lock", &path, &error))?;
+        let deadline = Instant::now() + SAVE_LOCK_WAIT;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(LOCK_POLL);
+                }
+                Err(TryLockError::WouldBlock) => {
+                    return Err(StorageError::Locked(format!(
+                        "another process has been saving document {id} for over {} seconds",
+                        SAVE_LOCK_WAIT.as_secs()
+                    )));
+                }
+                Err(TryLockError::Error(error)) => return Err(unavailable("lock", &path, &error)),
+            }
+        }
+    }
+
+    fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, File>> {
+        self.owned.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn owns(&self, id: &DocumentId) -> bool {
+        self.owned().contains_key(id)
+    }
+
+    /// Takes the draft's owner lock if no running process holds it.
+    fn try_own(&self, id: &DocumentId) -> Result<Option<File>, StorageError> {
+        let path = self.drafts.join(format!("{id}.owner"));
+        let file = open_lock_file(&path).map_err(|error| unavailable("lock", &path, &error))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(file)),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(error)) => Err(unavailable("lock", &path, &error)),
+        }
+    }
+
+    /// Takes ownership of an unowned draft slot, settling a save its last owner left
+    /// unfinished. `Ok(None)` means another running process owns it.
+    fn adopt(&self, id: &DocumentId) -> Result<Option<File>, StorageError> {
+        let Some(owner) = self.try_own(id)? else {
+            return Ok(None);
+        };
+        if exists(&self.set_aside_path(id))? {
+            let _lock = self.lock_document(id)?;
+            self.settle_interrupted_save(id)?;
+        }
+        Ok(Some(owner))
+    }
+
+    /// Restores and validates a draft file's contents, including that it belongs to `id`.
+    fn decode_draft(&self, id: &DocumentId, bytes: &[u8]) -> Result<Draft, String> {
+        let draft = file_format::decode_draft(bytes)?;
+        if draft.document.id() != id {
+            return Err(format!(
+                "{} contains document {}",
+                self.draft_path(id).display(),
+                draft.document.id()
+            ));
+        }
+        Ok(draft)
+    }
+
+    /// Settles a draft set aside by a save whose process ended before removing it. Called with
+    /// the save lock held, so no commit can happen meanwhile.
+    fn settle_interrupted_save(&self, id: &DocumentId) -> Result<(), StorageError> {
+        let set_aside = self.set_aside_path(id);
+        let Some(bytes) = self.read_bytes(&set_aside)? else {
+            return Ok(());
+        };
+        let stored = self.read_revision(&self.path(id))?;
+        // An unreadable draft is kept, so it is reported rather than silently dropped.
+        let committed = file_format::decode_draft_info(&bytes)
+            .is_ok_and(|info| stored != Some(info.base_revision));
+        let result = if committed {
+            fs::remove_file(&set_aside)
+        } else {
+            fs::rename(&set_aside, self.draft_path(id))
+        };
+        result.map_err(|error| unavailable("settle", &set_aside, &error))?;
+        let _ = sync_directory(&self.drafts);
         Ok(())
     }
 }
@@ -238,14 +364,17 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn save(&self, document: &Document, base_revision: Option<u64>) -> Result<(), StorageError> {
-        let target = self.path(document.id());
+        let id = document.id();
+        let target = self.path(id);
+        let _lock = self.lock_document(id)?;
+        self.settle_interrupted_save(id)?;
         // The revision probe settles the common case without restoring the stored document.
         let stored_revision = self.read_revision(&target)?;
         let base_matches = match (stored_revision, base_revision) {
             (None, None) => true,
             (Some(stored), Some(base)) if stored == base => true,
             // A retried save whose acknowledgement was lost: the file already holds it.
-            (Some(_), Some(_)) => self.read(document.id())?.as_ref() == Some(document),
+            (Some(_), Some(_)) => self.read(id)?.as_ref() == Some(document),
             _ => false,
         };
         if !base_matches {
@@ -259,9 +388,131 @@ impl DocumentRepository for FileDocumentRepository {
                 bytes.len()
             )));
         }
-        create_private_dir(&self.directory)
-            .and_then(|()| self.write_atomically(&target, &bytes))
-            .map_err(|error| unavailable("save", &target, &error))
+        // The owned draft is set aside before the commit and removed after it, so a draft
+        // left behind by a crash in between is recognized as superseded.
+        let owned = self.owns(id);
+        let set_aside = self.set_aside_path(id);
+        let draft_set_aside = owned
+            && match fs::rename(self.draft_path(id), &set_aside) {
+                Ok(()) => true,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                Err(error) => return Err(unavailable("set aside", &set_aside, &error)),
+            };
+        pause_for_tests();
+        if let Err(error) = self.write_atomically(&target, &bytes) {
+            if draft_set_aside {
+                let _ = fs::rename(&set_aside, self.draft_path(id));
+            }
+            return Err(unavailable("save", &target, &error));
+        }
+        if draft_set_aside {
+            // A leftover is settled as superseded by the next save lock holder.
+            let _ = fs::remove_file(&set_aside);
+            let _ = sync_directory(&self.drafts);
+        }
+        if owned {
+            self.owned().remove(id);
+        }
+        Ok(())
+    }
+
+    fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
+        if self.owns(id) {
+            return Ok(DraftStatus::Owned);
+        }
+        let draft = self.draft_path(id);
+        if !exists(&draft)? && !exists(&self.set_aside_path(id))? {
+            return Ok(DraftStatus::None);
+        }
+        let Some(_owner) = self.adopt(id)? else {
+            return Ok(DraftStatus::Locked);
+        };
+        Ok(match self.read_bytes(&draft) {
+            Ok(None) => DraftStatus::None,
+            // A draft is recoverable only if it restores completely, so the state offered
+            // matches what `claim_draft` will return.
+            Ok(Some(bytes)) => {
+                DraftStatus::Abandoned(self.decode_draft(id, &bytes).map(|draft| DraftInfo {
+                    revision: draft.document.revision(),
+                    base_revision: draft.base_revision,
+                    saved_at_ms: draft.saved_at_ms,
+                }))
+            }
+            Err(StorageError::Corrupt(message)) => DraftStatus::Abandoned(Err(message)),
+            Err(error) => return Err(error),
+        })
+    }
+
+    fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
+        let id = draft.document.id();
+        let path = self.draft_path(id);
+        if !self.owns(id) {
+            let Some(owner) = self.adopt(id)? else {
+                return Err(StorageError::Locked(format!(
+                    "another running process holds the recovery draft of document {id}"
+                )));
+            };
+            if exists(&path)? {
+                return Err(StorageError::Conflict {
+                    stored_revision: None,
+                });
+            }
+            self.owned().insert(id.clone(), owner);
+        }
+        let bytes = file_format::encode_draft(draft);
+        if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+            return Err(StorageError::Unavailable(format!(
+                "the draft encodes to {} bytes, over the {MAX_DOCUMENT_BYTES}-byte limit",
+                bytes.len()
+            )));
+        }
+        self.write_atomically(&path, &bytes)
+            .map_err(|error| unavailable("write draft", &path, &error))
+    }
+
+    fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
+        if !self.owns(id) {
+            let Some(owner) = self.adopt(id)? else {
+                return Err(StorageError::Locked(format!(
+                    "another running process holds the recovery draft of document {id}"
+                )));
+            };
+            self.owned().insert(id.clone(), owner);
+        }
+        let path = self.draft_path(id);
+        let bytes = match self.read_bytes(&path) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                self.release_draft(id);
+                return Ok(None);
+            }
+            Err(StorageError::Corrupt(message)) => return Ok(Some(Err(message))),
+            Err(error) => {
+                self.release_draft(id);
+                return Err(error);
+            }
+        };
+        Ok(Some(self.decode_draft(id, &bytes)))
+    }
+
+    fn release_draft(&self, id: &DocumentId) {
+        self.owned().remove(id);
+    }
+
+    fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError> {
+        if !self.owns(id) {
+            return Ok(());
+        }
+        for path in [self.draft_path(id), self.set_aside_path(id)] {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(unavailable("remove", &path, &error)),
+            }
+        }
+        let _ = sync_directory(&self.drafts);
+        self.owned().remove(id);
+        Ok(())
     }
 }
 
@@ -281,6 +532,36 @@ fn create_private_dir(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn create_private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
+}
+
+fn exists(path: &Path) -> Result<bool, StorageError> {
+    path.try_exists()
+        .map_err(|error| unavailable("inspect", path, &error))
+}
+
+/// Opens (creating if needed) a lock file without truncating it.
+fn open_lock_file(path: &Path) -> io::Result<File> {
+    if let Some(directory) = path.parent() {
+        create_private_dir(directory)?;
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+fn pause_for_tests() {
+    #[cfg(debug_assertions)]
+    if let Some(milliseconds) = std::env::var(COMMIT_DELAY_VARIABLE)
+        .ok()
+        .and_then(|value| value.parse().ok())
+    {
+        std::thread::sleep(Duration::from_millis(milliseconds));
+    }
 }
 
 fn create_private_file(path: &Path) -> io::Result<File> {
@@ -573,5 +854,206 @@ mod tests {
             abandoned.exists(),
             "a recent temporary may belong to a live save"
         );
+    }
+
+    fn draft_of(document: &Document, base_revision: u64) -> Draft {
+        Draft {
+            document: document.clone(),
+            base_revision,
+            saved_at_ms: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn a_save_waits_for_another_stores_lock_and_then_sees_its_commit() {
+        let (directory, first) = scratch();
+        let second = FileDocumentRepository::new(directory.path());
+        let mut document = drawn(&first);
+        first.save(&document, None).unwrap();
+        let base = document.revision();
+        let mut theirs = document.clone();
+        theirs.redo().unwrap();
+        document
+            .apply(&[Command::Rename {
+                title: "Mine".into(),
+            }])
+            .unwrap();
+
+        // `first` holds the lock while it commits; `second` saves from the same base.
+        let lock = first.lock_document(document.id()).unwrap();
+        let waiting = std::thread::spawn(move || second.save(&theirs, Some(base)));
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!waiting.is_finished(), "the second save waits for the lock");
+        first
+            .write_atomically(&first.path(document.id()), &file_format::encode(&document))
+            .unwrap();
+        drop(lock);
+        assert_eq!(
+            waiting.join().unwrap(),
+            Err(StorageError::Conflict {
+                stored_revision: Some(document.revision())
+            })
+        );
+        assert_eq!(first.load(document.id()).unwrap(), Some(document));
+    }
+
+    #[test]
+    fn a_draft_is_owned_until_its_store_ends_then_can_be_claimed_once() {
+        let (directory, writer) = scratch();
+        let document = drawn(&writer);
+        writer.save(&document, None).unwrap();
+        let draft = draft_of(&document, 1);
+        writer.write_draft(&draft).unwrap();
+        assert_eq!(writer.draft_status(document.id()), Ok(DraftStatus::Owned));
+
+        let other = FileDocumentRepository::new(directory.path());
+        assert_eq!(other.draft_status(document.id()), Ok(DraftStatus::Locked));
+        assert!(matches!(
+            other.write_draft(&draft),
+            Err(StorageError::Locked(_))
+        ));
+        assert!(matches!(
+            other.claim_draft(document.id()),
+            Err(StorageError::Locked(_))
+        ));
+
+        drop(writer); // The process ends: the operating system releases its locks.
+        assert_eq!(
+            other.draft_status(document.id()),
+            Ok(DraftStatus::Abandoned(Ok(
+                chemifree_application::DraftInfo {
+                    revision: 3,
+                    base_revision: 1,
+                    saved_at_ms: draft.saved_at_ms,
+                }
+            )))
+        );
+        assert_eq!(
+            other.write_draft(&draft),
+            Err(StorageError::Conflict {
+                stored_revision: None
+            }),
+            "an abandoned draft is never overwritten by new work"
+        );
+        assert_eq!(
+            other.claim_draft(document.id()),
+            Ok(Some(Ok(draft.clone())))
+        );
+        assert_eq!(other.draft_status(document.id()), Ok(DraftStatus::Owned));
+        let third = FileDocumentRepository::new(directory.path());
+        assert_eq!(third.draft_status(document.id()), Ok(DraftStatus::Locked));
+        other.remove_draft(document.id()).unwrap();
+        assert_eq!(third.draft_status(document.id()), Ok(DraftStatus::None));
+    }
+
+    #[test]
+    fn a_save_removes_only_the_draft_its_store_owns() {
+        let (directory, owner) = scratch();
+        let mut document = drawn(&owner);
+        owner.save(&document, None).unwrap();
+        owner.write_draft(&draft_of(&document, 3)).unwrap();
+        let base = document.revision();
+        document.redo().unwrap();
+
+        let other = FileDocumentRepository::new(directory.path());
+        other.save(&document, Some(base)).unwrap();
+        assert_eq!(other.draft_status(document.id()), Ok(DraftStatus::Locked));
+
+        let base = document.revision();
+        document.undo().unwrap();
+        owner.save(&document, Some(base)).unwrap();
+        assert_eq!(owner.draft_status(document.id()), Ok(DraftStatus::None));
+        assert!(!owner.draft_path(document.id()).exists());
+        assert!(!owner.set_aside_path(document.id()).exists());
+    }
+
+    /// A process can end between setting its draft aside and removing it. The next store
+    /// keeps the draft exactly when the commit did not happen.
+    #[test]
+    fn a_save_interrupted_around_its_commit_settles_the_draft() {
+        for committed in [false, true] {
+            let (directory, owner) = scratch();
+            let mut document = drawn(&owner);
+            owner.save(&document, None).unwrap();
+            let base = document.revision();
+            owner.write_draft(&draft_of(&document, base)).unwrap();
+            fs::rename(
+                owner.draft_path(document.id()),
+                owner.set_aside_path(document.id()),
+            )
+            .unwrap();
+            if committed {
+                document.redo().unwrap();
+                owner
+                    .write_atomically(&owner.path(document.id()), &file_format::encode(&document))
+                    .unwrap();
+            }
+            drop(owner);
+
+            let next = FileDocumentRepository::new(directory.path());
+            let status = next.draft_status(document.id()).unwrap();
+            if committed {
+                assert_eq!(status, DraftStatus::None, "the commit superseded the draft");
+            } else {
+                assert!(
+                    matches!(status, DraftStatus::Abandoned(Ok(_))),
+                    "{status:?}"
+                );
+            }
+            assert!(!next.set_aside_path(document.id()).exists());
+        }
+    }
+
+    #[test]
+    fn an_unreadable_draft_is_reported_and_can_be_removed() {
+        let (_directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let path = store.draft_path(document.id());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "{ not a draft").unwrap();
+        assert!(matches!(
+            store.draft_status(document.id()),
+            Ok(DraftStatus::Abandoned(Err(_)))
+        ));
+        assert!(matches!(store.claim_draft(document.id()), Ok(Some(Err(_)))));
+        store.remove_draft(document.id()).unwrap();
+        assert!(!path.exists());
+        assert_eq!(store.draft_status(document.id()), Ok(DraftStatus::None));
+    }
+
+    #[test]
+    fn a_draft_with_a_valid_header_but_bad_contents_is_unreadable() {
+        let (_directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let other = Document::new(store.allocate_id().unwrap(), "Other").unwrap();
+        let path = store.draft_path(document.id());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let header_only = r#"{"format":"chemifree.draft","format_version":1,"base_revision":0,
+            "saved_at_ms":0,"document":{"revision":3},"history":{}}"#;
+        for bytes in [
+            header_only.as_bytes().to_vec(),
+            file_format::encode_draft(&draft_of(&other, 0)),
+        ] {
+            fs::write(&path, bytes).unwrap();
+            assert!(matches!(
+                store.draft_status(document.id()),
+                Ok(DraftStatus::Abandoned(Err(_)))
+            ));
+            assert!(matches!(store.claim_draft(document.id()), Ok(Some(Err(_)))));
+            store.release_draft(document.id());
+        }
+    }
+
+    #[test]
+    fn drafts_round_trip_with_history() {
+        let (_directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let draft = draft_of(&document, 0);
+        store.write_draft(&draft).unwrap();
+        store.release_draft(document.id());
+        assert_eq!(store.claim_draft(document.id()), Ok(Some(Ok(draft))));
     }
 }

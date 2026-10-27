@@ -10,14 +10,16 @@ use serde::Serialize;
 
 pub use contract::{
     AtomView, BondOrderDto, BondToDto, BondView, CloseRequest, CloseResponse, CommandDto,
-    CreateDocumentRequest, DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView,
-    PointDto, PositionView, RevisionRequest, SessionView, TransactionRequest, UnreadableDocument,
+    CopyResponse, CopySource, CreateDocumentRequest, DocumentListResponse, DocumentResponse,
+    DocumentSummary, DocumentView, DraftDiscardResponse, DraftRequest, PointDto, PositionView,
+    RecoverAsCopyRequest, RecoveryState, RecoveryView, RevisionRequest, SaveAsRequest, SessionView,
+    TransactionRequest, UnreadableDocument,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
 pub use error::{ApplicationError, ErrorCode, ErrorResponse};
-pub use repository::{DocumentRepository, StorageError};
+pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
 
 use documents::Documents;
 
@@ -123,6 +125,55 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         expected_revision: u64,
     ) -> Result<DocumentResponse, ApplicationError> {
         self.documents.save(id, request_id, expected_revision)
+    }
+
+    /// Writes the working copy's recovery draft when it has unsaved changes, or removes the
+    /// session's draft when it has none.
+    pub fn autosave(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.autosave(id, request_id)
+    }
+
+    /// Reopens an abandoned recovery draft as the working copy, with its history, unsaved.
+    pub fn recover(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.recover(id, request_id)
+    }
+
+    /// Saves an abandoned recovery draft as a new document and removes the draft.
+    pub fn recover_as_copy(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<CopyResponse, ApplicationError> {
+        self.documents.recover_as_copy(id, request_id, title)
+    }
+
+    pub fn discard_draft(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<DraftDiscardResponse, ApplicationError> {
+        self.documents.discard_draft(id, request_id)
+    }
+
+    /// Saves the working copy as a new, independent document; the source keeps its last save.
+    pub fn save_as(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        title: Option<&str>,
+    ) -> Result<CopyResponse, ApplicationError> {
+        self.documents
+            .save_as(id, request_id, expected_revision, title)
     }
 
     pub fn close(
