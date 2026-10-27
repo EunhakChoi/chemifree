@@ -34,6 +34,8 @@ export function useAutosave(
   const covered = useRef<{ id: string; revision: number } | null>(null)
   const firstPending = useRef<number | null>(null)
   const attempts = useRef(0)
+  /** When the next retry runs; edits meanwhile do not push it back. */
+  const retryAt = useRef(0)
   const saving = useRef(false)
   /** Why autosave waits for the user, and what lifts it: the earlier draft being resolved,
    * or any newer view of the document (after a restart, the page must reload or resend). */
@@ -71,7 +73,8 @@ export function useAutosave(
       } else {
         const delay = RETRY_DELAYS_MS[Math.min(attempts.current, RETRY_DELAYS_MS.length - 1)]
         attempts.current += 1
-        setState({ kind: 'failed', message: error.message, retryAt: Date.now() + delay })
+        retryAt.current = Date.now() + delay
+        setState({ kind: 'failed', message: error.message, retryAt: retryAt.current })
       }
     } finally {
       saving.current = false
@@ -100,7 +103,7 @@ export function useAutosave(
       firstPending.current ??= now
       const retrying = attempts.current > 0
       const wait = retrying
-        ? RETRY_DELAYS_MS[Math.min(attempts.current - 1, RETRY_DELAYS_MS.length - 1)]
+        ? Math.max(0, retryAt.current - now)
         : Math.min(AUTOSAVE_DELAY_MS, Math.max(0, firstPending.current + AUTOSAVE_MAX_WAIT_MS - now))
       if (!retrying) setState({ kind: 'waiting' })
       timer.current = setTimeout(() => void save(), wait)

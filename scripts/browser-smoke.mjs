@@ -641,6 +641,26 @@ step = 'after outdated_draft_is_recovered_as_a_copy'
 // A failed autosave is shown and retried; the saved file is untouched meanwhile.
 if (process.getuid?.() !== 0) {
   const draftsDir = join(dataDir, 'drafts')
+  // The retry keeps its schedule (2 s after the first failure) while edits keep coming.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await waitDraft('failed')
+  chmodSync(draftsDir, 0o700)
+  let retried = false
+  const onRetry = (r) => {
+    if (r.url().endsWith(`/${docId}/autosave`) && r.status() === 200) retried = true
+  }
+  page.on('response', onRetry)
+  const drawingUntil = Date.now() + 8_000
+  while (!retried && Date.now() < drawingUntil) {
+    await drawPair()
+    await page.waitForTimeout(300)
+  }
+  page.off('response', onRetry)
+  assert.ok(retried, 'the retry ran while edits kept coming')
+  await waitDraft('saved')
+  results.autosave_retry_is_not_postponed_by_edits = true
+
   chmodSync(draftsDir, 0o500)
   await drawPair()
   await waitDraft('failed')
