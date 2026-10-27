@@ -30,6 +30,8 @@ struct MemoryStore {
     drafts: Arc<Mutex<BTreeMap<DocumentId, OwnedDraft>>>,
     next: Arc<AtomicU32>,
     fail_writes: Arc<AtomicBool>,
+    /// Held by a test to stall commits, as another process's save lock would.
+    commit_gate: Arc<Mutex<()>>,
     process: u32,
 }
 
@@ -76,6 +78,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn save(&self, document: &Document, base: Option<u64>) -> Result<(), StorageError> {
+        let _commit = self.commit_gate.lock().unwrap();
         self.failing()?;
         let mut documents = self.documents.lock().unwrap();
         let stored = documents.get(document.id());
@@ -1009,4 +1012,90 @@ fn save_as_commits_an_independent_copy_and_leaves_the_original_as_saved() {
         app.document(&copy_id).unwrap().document.title,
         "Original (copy)"
     );
+}
+
+#[test]
+fn a_save_waiting_on_storage_does_not_hold_up_other_requests() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = app.create_document(None, None).unwrap().document.id;
+    let other = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+
+    let stalled = store.commit_gate.lock().unwrap();
+    let saving = {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        std::thread::spawn(move || app.save(&id, Some("save-1"), 1))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let (done, finished) = std::sync::mpsc::channel();
+    {
+        let (app, id, other) = (Arc::clone(&app), id.clone(), other.clone());
+        std::thread::spawn(move || {
+            app.document(&other).unwrap();
+            let edited = app
+                .apply_transaction(
+                    &id,
+                    None,
+                    1,
+                    commands(json!([{"op": "rename", "title": "During"}])),
+                )
+                .unwrap();
+            done.send(edited.document.revision).unwrap();
+        });
+    }
+    let during = finished
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("other requests proceed while a save waits for storage");
+    assert_eq!(during, 2);
+    drop(stalled);
+
+    let saved = saving.join().unwrap().unwrap();
+    assert_eq!(
+        saved.session.saved_revision, 1,
+        "the checked revision was committed"
+    );
+    assert!(
+        saved.session.unsaved_changes,
+        "the edit made meanwhile is still unsaved"
+    );
+    assert_eq!(
+        store.documents.lock().unwrap()[&DocumentId::parse(&id).unwrap()].revision(),
+        1
+    );
+    assert_eq!(app.save(&id, Some("save-1"), 1).unwrap(), saved, "replayed");
+    let resaved = app.save(&id, None, 2).unwrap();
+    assert!(!resaved.session.unsaved_changes);
+}
+
+#[test]
+fn recovery_and_copies_reuse_their_session_slot_when_every_other_is_unsaved() {
+    // A draft abandoned by process 1, then 63 unsaved documents in process 2.
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    for _ in 1..MAX_OPEN_SESSIONS {
+        let busy = app.create_document(None, None).unwrap().document.id;
+        app.apply_transaction(&busy, None, 0, draw_ethanol())
+            .unwrap();
+    }
+    assert!(
+        app.document(&id).unwrap().recovery.is_some(),
+        "the 64th session is clean"
+    );
+    let recovered = app.recover(&id, None).unwrap();
+    assert!(recovered.session.unsaved_changes);
+
+    let copied = app
+        .save_as(&id, None, recovered.document.revision, None)
+        .unwrap();
+    assert!(copied.source.closed);
+    let open = app
+        .list_documents()
+        .unwrap()
+        .documents
+        .iter()
+        .filter(|document| document.open)
+        .count();
+    assert_eq!(open, MAX_OPEN_SESSIONS, "the copy took the source's slot");
 }

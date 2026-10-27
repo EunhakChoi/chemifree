@@ -65,7 +65,7 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 검증된 내용(첫 수직 기능과 저장·복구 보강):
 
-- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 62개(domain 20, application 20, providers 13, api 9).
+- npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 64개(domain 20, application 22, providers 13, api 9).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구. 같은 기준에서 동시에 저장하는 CLI 6개(정확히 하나만 커밋), 잠금을 쥔 채 강제 종료된 프로세스 뒤의 저장, API와 CLI의 저장 경쟁, 자동 저장 → SIGKILL → 재시작 → 복구(내용·Undo/Redo·ID·리비전), 초안 버리기와 재시작 후 미재출현, 오래된 초안의 사본 복구, 손상 초안, 자동 저장 실패·재시도, HTTP·CLI 사본 저장과 독립성, 사본 저장 실패 후 원본 보존·재시도. 경쟁 재현에는 debug 빌드 전용 CHEMIFREE_TEST_COMMIT_DELAY_MS(저장 잠금 안 대기)를 쓴다. 잠금을 끈 빌드에서는 6개가 모두 커밋되어 이 검사가 실패함을 확인했다.
 - npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 자동 저장 상태, API 강제 종료 후 Reload → 복구(그림·Undo 이력), 초안 버리기(확인 대화상자), 오래된 초안의 사본 복구와 원본 열기, 자동 저장 실패·Retry now, 사본으로 저장(원본 파일 불변), 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
 - 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
@@ -80,6 +80,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 - 작업 사본은 API 프로세스 메모리에 있다. 프로세스가 끝나면 마지막 커밋과 마지막 복구 초안이 남는다. 마지막 자동 저장 이후의 편집(보통 1–5초, 자동 저장이 실패·일시정지 중이면 더 길다)은 사라진다.
 - 자동 저장은 웹 클라이언트가 호출한다. 페이지가 닫혀 있거나 autosave를 부르지 않는 HTTP 클라이언트의 편집은 초안이 없다. CLI는 편집마다 커밋하므로 초안을 쓰지 않는다.
+- 저장은 문서별 게이트만 잡고 저장소(다른 프로세스의 저장 잠금 대기 포함)를 기다린다. 그동안 다른 문서 요청과 같은 문서의 편집은 진행되고, 저장은 요청한 리비전을 커밋한다. 커밋·초안을 다루는 작업(저장·자동 저장·닫기·복구·초안 버리기·사본)은 같은 문서 게이트로 직렬화된다.
 - 저장 잠금과 초안 소유 잠금은 OS advisory lock(std File::lock, Unix flock)이다. Chemifree 프로세스끼리만 지켜지며 일부 네트워크 파일 시스템에서는 보장되지 않는다. locks/와 drafts/*.owner 파일은 의도적으로 지우지 않는다.
 - 같은 데이터 디렉터리에 API 프로세스가 둘이면 같은 문서의 초안은 한쪽만 소유한다. 다른 쪽 autosave는 draft_in_use로 거절된다. 실시간 병합은 없다.
 - 문서당 초안은 하나다. 버려지지 않은 초안이 있으면 새 작업의 자동 저장은 recovery_pending으로 멈추고 사용자가 복구·버리기를 정해야 한다. 초안은 만료되지 않는다.
