@@ -201,7 +201,11 @@ try {
   assert.deepEqual([cliStale.status, cliStale.body.code], [1, 'revision_conflict'])
   const conflict = await write(`${doc}/save`, { request_id: 'save-2', expected_revision: 5 })
   assert.deepEqual([conflict.status, conflict.body.code], [409, 'save_conflict'])
-  const discarded = await write(`${doc}/close`, { request_id: 'close-2', discard_unsaved: true })
+  const unconfirmed = await write(`${doc}/close`, { request_id: 'close-unconfirmed', discard_unsaved: true })
+  assert.deepEqual([unconfirmed.status, unconfirmed.body.code], [422, 'invalid_request'])
+  const staleDiscard = await write(`${doc}/close`, { request_id: 'close-stale', discard_unsaved: true, expected_revision: 4 })
+  assert.deepEqual([staleDiscard.status, staleDiscard.body.code], [409, 'revision_conflict'])
+  const discarded = await write(`${doc}/close`, { request_id: 'close-2', discard_unsaved: true, expected_revision: 5 })
   assert.equal(discarded.body.discarded_changes, true)
   // The CLI's commit is reopened, but revision 5 already named the discarded HTTP edit in
   // this process, so the working copy continues at 6 and a client holding 5 is refused.

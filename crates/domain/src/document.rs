@@ -21,6 +21,9 @@ pub const MAX_CHARGE: i8 = 8;
 pub const MAX_ISOTOPE_MASS_NUMBER: u16 = 999;
 /// Undo entries beyond this depth are discarded, oldest first.
 pub const HISTORY_LIMIT: usize = 100;
+/// The largest revision. Clients exchange revisions as JSON numbers, which are exact only up
+/// to 2^53 - 1; a document at this revision accepts no further changes.
+pub const MAX_REVISION: u64 = (1 << 53) - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
@@ -234,6 +237,7 @@ pub enum EditError {
     ChargeOutOfRange(i8),
     IsotopeOutOfRange(u16),
     IdentifierSpaceExhausted,
+    RevisionLimit,
 }
 
 impl fmt::Display for EditError {
@@ -281,6 +285,7 @@ impl fmt::Display for EditError {
             Self::IdentifierSpaceExhausted => {
                 write!(formatter, "this document has no identifiers left")
             }
+            Self::RevisionLimit => write!(formatter, "{REVISION_LIMIT_MESSAGE}"),
         }
     }
 }
@@ -316,13 +321,17 @@ pub enum Outcome {
 pub enum HistoryError {
     NothingToUndo,
     NothingToRedo,
+    RevisionLimit,
 }
+
+const REVISION_LIMIT_MESSAGE: &str = "this document has reached its last revision number";
 
 impl fmt::Display for HistoryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::NothingToUndo => "there is nothing to undo",
             Self::NothingToRedo => "there is nothing to redo",
+            Self::RevisionLimit => REVISION_LIMIT_MESSAGE,
         })
     }
 }
@@ -767,6 +776,9 @@ impl Document {
     /// including history entries that do not replay cleanly from the current state.
     pub fn restore(parts: DocumentParts) -> Result<Self, RestoreError> {
         let invalid = |reason: &str| RestoreError(reason.to_owned());
+        if parts.revision > MAX_REVISION {
+            return Err(invalid("revision exceeds the largest revision"));
+        }
         let atom_count = parts.atoms.len();
         let bond_count = parts.bonds.len();
         let content = Content {
@@ -902,7 +914,7 @@ impl Document {
     /// numbers are not handed out again for different states. Never moves anything back.
     pub fn continue_after(&mut self, reached: Numbering) {
         if self.revision <= reached.revision {
-            self.revision = reached.revision.saturating_add(1);
+            self.revision = reached.revision.saturating_add(1).min(MAX_REVISION);
         }
         self.next_atom = self.next_atom.max(reached.next_atom);
         self.next_bond = self.next_bond.max(reached.next_bond);
@@ -942,6 +954,12 @@ impl Document {
         if changes.is_empty() {
             return Ok(Outcome::Unchanged);
         }
+        if self.revision >= MAX_REVISION {
+            return Err(TransactionError {
+                index: None,
+                error: EditError::RevisionLimit,
+            });
+        }
         self.content = draft.content;
         self.next_atom = draft.next_atom;
         self.next_bond = draft.next_bond;
@@ -957,6 +975,9 @@ impl Document {
     /// Reverts the latest transaction as a new revision. Identifier counters are not
     /// rewound, so a later addition never reuses an undone atom's or bond's identifier.
     pub fn undo(&mut self) -> Result<(), HistoryError> {
+        if self.revision >= MAX_REVISION {
+            return Err(HistoryError::RevisionLimit);
+        }
         let set = self.undo.pop_back().ok_or(HistoryError::NothingToUndo)?;
         step(&mut self.content, &set, Direction::Backward)
             .expect("undo entries are validated against the current state");
@@ -966,6 +987,9 @@ impl Document {
     }
 
     pub fn redo(&mut self) -> Result<(), HistoryError> {
+        if self.revision >= MAX_REVISION {
+            return Err(HistoryError::RevisionLimit);
+        }
         let set = self.redo.pop().ok_or(HistoryError::NothingToRedo)?;
         step(&mut self.content, &set, Direction::Forward)
             .expect("redo entries are validated against the current state");

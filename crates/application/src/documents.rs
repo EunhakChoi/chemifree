@@ -3,7 +3,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use chemifree_domain::document::{Document, DocumentId, HistoryError, Numbering, Outcome};
+use chemifree_domain::document::{
+    Document, DocumentId, EditError, HistoryError, Numbering, Outcome,
+};
 
 use crate::API_VERSION;
 use crate::contract::{
@@ -43,6 +45,7 @@ enum Mutation {
     Close {
         document: DocumentId,
         discard_unsaved: bool,
+        expected_revision: Option<u64>,
     },
 }
 
@@ -341,9 +344,15 @@ impl<R: DocumentRepository> Documents<R> {
                 .document
                 .apply(&domain_commands)
                 .map(|_: Outcome| ())
-                .map_err(|error| ApplicationError {
-                    command_index: error.index,
-                    ..ApplicationError::new(ErrorCode::InvalidCommand, error.to_string())
+                .map_err(|error| {
+                    let code = match error.error {
+                        EditError::RevisionLimit => ErrorCode::ResourceLimit,
+                        _ => ErrorCode::InvalidCommand,
+                    };
+                    ApplicationError {
+                        command_index: error.index,
+                        ..ApplicationError::new(code, error.to_string())
+                    }
                 })
         })
     }
@@ -414,21 +423,38 @@ impl<R: DocumentRepository> Documents<R> {
     }
 
     /// Ends the session; the next access reopens the committed document from storage.
+    ///
+    /// Discarding names the revision the client agreed to lose. The session is shared by every
+    /// client of this process, so without it a stale confirmation could discard edits another
+    /// client made after it.
     pub(crate) fn close(
         &self,
         id: &str,
         request_id: Option<&str>,
         discard_unsaved: bool,
+        expected_revision: Option<u64>,
     ) -> Result<CloseResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
+        if discard_unsaved && expected_revision.is_none() {
+            return Err(ApplicationError::new(
+                ErrorCode::InvalidRequest,
+                "discard_unsaved requires expected_revision",
+            ));
+        }
         let mutation = Mutation::Close {
             document: document_id.clone(),
             discard_unsaved,
+            expected_revision,
         };
         let mut sessions = self.lock();
         if let Some(response) = sessions.closed.find(request_id, &mutation)? {
             return Ok(response);
+        }
+        if let (Some(session), Some(expected)) =
+            (sessions.open.get(&document_id), expected_revision)
+        {
+            session.expect_revision(expected)?;
         }
         let discarded_changes = match sessions.open.get(&document_id) {
             Some(session) if session.is_dirty() && !discard_unsaved => {
@@ -589,6 +615,7 @@ fn history_error(error: HistoryError) -> ApplicationError {
     let code = match error {
         HistoryError::NothingToUndo => ErrorCode::NothingToUndo,
         HistoryError::NothingToRedo => ErrorCode::NothingToRedo,
+        HistoryError::RevisionLimit => ErrorCode::ResourceLimit,
     };
     ApplicationError::new(code, error.to_string())
 }

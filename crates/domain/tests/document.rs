@@ -1,7 +1,7 @@
 use chemifree_domain::document::{
     Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command, Document,
-    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, Outcome, Point,
-    TransactionError, Vector,
+    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, MAX_REVISION,
+    Outcome, Point, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 
@@ -446,6 +446,30 @@ fn restore_trims_history_beyond_what_editing_keeps() {
     restored.redo().unwrap();
     assert_eq!(restored.title(), "One more");
     assert!(Document::restore(restored.to_parts()).is_ok());
+}
+
+#[test]
+fn revisions_stop_at_the_largest_exact_client_number() {
+    let mut beyond = ethanol().to_parts();
+    beyond.revision = MAX_REVISION + 1;
+    assert!(Document::restore(beyond).is_err());
+
+    let mut parts = ethanol().to_parts();
+    parts.revision = MAX_REVISION;
+    let mut document = Document::restore(parts).unwrap();
+    let before = document.clone();
+    let error = document.apply(&[add("N", 90.0, 0.0)]).unwrap_err();
+    assert_eq!(error.error, EditError::RevisionLimit);
+    assert_eq!(document.undo(), Err(HistoryError::RevisionLimit));
+    assert_eq!(document, before, "nothing changed");
+    assert_eq!(
+        document.apply(&[Command::MoveAtoms {
+            atoms: vec![atom(1)],
+            delta: Vector { dx: 0.0, dy: 0.0 }
+        }]),
+        Ok(Outcome::Unchanged),
+        "a no-op still succeeds"
+    );
 }
 
 #[test]

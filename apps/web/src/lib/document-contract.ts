@@ -325,11 +325,11 @@ export class DocumentClient {
     )
   }
 
-  async close(id: string, discardUnsaved: boolean) {
-    // Closing in a restarted service changes nothing it holds, so a refused token is retried.
+  async close(id: string, discardUnsaved: boolean, expectedRevision?: number) {
+    // A refused token is retried: the revision check still guards what a close may discard.
     const value = await this.write(
       `${documentPath(id)}/close`,
-      { request_id: requestId(), discard_unsaved: discardUnsaved },
+      { request_id: requestId(), discard_unsaved: discardUnsaved, expected_revision: expectedRevision },
       'retry',
     )
     if (!isClose(value)) {

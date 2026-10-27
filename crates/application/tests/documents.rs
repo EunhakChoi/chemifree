@@ -133,7 +133,7 @@ fn create_edit_undo_redo_save_and_reopen() {
     assert_eq!(saved.session.saved_revision, 4);
     assert!(!saved.session.unsaved_changes);
 
-    let closed = app.close(&id, Some("x1"), false).unwrap();
+    let closed = app.close(&id, Some("x1"), false, None).unwrap();
     assert!(!closed.discarded_changes);
 
     // A new process sees only committed storage.
@@ -249,7 +249,7 @@ fn a_retried_close_replays_instead_of_closing_a_newer_session() {
     let (app, _) = application();
     let id = app.create_document(None, None).unwrap().document.id;
     app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
-    let closed = app.close(&id, Some("close-1"), true).unwrap();
+    let closed = app.close(&id, Some("close-1"), true, Some(1)).unwrap();
     assert!(closed.discarded_changes);
 
     // Another client reopens the document and edits it before the retry arrives.
@@ -261,7 +261,7 @@ fn a_retried_close_replays_instead_of_closing_a_newer_session() {
         commands(json!([{"op": "rename", "title": "Newer work"}])),
     )
     .unwrap();
-    let retried = app.close(&id, Some("close-1"), true).unwrap();
+    let retried = app.close(&id, Some("close-1"), true, Some(1)).unwrap();
     assert_eq!(retried, closed, "a retry returns the original response");
     let session = app.document(&id).unwrap();
     assert_eq!(
@@ -270,8 +270,36 @@ fn a_retried_close_replays_instead_of_closing_a_newer_session() {
     );
     assert!(session.session.unsaved_changes);
 
-    let reused = app.close(&id, Some("close-1"), false).unwrap_err();
+    let reused = app.close(&id, Some("close-1"), false, None).unwrap_err();
     assert_eq!(reused.code, ErrorCode::RequestIdReused);
+}
+
+#[test]
+fn a_stale_discard_cannot_drop_newer_edits() {
+    let (app, _) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    // Client A confirms discarding revision 1 while client B has moved on to revision 2.
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "B's work"}])),
+    )
+    .unwrap();
+
+    let unconfirmed = app.close(&id, None, true, None).unwrap_err();
+    assert_eq!(unconfirmed.code, ErrorCode::InvalidRequest);
+    let stale = app.close(&id, None, true, Some(1)).unwrap_err();
+    assert_eq!(stale.code, ErrorCode::RevisionConflict);
+    assert_eq!(stale.current_revision, Some(2));
+    assert_eq!(app.document(&id).unwrap().document.title, "B's work");
+
+    assert!(
+        app.close(&id, None, true, Some(2))
+            .unwrap()
+            .discarded_changes
+    );
 }
 
 #[test]
@@ -296,7 +324,7 @@ fn a_failed_save_keeps_unsaved_work_and_a_retry_commits_it() {
         !saved.session.unsaved_changes,
         "failed requests are not replayed"
     );
-    let close = app.close(&id, None, false).unwrap();
+    let close = app.close(&id, None, false, None).unwrap();
     assert!(!close.discarded_changes);
 }
 
@@ -306,7 +334,11 @@ fn discarding_never_hands_out_a_revision_or_identifier_again() {
     let id = app.create_document(None, None).unwrap().document.id;
     let drawn = app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
     assert_eq!(drawn.document.revision, 1);
-    assert!(app.close(&id, None, true).unwrap().discarded_changes);
+    assert!(
+        app.close(&id, None, true, Some(1))
+            .unwrap()
+            .discarded_changes
+    );
 
     let reopened = app.document(&id).unwrap();
     assert!(reopened.document.atoms.is_empty());
@@ -317,7 +349,7 @@ fn discarding_never_hands_out_a_revision_or_identifier_again() {
     assert!(!reopened.session.unsaved_changes);
 
     // Closing and reopening the unchanged copy names the same commit the same way.
-    assert!(!app.close(&id, None, false).unwrap().discarded_changes);
+    assert!(!app.close(&id, None, false, None).unwrap().discarded_changes);
     assert_eq!(
         app.document(&id).unwrap().document.revision,
         reopened.document.revision
@@ -402,9 +434,14 @@ fn concurrent_writers_produce_a_save_conflict_instead_of_lost_updates() {
     let error = editor.save(&id, None, 1).unwrap_err();
     assert_eq!(error.code, ErrorCode::SaveConflict);
     assert!(editor.document(&id).unwrap().session.unsaved_changes);
-    let refused = editor.close(&id, None, false).unwrap_err();
+    let refused = editor.close(&id, None, false, None).unwrap_err();
     assert_eq!(refused.code, ErrorCode::UnsavedChanges);
-    assert!(editor.close(&id, None, true).unwrap().discarded_changes);
+    assert!(
+        editor
+            .close(&id, None, true, Some(1))
+            .unwrap()
+            .discarded_changes
+    );
     assert_eq!(editor.document(&id).unwrap().document.title, "Other writer");
 }
 
@@ -440,7 +477,7 @@ fn missing_and_malformed_documents_are_not_found() {
             ErrorCode::DocumentNotFound
         );
         assert_eq!(
-            app.close(id, None, false).unwrap_err().code,
+            app.close(id, None, false, None).unwrap_err().code,
             ErrorCode::DocumentNotFound
         );
     }

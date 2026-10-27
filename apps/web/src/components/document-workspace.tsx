@@ -380,6 +380,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
 }
 
 function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boolean }) {
+  // Controlled so confirming closes the dialog at once: if the discard is refused (another
+  // client edited meanwhile), the conflict notice behind it must be reachable.
+  const [confirming, setConfirming] = useState(false)
   const button = (
     <Button size="icon" variant="ghost" aria-label="Close document" onClick={unsaved ? undefined : () => void editor.close(false)}>
       <XIcon aria-hidden="true" />
@@ -387,7 +390,7 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
   )
   if (!unsaved) return <Hint label="Close">{button}</Hint>
   return (
-    <AlertDialog>
+    <AlertDialog open={confirming} onOpenChange={setConfirming}>
       <AlertDialogTrigger render={button} />
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -398,7 +401,13 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep editing</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => void editor.close(true)}>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              setConfirming(false)
+              void editor.close(true)
+            }}
+          >
             Discard and close
           </AlertDialogAction>
         </AlertDialogFooter>

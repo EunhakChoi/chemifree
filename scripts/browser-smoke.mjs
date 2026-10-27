@@ -233,6 +233,25 @@ const a2s = await atomScreen(eraseDoc, 'a2')
 await page.mouse.click(a2s.x, a2s.y)
 await waitIdle()
 assert.equal((await openDoc()).document.atoms.length, 3)
+// A discard confirmed on a stale view is refused: another client edited after it.
+await page.getByRole('button', { name: 'Close document' }).click()
+await page.getByRole('alertdialog').waitFor()
+const beforeOther = await openDoc()
+await page.evaluate(async ({ id, rev }) => {
+  const session = await (await fetch('/api/v1/session')).json()
+  await fetch(`/api/v1/documents/${id}/transactions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', [session.header]: session.token },
+    body: JSON.stringify({ request_id: 'discard-other', expected_revision: rev, commands: [{ op: 'rename', title: 'Other tab' }] }),
+  })
+}, { id: docId, rev: beforeOther.document.revision })
+await page.getByRole('button', { name: 'Discard and close' }).click()
+await page.getByText('The document changed', { exact: true }).waitFor()
+assert.equal((await openDoc()).document.title, 'Other tab', "the other client's edit survives")
+await page.getByRole('button', { name: 'Reload' }).click()
+await waitIdle()
+results.stale_discard_is_refused = true
+
 await page.getByRole('button', { name: 'Close document' }).click()
 await page.getByRole('alertdialog').waitFor()
 // Editor shortcuts are inert while the dialog is open.

@@ -387,7 +387,12 @@ async fn close(
     JsonBody(body): JsonBody<CloseRequest>,
 ) -> Result<Json<CloseResponse>, ApiError> {
     run(state, move |app| {
-        app.close(&id, Some(&body.request_id), body.discard_unsaved)
+        app.close(
+            &id,
+            Some(&body.request_id),
+            body.discard_unsaved,
+            body.expected_revision,
+        )
     })
     .await
     .map(Json)

@@ -130,8 +130,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         id: &str,
         request_id: Option<&str>,
         discard_unsaved: bool,
+        expected_revision: Option<u64>,
     ) -> Result<CloseResponse, ApplicationError> {
-        self.documents.close(id, request_id, discard_unsaved)
+        self.documents
+            .close(id, request_id, discard_unsaved, expected_revision)
     }
 }
 

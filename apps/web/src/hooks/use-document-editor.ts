@@ -179,12 +179,16 @@ export function useDocumentEditor() {
     ),
     save: useCallback(() => mutate((document) => client.revisionAction(id(), 'save', revision(document))), [mutate]),
     close: useCallback(
-      (discardUnsaved: boolean) =>
-        run(async () => {
-          await client.close(id(), discardUnsaved)
+      (discardUnsaved: boolean) => {
+        // The revision on screen when the user confirmed: a discard never drops edits that
+        // another client made after it.
+        const shown = currentRef.current?.document.revision
+        return run(async () => {
+          await client.close(id(), discardUnsaved, shown)
           setCurrent(null)
           refreshList()
-        }),
+        })
+      },
       [run, setCurrent, refreshList],
     ),
   }

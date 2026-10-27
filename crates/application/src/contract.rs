@@ -41,6 +41,9 @@ pub struct CloseRequest {
     pub request_id: String,
     #[serde(default)]
     pub discard_unsaved: bool,
+    /// Required with `discard_unsaved`: the revision whose changes the client agreed to lose.
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
