@@ -41,5 +41,5 @@
     "relation_to_8": "Not the cause of the #8 failures, which were the stalled requests above."
   },
   "diagnostics": "The API accepts --log-requests (or CHEMIFREE_LOG_REQUESTS=1): one line per request on standard error, without tokens. The smoke starts the API with it. A failed smoke run prints the step and the last 40 requests, and keeps failure.png, requests.log, api.log, and web.log in CHEMIFREE_SMOKE_OUT or in its temporary directory, which it does not delete.",
-  "not_verified": "Other playwright-core versions and browsers. The browser smoke is not run in CI."
+  "not_verified": "Other playwright-core versions. Also checked with the Chromium build CI installs (141.0.7390.37): unguarded 11 of 1000 stalled, guarded 0 of 1000."
 }
