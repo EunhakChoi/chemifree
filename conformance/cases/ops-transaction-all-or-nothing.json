@@ -1,7 +1,7 @@
 {
   "id": "ops-transaction-all-or-nothing",
   "title": "A transaction with one bad command changes nothing and names that command",
-  "requirements": ["OPS-02"],
+  "requirements": ["OPS-02", "MODEL-01"],
   "axis": "graph",
   "kind": "reject",
   "steps": [

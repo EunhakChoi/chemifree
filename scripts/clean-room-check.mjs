@@ -149,7 +149,11 @@ function specHashes(specDir) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const full = path.join(directory, entry.name)
       if (entry.isDirectory()) visit(full)
-      else if (entry.isFile()) hashes.set(sha256(readFileSync(full)), path.relative(specDir, full))
+      else if (entry.isFile()) {
+        const bytes = readFileSync(full)
+        // An empty file has no content to copy; comparing it would flag every empty file.
+        if (bytes.length > 0) hashes.set(sha256(bytes), path.relative(specDir, full))
+      }
     }
   }
   const spec = path.join(specDir, 'spec')

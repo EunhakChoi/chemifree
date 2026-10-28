@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -15,6 +15,7 @@ import {
   checkAgainstSpec,
   checkTraceability,
   deriveStatus,
+  isPlainRelative,
   loadRepository,
   rootFromModuleUrl,
   scriptsRunByCheck,
@@ -112,10 +113,10 @@ describe('traceability check', () => {
       )
     })
     assertProblem(problems, /evidence case:no-such-case names no case/)
-    assertProblem(problems, /evidence test:.*#no_such_test names no test no_such_test/)
+    assertProblem(problems, /evidence test:.*#no_such_test names no #\[test\] fn no_such_test/)
     assertProblem(problems, /evidence test:crates\/domain\/tests\/missing.rs names a missing file/)
-    assertProblem(problems, /evidence report:docs\/verification\/missing.json names a missing file/)
-    assertProblem(problems, /evidence smoke:scripts\/lib\/request-interception.mjs is not run by any npm script/)
+    assertProblem(problems, /evidence report:docs\/verification\/missing.json is not a run record this check knows/)
+    assertProblem(problems, /evidence smoke:scripts\/lib\/request-interception.mjs is not run by npm run check or the CI workflow/)
     assertProblem(problems, /evidence proof:anything has unknown kind proof/)
   })
 
@@ -134,9 +135,9 @@ describe('traceability check', () => {
 
   test('case evidence for implemented or partial parts must have passed', () => {
     const pending = problemsAfter((copy) => {
-      part(copy, 'OPS-02.history').evidence.push('case:chem-formula-mass')
+      part(copy, 'API-01.request-ids').evidence.push('case:api-operation-version-refused')
     })
-    assertProblem(pending, /evidence case:chem-formula-mass must be a case that passed/)
+    assertProblem(pending, /evidence case:api-operation-version-refused must be a case that passed/)
     const failed = problemsAfter((copy) => {
       copy.report.results.find((result) => result.id === 'ops-undo-redo').outcome = 'failed'
     })
@@ -242,15 +243,180 @@ describe('traceability check', () => {
     assertProblem(problems, /case chem-formula-mass: follow-up P02 is already done/)
   })
 
-  test('declaration counts must add up and stay unimplemented without a plan entry', () => {
+  test('declaration counts must add up', () => {
     const problems = problemsAfter((copy) => {
       copy.declarations.routes[0].declarations += 1
-      copy.declarations.routes[1].implemented = 3
     })
     assertProblem(problems, /route counts do not add up/)
     assertProblem(problems, /route document: by_source does not add up/)
-    assertProblem(problems, /route client_integration: status not_implemented does not match 3 implemented/)
-    assertProblem(problems, /implemented does not match its routes/)
+  })
+
+  test('a declaration counts as implemented only once one plan entry owns it', () => {
+    const unassigned = problemsAfter((copy) => {
+      copy.declarations.routes[1].implemented = 3
+      copy.declarations.implemented = 3
+    })
+    assertProblem(unassigned, /route client_integration: implemented \(3\) exceeds assigned_to_single_plan_entry \(0\)/)
+    assertProblem(unassigned, /route client_integration: status not_implemented does not match 3 implemented/)
+    const assigned = problemsAfter((copy) => {
+      const route = copy.declarations.routes[1]
+      route.implemented = 3
+      route.assigned_to_single_plan_entry = 3
+      route.status = 'partial'
+      copy.declarations.implemented = 3
+      copy.declarations.assigned_to_single_plan_entry = 3
+    })
+    // Only the quoted totals move: the docs would need the new sentence.
+    assert.deepEqual(assigned.filter((problem) => !problem.includes('totals line')), [])
+    const totalsOff = problemsAfter((copy) => {
+      copy.declarations.routes[1].implemented = 0
+      copy.declarations.implemented = 1
+    })
+    assertProblem(totalsOff, /implemented does not match its routes/)
+  })
+
+  test('declaration counts are non-negative integers within the route', () => {
+    for (const [field, value] of [
+      ['implemented', -1],
+      ['implemented', 0.5],
+      ['assigned_to_single_plan_entry', '0'],
+    ]) {
+      const problems = problemsAfter((copy) => {
+        copy.declarations.routes[2][field] = value
+      })
+      assertProblem(problems, /route render_scene: implemented, assigned_to_single_plan_entry, and declarations are counts/)
+    }
+    const beyond = problemsAfter((copy) => {
+      const route = copy.declarations.routes[2]
+      route.assigned_to_single_plan_entry = route.declarations + 1
+    })
+    assertProblem(beyond, /route render_scene: assigned_to_single_plan_entry exceeds its 570 declarations/)
+  })
+
+  test('an implemented or partial part needs evidence that runs it', () => {
+    const problems = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence = [
+        'doc:README.md',
+        'report:docs/verification/conformance-report.json',
+        'test:crates/domain/tests/document.rs',
+      ]
+    })
+    assertProblem(problems, /OPS-02.history: an implemented part needs evidence that runs it/)
+    const partial = problemsAfter((copy) => {
+      part(copy, 'CLEANROOM-01.public-repository').evidence = ['doc:docs/TRACEABILITY.ko.md']
+    })
+    assertProblem(partial, /CLEANROOM-01.public-repository: an partial part needs evidence that runs it/)
+  })
+
+  test('each executing kind of evidence counts on its own', () => {
+    for (const ref of [
+      'case:ops-undo-redo',
+      'check:test:conformance',
+      'smoke:scripts/browser-smoke.mjs',
+      'test:crates/domain/tests/document.rs#undo_and_redo_restore_exact_states_as_new_revisions',
+      'test:apps/api/tests/http.rs#domain_errors_map_to_v1_envelopes',
+      'test:scripts/repository-checks.test.mjs#the repository has no problems',
+    ]) {
+      const problems = problemsAfter((copy) => {
+        part(copy, 'OPS-02.history').evidence = ['doc:README.md', ref]
+      })
+      assert.deepEqual(problems, [], ref)
+    }
+  })
+
+  test('a named test must be a real test that the checks run', () => {
+    const helper = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence.push('test:crates/domain/tests/document.rs#ethanol')
+    })
+    assertProblem(helper, /names no #\[test\] fn ethanol/)
+    const notRun = problemsAfter((copy) => {
+      copy.packageJson.scripts.check = copy.packageJson.scripts.check.replace(' && npm run test:checks', '')
+      part(copy, 'OPS-02.history').evidence.push('test:scripts/repository-checks.test.mjs#the repository has no problems')
+    })
+    assertProblem(notRun, /is a test file npm run check does not run/)
+  })
+
+  test('smoke evidence must be run by the checks or by CI', () => {
+    const problems = problemsAfter((copy) => {
+      copy.ciWorkflow = copy.ciWorkflow.replace(/npm run test:browser\b(?!:)/g, 'true')
+    })
+    assertProblem(problems, /evidence smoke:scripts\/browser-smoke.mjs is not run by npm run check or the CI workflow/)
+  })
+
+  test('report evidence must name a run record the check knows', () => {
+    const problems = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence.push('report:docs/verification/browser-ci.json')
+    })
+    assertProblem(problems, /evidence report:docs\/verification\/browser-ci.json is not a run record this check knows/)
+  })
+
+  test('a catch-all part is never implemented or partial', () => {
+    for (const status of ['implemented', 'partial']) {
+      const problems = problemsAfter((copy) => {
+        const catchAll = part(copy, 'CHEM-01.uncovered')
+        catchAll.status = status
+        catchAll.implementation = ['README.md']
+        catchAll.evidence = ['doc:README.md']
+        catchAll.followups = status === 'partial' ? ['P19'] : []
+      })
+      assertProblem(problems, new RegExp(`CHEM-01.uncovered: a catch-all part cannot be ${status}`))
+      assertProblem(problems, /CHEM-01.uncovered: an (implemented|partial) part needs evidence that runs it/)
+    }
+  })
+
+  test('case evidence must name a case tagged with the owning requirement', () => {
+    const problems = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence.push('case:api-capabilities-report-unimplemented')
+    })
+    assertProblem(problems, /evidence case:api-capabilities-report-unimplemented is a case that does not name OPS-02/)
+  })
+
+  test('a requirement without parts is refused and derives no rejection', () => {
+    assert.equal(deriveStatus([]), 'not_implemented')
+    const problems = problemsAfter((copy) => {
+      const entry = requirement(copy, 'WIN-01')
+      entry.parts = []
+      entry.status = 'intentionally_rejected'
+    })
+    assertProblem(problems, /WIN-01: has no parts/)
+    assertProblem(problems, /WIN-01: stored status intentionally_rejected differs .* not_implemented/)
+  })
+
+  test('the check run by npm run check requires a fresh run', () => {
+    const { copy } = inputs()
+    copy.freshReport = null
+    assert.ok(!checkTraceability(copy).problems.some((problem) => problem.includes('is missing; run npm run test:conformance')))
+    assertProblem(checkTraceability(copy, { requireFresh: true }).problems, /target\/conformance\/report.json is missing; run npm run test:conformance/)
+  })
+
+  test('recorded and fresh runs must come from the current case files', () => {
+    const edited = problemsAfter((copy) => {
+      copy.caseHashes.set('ops-undo-redo', '0'.repeat(64))
+    })
+    assertProblem(edited, /ops-undo-redo was recorded from a different case file/)
+    const stale = problemsAfter((copy) => {
+      copy.freshReport = structuredClone(copy.report)
+      copy.freshReport.results[0].sha256 = '1'.repeat(64)
+    })
+    assertProblem(stale, /target\/conformance\/report.json: ops-transaction-all-or-nothing ran an older case file/)
+  })
+
+  test('case paths resolve against the suite file and stay under it', () => {
+    for (const entry of ['cases/ops-undo-redo.json', 'a/b.json']) assert.ok(isPlainRelative(entry), entry)
+    for (const entry of ['../x.json', '/abs.json', './cases/x.json', 'cases/../x.json', '', 'C:x.json']) {
+      assert.ok(!isPlainRelative(entry), entry)
+    }
+    const directory = mkdtempSync(path.join(temporary, 'suite '))
+    mkdirSync(path.join(directory, 'nested'))
+    const source = path.join(root, 'conformance', 'cases', 'ops-undo-redo.json')
+    writeFileSync(path.join(directory, 'nested', 'case.json'), readFileSync(source))
+    const suite = path.join(directory, 'suite.json')
+    writeFileSync(suite, JSON.stringify({ suite_version: 'x', cases: ['nested/case.json', '../escape.json'] }))
+    const loaded = loadRepository(root, { suite })
+    assert.deepEqual(loaded.cases.map((testCase) => testCase.id), ['ops-undo-redo'])
+    assert.equal(loaded.caseHashes.get('ops-undo-redo'), createHash('sha256').update(readFileSync(source)).digest('hex'))
+    assert.equal(loaded.caseFileProblems.length, 1)
+    assertProblem(checkTraceability(loaded).problems, /case path "..\/escape.json" must be relative to the suite file/)
   })
 
   test('the docs must quote the derived totals exactly, and the check prints what to paste', () => {
@@ -535,6 +701,15 @@ describe('clean-room check', () => {
     assertProblem(problems, /^docs\/copied.md: byte-identical to a specification file/m)
     assert.ok(!problems.some((problem) => problem.startsWith('docs/own.md')))
     assert.deepEqual(check(directory), [], 'without the workspace, copies are not compared')
+  })
+
+  test('empty files are never compared with specification files', () => {
+    const spec = mkdtempSync(path.join(temporary, 'spec '))
+    mkdirSync(path.join(spec, 'spec'))
+    writeFileSync(path.join(spec, 'spec', 'empty.txt'), '')
+    writeFileSync(path.join(spec, 'spec', 'notes.md'), 'x\n')
+    const directory = repository({ 'apps/web/.gitkeep': '', 'docs/empty.md': '', 'docs/x.md': 'x\n' })
+    assert.deepEqual(check(directory, spec), ['docs/x.md: byte-identical to a specification file'])
   })
 
   test('local path rules leave ordinary names alone', () => {

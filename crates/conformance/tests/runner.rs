@@ -92,7 +92,7 @@ fn an_unexpected_error_fails_at_its_step() {
         "unexpected-error",
         "accept",
         json!([
-            { "call": "create", "doc": "d", "expect": {} },
+            { "call": "create", "doc": "d", "expect": { "api_version": "v1" } },
             { "call": "undo", "doc": "d", "expected_revision": 0 },
         ]),
     ));
@@ -179,7 +179,7 @@ fn outcomes_are_counted_per_kind_and_pending_cases_are_not_run() {
             case(
                 "accepted",
                 "accept",
-                json!([{ "call": "create", "doc": "d", "expect": {} }]),
+                json!([{ "call": "create", "doc": "d", "expect": { "api_version": "v1" } }]),
             ),
             case(
                 "refused",
@@ -259,11 +259,17 @@ fn a_report_is_the_same_on_every_run() {
     let first = serde_json::to_string(&run_suite(&suite)).unwrap();
     let second = serde_json::to_string(&run_suite(&suite)).unwrap();
     assert_eq!(first, second);
-    let report: Value = serde_json::from_str(&first).unwrap();
+    let mut report: Value = serde_json::from_str(&first).unwrap();
+    let fingerprint = report["results"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("sha256")
+        .expect("each result records its case file's SHA-256");
+    assert_eq!(fingerprint, json!(suite.cases[0].sha256));
     assert_eq!(
         report,
         json!({
-            "report_version": 1,
+            "report_version": 2,
             "suite_version": "test",
             "counts": {
                 "accept": { "passed": 1, "failed": 0, "not_run": 0 },
@@ -276,4 +282,39 @@ fn a_report_is_the_same_on_every_run() {
             }],
         })
     );
+}
+
+#[test]
+fn writes_without_a_request_id_send_one_generated_from_the_step() {
+    // HTTP sends a request_id on every write. Step 1 sends `conformance-step-1`, so reusing that
+    // ID for a different edit is refused; without a generated ID it would be applied.
+    let result = run_case(&case(
+        "generated-request-id",
+        "reject",
+        json!([
+            { "call": "create", "doc": "d" },
+            add_carbon(0),
+            { "call": "transact", "doc": "d", "expected_revision": 1, "request_id": "conformance-step-1",
+              "commands": [{ "op": "add_atom", "element": "O", "position": { "x": 9, "y": 9 } }],
+              "expect_error": { "code": "request_id_reused" } },
+        ]),
+    ));
+    assert_eq!(result.outcome, Outcome::Passed, "{result:?}");
+}
+
+#[test]
+fn a_step_request_id_overrides_the_generated_one() {
+    let result = run_case(&case(
+        "explicit-request-id",
+        "accept",
+        json!([
+            { "call": "create", "doc": "d" },
+            { "call": "transact", "doc": "d", "expected_revision": 0, "request_id": "mine",
+              "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }] },
+            { "call": "transact", "doc": "d", "expected_revision": 0, "request_id": "mine",
+              "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }],
+              "expect": { "document": { "revision": 1 } } },
+        ]),
+    ));
+    assert_eq!(result.outcome, Outcome::Passed, "{result:?}");
 }

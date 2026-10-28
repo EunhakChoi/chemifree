@@ -13,7 +13,7 @@ use crate::case::{Axis, Body, Call, Case, Expectation, Kind, Pending, Step, Suit
 use crate::expect;
 
 /// The report format's version; bump it when its shape changes.
-pub const REPORT_VERSION: u32 = 1;
+pub const REPORT_VERSION: u32 = 2;
 
 type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
 
@@ -68,6 +68,8 @@ pub struct CaseResult {
     pub axis: Axis,
     pub kind: Kind,
     pub outcome: Outcome,
+    /// SHA-256 of the case file that ran.
+    pub sha256: String,
     /// Set for a case that cannot run yet.
     pub pending: Option<Pending>,
     /// Set for a failed case.
@@ -123,6 +125,7 @@ pub fn run_case(case: &Case) -> CaseResult {
         axis: case.axis,
         kind: case.kind,
         outcome,
+        sha256: case.sha256.clone(),
         pending,
         failure,
     }
@@ -145,7 +148,8 @@ fn run_steps(steps: &[Step]) -> Result<(), Failure> {
             drop(application);
             application = open(directory.path());
         }
-        let reply = call(&application, &step.call, &documents).map_err(&fail)?;
+        let request_id = step_request_id(index);
+        let reply = call(&application, &step.call, &documents, &request_id).map_err(&fail)?;
         if let (Call::Create { doc, .. }, Ok(created)) = (&step.call, &reply) {
             let id = created["document"]["id"]
                 .as_str()
@@ -155,6 +159,12 @@ fn run_steps(steps: &[Step]) -> Result<(), Failure> {
         check(&step.expectation, &reply).map_err(fail)?;
     }
     Ok(())
+}
+
+/// The `request_id` a write step sends when the case gives none. HTTP requires one on every
+/// write, so cases follow that path; IDs are unique within a case.
+fn step_request_id(index: usize) -> String {
+    format!("conformance-step-{index}")
 }
 
 fn open(directory: &Path) -> LocalApplication {
@@ -167,6 +177,7 @@ fn call(
     application: &LocalApplication,
     call: &Call,
     documents: &HashMap<&str, String>,
+    default_request_id: &str,
 ) -> Result<Result<Value, Value>, String> {
     let id = |doc: &str| {
         documents
@@ -177,7 +188,10 @@ fn call(
     let reply = match call {
         Call::Create {
             title, request_id, ..
-        } => to_json(application.create_document(request_id.as_deref(), title.as_deref())),
+        } => to_json(application.create_document(
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+            title.as_deref(),
+        )),
         Call::Get { doc } => to_json(application.document(id(doc)?)),
         Call::Transact {
             doc,
@@ -186,7 +200,7 @@ fn call(
             request_id,
         } => to_json(application.apply_transaction(
             id(doc)?,
-            request_id.as_deref(),
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
             *expected_revision,
             commands.clone(),
         )),
@@ -194,23 +208,37 @@ fn call(
             doc,
             expected_revision,
             request_id,
-        } => to_json(application.undo(id(doc)?, request_id.as_deref(), *expected_revision)),
+        } => to_json(application.undo(
+            id(doc)?,
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+            *expected_revision,
+        )),
         Call::Redo {
             doc,
             expected_revision,
             request_id,
-        } => to_json(application.redo(id(doc)?, request_id.as_deref(), *expected_revision)),
+        } => to_json(application.redo(
+            id(doc)?,
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+            *expected_revision,
+        )),
         Call::Save {
             doc,
             expected_revision,
             request_id,
-        } => to_json(application.save(id(doc)?, request_id.as_deref(), *expected_revision)),
-        Call::Autosave { doc, request_id } => {
-            to_json(application.autosave(id(doc)?, request_id.as_deref()))
-        }
-        Call::Recover { doc, request_id } => {
-            to_json(application.recover(id(doc)?, request_id.as_deref()))
-        }
+        } => to_json(application.save(
+            id(doc)?,
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+            *expected_revision,
+        )),
+        Call::Autosave { doc, request_id } => to_json(application.autosave(
+            id(doc)?,
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+        )),
+        Call::Recover { doc, request_id } => to_json(application.recover(
+            id(doc)?,
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
+        )),
         Call::Close {
             doc,
             discard_unsaved,
@@ -218,7 +246,7 @@ fn call(
             request_id,
         } => to_json(application.close(
             id(doc)?,
-            request_id.as_deref(),
+            Some(request_id.as_deref().unwrap_or(default_request_id)),
             *discard_unsaved,
             *expected_revision,
         )),

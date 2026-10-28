@@ -3,11 +3,12 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chemifree_application::CommandDto;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::expect;
 
@@ -27,6 +28,8 @@ pub struct Case {
     pub axis: Axis,
     pub kind: Kind,
     pub body: Body,
+    /// SHA-256 of the case file's bytes, so a run record shows which case text it ran.
+    pub sha256: String,
 }
 
 /// What a case compares. Axes are kept apart so that, for example, a coordinate match is
@@ -89,9 +92,13 @@ pub enum Expectation {
     Error(Value),
 }
 
-/// One call on the shared `Application`, as the HTTP and CLI adapters make it. `doc` names a
-/// document bound by an earlier `create` in the same case. `restart` rebuilds the application
-/// on the same data directory, so only storage survives.
+/// One call on the shared `Application`, with the arguments the HTTP adapter passes. `doc`
+/// names a document bound by an earlier `create` in the same case. A write without a
+/// `request_id` is sent one generated from its step index, as HTTP always sends one.
+///
+/// `restart` drops the application without a normal stop, as killing the process would, and
+/// opens a new one on the same data directory: only what storage holds survives. (A normal
+/// stop of the HTTP service first drafts unsaved edits; `restart` does not.)
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "call", rename_all = "snake_case")]
 pub enum Call {
@@ -280,6 +287,12 @@ pub fn load_suite(path: &Path) -> Result<Suite, LoadError> {
     let base = path.parent().unwrap_or(Path::new(""));
     let mut cases = Vec::with_capacity(file.cases.len());
     for relative in &file.cases {
+        if !is_plain_relative(relative) {
+            return Err(error(format!(
+                "case path {} must be relative to the suite file, without '..'",
+                relative.display()
+            )));
+        }
         let case_path = base.join(relative);
         let text = fs::read_to_string(&case_path).map_err(|failure| LoadError {
             file: case_path.clone(),
@@ -299,6 +312,14 @@ pub fn load_suite(path: &Path) -> Result<Suite, LoadError> {
     })
 }
 
+/// A path with only normal components: not absolute and without `..` or `.`.
+fn is_plain_relative(path: &Path) -> bool {
+    path.components().next().is_some()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
 /// The first case ID used more than once.
 fn check_unique_ids(cases: &[Case]) -> Result<(), String> {
     let mut seen = HashSet::new();
@@ -316,10 +337,12 @@ fn check_unique_ids(cases: &[Case]) -> Result<(), String> {
 /// - a pending case has no steps, and a runnable case has steps;
 /// - each step's fields are the ones its call takes (`request_id` only where the call takes
 ///   one), it expects at most one of a reply or an error, and its expectation uses operators
-///   correctly;
+///   correctly; an expected reply names at least one field, an expected error names its
+///   `code`, and `restart` expects nothing;
 /// - a document is used only after a `create` binds its name, and is bound once;
 /// - a runnable `reject` case expects an error in some step, and a runnable `accept` case
-///   expects a successful reply in some step.
+///   expects a successful reply in some step. Because of the rules above, those expectations
+///   always check something.
 ///
 /// The returned error leaves `file` empty for the caller to fill in.
 ///
@@ -413,6 +436,7 @@ pub fn parse_case(text: &str) -> Result<Case, LoadError> {
         axis,
         kind,
         body,
+        sha256: hex(&Sha256::digest(text.as_bytes())),
     })
 }
 
@@ -474,8 +498,21 @@ pub fn parse_step(value: &Value) -> Result<Step, String> {
         (Some(_), Some(_)) => {
             return Err("a step expects a reply or an error, not both".to_owned());
         }
-        (Some(expected), None) => Expectation::Reply(expected.clone()),
-        (None, Some(expected)) => Expectation::Error(expected.clone()),
+        (Some(_), None) | (None, Some(_)) if name == "restart" => {
+            return Err("restart has no reply to expect".to_owned());
+        }
+        (Some(expected), None) => {
+            if expected.as_object().is_none_or(Map::is_empty) {
+                return Err("expect names at least one field of the reply".to_owned());
+            }
+            Expectation::Reply(expected.clone())
+        }
+        (None, Some(expected)) => {
+            if !expected.get("code").is_some_and(|code| code.is_string()) {
+                return Err("expect_error names the error's code".to_owned());
+            }
+            Expectation::Error(expected.clone())
+        }
         (None, None) => Expectation::Success,
     };
     if let Expectation::Reply(expected) | Expectation::Error(expected) = &expectation {
@@ -504,6 +541,10 @@ fn check_kind(kind: Kind, steps: &[Step]) -> Result<(), String> {
         }
         Kind::Accept | Kind::Reject => Ok(()),
     }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn is_case_id(id: &str) -> bool {
@@ -645,6 +686,80 @@ mod tests {
         assert_eq!(
             parse_step(&step),
             Err("a step expects a reply or an error, not both".to_owned())
+        );
+    }
+
+    #[test]
+    fn restart_expects_nothing() {
+        for step in [
+            json!({ "call": "restart", "expect": {} }),
+            json!({ "call": "restart", "expect": { "api_version": "v1" } }),
+            json!({ "call": "restart", "expect_error": { "code": "x" } }),
+        ] {
+            assert_eq!(
+                parse_step(&step),
+                Err("restart has no reply to expect".to_owned()),
+                "{step}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expected_reply_names_at_least_one_field() {
+        for expected in [json!({}), json!([]), json!(null), json!(1)] {
+            let step = json!({ "call": "get", "doc": "d", "expect": expected });
+            assert_eq!(
+                parse_step(&step),
+                Err("expect names at least one field of the reply".to_owned()),
+                "{step}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expected_error_names_its_code() {
+        for expected in [
+            json!({}),
+            json!({ "message": "x" }),
+            json!({ "code": 1 }),
+            json!("revision_conflict"),
+        ] {
+            let step = json!({ "call": "get", "doc": "d", "expect_error": expected });
+            assert_eq!(
+                parse_step(&step),
+                Err("expect_error names the error's code".to_owned()),
+                "{step}"
+            );
+        }
+    }
+
+    #[test]
+    fn kind_rules_cannot_be_met_by_expectations_that_check_nothing() {
+        let restart_only = case("accept", json!([{ "call": "restart", "expect": {} }]));
+        assert_eq!(
+            refusal(&restart_only).message,
+            "restart has no reply to expect"
+        );
+        let empty_error = case(
+            "reject",
+            json!([
+                { "call": "create", "doc": "d" },
+                { "call": "undo", "doc": "d", "expected_revision": 7, "expect_error": {} },
+            ]),
+        );
+        assert_eq!(
+            refusal(&empty_error).message,
+            "expect_error names the error's code"
+        );
+    }
+
+    #[test]
+    fn a_case_records_the_sha256_of_its_file() {
+        // Digest computed with sha256sum over exactly this text.
+        let text = r#"{"id":"a-case","title":"T","requirements":["CHEM-01"],"axis":"numeric","kind":"accept","pending":{"followup":"P19","reason":"not built"}}"#;
+        assert_eq!(
+            parse_case(text).unwrap().sha256,
+            "c95baeab6a4319051b2aa9369c6cf66c69f6e64c66050ba35d09b4481efb8b5d"
         );
     }
 
@@ -869,6 +984,38 @@ mod tests {
         let refused = load_suite(&suite).expect_err("duplicate ids must be refused");
         assert_eq!(refused.message, "case id \"a-case\" is used twice");
         assert_eq!(refused.file, suite);
+    }
+
+    #[test]
+    fn case_paths_stay_under_the_suite_file() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("a.json"),
+            case("accept", json!([create()])),
+        )
+        .unwrap();
+        for entry in [
+            "../a.json",
+            "/tmp/a.json",
+            "./a.json",
+            "cases/../a.json",
+            "",
+        ] {
+            let suite = directory.path().join("suite.json");
+            fs::write(
+                &suite,
+                json!({ "suite_version": "1.0.0", "cases": [entry] }).to_string(),
+            )
+            .unwrap();
+            let refused = load_suite(&suite).expect_err(entry);
+            assert!(
+                refused
+                    .message
+                    .contains("must be relative to the suite file"),
+                "{entry:?}: {}",
+                refused.message
+            );
+        }
     }
 
     #[test]

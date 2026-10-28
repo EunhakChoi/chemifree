@@ -22,7 +22,7 @@
       "expect": { "document": { "revision": 1 } }
     },
     { "call": "save", "doc": "d", "expected_revision": 1, "expect": { "session": { "saved_revision": 1, "unsaved_changes": false } } },
-    { "call": "restart" },
+    { "call": "restart", "note": "a crash after the save; only storage survives" },
     {
       "call": "get", "doc": "d",
       "expect": {

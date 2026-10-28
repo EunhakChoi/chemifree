@@ -1,6 +1,6 @@
 {
-  "report_version": 1,
-  "suite_version": "1.0.0",
+  "report_version": 2,
+  "suite_version": "1.1.0",
   "counts": {
     "accept": {
       "passed": 8,
@@ -23,11 +23,13 @@
       "id": "ops-transaction-all-or-nothing",
       "title": "A transaction with one bad command changes nothing and names that command",
       "requirements": [
-        "OPS-02"
+        "OPS-02",
+        "MODEL-01"
       ],
       "axis": "graph",
       "kind": "reject",
       "outcome": "passed",
+      "sha256": "49eaa81639bd0e80578c8a30e370e0828838908d924b2f860191d1add928ff08",
       "pending": null
     },
     {
@@ -39,17 +41,20 @@
       "axis": "revision",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "da1f0010b98f9492cb3b6a8a6605032cbc43ec2229b3c1e836cb825cd7705341",
       "pending": null
     },
     {
       "id": "ops-undo-redo",
       "title": "Undo and redo restore exact states as new revisions; a new edit drops the redo branch",
       "requirements": [
-        "OPS-02"
+        "OPS-02",
+        "MODEL-01"
       ],
       "axis": "history",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "c28cd583c380c3d5bc41714d7e731522153607fdbdbc2a15853beb61306e4686",
       "pending": null
     },
     {
@@ -62,6 +67,7 @@
       "axis": "revision",
       "kind": "reject",
       "outcome": "passed",
+      "sha256": "044bf0cc1fdaaa304b5b0a0d63e7c87ab0425e886b6632f4a5d65970f8533128",
       "pending": null
     },
     {
@@ -74,6 +80,7 @@
       "axis": "graph",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "9975314bec2e554806d7e7e051b5cea711171077132fe0d20e45a658d6ec1c9f",
       "pending": null
     },
     {
@@ -86,6 +93,7 @@
       "axis": "idempotency",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "5d129d054a369e53d2ab1a02b68e3507a393956eff4c0ae81681d0f699632b2f",
       "pending": null
     },
     {
@@ -98,6 +106,7 @@
       "axis": "idempotency",
       "kind": "reject",
       "outcome": "passed",
+      "sha256": "75b736649721e21195087af3976e299d20f60b5d856b922b97c2132904628ff3",
       "pending": null
     },
     {
@@ -110,28 +119,31 @@
       "axis": "persistence",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "3ef4797e894145fdaa9ca321d85acab29b44e4013d85ce9287ce67696cbcb167",
       "pending": null
     },
     {
       "id": "persist-unsaved-lost-at-restart",
-      "title": "Without a save or a recovery draft, edits after the last save are gone after a restart",
+      "title": "Without a save or a recovery draft, edits after the last save are gone after a crash",
       "requirements": [
         "OPS-02"
       ],
       "axis": "persistence",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "fbe6980a67f3ac28eda130b24dd22f7846f2683ea185519c7482453d3c923e7d",
       "pending": null
     },
     {
       "id": "persist-draft-recovered-after-restart",
-      "title": "Unsaved edits in a recovery draft are offered and recovered, with their history, after a restart",
+      "title": "Unsaved edits in a recovery draft are offered and recovered, with their history, after a crash",
       "requirements": [
         "OPS-02"
       ],
       "axis": "persistence",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "98328af372b0cc20476c2fd28ccb310e2379466fcf3561d4159dafd4d04159ed",
       "pending": null
     },
     {
@@ -144,6 +156,7 @@
       "axis": "validation",
       "kind": "reject",
       "outcome": "passed",
+      "sha256": "3e6385ef12383f48e6d846ea13d6a8b1c6ff2be46a1aa6f2ac84cefc3b87c509",
       "pending": null
     },
     {
@@ -155,6 +168,7 @@
       "axis": "capability",
       "kind": "accept",
       "outcome": "passed",
+      "sha256": "b1ba4580b149768d2250118cbadb9b0e79f392e247dd4c2e8ccc107416d01227",
       "pending": null
     },
     {
@@ -166,6 +180,7 @@
       "axis": "numeric",
       "kind": "accept",
       "outcome": "not_run",
+      "sha256": "3a6e84b4d4d136f9b26a9670dbaa78009a5c13410749338d8aac552b7054911e",
       "pending": {
         "followup": "P19",
         "reason": "No formula or mass calculation exists; the product records atoms as drawn and computes nothing from them."
@@ -181,6 +196,7 @@
       "axis": "encoding",
       "kind": "accept",
       "outcome": "not_run",
+      "sha256": "3f7166430e3e372ba23bb9d14dd48d007e404e6e5da90f04403611c8d92427b5",
       "pending": {
         "followup": "P20",
         "reason": "No chemical file reader or writer exists; import and export are not implemented."
@@ -195,6 +211,7 @@
       "axis": "scene",
       "kind": "accept",
       "outcome": "not_run",
+      "sha256": "5a75f18b867c7a208e825128b1353a9e503f6e440026a6d3a03660601eb1379b",
       "pending": {
         "followup": "P09",
         "reason": "The document keeps one position per atom; there is no separate scene model yet."
@@ -210,6 +227,7 @@
       "axis": "graph",
       "kind": "accept",
       "outcome": "not_run",
+      "sha256": "af2d379039476969e68a19d8e55bb12417710bcd185160187fcbd59edcf7c082",
       "pending": {
         "followup": "P10",
         "reason": "Atoms carry element, charge, and isotope only; hydrogen states are not represented."
@@ -225,6 +243,7 @@
       "axis": "contract",
       "kind": "reject",
       "outcome": "not_run",
+      "sha256": "94e24c2b78c3c0246c4f25c83db2ebb411be559fc7492ece0b46b9c1d9a78205",
       "pending": {
         "followup": "P13",
         "reason": "Only the v1 document contract exists; there are no per-operation versions to negotiate."

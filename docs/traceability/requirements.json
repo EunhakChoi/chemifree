@@ -356,11 +356,10 @@
       "parts": [
         {
           "id": "OPS-01.affected-scope",
-          "summary": "Deleting atoms removes exactly their incident bonds, moving lists each atom once, and selection stays client state outside history.",
+          "summary": "Deleting atoms removes exactly their incident bonds, and undoing the deletion restores them.",
           "status": "implemented",
           "implementation": [
-            "crates/domain/src/document.rs",
-            "apps/web/src/editor"
+            "crates/domain/src/document.rs"
           ],
           "evidence": [
             "case:ops-delete-atoms-removes-incident-bonds",

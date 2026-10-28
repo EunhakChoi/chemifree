@@ -9,7 +9,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const STATUSES = ['implemented', 'partial', 'not_implemented', 'unverified', 'intentionally_rejected']
-const EVIDENCE_KINDS = ['case', 'test', 'smoke', 'report', 'check', 'doc']
+/** Statuses a catch-all part may have: what it covers is, by definition, not implemented. */
+const CATCH_ALL_STATUSES = ['not_implemented', 'unverified', 'intentionally_rejected']
+/** Committed run records that `report:` evidence may name, with what writes them. */
+export const KNOWN_RECORDS = {
+  'docs/verification/conformance-report.json': 'npm run conformance:record (checked here against the cases)',
+  'docs/verification/editor-browser-smoke.json': 'npm run test:browser',
+}
+const SUITE = 'conformance/suite.json'
+const CI_WORKFLOW = '.github/workflows/ci.yml'
 const TOTALS_PREFIX = '현재 집계:'
 const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', 'docs/HANDOFF.ko.md']
 const REPORT = 'docs/verification/conformance-report.json'
@@ -24,9 +32,12 @@ export function rootFromModuleUrl(url) {
  * The status of a requirement, derived from its parts' statuses by the one documented rule:
  * every part intentionally_rejected → intentionally_rejected; every part implemented or
  * intentionally_rejected → implemented; otherwise any part implemented or partial → partial;
- * otherwise any part unverified → unverified; otherwise not_implemented.
+ * otherwise any part unverified → unverified; otherwise not_implemented. A requirement without
+ * parts derives not_implemented (and is refused by the check).
  */
 export function deriveStatus(statuses) {
+  // Without parts nothing is claimed; the check refuses such a requirement separately.
+  if (statuses.length === 0) return 'not_implemented'
   if (statuses.every((status) => status === 'intentionally_rejected')) return 'intentionally_rejected'
   if (statuses.every((status) => status === 'implemented' || status === 'intentionally_rejected')) return 'implemented'
   if (statuses.some((status) => status === 'implemented' || status === 'partial')) return 'partial'
@@ -37,10 +48,37 @@ export function deriveStatus(statuses) {
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'))
 const readText = (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null)
 
-/** Everything the check reads from the repository at `root`. */
-export function loadRepository(root) {
+/**
+ * A suite entry names a case file relative to the suite file's directory, with only plain
+ * segments: not absolute, and without `.` or `..` (the Rust loader applies the same rule).
+ */
+export function isPlainRelative(entry) {
+  if (typeof entry !== 'string' || entry === '' || path.isAbsolute(entry) || /^[a-zA-Z]:/.test(entry)) return false
+  return entry.split(/[\\/]/).every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+
+/**
+ * Everything the check reads from the repository at `root`. `suite` overrides the suite file
+ * (tests use it); case files resolve relative to the suite file's directory.
+ */
+export function loadRepository(root, { suite: suitePath = path.join(root, SUITE) } = {}) {
   const at = (relative) => path.join(root, relative)
-  const suite = readJson(at('conformance/suite.json'))
+  const suite = readJson(suitePath)
+  const caseFileProblems = []
+  const cases = []
+  const caseHashes = new Map()
+  for (const entry of suite.cases ?? []) {
+    if (!isPlainRelative(entry)) {
+      caseFileProblems.push(`${SUITE}: case path ${JSON.stringify(entry)} must be relative to the suite file, without '.' or '..'`)
+      continue
+    }
+    const file = path.join(path.dirname(suitePath), entry)
+    const testCase = readJson(file)
+    cases.push(testCase)
+    caseHashes.set(testCase.id, sha256Of(file))
+  }
   return {
     root,
     requirements: readJson(at('docs/traceability/requirements.json')),
@@ -48,15 +86,19 @@ export function loadRepository(root) {
     roadmap: readJson(at('docs/roadmap/implementation-roadmap.json')),
     packageJson: readJson(at('package.json')),
     suite,
-    cases: suite.cases.map((file) => readJson(path.join(root, 'conformance', file))),
+    cases,
+    caseHashes,
+    caseFileProblems,
+    ciWorkflow: readText(at(CI_WORKFLOW)) ?? '',
+    cargoManifest: readText(at('Cargo.toml')) ?? '',
     report: readJson(at(REPORT)),
     freshReport: existsSync(at(FRESH_REPORT)) ? readJson(at(FRESH_REPORT)) : null,
     docs: Object.fromEntries(TOTALS_DOCS.map((doc) => [doc, readText(at(doc))])),
   }
 }
 
-/** The npm scripts `npm run check` runs, following `npm run X` through nested scripts. */
-export function scriptsRunByCheck(scripts) {
+/** The npm scripts reached from `roots`, following `npm run X` through nested scripts. */
+function scriptsReachedFrom(scripts, roots) {
   const reached = new Set()
   const visit = (name) => {
     if (reached.has(name) || typeof scripts[name] !== 'string') return
@@ -66,17 +108,35 @@ export function scriptsRunByCheck(scripts) {
       if (match) visit(match[1])
     }
   }
-  visit('check')
+  for (const root of roots) visit(root)
+  return reached
+}
+
+/** The npm scripts `npm run check` runs, following `npm run X` through nested scripts. */
+export function scriptsRunByCheck(scripts) {
+  const reached = scriptsReachedFrom(scripts, ['check'])
   reached.delete('check')
   return reached
+}
+
+/** The npm scripts the CI workflow runs (its `npm run X` steps and what they run). */
+export function scriptsRunByCi(scripts, workflow) {
+  const roots = [...workflow.matchAll(/\bnpm run ([\w:.-]+)/g)].map((match) => match[1])
+  return scriptsReachedFrom(scripts, roots)
+}
+
+/** Directories of the Cargo workspace members, whose tests `cargo test --workspace` runs. */
+function cargoMembers(manifest) {
+  const members = /members\s*=\s*\[([^\]]*)\]/.exec(manifest)
+  return members ? [...members[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]) : []
 }
 
 const isRelativePath = (value) =>
   typeof value === 'string' && value !== '' && !path.isAbsolute(value) && !value.split(/[\\/]/).includes('..')
 
 /** Checks the inputs from `loadRepository`; returns the problems and the derived totals. */
-export function checkTraceability(inputs) {
-  const problems = []
+export function checkTraceability(inputs, { requireFresh = false } = {}) {
+  const problems = [...(inputs.caseFileProblems ?? [])]
   const problem = (message) => problems.push(message)
   const exists = (relative) => isRelativePath(relative) && existsSync(path.join(inputs.root, relative))
   const roadmapRows = new Map((inputs.roadmap.rows ?? []).map((row) => [row.id, row]))
@@ -91,7 +151,7 @@ export function checkTraceability(inputs) {
   }
 
   const cases = checkCases(inputs, problem, followupsUsable)
-  const report = checkReport(inputs, cases, problem)
+  const report = checkReport(inputs, cases, problem, requireFresh)
   const outcomes = new Map(report.results.map((result) => [result.id, result.outcome]))
   const requirementIds = checkRequirements(inputs, { problem, exists, followupsUsable, cases, outcomes })
   for (const testCase of inputs.cases) {
@@ -150,10 +210,10 @@ function checkCases(inputs, problem, followupsUsable) {
 const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 
 /** The recorded report must be a run of exactly the current cases, with consistent counts. */
-function checkReport(inputs, cases, problem) {
+function checkReport(inputs, cases, problem, requireFresh) {
   const report = inputs.report
   const results = Array.isArray(report.results) ? report.results : []
-  if (report.report_version !== 1) problem(`${REPORT}: report_version must be 1`)
+  if (report.report_version !== 2) problem(`${REPORT}: report_version must be 2`)
   if (report.suite_version !== inputs.suite.suite_version) {
     problem(`${REPORT}: suite_version ${report.suite_version} differs from the suite's ${inputs.suite.suite_version}`)
   }
@@ -165,6 +225,9 @@ function checkReport(inputs, cases, problem) {
   for (const result of results) {
     const testCase = cases.get(result.id)
     if (!testCase) continue
+    if (result.sha256 !== inputs.caseHashes?.get(result.id)) {
+      problem(`${REPORT}: ${result.id} was recorded from a different case file (SHA-256); run npm run conformance:record`)
+    }
     for (const field of ['title', 'requirements', 'axis', 'kind']) {
       if (!sameJson(result[field], testCase[field])) {
         problem(`${REPORT}: ${result.id} records a different ${field} than its case file`)
@@ -192,8 +255,17 @@ function checkReport(inputs, cases, problem) {
   if (!sameJson(report.counts, recount)) {
     problem(`${REPORT}: counts ${JSON.stringify(report.counts)} differ from a recount of its results ${JSON.stringify(recount)}`)
   }
-  if (inputs.freshReport && !sameJson(inputs.freshReport, report)) {
-    problem(`${REPORT} differs from the fresh run in ${FRESH_REPORT}; run npm run conformance:record`)
+  if (!inputs.freshReport) {
+    if (requireFresh) problem(`${FRESH_REPORT} is missing; run npm run test:conformance first (npm run check does)`)
+  } else {
+    for (const result of inputs.freshReport.results ?? []) {
+      if (result.sha256 !== inputs.caseHashes?.get(result.id)) {
+        problem(`${FRESH_REPORT}: ${result.id} ran an older case file; run npm run test:conformance again`)
+      }
+    }
+    if (!sameJson(inputs.freshReport, report)) {
+      problem(`${REPORT} differs from the fresh run in ${FRESH_REPORT}; run npm run conformance:record`)
+    }
   }
   return { results }
 }
@@ -210,8 +282,20 @@ function checkRequirements(inputs, context) {
       problem(`requirements.json: source ${source.path} needs a relative path and a SHA-256`)
     }
   }
-  const checkScripts = scriptsRunByCheck(inputs.packageJson.scripts ?? {})
-  const scriptCommands = Object.values(inputs.packageJson.scripts ?? {})
+  const scripts = inputs.packageJson.scripts ?? {}
+  const checkScripts = scriptsRunByCheck(scripts)
+  const ciScripts = scriptsRunByCi(scripts, inputs.ciWorkflow ?? '')
+  const commandsOf = (names) => [...names].map((name) => scripts[name]).filter((command) => typeof command === 'string')
+  const evidenceContext = {
+    exists,
+    cases,
+    outcomes,
+    checkScripts,
+    checkCommands: commandsOf(checkScripts),
+    ciCommands: commandsOf(ciScripts),
+    cargoMembers: cargoMembers(inputs.cargoManifest ?? ''),
+    root: inputs.root,
+  }
   for (const requirement of document.requirements ?? []) {
     const owner = requirement.id
     if (!/^[A-Z][A-Z0-9]*-\d{2}$/.test(owner ?? '')) problem(`requirement id ${owner} is malformed`)
@@ -223,6 +307,11 @@ function checkRequirements(inputs, context) {
     }
     const parts = requirement.parts ?? []
     if (parts.length === 0) problem(`${owner}: has no parts`)
+    for (const part of parts) {
+      if (part.catch_all === true && !CATCH_ALL_STATUSES.includes(part.status)) {
+        problem(`${owner} part ${part.id}: a catch-all part cannot be ${part.status}; give what is covered its own part`)
+      }
+    }
     if (parts.filter((part) => part.catch_all === true).length !== 1) {
       problem(`${owner}: needs exactly one catch_all part for what is not covered`)
     }
@@ -243,9 +332,16 @@ function checkRequirements(inputs, context) {
       for (const file of implementation) {
         if (!exists(file)) problem(`${where}: implementation path ${file} does not exist`)
       }
+      let executing = 0
       for (const ref of evidence) {
-        const issue = evidenceProblem(ref, { exists, cases, outcomes, claimed, checkScripts, scriptCommands, root: inputs.root })
+        const { problem: issue, executes } = resolveEvidence(ref, { ...evidenceContext, claimed, owner })
         if (issue) problem(`${where}: evidence ${ref} ${issue}`)
+        else if (executes) executing += 1
+      }
+      if (claimed && executing === 0) {
+        problem(
+          `${where}: an ${part.status} part needs evidence that runs it (a passed case:, a check: or smoke: that the checks or CI run, or a test:<file>#<test>)`,
+        )
       }
       if ((part.status === 'not_implemented' || part.status === 'partial') && followups.length === 0) {
         problem(`${where}: a ${part.status} part needs follow-ups`)
@@ -261,51 +357,70 @@ function checkRequirements(inputs, context) {
   return ids
 }
 
-/** Why an evidence reference does not resolve, or null when it does. */
-export function evidenceProblem(ref, context) {
+/**
+ * Resolves one evidence reference. `problem` says why it does not resolve (or is null);
+ * `executes` says whether it runs the behaviour: a case that passed, a script the checks or CI
+ * run, or a named test that the test runners execute. `report:` and `doc:` never execute.
+ */
+export function resolveEvidence(ref, context) {
+  const fail = (problem) => ({ problem, executes: false })
   const separator = typeof ref === 'string' ? ref.indexOf(':') : -1
-  if (separator < 1) return 'is not of the form kind:target'
+  if (separator < 1) return fail('is not of the form kind:target')
   const kind = ref.slice(0, separator)
   const target = ref.slice(separator + 1)
-  if (!EVIDENCE_KINDS.includes(kind)) return `has unknown kind ${kind}`
   switch (kind) {
     case 'case': {
-      if (!context.cases.has(target)) return 'names no case in the suite'
-      if (context.claimed && context.outcomes.get(target) !== 'passed') {
-        return 'must be a case that passed in the recorded report'
-      }
-      return null
+      const testCase = context.cases.get(target)
+      if (!testCase) return fail('names no case in the suite')
+      if (!(testCase.requirements ?? []).includes(context.owner)) return fail(`is a case that does not name ${context.owner}`)
+      const passed = context.outcomes.get(target) === 'passed'
+      if (context.claimed && !passed) return fail('must be a case that passed in the recorded report')
+      return { problem: null, executes: passed }
     }
     case 'check':
-      return context.checkScripts.has(target) ? null : 'is not a script that npm run check runs'
+      return context.checkScripts.has(target)
+        ? { problem: null, executes: true }
+        : fail('is not a script that npm run check runs')
     case 'smoke': {
-      if (!context.exists(target)) return 'names a missing file'
-      return context.scriptCommands.some((command) => command.split(/\s+/).includes(target))
-        ? null
-        : 'is not run by any npm script'
+      if (!context.exists(target)) return fail('names a missing file')
+      const runs = (command) => command.split(/\s+/).includes(target)
+      return context.checkCommands.some(runs) || context.ciCommands.some(runs)
+        ? { problem: null, executes: true }
+        : fail('is not run by npm run check or the CI workflow')
     }
     case 'report': {
-      if (!context.exists(target)) return 'names a missing file'
+      if (!(target in KNOWN_RECORDS)) return fail('is not a run record this check knows')
+      if (!context.exists(target)) return fail('names a missing file')
       try {
         JSON.parse(readFileSync(path.join(context.root, target), 'utf8'))
-        return null
+        return { problem: null, executes: false }
       } catch {
-        return 'is not a JSON report'
+        return fail('is not a JSON report')
       }
     }
     case 'doc':
-      return context.exists(target) ? null : 'names a missing file'
+      return context.exists(target) ? { problem: null, executes: false } : fail('names a missing file')
     case 'test': {
       const [file, name] = target.split('#')
-      if (!context.exists(file)) return 'names a missing file'
-      if (name === undefined) return null
+      if (!context.exists(file)) return fail('names a missing file')
+      if (name === undefined) return { problem: null, executes: false }
       const text = readFileSync(path.join(context.root, file), 'utf8')
       const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const defined = new RegExp(`fn\\s+${escaped}\\s*[(<]|test\\(\\s*['"\`]${escaped}['"\`]`).test(text)
-      return defined ? null : `names no test ${name} in ${file}`
+      if (file.endsWith('.rs')) {
+        const attribute = new RegExp(
+          `#\\[(?:tokio::)?test(?:\\([^\\]]*\\))?\\]\\s*(?:#\\[[^\\]]*\\]\\s*)*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escaped}\\s*\\(`,
+        )
+        if (!attribute.test(text)) return fail(`names no #[test] fn ${name} in ${file}`)
+        const member = context.cargoMembers.some((directory) => file.startsWith(`${directory}/`))
+        return member ? { problem: null, executes: true } : fail(`is not in a Cargo workspace member`)
+      }
+      const title = new RegExp(`(?:^|[^\\w.])(?:test|it)\\(\\s*(['"\`])${escaped}\\1`, 'm')
+      if (!title.test(text)) return fail(`names no test ${name} in ${file}`)
+      const runs = context.checkCommands.some((command) => command.split(/\s+/).includes(file))
+      return runs ? { problem: null, executes: true } : fail('is a test file npm run check does not run')
     }
     default:
-      return `has unknown kind ${kind}`
+      return fail(`has unknown kind ${kind}`)
   }
 }
 
@@ -326,8 +441,14 @@ function checkDeclarations(declarations, problem, followupsUsable) {
     const owner = `${where} route ${route.route}`
     if (sum(route.by_source) !== route.declarations) problem(`${owner}: by_source does not add up`)
     if (sum(route.by_evidence_status) !== route.declarations) problem(`${owner}: by_evidence_status does not add up`)
-    if (!Number.isInteger(route.implemented) || !Number.isInteger(route.assigned_to_single_plan_entry)) {
-      problem(`${owner}: implemented and assigned_to_single_plan_entry are counts`)
+    const counts = [route.implemented, route.assigned_to_single_plan_entry, route.declarations]
+    if (!counts.every((count) => Number.isInteger(count) && count >= 0)) {
+      problem(`${owner}: implemented, assigned_to_single_plan_entry, and declarations are counts`)
+    } else if (route.assigned_to_single_plan_entry > route.declarations) {
+      problem(`${owner}: assigned_to_single_plan_entry exceeds its ${route.declarations} declarations`)
+    } else if (route.implemented > route.assigned_to_single_plan_entry) {
+      // A declaration counts as implemented only once one plan entry owns it.
+      problem(`${owner}: implemented (${route.implemented}) exceeds assigned_to_single_plan_entry (${route.assigned_to_single_plan_entry})`)
     }
     implemented += route.implemented
     assigned += route.assigned_to_single_plan_entry
@@ -478,7 +599,7 @@ export function declarationCountProblems(declarations, spec) {
 function main() {
   const root = rootFromModuleUrl(import.meta.url)
   const inputs = loadRepository(root)
-  const { problems, totals } = checkTraceability(inputs)
+  const { problems, totals } = checkTraceability(inputs, { requireFresh: true })
   const specDir = process.env.CHEMIFREE_SPEC_DIR
   if (specDir) problems.push(...checkAgainstSpec(inputs, path.resolve(specDir)))
   for (const message of problems) console.error(`traceability: ${message}`)

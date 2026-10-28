@@ -1,6 +1,6 @@
 {
   "id": "persist-unsaved-lost-at-restart",
-  "title": "Without a save or a recovery draft, edits after the last save are gone after a restart",
+  "title": "Without a save or a recovery draft, edits after the last save are gone after a crash",
   "requirements": ["OPS-02"],
   "axis": "persistence",
   "kind": "accept",
@@ -16,7 +16,7 @@
       "commands": [{ "op": "add_atom", "element": "O", "position": { "x": 20, "y": 0 } }],
       "expect": { "document": { "revision": 2 }, "session": { "saved_revision": 1, "unsaved_changes": true, "draft_revision": null } }
     },
-    { "call": "restart" },
+    { "call": "restart", "note": "a crash: the process ends without a normal stop, which would draft unsaved edits first" },
     {
       "call": "get", "doc": "d",
       "expect": {
