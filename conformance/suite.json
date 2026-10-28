@@ -1,0 +1,23 @@
+{
+  "suite_version": 1,
+  "cases": [
+    "cases/transaction-all-or-nothing.json",
+    "cases/transaction-revision-and-no-op.json",
+    "cases/undo-redo-and-redo-branch.json",
+    "cases/stale-revision-refused.json",
+    "cases/atom-deletion-removes-incident-bonds.json",
+    "cases/request-id-replay.json",
+    "cases/request-id-reuse-refused.json",
+    "cases/fields-persist-across-crash.json",
+    "cases/unsaved-edits-lost-at-crash.json",
+    "cases/draft-recovered-after-crash.json",
+    "cases/out-of-range-input-refused.json",
+    "cases/close-keeps-unsaved-work.json",
+    "cases/capabilities-report-unimplemented.json",
+    "cases/formula-and-mass.json",
+    "cases/molfile-round-trip.json",
+    "cases/graph-scene-separation.json",
+    "cases/hydrogen-states.json",
+    "cases/versioned-operation-contract.json"
+  ]
+}

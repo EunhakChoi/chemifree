@@ -1,0 +1,122 @@
+{
+  "id": "fields-persist-across-crash",
+  "title": "Saved title, atoms (element, charge, isotope, position), bonds and history survive a crash",
+  "requirements": [
+    "OPS-02",
+    "MODEL-02"
+  ],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "title": "Kept drawing"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 12.5,
+            "y": -40
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 42.25,
+            "y": -40
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "double"
+          }
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "charge": -1,
+          "isotope": 13
+        },
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "charge": 2
+        }
+      ]
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "session": {
+          "saved_revision": 2,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "title": "Kept drawing",
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "charge": -1,
+              "isotope": 13,
+              "position": {
+                "x": 12.5,
+                "y": -40
+              }
+            },
+            {
+              "id": "a2",
+              "element": "N",
+              "charge": 2,
+              "isotope": null,
+              "position": {
+                "x": 42.25,
+                "y": -40
+              }
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "double"
+            }
+          ]
+        },
+        "session": {
+          "saved_revision": 2,
+          "unsaved_changes": false,
+          "undo_depth": 2
+        },
+        "recovery": null
+      }
+    }
+  ]
+}

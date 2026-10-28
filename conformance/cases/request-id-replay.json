@@ -1,0 +1,84 @@
+{
+  "id": "request-id-replay",
+  "title": "Repeating a completed edit with the same request_id and body returns the first reply without applying it again",
+  "requirements": [
+    "API-01"
+  ],
+  "axis": "protocol",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "request_id": "edit-1",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "request_id": "edit-1",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1"
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

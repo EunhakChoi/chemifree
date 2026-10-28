@@ -1,0 +1,110 @@
+{
+  "id": "transaction-all-or-nothing",
+  "title": "A transaction with one invalid command changes nothing and names that command",
+  "requirements": [
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "graph",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": []
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a9",
+          "charge": 1
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 2
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": [],
+          "bonds": []
+        },
+        "session": {
+          "undo_depth": 0,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C"
+            },
+            {
+              "id": "a2",
+              "element": "N"
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

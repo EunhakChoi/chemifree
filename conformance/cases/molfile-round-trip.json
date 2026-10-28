@@ -1,0 +1,13 @@
+{
+  "id": "molfile-round-trip",
+  "title": "A drawing survives a MOL V2000 write and read",
+  "requirements": [
+    "CODEC-03"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "pending": {
+    "followup": "P20",
+    "reason": "No MOL reader or writer exists yet."
+  }
+}

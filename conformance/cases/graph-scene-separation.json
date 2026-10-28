@@ -1,0 +1,13 @@
+{
+  "id": "graph-scene-separation",
+  "title": "Chemical graph and scene positions are kept and compared separately",
+  "requirements": [
+    "MODEL-01"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "pending": {
+    "followup": "P09",
+    "reason": "Atoms carry their positions directly; there is no separate scene model yet."
+  }
+}

@@ -1,0 +1,279 @@
+{
+  "report_version": 1,
+  "suite_version": 1,
+  "results": [
+    {
+      "id": "transaction-all-or-nothing",
+      "title": "A transaction with one invalid command changes nothing and names that command",
+      "requirements": [
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "d206bdcb611adf155fcbb7866b0afda3033b8bda36075f66259f6aba2ddc4138"
+    },
+    {
+      "id": "transaction-revision-and-no-op",
+      "title": "Each changing transaction adds one revision; a transaction that changes nothing adds none",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a67f45a599fc5bf174ffd77a57f71faf99f59a9f5b4565421a0dce365ef93411"
+    },
+    {
+      "id": "undo-redo-and-redo-branch",
+      "title": "Undo and redo add revisions; a new edit after undo drops the redo branch without reusing ids",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e3e0180f4d054aa72edb3a711b1599f7197d51b2d49d8040fb50f130ceb1d795"
+    },
+    {
+      "id": "stale-revision-refused",
+      "title": "An edit or undo based on an older revision is refused and changes nothing",
+      "requirements": [
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "history",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "b90f1cc47c8d24bbe95edf7e4b52312c3fc59a5ed73e8cface93ddae412b7284"
+    },
+    {
+      "id": "atom-deletion-removes-incident-bonds",
+      "title": "Deleting an atom deletes exactly the bonds that touch it",
+      "requirements": [
+        "OPS-02",
+        "OPS-01"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "53919395f3ca86b3d77c47d044c6d8b34b877fe98a830e50424a9f4b117ff347"
+    },
+    {
+      "id": "request-id-replay",
+      "title": "Repeating a completed edit with the same request_id and body returns the first reply without applying it again",
+      "requirements": [
+        "API-01"
+      ],
+      "axis": "protocol",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "9cee4354b36fb9625921f54affa9cf89874398889949a32640a0a84762fe3a00"
+    },
+    {
+      "id": "request-id-reuse-refused",
+      "title": "Reusing a request_id for a different request is refused and changes nothing",
+      "requirements": [
+        "API-01"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "efc089e447a9ecd959cc8ea06537cb039b3cbd2f11d2b1b034853a61c7878893"
+    },
+    {
+      "id": "fields-persist-across-crash",
+      "title": "Saved title, atoms (element, charge, isotope, position), bonds and history survive a crash",
+      "requirements": [
+        "OPS-02",
+        "MODEL-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "bcc7a166010f3410fc278c7eba07dcd74232ab6634bf57991acd69760d4f8a67"
+    },
+    {
+      "id": "unsaved-edits-lost-at-crash",
+      "title": "Edits that were neither saved nor drafted are gone after a crash; the last save remains",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "01f68f2c6c58277b178ded3c9807ffb438ce52395f231300999158e7a6e4ddfe"
+    },
+    {
+      "id": "draft-recovered-after-crash",
+      "title": "Unsaved work in a recovery draft survives a crash and is recovered with its history",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "09aa7b61ff17c1beb1963b6045e1e3adf7e4a4a69c17658ba9400ef35d41fd5b"
+    },
+    {
+      "id": "out-of-range-input-refused",
+      "title": "Charge, isotope, coordinate, element and request_id just outside their ranges are refused and change nothing; the range ends are accepted",
+      "requirements": [
+        "MODEL-02",
+        "API-01"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "94e69a7bd22406a407ab9f9e25926d63e58f2f8290532c43afad90121eec277a"
+    },
+    {
+      "id": "close-keeps-unsaved-work",
+      "title": "Closing with unsaved changes is refused unless the client confirms the revision it discards",
+      "requirements": [
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "persistence",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "cf8dc65145c8f2576baaa2ab549904d299ba99c6ad7339dd8abb0f2816cfa364"
+    },
+    {
+      "id": "capabilities-report-unimplemented",
+      "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+      "requirements": [
+        "API-01",
+        "QUALITY-01"
+      ],
+      "axis": "protocol",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f40acc5ffb2f0e3e042f89fc6eed5f72f2ca1ebf2cd0cbed92942391dbb19f75"
+    },
+    {
+      "id": "formula-and-mass",
+      "title": "Molecular formula and mass of a drawn structure",
+      "requirements": [
+        "CHEM-01"
+      ],
+      "axis": "numeric",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P19",
+        "reason": "No formula or mass calculation exists yet."
+      },
+      "failure": null,
+      "case_sha256": "6738f16f609471ff710d71722700dd20ab2fe41ae1e32d7f13fb4272f0a98d4b"
+    },
+    {
+      "id": "molfile-round-trip",
+      "title": "A drawing survives a MOL V2000 write and read",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P20",
+        "reason": "No MOL reader or writer exists yet."
+      },
+      "failure": null,
+      "case_sha256": "3f651e9fdb22dc3fff872653378f231893e07350cf163bd2a7bec9af4b419756"
+    },
+    {
+      "id": "graph-scene-separation",
+      "title": "Chemical graph and scene positions are kept and compared separately",
+      "requirements": [
+        "MODEL-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P09",
+        "reason": "Atoms carry their positions directly; there is no separate scene model yet."
+      },
+      "failure": null,
+      "case_sha256": "7052b8660332a5669dcd0ce384b96fb9c0e7cb96e42c2be7ac21f6a81b3745a3"
+    },
+    {
+      "id": "hydrogen-states",
+      "title": "Explicit, implicit and unspecified hydrogens are told apart",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P10",
+        "reason": "Atoms record no hydrogen state yet."
+      },
+      "failure": null,
+      "case_sha256": "e243d1be65f05d46d6db5f2037c1875ba8822521a9ff63f46dce0f5c3f188578"
+    },
+    {
+      "id": "versioned-operation-contract",
+      "title": "Each operation has a versioned request, result and error schema",
+      "requirements": [
+        "API-01"
+      ],
+      "axis": "protocol",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P13",
+        "reason": "Only the v1 document API exists; no per-operation versioned contract yet."
+      },
+      "failure": null,
+      "case_sha256": "45866a57c6aab793745d07c9cbb8a2ce784aa50a2b20ef15926e6737b072dbdf"
+    }
+  ],
+  "counts": {
+    "accept": {
+      "passed": 8,
+      "failed": 0,
+      "not_run": 5
+    },
+    "reject": {
+      "passed": 5,
+      "failed": 0,
+      "not_run": 0
+    },
+    "total": {
+      "passed": 13,
+      "failed": 0,
+      "not_run": 5
+    }
+  }
+}

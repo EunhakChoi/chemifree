@@ -1,0 +1,299 @@
+{
+  "id": "out-of-range-input-refused",
+  "title": "Charge, isotope, coordinate, element and request_id just outside their ranges are refused and change nothing; the range ends are accepted",
+  "requirements": [
+    "MODEL-02",
+    "API-01"
+  ],
+  "axis": "protocol",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "$0",
+          "charge": 1
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "charge": 9
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "charge": -9
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "isotope": 1000
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "isotope": 0
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100001,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "Xx",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [],
+      "expect_error": {
+        "code": "invalid_command"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "request_id": "not valid!",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_request"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": []
+        },
+        "session": {
+          "undo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "H",
+          "position": {
+            "x": -100000,
+            "y": 100000
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Og",
+          "position": {
+            "x": 100000,
+            "y": -100000
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "H",
+              "position": {
+                "x": -100000,
+                "y": 100000
+              }
+            },
+            {
+              "id": "a2",
+              "element": "Og",
+              "position": {
+                "x": 100000,
+                "y": -100000
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "charge": -8,
+          "isotope": 1
+        },
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "charge": 8,
+          "isotope": 999
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "H",
+              "charge": -8,
+              "isotope": 1
+            },
+            {
+              "id": "a2",
+              "element": "Og",
+              "charge": 8,
+              "isotope": 999
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+conformance/**/*.json text eol=lf
+docs/verification/conformance-report.json text eol=lf
