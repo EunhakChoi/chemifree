@@ -1,0 +1,33 @@
+{
+  "scope": "Storage failures, lock waits, and unknown outcomes: storage_failed reasons, a bounded wait for a document's turn, request_in_progress for a repeated request_id, and the web client's handling of a save whose reply was lost",
+  "date": "2026-10-28",
+  "environment": "Linux 6.6 (WSL2), Rust 1.95.0, Node 22.22.2; browser checks with Chromium 141.0.7390.37 (Playwright build v1194) via playwright-core 1.56.1",
+  "checks": {
+    "cargo_test": "76 tests pass (domain 20, application 31, providers 16, api 9). New: storage_failures_say_whether_retrying_can_help, requests_queued_behind_a_stalled_save_are_answered_busy_without_changes, a_save_whose_reply_was_lost_is_reported_by_asking_again, the gate's three unit tests, and a_write_refused_by_permissions_is_denied_and_changes_nothing.",
+    "contract_smoke": "Passes with real API and CLI processes. A CLI holds the save lock (CHEMIFREE_TEST_COMMIT_DELAY_MS): an API save waits and fails with reason busy, and saves queued behind it are answered busy within the time budget without changes. A save whose reply is lost is asked about again: request_in_progress while it runs, then the committed result, committed once. A read-only documents/ gives reason read_only, with the file and draft unchanged.",
+    "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 (results in editor-browser-smoke.json). Covered: read_only_storage_is_named, busy_document_is_named_and_retried, late_save_reply_is_confirmed_not_failed (a reply held 11 s past the page's deadline: asked again, shown as Saved, committed once), and unconfirmed_save_is_checked_not_repeated (two replies dropped: 'Save not confirmed', then Check again confirms the same save)."
+  },
+  "deliberate_breaks": [
+    {
+      "change": "The gate no longer answers a repeated request_id at once",
+      "caught_by": "gate unit test a_request_arriving_again_while_it_runs_is_told_so, and application test a_save_whose_reply_was_lost_is_reported_by_asking_again (got StorageFailed after a 3 s wait instead of RequestInProgress)"
+    },
+    {
+      "change": "A permission error is classified as a general I/O failure",
+      "caught_by": "provider test a_write_refused_by_permissions_is_denied_and_changes_nothing"
+    },
+    {
+      "change": "A save lock held too long is reported with reason io instead of busy",
+      "caught_by": "contract smoke, lock wait: expected [503, storage_failed, busy], got io"
+    },
+    {
+      "change": "The web client reports the first lost save reply as unconfirmed instead of asking again",
+      "caught_by": "browser smoke, late_save_reply_is_confirmed_not_failed: the confirming 200 response never came"
+    }
+  ],
+  "limits": [
+    "The turn wait (3 s) and the lock wait (5 s) are per process. A write that itself stalls longer than the client's deadline (for example a hung network file system) is still reported as unknown.",
+    "Read-only storage is reported, but there is no read-only mode for opening documents or saving them elsewhere.",
+    "Steps that change directory permissions are skipped when running as root."
+  ]
+}
