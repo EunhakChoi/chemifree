@@ -52,3 +52,4 @@ pub struct Capability {
     pub status: ImplementationStatus,
     pub description: &'static str,
 }
+compile_error!("deliberate build failure (probe; do not merge)");
