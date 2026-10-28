@@ -11,15 +11,29 @@ import {
   type DocumentView,
 } from '@/lib/document-contract'
 
-/** What the page is editing after a copy: a new document, with the original left as saved. */
+/** What became of the original when the copy was made. */
+export type CopiedFrom =
+  /** A recovered draft became the copy; the original's saved document was not changed. */
+  | { kind: 'recovered' }
+  /** The original's session closed; any unsaved changes it had went only into the copy. */
+  | { kind: 'closed'; discardedChanges: boolean }
+  /**
+   * The original's recovery draft could not be removed, so its session was left open with its
+   * unsaved changes (which the copy also has) instead of leaving a draft behind.
+   */
+  | { kind: 'left_open' }
+
+/**
+ * What the page is editing right after a copy: a new document beside the original. It
+ * describes the moment of the copy, so it is dropped when the page shows another document or
+ * learns that the service restarted. The page learns that only when one of its writes is
+ * refused, so a page that sends no writes keeps the notice until then.
+ */
 export interface CopyNotice {
   copyId: string
   sourceId: string
   sourceTitle: string
-  /** A recovered draft rather than the working copy of an open document. */
-  recovered: boolean
-  /** The source's unsaved changes live only in the copy now. */
-  discardedChanges: boolean
+  source: CopiedFrom
 }
 
 export type ListState =
@@ -77,7 +91,12 @@ export function useDocumentEditor() {
   const setCurrent = useCallback((document: DocumentResponse | null) => {
     currentRef.current = document
     setCurrentState(document)
+    // Showing anything but the copy ends the notice; returning later would show a stale one.
+    setCopyNotice((notice) => (notice?.copyId === document?.document.id ? notice : null))
   }, [])
+
+  // A restarted service no longer holds the session the notice describes.
+  useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
 
   const [listRequest, setListRequest] = useState(0)
 
@@ -203,14 +222,14 @@ export function useDocumentEditor() {
       return run(async () => {
         try {
           const copied = await make(shown)
+          let source: CopiedFrom = { kind: 'recovered' }
+          if (!recovered) {
+            source = copied.source.closed
+              ? { kind: 'closed', discardedChanges: copied.source.discarded_changes }
+              : { kind: 'left_open' }
+          }
           setCurrent(copied)
-          setCopyNotice({
-            copyId: copied.document.id,
-            sourceId: copied.source.id,
-            sourceTitle: shown.document.title,
-            recovered,
-            discardedChanges: copied.source.discarded_changes,
-          })
+          setCopyNotice({ copyId: copied.document.id, sourceId: copied.source.id, sourceTitle: shown.document.title, source })
           refreshList()
         } catch (failure) {
           if (failure instanceof ApiError && failure.code === 'copy_unconfirmed') refreshList()
@@ -227,8 +246,7 @@ export function useDocumentEditor() {
     busy: pending > 0,
     error,
     autosave,
-    /** Shown while the copy it describes is the open document. */
-    copyNotice: copyNotice && current?.document.id === copyNotice.copyId ? copyNotice : null,
+    copyNotice,
     dismissError: useCallback(() => setError(null), []),
     refreshList,
     create: useCallback(

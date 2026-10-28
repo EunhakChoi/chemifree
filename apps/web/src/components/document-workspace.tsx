@@ -65,7 +65,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { stillApplicable } from '@/editor/commands'
 import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
 import type { AutosaveState } from '@/hooks/use-autosave'
-import { useDocumentEditor, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
+import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import type {
   AtomView,
   BondOrder,
@@ -529,17 +529,28 @@ function DiscardDraftButton({ editor, when }: { editor: DocumentEditor; when: st
   )
 }
 
+/** What the notice says became of the original when the copy was made. */
+function copiedFromText(source: CopiedFrom, original: string) {
+  switch (source.kind) {
+    case 'recovered':
+      return `The recovered work was saved as this new document. ${original} is unchanged.`
+    case 'closed':
+      return `This is a new, separate document. ${original} keeps its last save${source.discardedChanges ? '; the changes that were unsaved there are only in this copy' : ''}.`
+    case 'left_open':
+      return `This is a new, separate document. ${original} was left open with its unsaved changes, which this copy also has, because its recovery draft could not be removed. Open the original to save or discard them.`
+    default: {
+      const unhandled: never = source
+      return unhandled
+    }
+  }
+}
+
 function CopyNoticeBanner({ editor, notice, title }: { editor: DocumentEditor; notice: CopyNotice; title: string }) {
-  const original = `“${notice.sourceTitle}”`
   return (
-    <Alert data-testid="copy-notice">
+    <Alert data-testid="copy-notice" data-source={notice.source.kind}>
       <CopyPlusIcon aria-hidden="true" />
       <AlertTitle>Now editing the copy “{title}”</AlertTitle>
-      <AlertDescription>
-        {notice.recovered
-          ? `The recovered work was saved as this new document. ${original} is unchanged.`
-          : `This is a new, separate document. ${original} keeps its last save${notice.discardedChanges ? '; the changes that were unsaved there are only in this copy' : ''}.`}
-      </AlertDescription>
+      <AlertDescription>{copiedFromText(notice.source, `“${notice.sourceTitle}”`)}</AlertDescription>
       <AlertAction>
         <Button size="sm" variant="outline" onClick={() => void editor.open(notice.sourceId)} disabled={editor.busy}>
           Open original

@@ -828,6 +828,76 @@ await waitForTitle('Elsewhere')
 results.a_session_moved_elsewhere_is_drafted_once = true
 step = 'after a_session_moved_elsewhere_is_drafted_once'
 
+// Save as copy while the original's draft cannot be removed (drafts/ is briefly read-only):
+// the copy is committed and shown, the original stays open with its unsaved changes and its
+// draft, and the notice says so and leads back to it. The notice describes that moment only,
+// so it is gone once the page leaves the copy, and once the service restarts while the copy is
+// still shown (the restart ends the original's session).
+if (process.getuid?.() !== 0) {
+  const draftsDir = join(dataDir, 'drafts')
+  const notice = page.getByTestId('copy-notice')
+  const copyLeavingOpen = async (title) => {
+    await drawPair()
+    await waitDraft('saved')
+    chmodSync(draftsDir, 0o500)
+    try {
+      const answered = page.waitForResponse((r) => r.url().endsWith('/save-as'))
+      await page.getByRole('button', { name: 'Save as copy' }).click()
+      await page.getByRole('dialog').getByLabel('Title of the copy').fill(title)
+      await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+      return await (await answered).json()
+    } finally {
+      chmodSync(draftsDir, 0o700)
+    }
+  }
+
+  const sourceId = docId
+  const sourceTitle = await page.getByLabel('Document title').inputValue()
+  const beside = await copyLeavingOpen('Beside')
+  const sourceView = await openDoc()
+  assert.deepEqual(beside.source, { id: sourceId, closed: false, discarded_changes: false })
+  await waitForTitle('Beside')
+  await notice.waitFor()
+  assert.equal(await notice.getAttribute('data-source'), 'left_open')
+  assert.match(await notice.textContent(), new RegExp(`“${sourceTitle}” was left open with its unsaved changes`))
+  await page.screenshot({ path: join(outDir, 'editor-copy-left-open.png') })
+  assert.ok(existsSync(draftFile()), "the original's draft is kept")
+  assert.deepEqual(
+    [sourceView.session.unsaved_changes, sourceView.session.draft_revision],
+    [true, sourceView.document.revision],
+    'the original is still open with its changes and its draft',
+  )
+  await page.getByRole('button', { name: 'Open original' }).click()
+  await waitForTitle(sourceTitle)
+  await notice.waitFor({ state: 'detached' })
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  assert.ok(!existsSync(draftFile()), "saving the original removes its draft")
+  await closeShown()
+  docId = beside.document.id
+  await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+  await waitForTitle('Beside')
+  assert.equal(await notice.count(), 0, 'returning to the copy shows no notice from before')
+  results.save_as_copy_reports_an_original_left_open = true
+  step = 'after save_as_copy_reports_an_original_left_open'
+
+  const after = await copyLeavingOpen('After restart')
+  assert.equal(after.source.closed, false)
+  await waitForTitle('After restart')
+  await notice.waitFor()
+  await crashApi()
+  docId = after.document.id
+  const edited = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && r.url().endsWith(`/${docId}/transactions`) && r.status() === 200,
+  )
+  await drawPair()
+  await edited
+  await notice.waitFor({ state: 'detached' })
+  const restartedCopy = await openDoc()
+  assert.ok(restartedCopy.document.atoms.length > after.document.atoms.length, 'the edit was retried on the restarted service')
+  results.copy_notice_ends_when_the_service_restarts = true
+  step = 'after copy_notice_ends_when_the_service_restarts'
+}
+
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
