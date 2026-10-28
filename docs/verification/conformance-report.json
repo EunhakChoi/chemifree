@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 1,
+  "suite_version": 2,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -244,36 +244,76 @@
     },
     {
       "id": "versioned-operation-contract",
-      "title": "Each operation has a versioned request, result and error schema",
+      "title": "Operation contract 1 runs create, edit, save and read with a typed reply naming its contract, profile, outcome, revision, model and losses",
       "requirements": [
-        "API-01"
+        "API-01",
+        "OPS-02"
       ],
       "axis": "protocol",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P13",
-        "reason": "Only the v1 document API exists; no per-operation versioned contract yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "45866a57c6aab793745d07c9cbb8a2ce784aa50a2b20ef15926e6737b072dbdf"
+      "case_sha256": "2eab62a6d6825f9973cc7c6cdf066b8d050c8e4a9241258f8abcc9667786b074"
+    },
+    {
+      "id": "operation-errors-match-v1",
+      "title": "A failed operation reports the v1 error code and facts as a diagnostic, without a result, and changes nothing",
+      "requirements": [
+        "API-01",
+        "OPS-02"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "df7b59a9d9be3a07afe8790aae095ffaa1d09846dd640ef0ca094801c3326fa9"
+    },
+    {
+      "id": "operation-unsupported",
+      "title": "An operation that does not run, or a profile that reproduces nothing, is answered unsupported without a result or a change",
+      "requirements": [
+        "API-01",
+        "CHEM-02"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "34955b6a45ba510723b36ae0132645133f84d03257c9b8b699c9e6a6484ab60e"
+    },
+    {
+      "id": "operation-version-refused",
+      "title": "A request for an operation contract version, operation or shape the service does not support is refused with a structured protocol error",
+      "requirements": [
+        "API-01",
+        "QUALITY-01"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "758cd43f5cef83b23c0eb25b20c15f83a46a3e8390b9699491f4bed490156455"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 8,
+      "passed": 9,
       "failed": 0,
-      "not_run": 5
+      "not_run": 4
     },
     "reject": {
-      "passed": 5,
+      "passed": 8,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 13,
+      "passed": 17,
       "failed": 0,
-      "not_run": 5
+      "not_run": 4
     }
   }
 }

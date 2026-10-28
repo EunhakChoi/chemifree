@@ -1,12 +1,12 @@
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
     Application, ApplicationError, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, ErrorCode, ListQuery, ListSort, RecoveryState,
-    RestoreResponse, TrashListResponse,
+    DocumentResponse, DraftDiscardResponse, ErrorCode, ListQuery, ListSort, OperationResponse,
+    RecoveryState, RestoreResponse, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -42,6 +42,10 @@ enum Command {
     /// Create, inspect, and edit saved documents. Every edit is saved before exit.
     #[command(subcommand)]
     Documents(DocumentCommand),
+    /// Run operation contract requests: one JSON request per line on standard input, one JSON
+    /// reply per line on standard output. Sessions last for this process only: edits are kept
+    /// only once a document.save request commits them.
+    Operations,
 }
 
 #[derive(Subcommand)]
@@ -178,7 +182,7 @@ struct Target {
 fn main() -> ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.or_else(default_data_dir);
-    let documents_need_data = matches!(args.command, Command::Documents(_));
+    let documents_need_data = matches!(args.command, Command::Documents(_) | Command::Operations);
     let Some(data_dir) = data_dir.or_else(|| (!documents_need_data).then(PathBuf::new)) else {
         eprintln!("error: no user data directory found; pass --data-dir or set CHEMIFREE_DATA_DIR");
         return ExitCode::FAILURE;
@@ -210,10 +214,18 @@ fn main() -> ExitCode {
                     println!("{}: {}", capability.id, capability.status);
                     println!("  {}", capability.description);
                 }
+                println!(
+                    "Operation contract {:?}:",
+                    response.operation_catalog.contracts
+                );
+                for operation in response.operation_catalog.operations {
+                    println!("{}: {}", operation.id, operation.execution);
+                }
             }
             ExitCode::SUCCESS
         }
         Command::Documents(command) => run_document_command(&application, command),
+        Command::Operations => run_operations(&application),
     }
 }
 
@@ -371,6 +383,53 @@ fn report<T: Serialize>(
         Err(error) => {
             eprintln!("error: {error}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// Answers each line of standard input as one operation request, in order. A line over
+/// [`MAX_COMMAND_INPUT_BYTES`] is answered as too large without being read whole.
+fn run_operations(application: &LocalApplication) -> ExitCode {
+    let mut input = io::stdin().lock();
+    let mut output = io::stdout().lock();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let read = (&mut input)
+            .take(MAX_COMMAND_INPUT_BYTES + 1)
+            .read_until(b'\n', &mut line);
+        match read {
+            Ok(0) => return ExitCode::SUCCESS,
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("error: could not read standard input: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+        let ended = line.last() == Some(&b'\n');
+        let reply = if !ended && line.len() as u64 > MAX_COMMAND_INPUT_BYTES {
+            if let Err(error) = input.skip_until(b'\n') {
+                eprintln!("error: could not read standard input: {error}");
+                return ExitCode::FAILURE;
+            }
+            OperationResponse::unread(
+                ErrorCode::ResourceLimit.as_str(),
+                format!("The request is larger than {MAX_COMMAND_INPUT_BYTES} bytes."),
+            )
+        } else if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        } else {
+            // The line ending separates requests; it is not part of the request.
+            let request = line.strip_suffix(b"\n").unwrap_or(&line);
+            application.execute(request.strip_suffix(b"\r").unwrap_or(request))
+        };
+        let written = serde_json::to_writer(&mut output, &reply)
+            .map_err(io::Error::from)
+            .and_then(|()| output.write_all(b"\n"))
+            .and_then(|()| output.flush());
+        if let Err(error) = written {
+            eprintln!("error: could not write the reply: {error}");
+            return ExitCode::FAILURE;
         }
     }
 }

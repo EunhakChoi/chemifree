@@ -1,0 +1,120 @@
+{
+  "id": "operation-unsupported",
+  "title": "An operation that does not run, or a profile that reproduces nothing, is answered unsupported without a result or a change",
+  "requirements": [
+    "API-01",
+    "CHEM-02"
+  ],
+  "axis": "protocol",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-props",
+        "profile": "preserve-semantics",
+        "operation": "chem.properties",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "model_id": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "operation_not_implemented",
+            "details": {
+              "execution": "not_implemented",
+              "followup": "P19"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-validate",
+        "profile": "preserve-semantics",
+        "operation": "chem.validate",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "operation_not_implemented",
+            "details": {
+              "followup": "P16"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-predict",
+        "profile": "preserve-semantics",
+        "operation": "prediction.evaluate",
+        "parameters": {
+          "model_id": "any"
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "model_id": null
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-legacy",
+        "profile": "legacy-observed",
+        "operation": "document.transaction",
+        "parameters": {
+          "expected_revision": 0,
+          "commands": [
+            {
+              "op": "rename",
+              "title": "x"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "profile_unavailable"
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "title": "Untitled"
+        }
+      },
+      "document": "d"
+    }
+  ]
+}

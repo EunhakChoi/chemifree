@@ -1,12 +1,14 @@
 // Checks the web client's handling of requests whose outcome is unknown, against a scripted
 // service instead of a browser, so that orderings a browser cannot produce on demand (a
-// restart noticed by another request while one is being asked about) run every time.
+// restart noticed by another request while one is being asked about) run every time. Also
+// checks which runtime replies the client accepts.
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 const { DocumentClient } = await import('../apps/web/src/lib/document-contract.ts')
+const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -386,3 +388,58 @@ test('reading the document again after a re-read found a restart ties the page t
   const drafts = scripted.writes.filter((write) => write.path.endsWith('/autosave'))
   assert.deepEqual(drafts.map((write) => write.token), ['token-1', 'token-2'])
 })
+
+const health = { api_version: 'v1', service: 'chemifree', version: '0.1.0', stage: 'scaffold', status: 'ok' }
+const capability = { id: 'document_editing', label: 'Editing', status: 'available', description: 'Drawings.' }
+const catalog = () => ({
+  implementation: 'chemifree',
+  version: '0.1.0',
+  contracts: [1],
+  profiles: [{ id: 'preserve-semantics', execution: 'executable', note: 'Keeps meaning.' }],
+  operations: [
+    {
+      id: 'document.transaction',
+      representation: 'supported',
+      execution: 'executable',
+      note: 'Edits.',
+      sub_operations: [
+        { id: 'radical', representation: 'not_supported', execution: 'not_implemented', followup: 'P10', note: 'No.' },
+      ],
+    },
+    { id: 'chem.properties', representation: 'not_supported', execution: 'not_implemented', followup: 'P19', note: 'No.' },
+  ],
+})
+/** Answers the runtime reads with `capabilities` as the capabilities reply. */
+function runtime(capabilities) {
+  globalThis.fetch = async (path) => json(200, path === '/api/v1/health' ? health : capabilities)
+  return readRuntime(new AbortController().signal)
+}
+
+test('a capabilities reply without an operation catalog, from before it was added, is accepted', async () => {
+  const snapshot = await runtime({ api_version: 'v1', capabilities: [capability] })
+  assert.equal(snapshot.operationCatalog, null)
+  assert.deepEqual(snapshot.capabilities, [capability])
+})
+
+test('an operation catalog is read with its sub-operations and follow-ups', async () => {
+  const snapshot = await runtime({ api_version: 'v1', capabilities: [capability], operation_catalog: catalog() })
+  assert.deepEqual(snapshot.operationCatalog, catalog())
+})
+
+for (const [name, change] of [
+  ['an unknown execution state', (value) => (value.operations[1].execution = 'planned')],
+  ['an unknown representation', (value) => (value.operations[0].sub_operations[0].representation = 'partial')],
+  ['a duplicate operation', (value) => value.operations.push(value.operations[1])],
+  ['a non-string follow-up', (value) => (value.operations[1].followup = 19)],
+  ['no contract version', (value) => (value.contracts = [])],
+  ['a profile without its execution', (value) => delete value.profiles[0].execution],
+]) {
+  test(`an operation catalog with ${name} is refused`, async () => {
+    const value = catalog()
+    change(value)
+    await assert.rejects(
+      runtime({ api_version: 'v1', capabilities: [capability], operation_catalog: value }),
+      /incompatible API v1 response/,
+    )
+  })
+}

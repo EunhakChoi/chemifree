@@ -474,13 +474,23 @@
    "acceptance": "기능과 선언의 미할당 항목이 목록에 남고 실제 시험·미실행·기대 거절을 구분한다. 원본 자료 전체와 개인 DATA가 Git에 들어가지 않는다.",
    "kind": "core",
    "id": "P08",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
     "quality"
    ],
-   "depends_on": []
+   "depends_on": [],
+   "delivered": {
+    "prs": [
+     26,
+     27,
+     28
+    ],
+    "merge_commit": "ede7230",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40781143752",
+    "note": "#26 and #27 did not pass Codex review in 3 rounds and were closed unmerged; #28 reimplemented it from main with narrower checks and was merged."
+   }
   },
   {
    "phase": "foundation",
@@ -604,7 +614,7 @@
    "acceptance": "웹·HTTP·CLI에서 같은 의미의 오류와 결과를 검증한다. 일부 하위 기능이 구현됐다는 이유로 전체 화학 기능을 available로 광고하지 않는다.",
    "kind": "core",
    "id": "P13",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",
@@ -3760,7 +3770,7 @@
     "deep-behavior-contracts.md",
     "phase2-naming-observed-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P10",
     "P13",

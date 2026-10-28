@@ -175,3 +175,48 @@ fn each_run_starts_with_an_empty_data_directory() {
         assert_eq!(outcome, Ok(()));
     }
 }
+
+fn operation_request(id: &str, operation: &str, parameters: Value) -> Value {
+    json!({"contract": 1, "request_id": id, "profile": "preserve-semantics",
+        "operation": operation, "parameters": parameters})
+}
+
+#[test]
+fn an_operation_runs_on_its_bound_document_and_binds_the_one_it_creates() {
+    let outcome = run(
+        "accept",
+        json!([
+            {"call": "operation", "bind": "d",
+             "request": operation_request("c", "document.create", json!({"title": "Op"})),
+             "expect": {"outcome": "ok", "document_revision": 0}},
+            {"call": "operation", "document": "d",
+             "request": operation_request("e", "document.transaction", json!({"expected_revision": 0,
+                 "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}]})),
+             "expect": {"outcome": "ok", "document_revision": 1}},
+            {"call": "get", "document": "d", "expect": {"document": {"title": "Op", "revision": 1}}}
+        ]),
+    );
+    assert_eq!(outcome, Ok(()));
+}
+
+#[test]
+fn an_operation_with_another_outcome_fails_and_raw_text_is_sent_as_is() {
+    let wrong = run(
+        "accept",
+        json!([{"call": "operation",
+            "request": operation_request("p", "chem.properties", json!({})),
+            "expect": {"outcome": "ok"}}]),
+    );
+    assert!(
+        wrong
+            .as_ref()
+            .is_err_and(|message| message.contains("outcome")),
+        "{wrong:?}"
+    );
+    let raw = run(
+        "reject",
+        json!([{"call": "operation", "request": "{\"contract\": 1,",
+            "expect": {"outcome": "error", "envelope": "protocol_error", "request_id": null}}]),
+    );
+    assert_eq!(raw, Ok(()));
+}

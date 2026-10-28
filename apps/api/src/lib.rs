@@ -25,8 +25,8 @@ use chemifree_application::{
     API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
     CopyResponse, CreateDocumentRequest, DeleteResponse, DocumentListResponse, DocumentResponse,
     DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse, ListQuery,
-    RecoverAsCopyRequest, RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest,
-    SaveAsRequest, TransactionRequest, TrashListResponse,
+    OperationResponse, RecoverAsCopyRequest, RenameRequest, RestoreRequest, RestoreResponse,
+    RevisionRequest, SaveAsRequest, TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde::Serialize;
@@ -167,6 +167,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/documents/{id}/rename", post(rename))
         .route("/api/v1/documents/{id}/delete", post(delete))
         .route("/api/v1/trash/{id}/restore", post(restore))
+        .route("/api/v1/operations", post(operations))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -354,6 +355,39 @@ async fn health(State(state): State<Shared>) -> Json<HealthResponse> {
 
 async fn capabilities(State(state): State<Shared>) -> Json<CapabilitiesResponse> {
     Json(state.application.capabilities())
+}
+
+/// Runs one request of the operation contract. Every reply is the contract's envelope: 200 with
+/// an operation result whatever its outcome, 400 with a protocol error, 413 for a body over
+/// [`MAX_BODY_BYTES`], and 415 without a JSON content type.
+async fn operations(State(state): State<Shared>, request: Request) -> Response {
+    let json = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"));
+    if !json {
+        let reply = OperationResponse::unread(
+            "unsupported_media_type",
+            "Operation requests need Content-Type: application/json.",
+        );
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, Json(reply)).into_response();
+    }
+    let Ok(body) = axum::body::to_bytes(request.into_body(), MAX_BODY_BYTES).await else {
+        let reply = OperationResponse::unread(
+            ErrorCode::ResourceLimit.as_str(),
+            format!("The request is larger than {MAX_BODY_BYTES} bytes or could not be read."),
+        );
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(reply)).into_response();
+    };
+    match run(state, move |app| Ok(app.execute(&body))).await {
+        Ok(reply) if reply.is_protocol_error() => {
+            (StatusCode::BAD_REQUEST, Json(reply)).into_response()
+        }
+        Ok(reply) => Json(reply).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 #[derive(Serialize)]

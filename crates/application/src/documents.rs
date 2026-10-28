@@ -1737,7 +1737,7 @@ fn summary(
     }
 }
 
-fn validate_request_id(request_id: Option<&str>) -> Result<(), ApplicationError> {
+pub(crate) fn validate_request_id(request_id: Option<&str>) -> Result<(), ApplicationError> {
     let valid = request_id.is_none_or(|id| {
         (1..=MAX_REQUEST_ID_CHARS).contains(&id.len())
             && id

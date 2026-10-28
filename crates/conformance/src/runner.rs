@@ -9,7 +9,9 @@ use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::case::{Body, Call, Case, Expectation, Kind, LoadedCase, Pending, Step, Suite};
+use crate::case::{
+    Body, Call, Case, Expectation, Kind, LoadedCase, OperationRequest, Pending, Step, Suite,
+};
 use crate::expect;
 
 /// The record format version.
@@ -157,15 +159,23 @@ fn run_steps(steps: &[Step]) -> Result<(), String> {
         };
         let outcome = call(running, &step.call, &documents).map_err(fail)?;
         check(&step.expectation, &outcome).map_err(fail)?;
-        if let (
-            Call::Create {
-                bind: Some(name), ..
-            },
-            Ok(response),
-        ) = (&step.call, &outcome)
-        {
-            let id = response
-                .pointer("/document/id")
+        let bound = match (&step.call, &outcome) {
+            (
+                Call::Create {
+                    bind: Some(name), ..
+                },
+                Ok(response),
+            ) => Some((name, response.pointer("/document/id"))),
+            (
+                Call::Operation {
+                    bind: Some(name), ..
+                },
+                Ok(reply),
+            ) => Some((name, reply.pointer("/result/document/id"))),
+            _ => None,
+        };
+        if let Some((name, id)) = bound {
+            let id = id
                 .and_then(Value::as_str)
                 .ok_or_else(|| fail("the response names no document id".to_owned()))?;
             documents.insert(name.clone(), id.to_owned());
@@ -235,6 +245,26 @@ fn call(
         )),
         Call::Capabilities => json(Ok(application.capabilities())),
         Call::Restart => return Err("restart is not a call".to_owned()),
+        Call::Operation {
+            request, document, ..
+        } => {
+            let body = match (request, document) {
+                (OperationRequest::Raw(raw), _) => raw.clone().into_bytes(),
+                (OperationRequest::Json(request), Some(name)) => {
+                    let mut request = request.clone();
+                    // Loading checked that the request has a parameters object.
+                    if let Some(parameters) =
+                        request.get_mut("parameters").and_then(Value::as_object_mut)
+                    {
+                        parameters.insert("document_id".to_owned(), Value::from(id(name)?));
+                    }
+                    request.to_string().into_bytes()
+                }
+                (OperationRequest::Json(request), None) => request.to_string().into_bytes(),
+            };
+            // An operation answers every request with an operation reply, never an error.
+            json(Ok(application.execute(&body)))
+        }
     };
     outcome.map_err(|error| format!("cannot encode the outcome: {error}"))
 }

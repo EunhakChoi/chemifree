@@ -121,6 +121,21 @@ pub enum Call {
     /// Ends the application without a normal stop, as a crash would, and starts a new one on
     /// the same data directory.
     Restart,
+    /// A request of the operation contract, passed to `Application::execute` as the HTTP and
+    /// CLI adapters pass it. With `document`, the bound document's identifier is set as
+    /// `parameters.document_id`; with `bind`, the document in the result is bound to a name.
+    Operation {
+        request: OperationRequest,
+        document: Option<String>,
+        bind: Option<String>,
+    },
+}
+
+/// An operation request: JSON, or raw text sent byte for byte (to send one that is not JSON).
+#[derive(Clone, Debug)]
+pub enum OperationRequest {
+    Json(Value),
+    Raw(String),
 }
 
 impl Call {
@@ -137,6 +152,7 @@ impl Call {
             Self::Close { .. } => "close",
             Self::Capabilities => "capabilities",
             Self::Restart => "restart",
+            Self::Operation { .. } => "operation",
         }
     }
 }
@@ -205,6 +221,9 @@ pub enum StepProblem {
     BindExpectsError,
     BothExpectations,
     ExpectationOnRestart,
+    OperationRequest(&'static str),
+    OperationExpectsOutcome,
+    OperationExpectsNoError,
     Expect(ExpectationError),
     ExpectError(ExpectationError),
     Body(String),
@@ -239,6 +258,14 @@ impl fmt::Display for StepProblem {
             }
             Self::BothExpectations => write!(formatter, "has both expect and expect_error"),
             Self::ExpectationOnRestart => write!(formatter, "restart takes no expectation"),
+            Self::OperationRequest(message) => write!(formatter, "operation request {message}"),
+            Self::OperationExpectsOutcome => {
+                write!(formatter, "an operation step expects the reply's outcome")
+            }
+            Self::OperationExpectsNoError => write!(
+                formatter,
+                "an operation is answered with an operation reply, never an error envelope; expect its outcome"
+            ),
             Self::Expect(error) => write!(formatter, "expect {error}"),
             Self::ExpectError(error) => write!(formatter, "expect_error {error}"),
             Self::Body(message) => write!(formatter, "request body: {message}"),
@@ -567,18 +594,34 @@ fn parse_pending(value: &Value) -> Result<Pending, Problem> {
     })
 }
 
+/// A runnable case must show its kind in some step. An operation step shows it by the outcome
+/// it expects: `ok` or `partial` as a result, `error` or `unsupported` as a refusal.
 fn check_kind(kind: Kind, steps: &[Step]) -> Result<(), Problem> {
-    let found = steps.iter().any(|step| match kind {
-        Kind::Reject => matches!(step.expectation, Expectation::Error(_)),
-        Kind::Accept => {
-            matches!(step.expectation, Expectation::Response(_))
-                && !matches!(step.call, Call::Restart)
-        }
-    });
+    let found = steps
+        .iter()
+        .any(|step| match (kind, operation_outcome(step)) {
+            (Kind::Reject, Some(outcome)) => matches!(outcome, "error" | "unsupported"),
+            (Kind::Accept, Some(outcome)) => matches!(outcome, "ok" | "partial"),
+            (Kind::Reject, None) => matches!(step.expectation, Expectation::Error(_)),
+            (Kind::Accept, None) => {
+                matches!(step.expectation, Expectation::Response(_))
+                    && !matches!(step.call, Call::Restart)
+            }
+        });
     match (found, kind) {
         (true, _) => Ok(()),
         (false, Kind::Reject) => Err(Problem::RejectWithoutErrorStep),
         (false, Kind::Accept) => Err(Problem::AcceptWithoutExpectStep),
+    }
+}
+
+/// The outcome an operation step expects, if the step is one.
+fn operation_outcome(step: &Step) -> Option<&str> {
+    match (&step.call, &step.expectation) {
+        (Call::Operation { .. }, Expectation::Response(expected)) => {
+            expected.get("outcome").and_then(Value::as_str)
+        }
+        _ => None,
     }
 }
 
@@ -656,6 +699,9 @@ fn parse_step(
             });
         }
     };
+    if call == "operation" {
+        return parse_operation_step(fields, bound);
+    }
     let (body_fields, writes, takes_document): (&[&str], bool, bool) = match call {
         "create" => (&["title"], true, false),
         "get" => (&[], false, true),
@@ -795,6 +841,98 @@ fn parse_step(
         other => return Err(StepProblem::UnknownCall(other.to_owned())),
     };
     Ok(Step { call, expectation })
+}
+
+/// An `operation` step: `request`, an optional bound `document` and `bind`, and an `expect`
+/// naming the reply's `outcome`. It takes no `request_id` (the request carries its own) and no
+/// `expect_error`, since every request is answered with an operation reply.
+fn parse_operation_step(
+    fields: &Map<String, Value>,
+    bound: &mut HashSet<String>,
+) -> Result<Step, StepProblem> {
+    const FIELDS: [&str; 6] = [
+        "call",
+        "request",
+        "document",
+        "bind",
+        "expect",
+        "expect_error",
+    ];
+    if let Some(field) = fields.keys().find(|key| !FIELDS.contains(&key.as_str())) {
+        return Err(if field == "request_id" {
+            StepProblem::RequestIdNotTaken
+        } else {
+            StepProblem::UnknownField(field.clone())
+        });
+    }
+    if fields.contains_key("expect_error") {
+        return Err(StepProblem::OperationExpectsNoError);
+    }
+    let request = match fields.get("request") {
+        Some(Value::Object(_)) => OperationRequest::Json(fields["request"].clone()),
+        Some(Value::String(raw)) => OperationRequest::Raw(raw.clone()),
+        Some(_) => {
+            return Err(StepProblem::OperationRequest(
+                "must be an object or a string",
+            ));
+        }
+        None => return Err(StepProblem::OperationRequest("is missing")),
+    };
+    let expected = fields
+        .get("expect")
+        .ok_or(StepProblem::OperationExpectsOutcome)?;
+    expect::validate_expect(expected).map_err(StepProblem::Expect)?;
+    if !expected.get("outcome").is_some_and(Value::is_string) {
+        return Err(StepProblem::OperationExpectsOutcome);
+    }
+    let document = match fields.get("document") {
+        None => None,
+        Some(Value::String(name)) => {
+            if !bound.contains(name) {
+                return Err(StepProblem::UnboundDocument(name.clone()));
+            }
+            let has_parameters = matches!(&request, OperationRequest::Json(json)
+                if json.get("parameters").is_some_and(Value::is_object));
+            if !has_parameters {
+                return Err(StepProblem::OperationRequest(
+                    "needs a parameters object to receive the document",
+                ));
+            }
+            Some(name.clone())
+        }
+        Some(_) => {
+            return Err(StepProblem::WrongType {
+                field: "document",
+                expected: "a string",
+            });
+        }
+    };
+    let bind = match fields.get("bind") {
+        None => None,
+        Some(Value::String(name)) => {
+            if !is_name(name) {
+                return Err(StepProblem::InvalidName(name.clone()));
+            }
+            if !bound.insert(name.clone()) {
+                return Err(StepProblem::BoundTwice(name.clone()));
+            }
+            Some(name.clone())
+        }
+        Some(_) => {
+            return Err(StepProblem::WrongType {
+                field: "bind",
+                expected: "a string",
+            });
+        }
+    };
+    Ok(Step {
+        call: Call::Operation {
+            request,
+            document,
+            bind,
+        },
+        expectation: Expectation::Response(expected.clone()),
+    })
 }
 
 /// Deserializes a request body with the same types (and unknown-field refusal) as the HTTP

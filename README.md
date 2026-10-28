@@ -38,6 +38,10 @@ cargo run --locked -p chemifree-cli -- documents apply <id> --expected-revision 
     {"op":"add_atom","element":"O","position":{"x":52,"y":0},"bond_to":{"atom":"$1","order":"single"}}]'
 cargo run --locked -p chemifree-cli -- documents undo <id> --expected-revision 1
 cargo run --locked -p chemifree-cli -- documents show <id> --json
+
+# Operation contract 1: one JSON request per line in, one reply per line out.
+echo '{"contract":1,"request_id":"r1","profile":"preserve-semantics","operation":"capabilities.inspect","parameters":{}}' \
+  | cargo run --locked -p chemifree-cli -- operations
 cargo run --locked -p chemifree-cli -- documents save-as <id> --expected-revision 2 --title "Ethanol copy"
 # After an API crash: recover the autosaved draft (and save it), or save it as a copy, or drop it.
 cargo run --locked -p chemifree-cli -- documents recover <id>
@@ -143,6 +147,7 @@ The [interactive architecture document](docs/architecture.html) maps these layer
 | `GET /api/v1/documents?query=&sort=` | `documents list --query --sort` | Search titles; sort by title or last save |
 | `POST …/rename` | `documents rename` | Commit a new title (no unsaved changes) |
 | `POST …/delete`, `GET /api/v1/trash`, `POST /api/v1/trash/{id}/restore` | `documents delete` / `trash` / `restore` | Move to the trash and back; refused while unsaved work or a draft exists |
+| `POST /api/v1/operations` | `operations` (stdin lines) | Operation contract 1: versioned per-operation requests and replies; unimplemented operations answer `unsupported` |
 
 All JSON responses include `api_version: "v1"`. Shared Rust DTOs live in `crates/application`; the TypeScript mirrors live in `apps/web/src/lib/`. See [the contract](docs/CONTRACT.md) for commands, errors, limits, the file format, and version policy. `runtime_inspection`, `document_editing` (drawing model only), and `persistence` (local files) are `available`; `structure_analysis`, `format_conversion`, `local_model_loading`, `authentication`, and `windows_bridge` report `not_implemented`.
 

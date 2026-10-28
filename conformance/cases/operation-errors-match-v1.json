@@ -1,0 +1,144 @@
+{
+  "id": "operation-errors-match-v1",
+  "title": "A failed operation reports the v1 error code and facts as a diagnostic, without a result, and changes nothing",
+  "requirements": [
+    "API-01",
+    "OPS-02"
+  ],
+  "axis": "protocol",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "expected_revision": 4,
+      "commands": [],
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 0
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-stale",
+        "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {
+          "expected_revision": 4,
+          "commands": []
+        }
+      },
+      "expect": {
+        "envelope": "operation_result",
+        "outcome": "error",
+        "result": null,
+        "document_revision": 0,
+        "diagnostics": [
+          {
+            "code": "revision_conflict",
+            "severity": "error",
+            "details": {
+              "current_revision": 0
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "transact",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "Xx",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-bad",
+        "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {
+          "expected_revision": 0,
+          "commands": [
+            {
+              "op": "add_atom",
+              "element": "Xx",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "path": "parameters.commands[0]",
+            "details": {
+              "command_index": 0
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-extra",
+        "profile": "preserve-semantics",
+        "operation": "history.undo",
+        "parameters": {
+          "expected_revision": 0,
+          "force": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters"
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": []
+        }
+      },
+      "document": "d"
+    }
+  ]
+}
