@@ -1376,3 +1376,34 @@ fn a_save_whose_reply_was_lost_is_reported_by_asking_again() {
         1
     );
 }
+
+#[test]
+fn a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    let committed = app.save(&id, Some("save-1"), 1).unwrap();
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "Second"}])),
+    )
+    .unwrap();
+    let stalled = store.commit_gate.lock().unwrap();
+    // Another tab's save holds the document's turn.
+    let saving = stalled_save(&app, &store, &id, "save-2", 2);
+
+    let started = std::time::Instant::now();
+    let asked = app.save(&id, Some("save-1"), 1);
+    assert!(
+        started.elapsed() < GATE_WAIT,
+        "answered without waiting for the turn ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(asked.unwrap(), committed, "the recorded reply, not busy");
+
+    drop(stalled);
+    saving.join().unwrap().unwrap();
+}

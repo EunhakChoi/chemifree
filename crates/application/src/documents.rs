@@ -306,6 +306,21 @@ impl<R: DocumentRepository> Documents<R> {
         }
     }
 
+    /// The recorded reply of a request that already completed, looked up without waiting for
+    /// the document's turn: asking about a finished request is answered at once even while
+    /// another request holds the turn. Each operation looks again once it has the turn, for a
+    /// request that completed in between.
+    fn replayed<T>(
+        &self,
+        request_id: Option<&str>,
+        lookup: impl FnOnce(&Sessions) -> Result<Option<T>, ApplicationError>,
+    ) -> Result<Option<T>, ApplicationError> {
+        if request_id.is_none() {
+            return Ok(None);
+        }
+        lookup(&self.lock())
+    }
+
     /// Waits for the document's turn, bounded by [`GATE_WAIT`].
     fn turn(&self, id: &DocumentId, request_id: Option<&str>) -> Result<Turn, ApplicationError> {
         self.gates
@@ -507,6 +522,14 @@ impl<R: DocumentRepository> Documents<R> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
         let mutation = Mutation::Save { expected_revision };
+        let replay = self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })?;
+        if let Some(response) = replay {
+            return Ok(response);
+        }
         let _turn = self.turn(&document_id, request_id)?;
         let (snapshot, base) = {
             let mut sessions = self.lock();
@@ -564,7 +587,6 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<CloseResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
-        let _turn = self.turn(&document_id, request_id)?;
         if discard_unsaved && expected_revision.is_none() {
             return Err(ApplicationError::new(
                 ErrorCode::InvalidRequest,
@@ -576,6 +598,12 @@ impl<R: DocumentRepository> Documents<R> {
             discard_unsaved,
             expected_revision,
         };
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.closed.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.closed.find(request_id, &mutation)? {
             return Ok(response);
@@ -626,7 +654,16 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
-        let _turn = self.turn(&parse_id(id)?, request_id)?;
+        let document_id = parse_id(id)?;
+        let replay = self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &Mutation::Autosave)
+            })
+        })?;
+        if let Some(response) = replay {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
@@ -679,6 +716,11 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::Recover {
             document: document_id.clone(),
         };
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.recovered.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
         let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.recovered.find(request_id, &mutation)? {
@@ -798,6 +840,11 @@ impl<R: DocumentRepository> Documents<R> {
             document: document_id.clone(),
             title: title.map(str::to_owned),
         };
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.copied.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
         let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.copied.find(request_id, &mutation)? {
@@ -848,6 +895,11 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::DiscardDraft {
             document: document_id.clone(),
         };
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.drafts_discarded.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
         let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.drafts_discarded.find(request_id, &mutation)? {
@@ -897,6 +949,11 @@ impl<R: DocumentRepository> Documents<R> {
             expected_revision,
             title: title.map(str::to_owned),
         };
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.copied.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
         let _turn = self.turn(&document_id, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.copied.find(request_id, &mutation)? {

@@ -503,8 +503,10 @@ export class DocumentClient {
         if (!(error instanceof ApiError)) throw error
         const running = error.code === 'request_in_progress'
         if (!running && error.status !== 0) {
-          // An answer: this save failed or was refused, so it is not pending anymore.
-          this.unconfirmedSaves.delete(key)
+          // An answer. Most settle this save; `busy` means this attempt did not get the
+          // document's turn, so the request ID is kept and the next save of this revision asks
+          // with it again, which is always safe.
+          if (error.reason !== 'busy') this.unconfirmedSaves.delete(key)
           throw error
         }
         this.unconfirmedSaves.set(key, body.request_id)
