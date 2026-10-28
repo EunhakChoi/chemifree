@@ -1,0 +1,13 @@
+{
+  "id": "hydrogen-states",
+  "title": "Explicit, implicit and unspecified hydrogens are told apart",
+  "requirements": [
+    "MODEL-02"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "pending": {
+    "followup": "P10",
+    "reason": "Atoms record no hydrogen state yet."
+  }
+}

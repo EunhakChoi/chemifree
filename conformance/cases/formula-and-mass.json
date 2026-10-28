@@ -1,0 +1,13 @@
+{
+  "id": "formula-and-mass",
+  "title": "Molecular formula and mass of a drawn structure",
+  "requirements": [
+    "CHEM-01"
+  ],
+  "axis": "numeric",
+  "kind": "accept",
+  "pending": {
+    "followup": "P19",
+    "reason": "No formula or mass calculation exists yet."
+  }
+}

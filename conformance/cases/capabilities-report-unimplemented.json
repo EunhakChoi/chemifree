@@ -1,0 +1,49 @@
+{
+  "id": "capabilities-report-unimplemented",
+  "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+  "requirements": [
+    "API-01",
+    "QUALITY-01"
+  ],
+  "axis": "protocol",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "capabilities",
+      "expect": {
+        "capabilities": {
+          "$contains": [
+            {
+              "id": "structure_analysis",
+              "status": "not_implemented"
+            },
+            {
+              "id": "format_conversion",
+              "status": "not_implemented"
+            },
+            {
+              "id": "local_model_loading",
+              "status": "not_implemented"
+            },
+            {
+              "id": "authentication",
+              "status": "not_implemented"
+            },
+            {
+              "id": "windows_bridge",
+              "status": "not_implemented"
+            },
+            {
+              "id": "document_editing",
+              "status": "available"
+            },
+            {
+              "id": "persistence",
+              "status": "available"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

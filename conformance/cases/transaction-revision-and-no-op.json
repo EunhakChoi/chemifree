@@ -1,0 +1,112 @@
+{
+  "id": "transaction-revision-and-no-op",
+  "title": "Each changing transaction adds one revision; a transaction that changes nothing adds none",
+  "requirements": [
+    "OPS-02"
+  ],
+  "axis": "history",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 10,
+            "y": 20
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "undo_depth": 1,
+          "unsaved_changes": true
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a1"
+          ],
+          "delta": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "element": "C"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 10,
+                "y": 20
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a1"
+          ],
+          "delta": {
+            "x": 5,
+            "y": -2.5
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 15,
+                "y": 17.5
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    }
+  ]
+}

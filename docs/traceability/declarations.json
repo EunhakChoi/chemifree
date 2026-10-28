@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "about": "Counts of public interface declarations per proposed route. A declaration is one declared member, control member or command entry; collections, menus and state getters are counted too, so a declaration count is not a feature count. No declaration is implemented, and none is assigned to a single plan entry yet: each route lists the roadmap rows expected to cover parts of it.",
+  "source": {
+    "role": "declarations",
+    "path": "spec/phase3-design-v3/declaration-requirements.json",
+    "sha256": "dea395ee57035ed45d0bc1a9fce2696f6ba5512709d6d6436edb46ed61d39ad7"
+  },
+  "total": 2914,
+  "by_source": {
+    "public-automation-contracts.json": 1872,
+    "public-command-contracts.json": 905,
+    "public-control-contracts.json": 137
+  },
+  "routes": [
+    {
+      "route": "document",
+      "declarations": 954,
+      "by_source": {
+        "public-automation-contracts.json": 951,
+        "public-control-contracts.json": 3
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P09",
+        "P11",
+        "P13",
+        "P89"
+      ]
+    },
+    {
+      "route": "client_integration",
+      "declarations": 947,
+      "by_source": {
+        "public-automation-contracts.json": 42,
+        "public-command-contracts.json": 905
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P82",
+        "P83",
+        "P84",
+        "P89"
+      ]
+    },
+    {
+      "route": "render_scene",
+      "declarations": 570,
+      "by_source": {
+        "public-automation-contracts.json": 570
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P12",
+        "P31",
+        "P38",
+        "P89"
+      ]
+    },
+    {
+      "route": "chem_graph",
+      "declarations": 174,
+      "by_source": {
+        "public-automation-contracts.json": 174
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P10",
+        "P16",
+        "P17",
+        "P89"
+      ]
+    },
+    {
+      "route": "windows_adapter",
+      "declarations": 145,
+      "by_source": {
+        "public-automation-contracts.json": 11,
+        "public-control-contracts.json": 134
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "W01",
+        "W02",
+        "P89"
+      ]
+    },
+    {
+      "route": "layout_reaction",
+      "declarations": 85,
+      "by_source": {
+        "public-automation-contracts.json": 85
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P42",
+        "P49",
+        "P51",
+        "P89"
+      ]
+    },
+    {
+      "route": "chem_properties",
+      "declarations": 33,
+      "by_source": {
+        "public-automation-contracts.json": 33
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P19",
+        "P58",
+        "P89"
+      ]
+    },
+    {
+      "route": "codec_chem",
+      "declarations": 6,
+      "by_source": {
+        "public-automation-contracts.json": 6
+      },
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "status": "not_implemented",
+      "followups": [
+        "P20",
+        "P21",
+        "P89"
+      ]
+    }
+  ]
+}

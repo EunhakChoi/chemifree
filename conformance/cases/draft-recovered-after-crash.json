@@ -1,0 +1,123 @@
+{
+  "id": "draft-recovered-after-crash",
+  "title": "Unsaved work in a recovery draft survives a crash and is recovered with its history",
+  "requirements": [
+    "OPS-02"
+  ],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 1
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "autosave",
+      "document": "d",
+      "expect": {
+        "session": {
+          "draft_revision": 2,
+          "unsaved_changes": true
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1"
+            }
+          ]
+        },
+        "recovery": {
+          "state": "recoverable",
+          "revision": 2,
+          "base_revision": 1
+        }
+      }
+    },
+    {
+      "call": "recover",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C"
+            },
+            {
+              "id": "a2",
+              "element": "N"
+            }
+          ]
+        },
+        "session": {
+          "saved_revision": 1,
+          "unsaved_changes": true,
+          "undo_depth": 2,
+          "draft_revision": 2
+        },
+        "recovery": null
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

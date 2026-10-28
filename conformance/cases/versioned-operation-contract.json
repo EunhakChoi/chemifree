@@ -1,0 +1,13 @@
+{
+  "id": "versioned-operation-contract",
+  "title": "Each operation has a versioned request, result and error schema",
+  "requirements": [
+    "API-01"
+  ],
+  "axis": "protocol",
+  "kind": "accept",
+  "pending": {
+    "followup": "P13",
+    "reason": "Only the v1 document API exists; no per-operation versioned contract yet."
+  }
+}

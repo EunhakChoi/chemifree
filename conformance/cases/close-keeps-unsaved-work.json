@@ -1,0 +1,81 @@
+{
+  "id": "close-keeps-unsaved-work",
+  "title": "Closing with unsaved changes is refused unless the client confirms the revision it discards",
+  "requirements": [
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "persistence",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "close",
+      "document": "d",
+      "expect_error": {
+        "code": "unsaved_changes"
+      }
+    },
+    {
+      "call": "close",
+      "document": "d",
+      "discard_unsaved": true,
+      "expected_revision": 0,
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "unsaved_changes": true
+        }
+      }
+    },
+    {
+      "call": "close",
+      "document": "d",
+      "discard_unsaved": true,
+      "expected_revision": 1,
+      "expect": {
+        "discarded_changes": true
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "atoms": []
+        },
+        "session": {
+          "unsaved_changes": false
+        }
+      }
+    }
+  ]
+}

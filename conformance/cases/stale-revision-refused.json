@@ -1,0 +1,87 @@
+{
+  "id": "stale-revision-refused",
+  "title": "An edit or undo based on an older revision is refused and changes nothing",
+  "requirements": [
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "history",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 1
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 0,
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 1
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 0,
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C"
+            }
+          ]
+        },
+        "session": {
+          "saved_revision": 0,
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

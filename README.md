@@ -59,13 +59,19 @@ npm run test:client      # Web client against a scripted service: unknown outcom
 npm run build:web        # Production web assets in apps/web/dist
 npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
+npm run test:conformance # Conformance cases → target/conformance/report.json; exit 1 if any case fails
+npm run test:traceability # Traceability files against the roadmap, the recorded run, and npm scripts
+npm run test:checks      # One node:test per rule of the traceability check
 npm run check            # All of the above
+npm run conformance:record   # Rewrite the committed run record (review the change before committing)
 npm run build            # Web assets and debug Rust binaries
 npm run test:browser     # Browser smoke (needs Chrome or Playwright's Chromium; CI job `browser`)
 npm run test:browser:routes  # The Playwright race behind #8 and the smoke's guard against it
 ```
 
 The contract smoke builds the workspace, starts an API on an ephemeral loopback port with a temporary data directory, and compares HTTP JSON with actual CLI JSON. It runs create → edit → undo/redo → save → close → reopen, checks request-ID replay, revision and save conflicts, write guards, a save that fails because the target path is unwritable and then succeeds on retry, and that a killed API restarts with the last committed document. It then races six CLI saves from one base (exactly one commits), kills a process holding the save lock, races an API save against a CLI save, and runs autosave → SIGKILL → restart → recover/discard/recover-as-copy, an unreadable draft, a failed autosave, and save as copy over HTTP and the CLI. Storage feedback: while the API's save of a document pauses inside its save lock, asking about that save again is answered `request_in_progress` at once, requests queued behind it and a CLI save of the same document are refused as `busy` within the time budget without changing anything, and asking again afterwards returns the committed reply without writing again; a read-only `documents/` is reported as `read_only`. GitHub Actions installs npm 11.13.0 into an isolated runner-temporary prefix, adds its binaries to `PATH`, and verifies the selected version before running `npm ci` and `npm run check` with pinned tools.
+
+The conformance runner (`crates/conformance`, binary `chemifree-conformance [--out PATH] SUITE`) runs the cases in `conformance/cases/` against the shared application, calling it as the HTTP adapter does, each case on a fresh temporary data directory; `restart` drops the application without a normal stop, as a crash would. Pending cases name the roadmap item expected to make them runnable and are recorded as `not_run`, never as passed. `docs/traceability/` traces the 33 public readiness requirements (by part, with status, implementation paths, evidence, and follow-ups) and counts the 2,914 public interface declarations per proposed route; a declaration count is not a feature count. The spec files themselves stay outside the repository and are referenced by path and SHA-256 only; `CHEMIFREE_SPEC_DIR=<dir holding spec/> npm run test:traceability` also compares against them. [docs/TRACEABILITY.ko.md](docs/TRACEABILITY.ko.md) states exactly what these checks establish and what they do not (for example, that a status judgement is right, or that the repository holds no private data).
 
 `npm run test:browser` starts the API and Vite on a temporary data directory (ports 3001 and 5173 must be free) and drives the editor with `playwright-core`: drawing, editing, undo/redo with buttons and keys, moving, saving, reopening, the discard prompt, revision-conflict reload, save failure and retry, read-only storage and a document busy behind a CLI's save lock (each named as such), a save whose reply arrives after the page's deadline (confirmed, not failed) and one whose replies are lost (**Save not confirmed**, then **Check again**), a copy still in progress when the page asks again (same request ID, one copy), a save conflict with the CLI, autosave state, crash recovery after killing the API, discarding and recovering drafts as copies, a failed autosave with **Retry now** and a retry that edits do not postpone, draft states after a restart, save as copy (including an original left open because its draft could not be removed, and the notice ending when the page leaves the copy or when an edit reaches a restarted service), a late autosave reply after leaving a document, drafting before leaving a document, a session moved on by another client, 320/390 px layouts, and dark mode. Point `CHEMIFREE_BROWSER` at a Chrome/Chromium executable, or run `npx playwright-core install chromium` once. The latest local result is in [docs/verification/editor-browser-smoke.json](docs/verification/editor-browser-smoke.json). The API runs with `--log-requests` (one line per request on standard error; also `CHEMIFREE_LOG_REQUESTS=1`). Every run, passed or failed (including a failed build or server start), leaves its records in `CHEMIFREE_SMOKE_OUT`, or in the temporary directory, which only a passing run removes:
 
@@ -99,10 +105,19 @@ crates/
   domain/           Elements, document graph, commands, transactions, change-set history; no dependencies
   application/      Use cases, editing sessions, v1 DTOs, CapabilityCatalog and DocumentRepository ports
   providers/        Capability catalog and the local JSON file repository
+  conformance/      Conformance runner and the chemifree-conformance binary
+conformance/
+  suite.json        The suite: suite_version and case paths
+  cases/            Cases written for this project (runnable or pending)
 scripts/
   contract-smoke.mjs HTTP/CLI boundary and document-flow verification
   browser-smoke.mjs  Manual browser verification of the editor
+  traceability-check.mjs  Traceability check (and its tests in traceability-check.test.mjs)
 docs/
+  TRACEABILITY.ko.md What the traceability files, runner, and check establish
+  traceability/     Requirement parts and declaration counts
+  roadmap/          Implementation roadmap (PR plan)
+  verification/     Run records, including conformance-report.json, and review history
   CONTRACT.md       v1 shape, compatibility rules, and capability identifiers
   architecture.html Detailed architecture and staged design
   SHADCN_REVIEW.ko.md shadcn/ui and @shadcn/lint review

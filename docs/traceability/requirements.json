@@ -1,0 +1,1182 @@
+{
+  "schema_version": 1,
+  "about": "Each requirement of the public readiness specification, split into parts with an honest status for the current product. A status is a judgement recorded here; the traceability check verifies its form, its evidence links and its consistency, not that the judgement is right.",
+  "sources": [
+    {
+      "role": "requirements",
+      "path": "spec/phase7-readiness-requirements-v2.json",
+      "sha256": "9c3265ad6d67aefceab2f600aa8dcdce248f9574f9c047357daf15f5015230f2"
+    },
+    {
+      "role": "operations",
+      "path": "spec/phase3-design-v3/operations.json",
+      "sha256": "0559742d481d93dcc45a82848a921cb854f54f7e9b7140c92a7cb64cdd5cc308"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "MODEL-01",
+      "domain": "document",
+      "summary": "Chemical graph, scene, containment and external references live in separate namespaces and are compared separately.",
+      "operations": [
+        "document.snapshot",
+        "document.transaction"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "MODEL-01.1",
+          "summary": "Chemical graph and scene positions are held and compared separately.",
+          "status": "not_implemented",
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P09"
+          ]
+        },
+        {
+          "id": "MODEL-01.rest",
+          "summary": "Containment trees, groups and external references.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P09",
+            "P11",
+            "P35",
+            "P37",
+            "P40",
+            "S05"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "MODEL-02",
+      "domain": "chemical-graph",
+      "summary": "Atoms carry element, isotope, charge, hydrogen, radical and query information, each compared atom by atom.",
+      "operations": [
+        "document.transaction",
+        "chem.validate"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "MODEL-02.1",
+          "summary": "Atoms record an element symbol (1-118), a formal charge in -8..8 and an optional isotope mass number 1..999 as drawn; values outside these ranges are refused and change nothing.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/element.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs"
+          ],
+          "evidence": [
+            "case:out-of-range-input-refused",
+            "case:fields-persist-across-crash",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "MODEL-02.2",
+          "summary": "Explicit, implicit and unspecified hydrogen states are recorded and told apart.",
+          "status": "not_implemented",
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P10"
+          ]
+        },
+        {
+          "id": "MODEL-02.rest",
+          "summary": "Radicals, query atoms and bonds, aromaticity and Kekule forms, valence and inferred hydrogens.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P10",
+            "P16",
+            "P17",
+            "P18",
+            "P24",
+            "P34",
+            "P75",
+            "P77"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "MODEL-03",
+      "domain": "stereochemistry",
+      "summary": "Drawn stereo marks, chemical configuration, CIP labels and enhanced stereo groups are kept apart.",
+      "operations": [
+        "document.transaction",
+        "chem.validate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "MODEL-03.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P25",
+            "P26",
+            "P27"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "MODEL-04",
+      "domain": "biopolymer-and-advanced",
+      "summary": "Advanced objects (tables, TLC plates, plasmids, polymers, images) keep their hierarchy, references, text and style.",
+      "operations": [
+        "document.transaction",
+        "biopolymer.expand"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "MODEL-04.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P28",
+            "P34",
+            "P36",
+            "P37",
+            "P52",
+            "P68",
+            "P69",
+            "P71",
+            "P72",
+            "P73",
+            "P74",
+            "P75",
+            "P76",
+            "P77"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-01",
+      "domain": "formats",
+      "summary": "An XML document format is read and written with typed styles, ids and text, reporting what is lost.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P22",
+            "P29",
+            "P48",
+            "P80"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-02",
+      "domain": "formats",
+      "summary": "A binary document format is framed with bounded lengths, nesting and references, reporting what is lost.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P23",
+            "P29",
+            "P48",
+            "P80"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-03",
+      "domain": "formats",
+      "summary": "MOL V2000/V3000 and SDF are read and written with query and stereo fields, reporting per-field loss.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-03.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P20",
+            "P24",
+            "P28",
+            "P29",
+            "P48",
+            "P68",
+            "P78"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-04",
+      "domain": "formats",
+      "summary": "Reaction formats keep reactant, product and agent roles, steps and mapping independent of layout.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-04.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P49",
+            "P50",
+            "P78",
+            "P79"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-05",
+      "domain": "formats",
+      "summary": "Line notations (SMILES, InChI) are interpreted, distinguishing string equality from chemical equality and reporting loss.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-05.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P18",
+            "P21",
+            "P29",
+            "P30",
+            "P48",
+            "P56"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CODEC-06",
+      "domain": "formats",
+      "summary": "Unknown objects and properties are preserved, refused or reported according to a stated policy.",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CODEC-06.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P20",
+            "P21",
+            "P22",
+            "P23",
+            "P33",
+            "P38",
+            "P48",
+            "P50",
+            "P68",
+            "P70",
+            "P78",
+            "P79",
+            "P80",
+            "P81",
+            "P83",
+            "W04"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OPS-01",
+      "domain": "document",
+      "summary": "Selections and containment determine exactly which objects a move, delete or clean-up affects.",
+      "operations": [
+        "document.transaction"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "OPS-01.1",
+          "summary": "Deleting atoms deletes exactly the bonds that touch them, and undo restores both.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs"
+          ],
+          "evidence": [
+            "case:atom-deletion-removes-incident-bonds",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-01.rest",
+          "summary": "Selection scope, groups and children, moves and clean-up of selections, containment.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P11",
+            "P31",
+            "P32",
+            "P33",
+            "P47",
+            "P72",
+            "P85",
+            "S05"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OPS-02",
+      "domain": "document",
+      "summary": "Edits are atomic change sets with consistent references, undo/redo and revision checks.",
+      "operations": [
+        "document.transaction",
+        "history.undo",
+        "history.redo"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "OPS-02.1",
+          "summary": "A transaction applies all its commands or none; a refused transaction names the failing command index and leaves revision, content and history unchanged.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:transaction-all-or-nothing",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-02.2",
+          "summary": "Each changing transaction, undo and redo adds one revision; a transaction that changes nothing adds none; an edit after undo drops the redo branch without reusing atom ids.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs"
+          ],
+          "evidence": [
+            "case:transaction-revision-and-no-op",
+            "case:undo-redo-and-redo-branch",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-02.3",
+          "summary": "A write based on a stale revision is refused with the current revision and changes nothing.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:stale-revision-refused",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-02.4",
+          "summary": "Saved content and history survive a crash; edits neither saved nor drafted do not; an autosaved draft is recovered with its history; closing does not discard unsaved work without the confirmed revision.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_store.rs"
+          ],
+          "evidence": [
+            "case:fields-persist-across-crash",
+            "case:unsaved-edits-lost-at-crash",
+            "case:draft-recovered-after-crash",
+            "case:close-keeps-unsaved-work",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-02.rest",
+          "summary": "Change sets, references and history for scene objects, groups and other non-atom/bond objects.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P09",
+            "P11",
+            "P25",
+            "P32",
+            "P33",
+            "P34",
+            "P41",
+            "P47",
+            "P48",
+            "P57",
+            "P75",
+            "P77",
+            "P82",
+            "P84",
+            "S02",
+            "S03",
+            "S05"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CHEM-01",
+      "domain": "mass-and-properties",
+      "summary": "Formula and mass follow a stated convention for isotopes, charge, scope and numeric precision.",
+      "operations": [
+        "chem.properties"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CHEM-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P15",
+            "P19",
+            "P52",
+            "P58",
+            "P62",
+            "P63",
+            "P64",
+            "P75",
+            "W03"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CHEM-02",
+      "domain": "chemical-graph",
+      "summary": "Chemical warnings, parser errors and opaque values are told apart, and failures leave state unchanged.",
+      "operations": [
+        "chem.validate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "CHEM-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P10",
+            "P13",
+            "P16",
+            "P17",
+            "P24",
+            "P26",
+            "P30",
+            "P77",
+            "P86"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "STEREO-01",
+      "domain": "stereochemistry",
+      "summary": "Stereo group labels, partitions and omissions are handled per format.",
+      "operations": [
+        "chem.validate",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "STEREO-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P27",
+            "P28",
+            "P29"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-01",
+      "domain": "layout",
+      "summary": "Layout moves exactly the selected atoms and bonds and leaves unrelated parts in place.",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "LAYOUT-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P42",
+            "P47",
+            "P51"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-02",
+      "domain": "layout",
+      "summary": "Layout keeps bond length, style and stereo, and repeated clean-up is deterministic.",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "LAYOUT-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P42",
+            "P45",
+            "P47",
+            "P51"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-03",
+      "domain": "layout",
+      "summary": "Ring, template, search, score and tie rules of structure layout are applied and terminate.",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "LAYOUT-03.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P14",
+            "P15",
+            "P17",
+            "P37",
+            "P42",
+            "P43",
+            "P44",
+            "P45",
+            "P46",
+            "P47"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "REACTION-01",
+      "domain": "layout",
+      "summary": "Reactions are interpreted and arranged, and stoichiometry quantities and units are computed.",
+      "operations": [
+        "layout.reaction",
+        "chem.properties"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "REACTION-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P49",
+            "P51",
+            "P52"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RENDER-01",
+      "domain": "rendering",
+      "summary": "Text, fonts, Unicode runs, bounds, vector output and clipping are rendered under fixed settings.",
+      "operations": [
+        "render.scene"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "RENDER-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P12",
+            "P22",
+            "P31",
+            "P35",
+            "P36",
+            "P37",
+            "P38",
+            "P40",
+            "P67",
+            "P72",
+            "P73",
+            "P74",
+            "P81",
+            "P85",
+            "W04"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RENDER-02",
+      "domain": "rendering",
+      "summary": "Raster output states its resolution, transparency, crop and environment.",
+      "operations": [
+        "render.scene"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "RENDER-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P39",
+            "P40",
+            "P67",
+            "P74",
+            "P81"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NAMES-01",
+      "domain": "naming",
+      "summary": "Chemical names are parsed and generated with grammar, numbering, ambiguity and error handling.",
+      "operations": [
+        "chem.name_to_structure",
+        "chem.structure_to_name"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "NAMES-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P14",
+            "P53",
+            "P54",
+            "P55",
+            "P56",
+            "P57"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "PREDICT-01",
+      "domain": "prediction",
+      "summary": "Numerical property models are independently sourced and their methods declared.",
+      "operations": [
+        "prediction.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "PREDICT-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P14",
+            "P15",
+            "P24",
+            "P58",
+            "P59",
+            "P60",
+            "P61",
+            "P62",
+            "P63",
+            "P64",
+            "P76"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "PREDICT-02",
+      "domain": "nmr",
+      "summary": "NMR prediction uses independent data with stated corrections, solvents and conventions.",
+      "operations": [
+        "prediction.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "PREDICT-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P14",
+            "P15",
+            "P65",
+            "P66",
+            "P67"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "BIO-01",
+      "domain": "biopolymer-and-advanced",
+      "summary": "DNA, RNA and peptide sequences follow terminal and stereo conventions.",
+      "operations": [
+        "biopolymer.expand"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "BIO-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P69",
+            "P70",
+            "P71"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "WIN-01",
+      "domain": "windows-and-services",
+      "summary": "A Windows automation adapter matches declared public interfaces per control profile.",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "WIN-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "W01",
+            "W02",
+            "W03"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "WIN-02",
+      "domain": "windows-and-services",
+      "summary": "Office, OLE and clipboard hosting follows host lifecycles and reports real errors.",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "WIN-02.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "W02",
+            "W03",
+            "W04"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "STYLE-01",
+      "domain": "document",
+      "summary": "Document settings and application preferences are owned, changed and saved separately.",
+      "operations": [
+        "document.snapshot",
+        "document.transaction"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "STYLE-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P12",
+            "P35",
+            "P40",
+            "P66",
+            "P80"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCRIPT-01",
+      "domain": "windows-and-services",
+      "summary": "An independent scripting interface has an explicit execution policy and atomic change sets.",
+      "operations": [
+        "script.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "SCRIPT-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P84"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SERVICE-01",
+      "domain": "windows-and-services",
+      "summary": "External services are called under explicit contracts, authentication and data policies.",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "id": "SERVICE-01.rest",
+          "summary": "All of this requirement: nothing of it is implemented.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "W05"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "API-01",
+      "domain": "api-validation-handoff",
+      "summary": "Requests are typed and versioned, with explicit compatibility and structured errors.",
+      "operations": [
+        "capabilities.inspect",
+        "document.create",
+        "document.snapshot",
+        "document.transaction",
+        "document.close"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "API-01.1",
+          "summary": "Errors use one v1 envelope with a stable code and, where relevant, current_revision and command_index.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/error.rs",
+            "crates/application/src/contract.rs",
+            "apps/api/src/lib.rs"
+          ],
+          "evidence": [
+            "case:transaction-all-or-nothing",
+            "case:stale-revision-refused",
+            "case:out-of-range-input-refused",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
+          "id": "API-01.2",
+          "summary": "A repeated request_id with the same body returns the first reply without acting again; reusing it for a different body is refused.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:request-id-replay",
+            "case:request-id-reuse-refused",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
+          "id": "API-01.3",
+          "summary": "The capability list reports features that are not implemented as not_implemented.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/lib.rs"
+          ],
+          "evidence": [
+            "case:capabilities-report-unimplemented",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "API-01.4",
+          "summary": "Each operation has a versioned request, result and error schema.",
+          "status": "not_implemented",
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P13"
+          ]
+        },
+        {
+          "id": "API-01.rest",
+          "summary": "Protocol errors versus operation results, resource and cancel errors, compatibility profiles, other adapters.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P08",
+            "P13",
+            "P41",
+            "P82",
+            "P83",
+            "P84",
+            "P86",
+            "P87",
+            "P88",
+            "P89",
+            "W01",
+            "S01",
+            "S02",
+            "S03",
+            "S04",
+            "S06",
+            "S07"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "QUALITY-01",
+      "domain": "api-validation-handoff",
+      "summary": "A deterministic conformance corpus runs on a real runner and keeps not-run and expected refusals out of the pass count.",
+      "operations": [
+        "capabilities.inspect"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "QUALITY-01.1",
+          "summary": "A runner executes the cases in conformance/cases against the shared application, one fresh data directory per case, and records passed, failed and not-run (pending) cases separately per kind; runs with the same outcomes write identical records.",
+          "status": "implemented",
+          "implementation": [
+            "crates/conformance",
+            "conformance/suite.json",
+            "docs/verification/conformance-report.json"
+          ],
+          "evidence": [
+            "check:test:conformance",
+            "check:test:traceability",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "QUALITY-01.2",
+          "summary": "The cases are authored independently of any other program's code or data.",
+          "status": "unverified",
+          "implementation": [
+            "AGENTS.md"
+          ],
+          "evidence": [],
+          "followups": [
+            "P89"
+          ]
+        },
+        {
+          "id": "QUALITY-01.rest",
+          "summary": "Graph, stereo, numeric, scene, encoding and host comparisons for chemistry, formats and rendering; a differential corpus.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P08",
+            "P13",
+            "P18",
+            "P41",
+            "P57",
+            "P76",
+            "P83",
+            "P85",
+            "P86",
+            "P87",
+            "P88",
+            "P89",
+            "S06"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CLEANROOM-01",
+      "domain": "api-validation-handoff",
+      "summary": "Analysis and implementation contexts and their artifacts are kept apart, with checked data inputs.",
+      "operations": [
+        "capabilities.inspect"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "id": "CLEANROOM-01.1",
+          "summary": "Spec inputs are referenced by a relative path under spec/ and a SHA-256, not copied. The form is checked on every run; paths and hashes are compared with the spec only when CHEMIFREE_SPEC_DIR is set, which npm run check does not do.",
+          "status": "partial",
+          "implementation": [
+            "scripts/traceability-check.mjs",
+            "docs/traceability/requirements.json",
+            "docs/traceability/declarations.json"
+          ],
+          "evidence": [
+            "check:test:traceability"
+          ],
+          "followups": [
+            "P89"
+          ]
+        },
+        {
+          "id": "CLEANROOM-01.2",
+          "summary": "The public repository holds no private data, vendor material, executable engines or spec copies. A policy and .gitignore exist; no automated check establishes this.",
+          "status": "unverified",
+          "implementation": [
+            "AGENTS.md",
+            ".gitignore"
+          ],
+          "evidence": [],
+          "followups": [
+            "P14",
+            "P88",
+            "P89"
+          ]
+        },
+        {
+          "id": "CLEANROOM-01.rest",
+          "summary": "Input allowlist of the implementation context, DATA reader manifest/context/hash/format checks, and absence of dependencies on executing the original program.",
+          "status": "not_implemented",
+          "catch_all": true,
+          "implementation": [],
+          "evidence": [],
+          "followups": [
+            "P08",
+            "P14",
+            "P82",
+            "P88",
+            "P89"
+          ]
+        }
+      ]
+    }
+  ]
+}
