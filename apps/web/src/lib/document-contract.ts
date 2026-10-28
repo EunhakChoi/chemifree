@@ -93,20 +93,38 @@ export type Command =
   | { op: 'delete_bonds'; bonds: string[] }
   | { op: 'rename'; title: string }
 
-/** A v1 error envelope, or a transport failure reported with code `unreachable`. */
+/** Why storage failed (`storage_failed`), so the page can say whether retrying can help. */
+export type StorageReason = 'read_only' | 'busy' | 'io'
+
+const isStorageReason = (value: unknown): value is StorageReason =>
+  value === 'read_only' || value === 'busy' || value === 'io'
+
+/** Optional fields of a v1 error envelope. */
+export interface ErrorDetails {
+  currentRevision?: number
+  commandIndex?: number
+  reason?: StorageReason
+}
+
+/**
+ * A v1 error envelope, or a failure found by the client. Status 0 means no reply arrived
+ * (code `unreachable`), so the request may or may not have taken effect.
+ */
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
   readonly currentRevision?: number
   readonly commandIndex?: number
+  readonly reason?: StorageReason
 
-  constructor(code: string, message: string, status: number, currentRevision?: number, commandIndex?: number) {
+  constructor(code: string, message: string, status: number, details: ErrorDetails = {}) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
-    this.currentRevision = currentRevision
-    this.commandIndex = commandIndex
+    this.currentRevision = details.currentRevision
+    this.commandIndex = details.commandIndex
+    this.reason = details.reason
   }
 }
 
@@ -228,6 +246,22 @@ function isClose(value: unknown): value is { discarded_changes: boolean } {
 }
 
 const TIMEOUT_MS = 10_000
+/**
+ * While the service reports that a request whose reply was lost is still running, its
+ * outcome is asked for this often, at most `OUTCOME_CHECKS` times. The service answers every
+ * such request within its own time budget (about 8 s plus the write itself).
+ */
+const OUTCOME_CHECK_INTERVAL_MS = 1000
+const OUTCOME_CHECKS = 12
+
+function pause(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+/** No reply arrived, or the service still runs the request: either way it may take effect. */
+function outcomeOpen(error: ApiError) {
+  return error.status === 0 || error.code === 'request_in_progress'
+}
 
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
@@ -238,6 +272,8 @@ export class DocumentClient {
    * the API replays the document it already committed instead of creating a second one.
    */
   private unconfirmed = new Map<string, string>()
+  /** Saves whose outcome is unknown, by document and revision, with their request IDs. */
+  private unconfirmedSaves = new Map<string, string>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -290,13 +326,11 @@ export class DocumentClient {
     const value: unknown = await response.json().catch(() => null)
     if (!response.ok) {
       if (isRecord(value) && typeof value.code === 'string' && typeof value.message === 'string') {
-        throw new ApiError(
-          value.code,
-          value.message,
-          response.status,
-          isCount(value.current_revision) ? value.current_revision : undefined,
-          isCount(value.command_index) ? value.command_index : undefined,
-        )
+        throw new ApiError(value.code, value.message, response.status, {
+          currentRevision: isCount(value.current_revision) ? value.current_revision : undefined,
+          commandIndex: isCount(value.command_index) ? value.command_index : undefined,
+          reason: isStorageReason(value.reason) ? value.reason : undefined,
+        })
       }
       throw new ApiError('http_error', `The local service returned HTTP ${response.status}.`, response.status)
     }
@@ -355,18 +389,71 @@ export class DocumentClient {
    * committed, a resend would create a second document.
    */
   private async createOnce(key: string, path: string, body: Record<string, unknown>, unknown: ApiError) {
-    const earlier = this.unconfirmed.get(key)
-    const id = earlier ?? requestId()
+    const id = this.unconfirmed.get(key) ?? requestId()
+    let sent = this.unconfirmed.has(key)
     this.unconfirmed.set(key, id)
-    try {
-      const value = await this.write(path, { request_id: id, ...body }, earlier ? 'reload' : 'retry')
-      this.unconfirmed.delete(key)
-      return value
-    } catch (error) {
-      // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
-      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmed.delete(key)
-      if (error instanceof ApiError && error.code === 'service_restarted') throw unknown
-      throw error
+    for (let checks = 0; ; checks += 1) {
+      try {
+        const value = await this.write(path, { request_id: id, ...body }, sent ? 'reload' : 'retry')
+        this.unconfirmed.delete(key)
+        return value
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        if (error.code === 'service_restarted') {
+          // The restarted service has forgotten the ID, so a later attempt is a new request.
+          this.unconfirmed.delete(key)
+          throw unknown
+        }
+        sent = true
+        if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+          await pause(OUTCOME_CHECK_INTERVAL_MS)
+          continue
+        }
+        // While the outcome is open the ID is kept, so asking again cannot create twice.
+        if (!outcomeOpen(error)) this.unconfirmed.delete(key)
+        throw error
+      }
+    }
+  }
+
+  /**
+   * Saves the working copy at `expectedRevision`. When no reply arrives the save may have
+   * committed, so the client asks again with the same request_id, at once and then while the
+   * service reports it in progress; the service returns the committed reply rather than
+   * saving twice. If it stays unanswered, the save is reported as `save_unconfirmed`, and
+   * saving the same revision again asks about the same request.
+   */
+  async save(id: string, expectedRevision: number) {
+    const key = `${id}:${expectedRevision}`
+    const request = { request_id: this.unconfirmedSaves.get(key) ?? requestId(), expected_revision: expectedRevision }
+    this.unconfirmedSaves.set(key, request.request_id)
+    let askedAgain = false
+    for (let checks = 0; ; ) {
+      try {
+        const value = DocumentClient.document(await this.write(`${documentPath(id)}/save`, request, 'reload'))
+        this.unconfirmedSaves.delete(key)
+        return value
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        if (error.status === 0 && !askedAgain) {
+          askedAgain = true
+          continue
+        }
+        if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+          checks += 1
+          await pause(OUTCOME_CHECK_INTERVAL_MS)
+          continue
+        }
+        if (!outcomeOpen(error)) {
+          this.unconfirmedSaves.delete(key)
+          throw error
+        }
+        throw new ApiError(
+          'save_unconfirmed',
+          'The local service has not confirmed this save, so it may or may not be saved. Check again to ask.',
+          error.status,
+        )
+      }
     }
   }
 
@@ -453,7 +540,7 @@ export class DocumentClient {
     )
   }
 
-  async revisionAction(id: string, action: 'undo' | 'redo' | 'save', expectedRevision: number) {
+  async revisionAction(id: string, action: 'undo' | 'redo', expectedRevision: number) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/${action}`,
