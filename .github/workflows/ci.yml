@@ -41,3 +41,52 @@ jobs:
       - run: npm ci
       - name: Check web, Rust, and HTTP/CLI contracts
         run: npm run check
+
+  browser:
+    # A fixed image: the browser's system libraries come from it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Use pinned npm
+        run: |
+          chemifree_npm_prefix="$RUNNER_TEMP/chemifree-npm"
+          npm install --global --prefix "$chemifree_npm_prefix" --ignore-scripts --no-audit --no-fund npm@11.13.0
+          echo "$chemifree_npm_prefix/bin" >> "$GITHUB_PATH"
+      - name: Verify pinned npm
+        run: |
+          chemifree_npm_version="$(npm --version)"
+          echo "npm $chemifree_npm_version"
+          test "$chemifree_npm_version" = "11.13.0"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.95.0
+      - run: npm ci
+      # The browser build is the one the locked playwright-core version names.
+      - name: Install Chromium and its system libraries
+        id: chromium
+        run: npx playwright-core install --with-deps chromium
+      - name: Route-expiry guard (#8)
+        run: npm run test:browser:routes
+      # Runs even if the guard check failed, so each check reports on its own.
+      - name: Browser smoke
+        id: smoke
+        if: ${{ !cancelled() && steps.chromium.outcome == 'success' }}
+        env:
+          CHEMIFREE_SMOKE_OUT: ${{ runner.temp }}/browser-smoke
+          CHEMIFREE_SMOKE_NO_SKIPS: '1'
+        run: npm run test:browser
+      - name: Upload the smoke's records
+        if: ${{ !cancelled() && steps.smoke.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-smoke-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/browser-smoke
+          if-no-files-found: error
+          retention-days: 14
