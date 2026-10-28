@@ -419,6 +419,137 @@ assert.equal(await page.getByText('Save failed', { exact: true }).count(), 0)
 results.save_failure_and_retry = true
 step = 'after save_failure_and_retry'
 
+// ── Storage feedback ──────────────────────────────────────────────────────────────────────
+const stored = () => JSON.parse(readFileSync(file, 'utf8')).document
+const retitle = async (title) => {
+  await page.getByLabel('Document title').fill(title)
+  await page.getByLabel('Document title').press('Enter')
+  await waitIdle()
+}
+const saveAgain = async () => {
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await waitIdle()
+  assert.equal(await saveState(), 'Saved')
+}
+/** Request IDs of the page's saves, in the order sent. */
+const saveIds = []
+const recordSaveId = (request) => {
+  if (request.method() === 'POST' && request.url().endsWith('/save')) saveIds.push(request.postDataJSON().request_id)
+}
+page.on('request', recordSaveId)
+
+// Read-only storage is named as such, and nothing is written.
+if (runningAsRoot) {
+  results.skipped_steps.push('read_only_storage_is_named')
+} else {
+  await retitle('Read-only attempt')
+  const documentsDir = join(dataDir, 'documents')
+  const before = readFileSync(file)
+  chmodSync(documentsDir, 0o500)
+  try {
+    await page.keyboard.press('Control+s')
+    await page.getByText('Storage is read-only', { exact: true }).waitFor()
+  } finally {
+    chmodSync(documentsDir, 0o700)
+  }
+  assert.equal(await saveState(), 'Unsaved changes')
+  assert.deepEqual(readFileSync(file), before, 'nothing was written')
+  await saveAgain()
+  results.read_only_storage_is_named = true
+}
+step = 'after read_only_storage_is_named'
+
+// A CLI process holds the document's save lock (its commit pauses inside the lock): the save
+// is refused as busy within the page's deadline, and saving later works.
+await retitle('Busy attempt')
+const lockFile = join(dataDir, 'locks', `${id}.lock`)
+const holder = spawn(cliPath, [
+  'documents', 'apply', id, '--expected-revision', String(stored().revision),
+  '--commands', JSON.stringify([{ op: 'rename', title: 'Held by the CLI' }]),
+], { env: { ...env, CHEMIFREE_TEST_COMMIT_DELAY_MS: '60000' }, stdio: 'ignore' })
+const holderExit = new Promise((resolveExit) => holder.once('exit', resolveExit))
+/** Held once a non-blocking attempt to take the lock is refused. */
+const lockHeld = () => {
+  try {
+    execFileSync('flock', ['--nonblock', '--conflict-exit-code', '9', lockFile, 'true'])
+    return false
+  } catch (error) {
+    if (error.status === 9) return true
+    throw error
+  }
+}
+while (!existsSync(lockFile) || !lockHeld()) await new Promise((resolvePoll) => setTimeout(resolvePoll, 20))
+const beforeBusy = readFileSync(file)
+await page.keyboard.press('Control+s')
+await page.getByText('Document busy', { exact: true }).waitFor({ timeout: 15_000 })
+assert.equal(await saveState(), 'Unsaved changes')
+holder.kill('SIGKILL')
+await holderExit
+assert.deepEqual(readFileSync(file), beforeBusy, 'neither save committed')
+await saveAgain()
+assert.equal(stored().title, 'Busy attempt')
+results.busy_document_is_named_and_retried = true
+step = 'after busy_document_is_named_and_retried'
+
+// The service commits, but the reply arrives after the page's 10-second deadline. The page
+// asks again with the same request ID and gets the committed result, not an error. The route
+// stays until the step ends, so later saves pass through it untouched.
+await retitle('Late reply')
+const lateRevision = await revision()
+let lateSaves = 0
+const held = []
+await page.route('**/save', async (route) => {
+  lateSaves += 1
+  if (lateSaves > 1) return route.fallback()
+  const response = await route.fetch() // The service commits now.
+  held.push(response.status())
+  await new Promise((resolveHold) => setTimeout(resolveHold, 11_000))
+  await route.fulfill({ response }).catch(() => {}) // The page gave up on it.
+})
+saveIds.length = 0
+const confirmed = page.waitForResponse((r) => r.url().endsWith('/save') && r.status() === 200, { timeout: 20_000 })
+await page.keyboard.press('Control+s')
+await confirmed
+await waitIdle()
+await page.unroute('**/save')
+assert.deepEqual(held, [200], 'the first attempt committed')
+assert.equal(saveIds.length, 2, `asked again once (${saveIds.length} requests)`)
+assert.equal(saveIds[1], saveIds[0], 'with the same request ID')
+assert.equal(await saveState(), 'Saved')
+for (const title of ['Save failed', 'Save not confirmed']) {
+  assert.equal(await page.getByText(title, { exact: true }).count(), 0, `no "${title}" shown`)
+}
+assert.deepEqual([stored().title, stored().revision], ['Late reply', lateRevision], 'committed once')
+results.late_save_reply_is_confirmed_not_failed = true
+step = 'after late_save_reply_is_confirmed_not_failed'
+
+// The connection drops after the service answers, for the save and for the immediate check:
+// the outcome is unknown, and saying so is honest. Checking again asks about the same save
+// and finds it committed.
+await retitle('Unconfirmed')
+const unconfirmedRevision = await revision()
+const dropped = []
+await page.route('**/save', async (route) => {
+  if (dropped.length === 2) return route.fallback()
+  dropped.push((await route.fetch()).status()) // Answered by the service…
+  await route.abort('connectionreset') // …but the page never gets the reply.
+})
+saveIds.length = 0
+await page.keyboard.press('Control+s')
+await page.getByText('Save not confirmed', { exact: true }).waitFor()
+assert.deepEqual(dropped, [200, 200], 'committed, then replayed')
+assert.equal(stored().title, 'Unconfirmed', 'the service committed it meanwhile')
+await page.getByRole('alert').getByRole('button', { name: 'Check again' }).click()
+await waitIdle()
+await page.unroute('**/save')
+assert.equal(await saveState(), 'Saved')
+assert.equal(saveIds.length, 3, `two attempts, then the check (${saveIds.length} requests)`)
+assert.ok(saveIds.every((saveId) => saveId === saveIds[0]), `one request ID throughout: ${saveIds.join(', ')}`)
+assert.deepEqual([stored().title, stored().revision], ['Unconfirmed', unconfirmedRevision], 'committed once')
+page.off('request', recordSaveId)
+results.unconfirmed_save_is_checked_not_repeated = true
+step = 'after unconfirmed_save_is_checked_not_repeated'
+
 // Save conflict: the CLI commits a change first.
 await tool('Atom')
 const conflictDoc = await openDoc()
@@ -794,6 +925,27 @@ step = 'after autosave_failure_is_shown_and_retried'
 const originalFile = join(dataDir, 'documents', `${docId}.json`)
 const originalBytes = readFileSync(originalFile)
 const originalId = docId
+// The first copy attempt gets no reply, and asked again, the service says the copy is still
+// running. The page keeps asking with the same request ID, so one copy is made. This route is
+// removed only after the autosave held below is answered: removing a route while another
+// request is held let that request through to the service in a trial run.
+const copyIds = []
+const recordCopyId = (request) => {
+  if (request.url().endsWith('/save-as')) copyIds.push(request.postDataJSON().request_id)
+}
+page.on('request', recordCopyId)
+let copyAttempts = 0
+await page.route('**/save-as', async (route) => {
+  copyAttempts += 1
+  if (copyAttempts === 1) return route.abort('connectionreset')
+  if (copyAttempts > 2) return route.fallback()
+  return route.fulfill({
+    status: 409,
+    contentType: 'application/json',
+    body: JSON.stringify({ api_version: 'v1', code: 'request_in_progress', message: 'still running' }),
+  })
+})
+const documentFiles = () => readdirSync(join(dataDir, 'documents')).filter((name) => name.endsWith('.json')).length
 // An autosave of the original is held until the page has moved to the copy, then answered
 // with a pausing error. It must not pause autosave for the copy.
 let releaseStale
@@ -815,11 +967,22 @@ await page.route(
 )
 await drawPair()
 await staleArrived
-const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as'))
-await page.getByRole('button', { name: 'Save as copy' }).click()
-await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
-await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+const filesBeforeCopy = documentFiles()
+const saveCopy = async () => {
+  await page.getByRole('button', { name: 'Save as copy' }).click()
+  await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+}
+await saveCopy()
+await page.getByText('Local service unavailable', { exact: true }).waitFor()
+const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as') && r.ok(), { timeout: 15_000 })
+await saveCopy()
 const copyBody = await (await copyResponse).json()
+page.off('request', recordCopyId)
+assert.equal(copyIds.length, 3, `no reply, in progress, then the copy (${copyIds.length} requests)`)
+assert.ok(copyIds.every((copyId) => copyId === copyIds[0]), `one request ID throughout: ${copyIds.join(', ')}`)
+assert.equal(documentFiles(), filesBeforeCopy + 1, 'one copy was made')
+results.copy_in_progress_keeps_its_request_id = true
 docId = copyBody.document.id
 await page.getByTestId('copy-notice').waitFor()
 assert.match(await page.getByTestId('copy-notice').textContent(), /Now editing the copy “Branch”/)
@@ -833,6 +996,7 @@ assert.ok(!existsSync(join(dataDir, 'drafts', `${originalId}.json`)), "the origi
 const staleAnswered = page.waitForResponse((r) => r.url().endsWith(`/${originalId}/autosave`))
 releaseStale()
 await staleAnswered
+await page.unroute('**/save-as')
 await drawPair()
 await waitDraft('saved')
 results.late_autosave_reply_leaves_the_next_document_autosaving = true
