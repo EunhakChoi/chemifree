@@ -30,7 +30,7 @@
 | crates/domain | 원소(1–118), 문서 그래프·안정 ID·참조 불변식, 명령, 원자적 트랜잭션, change-set Undo/Redo, 저장본 복원 검증, 독립 사본(copy_as). 외부 의존성 없음 |
 | crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 저장 커밋 후 ACK, 자동 저장·복구(번호 일관성)·사본, 공유 DTO, DocumentRepository(초안 소유 계약 포함)·CapabilityCatalog port |
 | crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), 문서별 OS 저장 잠금(locks/), 복구 초안(drafts/, 소유 잠금, 커밋 중 초안 정리), capability 목록 |
-| 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, 수동 test:browser, GitHub Actions |
+| 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, test:browser, GitHub Actions(check·browser job) |
 
 의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다.
 
@@ -67,7 +67,7 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 - npm run check: lint, TypeScript, production build, rustfmt, clippy, Rust 테스트 69개(domain 20, application 25, providers 15, api 9).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구. 같은 기준에서 동시에 저장하는 CLI 6개(정확히 하나만 커밋), 잠금을 쥔 채 강제 종료된 프로세스 뒤의 저장, API와 CLI의 저장 경쟁, 자동 저장 → SIGKILL → 재시작 → 복구(내용·Undo/Redo·ID·리비전), 초안 버리기와 재시작 후 미재출현, 오래된 초안의 사본 복구, 손상 초안, 자동 저장 실패·재시도, HTTP·CLI 사본 저장과 독립성, 사본 저장 실패 후 원본 보존·재시도, 원본 초안을 지울 수 없을 때(drafts/ 권한 오류) 사본은 커밋되고 원본 세션·초안이 그대로 남으며 응답이 closed: false로 알리는지. 경쟁 재현에는 debug 빌드 전용 CHEMIFREE_TEST_COMMIT_DELAY_MS(저장 잠금 안 대기)를 쓴다. 잠금을 끈 빌드에서는 6개가 모두 커밋되어 이 검사가 실패함을 확인했다.
-- npm run test:browser(수동, CI 제외): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 자동 저장 상태, API 강제 종료 후 Reload → 복구(그림·Undo 이력), 초안 버리기(확인 대화상자), 오래된 초안의 사본 복구와 원본 열기, 자동 저장 실패·Retry now, 편집이 계속되어도 밀리지 않는 재시도, 재시작 뒤 새 서비스 기준의 초안 상태(이전 초안이 있으면 '일시정지', 버린 뒤 다시 초안 작성), 사본으로 저장(원본 파일 불변), 다른 문서로 넘어간 뒤 도착한 자동 저장 응답 무시, 문서를 떠나기 전 대기 중인 작업의 초안 작성, 다른 클라이언트가 세션을 앞서 나가도 자동 저장이 1초마다 반복되지 않음, 원본 초안을 지울 수 없어(drafts/ 읽기 전용) 원본이 미저장 변경과 함께 남은 사본 저장의 안내·원본 열기, 사본으로 돌아왔을 때와 서비스 재시작 뒤 지난 안내가 사라지는지, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
+- npm run test:browser(로컬, CI browser job에서도 실행): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 자동 저장 상태, API 강제 종료 후 Reload → 복구(그림·Undo 이력), 초안 버리기(확인 대화상자), 오래된 초안의 사본 복구와 원본 열기, 자동 저장 실패·Retry now, 편집이 계속되어도 밀리지 않는 재시도, 재시작 뒤 새 서비스 기준의 초안 상태(이전 초안이 있으면 '일시정지', 버린 뒤 다시 초안 작성), 사본으로 저장(원본 파일 불변), 다른 문서로 넘어간 뒤 도착한 자동 저장 응답 무시, 문서를 떠나기 전 대기 중인 작업의 초안 작성, 다른 클라이언트가 세션을 앞서 나가도 자동 저장이 1초마다 반복되지 않음, 원본 초안을 지울 수 없어(drafts/ 읽기 전용) 원본이 미저장 변경과 함께 남은 사본 저장의 안내·원본 열기, 사본으로 돌아왔을 때와 서비스 재시작 뒤 지난 안내가 사라지는지, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
 - 브라우저 검증 중 serde_json 기본 float 파서가 다시 열 때 1 ULP 오차(226.39999999999998 → 226.4)를 내는 버그를 발견했고 float_roundtrip 기능으로 수정, 회귀 테스트를 추가했다.
 
 scaffold 시점 기록은 verification/의 기존 JSON에 남아 있다. 화학적 정확성 검증은 수행한 상태가 아니다.
@@ -98,7 +98,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 - 화면에서 만든 편집이 앞선 요청에 밀려 낡으면 revision_conflict로 거절되고 Reload를 안내한다(전하 ± 같은 상대 편집은 최신 상태 기준으로 계산).
 - 장면은 문서당 위치 한 벌이다. 공개 설계의 그래프/장면 인스턴스 분리, 선택의 이력 포함, 확대·이동, 텍스트·화살표 객체는 아직 없다.
 - 캔버스는 포인터 중심이다. 키보드만으로 원자를 배치하는 접근 경로는 없다(인스펙터 편집과 단축키는 있음).
-- 브라우저 smoke는 CI에서 실행하지 않는다.
+- CI의 browser job은 Ubuntu 24.04에서 잠근 playwright-core가 가리키는 Chromium을 시스템 라이브러리와 함께 설치하고, test:browser:routes와 test:browser를 재시도 없이 한 번씩 실행한다. route 검사가 실패해도 smoke는 실행한다. CHEMIFREE_SMOKE_NO_SKIPS=1이라 root 실행 등으로 건너뛴 단계가 있으면 실패한다. 통과·실패와 관계없이(빌드 실패 포함) results.json, build.log, environment.json, requests.log, api.log, web.log, 스크린샷(실패 시 failure.png)을 artifact로 14일 보관한다. 일부러 깨뜨린 빌드로 이 job이 실패하는지 확인한 기록은 verification/browser-ci.json에 있다. 포트 3001·5173을 쓰므로 한 러너에서 동시에 두 번 실행할 수 없다.
 - 브라우저 smoke의 '재시작 모의' 단계가 가끔 실패하던 문제(#8)는 제품 결함이 아니라 테스트 동기화 문제였다. Playwright 1.56.1은 마지막 page route가 사라지면(times: 1 route 소진, unroute) 요청 가로채기를 끈다. 그 순간 시작된 요청은 브라우저에 멈춘 채 서버에 닿지 않고 10초 뒤 클라이언트가 중단한다. smoke는 컨텍스트 전체에 통과용 route를 두어 가로채기를 끄지 않는다(scripts/lib/request-interception.mjs). npm run test:browser:routes가 Chemifree 코드 없이 이 경쟁을 재현한다. 재전송 편집 확인은 스피너 상태에만 기대지 않고 실제 200 응답을 기다린다. 실패하면 failure.png, requests.log, api.log(--log-requests), web.log를 남기고 임시 디렉터리를 지우지 않는다. 기록은 verification/browser-route-race.json.
 
 ## 다음 구현 단위 제안
