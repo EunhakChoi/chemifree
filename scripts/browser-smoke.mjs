@@ -7,10 +7,16 @@
 //
 // Uses playwright-core with an installed Chrome/Chromium: set CHEMIFREE_BROWSER to its
 // executable, or install Playwright's build with `npx playwright-core install chromium`.
-// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory, removed after a
-// passing run). A failing run also writes failure.png, requests.log (every browser request with
-// its outcome and duration), api.log (the request log of every API process the run started),
-// and web.log there, and keeps the temporary directory so they can be read.
+// Screenshots and records go to CHEMIFREE_SMOKE_OUT (default: the temporary directory, removed
+// after a passing run). Every run writes environment.json (browser and driver versions),
+// results.json (the steps that passed and the last step reached), requests.log (every browser
+// request with its outcome and duration), api.log (the request log of every API process the run
+// started), and web.log there. A failing run also writes failure.png and keeps the temporary
+// directory so the records can be read.
+//
+// The steps that make drafts/ read-only are skipped when running as root, whose writes
+// permissions do not stop; they are listed in results.skipped_steps. With
+// CHEMIFREE_SMOKE_NO_SKIPS=1 (set in CI) a skipped step fails the run.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -21,7 +27,8 @@ import { chromium } from 'playwright-core'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
-const results = {}
+const results = { skipped_steps: [] }
+const asRoot = process.getuid?.() === 0
 const consoleErrors = []
 const work = mkdtempSync(join(tmpdir(), 'chemifree-browser-'))
 const dataDir = join(work, 'data')
@@ -78,9 +85,16 @@ async function cleanup({ keepWork = false } = {}) {
 let page = null
 /** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
 const requestLog = []
+/** Writes the run's records to `outDir`; called once, after the run passed or failed. */
+function writeRecords() {
+  writeFileSync(join(outDir, 'results.json'), `${JSON.stringify({ step, results }, null, 2)}\n`)
+  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
+  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- next API process\n'))
+  writeFileSync(join(outDir, 'web.log'), web.log())
+}
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
-  const files = ['requests.log', 'api.log', 'web.log']
+  const files = ['results.json', 'requests.log', 'api.log', 'web.log']
   // No page (for example, the browser did not launch) means no screenshot.
   if (page) {
     const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
@@ -90,9 +104,7 @@ process.on('uncaughtException', async (error) => {
     if (shot) files.unshift('failure.png')
   }
   console.error(requestLog.slice(-40).join('\n'))
-  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
-  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- next API process\n'))
-  writeFileSync(join(outDir, 'web.log'), web.log())
+  writeRecords()
   console.error(`Diagnostics in ${outDir}: ${files.join(', ')}`)
   // The diagnostics may be in the temporary directory, so a failed run keeps it.
   await cleanup({ keepWork: true })
@@ -110,6 +122,15 @@ async function crashApi() {
 }
 
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
+const environment = {
+  browser: `${browser.browserType().name()} ${browser.version()}`,
+  executable: process.env.CHEMIFREE_BROWSER ?? `Playwright's build (${chromium.executablePath()})`,
+  playwright_core: JSON.parse(readFileSync(resolve('node_modules/playwright-core/package.json'), 'utf8')).version,
+  node: process.version,
+  platform: `${process.platform} ${process.arch}`,
+}
+writeFileSync(join(outDir, 'environment.json'), `${JSON.stringify(environment, null, 2)}\n`)
+console.log(`Browser: ${environment.browser}, ${environment.executable}; playwright-core ${environment.playwright_core}`)
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 // Steps add and remove page routes; without this, a request sent just as the last one goes
 // away can stall in the browser (see scripts/lib/request-interception.mjs and #8).
@@ -703,7 +724,9 @@ results.drafts_after_a_restart_follow_the_new_service = true
 step = 'after drafts_after_a_restart_follow_the_new_service'
 
 // A failed autosave is shown and retried; the saved file is untouched meanwhile.
-if (process.getuid?.() !== 0) {
+if (asRoot) {
+  results.skipped_steps.push('autosave_retry_is_not_postponed_by_edits', 'autosave_failure_is_shown_and_retried')
+} else {
   const draftsDir = join(dataDir, 'drafts')
   // The retry keeps its schedule (2 s after the first failure) while edits keep coming.
   chmodSync(draftsDir, 0o500)
@@ -733,8 +756,8 @@ if (process.getuid?.() !== 0) {
   await clickFor(page.getByRole('button', { name: 'Retry now' }), '/autosave')
   await waitDraft('saved')
   assert.ok(existsSync(draftFile()))
+  results.autosave_failure_is_shown_and_retried = true
 }
-results.autosave_failure_is_shown_and_retried = true
 step = 'after autosave_failure_is_shown_and_retried'
 
 // Save as copy: the unsaved drawing becomes a new document; the original keeps its save.
@@ -833,7 +856,9 @@ step = 'after a_session_moved_elsewhere_is_drafted_once'
 // draft, and the notice says so and leads back to it. The notice describes that moment only,
 // so it is gone once the page leaves the copy, and once the service restarts while the copy is
 // still shown (the restart ends the original's session).
-if (process.getuid?.() !== 0) {
+if (asRoot) {
+  results.skipped_steps.push('save_as_copy_reports_an_original_left_open', 'copy_notice_ends_when_the_service_restarts')
+} else {
   const draftsDir = join(dataDir, 'drafts')
   const notice = page.getByTestId('copy-notice')
   const copyLeavingOpen = async (title) => {
@@ -920,5 +945,10 @@ results.uncaught_browser_errors = consoleErrors.filter((text) => !provoked.some(
 results.expected_http_error_console_lines = consoleErrors.length - results.uncaught_browser_errors.length
 console.log(JSON.stringify(results, null, 2))
 assert.deepEqual(results.uncaught_browser_errors, [])
+if (process.env.CHEMIFREE_SMOKE_NO_SKIPS === '1') {
+  assert.deepEqual(results.skipped_steps, [], 'CHEMIFREE_SMOKE_NO_SKIPS=1: every step must run (not as root)')
+}
+step = 'done'
+writeRecords()
 await cleanup()
 console.log('Browser smoke passed.')
