@@ -1,0 +1,45 @@
+{
+  "issue": "#8: the browser smoke's simulated-restart step failed now and then",
+  "date": "2026-10-28",
+  "environment": {
+    "browser": "Google Chrome 147.0.7727.116 (headless)",
+    "driver": "playwright-core 1.56.1",
+    "node": "22.22.2",
+    "os": "Linux 6.6.87.2-microsoft-standard-WSL2, 24 CPUs"
+  },
+  "cause": "playwright-core 1.56.1 turns request interception off when the last page route is removed (a `times: 1` route that has fired, or `unroute`). It marks interception off at once and then sends Fetch.disable to the browser. A request the page starts in between is paused by the browser (Fetch.requestPaused), but Playwright has already treated it as not intercepted, so it keeps the pause event and never continues the request. The request never reaches the server and fails when the page aborts it. In the restart step the edit's token is refused by a one-time route; the page's next request (reading the document) started 2 ms later and stalled, so the edit was never retried.",
+  "classification": "Test synchronization, not a product defect. The page and the API behave correctly; the stalled request never left the browser.",
+  "fix": "scripts/lib/request-interception.mjs: a context-wide pass-through route keeps interception on for the whole run, so adding and removing step routes never turns it off. The restart step also waits for the retried edit's 200 response before reading the document, instead of relying on the busy indicator.",
+  "reproductions": [
+    {
+      "command": "npm run test:browser:routes [-- --unguarded]",
+      "what": "Plain Node HTTP server, no Chemifree code. Each cycle: a `times: 1` route answers 401, then the page fetches the next URL at once; a request with no response within 1000 ms counts as stalled.",
+      "unguarded": "4 of 1000 stalled (exit 1); earlier runs 8 of 1000 and 12 of 1000",
+      "guarded": "0 of 1000 stalled (exit 0), in each of three runs"
+    },
+    {
+      "command": "Local harness built from scripts/browser-smoke.mjs (not committed)",
+      "what": "The full app (API, Vite, Chrome). Each iteration repeats what the smoke does before and during the restart step: a route that delays transactions by 400 ms, two edits, a rejected edit, unroute, then the same-drawing and changed-drawing restart checks. a1's charge is reset first so the charge limit is never reached.",
+      "unguarded": "3 failures in 600 iterations: 2 waiting for the retried edit, 1 waiting for the 'Local service restarted' notice. The traces show the document GET started 2 ms after the 401, never answered, and aborted by the page after 10001 ms.",
+      "guarded": "0 failures in 900 iterations"
+    },
+    {
+      "command": "Same harness without the preceding delay route and unroute",
+      "what": "Only the restart step, repeated.",
+      "unguarded": "0 failures in 1000 iterations",
+      "guarded": "0 failures in 120 iterations",
+      "note": "The race was not observed in this shorter sequence. The stall needs a request to start inside a short window, and how often that happens depends on the steps before it."
+    }
+  ],
+  "full_smoke": "npm run test:browser: 10 of 10 consecutive runs passed before merging main, 5 of 5 after.",
+  "product_defect_found_during_the_investigation": {
+    "what": "Draft owner locks within one process. OS file locks refuse a second handle in the same process, so one request probing an abandoned draft could make a concurrent request see it as owned by another running process (Draft in use).",
+    "test": "crates/providers: requests_in_one_process_never_mistake_its_own_probe_for_another_owner (8 threads x 200 probes)",
+    "before_fix": "1546 of 1600 probes misread as locked",
+    "after_fix": "0 of 1600",
+    "fix": "A store-level mutex takes owner locks one at a time within the process.",
+    "relation_to_8": "Not the cause of the #8 failures, which were the stalled requests above."
+  },
+  "diagnostics": "The API accepts --log-requests (or CHEMIFREE_LOG_REQUESTS=1): one line per request on standard error, without tokens. The smoke starts the API with it. A failed smoke run prints the step and the last 40 requests, and keeps failure.png, requests.log, api.log, and web.log in CHEMIFREE_SMOKE_OUT or in its temporary directory, which it does not delete.",
+  "not_verified": "Other playwright-core versions and browsers. The browser smoke is not run in CI."
+}
