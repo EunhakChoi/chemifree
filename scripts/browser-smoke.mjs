@@ -914,6 +914,33 @@ step = 'after autosave_failure_is_shown_and_retried'
 const originalFile = join(dataDir, 'documents', `${docId}.json`)
 const originalBytes = readFileSync(originalFile)
 const originalId = docId
+// The first copy attempt gets no reply; asked again, the service says the copy is still in
+// progress. The page keeps asking with the same request ID, so the copy is made once. This
+// route is removed only after the held autosave below is answered: in a run where it expired
+// while that autosave was held, the autosave reached the service and its route could not
+// answer it ("Route is already handled").
+const copyIds = []
+const recordCopyId = (request) => {
+  if (request.url().endsWith('/save-as')) copyIds.push(request.postDataJSON().request_id)
+}
+page.on('request', recordCopyId)
+let copyAttempts = 0
+await page.route('**/save-as', async (route) => {
+  copyAttempts += 1
+  if (copyAttempts === 1) {
+    await route.abort('connectionreset')
+    return
+  }
+  if (copyAttempts === 2) {
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ api_version: 'v1', code: 'request_in_progress', message: 'still running' }),
+    })
+    return
+  }
+  await route.fallback()
+})
 // An autosave of the original is held until the page has moved to the copy, then answered
 // with a pausing error. It must not pause autosave for the copy.
 let releaseStale
@@ -935,11 +962,21 @@ await page.route(
 )
 await drawPair()
 await staleArrived
-const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as'))
+const copyDocsBefore = readdirSync(join(dataDir, 'documents')).length
+await page.getByRole('button', { name: 'Save as copy' }).click()
+await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
+await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+await page.getByText('Local service unavailable', { exact: true }).waitFor()
+const copyResponse = page.waitForResponse((r) => r.url().endsWith('/save-as') && r.ok(), { timeout: 15_000 })
 await page.getByRole('button', { name: 'Save as copy' }).click()
 await page.getByRole('dialog').getByLabel('Title of the copy').fill('Branch')
 await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
 const copyBody = await (await copyResponse).json()
+page.off('request', recordCopyId)
+assert.equal(copyIds.length, 3, `two unanswered attempts, then the answer (${copyIds.length} requests)`)
+assert.ok(copyIds.every((copyId) => copyId === copyIds[0]), `one request ID throughout: ${copyIds.join(', ')}`)
+assert.equal(readdirSync(join(dataDir, 'documents')).length, copyDocsBefore + 1, 'one copy was made')
+results.copy_in_progress_keeps_its_request_id = true
 docId = copyBody.document.id
 await page.getByTestId('copy-notice').waitFor()
 assert.match(await page.getByTestId('copy-notice').textContent(), /Now editing the copy “Branch”/)
@@ -953,6 +990,7 @@ assert.ok(!existsSync(join(dataDir, 'drafts', `${originalId}.json`)), "the origi
 const staleAnswered = page.waitForResponse((r) => r.url().endsWith(`/${originalId}/autosave`))
 releaseStale()
 await staleAnswered
+await page.unroute('**/save-as')
 await drawPair()
 await waitDraft('saved')
 results.late_autosave_reply_leaves_the_next_document_autosaving = true

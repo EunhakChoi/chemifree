@@ -246,7 +246,7 @@ function isClose(value: unknown): value is { discarded_changes: boolean } {
 }
 
 const TIMEOUT_MS = 10_000
-/** While the service still runs an unconfirmed save, its outcome is asked for this often… */
+/** While the service still runs an unconfirmed save or copy, its outcome is asked for this often… */
 const SAVE_CHECK_INTERVAL_MS = 1000
 /** …this many times. The service answers every save within its own time budget (about 8 s). */
 const SAVE_CHECKS = 12
@@ -389,15 +389,33 @@ export class DocumentClient {
     const earlier = this.unconfirmed.get(key)
     const id = earlier ?? requestId()
     this.unconfirmed.set(key, id)
-    try {
-      const value = await this.write(path, { request_id: id, ...body }, earlier ? 'reload' : 'retry')
-      this.unconfirmed.delete(key)
-      return value
-    } catch (error) {
-      // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
-      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmed.delete(key)
-      if (error instanceof ApiError && error.code === 'service_restarted') throw unknown
-      throw error
+    let sent = earlier !== undefined
+    for (let checks = 0; ; checks += 1) {
+      try {
+        const value = await this.write(path, { request_id: id, ...body }, sent ? 'reload' : 'retry')
+        this.unconfirmed.delete(key)
+        return value
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        // The restarted service has forgotten the ID; the outcome stays unknown, and the next
+        // attempt is a new request.
+        if (error.code === 'service_restarted') {
+          this.unconfirmed.delete(key)
+          throw unknown
+        }
+        // The earlier request with this ID is still running: ask again for its outcome.
+        if (error.code === 'request_in_progress' && checks < SAVE_CHECKS) {
+          sent = true
+          await pause(SAVE_CHECK_INTERVAL_MS)
+          continue
+        }
+        // No answer (status 0) or a request still running may yet create the document, so the ID
+        // is kept and asking again can never create it twice; a busy refusal keeps it too, as for
+        // saves. Any other failure is an answer.
+        const open = error.status === 0 || error.code === 'request_in_progress' || error.reason === 'busy'
+        if (!open) this.unconfirmed.delete(key)
+        throw error
+      }
     }
   }
 

@@ -3,9 +3,9 @@
   "date": "2026-10-28",
   "environment": "Linux 6.6 (WSL2), Rust 1.95.0, Node 22.22.2; browser checks with Chromium 141.0.7390.37 (Playwright build v1194) via playwright-core 1.56.1",
   "checks": {
-    "cargo_test": "77 tests pass (domain 20, application 32, providers 16, api 9). New: storage_failures_say_whether_retrying_can_help, requests_queued_behind_a_stalled_save_are_answered_busy_without_changes, a_save_whose_reply_was_lost_is_reported_by_asking_again, a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn, the gate's three unit tests, and a_write_refused_by_permissions_is_denied_and_changes_nothing.",
+    "cargo_test": "77 tests pass (domain 20, application 32, providers 16, api 9). New: storage_failures_say_whether_retrying_can_help, requests_queued_behind_a_stalled_save_are_answered_busy_without_changes, a_save_whose_reply_was_lost_is_reported_by_asking_again, a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn, the gate's three unit tests, and a_write_refused_by_permissions_is_denied_and_changes_nothing. The two lost-reply tests also check that the repeated save did not write storage again (saves_started unchanged); that shows no second write, not which path answered.",
     "contract_smoke": "Passes with real API and CLI processes. A CLI holds the save lock (CHEMIFREE_TEST_COMMIT_DELAY_MS): an API save waits and fails with reason busy, and saves queued behind it are answered busy within the time budget without changes. A save whose reply is lost is asked about again: request_in_progress while it runs, then the committed result, committed once. A read-only documents/ gives reason read_only, with the file and draft unchanged.",
-    "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 (results in editor-browser-smoke.json). Covered: read_only_storage_is_named, busy_document_is_named_and_retried, late_save_reply_is_confirmed_not_failed (a reply held 11 s past the page's deadline: asked again, shown as Saved, committed once), and unconfirmed_save_is_checked_not_repeated (two replies dropped: 'Save not confirmed', then Check again confirms the same save)."
+    "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 (results in editor-browser-smoke.json). Covered: read_only_storage_is_named, busy_document_is_named_and_retried, late_save_reply_is_confirmed_not_failed (a reply held 11 s past the page's deadline: asked again, shown as Saved, committed once), and unconfirmed_save_is_checked_not_repeated (two replies dropped: 'Save not confirmed', then Check again confirms the same save), and copy_in_progress_keeps_its_request_id (a copy's first reply dropped, the check answered request_in_progress: the page asks again with the same request ID and one copy is made)."
   },
   "deliberate_breaks": [
     {
@@ -27,9 +27,18 @@
     {
       "change": "Replays are looked up only after waiting for the document's turn (found in review round 2 on #18)",
       "caught_by": "application test a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn: the retry of a committed save waited 3 s for the turn held by another save"
+    },
+    {
+      "change": "The web client drops a copy's request ID when the check is answered request_in_progress (found by an independent review before round 3 on #18)",
+      "caught_by": "browser smoke, copy_in_progress_keeps_its_request_id: the page stopped after the 409 and never asked again (the copy reply was awaited for 15 s)"
+    },
+    {
+      "change": "The web client keeps an unconfirmed create's request ID after the service restarted (introduced and caught while fixing the previous item)",
+      "caught_by": "browser smoke, unconfirmed_create_is_not_resent_after_restart: the deliberate new create replayed the earlier one ('a deliberate new create works', 3 !== 4)"
     }
   ],
   "limits": [
+    "A lost reply is answered from the replay window: the latest 64 successful mutations of an open document (per process for creates and closes). Asked about after that, a request runs again, and a save of a revision that has moved on gets revision_conflict.",
     "The turn wait (3 s) and the lock wait (5 s) are per process. A write that itself stalls longer than the client's deadline (for example a hung network file system) is still reported as unknown.",
     "Read-only storage is reported, but there is no read-only mode for opening documents or saving them elsewhere.",
     "Steps that change directory permissions are skipped when running as root."

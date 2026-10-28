@@ -1366,10 +1366,16 @@ fn a_save_whose_reply_was_lost_is_reported_by_asking_again() {
 
     drop(stalled);
     let committed = saving.join().unwrap().unwrap();
+    let saves = store.saves_started.load(Ordering::SeqCst);
     assert_eq!(
         app.save(&id, Some("save-1"), 1).unwrap(),
         committed,
         "once done, asking again replays the committed save"
+    );
+    assert_eq!(
+        store.saves_started.load(Ordering::SeqCst),
+        saves,
+        "replayed, not saved again"
     );
     assert_eq!(
         store.documents.lock().unwrap()[&DocumentId::parse(&id).unwrap()].revision(),
@@ -1395,8 +1401,14 @@ fn a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn
     // Another tab's save holds the document's turn.
     let saving = stalled_save(&app, &store, &id, "save-2", 2);
 
+    let saves = store.saves_started.load(Ordering::SeqCst);
     let started = std::time::Instant::now();
     let asked = app.save(&id, Some("save-1"), 1);
+    assert_eq!(
+        store.saves_started.load(Ordering::SeqCst),
+        saves,
+        "replayed, not saved again"
+    );
     assert!(
         started.elapsed() < GATE_WAIT,
         "answered without waiting for the turn ({:?})",
