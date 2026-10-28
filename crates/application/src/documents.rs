@@ -265,7 +265,9 @@ impl Session {
                     .as_millis(),
             )
             .unwrap_or(u64::MAX),
-            message: failure.message.clone(),
+            code: failure.error.code.as_str(),
+            reason: failure.error.reason.map(StorageReason::as_str),
+            message: failure.error.message.clone(),
         });
         response
     }
@@ -847,7 +849,7 @@ impl<R: DocumentRepository> Documents<R> {
                 {
                     session
                         .drafting
-                        .failed(now.max(Instant::now()), error.message.clone());
+                        .failed(now.max(Instant::now()), error.clone());
                 }
                 return Err(error);
             }
@@ -909,7 +911,7 @@ impl<R: DocumentRepository> Documents<R> {
         if let Err(error) = outcome {
             session
                 .drafting
-                .failed(now.max(Instant::now()), error.message.clone());
+                .failed(now.max(Instant::now()), error.clone());
             return Err(error);
         }
         session.draft_revision = task.drafted_revision();

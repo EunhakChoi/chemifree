@@ -295,3 +295,69 @@ test("a session's draft failure is read when present and optional otherwise", as
   assert.deepEqual((await client.get('doc-1')).session.draft_failure, { attempts: 2, retry_in_ms: 4000, message: 'disk full' })
   assert.equal((await client.get('doc-2')).session.draft_failure, undefined, 'a service from before the field is still compatible')
 })
+
+test("a draft failure's error code and storage reason are read, and an unknown reason is refused", async () => {
+  const failure = { attempts: 1, retry_in_ms: 2000, code: 'storage_failed', reason: 'read_only', message: 'denied' }
+  const failing = document('doc-1', 2)
+  failing.session = { ...failing.session, draft_failure: failure }
+  const garbled = document('doc-2', 2)
+  garbled.session = { ...garbled.session, draft_failure: { ...failure, reason: 'full' } }
+  service({ 'GET /api/v1/documents/doc-1': [() => json(200, failing)], 'GET /api/v1/documents/doc-2': [() => json(200, garbled)] })
+  const client = new DocumentClient()
+  assert.deepEqual((await client.get('doc-1')).session.draft_failure, failure)
+  await assert.rejects(client.get('doc-2'), { code: 'incompatible_response' })
+})
+
+test('a re-read of a document reports a service that restarted before the read instead of its stored copy', async () => {
+  const scripted = service({
+    '/autosave': [() => json(200, document('doc-1'))],
+    'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1'))],
+  })
+  const client = new DocumentClient()
+  let restarts = 0
+  client.onRestart(() => (restarts += 1))
+  await client.autosave('doc-1') // the page's writes went to the first process
+  scripted.restart()
+  await assert.rejects(client.reread('doc-1'), { code: 'service_restarted' })
+  assert.equal(restarts, 1, 'listeners hear of the restart')
+})
+
+test('a re-read of a document reports a service that restarted while the read was answered', async () => {
+  const scripted = service({
+    '/autosave': [() => json(200, document('doc-1'))],
+    'GET /api/v1/documents/doc-1': [
+      () => {
+        scripted.restart()
+        return json(200, document('doc-1'))
+      },
+    ],
+  })
+  const client = new DocumentClient()
+  await client.autosave('doc-1')
+  await assert.rejects(client.reread('doc-1'), { code: 'service_restarted' })
+})
+
+test('a re-read of a document from the same service returns it', async () => {
+  service({
+    '/autosave': [() => json(200, document('doc-1'))],
+    'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1', 3))],
+  })
+  const client = new DocumentClient()
+  await client.autosave('doc-1')
+  assert.equal((await client.reread('doc-1')).document.revision, 3)
+})
+
+test('an edit after a re-read found a restart meets that restart too, instead of the new service', async () => {
+  const scripted = service({
+    '/autosave': [() => json(200, document('doc-1'))],
+    '/transactions': [() => json(200, document('doc-1', 1))],
+    'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1'))],
+  })
+  const client = new DocumentClient()
+  await client.autosave('doc-1')
+  scripted.restart()
+  await assert.rejects(client.reread('doc-1'), { code: 'service_restarted' })
+  await assert.rejects(client.transact('doc-1', 0, []), { code: 'service_restarted' })
+  const edits = scripted.writes.filter((write) => write.path.endsWith('/transactions'))
+  assert.deepEqual(edits.map((write) => write.token), ['token-1'], 'sent once, with the old token, and refused')
+})

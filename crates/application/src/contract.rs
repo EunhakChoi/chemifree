@@ -417,6 +417,11 @@ pub struct DraftFailureView {
     pub attempts: u32,
     /// Milliseconds until the service tries again.
     pub retry_in_ms: u64,
+    /// The latest attempt's error code, as in the v1 error envelope.
+    pub code: &'static str,
+    /// With `storage_failed`, why storage failed, as in the v1 error envelope.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
     pub message: String,
 }
 

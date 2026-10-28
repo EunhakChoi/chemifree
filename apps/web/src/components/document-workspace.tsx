@@ -76,6 +76,7 @@ import type {
   DocumentView,
   ListSort,
   RecoveryView,
+  StorageReason,
 } from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
@@ -618,6 +619,20 @@ const RECOVERY_BADGES: Record<RecoveryView['state'], string> = {
 
 const time = (ms: number | null) => (ms === null ? 'an earlier session' : new Date(ms).toLocaleTimeString())
 
+/** What the user can do when storage keeps refusing the draft, by the failure's reason. */
+const STORAGE_ACTION: Record<StorageReason, string> = {
+  read_only: 'Make the data directory writable; drafting resumes on the next retry.',
+  busy: 'Another save holds the document; the next retry follows it.',
+  io: 'Check the disk that holds the data directory.',
+}
+
+function draftFailure(state: Extract<AutosaveState, { kind: 'failed' }>) {
+  const who = state.by === 'service' ? 'the service retries' : 'retrying'
+  const times = state.attempts > 1 ? ` ${state.attempts} times` : ''
+  const action = state.reason === null ? '' : ` ${STORAGE_ACTION[state.reason]}`
+  return `failed${times}, ${who} at ${time(state.retryAt)}: ${state.message}${action}`
+}
+
 /** The recovery draft's state, apart from the saved file's. */
 function DraftStatus({ state, onRetry }: { state: AutosaveState; onRetry: () => void }) {
   const text = {
@@ -625,7 +640,7 @@ function DraftStatus({ state, onRetry }: { state: AutosaveState; onRetry: () => 
     waiting: 'pending…',
     saving: 'saving…',
     saved: state.kind === 'saved' ? `saved${state.at === null ? '' : ` ${time(state.at)}`} (revision ${state.revision})` : '',
-    failed: state.kind === 'failed' ? `failed, retrying at ${time(state.retryAt)}: ${state.message}` : '',
+    failed: state.kind === 'failed' ? draftFailure(state) : '',
     blocked:
       state.kind === 'blocked'
         ? state.recovery === 'in_use'
@@ -635,7 +650,12 @@ function DraftStatus({ state, onRetry }: { state: AutosaveState; onRetry: () => 
     stopped: state.kind === 'stopped' ? `stopped: ${state.message}` : '',
   }[state.kind]
   return (
-    <span className="flex min-w-0 items-center gap-1.5" data-testid="draft-state" data-state={state.kind}>
+    <span
+      className="flex min-w-0 items-center gap-1.5"
+      data-testid="draft-state"
+      data-state={state.kind}
+      data-by={state.kind === 'failed' ? state.by : undefined}
+    >
       {state.kind === 'saving' && <Spinner className="size-3" />}
       <span className="min-w-0 break-words">Recovery draft: {text}</span>
       {state.kind === 'failed' && (
