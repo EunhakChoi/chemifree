@@ -11,8 +11,8 @@
 //! Expectations are subsets of the v1 JSON replies: every field given must be present and
 //! equal, and an array must have exactly as many elements, each matching its counterpart.
 //! `{"$contains": [...]}` in place of an array asks only that each listed element match some
-//! element of it, in any order. A case therefore pins only what it is about and keeps passing
-//! when unrelated fields are added within v1.
+//! element of it, in any order; nothing may stand beside it. A case therefore pins only what
+//! it is about and keeps passing when unrelated fields are added within v1.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -219,7 +219,8 @@ impl Suite {
 
 impl Case {
     /// Checks what loading cannot: the format, requirement identifiers, that a pending case
-    /// has no steps and a runnable one has some, that a `reject` case expects an error, and
+    /// has no steps and a runnable one has some, that an `accept` case checks a reply or an
+    /// error and a `reject` case expects an error, that every expectation is well formed, and
     /// that documents are bound before use.
     ///
     /// # Errors
@@ -251,6 +252,9 @@ impl Case {
             if step.expect.is_some() && step.expect_error.is_some() {
                 return Err(format!("step {index} expects both a reply and an error"));
             }
+            for expected in [&step.expect, &step.expect_error].into_iter().flatten() {
+                check_expectation(expected, &format!("step {index}"))?;
+            }
             match &step.call {
                 Call::Create { bind, .. } => {
                     bound.insert(bind.as_str());
@@ -264,7 +268,46 @@ impl Case {
                 }
             }
         }
+        if self.pending.is_none()
+            && self.kind == Kind::Accept
+            && self
+                .steps
+                .iter()
+                .all(|step| step.expect.is_none() && step.expect_error.is_none())
+        {
+            return Err("an accept case must check a reply or an error".into());
+        }
         Ok(())
+    }
+}
+
+/// Refuses an expectation that [`matches`] could not check in full: a `$contains` object with
+/// other keys beside it, or a `$contains` that is not a list.
+fn check_expectation(expected: &Value, path: &str) -> Result<(), String> {
+    match expected {
+        Value::Object(fields) if fields.contains_key("$contains") => {
+            if fields.len() != 1 {
+                return Err(format!(
+                    "{path}: $contains cannot have other keys beside it"
+                ));
+            }
+            let Some(wanted) = fields["$contains"].as_array() else {
+                return Err(format!("{path}: $contains needs a list"));
+            };
+            wanted.iter().enumerate().try_for_each(|(index, wanted)| {
+                check_expectation(wanted, &format!("{path}.$contains[{index}]"))
+            })
+        }
+        Value::Object(fields) => fields
+            .iter()
+            .try_for_each(|(key, value)| check_expectation(value, &format!("{path}.{key}"))),
+        Value::Array(elements) => elements
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, element)| {
+                check_expectation(element, &format!("{path}[{index}]"))
+            }),
+        _ => Ok(()),
     }
 }
 
@@ -282,10 +325,10 @@ impl Call {
     }
 }
 
-/// Rejects step fields that its call does not take, so a misspelled expectation cannot pass
-/// by being ignored.
+/// Rejects step fields that its call does not take, so a misspelled expectation, or a
+/// `request_id` on a call that has none, cannot pass by being ignored.
 fn check_step_fields(case: &Value) -> Result<(), String> {
-    const COMMON: [&str; 4] = ["op", "request_id", "expect", "expect_error"];
+    const COMMON: [&str; 3] = ["op", "expect", "expect_error"];
     let steps = case.get("steps").and_then(Value::as_array);
     for (index, step) in steps.into_iter().flatten().enumerate() {
         let Some(fields) = step.as_object() else {
@@ -293,11 +336,16 @@ fn check_step_fields(case: &Value) -> Result<(), String> {
         };
         let op = fields.get("op").and_then(Value::as_str).unwrap_or_default();
         let call: &[&str] = match op {
-            "create" => &["title", "as"],
+            "create" => &["request_id", "title", "as"],
             "get" => &["document"],
-            "transaction" => &["document", "expected_revision", "commands"],
-            "undo" | "redo" | "save" => &["document", "expected_revision"],
-            "close" => &["document", "discard_unsaved", "expected_revision"],
+            "transaction" => &["request_id", "document", "expected_revision", "commands"],
+            "undo" | "redo" | "save" => &["request_id", "document", "expected_revision"],
+            "close" => &[
+                "request_id",
+                "document",
+                "discard_unsaved",
+                "expected_revision",
+            ],
             "capabilities" | "restart" => &[],
             op => return Err(format!("step {index} has unknown op {op:?}")),
         };
@@ -546,6 +594,12 @@ fn to_value(reply: impl Serialize) -> Value {
 /// Names the first path where they differ.
 pub fn matches(expected: &Value, actual: &Value, path: &str) -> Result<(), String> {
     if let Some(wanted) = expected.get("$contains") {
+        // Keys beside `$contains` would go unchecked; `Case::check` refuses them on loading.
+        if expected.as_object().is_some_and(|fields| fields.len() != 1) {
+            return Err(format!(
+                "{path}: $contains cannot have other keys beside it"
+            ));
+        }
         let (Some(wanted), Some(actual)) = (wanted.as_array(), actual.as_array()) else {
             return Err(format!(
                 "{path}: $contains needs a list and an array, found {actual}"
@@ -712,11 +766,25 @@ mod tests {
         unbound["steps"][1]["document"] = json!("other");
         let mut bad_requirement = base.clone();
         bad_requirement["requirements"] = json!(["OPS-2"]);
+        let unchecked = base.clone();
+        let contains_with_sibling =
+            create_and_get(json!({ "document": { "atoms": { "$contains": [], "length": 0 } } }));
+        let contains_without_list =
+            create_and_get(json!({ "document": { "atoms": { "$contains": { "id": 1 } } } }));
         for (value, problem) in [
             (reject_without_error, "a reject case must expect an error"),
             (pending_with_steps, "a pending case has no steps to run"),
             (unbound, "step 1 uses unbound document \"other\""),
             (bad_requirement, "\"OPS-2\" is not a requirement identifier"),
+            (unchecked, "an accept case must check a reply or an error"),
+            (
+                contains_with_sibling,
+                "step 1.document.atoms: $contains cannot have other keys beside it",
+            ),
+            (
+                contains_without_list,
+                "step 1.document.atoms: $contains needs a list",
+            ),
         ] {
             assert_eq!(case(value).check(), Err(problem.to_owned()));
         }
@@ -734,9 +802,41 @@ mod tests {
     }
 
     #[test]
+    fn keys_beside_contains_fail_the_match() {
+        let actual = json!({ "atoms": [1, 2] });
+        assert_eq!(
+            matches(
+                &json!({ "atoms": { "$contains": [1], "x": 3 } }),
+                &actual,
+                "r"
+            ),
+            Err("r.atoms: $contains cannot have other keys beside it".into())
+        );
+    }
+
+    #[test]
+    fn a_request_id_is_refused_where_the_call_has_none() {
+        let mut value = create_and_get(json!({ "document": {} }));
+        value["steps"][0]["request_id"] = json!("r-1");
+        assert_eq!(check_step_fields(&value), Ok(()));
+        for op in [
+            json!({ "op": "get", "document": "doc", "request_id": "r-2" }),
+            json!({ "op": "capabilities", "request_id": "r-2" }),
+            json!({ "op": "restart", "request_id": "r-2" }),
+        ] {
+            let name = op["op"].as_str().unwrap().to_owned();
+            value["steps"][1] = op;
+            assert_eq!(
+                check_step_fields(&value),
+                Err(format!("step 1 ({name}) has unknown field \"request_id\"")),
+            );
+        }
+    }
+
+    #[test]
     fn a_suite_with_a_duplicate_case_id_is_refused() {
         let directory = tempfile::tempdir().unwrap();
-        let case = create_and_get(json!(null));
+        let case = create_and_get(json!({ "document": {} }));
         fs::write(directory.path().join("a.json"), case.to_string()).unwrap();
         fs::write(directory.path().join("b.json"), case.to_string()).unwrap();
         let suite =

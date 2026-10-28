@@ -38,3 +38,13 @@ CI(08e72d8): check·browser 성공(run 40748675913). 병합 a785059, 병합 후 
 | 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
 |---|---|---|---|---|---|
 | 1 (자동) | 2026-10-28 18:59:03 | f156f29 | 19:01:45 | 지적 3건(P2). ① CLEANROOM-01 부분의 근거가 추적 검사 자신이라 실제 파일 내용을 보지 않음 → 수용: scripts/clean-room-check.mjs(로컬 전용 경로·실행 파일 서명·1 MiB 초과·대상 프로그램 이름·명세 사본)를 만들어 근거로 바꾸고 npm run check에 넣음. `check:` 근거는 npm run check가 실행하는 스크립트여야 한다는 검사 추가. 임시 저장소에서 각 위반이 잡힘을 확인 ② 기록된 보고서를 ID와 대략의 상태로만 비교 → 수용: 결과마다 현재 사례 메타데이터와 같은지, 개수 재계산, 새 실행과 정확히 같은지 확인. 개수·사례 축을 바꾼 변이가 잡힘을 확인 ③ `--out` 뒤 경로가 없으면 stdout으로 바뀜 → 수용: 사용법 오류(종료 2), 알 수 없는 옵션·두 번째 묶음도 거절, 단위 테스트 3개 | [review](https://github.com/EunhakChoi/chemifree/pull/26#pullrequestreview-5688154050) |
+| 2 (요청) | 2026-10-28 19:06:58 | 283c61d | 19:10:08 | 지적 1건(P2). 요구사항 전체 상태가 부분 상태와 어긋나도 통과 → 수용: 부분들에서 상태를 계산해(모두 거절 → intentionally_rejected, 모두 구현·거절 → implemented, 구현·일부 구현이 있으면 partial, 미검증이 있으면 unverified, 그 밖 not_implemented) 적힌 상태와 비교. 문서에 규칙 기재 | [review](https://github.com/EunhakChoi/chemifree/pull/26#pullrequestreview-5688256394) |
+
+마지막 회차(3회차)를 요청하기 전에 Codex review와 별개로, 이 PR의 코드만 받은 독립 검토 에이전트가 추가로 6건을 지적했고 모두 고쳤다(Codex 회차로 세지 않음).
+
+1. clean-room 검사가 .claude·.agents를 파일·링크로 추적하거나 analysis/·investigations/·data/private·키·.env.* 경로를 놓침 → 경로 조각·패턴 확장, 링크는 따라가지 않고 대상 경로 검사, 일반 파일이 아니면 문제로 보고. 임시 저장소에서 각 경우가 잡히고 .env.example은 허용됨을 확인
+2. `case:` 근거가 대기 중(not_run)인 사례여도 implemented·partial 근거로 통과 → 기록에서 passed인 사례만 근거로 인정. 대기 사례를 근거로 넣은 변이가 잡힘을 확인
+3. 저장소 경로에 공백·비ASCII가 있으면 검사 스크립트가 URL 경로를 그대로 써서 실패 → fileURLToPath 사용. 공백 경로에서 실행 확인
+4. 실행기가 일부 기대값을 확인하지 않고 통과시킬 수 있음(`$contains` 옆의 다른 키 무시, 기대값 없는 accept 사례, 받지 않는 단계의 `request_id`) → 불러올 때 거절하고 `matches`도 실패, 단위 테스트 2개 추가와 기존 테스트 보강. 각 검사를 끈 변이 4개가 모두 테스트를 실패시킴을 확인
+5. 후속 계획이 이미 완료된 로드맵 항목을 가리켜도 통과, implemented 부분에 후속 계획이 남아도 통과 → 둘 다 거절. 완료 항목(P07)을 가리킨 변이가 잡힘을 확인
+6. 문서의 현재 합계 문장이 추적표와 어긋나도 통과 → TRACEABILITY.ko.md·HANDOFF.ko.md가 추적표에서 만든 정확한 문장을 담는지 확인

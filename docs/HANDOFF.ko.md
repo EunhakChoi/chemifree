@@ -69,7 +69,7 @@ cargo run --locked -p chemifree-cli -- capabilities --json
 
 검증된 내용(첫 수직 기능과 저장·복구 보강):
 
-- npm run check: lint, TypeScript, web client 검사(test:client), production build, rustfmt, clippy, Rust 테스트 130개(domain 20, application 66, providers 24, api 9, conformance 11), test:contracts, test:conformance, test:traceability, test:clean-room. 수는 2026-10-29 main(a785059) 위에서 실제 실행한 결과다.
+- npm run check: lint, TypeScript, web client 검사(test:client), production build, rustfmt, clippy, Rust 테스트 132개(domain 20, application 66, providers 24, api 9, conformance 13), test:contracts, test:conformance, test:traceability, test:clean-room. 수는 2026-10-29 main(a785059) 위에서 실제 실행한 결과다.
 - npm run test:conformance: conformance/suite.json(버전 2026.10.1)의 독립 사례 15개를 실행한다. 현재 accept 6·reject 4 통과, 5개는 후속 PR(P09·P10·P13·P19·P20) 대기로 not_run, 실패 0. 기록은 verification/conformance-report.json(npm run conformance:record로 갱신). 실패가 있으면 종료 코드 1이다.
 - npm run test:traceability: 추적표·사례·기록·로드맵의 일관성(모든 근거가 실제 사례·파일을 가리키는지, 미구현 부분에 후속 계획이 있는지, 사례가 인용하는 요구사항, 기록이 현재 묶음의 실패 없는 실행인지, 로드맵 HTML이 같은 JSON을 담는지). 기록은 현재 사례를 그대로 담고 새 실행과 같아야 한다. CHEMIFREE_SPEC_DIR에 명세 작업 공간을 주면 명세 파일 해시·요구사항 ID·경로별 선언 수까지 대조한다(CI에서는 명세가 없어 생략).
 - npm run test:clean-room: Git이 추적하는 파일에 로컬 전용 경로(private/ 등), 실행 파일·네이티브 라이브러리, 1 MiB 초과 파일(npm lockfile 제외), 명세가 설명하는 프로그램 이름이 없는지 확인한다. CHEMIFREE_SPEC_DIR이 있으면 spec/ 파일의 바이트 사본도 찾는다. 바꿔 쓴 비공개 자료까지 증명하지는 못한다.

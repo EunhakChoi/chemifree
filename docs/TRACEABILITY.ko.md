@@ -17,7 +17,7 @@
 
 ## 상태
 
-부분(part)마다 다음 중 하나다. 요구사항 전체의 상태는 부분들로 정해진다(모두 구현·의도적 거절이면 implemented, 구현·일부 구현이 섞이면 partial, 그 밖에는 not_implemented).
+부분(part)마다 다음 중 하나다. 요구사항 전체의 상태는 부분들로 정해진다(test:traceability가 확인): 모두 의도적 거절이면 intentionally_rejected, 모두 구현 또는 의도적 거절이면 implemented, 그렇지 않고 구현·일부 구현 부분이 하나라도 있으면 partial, 그렇지 않고 미검증 부분이 있으면 unverified, 그 밖에는 not_implemented.
 
 | 상태 | 뜻 |
 | --- | --- |
@@ -35,9 +35,9 @@
 
 `crates/conformance`가 사례 파일(`chemifree-conformance/1`)을 읽어 공유 Application을 HTTP·CLI 어댑터와 같은 호출로 실행한다. 사례마다 새 임시 데이터 디렉터리를 쓰고, `restart`는 같은 디렉터리로 Application을 새로 만들어 프로세스 재시작처럼 저장소에 남은 것만 보게 한다. 기대값은 v1 JSON 응답·오류 envelope의 부분집합이다(배열은 길이까지 같아야 하고, `$contains`는 순서 없이 포함만 확인, 숫자는 값으로 비교하되 정수끼리는 정확히 비교).
 
-- 결과는 passed·failed·not_run이고, 사례 종류(accept: 결과를 내야 함, reject: 의도적으로 거절해야 함)와 함께 센다. reject 사례는 오류를 기대하는 단계가 없으면 묶음을 불러올 때 거절된다.
+- 결과는 passed·failed·not_run이고, 사례 종류(accept: 결과를 내야 함, reject: 의도적으로 거절해야 함)와 함께 센다. 실행 사례 중 reject는 오류를 기대하는 단계가, accept는 응답이나 오류를 확인하는 단계가 하나도 없으면 묶음을 불러올 때 거절된다(호출이 성공하기만 해서 통과하지 않도록).
 - 아직 실행할 수 없는 사례는 `pending`에 후속 계획을 적고 not_run으로 남는다. 구현되면 단계를 채워 실행 사례로 바꾼다.
-- 알 수 없는 단계 필드·묶이지 않은 문서 이름·중복 ID·잘못된 요구사항 ID는 실행 전에 거절한다.
+- 알 수 없는 단계 필드(`request_id`를 받지 않는 get·capabilities·restart 단계의 `request_id` 포함)·묶이지 않은 문서 이름·중복 ID·잘못된 요구사항 ID, 옆에 다른 키가 있거나 목록이 아닌 `$contains`는 실행 전에 거절한다. 무시되어 확인되지 않는 기대값이 없도록 하기 위해서다.
 
 현재 기록: accept 6개·reject 4개 통과, 실행 못 함 5개(P09·P10·P13·P19·P20 대기), 실패 0개.
 
@@ -52,12 +52,13 @@ CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:clean-room     # spec/ �
 
 `npm run check`(CI 포함)는 test:conformance, test:traceability, test:clean-room을 실행한다. 명세 작업 공간이 없는 CI에서는 명세 대조를 하지 않는다.
 
-기록(verification/conformance-report.json)의 각 결과는 현재 사례의 요구사항·축·종류·대기 사유를 그대로 담아야 하고, 개수는 결과에서 다시 센 값과 같아야 하며, npm run check가 먼저 만든 새 실행(target/conformance-report.json)과 정확히 같아야 한다. 사례를 바꾸면 npm run conformance:record로 기록을 다시 만든다. 근거 중 `check:` 스크립트는 npm run check가 실제로 실행하는 것이어야 한다.
+기록(verification/conformance-report.json)의 각 결과는 현재 사례의 요구사항·축·종류·대기 사유를 그대로 담아야 하고, 개수는 결과에서 다시 센 값과 같아야 하며, npm run check가 먼저 만든 새 실행(target/conformance-report.json)과 정확히 같아야 한다. 사례를 바꾸면 npm run conformance:record로 기록을 다시 만든다. 근거 중 `check:` 스크립트는 npm run check가 실제로 실행하는 것이어야 하고, implemented·partial 부분의 근거인 `case:` 사례는 기록에서 passed여야 한다(대기 중인 사례는 근거가 될 수 없다). implemented 부분에는 후속 계획이 없어야 하고, 후속 계획은 로드맵에 있으면서 아직 완료되지 않은 항목이어야 한다.
 
-CLEANROOM-01의 '공개 저장소에 원본·비공개 자료가 없음' 부분의 근거는 scripts/clean-room-check.mjs다. 이 검사는 복사본과 산출물(로컬 전용 경로, 실행 파일·네이티브 라이브러리의 확장자와 파일 서명, 1 MiB 초과 파일, 명세가 설명하는 프로그램의 이름(단어의 SHA-256으로 비교), 명세 파일의 바이트 사본)을 잡지만, 바꿔 쓰거나 다시 인코딩한 비공개 자료까지 없다고 증명하지는 못한다.
+CLEANROOM-01의 '공개 저장소에 원본·비공개 자료가 없음' 부분의 근거는 scripts/clean-room-check.mjs다. 이 검사는 복사본과 산출물(로컬 전용 경로, 실행 파일·네이티브 라이브러리의 확장자와 파일 서명, 1 MiB 초과 파일, 명세가 설명하는 프로그램의 이름(단어의 SHA-256으로 비교), 명세 파일의 바이트 사본)을 잡지만, 바꿔 쓰거나 다시 인코딩한 비공개 자료까지 없다고 증명하지는 못한다. 로컬 전용 경로는 경로 조각 private·DATA·localdb·investigation(s)·analysis·evidence·.agents·.claude·.archify·skills-lock.json·.env와 data/private, 데이터베이스·키 파일, .env.example 외의 .env.*, decompil로 시작하는 이름이다. 파일·디렉터리·링크 모두 해당하며, 링크는 따라가지 않고 대상 경로를 본다.
 
 ## 갱신 규칙
 
 - 기능을 구현하는 PR은 해당 부분의 상태·구현 위치·근거를 바꾸고, 가능하면 pending 사례를 실행 사례로 바꾼다. 근거 없이 implemented로 바꾸지 않는다.
 - 사례가 실패하면 기록을 갱신하지 않고 원인을 고친다. 실패를 숨기려고 기대값을 느슨하게 만들지 않는다.
 - 로드맵을 바꾸면 HTML에 같은 JSON을 다시 넣는다(test:traceability가 확인).
+- 상태가 바뀌면 이 문서의 '현재' 문장과 HANDOFF.ko.md의 합계를 고친다. 문구가 다르면 test:traceability가 실패하면서 넣어야 할 정확한 문장을 출력한다.

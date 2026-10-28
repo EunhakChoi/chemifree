@@ -2,13 +2,14 @@
 // Checks what Git tracks for material that must stay out of this public repository
 // (AGENTS.md, "Independent implementation"):
 //
-// - local-only directories: private/, agent and tool state (.agents/, .claude/, .archify/),
-//   and anything under an investigation, evidence, or decompilation directory;
+// - local-only paths: what .gitignore keeps local (private/, DATA/, local databases, keys and
+//   .env files, investigations/, analysis/, evidence/), agent and tool state (.agents, .claude,
+//   .archify, skills-lock.json, as a file, directory, or link), and decompilation output;
 // - executables and native libraries, by extension and by file signature (ELF, PE, Mach-O,
 //   Java class);
 // - files over 1 MiB, except the npm lockfile, so a data payload cannot slip in unnoticed;
-// - the names of the program whose public behavior the specification describes, which public
-//   files do not use (listed by the SHA-256 of the word, so this file does not name them);
+// - the names of the program whose public behavior the specification describes, in file paths
+//   or text (listed by the SHA-256 of the word, so this file does not name them);
 // - with CHEMIFREE_SPEC_DIR set to the local specification workspace, any file identical to a
 //   file under its spec/ directory (the specification is referenced by path and hash, never
 //   copied). Only spec/ is read, and only to hash it.
@@ -18,18 +19,32 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = process.argv[2] ?? new URL('..', import.meta.url).pathname
+const root = process.argv[2] ?? fileURLToPath(new URL('..', import.meta.url))
 const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
 
-const LOCAL_ONLY = [
-  /^private\//,
-  /(^|\/)\.(agents|claude|archify)\//,
-  /(^|\/)skills-lock\.json$/,
-  /(^|\/)(investigation|evidence|decompil\w*)\//i,
-]
+/** Path segments that only exist locally, as a file, directory, or link. */
+const LOCAL_ONLY_SEGMENTS = new Set([
+  'private',
+  'DATA',
+  'localdb',
+  'localDB',
+  'investigations',
+  'investigation',
+  'analysis',
+  'evidence',
+  '.agents',
+  '.claude',
+  '.archify',
+  'skills-lock.json',
+  '.env',
+])
+const LOCAL_ONLY_PATTERNS = [/(^|\/)data\/private(\/|$)/, /\.(db|sqlite|sqlite3|pem|key)$/, /\.db-/, /(^|\/)\.env\.(?!example$)/, /(^|\/)decompil/i]
+const isLocalOnly = (path) =>
+  path.split('/').some((segment) => LOCAL_ONLY_SEGMENTS.has(segment)) || LOCAL_ONLY_PATTERNS.some((pattern) => pattern.test(path))
 const NATIVE_EXTENSION = /\.(exe|dll|ocx|sys|so|dylib|lib|a|pdb|msi|cab|class|jar)$/i
 const MAX_BYTES = 1024 * 1024
 const LARGE_ALLOWED = new Set(['package-lock.json'])
@@ -67,16 +82,29 @@ function namesVendor(text) {
 const problems = []
 const hashes = new Map()
 for (const path of tracked) {
-  if (LOCAL_ONLY.some((pattern) => pattern.test(path))) problems.push(`${path}: a local-only path`)
+  if (isLocalOnly(path)) problems.push(`${path}: a local-only path`)
   if (NATIVE_EXTENSION.test(path)) problems.push(`${path}: an executable or native library by its extension`)
-  let bytes
+  if (namesVendor(path)) problems.push(`${path}: its path names a listed program`)
+  let entry
   try {
-    bytes = readFileSync(join(root, path))
+    entry = lstatSync(join(root, path))
   } catch (error) {
     // A file deleted from the working tree but not yet from the index is not checked here.
     if (error.code === 'ENOENT') continue
     throw error
   }
+  if (entry.isSymbolicLink()) {
+    // A link is checked as what Git stores for it, its target path; it is not followed.
+    const target = readlinkSync(join(root, path))
+    if (isLocalOnly(target)) problems.push(`${path}: links to the local-only ${target}`)
+    if (namesVendor(target)) problems.push(`${path}: links to a path naming a listed program`)
+    continue
+  }
+  if (!entry.isFile()) {
+    problems.push(`${path}: not a regular file (a nested repository?)`)
+    continue
+  }
+  const bytes = readFileSync(join(root, path))
   const kind = signature(bytes)
   if (kind) problems.push(`${path}: a native binary (${kind})`)
   if (bytes.length > MAX_BYTES && !LARGE_ALLOWED.has(path)) problems.push(`${path}: ${bytes.length} bytes, over 1 MiB`)
