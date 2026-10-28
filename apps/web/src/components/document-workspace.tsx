@@ -73,6 +73,7 @@ import type {
   DocumentResponse,
   DocumentView,
   RecoveryView,
+  StorageReason,
 } from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
@@ -138,11 +139,19 @@ const INFORMATIONAL = new Set([
   'invalid_command',
   'create_unconfirmed',
   'copy_unconfirmed',
+  'save_unconfirmed',
   'recovery_pending',
   'draft_outdated',
   'draft_in_use',
   'draft_not_found',
 ])
+
+/** Titles for `storage_failed`, by what retrying can do about it. */
+const STORAGE_TITLES: Record<StorageReason, string> = {
+  read_only: 'Storage is read-only',
+  busy: 'Document busy',
+  io: 'Save failed',
+}
 
 function ErrorNotice({ editor }: { editor: DocumentEditor }) {
   const error = editor.error!
@@ -157,7 +166,8 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
     draft_in_use: 'Draft in use',
     draft_not_found: 'No recovery draft',
     save_conflict: 'Saved elsewhere',
-    storage_failed: 'Save failed',
+    storage_failed: STORAGE_TITLES[error.reason ?? 'io'],
+    save_unconfirmed: 'Save not confirmed',
     draft_not_written: 'Left work not autosaved',
     invalid_command: 'Edit rejected',
     unreachable: 'Local service unavailable',
@@ -170,13 +180,17 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
         {error.message}
       </AlertDescription>
       <AlertAction>
-        {stale ? (
+        {stale && (
           <Button size="sm" variant="outline" onClick={() => void editor.reload()}>
             <RotateCwIcon data-icon="inline-start" aria-hidden="true" />Reload
           </Button>
-        ) : (
-          <Button size="sm" variant="ghost" onClick={editor.dismissError}>Dismiss</Button>
         )}
+        {error.code === 'save_unconfirmed' && (
+          <Button size="sm" variant="outline" onClick={() => void editor.save()}>
+            <RotateCwIcon data-icon="inline-start" aria-hidden="true" />Check again
+          </Button>
+        )}
+        {!stale && <Button size="sm" variant="ghost" onClick={editor.dismissError}>Dismiss</Button>}
       </AlertAction>
     </Alert>
   )

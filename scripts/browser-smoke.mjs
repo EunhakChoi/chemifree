@@ -419,6 +419,126 @@ assert.equal(await page.getByText('Save failed', { exact: true }).count(), 0)
 results.save_failure_and_retry = true
 step = 'after save_failure_and_retry'
 
+// Storage failures say whether retrying can help, and a lost save reply is not reported as a
+// failure. Each case starts from a new unsaved title.
+const retitle = async (title) => {
+  await page.getByLabel('Document title').fill(title)
+  await page.getByLabel('Document title').press('Enter')
+  await waitIdle()
+}
+const storedRevision = () => JSON.parse(readFileSync(file, 'utf8')).document.revision
+const storedTitle = () => JSON.parse(readFileSync(file, 'utf8')).document.title
+const saveAgain = async () => {
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await waitIdle()
+  assert.equal(await saveState(), 'Saved')
+}
+if (runningAsRoot) {
+  results.skipped_steps.push('read_only_storage_is_named')
+} else {
+  await retitle('Read-only attempt')
+  const documentsDir = join(dataDir, 'documents')
+  const before = readFileSync(file)
+  chmodSync(documentsDir, 0o500)
+  try {
+    await page.keyboard.press('Control+s')
+    await page.getByText('Storage is read-only', { exact: true }).waitFor()
+  } finally {
+    chmodSync(documentsDir, 0o700)
+  }
+  assert.equal(await saveState(), 'Unsaved changes')
+  assert.deepEqual(readFileSync(file), before, 'nothing was written')
+  await saveAgain()
+  results.read_only_storage_is_named = true
+  step = 'after read_only_storage_is_named'
+}
+
+// A CLI process holds the document's save lock (a commit paused inside it).
+await retitle('Busy attempt')
+const lockFile = join(dataDir, 'locks', `${id}.lock`)
+const holder = spawn(cliPath, [
+  'documents', 'apply', id, '--expected-revision', String(storedRevision()),
+  '--commands', JSON.stringify([{ op: 'rename', title: 'Held by the CLI' }]),
+], { env: { ...env, CHEMIFREE_TEST_COMMIT_DELAY_MS: '60000' }, stdio: 'ignore' })
+const holderExit = new Promise((resolveExit) => holder.once('exit', resolveExit))
+// Held once a non-blocking lock attempt is refused.
+const lockHeld = () => {
+  try {
+    execFileSync('flock', ['--nonblock', '--conflict-exit-code', '9', lockFile, 'true'])
+    return false
+  } catch (error) {
+    if (error.status === 9) return true
+    throw error
+  }
+}
+while (!existsSync(lockFile) || !lockHeld()) await new Promise((resolvePoll) => setTimeout(resolvePoll, 50))
+const beforeBusy = readFileSync(file)
+await page.keyboard.press('Control+s')
+await page.getByText('Document busy', { exact: true }).waitFor({ timeout: 15_000 })
+assert.equal(await saveState(), 'Unsaved changes')
+holder.kill('SIGKILL')
+await holderExit
+assert.deepEqual(readFileSync(file), beforeBusy, 'neither save committed')
+await saveAgain()
+assert.equal(storedTitle(), 'Busy attempt')
+results.busy_document_is_named_and_retried = true
+step = 'after busy_document_is_named_and_retried'
+
+// The service commits, but the reply arrives after the page's 10-second deadline. The page asks
+// again with the same request ID and gets the committed result, not an error.
+const held = []
+const holdReply = () =>
+  page.route(
+    '**/save',
+    async (route) => {
+      const response = await route.fetch() // The service commits now.
+      held.push(response.status())
+      await new Promise((resolveHold) => setTimeout(resolveHold, 11_000))
+      await route.fulfill({ response }).catch(() => {}) // The page has given up on it.
+    },
+    { times: 1 },
+  )
+await retitle('Late reply')
+const lateRevision = await revision()
+await holdReply()
+const confirmed = page.waitForResponse((r) => r.url().endsWith('/save') && r.status() === 200, { timeout: 20_000 })
+await page.keyboard.press('Control+s')
+await confirmed
+await waitIdle()
+assert.deepEqual(held, [200], 'the first attempt committed')
+assert.equal(await saveState(), 'Saved')
+for (const title of ['Save failed', 'Save not confirmed']) {
+  assert.equal(await page.getByText(title, { exact: true }).count(), 0, `no "${title}" shown`)
+}
+assert.deepEqual([storedTitle(), storedRevision()], ['Late reply', lateRevision], 'committed once')
+results.late_save_reply_is_confirmed_not_failed = true
+step = 'after late_save_reply_is_confirmed_not_failed'
+
+// The connection drops after the service answers, for the save and for the immediate check:
+// the outcome is unknown, and saying so is honest. Checking again asks about the same save and
+// finds it committed.
+await retitle('Unconfirmed')
+const unconfirmedRevision = await revision()
+const dropped = []
+await page.route(
+  '**/save',
+  async (route) => {
+    dropped.push((await route.fetch()).status()) // Answered by the service…
+    await route.abort('connectionreset') // …but the page never gets the reply.
+  },
+  { times: 2 },
+)
+await page.keyboard.press('Control+s')
+await page.getByText('Save not confirmed', { exact: true }).waitFor()
+assert.deepEqual(dropped, [200, 200], 'committed, then replayed')
+assert.equal(storedTitle(), 'Unconfirmed', 'the service committed it meanwhile')
+await page.getByRole('button', { name: 'Check again' }).first().click()
+await waitIdle()
+assert.equal(await saveState(), 'Saved')
+assert.deepEqual([storedTitle(), storedRevision()], ['Unconfirmed', unconfirmedRevision], 'committed once')
+results.unconfirmed_save_is_checked_not_repeated = true
+step = 'after unconfirmed_save_is_checked_not_repeated'
+
 // Save conflict: the CLI commits a change first.
 await tool('Atom')
 const conflictDoc = await openDoc()

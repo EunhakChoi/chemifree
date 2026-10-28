@@ -93,20 +93,38 @@ export type Command =
   | { op: 'delete_bonds'; bonds: string[] }
   | { op: 'rename'; title: string }
 
+/** What kind of `storage_failed` an error is: retrying helps after a fix (`read_only`) or later (`busy`, `io`). */
+export type StorageReason = 'read_only' | 'busy' | 'io'
+
+const STORAGE_REASONS: readonly string[] = ['read_only', 'busy', 'io']
+
+function isStorageReason(value: unknown): value is StorageReason {
+  return typeof value === 'string' && STORAGE_REASONS.includes(value)
+}
+
 /** A v1 error envelope, or a transport failure reported with code `unreachable`. */
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
   readonly currentRevision?: number
   readonly commandIndex?: number
+  readonly reason?: StorageReason
 
-  constructor(code: string, message: string, status: number, currentRevision?: number, commandIndex?: number) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    currentRevision?: number,
+    commandIndex?: number,
+    reason?: StorageReason,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
     this.currentRevision = currentRevision
     this.commandIndex = commandIndex
+    this.reason = reason
   }
 }
 
@@ -228,6 +246,12 @@ function isClose(value: unknown): value is { discarded_changes: boolean } {
 }
 
 const TIMEOUT_MS = 10_000
+/** While the service still runs an unconfirmed save, its outcome is asked for this often… */
+const SAVE_CHECK_INTERVAL_MS = 1000
+/** …this many times. The service answers every save within its own time budget (about 8 s). */
+const SAVE_CHECKS = 12
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
@@ -250,6 +274,12 @@ export class DocumentClient {
       this.restartListeners.delete(listener)
     }
   }
+  /**
+   * Saves whose reply never arrived, by document and revision. Asking again with the same
+   * request ID returns the committed save (or runs it once if it never ran), so it can be
+   * repeated safely until the outcome is known.
+   */
+  private unconfirmedSaves = new Map<string, string>()
 
   private async session() {
     this.token ??= this.request('GET', '/api/v1/session').then((value) => {
@@ -296,6 +326,7 @@ export class DocumentClient {
           response.status,
           isCount(value.current_revision) ? value.current_revision : undefined,
           isCount(value.command_index) ? value.command_index : undefined,
+          isStorageReason(value.reason) ? value.reason : undefined,
         )
       }
       throw new ApiError('http_error', `The local service returned HTTP ${response.status}.`, response.status)
@@ -453,7 +484,45 @@ export class DocumentClient {
     )
   }
 
-  async revisionAction(id: string, action: 'undo' | 'redo' | 'save', expectedRevision: number) {
+  /**
+   * Commits the working copy at `expectedRevision`. If no reply arrives, the save may still
+   * commit, so its outcome is asked for with the same request ID: at once, then while the
+   * service reports it in progress. If the service stays unreachable the save is reported as
+   * unconfirmed (`save_unconfirmed`), and saving the same revision again asks once more.
+   */
+  async save(id: string, expectedRevision: number) {
+    const key = `${id}:${expectedRevision}`
+    const body = { request_id: this.unconfirmedSaves.get(key) ?? requestId(), expected_revision: expectedRevision }
+    let unanswered = 0
+    for (let checks = 0; ; checks += 1) {
+      try {
+        const value = await this.write(`${documentPath(id)}/save`, body, 'reload')
+        this.unconfirmedSaves.delete(key)
+        return DocumentClient.document(value)
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        const running = error.code === 'request_in_progress'
+        if (!running && error.status !== 0) {
+          // An answer: this save failed or was refused, so it is not pending anymore.
+          this.unconfirmedSaves.delete(key)
+          throw error
+        }
+        this.unconfirmedSaves.set(key, body.request_id)
+        if (!running) unanswered += 1
+        if (unanswered > 1 || checks >= SAVE_CHECKS) {
+          throw new ApiError(
+            'save_unconfirmed',
+            'The local service did not confirm the save, so it may or may not be committed. Save again to check: that asks for the outcome of this same save and never saves it twice.',
+            0,
+          )
+        }
+        // A lost reply is asked about at once; a save still running, after a pause.
+        if (running) await pause(SAVE_CHECK_INTERVAL_MS)
+      }
+    }
+  }
+
+  async revisionAction(id: string, action: 'undo' | 'redo', expectedRevision: number) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/${action}`,
