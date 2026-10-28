@@ -1,5 +1,12 @@
 [workspace]
-members = ["apps/api", "apps/cli", "crates/domain", "crates/application", "crates/providers"]
+members = [
+    "apps/api",
+    "apps/cli",
+    "crates/domain",
+    "crates/application",
+    "crates/providers",
+    "crates/conformance",
+]
 resolver = "3"
 
 [workspace.package]

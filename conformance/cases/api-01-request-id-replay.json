@@ -1,0 +1,22 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "api-01.request-id-replay",
+  "title": "A repeated request ID returns the first reply without applying it again",
+  "requirements": ["API-01", "OPS-02"],
+  "axis": "api",
+  "kind": "accept",
+  "steps": [
+    { "op": "create", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0, "request_id": "draw-1",
+      "commands": [{ "op": "add_atom", "element": "N", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1" }] } }
+    },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0, "request_id": "draw-1",
+      "commands": [{ "op": "add_atom", "element": "N", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1" }] } }
+    },
+    { "op": "get", "document": "doc", "expect": { "document": { "revision": 1, "atoms": [{}] } } }
+  ]
+}

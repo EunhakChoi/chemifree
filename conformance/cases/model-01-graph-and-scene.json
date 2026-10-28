@@ -1,0 +1,9 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "model-01.one-graph-two-placements",
+  "title": "One chemical graph placed twice moves independently and saves both placements",
+  "requirements": ["MODEL-01"],
+  "axis": "document",
+  "kind": "accept",
+  "pending": { "followup": "P09", "reason": "The document holds one placement per atom; graph and scene are not separated yet." }
+}

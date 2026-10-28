@@ -1,0 +1,36 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "model-02.atom-fields-persist",
+  "title": "Element, charge, isotope and bond order survive a save and a restart",
+  "requirements": ["MODEL-02", "OPS-02", "MODEL-01"],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    { "op": "create", "title": "Labelled", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "add_atom", "element": "O", "position": { "x": 26, "y": 15 }, "bond_to": { "atom": "$0", "order": "triple" } },
+        { "op": "update_atom", "atom": "a2", "charge": 1, "isotope": 18 }
+      ]
+    },
+    { "op": "save", "document": "doc", "expected_revision": 1 },
+    { "op": "restart" },
+    {
+      "op": "get", "document": "doc",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Labelled",
+          "atoms": [
+            { "id": "a1", "element": "C", "charge": 0, "isotope": null, "position": { "x": 0, "y": 0 } },
+            { "id": "a2", "element": "O", "charge": 1, "isotope": 18, "position": { "x": 26, "y": 15 } }
+          ],
+          "bonds": [{ "id": "b1", "begin": "a1", "end": "a2", "order": "triple" }]
+        },
+        "session": { "unsaved_changes": false, "undo_depth": 1 }
+      }
+    }
+  ]
+}

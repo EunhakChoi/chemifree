@@ -1,0 +1,9 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "chem-01.formula-and-mass",
+  "title": "Molecular formula and masses of an independently drawn structure",
+  "requirements": ["CHEM-01"],
+  "axis": "chemistry",
+  "kind": "accept",
+  "pending": { "followup": "P19", "reason": "No formula or mass calculation is implemented." }
+}

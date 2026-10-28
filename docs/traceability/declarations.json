@@ -1,0 +1,186 @@
+{
+  "format": "chemifree-declaration-trace/1",
+  "as_of": "2026-10-29",
+  "source": {
+    "path": "spec/phase3-design-v3/declaration-requirements.json",
+    "sha256": "dea395ee57035ed45d0bc1a9fce2696f6ba5512709d6d6436edb46ed61d39ad7",
+    "declarations": 2914
+  },
+  "note": "Declarations include collections, menus, availability flags and state getters. Their count is not a number of user features, implemented features, or executed checks. Each declaration is traced through its proposed route (a design triage, not original ownership) to the plan entries that will cover it; no declaration is assigned to a single entry yet, and none is implemented.",
+  "assigned": {
+    "to_route": 2914,
+    "to_single_plan_entry": 0,
+    "implemented": 0
+  },
+  "routes": [
+    {
+      "route": "document",
+      "declarations": 954,
+      "by_source": {
+        "public-automation-contracts.json": 951,
+        "public-control-contracts.json": 3
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 99,
+        "declared-without-qualifying-runtime-link": 852,
+        "public declaration; member-specific runtime results not joined in this projection": 3
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P09",
+        "P11",
+        "P12",
+        "P22",
+        "P32",
+        "P35",
+        "P36",
+        "P72"
+      ],
+      "note": "Document, page and object members. The web/HTTP/CLI document slice (create, edit, undo, save, list) implements none of these declared members as such; they need the separated model first."
+    },
+    {
+      "route": "client_integration",
+      "declarations": 947,
+      "by_source": {
+        "public-automation-contracts.json": 42,
+        "public-command-contracts.json": 905
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 1,
+        "declared-without-qualifying-runtime-link": 41,
+        "narrow-exact-action-evidence": 7,
+        "narrow-owned-resource-route-evidence": 2,
+        "no-exact-symbolic-action-link-established": 896
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P82",
+        "P83",
+        "P84",
+        "P85",
+        "W01"
+      ],
+      "note": "Application, window and menu automation. Adapters over the shared application are later work."
+    },
+    {
+      "route": "render_scene",
+      "declarations": 570,
+      "by_source": {
+        "public-automation-contracts.json": 570
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 65,
+        "declared-without-qualifying-runtime-link": 505
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P31",
+        "P38",
+        "P39",
+        "P40"
+      ],
+      "note": "Display, export and print members."
+    },
+    {
+      "route": "chem_graph",
+      "declarations": 174,
+      "by_source": {
+        "public-automation-contracts.json": 174
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 24,
+        "declared-without-qualifying-runtime-link": 150
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P10",
+        "P16",
+        "P17",
+        "P18",
+        "P24",
+        "P25",
+        "P26",
+        "P27"
+      ],
+      "note": "Atom, bond and fragment members beyond element, charge, isotope and bond order."
+    },
+    {
+      "route": "windows_adapter",
+      "declarations": 145,
+      "by_source": {
+        "public-automation-contracts.json": 11,
+        "public-control-contracts.json": 134
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 1,
+        "declared-without-qualifying-runtime-link": 10,
+        "public declaration; member-specific runtime results not joined in this projection": 134
+      },
+      "status": "not_implemented",
+      "followups": [
+        "W01",
+        "W02",
+        "W03",
+        "W04"
+      ],
+      "note": "Windows-only automation and hosting; conditional."
+    },
+    {
+      "route": "layout_reaction",
+      "declarations": 85,
+      "by_source": {
+        "public-automation-contracts.json": 85
+      },
+      "by_evidence": {
+        "declared-with-narrow-runtime-observation": 3,
+        "declared-without-qualifying-runtime-link": 82
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P42",
+        "P47",
+        "P49",
+        "P51",
+        "P52"
+      ],
+      "note": "Clean-up, layout and reaction members."
+    },
+    {
+      "route": "chem_properties",
+      "declarations": 33,
+      "by_source": {
+        "public-automation-contracts.json": 33
+      },
+      "by_evidence": {
+        "declared-without-qualifying-runtime-link": 33
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P19",
+        "P58",
+        "P62",
+        "P63"
+      ],
+      "note": "Formula, mass and property members."
+    },
+    {
+      "route": "codec_chem",
+      "declarations": 6,
+      "by_source": {
+        "public-automation-contracts.json": 6
+      },
+      "by_evidence": {
+        "declared-without-qualifying-runtime-link": 6
+      },
+      "status": "not_implemented",
+      "followups": [
+        "P20",
+        "P21",
+        "P22",
+        "P23",
+        "P48"
+      ],
+      "note": "Import and export members."
+    }
+  ]
+}

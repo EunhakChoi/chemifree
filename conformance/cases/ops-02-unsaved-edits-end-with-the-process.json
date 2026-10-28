@@ -1,0 +1,20 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "ops-02.restart-keeps-only-the-commit",
+  "title": "After a restart without a draft, the document is its last commit",
+  "requirements": ["OPS-02"],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    { "op": "create", "title": "Committed", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [{ "op": "rename", "title": "Never saved" }]
+    },
+    { "op": "restart" },
+    {
+      "op": "get", "document": "doc",
+      "expect": { "document": { "revision": 0, "title": "Committed" }, "session": { "unsaved_changes": false }, "recovery": null }
+    }
+  ]
+}

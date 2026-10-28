@@ -1,0 +1,21 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "api-01.request-id-reuse-refused",
+  "title": "A request ID reused for a different request is refused",
+  "requirements": ["API-01"],
+  "axis": "api",
+  "kind": "reject",
+  "steps": [
+    { "op": "create", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0, "request_id": "edit-1",
+      "commands": [{ "op": "rename", "title": "One" }]
+    },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 1, "request_id": "edit-1",
+      "commands": [{ "op": "rename", "title": "Two" }],
+      "expect_error": { "code": "request_id_reused" }
+    },
+    { "op": "get", "document": "doc", "expect": { "document": { "revision": 1, "title": "One" } } }
+  ]
+}

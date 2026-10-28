@@ -1,0 +1,36 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "ops-02.undo-redo-revisions",
+  "title": "Undo and redo are new revisions that restore the earlier and later drawing",
+  "requirements": ["OPS-02", "MODEL-02"],
+  "axis": "operations",
+  "kind": "accept",
+  "steps": [
+    { "op": "create", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "add_atom", "element": "O", "position": { "x": 26, "y": 15 }, "bond_to": { "atom": "$0", "order": "double" } }
+      ],
+      "expect": { "document": { "revision": 1, "atoms": [{}, {}], "bonds": [{ "order": "double" }] }, "session": { "undo_depth": 1, "redo_depth": 0 } }
+    },
+    {
+      "op": "undo", "document": "doc", "expected_revision": 1,
+      "expect": { "document": { "revision": 2, "atoms": [], "bonds": [] }, "session": { "undo_depth": 0, "redo_depth": 1 } }
+    },
+    {
+      "op": "redo", "document": "doc", "expected_revision": 2,
+      "expect": { "document": { "revision": 3, "atoms": [{ "element": "C" }, { "element": "O" }], "bonds": [{ "order": "double" }] }, "session": { "undo_depth": 1, "redo_depth": 0 } }
+    },
+    {
+      "op": "undo", "document": "doc", "expected_revision": 3,
+      "expect": { "document": { "revision": 4 } }
+    },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 4,
+      "commands": [{ "op": "rename", "title": "New branch" }],
+      "expect": { "document": { "revision": 5, "title": "New branch" }, "session": { "redo_depth": 0 } }
+    }
+  ]
+}

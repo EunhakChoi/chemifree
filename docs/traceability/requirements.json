@@ -1,0 +1,1186 @@
+{
+  "format": "chemifree-traceability/1",
+  "as_of": "2026-10-29",
+  "statuses": {
+    "implemented": "Built and checked by the evidence listed.",
+    "partial": "Some parts are implemented and checked; others are not.",
+    "not_implemented": "Nothing of this part exists in the product.",
+    "unverified": "Code exists but no listed check shows it works.",
+    "intentionally_rejected": "The product refuses this on purpose."
+  },
+  "evidence_kinds": {
+    "case": "a conformance case in conformance/suite.json (its status is in the conformance report)",
+    "test": "a Rust or script test file",
+    "smoke": "a process-level contract or browser check",
+    "report": "a committed run record",
+    "check": "a repository check"
+  },
+  "sources": [
+    {
+      "role": "requirements",
+      "path": "spec/phase7-readiness-requirements-v2.json",
+      "sha256": "9c3265ad6d67aefceab2f600aa8dcdce248f9574f9c047357daf15f5015230f2",
+      "requirements": 33
+    },
+    {
+      "role": "operations",
+      "path": "spec/phase3-design-v3/operations.json",
+      "sha256": "0559742d481d93dcc45a82848a921cb854f54f7e9b7140c92a7cb64cdd5cc308"
+    }
+  ],
+  "note": "Requirement statuses describe this repository, not equivalence with any other program. A count of cases, parts or declarations is not a share of chemical behaviour.",
+  "requirements": [
+    {
+      "id": "MODEL-01",
+      "group": "document",
+      "title": "Separate graph, scene, containment and reference namespaces",
+      "operations": [
+        "document.snapshot",
+        "document.transaction"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "stable atom and bond identifiers with reference checks in one drawing",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:model-02.atom-fields-persist",
+            "test:crates/domain/tests/document.rs"
+          ],
+          "note": "One document is one drawing: positions live on the atoms, so a graph cannot be placed twice."
+        },
+        {
+          "part": "graph, scene instances, containment and references as separate namespaces",
+          "status": "not_implemented",
+          "evidence": [
+            "case:model-01.one-graph-two-placements"
+          ],
+          "followups": [
+            "P09",
+            "P11"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P09",
+            "P11",
+            "P35",
+            "P37",
+            "P40",
+            "S05"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "MODEL-02",
+      "group": "chemical-graph",
+      "title": "Elements, isotopes, charges, hydrogens, radicals and queries",
+      "operations": [
+        "document.transaction",
+        "chem.validate"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "element (1-118), formal charge (-8..8) and isotope mass number",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_store.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:model-02.atom-fields-persist",
+            "case:model-02.out-of-range-charge-refused",
+            "test:crates/domain/tests/document.rs"
+          ]
+        },
+        {
+          "part": "single, double and triple bond orders",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:model-02.atom-fields-persist",
+            "case:ops-02.undo-redo-revisions"
+          ]
+        },
+        {
+          "part": "explicit, inferred and unknown hydrogen state; radicals; query atoms and bonds; aromatic and dative bonds; attachments",
+          "status": "not_implemented",
+          "evidence": [
+            "case:model-02.hydrogen-state-is-kept"
+          ],
+          "followups": [
+            "P10"
+          ]
+        },
+        {
+          "part": "valence, implicit hydrogens, aromaticity perception",
+          "status": "not_implemented",
+          "followups": [
+            "P16",
+            "P17"
+          ],
+          "note": "Drawings are recorded as drawn; nothing is computed."
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P10",
+            "P16",
+            "P17",
+            "P18",
+            "P24",
+            "P34",
+            "P75",
+            "P77"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "MODEL-03",
+      "group": "stereochemistry",
+      "title": "Drawn stereo, CIP and enhanced stereo groups kept apart",
+      "operations": [
+        "chem.validate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P25",
+            "P26",
+            "P27"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "MODEL-04",
+      "group": "biopolymer-and-advanced",
+      "title": "Tables, TLC, plasmids, polymers and images",
+      "operations": [
+        "document.transaction"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P28",
+            "P34",
+            "P36",
+            "P37",
+            "P52",
+            "P68",
+            "P69",
+            "P71",
+            "P72",
+            "P73",
+            "P74",
+            "P75",
+            "P76",
+            "P77"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-01",
+      "group": "formats",
+      "title": "CDXML types, styles, identifiers, text and loss reports",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P22",
+            "P29",
+            "P48",
+            "P80"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-02",
+      "group": "formats",
+      "title": "CDX framing, properties, references and long text",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P23",
+            "P29",
+            "P48",
+            "P80"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-03",
+      "group": "formats",
+      "title": "MOL V2000/V3000 and SDF including queries and stereo",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "MOL V2000 reading and writing",
+          "status": "not_implemented",
+          "evidence": [
+            "case:codec-03.molfile-round-trip"
+          ],
+          "followups": [
+            "P20"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P20",
+            "P24",
+            "P28",
+            "P29",
+            "P48",
+            "P68",
+            "P78"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-04",
+      "group": "formats",
+      "title": "RXN and SMIRKS reaction roles and layout",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P49",
+            "P50",
+            "P78",
+            "P79"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-05",
+      "group": "formats",
+      "title": "SMILES and InChI reading and representation loss",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P18",
+            "P21",
+            "P29",
+            "P30",
+            "P48",
+            "P56"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CODEC-06",
+      "group": "formats",
+      "title": "Unknown carriers: keep, refuse or report",
+      "operations": [
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P20",
+            "P21",
+            "P22",
+            "P23",
+            "P33",
+            "P38",
+            "P48",
+            "P50",
+            "P68",
+            "P70",
+            "P78",
+            "P79",
+            "P80",
+            "P81",
+            "P83",
+            "W04"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "OPS-01",
+      "group": "document",
+      "title": "Selection scope and nested containment",
+      "operations": [
+        "document.transaction"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "document list, rename, trash and restore",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/documents.rs",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "test:crates/application/tests/documents.rs",
+            "smoke:scripts/contract-smoke.mjs",
+            "smoke:scripts/browser-smoke.mjs"
+          ],
+          "note": "Document management, not the selection model of this requirement."
+        },
+        {
+          "part": "selection kept in history; parent and child selected together; containment",
+          "status": "not_implemented",
+          "followups": [
+            "P11",
+            "P32"
+          ],
+          "note": "Selection is page state only."
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P11",
+            "P31",
+            "P32",
+            "P33",
+            "P47",
+            "P72",
+            "P85",
+            "S05"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "OPS-02",
+      "group": "document",
+      "title": "Atomic edits, references, undo/redo and revisions",
+      "operations": [
+        "document.create",
+        "document.transaction",
+        "history.undo",
+        "history.redo",
+        "document.close"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "all-or-nothing transactions with the failing command's index",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:ops-02.transaction-all-or-nothing",
+            "test:crates/domain/tests/document.rs"
+          ]
+        },
+        {
+          "part": "revisions: one per effective change, none for a no-op, stale revisions refused",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:ops-02.undo-redo-revisions",
+            "case:ops-02.no-op-keeps-revision",
+            "case:ops-02.stale-revision-refused"
+          ]
+        },
+        {
+          "part": "undo and redo restoring content, saved with the document",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_store.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:ops-02.undo-redo-revisions",
+            "case:model-02.atom-fields-persist"
+          ]
+        },
+        {
+          "part": "saves, recovery drafts, crash recovery, save as copy, cross-process locks",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_store.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:ops-02.restart-keeps-only-the-commit",
+            "test:crates/application/tests/documents.rs",
+            "smoke:scripts/contract-smoke.mjs",
+            "smoke:scripts/browser-smoke.mjs"
+          ]
+        },
+        {
+          "part": "scene objects, groups and references in the same change set",
+          "status": "not_implemented",
+          "followups": [
+            "P09",
+            "P11"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P09",
+            "P11",
+            "P25",
+            "P32",
+            "P33",
+            "P34",
+            "P41",
+            "P47",
+            "P48",
+            "P57",
+            "P75",
+            "P77",
+            "P82",
+            "P84",
+            "S02",
+            "S03",
+            "S05"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CHEM-01",
+      "group": "mass-and-properties",
+      "title": "Formula, mass, ranges, charge and numeric precision",
+      "operations": [
+        "chem.properties"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "molecular formula and mass",
+          "status": "not_implemented",
+          "evidence": [
+            "case:chem-01.formula-and-mass"
+          ],
+          "followups": [
+            "P19"
+          ]
+        },
+        {
+          "part": "numeric profiles, units and precision",
+          "status": "not_implemented",
+          "followups": [
+            "P15"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P15",
+            "P19",
+            "P52",
+            "P58",
+            "P62",
+            "P63",
+            "P64",
+            "P75",
+            "W03"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CHEM-02",
+      "group": "chemical-graph",
+      "title": "Chemical warnings, parser errors and opaque values kept apart",
+      "operations": [
+        "chem.validate"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "structural input errors as typed codes with the command index",
+          "status": "partial",
+          "implementation": [
+            "crates/application/src/error.rs",
+            "crates/application/src/contract.rs"
+          ],
+          "evidence": [
+            "case:model-02.out-of-range-charge-refused",
+            "case:ops-02.transaction-all-or-nothing"
+          ],
+          "note": "Only edit-command errors; there are no chemical warnings or parsers yet."
+        },
+        {
+          "part": "chemical analysis reported as not implemented, never as a result",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/lib.rs"
+          ],
+          "evidence": [
+            "case:api-01.unimplemented-capabilities-are-reported"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P10",
+            "P13",
+            "P16",
+            "P17",
+            "P24",
+            "P26",
+            "P30",
+            "P77",
+            "P86"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "STEREO-01",
+      "group": "stereochemistry",
+      "title": "Stereo group numbers, splitting, omission and per-codec results",
+      "operations": [
+        "chem.validate",
+        "document.import",
+        "document.export"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P27",
+            "P28",
+            "P29"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-01",
+      "group": "layout",
+      "title": "Explicit selection and movement of unselected atoms",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P42",
+            "P47",
+            "P51"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-02",
+      "group": "layout",
+      "title": "Bond length, style, stereo and repeated clean-up",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P42",
+            "P45",
+            "P47",
+            "P51"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "LAYOUT-03",
+      "group": "layout",
+      "title": "Rings, templates, search, scores and tie rules",
+      "operations": [
+        "layout.structure"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P14",
+            "P15",
+            "P17",
+            "P37",
+            "P42",
+            "P43",
+            "P44",
+            "P45",
+            "P46",
+            "P47"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "REACTION-01",
+      "group": "layout",
+      "title": "Reaction interpretation, layout and stoichiometry",
+      "operations": [
+        "layout.reaction",
+        "chem.properties"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P49",
+            "P51",
+            "P52"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "RENDER-01",
+      "group": "rendering",
+      "title": "Fonts, Unicode, bounds, vectors and clipping",
+      "operations": [
+        "render.scene"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "on-screen SVG drawing of atoms and bonds in the web editor",
+          "status": "partial",
+          "implementation": [
+            "apps/web/src/editor/structure-canvas.tsx"
+          ],
+          "evidence": [
+            "smoke:scripts/browser-smoke.mjs"
+          ],
+          "note": "An editor view, not a renderer contract or export."
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P12",
+            "P22",
+            "P31",
+            "P35",
+            "P36",
+            "P37",
+            "P38",
+            "P40",
+            "P67",
+            "P72",
+            "P73",
+            "P74",
+            "P81",
+            "P85",
+            "W04"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "RENDER-02",
+      "group": "rendering",
+      "title": "Raster resolution, transparency, crop and environment",
+      "operations": [
+        "render.scene"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P39",
+            "P40",
+            "P67",
+            "P74",
+            "P81"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "NAMES-01",
+      "group": "naming",
+      "title": "Name parsing and generation, grammar, numbering, ambiguity",
+      "operations": [
+        "chem.name_to_structure",
+        "chem.structure_to_name"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P14",
+            "P53",
+            "P54",
+            "P55",
+            "P56",
+            "P57"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "PREDICT-01",
+      "group": "prediction",
+      "title": "pKa, LogS and XLogP models, methods and kinds",
+      "operations": [
+        "prediction.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P14",
+            "P15",
+            "P24",
+            "P58",
+            "P59",
+            "P60",
+            "P61",
+            "P62",
+            "P63",
+            "P64",
+            "P76"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "PREDICT-02",
+      "group": "nmr",
+      "title": "NMR libraries, corrections, solvents and frequencies",
+      "operations": [
+        "prediction.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P14",
+            "P15",
+            "P65",
+            "P66",
+            "P67"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "BIO-01",
+      "group": "biopolymer-and-advanced",
+      "title": "DNA, RNA and peptide ends, modifications and stereo",
+      "operations": [
+        "biopolymer.expand"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P69",
+            "P70",
+            "P71"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "WIN-01",
+      "group": "windows-and-services",
+      "title": "Public automation declarations and control profiles",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "Windows automation surface",
+          "status": "not_implemented",
+          "followups": [
+            "W01",
+            "W02",
+            "W03"
+          ],
+          "note": "Conditional; reported as not_implemented (windows_bridge)."
+        },
+        {
+          "part": "calling an original program or library in place of an implementation",
+          "status": "intentionally_rejected",
+          "note": "The product never runs original executables; see AGENTS.md."
+        }
+      ]
+    },
+    {
+      "id": "WIN-02",
+      "group": "windows-and-services",
+      "title": "Office, OLE and clipboard hosts and lifetimes",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "Office/OLE/clipboard hosting",
+          "status": "not_implemented",
+          "followups": [
+            "W02",
+            "W03",
+            "W04"
+          ],
+          "note": "Conditional on a working host."
+        }
+      ]
+    },
+    {
+      "id": "STYLE-01",
+      "group": "document",
+      "title": "Document settings apart from application preferences",
+      "operations": [
+        "document.transaction",
+        "render.scene"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "document style and global settings",
+          "status": "not_implemented",
+          "followups": [
+            "P12"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P12",
+            "P35",
+            "P40",
+            "P66",
+            "P80"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "SCRIPT-01",
+      "group": "windows-and-services",
+      "title": "Independent scripting contract and execution policy",
+      "operations": [
+        "script.evaluate"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P84"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "SERVICE-01",
+      "group": "windows-and-services",
+      "title": "External service contracts and authentication",
+      "operations": [
+        "integration.invoke"
+      ],
+      "status": "not_implemented",
+      "parts": [
+        {
+          "part": "remote name, search or cloud services",
+          "status": "not_implemented",
+          "followups": [
+            "W05"
+          ],
+          "note": "No service artifact is available."
+        },
+        {
+          "part": "simulated success replies for an unavailable service",
+          "status": "intentionally_rejected",
+          "note": "Unavailable services are reported as such."
+        }
+      ]
+    },
+    {
+      "id": "API-01",
+      "group": "api-validation-handoff",
+      "title": "Versioned typed requests, errors and compatibility profiles",
+      "operations": [
+        "capabilities.inspect",
+        "document.create",
+        "document.transaction"
+      ],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "v1 HTTP and CLI contract: one application, same JSON and error codes",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/contract.rs",
+            "apps/api/src/lib.rs",
+            "apps/cli/src/main.rs"
+          ],
+          "evidence": [
+            "case:api-01.request-id-replay",
+            "case:api-01.request-id-reuse-refused",
+            "smoke:scripts/contract-smoke.mjs",
+            "test:apps/api/tests/http.rs"
+          ]
+        },
+        {
+          "part": "capabilities report what is not implemented",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/lib.rs"
+          ],
+          "evidence": [
+            "case:api-01.unimplemented-capabilities-are-reported"
+          ]
+        },
+        {
+          "part": "versioned per-operation contracts, sub-operation capabilities, profiles and model identifiers",
+          "status": "not_implemented",
+          "evidence": [
+            "case:api-01.versioned-operation-result"
+          ],
+          "followups": [
+            "P13"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P13",
+            "P41",
+            "P82",
+            "P83",
+            "P84",
+            "P86",
+            "P87",
+            "P88",
+            "P89",
+            "W01",
+            "S01",
+            "S02",
+            "S03",
+            "S04",
+            "S06",
+            "S07"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "QUALITY-01",
+      "group": "api-validation-handoff",
+      "title": "Independent inputs, determinism and actual conformance",
+      "operations": [],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "versioned conformance suite with independent cases, run in CI",
+          "status": "partial",
+          "implementation": [
+            "crates/conformance/src/lib.rs",
+            "conformance/suite.json"
+          ],
+          "evidence": [
+            "test:crates/conformance/src/lib.rs",
+            "report:docs/verification/conformance-report.json"
+          ],
+          "note": "Covers the editing and persistence slice; chemistry cases wait for their features."
+        },
+        {
+          "part": "browser and contract regression checks in CI",
+          "status": "implemented",
+          "implementation": [
+            ".github/workflows/ci.yml"
+          ],
+          "evidence": [
+            "smoke:scripts/browser-smoke.mjs",
+            "smoke:scripts/contract-smoke.mjs"
+          ]
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P13",
+            "P18",
+            "P41",
+            "P57",
+            "P76",
+            "P83",
+            "P85",
+            "P86",
+            "P87",
+            "P88",
+            "P89",
+            "S06"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    },
+    {
+      "id": "CLEANROOM-01",
+      "group": "api-validation-handoff",
+      "title": "Analysis context, implementation context and separate DATA",
+      "operations": [],
+      "status": "partial",
+      "parts": [
+        {
+          "part": "public repository without original binaries, decompilations, private payloads or the full specification",
+          "status": "implemented",
+          "implementation": [
+            "AGENTS.md",
+            ".gitignore"
+          ],
+          "evidence": [
+            "check:scripts/traceability-check.mjs"
+          ],
+          "note": "The traceability files reference specification files by path and hash only."
+        },
+        {
+          "part": "separate DATA registry and loader for approved private inputs",
+          "status": "not_implemented",
+          "followups": [
+            "P14"
+          ]
+        },
+        {
+          "part": "running original executables or settings as a replacement",
+          "status": "intentionally_rejected"
+        },
+        {
+          "part": "everything else in this requirement",
+          "status": "not_implemented",
+          "followups": [
+            "P14",
+            "P82",
+            "P88",
+            "P89"
+          ],
+          "note": "Not implemented."
+        }
+      ]
+    }
+  ]
+}

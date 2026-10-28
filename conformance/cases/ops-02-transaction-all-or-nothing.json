@@ -1,0 +1,23 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "ops-02.transaction-all-or-nothing",
+  "title": "A transaction with one invalid command changes nothing",
+  "requirements": ["OPS-02", "API-01", "CHEM-02"],
+  "axis": "operations",
+  "kind": "reject",
+  "steps": [
+    { "op": "create", "title": "Atomic", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "add_atom", "element": "Xx", "position": { "x": 30, "y": 0 } }
+      ],
+      "expect_error": { "api_version": "v1", "code": "invalid_command", "command_index": 1 }
+    },
+    {
+      "op": "get", "document": "doc",
+      "expect": { "document": { "revision": 0, "atoms": [], "bonds": [] }, "session": { "undo_depth": 0 } }
+    }
+  ]
+}

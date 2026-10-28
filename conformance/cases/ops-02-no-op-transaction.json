@@ -1,0 +1,16 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "ops-02.no-op-keeps-revision",
+  "title": "A transaction that changes nothing makes no revision and no undo entry",
+  "requirements": ["OPS-02"],
+  "axis": "operations",
+  "kind": "accept",
+  "steps": [
+    { "op": "create", "title": "Same", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [{ "op": "rename", "title": "Same" }],
+      "expect": { "document": { "revision": 0 }, "session": { "undo_depth": 0, "unsaved_changes": false } }
+    }
+  ]
+}

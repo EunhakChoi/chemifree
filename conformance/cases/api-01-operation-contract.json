@@ -1,0 +1,9 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "api-01.versioned-operation-result",
+  "title": "An operation reply names its contract version, support level and losses",
+  "requirements": ["API-01", "CHEM-02"],
+  "axis": "api",
+  "kind": "accept",
+  "pending": { "followup": "P13", "reason": "Operation results are the v1 document replies; versioned operation contracts do not exist yet." }
+}

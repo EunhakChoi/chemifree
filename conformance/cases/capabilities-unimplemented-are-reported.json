@@ -1,0 +1,27 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "api-01.unimplemented-capabilities-are-reported",
+  "title": "Chemical analysis, formats, models, authentication and Windows integration are reported as not implemented",
+  "requirements": ["API-01", "CHEM-02", "QUALITY-01"],
+  "axis": "capabilities",
+  "kind": "accept",
+  "steps": [
+    {
+      "op": "capabilities",
+      "expect": {
+        "api_version": "v1",
+        "capabilities": {
+          "$contains": [
+            { "id": "document_editing", "status": "available" },
+            { "id": "persistence", "status": "available" },
+            { "id": "structure_analysis", "status": "not_implemented" },
+            { "id": "format_conversion", "status": "not_implemented" },
+            { "id": "local_model_loading", "status": "not_implemented" },
+            { "id": "authentication", "status": "not_implemented" },
+            { "id": "windows_bridge", "status": "not_implemented" }
+          ]
+        }
+      }
+    }
+  ]
+}

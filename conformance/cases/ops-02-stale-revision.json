@@ -1,0 +1,21 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "ops-02.stale-revision-refused",
+  "title": "An edit based on another revision is refused and reports the current one",
+  "requirements": ["OPS-02", "API-01"],
+  "axis": "operations",
+  "kind": "reject",
+  "steps": [
+    { "op": "create", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [{ "op": "rename", "title": "First" }]
+    },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [{ "op": "rename", "title": "Stale" }],
+      "expect_error": { "code": "revision_conflict", "current_revision": 1 }
+    },
+    { "op": "get", "document": "doc", "expect": { "document": { "revision": 1, "title": "First" } } }
+  ]
+}

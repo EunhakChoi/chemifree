@@ -59,6 +59,8 @@ npm run test:client      # Web client against a scripted service: unknown outcom
 npm run build:web        # Production web assets in apps/web/dist
 npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
+npm run test:conformance # Versioned independent conformance cases against the shared application
+npm run test:traceability # Requirement/declaration traceability, cases, report, and roadmap agree
 npm run check            # All of the above
 npm run build            # Web assets and debug Rust binaries
 npm run test:browser     # Browser smoke (needs Chrome or Playwright's Chromium; CI job `browser`)
@@ -99,11 +101,18 @@ crates/
   domain/           Elements, document graph, commands, transactions, change-set history; no dependencies
   application/      Use cases, editing sessions, v1 DTOs, CapabilityCatalog and DocumentRepository ports
   providers/        Capability catalog and the local JSON file repository
+  conformance/      Versioned conformance case format and runner (no chemistry is checked)
+conformance/        Independently written cases and the suite they belong to
 scripts/
   contract-smoke.mjs HTTP/CLI boundary and document-flow verification
   browser-smoke.mjs  Manual browser verification of the editor
+  traceability-check.mjs Traceability, conformance, and roadmap consistency
 docs/
   CONTRACT.md       v1 shape, compatibility rules, and capability identifiers
+  TRACEABILITY.ko.md Requirement and declaration traceability, statuses, conformance
+  traceability/     Requirement (33) and public declaration traceability records
+  roadmap/          PR plan, execution order, and delivered PRs with main CI
+  verification/     Run records, including review and CI history per PR
   architecture.html Detailed architecture and staged design
   SHADCN_REVIEW.ko.md shadcn/ui and @shadcn/lint review
 ```

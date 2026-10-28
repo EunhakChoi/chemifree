@@ -1,0 +1,9 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "model-02.hydrogen-state-is-kept",
+  "title": "Explicit, implicit-unknown and stated hydrogen counts are told apart and kept",
+  "requirements": ["MODEL-02"],
+  "axis": "document",
+  "kind": "accept",
+  "pending": { "followup": "P10", "reason": "Hydrogen state is not represented yet." }
+}

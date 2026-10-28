@@ -1,0 +1,21 @@
+{
+  "format": "chemifree-conformance-suite/1",
+  "suite_version": "2026.10.1",
+  "cases": [
+    "cases/ops-02-transaction-all-or-nothing.json",
+    "cases/ops-02-undo-redo-revisions.json",
+    "cases/ops-02-stale-revision.json",
+    "cases/ops-02-no-op-transaction.json",
+    "cases/ops-02-unsaved-edits-end-with-the-process.json",
+    "cases/api-01-request-id-replay.json",
+    "cases/api-01-request-id-reuse.json",
+    "cases/model-02-atom-fields-persist.json",
+    "cases/model-02-out-of-range-charge.json",
+    "cases/capabilities-unimplemented-are-reported.json",
+    "cases/model-01-graph-and-scene.json",
+    "cases/model-02-hydrogen-states.json",
+    "cases/api-01-operation-contract.json",
+    "cases/chem-01-formula-and-mass.json",
+    "cases/codec-03-molfile-round-trip.json"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "codec-03.molfile-round-trip",
+  "title": "A V2000 molfile written by hand reads and writes back with its atoms and bonds",
+  "requirements": ["CODEC-03"],
+  "axis": "document",
+  "kind": "accept",
+  "pending": { "followup": "P20", "reason": "No external format reader or writer is implemented." }
+}

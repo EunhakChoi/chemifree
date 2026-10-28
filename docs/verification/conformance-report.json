@@ -1,0 +1,168 @@
+{
+  "format": "chemifree-conformance-report/1",
+  "suite_version": "2026.10.1",
+  "runner_version": "0.1.0",
+  "counts": {
+    "not_run/accept": 5,
+    "passed/accept": 6,
+    "passed/reject": 4
+  },
+  "results": [
+    {
+      "id": "ops-02.transaction-all-or-nothing",
+      "requirements": [
+        "OPS-02",
+        "API-01",
+        "CHEM-02"
+      ],
+      "axis": "operations",
+      "kind": "reject",
+      "status": "passed"
+    },
+    {
+      "id": "ops-02.undo-redo-revisions",
+      "requirements": [
+        "OPS-02",
+        "MODEL-02"
+      ],
+      "axis": "operations",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "ops-02.stale-revision-refused",
+      "requirements": [
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "operations",
+      "kind": "reject",
+      "status": "passed"
+    },
+    {
+      "id": "ops-02.no-op-keeps-revision",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "operations",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "ops-02.restart-keeps-only-the-commit",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "api-01.request-id-replay",
+      "requirements": [
+        "API-01",
+        "OPS-02"
+      ],
+      "axis": "api",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "api-01.request-id-reuse-refused",
+      "requirements": [
+        "API-01"
+      ],
+      "axis": "api",
+      "kind": "reject",
+      "status": "passed"
+    },
+    {
+      "id": "model-02.atom-fields-persist",
+      "requirements": [
+        "MODEL-02",
+        "OPS-02",
+        "MODEL-01"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "model-02.out-of-range-charge-refused",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "document",
+      "kind": "reject",
+      "status": "passed"
+    },
+    {
+      "id": "api-01.unimplemented-capabilities-are-reported",
+      "requirements": [
+        "API-01",
+        "CHEM-02",
+        "QUALITY-01"
+      ],
+      "axis": "capabilities",
+      "kind": "accept",
+      "status": "passed"
+    },
+    {
+      "id": "model-01.one-graph-two-placements",
+      "requirements": [
+        "MODEL-01"
+      ],
+      "axis": "document",
+      "kind": "accept",
+      "status": "not_run",
+      "detail": "The document holds one placement per atom; graph and scene are not separated yet.",
+      "followup": "P09"
+    },
+    {
+      "id": "model-02.hydrogen-state-is-kept",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "document",
+      "kind": "accept",
+      "status": "not_run",
+      "detail": "Hydrogen state is not represented yet.",
+      "followup": "P10"
+    },
+    {
+      "id": "api-01.versioned-operation-result",
+      "requirements": [
+        "API-01",
+        "CHEM-02"
+      ],
+      "axis": "api",
+      "kind": "accept",
+      "status": "not_run",
+      "detail": "Operation results are the v1 document replies; versioned operation contracts do not exist yet.",
+      "followup": "P13"
+    },
+    {
+      "id": "chem-01.formula-and-mass",
+      "requirements": [
+        "CHEM-01"
+      ],
+      "axis": "chemistry",
+      "kind": "accept",
+      "status": "not_run",
+      "detail": "No formula or mass calculation is implemented.",
+      "followup": "P19"
+    },
+    {
+      "id": "codec-03.molfile-round-trip",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "document",
+      "kind": "accept",
+      "status": "not_run",
+      "detail": "No external format reader or writer is implemented.",
+      "followup": "P20"
+    }
+  ]
+}

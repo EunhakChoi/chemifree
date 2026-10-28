@@ -1,0 +1,19 @@
+{
+  "format": "chemifree-conformance/1",
+  "id": "model-02.out-of-range-charge-refused",
+  "title": "A charge outside the representable range is refused with the command's index",
+  "requirements": ["MODEL-02", "CHEM-02"],
+  "axis": "document",
+  "kind": "reject",
+  "steps": [
+    { "op": "create", "as": "doc" },
+    {
+      "op": "transaction", "document": "doc", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "N", "position": { "x": 0, "y": 0 } },
+        { "op": "update_atom", "atom": "a1", "charge": 9 }
+      ],
+      "expect_error": { "code": "invalid_command", "command_index": 1 }
+    }
+  ]
+}
