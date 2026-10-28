@@ -23,9 +23,10 @@ export type AutosaveState =
   /** `at` is known when this page wrote the draft. */
   | { kind: 'saved'; revision: number; at: number | null }
   /**
-   * Drafting keeps failing. With `by: 'service'` this is the service's own record
-   * (`session.draft_failure`): it retries on its own schedule and counts every attempt,
-   * the page's included. A service from before that record leaves the page to keep its own.
+   * Drafting keeps failing. With `by: 'service'` the service has recorded the failure
+   * (`session.draft_failure`, or the page's own failed attempt until that record is read): it
+   * retries on its own schedule and counts every attempt, the page's included. A service from
+   * before that record leaves the page to keep its own.
    */
   | {
       kind: 'failed'
@@ -78,12 +79,18 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
   const owner = useRef<string | null>(null)
   const firstPending = useRef<number | null>(null)
   const attempts = useRef(0)
-  /** The page's own failed attempt, with the view it was made from. */
+  /**
+   * The page's own failed attempt, with the view it was made from. `recorded` when the service
+   * recorded it as its own draft failure; then `missedReads` counts reads of that record that
+   * left the view on screen.
+   */
   const failure = useRef<{
     message: string
     reason: StorageReason | null
     retryAt: number
     view: DocumentResponse
+    recorded: boolean
+    missedReads: number
   } | null>(null)
   /**
    * When the service's reported retry is due, fixed when the view reporting it is first shown,
@@ -110,10 +117,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       attempts.current = 0
       failure.current = null
     }
-    const fail = (message: string, reason: StorageReason | null, view: DocumentResponse) => {
+    const fail = (message: string, reason: StorageReason | null, view: DocumentResponse, recorded: boolean) => {
       const delay = RETRY_DELAYS_MS[Math.min(attempts.current, RETRY_DELAYS_MS.length - 1)]
       attempts.current += 1
-      failure.current = { message, reason, retryAt: Date.now() + delay, view }
+      failure.current = { message, reason, retryAt: Date.now() + delay, view, recorded, missedReads: 0 }
     }
 
     save.current = () => {
@@ -143,7 +150,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           }
           // The service went back or holds other content (a restart seen elsewhere, a closed
           // session): re-read it rather than draft again.
-          fail('The service holds a different state than this page shows; reloading it.', null, view)
+          fail('The service holds a different state than this page shows; reloading it.', null, view, false)
           void hostRef.current.refresh(id)
         } catch (thrown) {
           if (owner.current !== id) return
@@ -153,10 +160,11 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
             hostRef.current.onRestart(error)
             return
           }
-          fail(error.message, error.reason ?? null, view)
           // A service that reports its drafting failures has recorded this one with the retry
           // it will make; read it, so the page shows and follows that one record.
-          if (STALE_VIEW.has(error.code) || view.session.draft_failure !== undefined) void hostRef.current.refresh(id)
+          const recorded = view.session.draft_failure !== undefined
+          fail(error.message, error.reason ?? null, view, recorded)
+          if (STALE_VIEW.has(error.code) || recorded) void hostRef.current.refresh(id)
         } finally {
           if (inFlight.current === attempt) inFlight.current = null
           evaluate.current()
@@ -203,11 +211,26 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
         return
       }
       const now = Date.now()
+      // Reads the document once a retry at `retryAt` is due, and again with the page's backoff
+      // while reads fail and leave `view` on screen, so a stale failure is not left showing.
+      const readOutcome = (retryAt: number, reads: { missedReads: number }, current: () => boolean) => {
+        const wait =
+          reads.missedReads === 0
+            ? Math.max(0, retryAt - now) + RECHECK_AFTER_RETRY_MS
+            : RETRY_DELAYS_MS[Math.min(reads.missedReads - 1, RETRY_DELAYS_MS.length - 1)]
+        timer.current = setTimeout(() => {
+          void hostRef.current.refresh(document.id).then(() => {
+            if (!current() || hostRef.current.shown() !== view) return
+            reads.missedReads += 1
+            evaluate.current()
+          })
+        }, wait)
+      }
       const report = session.draft_failure
       if (report) {
         if (reported.current?.view !== view) reported.current = { view, retryAt: now + report.retry_in_ms, missedReads: 0 }
         const outcome = reported.current
-        const { retryAt, missedReads } = outcome
+        const { retryAt } = outcome
         setState({
           kind: 'failed',
           by: 'service',
@@ -216,19 +239,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           reason: report.reason ?? null,
           retryAt,
         })
-        // Read the outcome once the service's retry is due. A read that fails leaves this view on
-        // screen; it is read again with the page's backoff rather than left stale.
-        const wait =
-          missedReads === 0
-            ? Math.max(0, retryAt - now) + RECHECK_AFTER_RETRY_MS
-            : RETRY_DELAYS_MS[Math.min(missedReads - 1, RETRY_DELAYS_MS.length - 1)]
-        timer.current = setTimeout(() => {
-          void hostRef.current.refresh(document.id).then(() => {
-            if (reported.current !== outcome || hostRef.current.shown() !== view) return
-            outcome.missedReads += 1
-            evaluate.current()
-          })
-        }, wait)
+        readOutcome(retryAt, outcome, () => reported.current === outcome)
         return
       }
       const failed = failure.current
@@ -237,16 +248,19 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
         failure.current = null
         attempts.current = 0
       } else if (failed) {
-        // The retry keeps its time; edits meanwhile do not push it back.
+        // A service that reports failures recorded this one and retries it on its own schedule,
+        // which the page's matches; the page reads that record rather than drafting beside it.
+        // Otherwise the page retries, and edits meanwhile do not push its retry back.
         setState({
           kind: 'failed',
-          by: 'page',
+          by: failed.recorded ? 'service' : 'page',
           attempts: attempts.current,
           message: failed.message,
           reason: failed.reason,
           retryAt: failed.retryAt,
         })
-        timer.current = setTimeout(() => void save.current(), Math.max(0, failed.retryAt - now))
+        if (failed.recorded) readOutcome(failed.retryAt, failed, () => failure.current === failed)
+        else timer.current = setTimeout(() => void save.current(), Math.max(0, failed.retryAt - now))
         return
       }
       firstPending.current ??= now

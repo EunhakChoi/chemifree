@@ -914,6 +914,7 @@ if (runningAsRoot) {
     'autosave_failure_is_shown_and_retried',
     'service_draft_failure_is_shown_and_its_retry_appears',
     'a_failed_outcome_read_is_made_again',
+    'a_failed_record_read_leaves_the_retry_to_the_service',
     'another_document_never_shows_a_draft_failure',
     'a_service_without_failure_records_leaves_retries_to_the_page',
   )
@@ -995,6 +996,40 @@ if (runningAsRoot) {
   assert.ok(outcomeReads >= 2, `the outcome was read again after a failed read (${outcomeReads} reads)`)
   results.a_failed_outcome_read_is_made_again = true
   step = 'after a_failed_outcome_read_is_made_again'
+
+  // The page's own failed draft is the service's record too. When reading that record fails,
+  // the page still leaves the retry to the service instead of drafting beside it, which would
+  // count two attempts and skip ahead in the service's backoff.
+  let recordReads = 0
+  const cutFirstRecordRead = async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    recordReads += 1
+    return recordReads === 1 ? route.abort('connectionreset') : route.fallback()
+  }
+  let draftsAfterEdit = 0
+  const countDrafts = (request) => {
+    if (isAutosave(request)) draftsAfterEdit += 1
+  }
+  await page.route(`**/api/v1/documents/${docId}`, cutFirstRecordRead)
+  chmodSync(draftsDir, 0o500)
+  page.on('request', countDrafts)
+  await drawPair()
+  await page.waitForFunction(
+    () => {
+      const draft = document.querySelector('[data-testid="draft-state"]')
+      return draft?.getAttribute('data-by') === 'service' && /failed [2-9] times/.test(draft.textContent ?? '')
+    },
+    null,
+    { timeout: 15_000 },
+  )
+  page.off('request', countDrafts)
+  assert.ok(recordReads >= 2, `the record was read again after a failed read (${recordReads} reads)`)
+  assert.equal(draftsAfterEdit, 1, 'only the page’s first draft was sent; the service made the retry')
+  chmodSync(draftsDir, 0o700)
+  await waitDraft('saved')
+  await page.unroute(`**/api/v1/documents/${docId}`, cutFirstRecordRead)
+  results.a_failed_record_read_leaves_the_retry_to_the_service = true
+  step = 'after a_failed_record_read_leaves_the_retry_to_the_service'
 
   // Another document never shows that failure, nor does the page re-read the failing one there.
   chmodSync(draftsDir, 0o500)
