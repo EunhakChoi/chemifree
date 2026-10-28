@@ -467,7 +467,9 @@ pub struct CopyResponse {
 pub struct CopySource {
     pub id: String,
     /// True when the source's session was closed: its working copy lives on in the copy, and
-    /// the source reopens from its last save. A recovered draft leaves its source open.
+    /// the source reopens from its last save. A recovered draft leaves its source's session open
+    /// unless, with every session slot in use, that clean session was the only one that could
+    /// make room for the copy.
     pub closed: bool,
     /// True when that session had unsaved changes, which are now only in the copy.
     pub discarded_changes: bool,

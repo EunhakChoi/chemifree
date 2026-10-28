@@ -245,15 +245,24 @@ impl Sessions {
     }
 
     /// A clean session to evict when the table is full, checked before any change so a
-    /// request that fails afterwards has not evicted anything.
-    fn eviction(&self, keep: Option<&DocumentId>) -> Result<Option<DocumentId>, ApplicationError> {
+    /// request that fails afterwards has not evicted anything. `spare` is chosen only when no
+    /// other session is clean.
+    fn eviction(&self, spare: Option<&DocumentId>) -> Result<Option<DocumentId>, ApplicationError> {
         if self.open.len() < MAX_OPEN_SESSIONS {
             return Ok(None);
         }
-        self.open
+        // The lowest identifier, so the choice does not depend on hash order.
+        let clean = self
+            .open
             .iter()
-            .find(|(id, session)| Some(*id) != keep && !session.is_dirty())
-            .map(|(id, _)| Some(id.clone()))
+            .filter(|(_, session)| !session.is_dirty())
+            .map(|(id, _)| id);
+        clean
+            .clone()
+            .filter(|id| Some(*id) != spare)
+            .min()
+            .or_else(|| clean.min())
+            .map(|id| Some(id.clone()))
             .ok_or_else(|| {
                 ApplicationError::new(
                     ErrorCode::ResourceLimit,
@@ -263,6 +272,14 @@ impl Sessions {
                 )
             })
     }
+}
+
+/// Where the session of a new copy goes.
+enum CopySlot<'a> {
+    /// The open source session's, which the copy replaces.
+    Source,
+    /// A clean session's, evicted if the table is full; `spare`'s only if no other is clean.
+    Evicted { spare: &'a DocumentId },
 }
 
 /// Owns open sessions. One working copy exists per document per process; a session is
@@ -786,7 +803,11 @@ impl<R: DocumentRepository> Documents<R> {
             || suffixed(draft.document.title(), " (recovered)"),
             str::to_owned,
         );
-        let copy = match self.copy(&mut sessions, &draft.document, &title, None) {
+        let source_was_open = sessions.open.contains_key(&document_id);
+        let slot = CopySlot::Evicted {
+            spare: &document_id,
+        };
+        let copy = match self.copy(&mut sessions, &draft.document, &title, slot) {
             Ok(copy) => self.open_copy(&mut sessions, copy),
             Err(error) => {
                 self.repository.release_draft(&document_id);
@@ -798,11 +819,13 @@ impl<R: DocumentRepository> Documents<R> {
         if self.repository.remove_draft(&document_id).is_err() {
             self.repository.release_draft(&document_id);
         }
+        // The source's session stays open unless it was the only clean one left to make room
+        // for the copy. Only a clean session is evicted, so no changes were discarded.
         let response = CopyResponse {
             copy,
             source: CopySource {
                 id: document_id.to_string(),
-                closed: false,
+                closed: source_was_open && !sessions.open.contains_key(&document_id),
                 discarded_changes: false,
             },
         };
@@ -881,7 +904,7 @@ impl<R: DocumentRepository> Documents<R> {
         let source = session.document.clone();
         let discarded_changes = session.is_dirty();
         let title = title.map_or_else(|| suffixed(source.title(), " (copy)"), str::to_owned);
-        let copy = self.copy(&mut sessions, &source, &title, Some(&document_id))?;
+        let copy = self.copy(&mut sessions, &source, &title, CopySlot::Source)?;
         // The copy takes the source's slot. If the source's draft cannot be removed, the
         // source stays open with its changes rather than leave a draft that would be offered
         // for recovery later, and the copy is opened on its next access instead.
@@ -905,22 +928,21 @@ impl<R: DocumentRepository> Documents<R> {
     }
 
     /// Commits `source`'s content as a new document, in a clean session for the caller to
-    /// open. `slot` is an open session the copy will replace; without one, a clean session is
-    /// evicted if the table is full.
+    /// open, making room for it as `slot` says.
     fn copy(
         &self,
         sessions: &mut Sessions,
         source: &Document,
         title: &str,
-        slot: Option<&DocumentId>,
+        slot: CopySlot<'_>,
     ) -> Result<Session, ApplicationError> {
         let id = self.repository.allocate_id().map_err(storage_error)?;
         let copy = source.copy_as(id, title).map_err(|error| {
             ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
         })?;
         let mut eviction = match slot {
-            Some(slot) if sessions.open.contains_key(slot) => None,
-            _ => sessions.eviction(None)?,
+            CopySlot::Source => None,
+            CopySlot::Evicted { spare } => sessions.eviction(Some(spare))?,
         };
         self.repository.save(&copy, None).map_err(storage_error)?;
         if let Some(evicted) = eviction.take() {
@@ -1035,7 +1057,7 @@ impl<R: DocumentRepository> Documents<R> {
             let document = self.load(&id)?.ok_or_else(|| not_found(&id))?;
             let retired = sessions.retired.get(&id).copied();
             let session = Session::open(document, retired)?;
-            if let Some(evicted) = sessions.eviction(Some(&id))? {
+            if let Some(evicted) = sessions.eviction(None)? {
                 sessions.remove(&evicted);
             }
             sessions.open.insert(id.clone(), session);

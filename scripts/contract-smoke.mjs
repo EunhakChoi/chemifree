@@ -473,6 +473,42 @@ try {
     assert.equal((await call('/api/v1/documents')).body.documents.length, countBefore + 1)
   }
 
+  // At the 64-session limit, recovering a draft as a copy evicts the clean source session when
+  // every other session holds unsaved work, and says so.
+  const fullSource = (await write('/api/v1/documents', { request_id: 'full-source', title: 'Full table' })).body.document.id
+  const fullPath = `/api/v1/documents/${fullSource}`
+  await write(`${fullPath}/transactions`, {
+    request_id: 'full-edit',
+    expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'S', position: { x: 0, y: 0 } }],
+  })
+  await write(`${fullPath}/autosave`, { request_id: 'full-auto' })
+  await restartApi()
+  const fullFile = join(dataDir, 'documents', `${fullSource}.json`)
+  const fullBytes = readFileSync(fullFile)
+  assert.equal((await call(fullPath)).body.recovery.state, 'recoverable')
+  for (let index = 1; index < 64; index += 1) {
+    const busy = (await write('/api/v1/documents', { request_id: `busy-${index}` })).body.document.id
+    await write(`/api/v1/documents/${busy}/transactions`, {
+      request_id: `busy-edit-${index}`,
+      expected_revision: 0,
+      commands: [{ op: 'rename', title: `Busy ${index}` }],
+    })
+  }
+  const openBefore = (await call('/api/v1/documents')).body.documents.filter((document) => document.open)
+  assert.equal(openBefore.length, 64)
+  const fullCopy = await write(`${fullPath}/recover-as-copy`, { request_id: 'full-copy' })
+  assert.equal(fullCopy.status, 201)
+  assert.deepEqual(fullCopy.body.source, { id: fullSource, closed: true, discarded_changes: false })
+  assert.deepEqual(fullCopy.body.document.atoms.map((atom) => atom.element), ['S'])
+  const openAfter = (await call('/api/v1/documents')).body.documents.filter((document) => document.open)
+  assert.deepEqual(
+    [openAfter.length, openAfter.some((document) => document.id === fullSource), openAfter.some((document) => document.id === fullCopy.body.document.id)],
+    [64, false, true],
+  )
+  assert.deepEqual(readFileSync(fullFile), fullBytes, "the source's commit is untouched")
+  assert.ok(!existsSync(join(dataDir, 'drafts', `${fullSource}.json`)), 'the draft went into the copy')
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -488,7 +524,7 @@ try {
     'Contract smoke passed: HTTP = CLI; document create/edit/undo/redo/save/reopen, write guards, ' +
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
-      'unreadable, autosave failure), and save as copy verified.',
+      'unreadable, autosave failure, copy at the session limit), and save as copy verified.',
   )
 } finally {
   for (const child of running) await stop(child)
