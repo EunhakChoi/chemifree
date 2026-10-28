@@ -45,10 +45,16 @@
 npm run test:conformance      # 실행(실패가 있으면 종료 코드 1)
 npm run conformance:record    # docs/verification/conformance-report.json 갱신
 npm run test:traceability     # 추적표·사례·기록·로드맵의 일관성
+npm run test:clean-room       # 추적 대상 파일에 로컬 전용 경로·실행 파일·1 MiB 초과 파일·명세 대상 프로그램 이름이 없는지
 CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:traceability   # 명세 파일 해시·요구사항 ID·경로별 선언 수까지 대조
+CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:clean-room     # spec/ 파일과 바이트가 같은 추적 파일이 없는지까지
 ~~~
 
-`npm run check`(CI 포함)는 test:conformance와 test:traceability를 실행한다. 명세 작업 공간이 없는 CI에서는 명세 대조를 하지 않는다.
+`npm run check`(CI 포함)는 test:conformance, test:traceability, test:clean-room을 실행한다. 명세 작업 공간이 없는 CI에서는 명세 대조를 하지 않는다.
+
+기록(verification/conformance-report.json)의 각 결과는 현재 사례의 요구사항·축·종류·대기 사유를 그대로 담아야 하고, 개수는 결과에서 다시 센 값과 같아야 하며, npm run check가 먼저 만든 새 실행(target/conformance-report.json)과 정확히 같아야 한다. 사례를 바꾸면 npm run conformance:record로 기록을 다시 만든다. 근거 중 `check:` 스크립트는 npm run check가 실제로 실행하는 것이어야 한다.
+
+CLEANROOM-01의 '공개 저장소에 원본·비공개 자료가 없음' 부분의 근거는 scripts/clean-room-check.mjs다. 이 검사는 복사본과 산출물(로컬 전용 경로, 실행 파일·네이티브 라이브러리의 확장자와 파일 서명, 1 MiB 초과 파일, 명세가 설명하는 프로그램의 이름(단어의 SHA-256으로 비교), 명세 파일의 바이트 사본)을 잡지만, 바꿔 쓰거나 다시 인코딩한 비공개 자료까지 없다고 증명하지는 못한다.
 
 ## 갱신 규칙
 

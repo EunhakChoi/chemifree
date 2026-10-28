@@ -6,9 +6,11 @@
 //   status; a part that is implemented or partial names evidence; a not-implemented part names
 //   the plan entries that will deliver it; every plan entry exists in the roadmap.
 // - Every evidence reference resolves: `case:` to a case in conformance/suite.json, the others
-//   to a file in the repository. Every case is referenced by a requirement it names, and every
+//   to a file in the repository; a `check:` script is one that npm run check runs. Every case is referenced by a requirement it names, and every
 //   requirement a case names is in the table.
-// - docs/verification/conformance-report.json is a run of the current suite with no failures.
+// - docs/verification/conformance-report.json is a run of the current suite with no failures:
+//   each result restates its case, the counts are recomputed, and when a fresh run exists
+//   (target/conformance-report.json, from npm run test:conformance) the record equals it.
 // - docs/traceability/declarations.json routes every declaration it counts to existing plan
 //   entries; every done roadmap entry names its merged PRs, merge commit, and main CI run; and
 //   the roadmap HTML embeds exactly docs/roadmap/implementation-roadmap.json.
@@ -35,6 +37,14 @@ const suite = read('conformance/suite.json')
 const report = read('docs/verification/conformance-report.json')
 
 const planIds = new Set(roadmap.rows.map((row) => row.id))
+/** Scripts that npm run check runs, by the paths their commands name. */
+const scripts = read('package.json').scripts
+const checked = new Set(
+  scripts.check
+    .split('&&')
+    .map((step) => /^npm run (\S+)$/.exec(step.trim())?.[1])
+    .flatMap((name) => (scripts[name] ?? '').match(/scripts\/[\w.-]+\.mjs/g) ?? []),
+)
 const cases = new Map(suite.cases.map((path) => [read(join('conformance', path)).id, read(join('conformance', path))]))
 
 assert.equal(trace.format, 'chemifree-traceability/1')
@@ -61,6 +71,7 @@ for (const row of trace.requirements) {
     for (const reference of evidence) {
       const [kind, target] = reference.split(/:(.*)/s)
       assert.ok(EVIDENCE.has(kind), `${where}: evidence kind ${kind}`)
+      if (kind === 'check') assert.ok(checked.has(target), `${where}: ${target} is run by npm run check`)
       if (kind === 'case') {
         const found = cases.get(target)
         assert.ok(found, `${where}: case ${target} is in the suite`)
@@ -80,10 +91,28 @@ for (const [id, found] of cases) {
 
 assert.equal(report.format, 'chemifree-conformance-report/1')
 assert.equal(report.suite_version, suite.suite_version, 'the report is a run of the current suite version')
-assert.deepEqual(report.results.map((result) => result.id).sort(), [...cases.keys()].sort(), 'the report covers the suite')
-assert.equal(report.results.filter((result) => result.status === 'failed').length, 0, 'the recorded run has no failures')
+assert.deepEqual(report.results.map((result) => result.id), [...cases.keys()], 'the report covers the suite, in its order')
+// Each result restates its case as the suite has it now, and the counts are those of the results.
+const recounted = {}
 for (const result of report.results) {
-  assert.equal(result.status === 'not_run', Boolean(cases.get(result.id).pending), `${result.id}: not run exactly when pending`)
+  const found = cases.get(result.id)
+  const expected = {
+    id: found.id,
+    requirements: found.requirements,
+    axis: found.axis,
+    kind: found.kind,
+    status: found.pending ? 'not_run' : 'passed',
+    ...(found.pending ? { detail: found.pending.reason, followup: found.pending.followup } : {}),
+  }
+  assert.deepEqual(result, expected, `${result.id}: the recorded result matches the case and has not failed`)
+  const key = `${result.status}/${result.kind}`
+  recounted[key] = (recounted[key] ?? 0) + 1
+}
+assert.deepEqual(report.counts, recounted, 'the recorded counts are those of its results')
+// npm run check runs the suite first (test:conformance); the record must be that run exactly.
+const fresh = join(root, 'target/conformance-report.json')
+if (existsSync(fresh)) {
+  assert.deepEqual(read('target/conformance-report.json'), report, 'the recorded report is a fresh run of the suite (npm run conformance:record)')
 }
 
 assert.equal(declarations.format, 'chemifree-declaration-trace/1')

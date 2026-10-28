@@ -32,3 +32,9 @@ CI(ac65f11): check·browser 성공(run 40743886617). 그러나 3회 모두 통�
 | 2 | 18:49:22 | 08e72d8 | 18:52:34 | 통과(지적 없음) | [receipt](https://github.com/EunhakChoi/chemifree/pull/25#issuecomment-6477763220) |
 
 CI(08e72d8): check·browser 성공(run 40748675913). 병합 a785059, 병합 후 main CI 성공([run 40749278988](https://github.com/EunhakChoi/chemifree/actions/runs/40749278988), check·browser).
+
+## #26 P08 — 요구사항·공개 선언 추적과 conformance 실행 기반
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-28 18:59:03 | f156f29 | 19:01:45 | 지적 3건(P2). ① CLEANROOM-01 부분의 근거가 추적 검사 자신이라 실제 파일 내용을 보지 않음 → 수용: scripts/clean-room-check.mjs(로컬 전용 경로·실행 파일 서명·1 MiB 초과·대상 프로그램 이름·명세 사본)를 만들어 근거로 바꾸고 npm run check에 넣음. `check:` 근거는 npm run check가 실행하는 스크립트여야 한다는 검사 추가. 임시 저장소에서 각 위반이 잡힘을 확인 ② 기록된 보고서를 ID와 대략의 상태로만 비교 → 수용: 결과마다 현재 사례 메타데이터와 같은지, 개수 재계산, 새 실행과 정확히 같은지 확인. 개수·사례 축을 바꾼 변이가 잡힘을 확인 ③ `--out` 뒤 경로가 없으면 stdout으로 바뀜 → 수용: 사용법 오류(종료 2), 알 수 없는 옵션·두 번째 묶음도 거절, 단위 테스트 3개 | [review](https://github.com/EunhakChoi/chemifree/pull/26#pullrequestreview-5688154050) |

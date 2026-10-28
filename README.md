@@ -61,6 +61,7 @@ npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
 npm run test:conformance # Versioned independent conformance cases against the shared application
 npm run test:traceability # Requirement/declaration traceability, cases, report, and roadmap agree
+npm run test:clean-room  # Tracked files hold no local-only paths, binaries, large payloads, or spec copies
 npm run check            # All of the above
 npm run build            # Web assets and debug Rust binaries
 npm run test:browser     # Browser smoke (needs Chrome or Playwright's Chromium; CI job `browser`)
@@ -107,6 +108,7 @@ scripts/
   contract-smoke.mjs HTTP/CLI boundary and document-flow verification
   browser-smoke.mjs  Manual browser verification of the editor
   traceability-check.mjs Traceability, conformance, and roadmap consistency
+  clean-room-check.mjs   What the public repository must not track
 docs/
   CONTRACT.md       v1 shape, compatibility rules, and capability identifiers
   TRACEABILITY.ko.md Requirement and declaration traceability, statuses, conformance

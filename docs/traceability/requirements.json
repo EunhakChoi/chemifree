@@ -1154,9 +1154,9 @@
             ".gitignore"
           ],
           "evidence": [
-            "check:scripts/traceability-check.mjs"
+            "check:scripts/clean-room-check.mjs"
           ],
-          "note": "The traceability files reference specification files by path and hash only."
+          "note": "scripts/clean-room-check.mjs checks every tracked file for local-only paths, executables and native libraries (by extension and signature), files over 1 MiB, the names of the program the specification describes, and, with the specification workspace present, byte copies of specification files. It cannot prove that no reworded or re-encoded private data is present. The traceability files reference specification files by path and hash only."
         },
         {
           "part": "separate DATA registry and loader for approved private inputs",
