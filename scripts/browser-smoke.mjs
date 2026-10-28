@@ -7,37 +7,115 @@
 //
 // Uses playwright-core with an installed Chrome/Chromium: set CHEMIFREE_BROWSER to its
 // executable, or install Playwright's build with `npx playwright-core install chromium`.
-// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory, removed after a
-// passing run). A failing run also writes failure.png, requests.log (every browser request with
-// its outcome and duration), api.log (the request log of every API process the run started),
-// and web.log there, and keeps the temporary directory so they can be read.
+//
+// Records go to CHEMIFREE_SMOKE_OUT, or to the temporary directory, which only a passing run
+// removes. Every run, passed or failed, writes:
+//   results.json      the steps that passed, the last step reached, and the error, if any
+//   build.log         cargo's diagnostics
+//   environment.json  browser, driver, Node, and platform (once the browser has started)
+//   requests.log      every browser request with its outcome and duration
+//   api.log           the request log of every API process the run started
+//   web.log           the Vite dev server's output
+//   editor-*.png      screenshots of the steps reached
+// A failed run also writes failure.png. Records of an earlier run in CHEMIFREE_SMOKE_OUT are
+// removed first; other files there are left alone.
+//
+// Steps that make drafts/ read-only cannot work as root, whose writes permissions do not
+// stop, so they are skipped there and listed in results.skipped_steps. With
+// CHEMIFREE_SMOKE_NO_SKIPS=1 (set in CI) a skipped step fails the run.
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright-core'
 
 import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
-const results = {}
+const results = { skipped_steps: [] }
+const runningAsRoot = process.getuid?.() === 0
 const consoleErrors = []
 const work = mkdtempSync(join(tmpdir(), 'chemifree-browser-'))
 const dataDir = join(work, 'data')
 const outDir = process.env.CHEMIFREE_SMOKE_OUT ?? work
 mkdirSync(outDir, { recursive: true })
+const RECORD_NAME = /^(?:editor-[a-z0-9-]+\.png|failure\.png|results\.json|build\.log|environment\.json|requests\.log|api\.log|web\.log)$/
+for (const name of readdirSync(outDir)) {
+  if (RECORD_NAME.test(name)) rmSync(join(outDir, name))
+}
 
-execFileSync('cargo', ['build', '--workspace', '--locked'], { stdio: 'inherit' })
-const metadata = JSON.parse(
-  execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { encoding: 'utf8' }),
-)
+// What the failure handler needs exists before anything else runs, so a run that fails to
+// build, to start its servers, or to launch the browser still leaves its records.
+let step = 'build'
+let apiServer = null
+let web = null
+let browser = null
+let page = null
+/** Output of API processes that have ended; some steps kill the API and start a new one. */
+const endedApiLogs = []
+/** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
+const requestLog = []
+const buildLog = []
+/** Stops whatever has started. The temporary directory is removed unless `keepWork` is set. */
+async function cleanup({ keepWork = false } = {}) {
+  await browser?.close().catch(() => {})
+  apiServer?.child.kill('SIGTERM')
+  if (web) {
+    try {
+      process.kill(-web.child.pid, 'SIGTERM')
+    } catch {
+      // Already stopped.
+    }
+  }
+  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
+}
+/** Writes the run's records; `error` is what failed it, if anything. */
+function writeRecords(error) {
+  const outcome = { step, error: error === undefined ? null : String(error?.message ?? error), results }
+  writeFileSync(join(outDir, 'results.json'), `${JSON.stringify(outcome, null, 2)}\n`)
+  writeFileSync(join(outDir, 'build.log'), buildLog.join('\n'))
+  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
+  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer?.log() ?? ''].join('\n--- next API process\n'))
+  writeFileSync(join(outDir, 'web.log'), web?.log() ?? '')
+}
+process.on('uncaughtException', async (error) => {
+  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
+  // No page (for example, the browser did not launch) means no screenshot.
+  const shot = await page?.screenshot({ path: join(outDir, 'failure.png') }).then(
+    () => true,
+    () => false,
+  )
+  console.error(requestLog.slice(-40).join('\n'))
+  writeRecords(error)
+  const written = readdirSync(outDir).filter((name) => RECORD_NAME.test(name) && (shot || name !== 'failure.png'))
+  console.error(`Records in ${outDir}: ${written.sort().join(', ')}`)
+  // The records may be in the temporary directory, so a failed run keeps it.
+  await cleanup({ keepWork: true })
+  process.exit(1)
+})
+
+/** Runs cargo, keeping its diagnostics (standard error) for build.log; returns its output. */
+function cargo(args) {
+  const run = spawnSync('cargo', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  buildLog.push(`$ cargo ${args.join(' ')}\n${run.stderr ?? ''}`)
+  process.stderr.write(run.stderr ?? '')
+  if (run.error) throw run.error
+  if (run.status !== 0) throw new Error(`cargo ${args[0]} failed with exit status ${run.status}; see build.log`)
+  return run.stdout
+}
+cargo(['build', '--workspace', '--locked'])
+const metadata = JSON.parse(cargo(['metadata', '--no-deps', '--format-version', '1', '--locked']))
 const suffix = process.platform === 'win32' ? '.exe' : ''
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
 
-/** Starts a process and resolves once its output matches `ready`. */
+/**
+ * Starts a process and resolves once its output matches `ready`. The match ignores terminal
+ * colors, which tools add when they detect CI even though their output is piped.
+ */
 function start(command, args, ready, options = {}) {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], ...options })
   let log = ''
@@ -45,7 +123,7 @@ function start(command, args, ready, options = {}) {
     const timer = setTimeout(() => reject(new Error(`${command} did not start. ${log}`)), 120_000)
     const read = (data) => {
       log += data.toString()
-      if (ready.test(log)) {
+      if (ready.test(stripVTControlCharacters(log))) {
         clearTimeout(timer)
         resolveReady(child)
       }
@@ -57,47 +135,9 @@ function start(command, args, ready, options = {}) {
   return { child, started, log: () => log }
 }
 const startApi = () => start(apiPath, ['--port', '3001', '--log-requests'], /listening on http:\/\/127\.0\.0\.1:3001/)
-/** Output of API processes that have ended; some steps kill the API and start a new one. */
-const endedApiLogs = []
-let apiServer = startApi()
-const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
-// Registered before anything can fail so a failed start or launch never leaves servers running.
-let browser = null
-let step = 'start'
-/** Stops the servers. The temporary directory is removed unless `keepWork` is set. */
-async function cleanup({ keepWork = false } = {}) {
-  await browser?.close().catch(() => {})
-  apiServer.child.kill('SIGTERM')
-  try {
-    process.kill(-web.child.pid, 'SIGTERM')
-  } catch {
-    // Already stopped.
-  }
-  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
-}
-let page = null
-/** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
-const requestLog = []
-process.on('uncaughtException', async (error) => {
-  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
-  const files = ['requests.log', 'api.log', 'web.log']
-  // No page (for example, the browser did not launch) means no screenshot.
-  if (page) {
-    const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
-      () => true,
-      () => false,
-    )
-    if (shot) files.unshift('failure.png')
-  }
-  console.error(requestLog.slice(-40).join('\n'))
-  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
-  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- next API process\n'))
-  writeFileSync(join(outDir, 'web.log'), web.log())
-  console.error(`Diagnostics in ${outDir}: ${files.join(', ')}`)
-  // The diagnostics may be in the temporary directory, so a failed run keeps it.
-  await cleanup({ keepWork: true })
-  process.exit(1)
-})
+step = 'start'
+apiServer = startApi()
+web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
 await Promise.all([apiServer.started, web.started])
 /** Kills the API the way a crash would and starts a new process on the same port. */
 async function crashApi() {
@@ -109,7 +149,17 @@ async function crashApi() {
   await apiServer.started
 }
 
+step = 'launch'
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
+const environment = {
+  browser: `${browser.browserType().name()} ${browser.version()}`,
+  executable: process.env.CHEMIFREE_BROWSER ?? `Playwright's build: ${chromium.executablePath()}`,
+  playwright_core: JSON.parse(readFileSync(resolve('node_modules/playwright-core/package.json'), 'utf8')).version,
+  node: process.version,
+  platform: `${process.platform} ${process.arch}`,
+}
+writeFileSync(join(outDir, 'environment.json'), `${JSON.stringify(environment, null, 2)}\n`)
+console.log(`Browser ${environment.browser} (${environment.executable}), playwright-core ${environment.playwright_core}`)
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 // Steps add and remove page routes; without this, a request sent just as the last one goes
 // away can stall in the browser (see scripts/lib/request-interception.mjs and #8).
@@ -703,7 +753,9 @@ results.drafts_after_a_restart_follow_the_new_service = true
 step = 'after drafts_after_a_restart_follow_the_new_service'
 
 // A failed autosave is shown and retried; the saved file is untouched meanwhile.
-if (process.getuid?.() !== 0) {
+if (runningAsRoot) {
+  results.skipped_steps.push('autosave_retry_is_not_postponed_by_edits', 'autosave_failure_is_shown_and_retried')
+} else {
   const draftsDir = join(dataDir, 'drafts')
   // The retry keeps its schedule (2 s after the first failure) while edits keep coming.
   chmodSync(draftsDir, 0o500)
@@ -733,8 +785,8 @@ if (process.getuid?.() !== 0) {
   await clickFor(page.getByRole('button', { name: 'Retry now' }), '/autosave')
   await waitDraft('saved')
   assert.ok(existsSync(draftFile()))
+  results.autosave_failure_is_shown_and_retried = true
 }
-results.autosave_failure_is_shown_and_retried = true
 step = 'after autosave_failure_is_shown_and_retried'
 
 // Save as copy: the unsaved drawing becomes a new document; the original keeps its save.
@@ -833,7 +885,9 @@ step = 'after a_session_moved_elsewhere_is_drafted_once'
 // draft, and the notice says so and leads back to it. The notice describes that moment only,
 // so it is gone once the page leaves the copy, and once the service restarts while the copy is
 // still shown (the restart ends the original's session).
-if (process.getuid?.() !== 0) {
+if (runningAsRoot) {
+  results.skipped_steps.push('save_as_copy_reports_an_original_left_open', 'copy_notice_ends_when_the_service_restarts')
+} else {
   const draftsDir = join(dataDir, 'drafts')
   const notice = page.getByTestId('copy-notice')
   const copyLeavingOpen = async (title) => {
@@ -920,5 +974,10 @@ results.uncaught_browser_errors = consoleErrors.filter((text) => !provoked.some(
 results.expected_http_error_console_lines = consoleErrors.length - results.uncaught_browser_errors.length
 console.log(JSON.stringify(results, null, 2))
 assert.deepEqual(results.uncaught_browser_errors, [])
+if (process.env.CHEMIFREE_SMOKE_NO_SKIPS === '1') {
+  assert.deepEqual(results.skipped_steps, [], 'CHEMIFREE_SMOKE_NO_SKIPS=1, but steps were skipped (running as root?)')
+}
+step = 'done'
+writeRecords()
 await cleanup()
 console.log('Browser smoke passed.')
