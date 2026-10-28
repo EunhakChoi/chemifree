@@ -26,7 +26,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use chemifree_application::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
+use chemifree_application::{
+    DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry,
+};
 use chemifree_domain::document::{Document, DocumentId};
 
 use crate::file_format;
@@ -34,6 +36,7 @@ use crate::file_format;
 const DOCUMENTS_DIR: &str = "documents";
 const DRAFTS_DIR: &str = "drafts";
 const LOCKS_DIR: &str = "locks";
+const TRASH_DIR: &str = "trash";
 const EXTENSION: &str = "json";
 const TEMPORARY_SUFFIX: &str = ".tmp";
 /// Larger files are refused before parsing.
@@ -54,6 +57,7 @@ pub struct FileDocumentRepository {
     directory: PathBuf,
     drafts: PathBuf,
     locks: PathBuf,
+    trash: PathBuf,
     /// Revisions read by `stored_revision`, keyed by a stamp of the file, so polling an
     /// unchanged file does not re-read it.
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
@@ -90,6 +94,7 @@ impl FileDocumentRepository {
             directory: root.join(DOCUMENTS_DIR),
             drafts: root.join(DRAFTS_DIR),
             locks: root.join(LOCKS_DIR),
+            trash: root.join(TRASH_DIR),
             probes: Arc::default(),
             owned: Arc::default(),
             taking_ownership: Arc::default(),
@@ -106,6 +111,16 @@ impl FileDocumentRepository {
 
     fn draft_path(&self, id: &DocumentId) -> PathBuf {
         self.drafts.join(format!("{id}.{EXTENSION}"))
+    }
+
+    fn trash_path(&self, id: &DocumentId) -> PathBuf {
+        self.trash.join(format!("{id}.{EXTENSION}"))
+    }
+
+    /// When the document was trashed, written before the move. One without a trashed document
+    /// beside it is left over from a restore or an interrupted delete, and is ignored.
+    fn trash_stamp_path(&self, id: &DocumentId) -> PathBuf {
+        self.trash.join(format!("{id}.deleted"))
     }
 
     fn set_aside_path(&self, id: &DocumentId) -> PathBuf {
@@ -139,8 +154,15 @@ impl FileDocumentRepository {
     }
 
     fn read(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
-        let path = self.path(id);
-        let Some(bytes) = self.read_bytes(&path)? else {
+        self.read_document(&self.path(id), id)
+    }
+
+    fn read_document(
+        &self,
+        path: &Path,
+        id: &DocumentId,
+    ) -> Result<Option<Document>, StorageError> {
+        let Some(bytes) = self.read_bytes(path)? else {
             return Ok(None);
         };
         let document = file_format::decode(&bytes).map_err(StorageError::Corrupt)?;
@@ -318,7 +340,8 @@ impl DocumentRepository for FileDocumentRepository {
             let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
             let id = DocumentId::parse(&format!("doc-{hex}"))
                 .expect("generated identifiers are canonical");
-            if !self.path(&id).exists() {
+            // A trashed document keeps its identifier so it can be restored.
+            if !self.path(&id).exists() && !self.trash_path(&id).exists() {
                 return Ok(id);
             }
         }
@@ -473,6 +496,11 @@ impl DocumentRepository for FileDocumentRepository {
                     stored_revision: None,
                 });
             }
+            // Owning the slot keeps a delete from starting; one that finished first leaves no
+            // document to draft, and the draft would outlive it.
+            if !exists(&self.path(id))? {
+                return Err(StorageError::Missing);
+            }
             self.owned().insert(id.clone(), owner);
         }
         drop(taking);
@@ -516,6 +544,108 @@ impl DocumentRepository for FileDocumentRepository {
 
     fn release_draft(&self, id: &DocumentId) {
         self.owned().remove(id);
+    }
+
+    fn saved_at_ms(&self, id: &DocumentId) -> Result<Option<u64>, StorageError> {
+        let path = self.path(id);
+        let modified = match fs::metadata(&path) {
+            Ok(metadata) => metadata.modified(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(unavailable("inspect", &path, &error)),
+        };
+        Ok(modified.ok().and_then(milliseconds_since_epoch))
+    }
+
+    fn trash(&self, id: &DocumentId, base_revision: u64) -> Result<(), StorageError> {
+        // Same order as taking a draft's ownership: this, the owner lock, then the save lock.
+        let _taking = self.taking_ownership();
+        let _owner = if self.owns(id) {
+            None
+        } else {
+            Some(self.try_own(id)?.ok_or_else(|| {
+                StorageError::Locked(format!(
+                    "another running process holds the recovery draft of document {id}"
+                ))
+            })?)
+        };
+        let _lock = self.lock_document(id)?;
+        self.settle_interrupted_save(id)?;
+        if exists(&self.draft_path(id))? || exists(&self.set_aside_path(id))? {
+            return Err(StorageError::DraftPending);
+        }
+        let source = self.path(id);
+        match self.read_revision(&source)? {
+            None => return Err(StorageError::Missing),
+            Some(stored) if stored != base_revision => {
+                return Err(StorageError::Conflict {
+                    stored_revision: Some(stored),
+                });
+            }
+            Some(_) => {}
+        }
+        let stamp = self.trash_stamp_path(id);
+        let deleted_at = milliseconds_since_epoch(SystemTime::now()).unwrap_or(0);
+        self.write_atomically(&stamp, deleted_at.to_string().as_bytes())
+            .map_err(|error| write_failed("trash", &stamp, &error))?;
+        pause_for_tests();
+        // The rename is the delete: the document is stored or trashed, never both.
+        let target = self.trash_path(id);
+        fs::rename(&source, &target).map_err(|error| write_failed("trash", &source, &error))?;
+        let _ = sync_directory(&self.directory);
+        let _ = sync_directory(&self.trash);
+        Ok(())
+    }
+
+    fn restore(&self, id: &DocumentId) -> Result<(), StorageError> {
+        let _lock = self.lock_document(id)?;
+        let source = self.trash_path(id);
+        if !exists(&source)? {
+            return Err(StorageError::Missing);
+        }
+        let target = self.path(id);
+        if exists(&target)? {
+            return Err(StorageError::Conflict {
+                stored_revision: self.read_revision(&target)?,
+            });
+        }
+        create_private_dir(&self.directory)
+            .map_err(|error| write_failed("restore", &self.directory, &error))?;
+        fs::rename(&source, &target).map_err(|error| write_failed("restore", &source, &error))?;
+        let _ = sync_directory(&self.trash);
+        let _ = sync_directory(&self.directory);
+        // A leftover stamp is ignored without its document.
+        let _ = fs::remove_file(self.trash_stamp_path(id));
+        Ok(())
+    }
+
+    fn list_trash(&self) -> Result<Vec<TrashEntry>, StorageError> {
+        let entries = match fs::read_dir(&self.trash) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(unavailable("list", &self.trash, &error)),
+        };
+        let mut trashed = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| unavailable("list", &self.trash, &error))?;
+            let name = entry.file_name();
+            let Some(id) = name
+                .to_str()
+                .and_then(|name| name.strip_suffix(".json"))
+                .and_then(DocumentId::parse)
+            else {
+                continue;
+            };
+            let deleted_at_ms = fs::read_to_string(self.trash_stamp_path(&id))
+                .ok()
+                .and_then(|text| text.trim().parse().ok());
+            trashed.push(TrashEntry { id, deleted_at_ms });
+        }
+        trashed.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(trashed)
+    }
+
+    fn load_trashed(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
+        self.read_document(&self.trash_path(id), id)
     }
 
     fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError> {
@@ -563,6 +693,11 @@ fn create_private_dir(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn create_private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
+}
+
+fn milliseconds_since_epoch(time: SystemTime) -> Option<u64> {
+    let elapsed = time.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+    u64::try_from(elapsed.as_millis()).ok()
 }
 
 fn exists(path: &Path) -> Result<bool, StorageError> {
@@ -1023,6 +1158,103 @@ mod tests {
     }
 
     #[test]
+    fn trashing_moves_the_document_whole_and_restoring_brings_it_back() {
+        let (_directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let id = document.id();
+
+        assert_eq!(store.trash(id, document.revision()), Ok(()));
+        assert_eq!(store.list_ids(), Ok(Vec::new()));
+        assert_eq!(store.load(id), Ok(None));
+        assert_eq!(store.stored_revision(id), Ok(None));
+        let trashed = store.list_trash().unwrap();
+        assert_eq!(trashed.len(), 1);
+        assert_eq!(&trashed[0].id, id);
+        assert!(trashed[0].deleted_at_ms.is_some_and(|at| at > 0));
+        assert_eq!(store.load_trashed(id), Ok(Some(document.clone())));
+        assert_eq!(
+            store.write_draft(&draft_of(&document, document.revision())),
+            Err(StorageError::Missing),
+            "no draft is written for a trashed document"
+        );
+        assert_eq!(store.draft_status(id), Ok(DraftStatus::None));
+
+        assert_eq!(store.restore(id), Ok(()));
+        assert_eq!(store.load(id), Ok(Some(document.clone())));
+        assert_eq!(store.list_trash(), Ok(Vec::new()));
+        assert_eq!(store.restore(id), Err(StorageError::Missing));
+    }
+
+    #[test]
+    fn trashing_is_refused_while_another_writer_or_a_draft_holds_the_document() {
+        let (directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let id = document.id();
+        let stored = document.revision();
+
+        assert_eq!(
+            store.trash(id, stored + 1),
+            Err(StorageError::Conflict {
+                stored_revision: Some(stored)
+            }),
+            "a stale base"
+        );
+        let missing = DocumentId::parse("doc-0000000000000001").unwrap();
+        assert_eq!(store.trash(&missing, 0), Err(StorageError::Missing));
+
+        // Another process's session owns a draft: its unsaved work stays reachable.
+        let other = FileDocumentRepository::new(directory.path());
+        other.write_draft(&draft_of(&document, stored)).unwrap();
+        assert!(matches!(
+            store.trash(id, stored),
+            Err(StorageError::Locked(_))
+        ));
+        // Once that process ends, its draft is abandoned and still blocks the delete.
+        drop(other);
+        assert_eq!(store.trash(id, stored), Err(StorageError::DraftPending));
+        assert_eq!(store.load(id), Ok(Some(document.clone())), "nothing moved");
+        assert_eq!(store.list_trash(), Ok(Vec::new()));
+
+        store.claim_draft(id).unwrap();
+        store.remove_draft(id).unwrap();
+        assert_eq!(store.trash(id, stored), Ok(()));
+    }
+
+    #[test]
+    fn a_restore_never_replaces_a_stored_document_and_stale_stamps_are_ignored() {
+        let (directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let id = document.id();
+        store.trash(id, document.revision()).unwrap();
+        // Another writer stores a document under the same identifier meanwhile.
+        store.save(&document, None).unwrap();
+        assert_eq!(
+            store.restore(id),
+            Err(StorageError::Conflict {
+                stored_revision: Some(document.revision())
+            })
+        );
+        assert_eq!(
+            store.load_trashed(id),
+            Ok(Some(document.clone())),
+            "kept in the trash"
+        );
+
+        // A delete interrupted after its stamp: the document is still stored, not trashed.
+        let (other_directory, other) = scratch();
+        let kept = drawn(&other);
+        other.save(&kept, None).unwrap();
+        fs::create_dir_all(other_directory.path().join(TRASH_DIR)).unwrap();
+        fs::write(other.trash_stamp_path(kept.id()), "1").unwrap();
+        assert_eq!(other.list_trash(), Ok(Vec::new()));
+        assert_eq!(other.load(kept.id()), Ok(Some(kept)));
+        drop(directory);
+    }
+
+    #[test]
     fn a_save_removes_only_the_draft_its_store_owns() {
         let (directory, owner) = scratch();
         let mut document = drawn(&owner);
@@ -1163,6 +1395,59 @@ mod tests {
         );
         assert_eq!(fs::read(repository.path(document.id())).unwrap(), committed);
         repository.save(&document, Some(base)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_trash_move_or_restore_refused_by_permissions_is_denied_and_moves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, repository) = scratch();
+        let trashed = drawn(&repository);
+        repository.save(&trashed, None).unwrap();
+        repository.trash(trashed.id(), trashed.revision()).unwrap();
+        let kept = drawn(&repository);
+        repository.save(&kept, None).unwrap();
+        let documents = repository.directory().to_path_buf();
+        let trash = repository
+            .trash_path(trashed.id())
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        for directory in [&documents, &trash] {
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o500)).unwrap();
+        }
+        let restore_permissions = || {
+            for directory in [&documents, &trash] {
+                fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        };
+        // Permissions do not stop a privileged user; there is nothing to check then.
+        let probe = trash.join("probe");
+        if fs::write(&probe, b"").is_ok() {
+            fs::remove_file(&probe).unwrap();
+            restore_permissions();
+            eprintln!("skipped: permissions do not apply to this user");
+            return;
+        }
+
+        let moved = repository.trash(kept.id(), kept.revision());
+        let restored = repository.restore(trashed.id());
+        restore_permissions();
+        assert!(
+            matches!(moved, Err(StorageError::Denied(_))),
+            "a refused trash move is Denied, got {moved:?}"
+        );
+        assert!(
+            matches!(restored, Err(StorageError::Denied(_))),
+            "a refused restore is Denied, got {restored:?}"
+        );
+        assert_eq!(repository.load(kept.id()), Ok(Some(kept)), "still stored");
+        assert_eq!(
+            repository.load_trashed(trashed.id()),
+            Ok(Some(trashed)),
+            "still in the trash"
+        );
     }
 
     #[cfg(unix)]

@@ -24,12 +24,12 @@
 
 | 영역 | 실제 상태 |
 | --- | --- |
-| apps/web | React/TypeScript/Vite. 런타임·capability 카드와 문서 편집기: 새 문서·목록·열기, SVG 구조 캔버스(src/editor), 도구(선택·원자·결합·지우개), 원소·결합 차수, 인스펙터(원소·전하·동위원소·차수), Undo/Redo·저장·닫기(미저장 확인), 단축키, 충돌·저장 실패 안내, 파일·복구 초안 상태 표시와 자동 저장(재시도), 복구·초안 버리기·사본으로 복구 배너, 사본으로 저장(대화상자·편집 대상 안내) |
-| apps/api | Axum loopback HTTP. 문서 생성·조회·트랜잭션·undo/redo·저장·닫기·autosave·save-as·recover·recover-as-copy·discard-draft. Host/Origin/Sec-Fetch-Site 검사, 프로세스별 세션 토큰, JSON·256 KiB 제한, v1 오류 envelope |
-| apps/cli | status/capabilities와 documents list·create·show·apply·undo·redo·save-as·recover·recover-as-copy·discard-draft. 같은 Application을 HTTP 없이 호출, 편집마다 저장 |
+| apps/web | React/TypeScript/Vite. 런타임·capability 카드와 문서 편집기: 새 문서·목록(제목 검색, 제목·최근 저장 순 정렬, 이름 변경, 휴지통으로 이동 확인, 휴지통 복원)·열기, SVG 구조 캔버스(src/editor), 도구(선택·원자·결합·지우개), 원소·결합 차수, 인스펙터(원소·전하·동위원소·차수), Undo/Redo·저장·닫기(미저장 확인), 단축키, 충돌·저장 실패 안내, 파일·복구 초안 상태 표시와 자동 저장(재시도), 복구·초안 버리기·사본으로 복구 배너, 사본으로 저장(대화상자·편집 대상 안내) |
+| apps/api | Axum loopback HTTP. 문서 생성·조회(목록 query·sort)·트랜잭션·undo/redo·저장·닫기·autosave·save-as·recover·recover-as-copy·discard-draft·rename·delete, 휴지통 목록·restore. Host/Origin/Sec-Fetch-Site 검사, 프로세스별 세션 토큰, JSON·256 KiB 제한, v1 오류 envelope |
+| apps/cli | status/capabilities와 documents list(--query, --sort)·create·show·apply·undo·redo·save-as·recover·recover-as-copy·discard-draft·rename·delete·trash·restore. 같은 Application을 HTTP 없이 호출, 편집마다 저장 |
 | crates/domain | 원소(1–118), 문서 그래프·안정 ID·참조 불변식, 명령, 원자적 트랜잭션, change-set Undo/Redo, 저장본 복원 검증, 독립 사본(copy_as). 외부 의존성 없음 |
-| crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 실행 중인 request_id는 다른 잠금 없이 즉시 request_in_progress, 문서별 차례(최대 3초 대기 후 busy), 저장 실패 사유(read_only/busy/io), 저장 커밋 후 ACK, 자동 저장·복구(번호 일관성)·사본, 공유 DTO, DocumentRepository(초안 소유 계약 포함)·CapabilityCatalog port |
-| crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), 문서별 OS 저장 잠금(locks/), 복구 초안(drafts/, 소유 잠금, 커밋 중 초안 정리), capability 목록 |
+| crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 실행 중인 request_id는 다른 잠금 없이 즉시 request_in_progress, 문서별 차례(최대 3초 대기 후 busy), 저장 실패 사유(read_only/busy/io), 저장 커밋 후 ACK, 자동 저장·복구(번호 일관성)·사본, 목록 검색·정렬, 이름 변경·휴지통 이동·복원(같은 차례·request_in_progress 규칙), 공유 DTO, DocumentRepository(초안 소유 계약 포함)·CapabilityCatalog port |
+| crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), 문서별 OS 저장 잠금(locks/), 복구 초안(drafts/, 소유 잠금, 커밋 중 초안 정리), 휴지통(trash/, 저장 잠금·초안 소유 잠금 아래 rename 한 번으로 이동·복원, 권한 거절은 Denied), capability 목록 |
 | 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, test:browser, GitHub Actions(check·browser job) |
 
 의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다.
@@ -92,7 +92,10 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 - revision은 2^53 − 1까지다. 편집은 2^53 − 2에서 멈추고 마지막 번호는 버린 뒤 다시 여는 사본용으로 남긴다. 그 뒤 다른 저장을 따라갈 번호가 없으면 그 프로세스에서는 resource_limit으로 거절한다.
 - 사본은 내용·ID 카운터만 가져가고 Undo 이력은 비운 채 revision 0에서 시작한다. 사본으로 저장하면 원본 세션은 닫히고(미저장 변경은 사본에만 남음) 원본은 마지막 저장본으로 다시 열린다. 원본 초안을 지울 수 없으면 원본 세션은 미저장 변경·초안과 함께 남고(closed: false), 웹은 사본 안내에서 그 사실과 원본 열기를 보여 준다(#7). 안내는 사본을 만든 순간의 사실이라 다른 문서로 넘어가거나 서비스 재시작을 알게 되면 지운다. 재시작은 쓰기 요청의 세션 토큰이 거절될 때 알게 되므로, 쓰기가 없으면 그때까지는 안내가 남는다.
 - 세션 64개가 모두 열린 상태에서 사본이 들어갈 자리가 필요하면 미저장 변경이 없는 세션 중 ID가 가장 작은 것을 닫는다. 초안을 사본으로 복구할 때는 다른 clean 세션이 없을 때만 원본 세션을 닫고, 그 사실을 source.closed로 알린다(#6).
-- 읽기 전용 저장소는 알리기만 한다(reason read_only). 읽기 전용으로 열기, 다른 곳에 저장하기는 없다. Chemifree 외 프로그램에 대한 파일 잠금, 문서 삭제도 없다.
+- 읽기 전용 저장소는 reason read_only로 알리지만, 읽기 전용으로 열기나 다른 위치에 저장하기는 없다. Chemifree 외 프로그램에 대한 파일 잠금은 없다.
+- 삭제는 휴지통(trash/)으로 옮기는 것이다. 열린 사본에 미저장 변경이 있거나 복구 초안(버려진 것이든 다른 프로세스 소유든)이 있으면 거절하고, 저장 잠금과 초안 소유 잠금 아래에서 rename 한 번으로 옮긴다. 영구 삭제와 휴지통 비우기는 아직 없다. 다른 프로세스의 깨끗한 사본은 다음 접근에서 닫히고, 미저장 사본은 저장·초안으로 문서를 되살리지 못한다(save_conflict, document_not_found). 초안이 아직 없는 다른 프로세스의 미저장 작업은 CLI가 볼 수 없으므로, 그 작업은 사본 저장으로만 지킬 수 있다.
+- 목록 검색·정렬은 Application이 한다(웹·CLI는 질의만 전달). 정렬 recent는 저장 파일의 수정 시각(벽시계) 기준이라, 시계 조정(시간 동기화로 시계가 뒤로 가는 경우 등) 사이에 저장된 문서는 순서가 바뀔 수 있다(WSL2에서 실제로 관찰). 이름 변경은 미저장 변경이 없는 문서에서만 즉시 커밋된다.
+- 이름 변경·삭제·복원도 저장과 같은 문서 차례(최대 3초 후 busy)를 따르고, 실행 중인 같은 request_id는 즉시 request_in_progress를 받는다. 재전송 기록은 이름 변경이 문서별(세션), 삭제·복원이 프로세스별이다. 웹은 응답을 못 받으면 같은 request_id로 한 번 다시 묻고 진행 중이면 1초마다 묻는다. 그 뒤의 재시도는 새 요청이며, 첫 시도가 이미 반영됐다면 전제 조건(revision, 휴지통 여부)이 거절한다(revision_conflict, document_not_found).
 - revision·ID 재사용 방지 기억은 프로세스 메모리에 있다. API가 재시작되면 웹은 문서를 다시 읽어 화면과 같은 내용일 때만 편집을 재전송하고(Undo/Redo 제외), 다르면 Reload를 요구한다. CLI는 매번 저장본에서 시작한다.
 - request_id 재전송 기록은 원래 응답 전체를 보관한다(세션당 64개). 큰 문서를 많이 열면 메모리 사용이 커질 수 있다.
 - 문서 목록은 저장된 각 문서를 전부 복원·검증한다. 문서가 많고 크면 목록 조회가 느릴 수 있다(잠금 밖에서 수행).
@@ -107,7 +110,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 사용자 요청이 범위를 정한다. 후보:
 
-1. 저장·복구 후속(필요 시): 문서 삭제, 초안 만료 정책, 읽기 전용 모드, 서버 측 자동 저장(페이지 없이도 초안 유지).
+1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책, 읽기 전용 모드, 서버 측 자동 저장(페이지 없이도 초안 유지).
 2. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion). Chemifree 저장 형식은 손상 입력을 통째로 거절하지만, 외부 형식 가져오기는 공개 명세의 손상 입력 관찰(§Parsing)을 참고해 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 원자가·암시적 수소·분자식(structure_analysis 일부)과 공개 명세의 관찰 사례 대조.
 4. 편집기 확장: 고리 템플릿, 확대·이동, 그래프/장면 분리, 선택 이력.

@@ -4,11 +4,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, CommandDto, CopyResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, ErrorCode, RecoveryState,
+    Application, ApplicationError, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, ErrorCode, ListQuery, ListSort, RecoveryState,
+    RestoreResponse, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
-use clap::{Args as ClapArgs, Parser, Subcommand};
+use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
 type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
@@ -47,6 +48,11 @@ enum Command {
 enum DocumentCommand {
     /// List saved documents.
     List {
+        /// Only documents whose title contains this text, ignoring case.
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long, value_enum, default_value_t = Sort::Title)]
+        sort: Sort,
         #[arg(long)]
         json: bool,
     },
@@ -117,6 +123,46 @@ enum DocumentCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Rename a saved document; the new title is saved at once.
+    Rename {
+        #[command(flatten)]
+        target: Target,
+        #[arg(long)]
+        title: String,
+    },
+    /// Move a saved document to the trash. Refused while a recovery draft holds unsaved work.
+    Delete {
+        #[command(flatten)]
+        target: Target,
+    },
+    /// List documents in the trash, most recently deleted first.
+    Trash {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Move a document from the trash back to the saved documents.
+    Restore {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Sort {
+    /// By title.
+    Title,
+    /// Most recently saved first.
+    Recent,
+}
+
+impl From<Sort> for ListSort {
+    fn from(sort: Sort) -> Self {
+        match sort {
+            Sort::Title => Self::Title,
+            Sort::Recent => Self::Recent,
+        }
+    }
 }
 
 #[derive(ClapArgs)]
@@ -173,7 +219,14 @@ fn main() -> ExitCode {
 
 fn run_document_command(application: &LocalApplication, command: DocumentCommand) -> ExitCode {
     match command {
-        DocumentCommand::List { json } => report(application.list_documents(), json, print_list),
+        DocumentCommand::List { query, sort, json } => report(
+            application.list_documents(&ListQuery {
+                query,
+                sort: sort.into(),
+            }),
+            json,
+            print_list,
+        ),
         DocumentCommand::Create { title, json } => report(
             application.create_document(None, title.as_deref()),
             json,
@@ -232,6 +285,24 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
             |response: &DraftDiscardResponse| {
                 println!("Discarded the recovery draft of {}", response.id)
             },
+        ),
+        DocumentCommand::Rename { target, title } => report(
+            application.rename(&target.id, None, target.expected_revision, &title),
+            target.json,
+            print_document,
+        ),
+        DocumentCommand::Delete { target } => report(
+            application.delete(&target.id, None, target.expected_revision),
+            target.json,
+            |response: &DeleteResponse| {
+                println!("Moved {} ({}) to the trash", response.title, response.id)
+            },
+        ),
+        DocumentCommand::Trash { json } => report(application.list_trash(), json, print_trash),
+        DocumentCommand::Restore { id, json } => report(
+            application.restore(&id, None),
+            json,
+            |response: &RestoreResponse| println!("Restored {} ({})", response.title, response.id),
         ),
     }
 }
@@ -327,6 +398,25 @@ fn print_list(response: &DocumentListResponse) {
         };
         println!(
             "{}  r{}  {} atoms, {} bonds  {}{recovery}",
+            document.id,
+            document.revision,
+            document.atom_count,
+            document.bond_count,
+            document.title
+        );
+    }
+    for entry in &response.unreadable {
+        eprintln!("unreadable {}: {}", entry.id, entry.message);
+    }
+}
+
+fn print_trash(response: &TrashListResponse) {
+    if response.documents.is_empty() {
+        println!("The trash is empty.");
+    }
+    for document in &response.documents {
+        println!(
+            "{}  r{}  {} atoms, {} bonds  {}",
             document.id,
             document.revision,
             document.atom_count,

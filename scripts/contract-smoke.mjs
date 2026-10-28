@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -670,6 +670,123 @@ try {
   assert.deepEqual(readFileSync(fullFile), fullBytes, "the source's commit is untouched")
   assert.ok(!existsSync(join(dataDir, 'drafts', `${fullSource}.json`)), 'the draft went into the copy')
 
+  // ── Document list search and sort, rename, trash ───────────────────────────────────────
+  const library = {}
+  for (const [index, title] of ['Library alpha', 'Library beta', 'Library gamma', 'Other delta'].entries()) {
+    const libraryCreated = await write('/api/v1/documents', { request_id: `lib-${index}`, title })
+    assert.equal(libraryCreated.status, 201, JSON.stringify(libraryCreated.body))
+    library[title] = libraryCreated.body.document.id
+  }
+  const titles = (body) => body.documents.map((item) => item.title)
+  const searched = (await call('/api/v1/documents?query=LIBRARY&sort=title')).body
+  assert.deepEqual(titles(searched), ['Library alpha', 'Library beta', 'Library gamma'], 'search ignores case')
+  assert.deepEqual(
+    titles(cli('documents', 'list', '--query', 'library', '--json').body),
+    titles(searched),
+    'HTTP search = CLI search',
+  )
+  assert.deepEqual([(await call('/api/v1/documents?sort=newest')).status], [422], 'unknown sort is refused')
+  // Renaming commits at once; it is the newest save, so it sorts first by recency. Recency is
+  // the stored file's modification time, a wall-clock time that a clock adjustment can move
+  // backward, so the library is first made an hour old rather than relying on the gap between
+  // writes.
+  const anHourAgo = new Date(Date.now() - 3_600_000)
+  for (const id of Object.values(library)) {
+    utimesSync(join(dataDir, 'documents', `${id}.json`), anHourAgo, anHourAgo)
+  }
+  const renamed = await write(`/api/v1/documents/${library['Library beta']}/rename`, {
+    request_id: 'rename-beta',
+    expected_revision: 0,
+    title: 'Library beta, renamed',
+  })
+  assert.deepEqual([renamed.status, renamed.body.document.revision, renamed.body.session.unsaved_changes], [200, 1, false])
+  assert.equal(cli('documents', 'show', library['Library beta'], '--json').body.document.title, 'Library beta, renamed')
+  const recent = (await call('/api/v1/documents?query=library&sort=recent')).body
+  assert.equal(recent.documents[0].title, 'Library beta, renamed', 'most recently saved first')
+  assert.deepEqual(
+    titles(cli('documents', 'list', '--query', 'library', '--sort', 'recent', '--json').body),
+    titles(recent),
+    'HTTP order = CLI order',
+  )
+
+  // Deleting over HTTP: the CLI sees it in the trash, not among the documents.
+  const alpha = library['Library alpha']
+  await write(`/api/v1/documents/${alpha}/transactions`, {
+    request_id: 'alpha-edit',
+    expected_revision: 0,
+    commands: [{ op: 'rename', title: 'Library alpha, edited' }],
+  })
+  const unsavedDelete = await write(`/api/v1/documents/${alpha}/delete`, { request_id: 'alpha-delete-0', expected_revision: 1 })
+  assert.deepEqual([unsavedDelete.status, unsavedDelete.body.code], [409, 'unsaved_changes'])
+  await write(`/api/v1/documents/${alpha}/save`, { request_id: 'alpha-save', expected_revision: 1 })
+  const deleted = await write(`/api/v1/documents/${alpha}/delete`, { request_id: 'alpha-delete', expected_revision: 1 })
+  assert.deepEqual(deleted.body, { api_version: 'v1', id: alpha, title: 'Library alpha, edited' })
+  assert.ok(!existsSync(join(dataDir, 'documents', `${alpha}.json`)) && existsSync(join(dataDir, 'trash', `${alpha}.json`)))
+  assert.ok(!cli('documents', 'list', '--json').body.documents.some((item) => item.id === alpha))
+  const trashHttp = (await call('/api/v1/trash')).body
+  assert.deepEqual(trashHttp, cli('documents', 'trash', '--json').body, 'HTTP trash = CLI trash')
+  assert.deepEqual(trashHttp.documents.map((item) => [item.id, item.revision]), [[alpha, 1]])
+  assert.equal((await call(`/api/v1/documents/${alpha}`)).status, 404)
+
+  // Deleting with the CLI: the API's clean copy closes instead of showing it as stored, and
+  // the API's unsaved copy of another document cannot re-create it by saving or drafting.
+  const gamma = library['Library gamma']
+  await call(`/api/v1/documents/${gamma}`)
+  assert.equal(cli('documents', 'delete', gamma, '--expected-revision', '0', '--json').status, 0)
+  assert.equal((await call(`/api/v1/documents/${gamma}`)).status, 404, 'the clean copy closed')
+  const delta = library['Other delta']
+  await write(`/api/v1/documents/${delta}/transactions`, {
+    request_id: 'delta-edit',
+    expected_revision: 0,
+    commands: [{ op: 'rename', title: 'Unsaved in the API' }],
+  })
+  assert.equal(cli('documents', 'delete', delta, '--expected-revision', '0', '--json').status, 0,
+    'without a draft, the CLI cannot see the API session')
+  const staleSave = await write(`/api/v1/documents/${delta}/save`, { request_id: 'delta-save', expected_revision: 1 })
+  assert.deepEqual([staleSave.status, staleSave.body.code], [409, 'save_conflict'])
+  const staleDraft = await write(`/api/v1/documents/${delta}/autosave`, { request_id: 'delta-draft' })
+  assert.deepEqual([staleDraft.status, staleDraft.body.code], [404, 'document_not_found'])
+  assert.ok(!existsSync(join(dataDir, 'documents', `${delta}.json`)), 'not re-created')
+  assert.ok(!existsSync(join(dataDir, 'drafts', `${delta}.json`)), 'no draft outlives it')
+  const rescued = await write(`/api/v1/documents/${delta}/save-as`, { request_id: 'delta-copy', expected_revision: 1 })
+  assert.equal(rescued.body.document.title, 'Unsaved in the API (copy)', 'the unsaved work can still be kept')
+
+  // Drafts block a delete: the API's own (in use by a running process), then an abandoned one.
+  const beta = library['Library beta']
+  await write(`/api/v1/documents/${beta}/transactions`, {
+    request_id: 'beta-edit',
+    expected_revision: 1,
+    commands: [{ op: 'rename', title: 'Library beta, drafted' }],
+  })
+  await write(`/api/v1/documents/${beta}/autosave`, { request_id: 'beta-draft' })
+  const betaInUse = cli('documents', 'delete', beta, '--expected-revision', '1', '--json')
+  assert.deepEqual([betaInUse.status, betaInUse.body.code], [1, 'draft_in_use'])
+  await restartApi() // SIGKILL: the draft is abandoned.
+  const pendingTrash = cli('documents', 'delete', beta, '--expected-revision', '1', '--json')
+  assert.deepEqual([pendingTrash.status, pendingTrash.body.code], [1, 'recovery_pending'])
+  assert.ok(existsSync(join(dataDir, 'documents', `${beta}.json`)), 'still stored with its draft')
+
+  // A process killed in the middle of a delete leaves the document stored, not half-trashed.
+  const crashing = (await write('/api/v1/documents', { request_id: 'crash-delete-create', title: 'Interrupted delete' })).body.document.id
+  const killed = cliProcess(['documents', 'delete', crashing, '--expected-revision', '0', '--json'], { [DELAY]: '20000' })
+  const stamp = join(dataDir, 'trash', `${crashing}.deleted`)
+  while (!existsSync(stamp)) await sleep(20) // Inside the delete: the stamp precedes the move.
+  killed.child.kill('SIGKILL')
+  await killed.done
+  assert.ok(existsSync(join(dataDir, 'documents', `${crashing}.json`)), 'still stored')
+  assert.ok(!cli('documents', 'trash', '--json').body.documents.some((item) => item.id === crashing), 'not listed in the trash')
+  assert.equal(cli('documents', 'delete', crashing, '--expected-revision', '0', '--json').status, 0, 'deletable afterwards')
+
+  // Restoring brings the document back as it was trashed.
+  const restored = await write(`/api/v1/trash/${alpha}/restore`, { request_id: 'alpha-restore' })
+  assert.deepEqual(restored.body, { api_version: 'v1', id: alpha, title: 'Library alpha, edited' })
+  assert.deepEqual((await write(`/api/v1/trash/${alpha}/restore`, { request_id: 'alpha-restore' })).body, restored.body, 'replayed')
+  const again = await write(`/api/v1/trash/${alpha}/restore`, { request_id: 'alpha-restore-2' })
+  assert.deepEqual([again.status, again.body.code], [404, 'document_not_found'])
+  assert.equal(cli('documents', 'show', alpha, '--json').body.document.title, 'Library alpha, edited')
+  assert.equal(cli('documents', 'restore', gamma, '--json').status, 0)
+  assert.equal((await call(`/api/v1/documents/${gamma}`)).body.document.title, 'Library gamma')
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -686,7 +803,8 @@ try {
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
       'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
-      'and storage feedback (lock waits, queued requests, lost replies, read-only storage) verified.',
+      'storage feedback (lock waits, queued requests, lost replies, read-only storage), and the document list (search, ' +
+      'sort, rename, trash, restore, stale sessions, an interrupted delete) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

@@ -9,6 +9,8 @@ import {
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
+  type ListQuery,
+  type TrashListResponse,
 } from '@/lib/document-contract'
 
 /** What became of the original when the copy was made. */
@@ -39,6 +41,11 @@ export interface CopyNotice {
 export type ListState =
   | { kind: 'loading' }
   | { kind: 'ready'; list: DocumentListResponse }
+  | { kind: 'error'; message: string }
+
+export type TrashState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; trash: TrashListResponse }
   | { kind: 'error'; message: string }
 
 /**
@@ -99,17 +106,23 @@ export function useDocumentEditor() {
   useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
 
   const [listRequest, setListRequest] = useState(0)
+  const [listQuery, setListQuery] = useState<ListQuery>({ query: '', sort: 'title' })
+  const [trash, setTrash] = useState<TrashState>({ kind: 'loading' })
 
   useEffect(() => {
     let active = true
-    client.list().then(
+    client.list(listQuery).then(
       (value) => active && setList({ kind: 'ready', list: value }),
       (failure: unknown) => active && setList({ kind: 'error', message: asApiError(failure).message }),
+    )
+    client.trash().then(
+      (value) => active && setTrash({ kind: 'ready', trash: value }),
+      (failure: unknown) => active && setTrash({ kind: 'error', message: asApiError(failure).message }),
     )
     return () => {
       active = false
     }
-  }, [listRequest])
+  }, [listRequest, listQuery])
 
   const refreshList = useCallback(() => {
     setList({ kind: 'loading' })
@@ -242,6 +255,13 @@ export function useDocumentEditor() {
 
   return {
     list,
+    listQuery,
+    /** Searches or re-sorts the list; the service applies the query. */
+    queryList: useCallback((query: ListQuery) => {
+      setList({ kind: 'loading' })
+      setListQuery(query)
+    }, []),
+    trash,
     current,
     busy: pending > 0,
     error,
@@ -279,6 +299,36 @@ export function useDocumentEditor() {
           refreshList()
         }),
       [run, setCurrent, refreshList],
+    ),
+    /** Commits a new title for a listed document; refused while it has unsaved changes. */
+    rename: useCallback(
+      (documentId: string, expectedRevision: number, title: string) =>
+        run(async () => {
+          await client.rename(documentId, expectedRevision, title)
+          refreshList()
+        }),
+      [run, refreshList],
+    ),
+    /** Moves a listed document to the trash at the revision the user confirmed. */
+    remove: useCallback(
+      (documentId: string, expectedRevision: number) =>
+        run(async () => {
+          try {
+            await client.delete(documentId, expectedRevision)
+          } finally {
+            // Refused or not, the list shows the document's current state.
+            refreshList()
+          }
+        }),
+      [run, refreshList],
+    ),
+    restore: useCallback(
+      (documentId: string) =>
+        run(async () => {
+          await client.restore(documentId)
+          refreshList()
+        }),
+      [run, refreshList],
     ),
     /** Re-reads the working copy, e.g. after a revision conflict. */
     reload: useCallback(() => run(async () => setCurrent(await client.get(id()))), [run, setCurrent]),

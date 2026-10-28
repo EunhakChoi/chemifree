@@ -55,6 +55,41 @@ pub struct DraftRequest {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RenameRequest {
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestoreRequest {
+    pub request_id: String,
+}
+
+/// How the document list is narrowed and ordered: `?query=…&sort=title|recent`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ListQuery {
+    /// Text the title must contain, ignoring case; empty lists everything.
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub sort: ListSort,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ListSort {
+    /// By title, then identifier.
+    #[default]
+    Title,
+    /// Most recently saved first, then by title.
+    Recent,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SaveAsRequest {
     pub request_id: String,
     pub expected_revision: u64,
@@ -438,6 +473,8 @@ pub struct DocumentSummary {
     pub open: bool,
     pub unsaved_changes: bool,
     pub recovery: Option<RecoveryView>,
+    /// When storage last committed the document, in milliseconds since the Unix epoch.
+    pub saved_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -473,6 +510,43 @@ pub struct CopySource {
     pub closed: bool,
     /// True when that session had unsaved changes, which are now only in the copy.
     pub discarded_changes: bool,
+}
+
+/// A document moved to the trash.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DeleteResponse {
+    pub api_version: &'static str,
+    pub id: String,
+    pub title: String,
+}
+
+/// A trashed document moved back to the stored documents.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RestoreResponse {
+    pub api_version: &'static str,
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TrashListResponse {
+    pub api_version: &'static str,
+    /// Most recently trashed first.
+    pub documents: Vec<TrashedSummary>,
+    /// Trashed entries that exist but could not be read as documents.
+    pub unreadable: Vec<UnreadableDocument>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TrashedSummary {
+    pub id: String,
+    pub title: String,
+    /// The stored revision it was trashed at.
+    pub revision: u64,
+    pub atom_count: usize,
+    pub bond_count: usize,
+    /// Milliseconds since the Unix epoch, when known.
+    pub deleted_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

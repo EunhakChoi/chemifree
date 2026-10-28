@@ -11,16 +11,17 @@ use serde::Serialize;
 
 pub use contract::{
     AtomView, BondOrderDto, BondToDto, BondView, CloseRequest, CloseResponse, CommandDto,
-    CopyResponse, CopySource, CreateDocumentRequest, DocumentListResponse, DocumentResponse,
-    DocumentSummary, DocumentView, DraftDiscardResponse, DraftRequest, PointDto, PositionView,
-    RecoverAsCopyRequest, RecoveryState, RecoveryView, RevisionRequest, SaveAsRequest, SessionView,
-    TransactionRequest, UnreadableDocument,
+    CopyResponse, CopySource, CreateDocumentRequest, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftRequest, ListQuery,
+    ListSort, PointDto, PositionView, RecoverAsCopyRequest, RecoveryState, RecoveryView,
+    RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SessionView,
+    TransactionRequest, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
-pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
+pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry};
 pub use turns::TURN_WAIT;
 
 use documents::Documents;
@@ -75,8 +76,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
-    pub fn list_documents(&self) -> Result<DocumentListResponse, ApplicationError> {
-        self.documents.list()
+    pub fn list_documents(
+        &self,
+        query: &ListQuery,
+    ) -> Result<DocumentListResponse, ApplicationError> {
+        self.documents.list(query)
     }
 
     pub fn create_document(
@@ -176,6 +180,40 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     ) -> Result<CopyResponse, ApplicationError> {
         self.documents
             .save_as(id, request_id, expected_revision, title)
+    }
+
+    /// Renames a document without unsaved changes, committing the new title at once.
+    pub fn rename(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        title: &str,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents
+            .rename(id, request_id, expected_revision, title)
+    }
+
+    /// Moves a document without unsaved changes or recovery drafts to the trash.
+    pub fn delete(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<DeleteResponse, ApplicationError> {
+        self.documents.delete(id, request_id, expected_revision)
+    }
+
+    pub fn list_trash(&self) -> Result<TrashListResponse, ApplicationError> {
+        self.documents.list_trash()
+    }
+
+    pub fn restore(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<RestoreResponse, ApplicationError> {
+        self.documents.restore(id, request_id)
     }
 
     pub fn close(
