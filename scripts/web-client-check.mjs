@@ -361,3 +361,28 @@ test('an edit after a re-read found a restart meets that restart too, instead of
   const edits = scripted.writes.filter((write) => write.path.endsWith('/transactions'))
   assert.deepEqual(edits.map((write) => write.token), ['token-1'], 'sent once, with the old token, and refused')
 })
+
+test('a re-read reports a restart since the document was opened, before the page ever wrote', async () => {
+  const scripted = service({
+    'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1')), () => json(200, document('doc-1'))],
+  })
+  const client = new DocumentClient()
+  await client.get('doc-1')
+  scripted.restart()
+  await assert.rejects(client.reread('doc-1'), { code: 'service_restarted' })
+})
+
+test('reading the document again after a re-read found a restart ties the page to the new service', async () => {
+  const scripted = service({
+    '/autosave': [() => json(200, document('doc-1')), () => json(200, document('doc-1'))],
+    'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1')), () => json(200, document('doc-1'))],
+  })
+  const client = new DocumentClient()
+  await client.autosave('doc-1')
+  scripted.restart()
+  await assert.rejects(client.reread('doc-1'), { code: 'service_restarted' })
+  await client.get('doc-1') // the page reloads the document from the new service
+  await client.autosave('doc-1')
+  const drafts = scripted.writes.filter((write) => write.path.endsWith('/autosave'))
+  assert.deepEqual(drafts.map((write) => write.token), ['token-1', 'token-2'])
+})

@@ -372,6 +372,11 @@ function restarted(status: number) {
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
   /**
+   * `reread` found that the process holding `token` was replaced. Writes keep presenting the
+   * token so they meet the restart; the next `get` learns the new process's token.
+   */
+  private replaced = false
+  /**
    * Writes that create a document and whose outcome is unknown (no response arrived), by what
    * they asked for. They are not guarded by a revision, so a retry reuses the request ID and
    * the API replays the document it already committed instead of creating a second one.
@@ -474,6 +479,7 @@ export class DocumentClient {
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
+        this.replaced = false
         this.notifyRestart()
         if (onRestart === 'retry' && attempt === 0) continue
         if (onRestart === 'reload') throw restarted(error.status)
@@ -572,7 +578,17 @@ export class DocumentClient {
     return value
   }
 
+  /**
+   * Reads a document. The service process's session token is learned first, so the view is
+   * tied to that process and a later `reread` can tell that it restarted since, even when the
+   * page has not written anything yet.
+   */
   async get(id: string) {
+    if (this.replaced) {
+      this.token = null
+      this.replaced = false
+    }
+    await this.session()
     return DocumentClient.document(await this.request('GET', documentPath(id)))
   }
 
@@ -582,13 +598,15 @@ export class DocumentClient {
    * answer with the stored document only, so a restart is reported instead of that reply
    * (`service_restarted`, also to the `onRestart` listeners). Reads carry no token, so the
    * process is compared by its session token after the read, which catches a restart at any
-   * point before the reply. The old token is kept, so the next write is refused and meets the
-   * restart as writes do, rather than reaching the new process as if nothing happened.
+   * point before the reply. Until the page reads the document again with `get`, the old token
+   * is kept, so a write is refused and meets the restart as writes do, rather than reaching
+   * the new process as if nothing happened.
    */
   async reread(id: string) {
     const { token } = await this.session()
     const value = await this.request('GET', documentPath(id))
     if (DocumentClient.sessionOf(await this.request('GET', '/api/v1/session')).token !== token) {
+      this.replaced = true
       this.notifyRestart()
       throw restarted(200)
     }

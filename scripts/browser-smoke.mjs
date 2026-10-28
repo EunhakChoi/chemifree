@@ -1068,13 +1068,30 @@ if (runningAsRoot) {
   // The service restarts while it cannot draft, so the drawing is in no draft. The page's read
   // of the outcome meets the new process, which holds only the stored document: the page stops
   // drafting and keeps the drawing on screen rather than showing what the new process holds.
+  // The page is loaded afresh first and only opens the document, so it has written nothing to
+  // the old process; it must still tell the processes apart.
   chmodSync(draftsDir, 0o500)
   await drawPair()
   await failedBy('service')
+  await page.reload()
+  await page.locator(`section[aria-labelledby="saved-documents"] li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await failedBy('service')
   const canvas = page.locator('svg[role="img"]')
   const drawn = await canvas.getAttribute('aria-label')
+  // Reads of the document wait while the API is down, so none of them meets the proxy's 502.
+  let apiBack
+  const restarted = new Promise((resolve) => (apiBack = resolve))
+  const holdReads = async (route) => {
+    if (!isDocumentRead(route.request())) return route.fallback()
+    await restarted
+    return route.fallback()
+  }
+  await page.route(`**/api/v1/documents/${docId}`, holdReads)
   await crashApi()
+  apiBack()
   await waitDraft('stopped')
+  await page.unroute(`**/api/v1/documents/${docId}`, holdReads)
   await page.getByText('Local service restarted', { exact: true }).waitFor()
   assert.equal(await canvas.getAttribute('aria-label'), drawn, 'the unsaved drawing stays on screen')
   chmodSync(draftsDir, 0o700)
