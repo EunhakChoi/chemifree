@@ -100,6 +100,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 - 장면은 문서당 위치 한 벌이다. 공개 설계의 그래프/장면 인스턴스 분리, 선택의 이력 포함, 확대·이동, 텍스트·화살표 객체는 아직 없다.
 - 캔버스는 포인터 중심이다. 키보드만으로 원자를 배치하는 접근 경로는 없다(인스펙터 편집과 단축키는 있음).
 - CI의 browser job은 Ubuntu 24.04에서 잠근 playwright-core가 가리키는 Chromium을 시스템 라이브러리와 함께 설치하고, test:browser:routes와 test:browser를 재시도 없이 한 번씩 실행한다. route 검사가 실패해도 smoke는 실행한다. CHEMIFREE_SMOKE_NO_SKIPS=1이라 root 실행 등으로 건너뛴 단계가 있으면 실패한다. 통과·실패와 관계없이(빌드 실패 포함) results.json, build.log, environment.json, requests.log, api.log, web.log, 스크린샷(실패 시 failure.png)을 artifact로 14일 보관한다. 일부러 깨뜨린 빌드로 이 job이 실패하는지 확인한 기록은 verification/browser-ci.json에 있다. 포트 3001·5173을 쓰므로 한 러너에서 동시에 두 번 실행할 수 없다.
+- 브라우저 smoke에서 초안 버리기·사본 저장 직후 API를 죽이는 단계는 그 작업이 뒤따라 보내는 목록 읽기 응답을 기다린 뒤 죽인다. CI(run 40652695710)에서 강제 종료가 이 읽기를 끊어 Vite 프록시가 502로 답해 한 번 실패했다. 제품 결함이 아니라 테스트 동기화 문제이며 같은 순서가 main에도 있었다.
 - 브라우저 smoke의 '재시작 모의' 단계가 가끔 실패하던 문제(#8)는 제품 결함이 아니라 테스트 동기화 문제였다. Playwright 1.56.1은 마지막 page route가 사라지면(times: 1 route 소진, unroute) 요청 가로채기를 끈다. 그 순간 시작된 요청은 브라우저에 멈춘 채 서버에 닿지 않고 10초 뒤 클라이언트가 중단한다. smoke는 컨텍스트 전체에 통과용 route를 두어 가로채기를 끄지 않는다(scripts/lib/request-interception.mjs). npm run test:browser:routes가 Chemifree 코드 없이 이 경쟁을 재현한다. 재전송 편집 확인은 스피너 상태에만 기대지 않고 실제 200 응답을 기다린다. 실패하면 failure.png, requests.log, api.log(--log-requests), web.log를 남기고 임시 디렉터리를 지우지 않는다. 기록은 verification/browser-route-race.json.
 
 ## 다음 구현 단위 제안

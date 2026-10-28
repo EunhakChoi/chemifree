@@ -192,6 +192,13 @@ const screen = (point) =>
   }, point)
 const atomScreen = async (doc, id) => screen(doc.document.atoms.find((atom) => atom.id === id).position)
 const waitIdle = () => page.waitForFunction(() => !document.querySelector('[data-slot="spinner"]'))
+/**
+ * The page's next read of the document list, which it sends after discarding a draft or
+ * making a copy. A step that kills the API waits for it first: a read cut off by the kill is
+ * answered 502 by the development proxy, which is not what such a step is about.
+ */
+const listRead = () =>
+  page.waitForResponse((r) => r.request().method() === 'GET' && new URL(r.url()).pathname === '/api/v1/documents')
 const revision = async () => (await openDoc()).document.revision
 const saveState = () => page.getByTestId('save-state').textContent()
 const tool = (label) => page.getByRole('button', { name: label, exact: true }).first().click()
@@ -813,9 +820,11 @@ await listItem.getByText('Unsaved work found').waitFor()
 await listItem.getByRole('button', { name: 'Open' }).click()
 await page.getByTestId('recovery-notice').waitFor()
 await page.getByTestId('recovery-notice').getByRole('button', { name: 'Discard draft' }).click()
+const relistedAfterDiscard = listRead()
 await clickFor(page.getByRole('alertdialog').getByRole('button', { name: 'Discard draft' }), '/discard-draft')
 await page.getByTestId('recovery-notice').waitFor({ state: 'detached' })
 assert.ok(!existsSync(draftFile()))
+await relistedAfterDiscard
 await crashApi()
 await page.reload()
 await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
@@ -1099,10 +1108,12 @@ if (runningAsRoot) {
   results.save_as_copy_reports_an_original_left_open = true
   step = 'after save_as_copy_reports_an_original_left_open'
 
+  const relistedAfterCopy = listRead()
   const after = await copyLeavingOpen('After restart')
   assert.equal(after.source.closed, false)
   await waitForTitle('After restart')
   await notice.waitFor()
+  await relistedAfterCopy
   await crashApi()
   docId = after.document.id
   const edited = page.waitForResponse(
