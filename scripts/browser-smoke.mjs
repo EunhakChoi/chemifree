@@ -837,6 +837,13 @@ if (process.getuid?.() !== 0) {
     'the original still has its unsaved changes and its draft',
   )
   assert.equal(await draftKind(), 'saved')
+  // Once the original is saved, the notice no longer holds; returning to the copy must not show it.
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await closeShown()
+  docId = keptCopy.document.id
+  await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+  await waitForTitle('Kept beside')
+  assert.equal(await notice.count(), 0, 'the notice is not shown again on returning to the copy')
   results.save_as_copy_reports_an_original_left_open = true
   step = 'after save_as_copy_reports_an_original_left_open'
 }

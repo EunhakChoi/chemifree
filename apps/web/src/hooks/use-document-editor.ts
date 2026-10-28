@@ -86,6 +86,9 @@ export function useDocumentEditor() {
   const setCurrent = useCallback((document: DocumentResponse | null) => {
     currentRef.current = document
     setCurrentState(document)
+    // The notice describes the original at the moment of the copy; once the page shows anything
+    // else it may no longer hold, so it is dropped rather than shown again later.
+    setCopyNotice((notice) => (notice && notice.copyId === document?.document.id ? notice : null))
   }, [])
 
   const [listRequest, setListRequest] = useState(0)
@@ -241,8 +244,8 @@ export function useDocumentEditor() {
     busy: pending > 0,
     error,
     autosave,
-    /** Shown while the copy it describes is the open document. */
-    copyNotice: copyNotice && current?.document.id === copyNotice.copyId ? copyNotice : null,
+    /** Shown from the copy until the page shows another document. */
+    copyNotice,
     dismissError: useCallback(() => setError(null), []),
     refreshList,
     create: useCallback(
