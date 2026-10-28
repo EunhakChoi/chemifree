@@ -46,7 +46,7 @@ pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
 ];
 
 pub struct ApiState {
-    application: LocalApplication,
+    application: Arc<LocalApplication>,
     token: String,
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
@@ -75,7 +75,7 @@ impl ApiState {
             allowed_origins.insert(origin);
         }
         Ok(Self {
-            application,
+            application: Arc::new(application),
             token,
             allowed_hosts,
             allowed_origins,
@@ -143,7 +143,9 @@ impl DraftWriter {
             let state = Arc::clone(&state);
             thread::spawn(move || {
                 while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(DRAFT_TICK) {
-                    state.application.write_due_drafts(Instant::now());
+                    // Each due draft runs on its own thread, so a stalled write holds up
+                    // neither this loop nor other documents; outcomes stay on the sessions.
+                    drop(state.application.start_due_drafts(Instant::now()));
                 }
             })
         };

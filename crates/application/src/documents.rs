@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{panic, thread};
 
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
@@ -136,6 +137,10 @@ struct Session {
     hold: Option<Hold>,
     /// When the service drafts unsaved work this draft does not hold yet.
     drafting: DraftSchedule,
+    /// The document's recovery state as probed when the draft write in progress started,
+    /// reported until it ends: probing again would wait for that write to take the draft's
+    /// ownership in storage.
+    recovery_at_write: Option<RecoveryView>,
     replays: ReplayLog<DocumentResponse>,
 }
 
@@ -229,6 +234,7 @@ impl Session {
             draft_revision: None,
             hold: None,
             drafting: DraftSchedule::default(),
+            recovery_at_write: None,
             document,
             replays: ReplayLog::default(),
         }
@@ -486,6 +492,8 @@ impl<R: DocumentRepository> Documents<R> {
         };
         let stored = self.repository.list_ids().map_err(storage_error)?;
         let mut documents = Vec::new();
+        // Recovery states of open sessions whose draft is being written, taken as reported.
+        let mut writing = HashMap::new();
         let (open, retired): (HashSet<DocumentId>, HashMap<DocumentId, Retired>) = {
             let mut sessions = self.lock();
             let mut stale = Vec::new();
@@ -495,6 +503,9 @@ impl<R: DocumentRepository> Documents<R> {
                     continue;
                 }
                 documents.push(summary(id, &session.document, true, session.is_dirty()));
+                if session.drafting.is_writing() {
+                    writing.insert(id.clone(), session.recovery_at_write.clone());
+                }
             }
             // These clean copies cannot follow a newer commit; they close and it is listed.
             for id in &stale {
@@ -507,7 +518,10 @@ impl<R: DocumentRepository> Documents<R> {
         };
         for summary in &mut documents {
             if let Ok(id) = parse_id(&summary.id) {
-                summary.recovery = self.recovery(&id);
+                summary.recovery = match writing.remove(&id) {
+                    Some(recovery) => recovery,
+                    None => self.recovery(&id),
+                };
                 summary.saved_at_ms = self.repository.saved_at_ms(&id).ok().flatten();
             }
         }
@@ -870,6 +884,7 @@ impl<R: DocumentRepository> Documents<R> {
             }
             match DraftTask::for_session(session) {
                 Some(task) => {
+                    session.recovery_at_write = self.recovery(document_id);
                     session.drafting.writing();
                     task
                 }
@@ -909,20 +924,33 @@ impl<R: DocumentRepository> Documents<R> {
         response
     }
 
-    /// Writes the drafts that are due at `now` (see [`DraftSchedule`]) and returns when the next
-    /// one will be. Failures are kept on each session's schedule and retried there.
-    pub(crate) fn write_due_drafts(&self, now: Instant) -> Option<Instant> {
-        let due: Vec<String> = self
-            .lock()
+    /// Documents whose drafts are due at `now` (see [`DraftSchedule`]), except those whose
+    /// draft is being written already.
+    pub(crate) fn due_drafts(&self, now: Instant) -> Vec<String> {
+        self.lock()
             .open
             .iter()
-            .filter(|(_, session)| session.drafting.due_at().is_some_and(|at| at <= now))
+            .filter(|(_, session)| {
+                !session.drafting.is_writing()
+                    && session.drafting.due_at().is_some_and(|at| at <= now)
+            })
             .map(|(id, _)| id.to_string())
-            .collect();
-        for id in due {
-            // The outcome is recorded on the session's schedule.
-            let _drafted = self.draft_at(&id, None, now, Drafter::Service);
-        }
+            .collect()
+    }
+
+    /// The service's attempt at a due draft. It does not wait for a turn that is taken: the
+    /// document is simply due again on a later pass. A failure is kept on the session's
+    /// schedule and retried there.
+    pub(crate) fn write_due_draft(
+        &self,
+        id: &str,
+        now: Instant,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.draft_at(id, None, now, Drafter::Service)
+    }
+
+    /// When the next draft is due, if any work is undrafted.
+    pub(crate) fn next_draft_due(&self) -> Option<Instant> {
         self.lock()
             .open
             .values()
@@ -933,21 +961,36 @@ impl<R: DocumentRepository> Documents<R> {
     /// Drafts every working copy whose draft does not hold its unsaved work, now, as before the
     /// process stops. Returns the documents that could not be drafted, with why.
     pub(crate) fn draft_all(&self) -> Vec<(String, ApplicationError)> {
-        let undrafted: Vec<String> = self
+        let mut undrafted: Vec<String> = self
             .lock()
             .open
             .iter()
             .filter(|(_, session)| !session.is_drafted())
             .map(|(id, _)| id.to_string())
             .collect();
-        undrafted
-            .into_iter()
-            .filter_map(|id| {
-                self.draft_at(&id, None, Instant::now(), Drafter::Stop)
-                    .err()
-                    .map(|error| (id, error))
-            })
-            .collect()
+        // In identifier order, so failures are reported in the same order every time.
+        undrafted.sort_unstable();
+        // One thread per document, so a write that stalls does not keep the others from being
+        // drafted before the stop.
+        thread::scope(|scope| {
+            let attempts: Vec<_> = undrafted
+                .into_iter()
+                .map(|id| {
+                    let document = id.clone();
+                    let attempt = scope.spawn(move || {
+                        self.draft_at(&document, None, Instant::now(), Drafter::Stop)
+                    });
+                    (id, attempt)
+                })
+                .collect();
+            attempts
+                .into_iter()
+                .filter_map(|(id, attempt)| match attempt.join() {
+                    Ok(drafted) => drafted.err().map(|error| (id, error)),
+                    Err(panic) => panic::resume_unwind(panic),
+                })
+                .collect()
+        })
     }
 
     /// Makes an abandoned draft the working copy: content, history, and identifier counters as
@@ -1073,6 +1116,7 @@ impl<R: DocumentRepository> Documents<R> {
             saved_revision,
             hold: None,
             drafting: DraftSchedule::default(),
+            recovery_at_write: None,
             replays: ReplayLog::default(),
         })
     }
@@ -1525,8 +1569,18 @@ impl<R: DocumentRepository> Documents<R> {
     /// The session's response with any abandoned draft of the same document.
     fn respond(&self, session: &Session) -> DocumentResponse {
         DocumentResponse {
-            recovery: self.recovery(session.document.id()),
+            recovery: self.session_recovery(session),
             ..session.response()
+        }
+    }
+
+    /// Describes the session document's draft as [`Self::recovery`] does, without probing
+    /// storage while the session's own draft write is in progress.
+    fn session_recovery(&self, session: &Session) -> Option<RecoveryView> {
+        if session.drafting.is_writing() {
+            session.recovery_at_write.clone()
+        } else {
+            self.recovery(session.document.id())
         }
     }
 

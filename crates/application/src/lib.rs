@@ -7,6 +7,10 @@ mod error;
 mod repository;
 mod turns;
 
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::Instant;
+
 use chemifree_domain::Capability;
 use serde::Serialize;
 
@@ -145,11 +149,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.documents.autosave(id, request_id)
     }
 
-    /// Writes the recovery drafts due at `now` and returns when the next one is due. A
-    /// long-running host calls this regularly, so unsaved work is drafted even when no client
-    /// autosaves; see [`DRAFT_QUIET`], [`DRAFT_MAX_WAIT`], and [`DRAFT_RETRY`].
-    pub fn write_due_drafts(&self, now: std::time::Instant) -> Option<std::time::Instant> {
-        self.documents.write_due_drafts(now)
+    /// When the next recovery draft is due, if any unsaved work is undrafted.
+    pub fn next_draft_due(&self) -> Option<Instant> {
+        self.documents.next_draft_due()
     }
 
     /// Drafts all unsaved work not yet in a draft, at once; a host calls this before it stops.
@@ -242,6 +244,39 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             .close(id, request_id, discard_unsaved, expected_revision)
     }
 }
+
+impl<C, R> Application<C, R>
+where
+    C: CapabilityCatalog + 'static,
+    R: DocumentRepository + 'static,
+{
+    /// Starts writing the recovery drafts due at `now`, each on its own thread, and returns
+    /// those threads by document. A long-running host calls this regularly, so unsaved work is
+    /// drafted even when no client autosaves; see [`DRAFT_QUIET`], [`DRAFT_MAX_WAIT`], and
+    /// [`DRAFT_RETRY`]. A document whose draft is still being written is not started again,
+    /// so a write that stalls holds up neither the caller nor other documents' drafts.
+    ///
+    /// A document whose thread cannot be started is due again on the next call.
+    pub fn start_due_drafts(self: &Arc<Self>, now: Instant) -> Vec<(String, DraftAttempt)> {
+        self.documents
+            .due_drafts(now)
+            .into_iter()
+            .filter_map(|id| {
+                let application = Arc::clone(self);
+                let document = id.clone();
+                thread::Builder::new()
+                    .name(format!("draft {id}"))
+                    .spawn(move || application.documents.write_due_draft(&document, now))
+                    .ok()
+                    .map(|attempt| (id, attempt))
+            })
+            .collect()
+    }
+}
+
+/// A draft write started by [`Application::start_due_drafts`]; joining it gives its outcome,
+/// which is also kept on the document's session.
+pub type DraftAttempt = JoinHandle<Result<DocumentResponse, ApplicationError>>;
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
