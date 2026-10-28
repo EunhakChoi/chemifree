@@ -3,6 +3,7 @@
 mod contract;
 mod documents;
 mod error;
+mod gate;
 mod repository;
 
 use chemifree_domain::Capability;
@@ -18,7 +19,8 @@ pub use contract::{
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
-pub use error::{ApplicationError, ErrorCode, ErrorResponse};
+pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
+pub use gate::GATE_WAIT;
 pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
 
 use documents::Documents;

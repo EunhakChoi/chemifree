@@ -535,8 +535,16 @@ impl DocumentRepository for FileDocumentRepository {
     }
 }
 
+/// Classifies a failed file operation. A permission error or a read-only file system is
+/// `Denied`: retrying will not help until that changes.
 fn unavailable(action: &str, path: &Path, error: &io::Error) -> StorageError {
-    StorageError::Unavailable(format!("could not {action} {}: {error}", path.display()))
+    let message = format!("could not {action} {}: {error}", path.display());
+    match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+            StorageError::Denied(message)
+        }
+        _ => StorageError::Unavailable(message),
+    }
 }
 
 #[cfg(unix)]
@@ -839,6 +847,36 @@ mod tests {
             })
             .collect();
         assert!(leftovers.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_refused_by_permissions_is_denied_and_changes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, repository) = scratch();
+        let mut document = drawn(&repository);
+        repository.save(&document, None).unwrap();
+        let committed = fs::read(repository.path(document.id())).unwrap();
+        let read_only = |mode| {
+            fs::set_permissions(repository.directory(), fs::Permissions::from_mode(mode)).unwrap()
+        };
+        read_only(0o500);
+        // Permissions do not stop root; the classification is then not exercised.
+        let probe = repository.directory().join("probe");
+        let enforced = File::create(&probe).is_err();
+        let _ = fs::remove_file(&probe);
+
+        document.redo().unwrap();
+        let result = repository.save(&document, Some(document.revision() - 1));
+        read_only(0o700);
+        if enforced {
+            assert!(
+                matches!(result, Err(StorageError::Denied(ref message)) if message.contains("save")),
+                "a permission error is Denied, got {result:?}"
+            );
+            assert_eq!(fs::read(repository.path(document.id())).unwrap(), committed);
+        }
     }
 
     #[test]

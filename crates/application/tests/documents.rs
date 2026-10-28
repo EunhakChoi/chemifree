@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, Draft,
-    DraftInfo, DraftStatus, ErrorCode, MAX_OPEN_SESSIONS, RecoveryState, StorageError,
+    DraftInfo, DraftStatus, ErrorCode, GATE_WAIT, MAX_OPEN_SESSIONS, RecoveryState, StorageError,
+    StorageReason,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -30,8 +31,12 @@ struct MemoryStore {
     drafts: Arc<Mutex<BTreeMap<DocumentId, OwnedDraft>>>,
     next: Arc<AtomicU32>,
     fail_writes: Arc<AtomicBool>,
+    /// Refuses writes as a read-only location would.
+    deny_writes: Arc<AtomicBool>,
     /// Held by a test to stall commits, as another process's save lock would.
     commit_gate: Arc<Mutex<()>>,
+    /// Saves that reached storage, counted before they wait for `commit_gate`.
+    saves_started: Arc<AtomicU32>,
     process: u32,
 }
 
@@ -56,6 +61,9 @@ impl MemoryStore {
     }
 
     fn failing(&self) -> Result<(), StorageError> {
+        if self.deny_writes.load(Ordering::SeqCst) {
+            return Err(StorageError::Denied("read-only file system".into()));
+        }
         if self.fail_writes.load(Ordering::SeqCst) {
             return Err(StorageError::Unavailable("disk unavailable".into()));
         }
@@ -78,6 +86,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn save(&self, document: &Document, base: Option<u64>) -> Result<(), StorageError> {
+        self.saves_started.fetch_add(1, Ordering::SeqCst);
         let _commit = self.commit_gate.lock().unwrap();
         self.failing()?;
         let mut documents = self.documents.lock().unwrap();
@@ -1232,5 +1241,138 @@ fn recovering_as_a_copy_with_no_session_to_evict_changes_nothing() {
         app.document(&id).unwrap(),
         edited,
         "the source session is as it was"
+    );
+}
+
+#[test]
+fn storage_failures_say_whether_retrying_can_help() {
+    let (app, store) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+
+    store.deny_writes.store(true, Ordering::SeqCst);
+    let denied = app.save(&id, None, 1).unwrap_err();
+    assert_eq!(
+        (denied.code, denied.reason),
+        (ErrorCode::StorageFailed, Some(StorageReason::ReadOnly))
+    );
+    assert_eq!(
+        serde_json::to_value(denied.to_response()).unwrap()["reason"],
+        "read_only"
+    );
+    let autosave = app.autosave(&id, None).unwrap_err();
+    assert_eq!(autosave.reason, Some(StorageReason::ReadOnly));
+    store.deny_writes.store(false, Ordering::SeqCst);
+
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let failed = app.save(&id, None, 1).unwrap_err();
+    assert_eq!(failed.reason, Some(StorageReason::Io));
+    store.fail_writes.store(false, Ordering::SeqCst);
+    assert!(
+        app.document(&id).unwrap().session.unsaved_changes,
+        "kept for a retry"
+    );
+    assert!(!app.save(&id, None, 1).unwrap().session.unsaved_changes);
+
+    let conflict = app
+        .apply_transaction(&id, None, 0, draw_ethanol())
+        .unwrap_err();
+    assert_eq!(
+        conflict.reason, None,
+        "only storage failures carry a reason"
+    );
+    assert!(
+        serde_json::to_value(conflict.to_response())
+            .unwrap()
+            .get("reason")
+            .is_none()
+    );
+}
+
+/// Starts a save of `id` at `revision` that stalls in storage (holding the document's turn)
+/// while the caller holds `store.commit_gate`, and returns once it has reached storage.
+fn stalled_save(
+    app: &Arc<Application<NoCapabilities, MemoryStore>>,
+    store: &MemoryStore,
+    id: &str,
+    request_id: &'static str,
+    revision: u64,
+) -> std::thread::JoinHandle<Result<DocumentResponse, chemifree_application::ApplicationError>> {
+    let before = store.saves_started.load(Ordering::SeqCst);
+    let saving = {
+        let (app, id) = (Arc::clone(app), id.to_owned());
+        std::thread::spawn(move || app.save(&id, Some(request_id), revision))
+    };
+    while store.saves_started.load(Ordering::SeqCst) == before {
+        std::thread::yield_now();
+    }
+    saving
+}
+
+#[test]
+fn requests_queued_behind_a_stalled_save_are_answered_busy_without_changes() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    let stalled = store.commit_gate.lock().unwrap();
+    let saving = stalled_save(&app, &store, &id, "save-1", 1);
+
+    let started = std::time::Instant::now();
+    let queued = app.save(&id, Some("save-2"), 1).unwrap_err();
+    let waited = started.elapsed();
+    assert_eq!(
+        (queued.code, queued.reason),
+        (ErrorCode::StorageFailed, Some(StorageReason::Busy))
+    );
+    assert!(
+        waited >= GATE_WAIT && waited < GATE_WAIT * 2,
+        "answered after the bounded wait, not when the first save ends ({waited:?})"
+    );
+    let closing = app.close(&id, Some("close-1"), true, Some(1)).unwrap_err();
+    assert_eq!(closing.reason, Some(StorageReason::Busy));
+    assert!(
+        app.document(&id).unwrap().session.unsaved_changes,
+        "nothing was discarded or saved by the refused requests"
+    );
+
+    drop(stalled);
+    let saved = saving.join().unwrap().unwrap();
+    assert!(!saved.session.unsaved_changes);
+    assert_eq!(
+        app.save(&id, Some("save-2"), 1).unwrap(),
+        saved,
+        "a refused request can run again"
+    );
+}
+
+#[test]
+fn a_save_whose_reply_was_lost_is_reported_by_asking_again() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    let stalled = store.commit_gate.lock().unwrap();
+    // The client gave up on this save; it still runs to completion.
+    let saving = stalled_save(&app, &store, &id, "save-1", 1);
+
+    let started = std::time::Instant::now();
+    let asked = app.save(&id, Some("save-1"), 1).unwrap_err();
+    assert_eq!(asked.code, ErrorCode::RequestInProgress);
+    assert!(
+        started.elapsed() < GATE_WAIT,
+        "answered at once, not after waiting for its own turn"
+    );
+
+    drop(stalled);
+    let committed = saving.join().unwrap().unwrap();
+    assert_eq!(
+        app.save(&id, Some("save-1"), 1).unwrap(),
+        committed,
+        "once done, asking again replays the committed save"
+    );
+    assert_eq!(
+        store.documents.lock().unwrap()[&DocumentId::parse(&id).unwrap()].revision(),
+        1
     );
 }

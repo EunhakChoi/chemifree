@@ -93,7 +93,10 @@ pub enum StorageError {
     Corrupt(String),
     /// Another running process holds what this operation needs.
     Locked(String),
-    /// Reading or writing failed; any previously committed document is intact.
+    /// Storage refused the write: a read-only location or missing permission. Any previously
+    /// committed document is intact.
+    Denied(String),
+    /// Reading or writing failed otherwise; any previously committed document is intact.
     Unavailable(String),
 }
 
@@ -105,9 +108,10 @@ impl fmt::Display for StorageError {
                 ..
             } => write!(formatter, "storage holds revision {revision}"),
             Self::Conflict { .. } => write!(formatter, "storage holds a different document"),
-            Self::Corrupt(message) | Self::Locked(message) | Self::Unavailable(message) => {
-                formatter.write_str(message)
-            }
+            Self::Corrupt(message)
+            | Self::Locked(message)
+            | Self::Denied(message)
+            | Self::Unavailable(message) => formatter.write_str(message),
         }
     }
 }

@@ -177,6 +177,7 @@ impl ApiError {
                 message: message.into(),
                 current_revision: None,
                 command_index: None,
+                reason: None,
             },
         )
     }
@@ -197,7 +198,8 @@ impl From<ApplicationError> for ApiError {
             | ErrorCode::SaveConflict
             | ErrorCode::RecoveryPending
             | ErrorCode::DraftInUse
-            | ErrorCode::DraftOutdated => StatusCode::CONFLICT,
+            | ErrorCode::DraftOutdated
+            | ErrorCode::RequestInProgress => StatusCode::CONFLICT,
             ErrorCode::StorageFailed | ErrorCode::ResourceLimit => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::DocumentUnreadable => StatusCode::INTERNAL_SERVER_ERROR,
         };

@@ -78,16 +78,21 @@ function cli(...args) {
   return { status: result.status, body: JSON.parse(result.stdout) }
 }
 
-/** Starts a CLI process without waiting; `done` resolves with its result and duration. */
+/**
+ * Starts a CLI process without waiting; `done` resolves with its result and duration.
+ * Durations use the monotonic clock: the wall clock can be stepped by time synchronization.
+ */
 function cliProcess(args, extraEnv = {}) {
-  const started = Date.now()
+  const started = performance.now()
   const child = spawn(cliPath, args, { env: { ...env, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] })
   running.add(child)
   let stdout = ''
+  let stderr = ''
   child.stdout.on('data', (data) => (stdout += data))
-  const done = once(child, 'exit').then(([status]) => {
+  child.stderr.on('data', (data) => (stderr += data))
+  const done = once(child, 'exit').then(([status, signal]) => {
     running.delete(child)
-    return { status, body: stdout ? JSON.parse(stdout) : null, ms: Date.now() - started }
+    return { status, signal, stderr, body: stdout ? JSON.parse(stdout) : null, ms: Math.round(performance.now() - started) }
   })
   return { child, done }
 }
@@ -99,12 +104,12 @@ let api
 try {
   api = await startApi()
 
-  async function call(path, { method = 'GET', body, headers = {} } = {}) {
+  async function call(path, { method = 'GET', body, headers = {}, timeout = 5_000 } = {}) {
     const response = await fetch(`${api.baseUrl}${path}`, {
       method,
       headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(timeout),
     })
     assert.match(response.headers.get('content-type'), /application\/json/)
     assert.equal(response.headers.get('access-control-allow-origin'), null)
@@ -168,7 +173,7 @@ try {
   assert.deepEqual((await call('/api/v1/documents')).body.documents, [])
 
   // Create → edit → undo/redo → save → close → reopen over HTTP.
-  const write = (path, body) => call(path, { method: 'POST', body, headers: auth })
+  const write = (path, body, timeout) => call(path, { method: 'POST', body, headers: auth, timeout })
   const created = await write('/api/v1/documents', { request_id: 'create-1', title: 'Contract ethanol' })
   assert.equal(created.status, 201)
   const id = created.body.document.id
@@ -303,7 +308,7 @@ try {
   )
   const results = await Promise.all(racers)
   const winners = results.filter((result) => result.status === 0)
-  assert.equal(winners.length, 1, `exactly one concurrent save commits: ${JSON.stringify(results.map((r) => r.body.code ?? 'ok'))}`)
+  assert.equal(winners.length, 1, `exactly one concurrent save commits: ${JSON.stringify(results.map((r) => r.body?.code ?? (r.body ? 'ok' : { status: r.status, signal: r.signal, stderr: r.stderr })))}`)
   for (const loser of results.filter((result) => result.status !== 0)) {
     assert.ok(['save_conflict', 'revision_conflict'].includes(loser.body.code), loser.body.code)
   }
@@ -346,6 +351,85 @@ try {
   assert.deepEqual([cliLost.status, cliLost.body.code], [1, 'save_conflict'])
   assert.equal(cli('documents', 'show', raced, '--json').body.document.title, 'From HTTP')
   await restartApi('SIGTERM')
+
+  // ── Storage feedback: long-held locks, queued saves, lost replies, read-only storage ──────
+  // Every reply comes within the web client's 10 s deadline and says whether retrying helps.
+  const timed = async (request) => {
+    const started = performance.now()
+    return { ...(await request), ms: Math.round(performance.now() - started) }
+  }
+  const busyDoc = (await write('/api/v1/documents', { request_id: 'busy-create', title: 'Busy' })).body.document.id
+  const busyPath = `/api/v1/documents/${busyDoc}`
+  const busyFile = join(dataDir, 'documents', `${busyDoc}.json`)
+  await write(`${busyPath}/transactions`, {
+    request_id: 'busy-edit',
+    expected_revision: 0,
+    commands: [{ op: 'rename', title: 'Busy edit' }],
+  })
+  const busyBytes = readFileSync(busyFile)
+  // Another process holds the save lock far longer than a request waits.
+  const lockHolder = cliProcess(['documents', 'apply', busyDoc, '--expected-revision', '0', '--json', '--commands',
+    JSON.stringify([{ op: 'rename', title: 'Held by the CLI' }])], { [DELAY]: '20000' })
+  await sleep(1_500)
+  const [lockWait, queuedSave] = await Promise.all([
+    timed(write(`${busyPath}/save`, { request_id: 'busy-save-1', expected_revision: 1 }, 15_000)),
+    sleep(200).then(() => timed(write(`${busyPath}/save`, { request_id: 'busy-save-2', expected_revision: 1 }, 15_000))),
+  ])
+  for (const [name, reply, from, to] of [['lock wait', lockWait, 5_000, 9_000], ['queued save', queuedSave, 3_000, 9_000]]) {
+    assert.deepEqual([reply.status, reply.body.code, reply.body.reason], [503, 'storage_failed', 'busy'], name)
+    assert.ok(reply.ms >= from - 100 && reply.ms < to, `${name} answered within its budget (${reply.ms} ms)`)
+  }
+  assert.deepEqual(readFileSync(busyFile), busyBytes, 'nothing was committed')
+  assert.equal((await call(busyPath)).body.session.unsaved_changes, true)
+  lockHolder.child.kill('SIGKILL')
+  await lockHolder.done
+  assert.equal((await write(`${busyPath}/save`, { request_id: 'busy-save-1', expected_revision: 1 })).status, 200,
+    'a save refused as busy runs again under the same request ID')
+
+  // A save whose reply is lost still commits; asking again with its request ID says it is in
+  // progress, then returns the committed save, and never commits it twice.
+  await restartApi('SIGTERM', { [DELAY]: '2500' })
+  await write(`${busyPath}/transactions`, {
+    request_id: 'late-edit',
+    expected_revision: 1,
+    commands: [{ op: 'rename', title: 'Late reply' }],
+  })
+  const lost = await write(`${busyPath}/save`, { request_id: 'late-save', expected_revision: 2 }, 300).catch((error) => error)
+  assert.equal(lost.name, 'TimeoutError', 'the client gave up on the reply')
+  const pending = await write(`${busyPath}/save`, { request_id: 'late-save', expected_revision: 2 })
+  assert.deepEqual([pending.status, pending.body.code], [409, 'request_in_progress'])
+  let settled = pending
+  while (settled.body.code === 'request_in_progress') {
+    await sleep(250)
+    settled = await write(`${busyPath}/save`, { request_id: 'late-save', expected_revision: 2 })
+  }
+  assert.equal(settled.status, 200)
+  assert.deepEqual([settled.body.document.revision, settled.body.session.unsaved_changes], [2, false])
+  const lateFile = JSON.parse(readFileSync(busyFile, 'utf8'))
+  assert.deepEqual([lateFile.document.revision, lateFile.document.title], [2, 'Late reply'], 'committed once')
+  assert.deepEqual((await write(`${busyPath}/save`, { request_id: 'late-save', expected_revision: 2 })).body, settled.body, 'replayed')
+  await restartApi('SIGTERM')
+
+  // Read-only storage is reported as such; the committed file and the draft are untouched.
+  if (process.getuid?.() !== 0) {
+    await write(`${busyPath}/transactions`, {
+      request_id: 'ro-edit',
+      expected_revision: 2,
+      commands: [{ op: 'rename', title: 'Read-only' }],
+    })
+    await write(`${busyPath}/autosave`, { request_id: 'ro-auto' })
+    const draftPathRo = join(dataDir, 'drafts', `${busyDoc}.json`)
+    const [storedRo, draftRo] = [readFileSync(busyFile), readFileSync(draftPathRo)]
+    const documentsDir = join(dataDir, 'documents')
+    chmodSync(documentsDir, 0o500)
+    const readOnly = await write(`${busyPath}/save`, { request_id: 'ro-save', expected_revision: 3 })
+    chmodSync(documentsDir, 0o700)
+    assert.deepEqual([readOnly.status, readOnly.body.code, readOnly.body.reason], [503, 'storage_failed', 'read_only'])
+    assert.deepEqual([readFileSync(busyFile), readFileSync(draftPathRo)], [storedRo, draftRo])
+    const roRetry = await write(`${busyPath}/save`, { request_id: 'ro-save', expected_revision: 3 })
+    assert.equal(roRetry.status, 200)
+    assert.ok(!existsSync(draftPathRo), 'the retried save removed the draft with its commit')
+  }
 
   // ── Recovery drafts ────────────────────────────────────────────────────────────────────
   const draftDoc = (await write('/api/v1/documents', { request_id: 'draft-create', title: 'Draft' })).body.document.id
@@ -593,7 +677,8 @@ try {
     'Contract smoke passed: HTTP = CLI; document create/edit/undo/redo/save/reopen, write guards, ' +
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
-      'unreadable, autosave failure, copy at the session limit), and save as copy (including a source draft that cannot be removed) verified.',
+      'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
+      'and storage feedback (lock waits, queued saves, lost replies, read-only storage) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

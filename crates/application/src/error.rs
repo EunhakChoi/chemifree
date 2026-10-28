@@ -35,6 +35,31 @@ pub enum ErrorCode {
     /// Storage changed since the draft's base; it can be recovered only as a copy.
     DraftOutdated,
     DraftNotFound,
+    /// The same `request_id` is still waiting or running; ask again for its outcome.
+    RequestInProgress,
+}
+
+/// What kind of failure a `storage_failed` error is, so a client can say what to do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StorageReason {
+    /// Storage refused the write: a read-only location or missing permission. Retrying helps
+    /// only once that is fixed.
+    ReadOnly,
+    /// Other requests, or another process's save, kept the document busy for longer than a
+    /// request waits. Nothing was changed; retrying later can succeed.
+    Busy,
+    /// Reading or writing failed otherwise.
+    Io,
+}
+
+impl StorageReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::Busy => "busy",
+            Self::Io => "io",
+        }
+    }
 }
 
 impl ErrorCode {
@@ -56,6 +81,7 @@ impl ErrorCode {
             Self::DraftInUse => "draft_in_use",
             Self::DraftOutdated => "draft_outdated",
             Self::DraftNotFound => "draft_not_found",
+            Self::RequestInProgress => "request_in_progress",
         }
     }
 }
@@ -66,6 +92,8 @@ pub struct ApplicationError {
     pub message: String,
     pub current_revision: Option<u64>,
     pub command_index: Option<usize>,
+    /// Set on `StorageFailed`.
+    pub reason: Option<StorageReason>,
 }
 
 impl ApplicationError {
@@ -75,6 +103,15 @@ impl ApplicationError {
             message: message.into(),
             current_revision: None,
             command_index: None,
+            reason: None,
+        }
+    }
+
+    /// A `storage_failed` error of the given kind.
+    pub fn storage_failed(reason: StorageReason, message: impl Into<String>) -> Self {
+        Self {
+            reason: Some(reason),
+            ..Self::new(ErrorCode::StorageFailed, message)
         }
     }
 
@@ -85,6 +122,7 @@ impl ApplicationError {
             message: self.message.clone(),
             current_revision: self.current_revision,
             command_index: self.command_index,
+            reason: self.reason.map(StorageReason::as_str),
         }
     }
 }
@@ -107,4 +145,7 @@ pub struct ErrorResponse {
     pub current_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_index: Option<usize>,
+    /// With `storage_failed`: `read_only`, `busy`, or `io`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
 }
