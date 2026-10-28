@@ -22,6 +22,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright-core'
 
 import { keepRequestInterception } from './lib/request-interception.mjs'
@@ -44,7 +45,10 @@ const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`
 const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
 
-/** Starts a process and resolves once its output matches `ready`. */
+/**
+ * Starts a process and resolves once its output matches `ready`. Colors are ignored: tools color
+ * their output when they detect CI even though it is piped.
+ */
 function start(command, args, ready, options = {}) {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], ...options })
   let log = ''
@@ -52,7 +56,7 @@ function start(command, args, ready, options = {}) {
     const timer = setTimeout(() => reject(new Error(`${command} did not start. ${log}`)), 120_000)
     const read = (data) => {
       log += data.toString()
-      if (ready.test(log)) {
+      if (ready.test(stripVTControlCharacters(log))) {
         clearTimeout(timer)
         resolveReady(child)
       }
