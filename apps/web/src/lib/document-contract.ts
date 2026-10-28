@@ -238,6 +238,18 @@ export class DocumentClient {
    * the API replays the document it already committed instead of creating a second one.
    */
   private unconfirmed = new Map<string, string>()
+  private restartListeners = new Set<() => void>()
+
+  /**
+   * Calls `listener` each time a write finds that the service restarted (its session token was
+   * refused). Returns a function that removes the listener.
+   */
+  onRestart(listener: () => void): () => void {
+    this.restartListeners.add(listener)
+    return () => {
+      this.restartListeners.delete(listener)
+    }
+  }
 
   private async session() {
     this.token ??= this.request('GET', '/api/v1/session').then((value) => {
@@ -304,6 +316,7 @@ export class DocumentClient {
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
+        for (const listener of this.restartListeners) listener()
         if (onRestart === 'retry' && attempt === 0) continue
         if (onRestart === 'reload') {
           throw new ApiError(

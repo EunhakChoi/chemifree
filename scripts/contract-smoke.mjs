@@ -473,6 +473,45 @@ try {
     assert.equal((await call('/api/v1/documents')).body.documents.length, countBefore + 1)
   }
 
+  // A copy whose source draft cannot be removed (a real permission error on drafts/): the copy
+  // is committed, and the source session stays open with its unsaved changes and its draft,
+  // which the reply reports as closed: false.
+  if (writable) {
+    const shown = (await call(draftPath)).body.document.revision
+    await write(`${draftPath}/transactions`, {
+      request_id: 'left-open-edit',
+      expected_revision: shown,
+      commands: [{ op: 'rename', title: 'Left open' }],
+    })
+    const drafted = (await write(`${draftPath}/autosave`, { request_id: 'left-open-auto' })).body
+    const draftBytes = readFileSync(draftFile)
+    const storedBytes = readFileSync(documentFile)
+    const draftsDir = join(dataDir, 'drafts')
+    chmodSync(draftsDir, 0o500)
+    let leftOpen
+    try {
+      leftOpen = await write(`${draftPath}/save-as`, { request_id: 'left-open-copy', expected_revision: drafted.document.revision })
+    } finally {
+      chmodSync(draftsDir, 0o700)
+    }
+    assert.equal(leftOpen.status, 201)
+    assert.deepEqual(leftOpen.body.source, { id: draftDoc, closed: false, discarded_changes: false })
+    assert.equal(leftOpen.body.document.title, 'Left open (copy)')
+    assert.deepEqual(readFileSync(draftFile), draftBytes, "the source's draft is kept")
+    assert.deepEqual(readFileSync(documentFile), storedBytes, "the source's file is untouched")
+    const source = (await call(draftPath)).body
+    assert.deepEqual(
+      [source.document.title, source.session.unsaved_changes, source.session.draft_revision, source.recovery],
+      ['Left open', true, drafted.document.revision, null],
+      'the source session keeps its changes and still owns its draft',
+    )
+    const copyNow = (await call(`/api/v1/documents/${leftOpen.body.document.id}`)).body
+    assert.deepEqual(copyNow.document, leftOpen.body.document, 'the copy is committed and opens as returned')
+    // With the permission back, saving the source commits it and removes its draft.
+    await write(`${draftPath}/save`, { request_id: 'left-open-save', expected_revision: drafted.document.revision })
+    assert.ok(!existsSync(draftFile))
+  }
+
   // At the 64-session limit, recovering a draft as a copy evicts the clean source session when
   // every other session holds unsaved work, and says so.
   const fullSource = (await write('/api/v1/documents', { request_id: 'full-source', title: 'Full table' })).body.document.id
@@ -524,7 +563,7 @@ try {
     'Contract smoke passed: HTTP = CLI; document create/edit/undo/redo/save/reopen, write guards, ' +
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
-      'unreadable, autosave failure, copy at the session limit), and save as copy verified.',
+      'unreadable, autosave failure, copy at the session limit), and save as copy (including a source draft that cannot be removed) verified.',
   )
 } finally {
   for (const child of running) await stop(child)
