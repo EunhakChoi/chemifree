@@ -1,0 +1,44 @@
+{
+  "job": "CI workflow, job browser (.github/workflows/ci.yml)",
+  "date": "2026-10-28",
+  "environment": {
+    "runner": "ubuntu-24.04 (GitHub-hosted)",
+    "browser": "Chromium 141.0.7390.37, Playwright build v1194, installed by `npx playwright-core install --with-deps chromium` from the locked playwright-core 1.56.1",
+    "node": "v22.22.2 (.nvmrc)",
+    "npm": "11.13.0",
+    "rust": "1.95.0"
+  },
+  "policy": "test:browser:routes and test:browser run once each, with no retries and no continue-on-error. The smoke runs even if the route check failed, with CHEMIFREE_SMOKE_NO_SKIPS=1, so a skipped step fails it. Its records are uploaded as browser-smoke-attempt-<n> whether it passed or failed; a missing record fails the upload.",
+  "runs": [
+    {
+      "what": "This branch (ci/browser-checks, 5cd14ae)",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40641825455",
+      "outcome": "pass",
+      "results": "Route check: 0 of 1000 requests stalled. Smoke passed with skipped_steps [].",
+      "artifact": "Screenshots, results.json, build.log, environment.json, requests.log, api.log, web.log"
+    },
+    {
+      "what": "Deliberate product regression (closed draft PR #16, commit e5a9081): the web client no longer signals that a write's session token was refused",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40641790897",
+      "outcome": "fail, as intended",
+      "check_job": "pass (it does not cover the web client)",
+      "failed_at": "The step after save_as_copy_reports_an_original_left_open: the copy notice did not end when the service restarted (locator.waitFor timed out after 30 s).",
+      "artifact": "browser-smoke-attempt-1 (564 KB): failure.png (the notice still shown after the restart), the screenshots up to the failure, results.json, build.log, environment.json, requests.log, api.log, web.log"
+    },
+    {
+      "what": "Deliberate build failure (same draft PR, commit c4089a5): a compile_error! in the domain crate",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40642159403",
+      "outcome": "fail, as intended (both jobs)",
+      "failed_at": "Step build: 'cargo build failed with exit status 101; see build.log'.",
+      "artifact": "browser-smoke-attempt-1: results.json (step build, with the error), build.log (with the compiler error), requests.log, api.log, web.log"
+    }
+  ],
+  "earlier": "#15, the first version of this job (closed after three review rounds), found that Vite colors its output in GitHub Actions even though it is piped, so the smoke never saw the server's ready line (https://github.com/EunhakChoi/chemifree/actions/runs/40637979737). The smoke's readiness check now ignores colors; local runs with FORCE_COLOR=1 check this.",
+  "local": {
+    "with_the_ci_browser": "With CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1, test:browser passed and wrote every record. test:browser:routes: 0 of 1000 stalled guarded, 11 of 1000 with --unguarded (exit 1).",
+    "reused_output_directory": "An earlier run's failure.png, editor-*.png, and build.log were removed, and an unrelated file was kept.",
+    "forced_root_mutant": "With the run forced to act as root and CHEMIFREE_SMOKE_NO_SKIPS=1, the smoke failed ('steps were skipped'), listed four skipped steps, and did not report the skipped autosave step as passed.",
+    "build_failure": "With a compile error, the smoke failed at step build and wrote results.json, build.log, and the logs. The smoke on main wrote nothing in that case."
+  },
+  "limits": "Chromium on Linux only. The smoke uses ports 3001 and 5173, so it cannot run twice at once on one runner."
+}
