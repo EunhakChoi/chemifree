@@ -4,7 +4,8 @@
   "environment": {
     "os": "Linux 6.6 (WSL2), 24 logical CPUs",
     "browser": "Google Chrome 147.0.7727.116 (headless) via playwright-core 1.56.1",
-    "node": "22.22.2"
+    "node": "22.22.2",
+    "clock": "The wall clock was observed being stepped back about 2.5 s every 30 s (host time synchronization); the smoke and the request logs measure durations with the monotonic clock."
   },
   "classification": "test synchronization (Playwright request interception), not a product defect",
   "cause": "Playwright intercepts requests only while a route is registered. When the last page route goes away (a times: 1 route that has fired, or unroute), it disables interception. A request the page starts in that window is already paused by the browser, but Playwright records it as not intercepted and never continues it, so it never reaches the server and fails only when the client aborts it after 10 s (net::ERR_ABORTED). In the smoke, the step's refused-token route (times: 1) expires right before the client re-reads the document after the 401. When that read stalls, the edit is not retried (3 !== 4) or the 'Local service restarted' alert never appears. The API request log showed the stalled request never arrived.",

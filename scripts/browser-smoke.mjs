@@ -104,12 +104,14 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 900 
 await keepRequestInterception(context)
 page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
+// Durations use the monotonic clock: time synchronization can step the wall clock.
 const started = new Map()
-page.on('request', (request) => started.set(request, Date.now()))
+page.on('request', (request) => started.set(request, performance.now()))
 page.on('request', (request) => allRequests.push(`${new Date().toISOString()} start ${request.method()} ${new URL(request.url()).pathname}`))
 const note = (request, outcome) => {
-  allRequests.push(`${new Date().toISOString()} end ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
-  recentRequests.push(`${new Date().toISOString()} ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
+  const ms = Math.round(performance.now() - (started.get(request) ?? performance.now()))
+  allRequests.push(`${new Date().toISOString()} end ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${ms}ms`)
+  recentRequests.push(`${new Date().toISOString()} ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${ms}ms`)
   if (recentRequests.length > 40) recentRequests.shift()
 }
 page.on('requestfinished', async (request) => note(request, (await request.response())?.status()))
@@ -701,8 +703,8 @@ if (process.getuid?.() !== 0) {
     if (r.url().endsWith(`/${docId}/autosave`) && r.status() === 200) retried = true
   }
   page.on('response', onRetry)
-  const drawingUntil = Date.now() + 8_000
-  while (!retried && Date.now() < drawingUntil) {
+  const drawingUntil = performance.now() + 8_000
+  while (!retried && performance.now() < drawingUntil) {
     await drawPair()
     await page.waitForTimeout(300)
   }
