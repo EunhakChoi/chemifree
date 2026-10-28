@@ -16,6 +16,10 @@
     "discard_requires_confirmation": true,
     "revision_conflict_and_reload": true,
     "save_failure_and_retry": true,
+    "read_only_storage_is_named": true,
+    "busy_document_is_named_and_retried": true,
+    "late_save_reply_is_confirmed_not_failed": true,
+    "unconfirmed_save_is_checked_not_repeated": true,
     "save_conflict_with_cli": true,
     "edits_while_a_request_is_pending": true,
     "rejected_edit_stays_reported_and_field_resets": true,
@@ -30,6 +34,7 @@
     "drafts_after_a_restart_follow_the_new_service": true,
     "autosave_retry_is_not_postponed_by_edits": true,
     "autosave_failure_is_shown_and_retried": true,
+    "copy_in_progress_keeps_its_request_id": true,
     "late_autosave_reply_leaves_the_next_document_autosaving": true,
     "save_as_copy_is_independent": true,
     "leaving_a_document_drafts_its_pending_work": true,
@@ -39,7 +44,7 @@
     "mobile_390_and_320_without_horizontal_overflow": true,
     "dark_mode_screenshot": true,
     "uncaught_browser_errors": [],
-    "expected_http_error_console_lines": 17
+    "expected_http_error_console_lines": 24
   },
-  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflicts, a rejected element, refused tokens after simulated and real API restarts, save failure, save conflict, connection resets that drop create responses, a refused token before an unconfirmed create is resent, two failed autosaves, a late autosave reply held until the page moved to a copy, an edit refused after another client moved the session, and a refused token when an edit to a copy reaches a restarted service). The steps that make drafts/ read-only (the failed autosaves and the left-open copy) are skipped when running as root, since permissions do not stop root, and are then listed in skipped_steps. edits_while_a_request_is_pending delays transactions by 400 ms. The recovery steps kill the API process with SIGKILL and start a new one. The simulated-restart step used to fail now and then (#8; 1 of 20 runs on main): a request started just as the step's one-time route was used stalled in the browser, because playwright-core 1.56.1 turns request interception off when the last page route goes away. The smoke now keeps interception on with a context-wide pass-through route, and the step waits for the retried edit's response; see browser-route-race.json. This result: a local run with the Chromium build CI installs, CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1; earlier runs with Google Chrome 147 passed 10 of 10 and 5 of 5. Every run writes results.json, build.log, environment.json, requests.log, api.log (--log-requests), and web.log; a failed run also writes failure.png. CI runs it in the browser job; see browser-ci.json."
+  "note": "expected_http_error_console_lines are the browser's own log lines for intentionally provoked failures (revision conflicts, a rejected element, refused tokens after simulated and real API restarts, save failure, save conflict, connection resets that drop create responses, a refused token before an unconfirmed create is resent, two failed autosaves, a late autosave reply held until the page moved to a copy, an edit refused after another client moved the session, and a refused token when an edit to a copy reaches a restarted service, read-only storage, a document busy behind a CLI's save lock, save replies the page never got, and a copy whose first reply was dropped and whose check was answered request_in_progress). The storage-feedback steps make documents/ read-only, hold a save lock in a CLI process (detected with a non-blocking flock probe), hold one save reply 11 s past the page's 10 s deadline, drop two save replies with a connection reset after the service answered, and answer a copy first with a dropped connection and then with request_in_progress; they check how many requests the page sent and that all carried one request ID. The steps that make documents/ or drafts/ read-only (read-only storage, the failed autosaves, and the left-open copy) are skipped when running as root, since permissions do not stop root, and are then listed in skipped_steps. edits_while_a_request_is_pending delays transactions by 400 ms. The recovery steps kill the API process with SIGKILL and start a new one. The simulated-restart step used to fail now and then (#8; 1 of 20 runs on main): a request started just as the step's one-time route was used stalled in the browser, because playwright-core 1.56.1 turns request interception off when the last page route goes away. The smoke now keeps interception on with a context-wide pass-through route, and the step waits for the retried edit's response; see browser-route-race.json. This result: a local run with the Chromium build CI installs, CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1; earlier runs with Google Chrome 147 passed 10 of 10 and 5 of 5. Every run writes results.json, build.log, environment.json, requests.log, api.log (--log-requests), and web.log; a failed run also writes failure.png. CI runs it in the browser job; see browser-ci.json."
 }
