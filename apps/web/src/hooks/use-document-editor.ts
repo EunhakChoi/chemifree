@@ -25,8 +25,9 @@ export type CopiedFrom =
 
 /**
  * What the page is editing right after a copy: a new document beside the original. It
- * describes the moment of the copy, so it lasts only while the page keeps showing the copy
- * and the service that made it keeps running.
+ * describes the moment of the copy, so it is dropped when the page shows another document or
+ * learns that the service restarted. The page learns that only when one of its writes is
+ * refused, so a page that sends no writes keeps the notice until then.
  */
 export interface CopyNotice {
   copyId: string

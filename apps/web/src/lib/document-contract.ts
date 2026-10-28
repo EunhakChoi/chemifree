@@ -238,7 +238,7 @@ export class DocumentClient {
    * the API replays the document it already committed instead of creating a second one.
    */
   private unconfirmed = new Map<string, string>()
-  private restartListeners = new Set<() => void>()
+  private readonly restartListeners = new Set<() => void>()
 
   /**
    * Calls `listener` each time a write finds that the service restarted (its session token was
