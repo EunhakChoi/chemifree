@@ -36,6 +36,58 @@ const dataDir = join(work, 'data')
 const outDir = process.env.CHEMIFREE_SMOKE_OUT ?? work
 mkdirSync(outDir, { recursive: true })
 
+// Failure handling is set up before the build, so a run that fails to build or start still
+// leaves its records.
+let step = 'build'
+/** API and web dev server processes, once started. */
+let apiServer = null
+let web = null
+let browser = null
+let page = null
+/** Output of API processes that have ended; some steps kill the API and start a new one. */
+const endedApiLogs = []
+/** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
+const requestLog = []
+/** Stops what has started. The temporary directory is removed unless `keepWork` is set. */
+async function cleanup({ keepWork = false } = {}) {
+  await browser?.close().catch(() => {})
+  apiServer?.child.kill('SIGTERM')
+  if (web) {
+    try {
+      process.kill(-web.child.pid, 'SIGTERM')
+    } catch {
+      // Already stopped.
+    }
+  }
+  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
+}
+/** Writes the run's records to `outDir` once, after it passed or failed with `error`. */
+function writeRecords(error) {
+  writeFileSync(join(outDir, 'results.json'), `${JSON.stringify({ step, error: error?.message, results }, null, 2)}\n`)
+  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
+  const apiLogs = [...endedApiLogs, apiServer?.log() ?? '']
+  writeFileSync(join(outDir, 'api.log'), apiLogs.join('\n--- next API process\n'))
+  writeFileSync(join(outDir, 'web.log'), web?.log() ?? '')
+}
+process.on('uncaughtException', async (error) => {
+  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
+  const files = ['results.json', 'requests.log', 'api.log', 'web.log']
+  // No page (for example, the browser did not launch) means no screenshot.
+  if (page) {
+    const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
+      () => true,
+      () => false,
+    )
+    if (shot) files.unshift('failure.png')
+  }
+  console.error(requestLog.slice(-40).join('\n'))
+  writeRecords(error)
+  console.error(`Diagnostics in ${outDir}: ${files.join(', ')}`)
+  // The diagnostics may be in the temporary directory, so a failed run keeps it.
+  await cleanup({ keepWork: true })
+  process.exit(1)
+})
+
 execFileSync('cargo', ['build', '--workspace', '--locked'], { stdio: 'inherit' })
 const metadata = JSON.parse(
   execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { encoding: 'utf8' }),
@@ -68,52 +120,9 @@ function start(command, args, ready, options = {}) {
   return { child, started, log: () => log }
 }
 const startApi = () => start(apiPath, ['--port', '3001', '--log-requests'], /listening on http:\/\/127\.0\.0\.1:3001/)
-/** Output of API processes that have ended; some steps kill the API and start a new one. */
-const endedApiLogs = []
-let apiServer = startApi()
-const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
-// Registered before anything can fail so a failed start or launch never leaves servers running.
-let browser = null
-let step = 'start'
-/** Stops the servers. The temporary directory is removed unless `keepWork` is set. */
-async function cleanup({ keepWork = false } = {}) {
-  await browser?.close().catch(() => {})
-  apiServer.child.kill('SIGTERM')
-  try {
-    process.kill(-web.child.pid, 'SIGTERM')
-  } catch {
-    // Already stopped.
-  }
-  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
-}
-let page = null
-/** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
-const requestLog = []
-/** Writes the run's records to `outDir`; called once, after the run passed or failed. */
-function writeRecords() {
-  writeFileSync(join(outDir, 'results.json'), `${JSON.stringify({ step, results }, null, 2)}\n`)
-  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
-  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- next API process\n'))
-  writeFileSync(join(outDir, 'web.log'), web.log())
-}
-process.on('uncaughtException', async (error) => {
-  console.error(`Browser smoke FAILED at step ${step}:`, error.message)
-  const files = ['results.json', 'requests.log', 'api.log', 'web.log']
-  // No page (for example, the browser did not launch) means no screenshot.
-  if (page) {
-    const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
-      () => true,
-      () => false,
-    )
-    if (shot) files.unshift('failure.png')
-  }
-  console.error(requestLog.slice(-40).join('\n'))
-  writeRecords()
-  console.error(`Diagnostics in ${outDir}: ${files.join(', ')}`)
-  // The diagnostics may be in the temporary directory, so a failed run keeps it.
-  await cleanup({ keepWork: true })
-  process.exit(1)
-})
+step = 'start'
+apiServer = startApi()
+web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
 await Promise.all([apiServer.started, web.started])
 /** Kills the API the way a crash would and starts a new process on the same port. */
 async function crashApi() {

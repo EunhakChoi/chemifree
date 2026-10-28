@@ -8,7 +8,7 @@
     "npm": "11.13.0",
     "rust": "1.95.0"
   },
-  "policy": "test:browser:routes and test:browser run once each, with no retries and no continue-on-error. CHEMIFREE_SMOKE_NO_SKIPS=1 fails the smoke if any step was skipped. The smoke's records are uploaded as the browser-smoke-attempt-<n> artifact whether it passed or failed, and a missing record fails the upload.",
+  "policy": "test:browser:routes and test:browser run once each, with no retries and no continue-on-error; the smoke runs even if the route check failed. CHEMIFREE_SMOKE_NO_SKIPS=1 fails the smoke if any step was skipped. The smoke's records are uploaded as the browser-smoke-attempt-<n> artifact whether it passed or failed, and a missing record fails the upload.",
   "runs": [
     {
       "what": "First run of the job, on the P04 branch",
@@ -35,7 +35,8 @@
   ],
   "local": {
     "with_the_ci_browser": "test:browser:routes 0 of 1000 stalled (--unguarded 11 of 1000, exit 1); test:browser with CHEMIFREE_SMOKE_NO_SKIPS=1 passed, also with FORCE_COLOR=1",
-    "forced_root_mutant": "With the run forced to act as root and CHEMIFREE_SMOKE_NO_SKIPS=1, the smoke failed ('every step must run') after listing four skipped steps, and kept failure.png and the logs."
+    "forced_root_mutant": "With the run forced to act as root and CHEMIFREE_SMOKE_NO_SKIPS=1, the smoke failed ('every step must run') after listing four skipped steps, and kept failure.png and the logs.",
+    "build_failure": "With a deliberate compile error, the smoke failed at step 'build' and wrote results.json (with the error), requests.log, api.log, and web.log. Before this was fixed (review round 2 on #15), it wrote nothing and the artifact upload would have failed."
   },
   "limits": "Chromium on Linux only. The smoke uses ports 3001 and 5173, so it cannot run twice at once on one runner."
 }

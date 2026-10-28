@@ -71,11 +71,14 @@ jobs:
       # The locked playwright-core version names the Chromium build, so the browser is pinned
       # by package-lock.json.
       - name: Install the browser and its system libraries
+        id: browser-install
         run: npx playwright-core install --with-deps chromium
       - name: Route-expiry guard
         run: npm run test:browser:routes
+      # Runs even when the route-expiry guard failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke
+        if: ${{ !cancelled() && steps.browser-install.outcome == 'success' }}
         env:
           CHEMIFREE_SMOKE_OUT: ${{ runner.temp }}/browser-smoke
           CHEMIFREE_SMOKE_NO_SKIPS: '1'
