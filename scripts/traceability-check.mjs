@@ -362,6 +362,25 @@ function checkRequirements(inputs, context) {
  * `executes` says whether it runs the behaviour: a case that passed, a script the checks or CI
  * run, or a named test that the test runners execute. `report:` and `doc:` never execute.
  */
+/**
+ * Whether `text` defines a test called `name` that the test command runs: a Rust `fn` with
+ * `#[test]` or `#[tokio::test]` and no `#[ignore]` among its attributes, or a node
+ * `test(...)`/`it(...)` that is not `.skip`/`.todo` and has no `skip` or `todo` option.
+ */
+export function definesRunningTest(text, name, language) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (language === 'rust') {
+    const declaration = new RegExp(
+      `((?:(?:#\\[[^\\]]*\\]|///[^\\n]*)\\s*)*)(?:pub\\s+)?(?:async\\s+)?fn\\s+${escaped}\\s*\\(`,
+    )
+    const attributes = declaration.exec(text)?.[1] ?? ''
+    return /#\[(?:tokio::)?test\b/.test(attributes) && !/#\[ignore\b/.test(attributes)
+  }
+  const call = new RegExp(`(?:^|[^\\w.])(?:test|it)\\(\\s*(['"\`])${escaped}\\1\\s*(,\\s*\\{[^}]*\\})?`, 'm')
+  const match = call.exec(text)
+  return match !== null && !/\b(?:skip|todo)\b/.test(match[2] ?? '')
+}
+
 export function resolveEvidence(ref, context) {
   const fail = (problem) => ({ problem, executes: false })
   const separator = typeof ref === 'string' ? ref.indexOf(':') : -1
@@ -405,17 +424,12 @@ export function resolveEvidence(ref, context) {
       if (!context.exists(file)) return fail('names a missing file')
       if (name === undefined) return { problem: null, executes: false }
       const text = readFileSync(path.join(context.root, file), 'utf8')
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       if (file.endsWith('.rs')) {
-        const attribute = new RegExp(
-          `#\\[(?:tokio::)?test(?:\\([^\\]]*\\))?\\]\\s*(?:#\\[[^\\]]*\\]\\s*)*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escaped}\\s*\\(`,
-        )
-        if (!attribute.test(text)) return fail(`names no #[test] fn ${name} in ${file}`)
+        if (!definesRunningTest(text, name, 'rust')) return fail(`names no #[test] fn ${name} in ${file} that runs`)
         const member = context.cargoMembers.some((directory) => file.startsWith(`${directory}/`))
         return member ? { problem: null, executes: true } : fail(`is not in a Cargo workspace member`)
       }
-      const title = new RegExp(`(?:^|[^\\w.])(?:test|it)\\(\\s*(['"\`])${escaped}\\1`, 'm')
-      if (!title.test(text)) return fail(`names no test ${name} in ${file}`)
+      if (!definesRunningTest(text, name, 'node')) return fail(`names no test ${name} in ${file} that runs`)
       const runs = context.checkCommands.some((command) => command.split(/\s+/).includes(file))
       return runs ? { problem: null, executes: true } : fail('is a test file npm run check does not run')
     }

@@ -137,8 +137,9 @@ function trackedEntries(root) {
     .split('\0')
     .filter(Boolean)
     .map((line) => {
-      const [meta, file] = line.split('\t')
-      return { mode: meta.split(' ')[0], file }
+      // The name follows the first tab and may itself contain tabs.
+      const tab = line.indexOf('\t')
+      return { mode: line.slice(0, tab).split(' ')[0], file: line.slice(tab + 1) }
     })
 }
 

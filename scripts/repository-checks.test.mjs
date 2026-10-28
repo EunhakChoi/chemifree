@@ -14,6 +14,7 @@ import { checkCleanRoom, forbiddenNamesIn, localPathProblem, magicProblem } from
 import {
   checkAgainstSpec,
   checkTraceability,
+  definesRunningTest,
   deriveStatus,
   isPlainRelative,
   loadRepository,
@@ -336,6 +337,21 @@ describe('traceability check', () => {
     assertProblem(notRun, /is a test file npm run check does not run/)
   })
 
+  test('an ignored or skipped test is not a running test', () => {
+    const rust = (attributes) => `${attributes}\nfn saves_once() {}\n`
+    assert.equal(definesRunningTest(rust('#[test]'), 'saves_once', 'rust'), true)
+    assert.equal(definesRunningTest(rust('#[tokio::test]\n#[should_panic(expected = "x")]'), 'saves_once', 'rust'), true)
+    assert.equal(definesRunningTest(rust('/// Doc.\n#[test]'), 'saves_once', 'rust'), true)
+    assert.equal(definesRunningTest(rust('#[test]\n#[ignore]'), 'saves_once', 'rust'), false)
+    assert.equal(definesRunningTest(rust('#[ignore = "slow"]\n#[test]'), 'saves_once', 'rust'), false)
+    assert.equal(definesRunningTest(rust('#[cfg(feature = "x")]'), 'saves_once', 'rust'), false)
+    assert.equal(definesRunningTest("test('counts', () => {})", 'counts', 'node'), true)
+    assert.equal(definesRunningTest("  it(\"counts\", async () => {})", 'counts', 'node'), true)
+    assert.equal(definesRunningTest("test.skip('counts', () => {})", 'counts', 'node'), false)
+    assert.equal(definesRunningTest("test('counts', { skip: true }, () => {})", 'counts', 'node'), false)
+    assert.equal(definesRunningTest("test('counts', { todo: 'later' }, () => {})", 'counts', 'node'), false)
+  })
+
   test('smoke evidence must be run by the checks or by CI', () => {
     const problems = problemsAfter((copy) => {
       copy.ciWorkflow = copy.ciWorkflow.replace(/npm run test:browser\b(?!:)/g, 'true')
@@ -614,6 +630,13 @@ describe('clean-room check', () => {
     ]) {
       assertProblem(problems, pattern)
     }
+  })
+
+  test('a tracked name with a tab is checked whole', () => {
+    const directory = repository({ 'ok\tprivate.key': 'secret\n', 'notes\tdraft.md': 'fine\n' })
+    const problems = check(directory)
+    assert.equal(problems.length, 1, problems.join('\n'))
+    assert.match(problems[0], /^ok\tprivate\.key: /)
   })
 
   test('a nested repository is refused', () => {
