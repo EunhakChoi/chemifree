@@ -316,7 +316,6 @@ export class DocumentClient {
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
-        for (const listener of this.restartListeners) listener()
         if (onRestart === 'retry' && attempt === 0) continue
         if (onRestart === 'reload') {
           throw new ApiError(
