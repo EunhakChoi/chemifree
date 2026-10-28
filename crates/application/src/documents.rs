@@ -169,6 +169,57 @@ enum Hold {
     Delete,
 }
 
+/// The storage change that makes a session's recovery draft hold its unsaved work, taken
+/// from the session so it can be carried out without holding the session table.
+enum DraftTask {
+    /// Nothing is unsaved: remove the draft, if the session has one.
+    Remove(DocumentId),
+    /// Write the working copy as it was when the task was taken.
+    Write(Draft),
+}
+
+impl DraftTask {
+    /// `None` when the session's draft already holds its unsaved work.
+    fn for_session(session: &Session) -> Option<Self> {
+        if !session.is_dirty() {
+            Some(Self::Remove(session.document.id().clone()))
+        } else if session.is_drafted() {
+            None
+        } else {
+            Some(Self::Write(Draft {
+                document: session.document.clone(),
+                base_revision: session.stored_revision,
+                saved_at_ms: now_ms(),
+            }))
+        }
+    }
+
+    fn run<R: DocumentRepository>(&self, repository: &R) -> Result<(), ApplicationError> {
+        match self {
+            Self::Remove(id) => repository.remove_draft(id).map_err(storage_error),
+            Self::Write(draft) => repository.write_draft(draft).map_err(|error| match error {
+                StorageError::Conflict { .. } => ApplicationError::new(
+                    ErrorCode::RecoveryPending,
+                    "unsaved work from an earlier session is waiting; recover or discard it \
+                     before new changes are autosaved",
+                ),
+                StorageError::Locked(message) => {
+                    ApplicationError::new(ErrorCode::DraftInUse, message)
+                }
+                error => storage_failure(error, "autosave failed; the session keeps its changes"),
+            }),
+        }
+    }
+
+    /// The revision the session's draft holds once the task succeeded.
+    fn drafted_revision(&self) -> Option<u64> {
+        match self {
+            Self::Remove(_) => None,
+            Self::Write(draft) => Some(draft.document.revision()),
+        }
+    }
+}
+
 impl Session {
     /// A working copy of a document as stored.
     fn new(document: Document) -> Self {
@@ -326,8 +377,11 @@ impl Sessions {
         let clean = self
             .open
             .iter()
-            // A session held by a rename or delete in progress is not evicted under it.
-            .filter(|(_, session)| !session.is_dirty() && session.hold.is_none())
+            // A session held by a rename or delete in progress, or whose draft is being
+            // written, is not evicted under it.
+            .filter(|(_, session)| {
+                !session.is_dirty() && session.hold.is_none() && !session.drafting.is_writing()
+            })
             .map(|(id, _)| id);
         clean
             .clone()
@@ -788,8 +842,13 @@ impl<R: DocumentRepository> Documents<R> {
     }
 
     /// The draft write itself, with the document's turn held. Every attempt, whoever asked for
-    /// it, moves the service's own schedule under the same lock: a success leaves it nothing to
-    /// do, and a failure is retried on its backoff, not sooner.
+    /// it, moves the service's own schedule: a success leaves it only the changes made while
+    /// the write ran, and a failure is retried on its backoff, not sooner.
+    ///
+    /// The session table is held only to take a snapshot and to record the outcome, never
+    /// across the storage I/O, so a stalled disk holds up this document's drafting and other
+    /// writers waiting for its turn, not other documents or edits to this one. Edits made
+    /// meanwhile stay unsaved and undrafted: the outcome names the revision written.
     fn write_draft(
         &self,
         document_id: &DocumentId,
@@ -798,65 +857,56 @@ impl<R: DocumentRepository> Documents<R> {
         now: Instant,
         drafter: Drafter,
     ) -> Result<DocumentResponse, ApplicationError> {
+        let task = {
+            let mut sessions = self.lock();
+            if drafter != Drafter::Client && !sessions.open.contains_key(document_id) {
+                // Closed since the service found it due: there is nothing left to draft, and
+                // opening it again would only make a session nobody asked for.
+                return Err(no_longer_open(id));
+            }
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
+                return Ok(response);
+            }
+            match DraftTask::for_session(session) {
+                Some(task) => {
+                    session.drafting.writing();
+                    task
+                }
+                None => {
+                    session.drafting.settled();
+                    return Ok(self.record_autosave(session, request_id));
+                }
+            }
+        };
+        let outcome = task.run(&self.repository);
         let mut sessions = self.lock();
-        if drafter != Drafter::Client && !sessions.open.contains_key(document_id) {
-            // Closed since the service found it due: there is nothing left to draft, and
-            // opening it again would only make a session nobody asked for.
-            return Err(ApplicationError::new(
-                ErrorCode::DocumentNotFound,
-                format!("document {id} is no longer open; nothing to draft"),
-            ));
-        }
-        let session = self.session(&mut sessions, id)?;
-        if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
-            return Ok(response);
-        }
-        if let Err(error) = Self::write_session_draft(&self.repository, session) {
+        let Some(session) = sessions.open.get_mut(document_id) else {
+            // Only a clean copy can end while its turn is held (its stored document was
+            // deleted elsewhere), and a clean copy's task removes the draft. A draft written
+            // for a copy that is gone is left for recovery rather than owned by nobody.
+            if matches!(task, DraftTask::Write(_)) && outcome.is_ok() {
+                self.repository.release_draft(document_id);
+            }
+            return Err(no_longer_open(id));
+        };
+        if let Err(error) = outcome {
             session
                 .drafting
                 .failed(now.max(Instant::now()), error.message.clone());
             return Err(error);
         }
-        session.drafting.settled();
+        session.draft_revision = task.drafted_revision();
+        session.drafting.written();
+        Ok(self.record_autosave(session, request_id))
+    }
+
+    fn record_autosave(&self, session: &mut Session, request_id: Option<&str>) -> DocumentResponse {
         let response = self.respond(session);
         session
             .replays
             .record(request_id, Mutation::Autosave, &response);
-        Ok(response)
-    }
-
-    /// Makes the session's draft hold its unsaved work, or removes it when nothing is unsaved.
-    fn write_session_draft(repository: &R, session: &mut Session) -> Result<(), ApplicationError> {
-        let revision = session.document.revision();
-        if !session.is_dirty() {
-            repository
-                .remove_draft(session.document.id())
-                .map_err(storage_error)?;
-            session.draft_revision = None;
-        } else if session.draft_revision != Some(revision) {
-            let draft = Draft {
-                document: session.document.clone(),
-                base_revision: session.stored_revision,
-                saved_at_ms: now_ms(),
-            };
-            repository
-                .write_draft(&draft)
-                .map_err(|error| match error {
-                    StorageError::Conflict { .. } => ApplicationError::new(
-                        ErrorCode::RecoveryPending,
-                        "unsaved work from an earlier session is waiting; recover or discard it \
-                         before new changes are autosaved",
-                    ),
-                    StorageError::Locked(message) => {
-                        ApplicationError::new(ErrorCode::DraftInUse, message)
-                    }
-                    error => {
-                        storage_failure(error, "autosave failed; the session keeps its changes")
-                    }
-                })?;
-            session.draft_revision = Some(revision);
-        }
-        Ok(())
+        response
     }
 
     /// Writes the drafts that are due at `now` (see [`DraftSchedule`]) and returns when the next
@@ -1664,6 +1714,13 @@ fn history_error(error: HistoryError) -> ApplicationError {
         HistoryError::RevisionLimit => ErrorCode::ResourceLimit,
     };
     ApplicationError::new(code, error.to_string())
+}
+
+fn no_longer_open(id: &str) -> ApplicationError {
+    ApplicationError::new(
+        ErrorCode::DocumentNotFound,
+        format!("document {id} is no longer open; nothing to draft"),
+    )
 }
 
 fn draft_not_found(id: &DocumentId) -> ApplicationError {

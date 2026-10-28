@@ -23,6 +23,9 @@ pub const DRAFT_RETRY: [Duration; 4] = [
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DraftSchedule {
     pending: Option<Pending>,
+    /// Set while a draft write is in progress, holding the first change noted since it
+    /// started: the write holds the working copy as it was before that change.
+    writing: Option<Option<Instant>>,
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +48,9 @@ pub(crate) struct Failure {
 impl DraftSchedule {
     /// Notes a change at `now` that the draft does not hold.
     pub(crate) fn changed(&mut self, now: Instant) {
+        if let Some(first) = &mut self.writing {
+            first.get_or_insert(now);
+        }
         match &mut self.pending {
             Some(pending) => pending.last = pending.last.max(now),
             None => {
@@ -60,10 +66,36 @@ impl DraftSchedule {
     /// The draft now holds the working copy, or there is nothing unsaved to hold.
     pub(crate) fn settled(&mut self) {
         self.pending = None;
+        self.writing = None;
+    }
+
+    /// Notes that a write of the working copy as it is now has started.
+    pub(crate) fn writing(&mut self) {
+        self.writing = Some(None);
+    }
+
+    /// Whether a write started by [`Self::writing`] has not finished yet.
+    pub(crate) fn is_writing(&self) -> bool {
+        self.writing.is_some()
+    }
+
+    /// The write started by [`Self::writing`] succeeded. Only changes noted since it started
+    /// are left to draft, as if the first of them was the first change the draft lacks.
+    pub(crate) fn written(&mut self) {
+        let first_since = self.writing.take().flatten();
+        self.pending = match (first_since, self.pending.take()) {
+            (Some(since), Some(pending)) => Some(Pending {
+                since,
+                last: pending.last,
+                failure: None,
+            }),
+            _ => None,
+        };
     }
 
     /// Notes a failed attempt at `now`; the next one waits per [`DRAFT_RETRY`].
     pub(crate) fn failed(&mut self, now: Instant, message: String) {
+        self.writing = None;
         let pending = self.pending.get_or_insert(Pending {
             since: now,
             last: now,
@@ -131,6 +163,35 @@ mod tests {
             schedule.changed(start + SECOND * tenth / 10);
         }
         assert_eq!(schedule.due_at(), Some(start + DRAFT_MAX_WAIT));
+    }
+
+    #[test]
+    fn a_finished_write_leaves_only_the_changes_made_while_it_ran() {
+        let start = Instant::now();
+        let mut schedule = DraftSchedule::default();
+        schedule.changed(start);
+        schedule.writing();
+        assert!(schedule.is_writing());
+        schedule.written();
+        assert_eq!(schedule.due_at(), None, "the write held every change");
+
+        schedule.changed(start);
+        schedule.writing();
+        schedule.changed(start + SECOND * 3);
+        schedule.changed(start + SECOND * 4);
+        schedule.written();
+        assert!(!schedule.is_writing());
+        assert_eq!(
+            schedule.due_at(),
+            Some(start + SECOND * 4 + DRAFT_QUIET),
+            "the later changes are due after their own quiet period"
+        );
+        schedule.changed(start + SECOND * 20);
+        assert_eq!(
+            schedule.due_at(),
+            Some(start + SECOND * 3 + DRAFT_MAX_WAIT),
+            "and within the maximum wait of the first of them"
+        );
     }
 
     #[test]

@@ -44,6 +44,12 @@ struct MemoryStore {
     saved_at: Arc<Mutex<BTreeMap<DocumentId, u64>>>,
     clock: Arc<AtomicU64>,
     process: u32,
+    /// The document whose draft writes and removals wait for `draft_gate`, as a stalled disk
+    /// would; other documents' drafts go through.
+    stalled_drafts: Arc<Mutex<Option<DocumentId>>>,
+    draft_gate: Arc<Mutex<()>>,
+    /// Draft writes and removals of the stalled document, counted before they wait.
+    stalled_drafts_started: Arc<AtomicUsize>,
 }
 
 impl MemoryStore {
@@ -64,6 +70,14 @@ impl MemoryStore {
 
     fn draft_count(&self) -> usize {
         self.drafts.lock().unwrap().len()
+    }
+
+    /// Waits for `draft_gate` when `id` is the stalled document.
+    fn draft_io(&self, id: &DocumentId) {
+        if self.stalled_drafts.lock().unwrap().as_ref() == Some(id) {
+            self.stalled_drafts_started.fetch_add(1, Ordering::SeqCst);
+            drop(self.draft_gate.lock().unwrap());
+        }
     }
 
     fn failing(&self) -> Result<(), StorageError> {
@@ -137,6 +151,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
+        self.draft_io(draft.document.id());
         let mut drafts = self.drafts.lock().unwrap();
         match drafts.get(draft.document.id()) {
             Some((_, Some(owner))) if *owner != self.process => {
@@ -189,6 +204,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError> {
+        self.draft_io(id);
         let mut drafts = self.drafts.lock().unwrap();
         if drafts
             .get(id)
@@ -2380,4 +2396,172 @@ fn a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work() {
     for save in saves {
         save.join().unwrap().unwrap();
     }
+}
+
+/// Stalls `id`'s draft I/O until the returned guard is dropped, runs `request` on another
+/// thread, and returns once that request is waiting in storage.
+fn stalled_draft<'a, T: Send + 'static>(
+    store: &'a MemoryStore,
+    id: &str,
+    request: impl FnOnce() -> T + Send + 'static,
+) -> (std::sync::MutexGuard<'a, ()>, std::thread::JoinHandle<T>) {
+    let held = store.draft_gate.lock().unwrap();
+    let before = store.stalled_drafts_started.load(Ordering::SeqCst);
+    *store.stalled_drafts.lock().unwrap() = Some(DocumentId::parse(id).unwrap());
+    let running = std::thread::spawn(request);
+    let started = std::time::Instant::now();
+    while store.stalled_drafts_started.load(Ordering::SeqCst) == before {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the stalled draft reached storage"
+        );
+        std::thread::yield_now();
+    }
+    (held, running)
+}
+
+fn rename_to(title: &str) -> Vec<CommandDto> {
+    commands(json!([{"op": "rename", "title": title}]))
+}
+
+#[test]
+fn a_stalled_draft_write_does_not_hold_up_other_requests() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let slow = edited(&app);
+    let other = edited(&app);
+    let (held, autosave) = stalled_draft(&store, &slow, {
+        let (app, id) = (Arc::clone(&app), slow.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+
+    let answered = within(std::time::Duration::from_secs(1), {
+        let (app, slow, other) = (Arc::clone(&app), slow.clone(), other.clone());
+        move || {
+            app.apply_transaction(&other, None, 1, rename_to("Other"))
+                .unwrap();
+            app.autosave(&other, Some("auto-2")).unwrap();
+            app.save(&other, None, 2).unwrap();
+            app.create_document(None, None).unwrap();
+            app.list_documents(&ListQuery::default()).unwrap();
+            // The document whose draft is being written can still be read and edited.
+            app.document(&slow).unwrap();
+            app.apply_transaction(&slow, None, 1, rename_to("Later"))
+                .unwrap()
+                .document
+                .revision
+        }
+    });
+    assert_eq!(
+        answered,
+        Some(2),
+        "requests went on while a draft write was stalled"
+    );
+    drop(held);
+    autosave.join().unwrap().unwrap();
+}
+
+#[test]
+fn edits_made_while_a_draft_is_written_are_left_for_the_next_draft() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let (held, autosave) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 1, rename_to("Later"))
+    })
+    .expect("the edit was not held up by the draft write")
+    .unwrap();
+    drop(held);
+    *store.stalled_drafts.lock().unwrap() = None;
+
+    let reply = autosave.join().unwrap().unwrap();
+    assert_eq!(reply.document.revision, 2, "the reply shows the later edit");
+    assert_eq!(
+        reply.session.draft_revision,
+        Some(1),
+        "the draft holds the revision written, not the later edit"
+    );
+    assert_eq!(reply.session.draft_failure, None);
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 1);
+
+    let now = std::time::Instant::now();
+    let due = app
+        .write_due_drafts(now)
+        .expect("the later edit is still due");
+    assert!(due > now, "due after its own quiet period, not at once");
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 1);
+    assert_eq!(app.write_due_drafts(later(DRAFT_QUIET)), None);
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 2);
+    assert_eq!(app.document(&id).unwrap().session.draft_revision, Some(2));
+}
+
+#[test]
+fn a_draft_failure_reported_after_later_edits_keeps_them_due_for_its_retry() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let (held, autosave) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 1, rename_to("Later"))
+    })
+    .expect("the edit was not held up by the draft write")
+    .unwrap();
+    drop(held);
+    *store.stalled_drafts.lock().unwrap() = None;
+
+    let refused = autosave.join().unwrap().unwrap_err();
+    assert_eq!(refused.reason, Some(StorageReason::Io), "{refused}");
+    let session = app.document(&id).unwrap().session;
+    assert_eq!(session.draft_revision, None, "nothing was drafted");
+    let failure = session.draft_failure.expect("the failure is reported");
+    assert_eq!(failure.attempts, 1);
+    assert_eq!(stored_draft(&store, &id), None);
+
+    store.fail_writes.store(false, Ordering::SeqCst);
+    let retry = app.write_due_drafts(std::time::Instant::now()).unwrap();
+    assert_eq!(app.write_due_drafts(retry), None);
+    assert_eq!(
+        stored_draft(&store, &id).unwrap().document.revision(),
+        2,
+        "the retry drafts the later edit too"
+    );
+}
+
+#[test]
+fn a_clean_session_is_not_evicted_while_its_draft_is_removed() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let ids: Vec<String> = (0..MAX_OPEN_SESSIONS)
+        .map(|_| app.create_document(None, None).unwrap().document.id)
+        .collect();
+    let lowest = ids.iter().min().unwrap().clone();
+    // A clean session's autosave removes its draft; that removal stalls.
+    let (held, autosave) = stalled_draft(&store, &lowest, {
+        let (app, id) = (Arc::clone(&app), lowest.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let app = Arc::clone(&app);
+        move || app.create_document(None, None)
+    })
+    .expect("creating was not held up by the draft removal")
+    .unwrap();
+    drop(held);
+
+    let reply = autosave.join().unwrap().unwrap();
+    assert_eq!(reply.document.id, lowest);
+    assert!(
+        open_ids(&app).contains(&lowest),
+        "another clean session made room instead"
+    );
 }
