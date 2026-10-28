@@ -2,7 +2,7 @@
 //! drafts, and copies.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chemifree_domain::document::{
@@ -16,8 +16,9 @@ use crate::contract::{
     DocumentResponse, DocumentSummary, DraftDiscardResponse, RecoveryState, RecoveryView,
     UnreadableDocument,
 };
-use crate::error::{ApplicationError, ErrorCode};
+use crate::error::{ApplicationError, ErrorCode, StorageReason};
 use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
+use crate::turns::{Refusal, Running, TURN_WAIT, Turn, Turns};
 
 pub const DEFAULT_TITLE: &str = "Untitled";
 pub const MAX_OPEN_SESSIONS: usize = 64;
@@ -285,14 +286,16 @@ enum CopySlot<'a> {
 /// Owns open sessions. One working copy exists per document per process; a session is
 /// opened from storage on first access and replaced only after it is closed.
 ///
-/// Lock order: a document's gate, then `sessions`. A save waits for storage (which may wait
-/// for another process's save) holding only its document's gate, so requests for other
-/// documents, and edits to the same one, are not held up.
+/// Writes that commit a document or touch its recovery draft first mark their `request_id`
+/// as running, then look for a completed request with that ID, and only then wait (at most
+/// `TURN_WAIT`) for the document's turn, which serializes them per document. Lock order: the
+/// document's turn, then `sessions`. A save waits for storage (which may wait for another
+/// process's save) holding only its turn, so requests for other documents, and edits to the
+/// same one, are not held up.
 pub(crate) struct Documents<R> {
     repository: R,
     sessions: Mutex<Sessions>,
-    /// Serializes, per document, the operations that commit it or touch its recovery draft.
-    gates: Mutex<HashMap<DocumentId, Arc<Mutex<()>>>>,
+    turns: Turns,
 }
 
 impl<R: DocumentRepository> Documents<R> {
@@ -300,13 +303,36 @@ impl<R: DocumentRepository> Documents<R> {
         Self {
             repository,
             sessions: Mutex::new(Sessions::default()),
-            gates: Mutex::default(),
+            turns: Turns::default(),
         }
     }
 
-    fn gate(&self, id: &DocumentId) -> Arc<Mutex<()>> {
-        let mut gates = self.gates.lock().unwrap_or_else(PoisonError::into_inner);
-        gates.entry(id.clone()).or_default().clone()
+    /// Marks the request as running. A repeated `request_id` that is still running is
+    /// answered at once, without waiting for any other lock.
+    fn start(
+        &self,
+        document: Option<&DocumentId>,
+        request_id: Option<&str>,
+    ) -> Result<Running<'_>, ApplicationError> {
+        self.turns.start(document, request_id).map_err(refused)
+    }
+
+    /// Waits for the document's turn, at most `TURN_WAIT`.
+    fn turn(&self, document: &DocumentId) -> Result<Turn<'_>, ApplicationError> {
+        self.turns.take(document, TURN_WAIT).map_err(refused)
+    }
+
+    /// The reply of a completed request with this `request_id`, looked up before waiting for
+    /// the document's turn, so a request asked about again is not held up by others.
+    fn replayed<T>(
+        &self,
+        request_id: Option<&str>,
+        find: impl FnOnce(&Sessions) -> Result<Option<T>, ApplicationError>,
+    ) -> Result<Option<T>, ApplicationError> {
+        if request_id.is_none() {
+            return Ok(None);
+        }
+        find(&self.lock())
     }
 
     /// Every mutation is applied to a copy or validated first, so a panic while the lock
@@ -389,6 +415,7 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::Create {
             title: title.map(str::to_owned),
         };
+        let _running = self.start(None, request_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.created.find(request_id, &mutation)? {
             return Ok(response);
@@ -487,8 +514,15 @@ impl<R: DocumentRepository> Documents<R> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
         let mutation = Mutation::Save { expected_revision };
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let (snapshot, base) = {
             let mut sessions = self.lock();
             let session = self.session(&mut sessions, id)?;
@@ -505,14 +539,8 @@ impl<R: DocumentRepository> Documents<R> {
         };
         self.repository
             .save(&snapshot, Some(base))
-            .map_err(|error| match error {
-                StorageError::Locked(message) | StorageError::Unavailable(message) => {
-                    ApplicationError::new(
-                        ErrorCode::StorageFailed,
-                        format!("save failed; this session keeps its unsaved changes: {message}"),
-                    )
-                }
-                error => storage_error(error),
+            .map_err(|error| {
+                storage_failure(error, "save failed; this session keeps its unsaved changes")
             })?;
         let committed = snapshot.revision();
         let mut sessions = self.lock();
@@ -551,8 +579,6 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<CloseResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
         if discard_unsaved && expected_revision.is_none() {
             return Err(ApplicationError::new(
                 ErrorCode::InvalidRequest,
@@ -564,6 +590,13 @@ impl<R: DocumentRepository> Documents<R> {
             discard_unsaved,
             expected_revision,
         };
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.closed.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.closed.find(request_id, &mutation)? {
             return Ok(response);
@@ -614,8 +647,16 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
-        let gate = self.gate(&parse_id(id)?);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let document_id = parse_id(id)?;
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &Mutation::Autosave)
+            })
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
@@ -644,11 +685,9 @@ impl<R: DocumentRepository> Documents<R> {
                     StorageError::Locked(message) => {
                         ApplicationError::new(ErrorCode::DraftInUse, message)
                     }
-                    StorageError::Unavailable(message) => ApplicationError::new(
-                        ErrorCode::StorageFailed,
-                        format!("autosave failed; the session keeps its changes: {message}"),
-                    ),
-                    error => storage_error(error),
+                    error => {
+                        storage_failure(error, "autosave failed; the session keeps its changes")
+                    }
                 })?;
             session.draft_revision = Some(revision);
         }
@@ -672,8 +711,13 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::Recover {
             document: document_id.clone(),
         };
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.recovered.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.recovered.find(request_id, &mutation)? {
             return Ok(response);
@@ -792,8 +836,13 @@ impl<R: DocumentRepository> Documents<R> {
             document: document_id.clone(),
             title: title.map(str::to_owned),
         };
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.copied.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.copied.find(request_id, &mutation)? {
             return Ok(response);
@@ -843,8 +892,13 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::DiscardDraft {
             document: document_id.clone(),
         };
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.drafts_discarded.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.drafts_discarded.find(request_id, &mutation)? {
             return Ok(response);
@@ -893,8 +947,13 @@ impl<R: DocumentRepository> Documents<R> {
             expected_revision,
             title: title.map(str::to_owned),
         };
-        let gate = self.gate(&document_id);
-        let _gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.copied.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
         let mut sessions = self.lock();
         if let Some(response) = sessions.copied.find(request_id, &mutation)? {
             return Ok(response);
@@ -1218,11 +1277,37 @@ fn storage_error(error: StorageError) -> ApplicationError {
             ErrorCode::DocumentUnreadable,
             format!("the stored document is unreadable: {message}"),
         ),
-        StorageError::Locked(message) | StorageError::Unavailable(message) => {
-            ApplicationError::new(
-                ErrorCode::StorageFailed,
-                format!("storage failed: {message}"),
-            )
+        error => storage_failure(error, "storage failed"),
+    }
+}
+
+/// `storage_failed` for a failure that is not a conflict or corrupt data, with `context` in
+/// front of the provider's message.
+fn storage_failure(error: StorageError, context: &str) -> ApplicationError {
+    let (reason, message) = match error {
+        StorageError::Locked(message) => (StorageReason::Busy, message),
+        StorageError::Denied(message) => (StorageReason::ReadOnly, message),
+        StorageError::Unavailable(message) => (StorageReason::Io, message),
+        error @ (StorageError::Conflict { .. } | StorageError::Corrupt(_)) => {
+            return storage_error(error);
         }
+    };
+    ApplicationError::storage_failed(reason, format!("{context}: {message}"))
+}
+
+fn refused(refusal: Refusal) -> ApplicationError {
+    match refusal {
+        Refusal::InProgress => ApplicationError::new(
+            ErrorCode::RequestInProgress,
+            "a request with this request_id is still running; ask again for its outcome",
+        ),
+        Refusal::Busy => ApplicationError::storage_failed(
+            StorageReason::Busy,
+            format!(
+                "the document stayed busy with other requests for {} seconds; nothing was \
+                 changed, and retrying later can succeed",
+                TURN_WAIT.as_secs()
+            ),
+        ),
     }
 }

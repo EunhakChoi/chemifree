@@ -535,8 +535,16 @@ impl DocumentRepository for FileDocumentRepository {
     }
 }
 
+/// A failed file operation: `Denied` when storage refused it (permissions or a read-only file
+/// system), `Unavailable` otherwise.
 fn unavailable(action: &str, path: &Path, error: &io::Error) -> StorageError {
-    StorageError::Unavailable(format!("could not {action} {}: {error}", path.display()))
+    let message = format!("could not {action} {}: {error}", path.display());
+    match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+            StorageError::Denied(message)
+        }
+        _ => StorageError::Unavailable(message),
+    }
 }
 
 #[cfg(unix)]
@@ -1119,5 +1127,37 @@ mod tests {
         store.write_draft(&draft).unwrap();
         store.release_draft(document.id());
         assert_eq!(store.claim_draft(document.id()), Ok(Some(Ok(draft))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_refused_by_permissions_is_denied_and_changes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, repository) = scratch();
+        let mut document = drawn(&repository);
+        repository.save(&document, None).unwrap();
+        let base = document.revision();
+        let committed = fs::read(repository.path(document.id())).unwrap();
+        let documents = repository.directory().to_path_buf();
+        fs::set_permissions(&documents, fs::Permissions::from_mode(0o500)).unwrap();
+        // Permissions do not stop a privileged user; there is nothing to check then.
+        let probe = documents.join("probe");
+        if fs::write(&probe, b"").is_ok() {
+            fs::remove_file(&probe).unwrap();
+            fs::set_permissions(&documents, fs::Permissions::from_mode(0o700)).unwrap();
+            eprintln!("skipped: permissions do not apply to this user");
+            return;
+        }
+
+        document.redo().unwrap();
+        let refused = repository.save(&document, Some(base));
+        fs::set_permissions(&documents, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            matches!(refused, Err(StorageError::Denied(_))),
+            "a permission error is Denied, got {refused:?}"
+        );
+        assert_eq!(fs::read(repository.path(document.id())).unwrap(), committed);
+        repository.save(&document, Some(base)).unwrap();
     }
 }
