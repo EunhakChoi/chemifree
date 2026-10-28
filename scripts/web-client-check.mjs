@@ -286,3 +286,12 @@ test('a restore whose reply was lost is not asked of a restarted service', async
   const restores = scripted.writes.filter((write) => write.path.endsWith('/restore'))
   assert.deepEqual(restores.map((write) => write.token), ['token-1', 'token-1'], 'not sent to the restarted service')
 })
+
+test("a session's draft failure is read when present and optional otherwise", async () => {
+  const failing = document('doc-1', 2)
+  failing.session = { ...failing.session, draft_failure: { attempts: 2, retry_in_ms: 4000, message: 'disk full' } }
+  service({ 'GET /api/v1/documents/doc-1': [() => json(200, failing)], 'GET /api/v1/documents/doc-2': [() => json(200, document('doc-2'))] })
+  const client = new DocumentClient()
+  assert.deepEqual((await client.get('doc-1')).session.draft_failure, { attempts: 2, retry_in_ms: 4000, message: 'disk full' })
+  assert.equal((await client.get('doc-2')).session.draft_failure, undefined, 'a service from before the field is still compatible')
+})

@@ -38,6 +38,18 @@ export interface SessionView {
   redo_depth: number
   /** The revision this session's recovery draft holds, or null when it has none. */
   draft_revision: number | null
+  /**
+   * The service's latest failed attempt to draft work the draft does not hold, while it
+   * retries. Added within v1, so a service from before it leaves it out.
+   */
+  draft_failure?: DraftFailureView | null
+}
+
+export interface DraftFailureView {
+  /** Failed attempts in a row. */
+  attempts: number
+  retry_in_ms: number
+  message: string
 }
 
 export type RecoveryState = 'recoverable' | 'outdated' | 'unreadable' | 'in_use'
@@ -227,7 +239,18 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     isCount(session.undo_depth) &&
     isCount(session.redo_depth) &&
     isCountOrNull(session.draft_revision) &&
+    isDraftFailure(session.draft_failure) &&
     isRecovery(value.recovery)
+  )
+}
+
+function isDraftFailure(value: unknown): value is DraftFailureView | null | undefined {
+  return (
+    value == null ||
+    (isRecord(value) &&
+      isCount(value.attempts) &&
+      isCount(value.retry_in_ms) &&
+      typeof value.message === 'string')
   )
 }
 

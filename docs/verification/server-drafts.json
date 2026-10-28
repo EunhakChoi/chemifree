@@ -1,0 +1,45 @@
+{
+  "scope": "Recovery drafts written by the service without a browser: the API process drafts unsaved work on its own schedule, at a normal stop, and retries failures, whether or not any client calls autosave. Storage and recovery only; no chemistry or external formats.",
+  "date": "2026-10-28",
+  "environment": "Linux 6.6 (WSL2), Rust 1.95.0, Node 22.22.2; browser checks with Chromium 141.0.7390.37 (Playwright build v1194) via playwright-core 1.56.1",
+  "design": "Each session keeps a DraftSchedule: a draft is due 2 s after the last change it does not hold, and at most 10 s after the first such change, so continuous editing cannot postpone it. A failure is retried after 2, 5, 15, then every 30 s; edits do not push a retry back, and session.draft_failure ({ attempts, retry_in_ms, message }, added within v1 and optional for clients) reports it until a draft succeeds. A background thread in the API process (DraftWriter) checks every 250 ms and writes due drafts through the same path as client autosaves, so it follows #19's request order: it takes the document's turn (at most 3 s; a busy turn is kept as a failed attempt and retried), and one revision is drafted once whoever comes first. A save or a discarding close settles the schedule; an earlier session's draft or another process's draft is never written over (recovery_pending / draft_in_use, retried). On SIGTERM or Ctrl+C the server stops taking requests, the writer stops, and every session with undrafted work is drafted before exit; failures are logged. The CLI commits every edit and has no sessions to draft.",
+  "checks": {
+    "cargo_test": "Rust tests pass: application lib 8 (turn table 4, draft schedule 4: nothing_is_due_without_unsaved_work, a_draft_follows_a_quiet_period_after_the_last_change, continuous_changes_cannot_postpone_a_draft_past_the_maximum_wait, failures_back_off_and_edits_do_not_push_a_retry_back) and application integration 48, including the_service_drafts_unsaved_work_without_a_client_asking, a_client_autosave_leaves_the_service_nothing_to_draft, failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work, drafting_everything_before_a_stop_ignores_the_schedule, and a_service_draft_due_during_a_stalled_save_waits_its_turn_and_is_retried.",
+    "contract_smoke": "Passes with real API and CLI processes: an edit over HTTP with no autosave call is drafted within the quiet period and survives SIGKILL (recovered exactly, with its undo history); SIGTERM drafts the last edit before exit; continuous edits are drafted no earlier than about 9.5 s and within 13 s; with drafts/ read-only the failure is reported in session.draft_failure and the draft is written on the next retry once the permission is back, clearing the failure. The earlier storage-feedback, document-list, and recovery steps still pass with the writer running.",
+    "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1 with the writer running beside the page's own autosave.",
+    "web_client": "npm run test:client passes 18 cases. New: a session's draft failure is read when present and optional otherwise. Before the field was made optional, 9 existing cases failed: a v1 reply without draft_failure (as from a service before this change) was refused as incompatible_response."
+  },
+  "deliberate_breaks": [
+    {
+      "change": "the service drafts without taking the document's turn",
+      "caught_by": "application test a_service_draft_due_during_a_stalled_save_waits_its_turn_and_is_retried (it did not wait for the turn)"
+    },
+    {
+      "change": "the web client requires session.draft_failure",
+      "caught_by": "web client tests: 9 cases refused older v1 replies as incompatible_response"
+    },
+    {
+      "change": "the background writer never writes due drafts",
+      "caught_by": "contract smoke: the unattended edit was never drafted (draft_revision stayed null)"
+    },
+    {
+      "change": "a normal stop does not draft undrafted work",
+      "caught_by": "contract smoke: 'the stop drafted the last edit'"
+    },
+    {
+      "change": "the maximum wait is dropped, so each edit postpones the draft",
+      "caught_by": "contract smoke: 'drafted while edits continue' (no draft within 13 s of continuous edits); also the schedule unit test continuous_changes_cannot_postpone_a_draft_past_the_maximum_wait"
+    },
+    {
+      "change": "a failed draft is forgotten instead of kept for a retry",
+      "caught_by": "contract smoke: draft_failure was never reported while drafts/ was read-only"
+    }
+  ],
+  "limits": [
+    "Without the web page, up to about 10 seconds of editing (plus the 250 ms check and the write) is lost in a crash; longer while drafting fails or an earlier draft blocks it.",
+    "Drafting writes while holding the process's session table, as client autosaves already did, so a stalled disk delays other requests for that long; the background writer also waits up to 3 s per document whose turn is held, so a stalled save delays other documents' drafts in that pass.",
+    "At a normal stop, each session with undrafted work is drafted in turn; a document whose turn stays busy adds up to 3 s to the stop.",
+    "The web page shows its own autosave state; it does not display session.draft_failure, which is for other clients and diagnostics.",
+    "Drafts never expire and are never cleaned up automatically."
+  ]
+}
