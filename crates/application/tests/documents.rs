@@ -1614,7 +1614,7 @@ fn a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs
     );
 }
 
-/// A saved document titled `title`, closed so the next access opens it from storage.
+/// A document titled `title`, saved at revision 1 and still open in this process.
 fn stored(app: &Application<NoCapabilities, MemoryStore>, title: &str) -> String {
     let id = app.create_document(None, Some(title)).unwrap().document.id;
     app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
@@ -2077,4 +2077,26 @@ fn rename_delete_and_restore_failures_say_whether_retrying_can_help() {
     assert_eq!(app.document(&renamed).unwrap().document.title, "Renamed");
     assert_eq!(app.document(&deleted).unwrap().document.title, "Deleted");
     assert!(app.document(&restored).is_err(), "still in the trash");
+}
+
+#[test]
+fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
+    let (app, _store) = application();
+    let ids: Vec<String> = (0..1001)
+        .map(|_| app.create_document(None, None).unwrap().document.id)
+        .collect();
+    // Deleted last, and last in identifier order ("doc-999" sorts after "doc-1000").
+    let newest = "doc-999".to_owned();
+    assert!(ids.contains(&newest));
+    for id in ids.iter().filter(|id| **id != newest) {
+        app.delete(id, None, 0).unwrap();
+    }
+    app.delete(&newest, None, 0).unwrap();
+
+    let trash = app.list_trash().unwrap();
+    assert_eq!(trash.documents.len(), 1000, "the list is capped");
+    assert_eq!(
+        trash.documents[0].id, newest,
+        "the newest deletion is listed first"
+    );
 }

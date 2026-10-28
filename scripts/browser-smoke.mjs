@@ -1233,6 +1233,22 @@ await trashedItem.getByRole('button', { name: 'Restore' }).click()
 await waitForTitles(['Smoke list beta, renamed', 'Smoke list alpha'])
 await page.getByText('The trash is empty.', { exact: true }).waitFor()
 assert.equal(fileTitle(listed['Smoke list alpha']), 'Smoke list alpha', 'restored as trashed')
+// A rename refused because the document changed elsewhere: the list then shows the document
+// as it is now, and Reload, with no document open, only reads the list again.
+await apiWrite(`/api/v1/documents/${listed['Smoke list beta']}/rename`, {
+  request_id: 'smoke-list-elsewhere',
+  expected_revision: 1,
+  title: 'Smoke list beta, elsewhere',
+})
+await betaItem.getByRole('button', { name: 'Rename Smoke list beta, renamed' }).click()
+await page.getByLabel('Title', { exact: true }).fill('Smoke list beta, mine')
+await page.getByRole('button', { name: 'Rename', exact: true }).click()
+await page.getByText('The document changed', { exact: true }).waitFor()
+await betaItem.getByText('Smoke list beta, elsewhere', { exact: true }).waitFor()
+await page.getByRole('button', { name: 'Reload' }).click()
+await page.getByText('The document changed', { exact: true }).waitFor({ state: 'detached' })
+assert.equal(await page.getByRole('alert').count(), 0, 'Reload leaves no error behind')
+assert.equal(fileTitle(listed['Smoke list beta']), 'Smoke list beta, elsewhere', 'the refused rename changed nothing')
 await page.getByLabel('Search titles').fill('')
 // The list with its search, sort, and per-document actions fits a narrow screen.
 await page.setViewportSize({ width: 320, height: 800 })

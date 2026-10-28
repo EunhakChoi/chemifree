@@ -271,3 +271,18 @@ test('a restore the service refused is reported, not asked again', async () => {
   await assert.rejects(new DocumentClient().restore('doc-1'), { code: 'document_not_found' })
   assert.equal(scripted.writes.length, 1)
 })
+
+test('a restore whose reply was lost is not asked of a restarted service', async () => {
+  // The service restarts while the reply to the first attempt is lost.
+  const scripted = service({
+    '/restore': [
+      () => {
+        scripted.restart()
+        lost()
+      },
+    ],
+  })
+  await assert.rejects(new DocumentClient().restore('doc-1'), { code: 'service_restarted' })
+  const restores = scripted.writes.filter((write) => write.path.endsWith('/restore'))
+  assert.deepEqual(restores.map((write) => write.token), ['token-1', 'token-1'], 'not sent to the restarted service')
+})

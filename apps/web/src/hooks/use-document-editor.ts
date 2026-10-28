@@ -304,8 +304,12 @@ export function useDocumentEditor() {
     rename: useCallback(
       (documentId: string, expectedRevision: number, title: string) =>
         run(async () => {
-          await client.rename(documentId, expectedRevision, title)
-          refreshList()
+          try {
+            await client.rename(documentId, expectedRevision, title)
+          } finally {
+            // Refused or not, the list shows the document's current revision and title.
+            refreshList()
+          }
         }),
       [run, refreshList],
     ),
@@ -325,13 +329,25 @@ export function useDocumentEditor() {
     restore: useCallback(
       (documentId: string) =>
         run(async () => {
-          await client.restore(documentId)
-          refreshList()
+          try {
+            await client.restore(documentId)
+          } finally {
+            // Refused or not (restored elsewhere, say), the lists show where the document is.
+            refreshList()
+          }
         }),
       [run, refreshList],
     ),
-    /** Re-reads the working copy, e.g. after a revision conflict. */
-    reload: useCallback(() => run(async () => setCurrent(await client.get(id()))), [run, setCurrent]),
+    /** Re-reads the list, and the working copy if one is shown, e.g. after a revision conflict. */
+    reload: useCallback(
+      () =>
+        run(async () => {
+          refreshList()
+          const shown = currentRef.current
+          if (shown) setCurrent(await client.get(shown.document.id))
+        }),
+      [run, setCurrent, refreshList],
+    ),
     apply: useCallback(
       (edit: Edit) => {
         const shown = currentRef.current?.document

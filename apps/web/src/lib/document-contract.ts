@@ -496,16 +496,24 @@ export class DocumentClient {
    * from taking effect twice. A lost reply is asked about once more with the same request ID,
    * and while the service reports the request still running it is asked again, so the page
    * learns what happened instead of meeting its own first attempt as a conflict. Any later
-   * repeat needs no record: the precondition refuses it.
+   * repeat needs no record: the precondition refuses it. As for saves, an attempt that may
+   * have run is asked about only in the service process it was sent to.
    */
   private async guarded(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
     const request = { ...body, request_id: requestId() }
+    let sentTo: string | undefined
+    let token: string | undefined
+    const sending = (current: string) => {
+      if (sentTo !== undefined && sentTo !== current) throw restarted(401)
+      token = current
+    }
     let askedAgain = false
     for (let checks = 0; ; ) {
       try {
-        return await this.write(path, request, onRestart)
+        return await this.write(path, request, onRestart, sending)
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
+        if (outcomeOpen(error) && token !== undefined) sentTo ??= token
         if (error.status === 0 && !askedAgain) {
           askedAgain = true
           continue

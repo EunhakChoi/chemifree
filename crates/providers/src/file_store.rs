@@ -131,7 +131,7 @@ impl FileDocumentRepository {
     /// Younger ones may belong to a write in progress in another process.
     pub fn prune_stale_temporaries(&self) {
         let now = SystemTime::now();
-        for directory in [&self.directory, &self.drafts] {
+        for directory in [&self.directory, &self.drafts, &self.trash] {
             let Ok(entries) = fs::read_dir(directory) else {
                 continue;
             };
@@ -557,16 +557,22 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn trash(&self, id: &DocumentId, base_revision: u64) -> Result<(), StorageError> {
-        // Same order as taking a draft's ownership: this, the owner lock, then the save lock.
-        let _taking = self.taking_ownership();
-        let _owner = if self.owns(id) {
-            None
-        } else {
-            Some(self.try_own(id)?.ok_or_else(|| {
-                StorageError::Locked(format!(
-                    "another running process holds the recovery draft of document {id}"
-                ))
-            })?)
+        // The owner lock first, then the save lock, as when taking a draft's ownership. The
+        // process-wide mutex covers only taking the owner lock: waiting for another process's
+        // save and the move itself would otherwise hold up every draft status check. A draft
+        // this process owns cannot be released meanwhile, since the caller holds the
+        // document's turn.
+        let _owner = {
+            let _taking = self.taking_ownership();
+            if self.owns(id) {
+                None
+            } else {
+                Some(self.try_own(id)?.ok_or_else(|| {
+                    StorageError::Locked(format!(
+                        "another running process holds the recovery draft of document {id}"
+                    ))
+                })?)
+            }
         };
         let _lock = self.lock_document(id)?;
         self.settle_interrupted_save(id)?;
@@ -1061,6 +1067,71 @@ mod tests {
             })
         );
         assert_eq!(first.load(document.id()).unwrap(), Some(document));
+    }
+
+    #[test]
+    fn a_trash_waiting_for_another_stores_save_does_not_hold_up_draft_checks() {
+        let (directory, store) = scratch();
+        let store = std::sync::Arc::new(store);
+        let other = FileDocumentRepository::new(directory.path());
+        let trashed = drawn(&store);
+        store.save(&trashed, None).unwrap();
+        let unrelated = drawn(&store);
+        store.save(&unrelated, None).unwrap();
+
+        // Another process is saving the document to be trashed.
+        let lock = other.lock_document(trashed.id()).unwrap();
+        let trashing = std::thread::spawn({
+            let store = std::sync::Arc::clone(&store);
+            let (id, revision) = (trashed.id().clone(), trashed.revision());
+            move || store.trash(&id, revision)
+        });
+        // The trash waits for that save for seconds; checks for other documents in this
+        // process answer meanwhile.
+        for _ in 0..10 {
+            let (answered, answer) = std::sync::mpsc::channel();
+            std::thread::spawn({
+                let (store, id) = (std::sync::Arc::clone(&store), unrelated.id().clone());
+                move || {
+                    let _ = answered.send(store.draft_status(&id));
+                }
+            });
+            let status = answer
+                .recv_timeout(Duration::from_millis(500))
+                .expect("a draft check was held up by the trash waiting for a save lock");
+            assert_eq!(status, Ok(DraftStatus::None));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            !trashing.is_finished(),
+            "the trash still waits for the save lock"
+        );
+        drop(lock);
+        trashing.join().unwrap().unwrap();
+        assert_eq!(store.load(trashed.id()), Ok(None));
+    }
+
+    #[test]
+    fn stale_temporaries_are_pruned_from_documents_drafts_and_the_trash() {
+        let (_directory, store) = scratch();
+        let trashed = drawn(&store);
+        store.save(&trashed, None).unwrap();
+        store.trash(trashed.id(), trashed.revision()).unwrap();
+        let old = SystemTime::now() - STALE_TEMPORARY_AGE - Duration::from_secs(60);
+        let temporaries: Vec<PathBuf> = [store.directory(), &store.drafts, &store.trash]
+            .into_iter()
+            .map(|directory| {
+                fs::create_dir_all(directory).unwrap();
+                let path = directory.join(".doc-x.1.2.tmp");
+                fs::File::create(&path).unwrap().set_modified(old).unwrap();
+                path
+            })
+            .collect();
+        store.prune_stale_temporaries();
+        for path in &temporaries {
+            assert!(!path.exists(), "{} was left behind", path.display());
+        }
+        assert_eq!(store.load_trashed(trashed.id()), Ok(Some(trashed)));
     }
 
     #[test]

@@ -1113,7 +1113,14 @@ impl<R: DocumentRepository> Documents<R> {
 
     /// Trashed documents, most recently trashed first.
     pub(crate) fn list_trash(&self) -> Result<TrashListResponse, ApplicationError> {
-        let entries = self.repository.list_trash().map_err(storage_error)?;
+        let mut entries = self.repository.list_trash().map_err(storage_error)?;
+        // The cap keeps the most recent deletions, which the stamps give without reading the
+        // documents.
+        entries.sort_by(|a, b| {
+            b.deleted_at_ms
+                .cmp(&a.deleted_at_ms)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         let mut documents = Vec::new();
         let mut unreadable = Vec::new();
         for entry in entries.into_iter().take(MAX_LISTED_DOCUMENTS) {
