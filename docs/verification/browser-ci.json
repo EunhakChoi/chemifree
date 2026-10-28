@@ -1,0 +1,41 @@
+{
+  "job": "CI workflow, job browser (.github/workflows/ci.yml)",
+  "date": "2026-10-28",
+  "environment": {
+    "runner": "ubuntu-24.04 (GitHub-hosted)",
+    "browser": "Chromium 141.0.7390.37, Playwright build v1194, installed by `npx playwright-core install --with-deps chromium` from the locked playwright-core 1.56.1",
+    "node": "v22.22.2 (.nvmrc)",
+    "npm": "11.13.0",
+    "rust": "1.95.0"
+  },
+  "policy": "test:browser:routes and test:browser run once each, with no retries and no continue-on-error. CHEMIFREE_SMOKE_NO_SKIPS=1 fails the smoke if any step was skipped. The smoke's records are uploaded as the browser-smoke-attempt-<n> artifact whether it passed or failed, and a missing record fails the upload.",
+  "runs": [
+    {
+      "what": "First run of the job, on the P04 branch",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40637979737",
+      "outcome": "fail",
+      "cause": "The smoke failed at start ('npm did not start'). In GitHub Actions, Vite colors its output even though it is piped, so the ready line never matched the pattern. The uploaded web.log showed the colored line. The failure was reproduced locally with FORCE_COLOR=1, and fixed by ignoring colors when matching (7dd4956).",
+      "artifact": "browser-smoke-attempt-1: results.json (step 'start'), requests.log, api.log, web.log"
+    },
+    {
+      "what": "Deliberate product regression, draft PR #14 (closed, not merged): the web client no longer signals that a write's session token was refused",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40638505391",
+      "outcome": "fail, as intended",
+      "check_job": "pass (it does not cover the web client)",
+      "failed_at": "the step after save_as_copy_reports_an_original_left_open: the copy notice did not end when the service restarted (locator.waitFor timed out after 30 s)",
+      "artifact": "browser-smoke-attempt-1 (557 KB): failure.png (the notice still shown after the restart), editor screenshots up to the failure, results.json, environment.json, requests.log, api.log, web.log"
+    },
+    {
+      "what": "The P04 branch with the fix",
+      "run": "https://github.com/EunhakChoi/chemifree/actions/runs/40638502662",
+      "outcome": "pass",
+      "results": "routes: 0 of 1000 stalled; smoke passed, skipped_steps []",
+      "artifact": "browser-smoke-attempt-1 (801 KB): six screenshots, results.json, environment.json, requests.log, api.log, web.log"
+    }
+  ],
+  "local": {
+    "with_the_ci_browser": "test:browser:routes 0 of 1000 stalled (--unguarded 11 of 1000, exit 1); test:browser with CHEMIFREE_SMOKE_NO_SKIPS=1 passed, also with FORCE_COLOR=1",
+    "forced_root_mutant": "With the run forced to act as root and CHEMIFREE_SMOKE_NO_SKIPS=1, the smoke failed ('every step must run') after listing four skipped steps, and kept failure.png and the logs."
+  },
+  "limits": "Chromium on Linux only. The smoke uses ports 3001 and 5173, so it cannot run twice at once on one runner."
+}
