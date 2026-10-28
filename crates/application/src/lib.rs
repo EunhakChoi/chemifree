@@ -3,6 +3,7 @@
 mod contract;
 mod documents;
 mod draft_schedule;
+mod draft_writer;
 mod error;
 mod repository;
 mod turns;
@@ -26,6 +27,7 @@ pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
 pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
+pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry};
 pub use turns::TURN_WAIT;

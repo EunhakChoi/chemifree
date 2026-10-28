@@ -905,6 +905,7 @@ impl<R: DocumentRepository> Documents<R> {
             }
             return Err(no_longer_open(id));
         };
+        session.recovery_at_write = None;
         if let Err(error) = outcome {
             session
                 .drafting
@@ -925,16 +926,22 @@ impl<R: DocumentRepository> Documents<R> {
     }
 
     /// Documents whose drafts are due at `now` (see [`DraftSchedule`]), except those whose
-    /// draft is being written already.
+    /// draft is being written already and those whose turn is taken (by a save, say): the
+    /// service does not wait for a turn, so they are simply due again on a later pass.
     pub(crate) fn due_drafts(&self, now: Instant) -> Vec<String> {
-        self.lock()
+        let due: Vec<DocumentId> = self
+            .lock()
             .open
             .iter()
             .filter(|(_, session)| {
                 !session.drafting.is_writing()
                     && session.drafting.due_at().is_some_and(|at| at <= now)
             })
-            .map(|(id, _)| id.to_string())
+            .map(|(id, _)| id.clone())
+            .collect();
+        due.into_iter()
+            .filter(|id| !self.turns.is_taken(id))
+            .map(|id| id.to_string())
             .collect()
     }
 

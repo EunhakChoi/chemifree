@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DRAFT_MAX_WAIT, DRAFT_QUIET, DocumentRepository,
-    DocumentResponse, Draft, DraftInfo, DraftStatus, ErrorCode, ListQuery, ListSort,
+    DocumentResponse, Draft, DraftInfo, DraftStatus, DraftWriter, ErrorCode, ListQuery, ListSort,
     MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT, TrashEntry,
 };
 use chemifree_domain::Capability;
@@ -2659,4 +2659,44 @@ fn a_stalled_draft_does_not_keep_the_stop_from_drafting_other_documents() {
     drop(held);
     assert!(stop.join().unwrap().is_empty(), "both were drafted");
     assert!(stored_draft(&store, &slow).is_some());
+}
+
+#[test]
+fn a_stop_waits_for_a_draft_the_service_is_still_writing() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let slow = edited(&app);
+    let held = store.draft_gate.lock().unwrap();
+    let before = store.stalled_drafts_started.load(Ordering::SeqCst);
+    *store.stalled_drafts.lock().unwrap() = Some(DocumentId::parse(&slow).unwrap());
+    let writer = DraftWriter::start(Arc::clone(&app), std::time::Duration::from_millis(10));
+    // The draft falls due after the quiet period; the writer's attempt then stalls in storage.
+    let deadline = later(DRAFT_QUIET + std::time::Duration::from_secs(5));
+    while store.stalled_drafts_started.load(Ordering::SeqCst) == before {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the service started the draft"
+        );
+        std::thread::yield_now();
+    }
+
+    let (finished, finish) = std::sync::mpsc::channel();
+    std::thread::spawn(move || finished.send(writer.finish()).unwrap());
+    // Longer than a stop waits for a document's turn: a stop that only made a last pass would
+    // have given up on the stalled document by now and reported it as busy.
+    assert!(
+        finish
+            .recv_timeout(TURN_WAIT + std::time::Duration::from_millis(500))
+            .is_err(),
+        "the stop waits for the write in progress"
+    );
+    drop(held);
+    let left = finish
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the stop ended once the write did");
+    assert_eq!(left, Vec::new(), "nothing was left undrafted");
+    assert_eq!(
+        stored_draft(&store, &slow).map(|draft| draft.document.revision()),
+        Some(1)
+    );
 }
