@@ -153,7 +153,8 @@ step = 'launch'
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 const environment = {
   browser: `${browser.browserType().name()} ${browser.version()}`,
-  executable: process.env.CHEMIFREE_BROWSER ?? `Playwright's build: ${chromium.executablePath()}`,
+  // Without CHEMIFREE_BROWSER, Playwright picks its own build for the version it was locked to.
+  executable: process.env.CHEMIFREE_BROWSER ?? `Playwright's build for playwright-core`,
   playwright_core: JSON.parse(readFileSync(resolve('node_modules/playwright-core/package.json'), 'utf8')).version,
   node: process.version,
   platform: `${process.platform} ${process.arch}`,
