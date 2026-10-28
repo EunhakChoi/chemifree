@@ -1,0 +1,234 @@
+{
+  "report_version": 1,
+  "suite_version": "1.0.0",
+  "counts": {
+    "accept": {
+      "passed": 8,
+      "failed": 0,
+      "not_run": 4
+    },
+    "reject": {
+      "passed": 4,
+      "failed": 0,
+      "not_run": 1
+    },
+    "total": {
+      "passed": 12,
+      "failed": 0,
+      "not_run": 5
+    }
+  },
+  "results": [
+    {
+      "id": "ops-transaction-all-or-nothing",
+      "title": "A transaction with one bad command changes nothing and names that command",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "ops-revision-no-op",
+      "title": "Effective edits add one revision each; edits that change nothing add none",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "revision",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "ops-undo-redo",
+      "title": "Undo and redo restore exact states as new revisions; a new edit drops the redo branch",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "ops-stale-revision-refused",
+      "title": "An edit, undo, or save based on a stale revision is refused with the current revision",
+      "requirements": [
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "revision",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "ops-delete-atoms-removes-incident-bonds",
+      "title": "Deleting an atom removes exactly its incident bonds, and undo brings them back",
+      "requirements": [
+        "OPS-01",
+        "OPS-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "api-request-id-replay",
+      "title": "Repeating a completed request with the same request_id returns the original reply without applying it again",
+      "requirements": [
+        "API-01",
+        "OPS-02"
+      ],
+      "axis": "idempotency",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "api-request-id-reuse-refused",
+      "title": "Reusing a request_id for a different request is refused and changes nothing",
+      "requirements": [
+        "API-01",
+        "OPS-02"
+      ],
+      "axis": "idempotency",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "persist-fields-across-restart",
+      "title": "A saved drawing reopens after a restart with every atom and bond field and its history",
+      "requirements": [
+        "OPS-02",
+        "MODEL-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "persist-unsaved-lost-at-restart",
+      "title": "Without a save or a recovery draft, edits after the last save are gone after a restart",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "persist-draft-recovered-after-restart",
+      "title": "Unsaved edits in a recovery draft are offered and recovered, with their history, after a restart",
+      "requirements": [
+        "OPS-02"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "validation-out-of-range-refused",
+      "title": "Out-of-range element, charge, isotope, and coordinate values are refused; the limits themselves are accepted",
+      "requirements": [
+        "MODEL-02",
+        "API-01"
+      ],
+      "axis": "validation",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "api-capabilities-report-unimplemented",
+      "title": "Capabilities report chemistry, formats, models, authentication, and Windows integration as not implemented",
+      "requirements": [
+        "API-01"
+      ],
+      "axis": "capability",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null
+    },
+    {
+      "id": "chem-formula-mass",
+      "title": "Molecular formula, average and exact mass of a drawn structure, with isotopes and charge",
+      "requirements": [
+        "CHEM-01"
+      ],
+      "axis": "numeric",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P19",
+        "reason": "No formula or mass calculation exists; the product records atoms as drawn and computes nothing from them."
+      }
+    },
+    {
+      "id": "codec-molfile-round-trip",
+      "title": "A V2000 molfile read and written back keeps its connection table, with losses reported",
+      "requirements": [
+        "CODEC-03",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P20",
+        "reason": "No chemical file reader or writer exists; import and export are not implemented."
+      }
+    },
+    {
+      "id": "model-graph-scene-separation",
+      "title": "Two scene instances of one chemical graph move independently while the graph stays the same",
+      "requirements": [
+        "MODEL-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P09",
+        "reason": "The document keeps one position per atom; there is no separate scene model yet."
+      }
+    },
+    {
+      "id": "model-hydrogen-states",
+      "title": "Explicit, inferred, and unknown hydrogen counts survive editing, saving, and reopening",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P10",
+        "reason": "Atoms carry element, charge, and isotope only; hydrogen states are not represented."
+      }
+    },
+    {
+      "id": "api-operation-version-refused",
+      "title": "A request for an operation version the service does not support is refused with a structured error",
+      "requirements": [
+        "API-01",
+        "QUALITY-01"
+      ],
+      "axis": "contract",
+      "kind": "reject",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P13",
+        "reason": "Only the v1 document contract exists; there are no per-operation versions to negotiate."
+      }
+    }
+  ]
+}

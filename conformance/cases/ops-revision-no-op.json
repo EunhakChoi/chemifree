@@ -1,0 +1,32 @@
+{
+  "id": "ops-revision-no-op",
+  "title": "Effective edits add one revision each; edits that change nothing add none",
+  "requirements": ["OPS-02"],
+  "axis": "revision",
+  "kind": "accept",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Revisions" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 10, "y": 10 } }],
+      "expect": { "document": { "revision": 1 }, "session": { "undo_depth": 1, "unsaved_changes": true } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 1,
+      "note": "moving by zero and renaming to the same title leave the document identical",
+      "commands": [
+        { "op": "move_atoms", "atoms": ["a1"], "delta": { "x": 0, "y": 0 } },
+        { "op": "rename", "title": "Revisions" }
+      ],
+      "expect": { "document": { "revision": 1 }, "session": { "undo_depth": 1 } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 1,
+      "commands": [{ "op": "move_atoms", "atoms": ["a1"], "delta": { "x": 5, "y": -2.5 } }],
+      "expect": {
+        "document": { "revision": 2, "atoms": [{ "id": "a1", "position": { "x": 15, "y": 7.5 } }] },
+        "session": { "undo_depth": 2 }
+      }
+    }
+  ]
+}

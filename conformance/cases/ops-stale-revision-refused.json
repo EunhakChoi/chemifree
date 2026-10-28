@@ -1,0 +1,26 @@
+{
+  "id": "ops-stale-revision-refused",
+  "title": "An edit, undo, or save based on a stale revision is refused with the current revision",
+  "requirements": ["OPS-02", "API-01"],
+  "axis": "revision",
+  "kind": "reject",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Stale" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1 } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "O", "position": { "x": 20, "y": 0 } }],
+      "expect_error": { "code": "revision_conflict", "current_revision": 1 }
+    },
+    { "call": "undo", "doc": "d", "expected_revision": 0, "expect_error": { "code": "revision_conflict", "current_revision": 1 } },
+    { "call": "save", "doc": "d", "expected_revision": 0, "expect_error": { "code": "revision_conflict", "current_revision": 1 } },
+    {
+      "call": "get", "doc": "d",
+      "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1", "element": "C" }] }, "session": { "saved_revision": 0, "undo_depth": 1 } }
+    }
+  ]
+}

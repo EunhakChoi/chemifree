@@ -1,0 +1,53 @@
+{
+  "id": "persist-fields-across-restart",
+  "title": "A saved drawing reopens after a restart with every atom and bond field and its history",
+  "requirements": ["OPS-02", "MODEL-02"],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Fields" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "note": "226.4 once came back one unit in the last place off; it must round-trip exactly",
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 12.5, "y": -7.25 } },
+        { "op": "add_atom", "element": "O", "position": { "x": 226.4, "y": 0.1 }, "bond_to": { "atom": "$0", "order": "double" } },
+        { "op": "add_atom", "element": "Og", "position": { "x": -100000, "y": 100000 } },
+        { "op": "update_atom", "atom": "a2", "charge": -1, "isotope": 18 },
+        { "op": "update_atom", "atom": "a1", "isotope": 13 },
+        { "op": "update_atom", "atom": "a3", "charge": 8 },
+        { "op": "add_bond", "begin": "a1", "end": "a3", "order": "triple" },
+        { "op": "rename", "title": "Fields kept" }
+      ],
+      "expect": { "document": { "revision": 1 } }
+    },
+    { "call": "save", "doc": "d", "expected_revision": 1, "expect": { "session": { "saved_revision": 1, "unsaved_changes": false } } },
+    { "call": "restart" },
+    {
+      "call": "get", "doc": "d",
+      "expect": {
+        "api_version": "v1",
+        "document": {
+          "title": "Fields kept",
+          "revision": 1,
+          "atoms": [
+            { "id": "a1", "element": "C", "charge": 0, "isotope": 13, "position": { "x": 12.5, "y": -7.25 } },
+            { "id": "a2", "element": "O", "charge": -1, "isotope": 18, "position": { "x": 226.4, "y": 0.1 } },
+            { "id": "a3", "element": "Og", "charge": 8, "isotope": null, "position": { "x": -100000, "y": 100000 } }
+          ],
+          "bonds": [
+            { "id": "b1", "begin": "a1", "end": "a2", "order": "double" },
+            { "id": "b2", "begin": "a1", "end": "a3", "order": "triple" }
+          ]
+        },
+        "session": { "saved_revision": 1, "unsaved_changes": false, "undo_depth": 1, "redo_depth": 0 },
+        "recovery": null
+      }
+    },
+    {
+      "call": "undo", "doc": "d", "expected_revision": 1,
+      "note": "the saved history survives the restart",
+      "expect": { "document": { "atoms": [], "bonds": [], "title": "Fields" } }
+    }
+  ]
+}

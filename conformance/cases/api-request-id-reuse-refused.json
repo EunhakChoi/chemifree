@@ -1,0 +1,22 @@
+{
+  "id": "api-request-id-reuse-refused",
+  "title": "Reusing a request_id for a different request is refused and changes nothing",
+  "requirements": ["API-01", "OPS-02"],
+  "axis": "idempotency",
+  "kind": "reject",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Reuse" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0, "request_id": "edit-1",
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1 } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 1, "request_id": "edit-1",
+      "commands": [{ "op": "add_atom", "element": "O", "position": { "x": 20, "y": 0 } }],
+      "expect_error": { "code": "request_id_reused" }
+    },
+    { "call": "undo", "doc": "d", "expected_revision": 1, "request_id": "edit-1", "expect_error": { "code": "request_id_reused" } },
+    { "call": "get", "doc": "d", "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1", "element": "C" }] }, "session": { "undo_depth": 1 } } }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "codec-molfile-round-trip",
+  "title": "A V2000 molfile read and written back keeps its connection table, with losses reported",
+  "requirements": ["CODEC-03", "CODEC-06"],
+  "axis": "encoding",
+  "kind": "accept",
+  "pending": {
+    "followup": "P20",
+    "reason": "No chemical file reader or writer exists; import and export are not implemented."
+  }
+}

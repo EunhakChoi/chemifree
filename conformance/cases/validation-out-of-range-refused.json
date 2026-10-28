@@ -1,0 +1,77 @@
+{
+  "id": "validation-out-of-range-refused",
+  "title": "Out-of-range element, charge, isotope, and coordinate values are refused; the limits themselves are accepted",
+  "requirements": ["MODEL-02", "API-01"],
+  "axis": "validation",
+  "kind": "reject",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Ranges" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "Xx", "position": { "x": 0, "y": 0 } }],
+      "expect_error": { "code": "invalid_command", "command_index": 0 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "note": "symbols are case-sensitive",
+      "commands": [{ "op": "add_atom", "element": "c", "position": { "x": 0, "y": 0 } }],
+      "expect_error": { "code": "invalid_command", "command_index": 0 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 100000.5, "y": 0 } }],
+      "expect_error": { "code": "invalid_command", "command_index": 0 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "update_atom", "atom": "a1", "charge": 9 }
+      ],
+      "expect_error": { "code": "invalid_command", "command_index": 1 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "update_atom", "atom": "a1", "charge": -9 }
+      ],
+      "expect_error": { "code": "invalid_command", "command_index": 1 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "update_atom", "atom": "a1", "isotope": 0 }
+      ],
+      "expect_error": { "code": "invalid_command", "command_index": 1 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "update_atom", "atom": "a1", "isotope": 1000 }
+      ],
+      "expect_error": { "code": "invalid_command", "command_index": 1 }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "note": "the limits: H and Og, charges -8 and 8, mass numbers 1 and 999, coordinates of magnitude 100000",
+      "commands": [
+        { "op": "add_atom", "element": "H", "position": { "x": -100000, "y": 0 } },
+        { "op": "add_atom", "element": "Og", "position": { "x": 100000, "y": 100000 } },
+        { "op": "update_atom", "atom": "a1", "charge": -8, "isotope": 1 },
+        { "op": "update_atom", "atom": "a2", "charge": 8, "isotope": 999 }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            { "id": "a1", "element": "H", "charge": -8, "isotope": 1 },
+            { "id": "a2", "element": "Og", "charge": 8, "isotope": 999 }
+          ]
+        }
+      }
+    }
+  ]
+}

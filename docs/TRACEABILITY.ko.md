@@ -1,0 +1,110 @@
+# 요구사항·공개 선언 추적과 적합성 검사
+
+이 문서는 공개 기능 명세의 요구사항 33개와 공개 선언 inventory를 Chemifree의 실제 구현·검사·로드맵에 잇는 방법을 설명한다. 추적표는 현재 제품(드로잉 편집·저장 slice)의 상태만 기록한다. 화학 계산·파일 형식·배치·명명·예측은 구현되지 않았으며, 어떤 표기도 다른 프로그램과의 동등성을 뜻하지 않는다.
+
+## 파일
+
+| 파일 | 내용 |
+| --- | --- |
+| `docs/traceability/requirements.json` | 요구사항 33개. 각 요구사항은 부분(part)으로 나뉘고, 부분마다 상태·구현 경로·증거·후속 로드맵 항목이 있다. 요구사항마다 아직 다루지 않은 나머지를 담는 catch-all 부분(`catch_all: true`)이 정확히 하나 있다. `operations`는 명세의 연산 이름 중 이 요구사항이 닿는 것을 이 프로젝트가 분류한 것이다. |
+| `docs/traceability/declarations.json` | 공개 선언 2914개를 제안 경로(route) 8개별로 센 수, 출처별·증거 상태별 수, 경로별 상태와 후속 항목. |
+| `conformance/suite.json`, `conformance/cases/*.json` | 버전 있는 적합성 suite와 독립 작성 사례. |
+| `crates/conformance` | 적합성 runner(라이브러리 + `chemifree-conformance` 바이너리). |
+| `docs/verification/conformance-report.json` | 커밋된 실행 기록. |
+| `scripts/traceability-check.mjs` | 추적 검사(`npm run test:traceability`). |
+| `scripts/clean-room-check.mjs` | 공개 저장소 검사(`npm run test:clean-room`). |
+| `scripts/repository-checks.test.mjs` | 두 검사의 테스트(`npm run test:checks`). |
+| `docs/roadmap/implementation-roadmap.json` | 후속 항목이 가리키는 로드맵. 완료 행은 `delivered {prs, merge_commit, main_ci}`를 가진다. |
+
+명세 파일은 저장소에 복사하지 않는다. `sources`(declarations.json은 `source`)에 명세 작업 공간 기준 경로와 SHA-256만 남기고, 거기서 얻은 ID·개수·직접 쓴 짧은 요약만 기록한다.
+
+## 상태와 도출 규칙
+
+부분의 상태:
+
+- `implemented`: 그 부분이 말하는 동작이 제품에 있고, 증거가 그 동작을 실제로 실행한다.
+- `partial`: 일부만 있다. 후속 항목이 필요하다.
+- `not_implemented`: 없다. 후속 항목이 필요하다.
+- `unverified`: 있을 수 있으나 그 동작을 실행하는 증거가 없다.
+- `intentionally_rejected`: 제품이 하지 않기로 결정한 것이다.
+
+요구사항의 상태는 저장하지만 부분에서 다음 규칙 하나로 도출한 값과 같아야 한다.
+
+1. 모든 부분이 `intentionally_rejected`이면 `intentionally_rejected`.
+2. 모든 부분이 `implemented` 또는 `intentionally_rejected`이면 `implemented`.
+3. 그 밖에 `implemented`나 `partial` 부분이 하나라도 있으면 `partial`.
+4. 그 밖에 `unverified` 부분이 하나라도 있으면 `unverified`.
+5. 그 밖에는 `not_implemented`.
+
+catch-all 부분이 `not_implemented`인 한 요구사항은 `implemented`가 될 수 없다. 요구사항이 `partial`이라는 것은 일부 부분이 구현됐다는 뜻이지 요구사항 대부분이 구현됐다는 뜻이 아니다.
+
+증거는 `종류:대상` 형식이다.
+
+| 종류 | 확인 내용 |
+| --- | --- |
+| `case:<id>` | suite에 있는 사례. `implemented`·`partial` 부분의 증거라면 커밋된 실행 기록에서 `passed`여야 한다(pending·미실행 사례는 증거가 되지 않는다). |
+| `test:<파일>[#<이름>]` | 파일이 있고, 이름이 있으면 그 Rust `fn` 또는 `test('…')`가 파일에 있다. |
+| `smoke:<스크립트>` | 파일이 있고 어떤 npm script가 실행한다. |
+| `report:<파일>` | JSON 기록 파일이 있다. |
+| `check:<npm script>` | `npm run check`가 (중첩된 `npm run`을 따라) 실제로 실행하는 script다. |
+| `doc:<파일>` | 문서가 있다. |
+
+## 적합성 runner
+
+- 사례는 공유 `Application`을 HTTP·CLI 어댑터와 같은 호출로 실행한다(`create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`). 사례마다 새 임시 데이터 디렉터리를 쓰고, `restart`는 같은 디렉터리에서 Application을 다시 만든다(저장소만 남는다).
+- 사례는 요구사항 ID, 축(`graph`, `scene`, `stereo`, `numeric`, `encoding`, `host`, `history`, `revision`, `idempotency`, `persistence`, `validation`, `capability`, `contract`), 종류를 가진다. `accept`는 결과를 보여야 하고 `reject`는 의도된 거절을 보여야 한다. 결과는 passed·failed·not_run으로 종류별로 센다.
+- 아직 실행할 수 없는 사례는 `pending: {followup, reason}`만 가지며 단계가 없고, 그 후속 항목과 함께 not_run으로 보고된다.
+- 기대값은 v1 JSON 응답의 부분집합이다. 객체는 적은 키만, 배열은 같은 길이로 원소별로 비교한다. `{"$contains": [...]}`는 순서와 무관하게 서로 다른 원소가 각 항목과 맞으면 통과한다. 이 연산자 객체는 다른 키를 가질 수 없고 값은 목록이어야 한다(읽을 때 거절하고, 실행 중 만나도 실패). 정수는 정확히(2^53 위에서도 반올림 없이), 실수는 정수와 값으로 비교한다.
+- 읽기는 다음을 거절한다: 호출이 받지 않는 단계 필드, `request_id`를 받지 않는 호출(get·capabilities·restart)의 `request_id`, `create`가 묶기 전에 쓰인 문서, 중복 사례 ID, 형식이 틀린 요구사항 ID, 단계가 있는 pending 사례, 단계 없는 실행 사례, 오류를 기대하는 단계가 없는 `reject` 사례, 성공 응답을 기대하는(`expect`) 단계가 없는 `accept` 사례.
+- 바이너리: `chemifree-conformance [SUITE] [--out PATH]`. `--out`이 있으면 보고서를 그 파일에만 쓰고, 없으면 표준 출력에 쓴다. 값 없는 `--out`, 알 수 없는 옵션, 두 번째 suite 경로는 사용 오류(종료 코드 2)이며, 실패한 사례나 읽을 수 없는 suite는 종료 코드 1이다. 보고서에는 시각·경로가 없어 같은 suite와 제품이면 같은 내용이 나온다.
+
+## 실행
+
+~~~bash
+npm run test:conformance     # target/conformance/report.json에 새로 실행, 실패가 있으면 종료 코드 1
+npm run conformance:record   # docs/verification/conformance-report.json을 다시 씀
+npm run test:checks          # 두 검사 스크립트의 테스트
+npm run test:traceability
+npm run test:clean-room
+npm run check                # 위 검사를 모두 포함
+
+# 로컬 명세 작업 공간이 있을 때(그 루트, spec/을 담은 디렉터리)
+CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:traceability
+CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:clean-room
+~~~
+
+추적 검사는 다음을 확인한다.
+
+- 요구사항 상태 = 부분에서 도출한 상태, 요구사항마다 catch-all 부분 하나.
+- 모든 구현 경로가 있고, 모든 증거가 위 표대로 해석된다.
+- `not_implemented`·`partial` 부분은 후속 항목이 있고 `implemented` 부분은 없다. 후속 항목은 모두 로드맵에 있고 완료가 아니다. 완료된 로드맵 행은 `delivered {prs, merge_commit, main_ci}`를 가진다.
+- 커밋된 실행 기록이 현재 사례와 정확히 같다(ID·제목·요구사항·축·종류·pending 사유·순서, pending ⇔ not_run). 기록된 수가 결과를 다시 센 수와 같고 실패가 없다. `target/conformance/report.json`이 있으면 그 새 실행 결과와 같다.
+- 사례의 요구사항 ID가 추적표에 있고, pending 후속 항목이 열려 있다.
+- 선언 수의 합이 맞고 경로 상태가 구현 수와 맞는다.
+- 아래 현재 집계 문장과 HANDOFF.ko.md의 같은 문장이 도출값과 정확히 같다. 다르면 붙여 넣을 문장을 출력한다.
+- `CHEMIFREE_SPEC_DIR`가 있으면 명세 파일의 SHA-256, 요구사항 ID 33개와 영역, 연산 이름, 경로·출처·증거 상태별 선언 수를 명세에서 다시 센 값과 비교한다. CI처럼 없으면 이 비교만 건너뛴다.
+
+저장소 루트는 스크립트 위치에서 `fileURLToPath`로 구하므로 공백이 있는 경로에서도 동작한다.
+
+## 갱신 규칙
+
+- 기능을 구현하는 PR은 해당 부분을 나누거나 상태를 바꾸고, 그 동작을 실행하는 증거(통과한 사례·테스트·검사)를 함께 넣는다. 증거 없이 `implemented`로 바꾸지 않는다.
+- 사례를 추가·변경하면 `npm run conformance:record`로 실행 기록을 다시 쓰고 함께 커밋한다. 사례 형식을 바꾸면 `suite_version`을, 보고서 형식을 바꾸면 `report_version`을 올린다.
+- pending 사례는 그 후속 항목이 구현될 때 단계를 가진 실행 사례로 바꾼다. 실행할 수 없는 사례를 통과로 세지 않는다.
+- 로드맵 행이 완료되면 그 행을 후속 항목으로 쓰는 부분을 정리한다(완료된 행은 후속 항목이 될 수 없다).
+- 상태가 바뀌어 집계가 달라지면 검사가 출력하는 문장을 이 문서와 HANDOFF.ko.md에 그대로 붙여 넣는다.
+- 명세 파일이 바뀌면 `CHEMIFREE_SPEC_DIR`로 검사를 돌려 해시·수를 확인하고, 이 프로젝트의 판단(상태·후속 항목)을 다시 검토한다.
+
+## 현재 집계
+
+현재 집계: 요구사항 33개 — implemented 0, partial 7, not_implemented 26, unverified 0, intentionally_rejected 0 (partial: MODEL-01, MODEL-02, OPS-01, OPS-02, API-01, QUALITY-01, CLEANROOM-01). 부분 항목 47개 — implemented 13, partial 1, not_implemented 33, unverified 0, intentionally_rejected 0. 공개 선언 2914개 중 구현 0개, 단일 계획 항목 배정 0개. 적합성 사례 17개 — accept 통과 8·실패 0·미실행 4, reject 통과 4·실패 0·미실행 1.
+
+partial인 7개는 드로잉 slice가 실제로 다루는 부분 때문이다: 안정 ID와 참조 무결성(MODEL-01), 그린 그대로의 원소·전하·동위원소 기록과 범위 거절(MODEL-02), 원자 삭제 시 연결 결합 제거(OPS-01), 원자적 트랜잭션·revision·Undo/Redo·저장/복구(OPS-02), v1 응답·오류 envelope·request_id 재전송·capability 보고(API-01), 적합성 runner와 회귀 검사(QUALITY-01), 공개 저장소 검사와 명세 참조 방식(CLEANROOM-01). 각 요구사항의 나머지(그래프/장면 분리, 수소·라디칼·질의, 그룹·포함, 연산별 버전 계약, 차등 비교, DATA reader 등)는 catch-all 부분에 후속 항목과 함께 남아 있다.
+
+## 한계
+
+- 선언 수는 기능 수가 아니다. 2914개에는 collection·메뉴·availability·상태 getter가 포함되며, 경로는 설계 분류일 뿐이다. 아직 단일 계획 항목에 배정된 선언은 0개이고 구현된 선언도 0개다. 경로의 후속 항목은 그 경로를 다룰 것으로 보는 로드맵 항목이며, 각 항목이 어떤 선언을 구현하는지는 그 PR에서 정한다.
+- 통과한 사례는 사례가 확인하는 것만 보여 준다. 드로잉 편집·저장 동작의 검사이며 화학적 정확성이나 다른 프로그램과의 호환성 증거가 아니다.
+- 상태와 후속 항목 배정은 이 프로젝트의 판단이다. 검사는 형식·참조·일관성을 강제하지만 판단이 옳은지는 리뷰가 확인해야 한다.
+- clean-room 검사는 Git이 추적하는 파일의 경로·바이트·단어를 본다. 복사본과 산출물(로컬 전용 경로, 실행 파일, 큰 파일, 명세가 기술하는 프로그램의 이름, 명세 파일과 바이트가 같은 파일)은 잡지만, 바꿔 쓰거나 다시 인코딩하거나 나눈 비공개 자료는 잡지 못한다. 이름은 소문자 단어의 SHA-256으로만 저장되어 있어 검사 파일에도 이름이 없으며, 영문자 단어 단위로(제품 이름은 더 긴 단어 안에서도) 비교한다. 띄어 쓰거나 다른 문자로 바꾼 표기는 잡지 못한다.
+- 명세 비교는 `CHEMIFREE_SPEC_DIR`가 있을 때만 실행된다. CI에는 명세가 없으므로 CI 통과는 해시·ID·수가 명세와 같다는 증거가 아니다.

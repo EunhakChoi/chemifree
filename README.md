@@ -59,7 +59,12 @@ npm run test:client      # Web client against a scripted service: unknown outcom
 npm run build:web        # Production web assets in apps/web/dist
 npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
+npm run test:conformance # Versioned conformance suite; fresh report in target/conformance/report.json
+npm run test:checks      # Tests of the traceability and clean-room checks
+npm run test:traceability  # Requirement/declaration traceability against code, cases, roadmap, and docs
+npm run test:clean-room  # Tracked files: no local-only paths, executables, specified names, or spec copies
 npm run check            # All of the above
+npm run conformance:record   # Rewrite docs/verification/conformance-report.json from a fresh run
 npm run build            # Web assets and debug Rust binaries
 npm run test:browser     # Browser smoke (needs Chrome or Playwright's Chromium; CI job `browser`)
 npm run test:browser:routes  # The Playwright race behind #8 and the smoke's guard against it
@@ -85,6 +90,8 @@ CI runs both browser checks in the `browser` job, set up as follows:
 
 [docs/verification/browser-ci.json](docs/verification/browser-ci.json) records the job's runs, including one where a deliberately broken build failed it. The smoke keeps Playwright's request interception on for the whole run: otherwise a request sent just as the last step route is removed can stall in the browser, which made the restart step flaky (#8); `npm run test:browser:routes` reproduces that against a plain server ([docs/verification/browser-route-race.json](docs/verification/browser-route-race.json)).
 
+The conformance runner (`crates/conformance`) loads `conformance/suite.json` and its case files and drives the shared `Application` with the same calls the HTTP and CLI adapters make, on a fresh temporary data directory per case; a `restart` step rebuilds the application on the same directory, so only storage survives. Each case names requirement IDs, an axis, and a kind (`accept` shows a result, `reject` an intentional refusal), and outcomes are counted per kind. Cases that cannot run yet are pending with the roadmap item they wait for and are reported as not run. Passing cases show the drawing slice's editing and persistence behaviour only; they are not evidence of chemistry or file formats. [docs/TRACEABILITY.ko.md](docs/TRACEABILITY.ko.md) explains the traceability files, the status rule, and the checks. With `CHEMIFREE_SPEC_DIR` set to the local specification workspace, `test:traceability` and `test:clean-room` also compare against its `spec/` files; CI runs them without it.
+
 `npm run preview --workspace @chemifree/web` previews built assets on port 4173 and inherits the local API proxy; run the API separately. Vite's preview server is a local verification tool. For a production deployment, serve `/api/v1/*` to the Rust API through the same origin. Hosting, authentication, and a production deployment configuration are future work.
 
 ## Workspace
@@ -99,11 +106,20 @@ crates/
   domain/           Elements, document graph, commands, transactions, change-set history; no dependencies
   application/      Use cases, editing sessions, v1 DTOs, CapabilityCatalog and DocumentRepository ports
   providers/        Capability catalog and the local JSON file repository
+  conformance/      Versioned conformance runner (library + chemifree-conformance binary)
+conformance/
+  suite.json        Suite version and case order
+  cases/            Independently written cases: requirements, axis, kind, steps or pending follow-up
 scripts/
   contract-smoke.mjs HTTP/CLI boundary and document-flow verification
   browser-smoke.mjs  Manual browser verification of the editor
+  traceability-check.mjs, clean-room-check.mjs  Repository checks (tests in repository-checks.test.mjs)
 docs/
   CONTRACT.md       v1 shape, compatibility rules, and capability identifiers
+  TRACEABILITY.ko.md Requirement and declaration traceability: files, status rule, commands, limits
+  traceability/     requirements.json (33 requirements in parts) and declarations.json (per-route counts)
+  verification/     Recorded runs, including conformance-report.json
+  roadmap/          Implementation roadmap (plan IDs, status, delivered PRs)
   architecture.html Detailed architecture and staged design
   SHADCN_REVIEW.ko.md shadcn/ui and @shadcn/lint review
 ```

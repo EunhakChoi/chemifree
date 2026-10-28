@@ -1,0 +1,11 @@
+{
+  "id": "chem-formula-mass",
+  "title": "Molecular formula, average and exact mass of a drawn structure, with isotopes and charge",
+  "requirements": ["CHEM-01"],
+  "axis": "numeric",
+  "kind": "accept",
+  "pending": {
+    "followup": "P19",
+    "reason": "No formula or mass calculation exists; the product records atoms as drawn and computes nothing from them."
+  }
+}

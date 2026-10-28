@@ -8,6 +8,7 @@
 - 공개 저장소: https://github.com/EunhakChoi/chemifree
 - 스캐폴딩·설계 기준 커밋: 90f2b99([CI](https://github.com/EunhakChoi/chemifree/actions/runs/40362091650)), 인계 문서 007a185.
 - 그 이후 첫 수직 기능(문서 생성 → 원자·결합 편집 → Undo/Redo → 저장 → 다시 열기)을 구현했고, 이어서 저장·복구 보강(프로세스 간 저장 잠금, 복구용 자동 저장, 비정상 종료 후 복구, 사본으로 저장)과 저장 피드백(실패 사유, 대기 상한, 응답을 잃은 요청의 결과 확인)을 더했다. 커밋과 CI 결과는 git log와 GitHub Actions에서 확인한다.
+- 로드맵 P08로 요구사항 33개·공개 선언 inventory의 추적표, 버전 있는 적합성 runner와 사례, 추적·clean-room 검사를 더했다(TRACEABILITY.ko.md). 로드맵 자체는 roadmap/implementation-roadmap.json이다.
 - HTML 설계(architecture.html)는 scaffold 코드 기준 119f477의 스냅숏이며, 상단에 이후 변경 안내를 추가했다. 현재 계약은 CONTRACT.md가 기준이다.
 - 이후 문서나 코드가 변경될 수 있으므로 작업 시작 시 git status, git log와 현재 CI를 다시 확인한다. 기존 사용자 변경은 보존한다.
 
@@ -16,9 +17,10 @@
 1. 프로젝트 루트의 AGENTS.md.
 2. 이 문서와 ../README.md.
 3. CONTRACT.md: 현재 v1 계약(문서 API·명령·오류·쓰기 보호·파일 형식)과 버전 정책.
-4. SHADCN_REVIEW.ko.md: UI 도구 선택, 현재 연결 상태와 정책 제안.
-5. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다.
-6. 같은 PC에서 존재한다면 private/SESSION_CONTEXT.ko.md: 승인된 공개 기능 명세의 로컬 경로와 기존 사용자 결정만 담은 보조 인계. Git에 포함하지 않는다.
+4. TRACEABILITY.ko.md: 요구사항·공개 선언 추적표, 상태 도출 규칙, 적합성 runner와 검사. 로드맵은 roadmap/implementation-roadmap.json.
+5. SHADCN_REVIEW.ko.md: UI 도구 선택, 현재 연결 상태와 정책 제안.
+6. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다.
+7. 같은 PC에서 존재한다면 private/SESSION_CONTEXT.ko.md: 승인된 공개 기능 명세의 로컬 경로와 기존 사용자 결정만 담은 보조 인계. Git에 포함하지 않는다.
 
 ## 완료한 기반
 
@@ -30,9 +32,11 @@
 | crates/domain | 원소(1–118), 문서 그래프·안정 ID·참조 불변식, 명령, 원자적 트랜잭션, change-set Undo/Redo, 저장본 복원 검증, 독립 사본(copy_as). 외부 의존성 없음 |
 | crates/application | 세션(작업 사본), expected_revision 충돌, request_id 재전송, 실행 중인 request_id는 다른 잠금 없이 즉시 request_in_progress, 문서별 차례(최대 3초 대기 후 busy), 저장 실패 사유(read_only/busy/io), 저장 커밋 후 ACK, 자동 저장·복구(번호 일관성)·사본, 목록 검색·정렬, 이름 변경·휴지통 이동·복원(같은 차례·request_in_progress 규칙), 공유 DTO, DocumentRepository(초안 소유 계약 포함)·CapabilityCatalog port |
 | crates/providers | 로컬 JSON 파일 저장소(임시 파일 → fsync → rename(커밋 시점) → 가능한 경우 디렉터리 sync, base revision 검사, 손상 파일 거절), 문서별 OS 저장 잠금(locks/), 복구 초안(drafts/, 소유 잠금, 커밋 중 초안 정리), 휴지통(trash/, 저장 잠금·초안 소유 잠금 아래 rename 한 번으로 이동·복원, 권한 거절은 Denied), capability 목록 |
-| 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, test:browser, GitHub Actions(check·browser job) |
+| crates/conformance | 버전 있는 적합성 runner(라이브러리 + chemifree-conformance 바이너리). conformance/suite.json과 사례 파일을 읽어 공유 Application을 사례마다 새 임시 데이터 디렉터리에서 실행하고, restart 단계는 같은 디렉터리에서 Application을 다시 만든다. accept·reject별 passed/failed/not_run, pending 사례는 후속 항목과 함께 not_run |
+| 추적·검사 | docs/traceability(requirements.json, declarations.json), 커밋된 실행 기록 verification/conformance-report.json, scripts/traceability-check.mjs, scripts/clean-room-check.mjs와 그 테스트(repository-checks.test.mjs) |
+| 개발 환경 | npm/Cargo workspaces, lockfiles, npm run dev/check, test:contracts, test:conformance, test:checks, test:traceability, test:clean-room, test:browser, GitHub Actions(check·browser job) |
 
-의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다.
+의존 방향은 Application → Domain, Providers → Application + Domain이다. API와 CLI가 가장 바깥에서 Application과 concrete provider를 조립한다. 적합성 runner도 같은 방식으로 Application과 파일 provider를 조립하는 바깥 adapter다.
 
 HTTP 계약은 health·capabilities·session과 /api/v1/documents 아래 생성·조회·transactions·undo·redo·save·close·autosave·save-as·recover·recover-as-copy·discard-draft다. CLI는 status·capabilities·documents 하위 명령으로 같은 Application을 호출한다. 모든 JSON에는 api_version: v1이 있다. 세부 내용은 CONTRACT.md에 있다.
 
@@ -61,11 +65,17 @@ npm run dev
 
 npm run check
 cargo run --locked -p chemifree-cli -- capabilities --json
+npm run conformance:record   # 사례를 바꾼 뒤 실행 기록을 다시 씀
+CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:traceability   # 로컬에서 명세와 비교
+CHEMIFREE_SPEC_DIR=<명세 작업 공간> npm run test:clean-room
 ~~~
 
 검증된 내용(첫 수직 기능과 저장·복구 보강):
 
-- npm run check: lint, TypeScript, web client 검사(test:client), production build, rustfmt, clippy, Rust 테스트 81개(domain 20, application 35, providers 17, api 9).
+- npm run check: lint, TypeScript, web client 검사(test:client), production build, rustfmt, clippy, Rust 테스트 166개(domain 20, application 66, providers 24, api 9, conformance 47; P08 브랜치에서 cargo test --workspace --locked로 센 수), test:contracts, test:conformance, test:checks, test:traceability, test:clean-room.
+- npm run test:conformance: 적합성 suite 1.0.0을 실행해 target/conformance/report.json에 쓰고 실패가 있으면 종료 코드 1. 실행 사례 12개(트랜잭션 전부 아니면 전무와 command_index, revision·no-op, Undo/Redo와 redo 분기, 낡은 revision 거절, 원자 삭제의 결합 범위, request_id 재전송·재사용 거절, 재시작 후 필드·이력 보존, 재시작 시 미저장 편집 소실, 초안 복구, 범위 밖 입력 거절과 경계값 허용, 미구현 capability 보고)와 pending 5개(분자식·질량 → P19, molfile 왕복 → P20, 그래프/장면 분리 → P09, 수소 상태 → P10, 연산 버전 계약 → P13). 화학·형식 검증이 아니다.
+- npm run test:traceability: 요구사항 상태가 부분에서 도출한 값과 같은지, 구현 경로·증거·후속 항목·로드맵 완료 기록, 실행 기록과 현재 사례의 일치, 아래 현재 집계 문장. CHEMIFREE_SPEC_DIR가 있으면 명세 해시·요구사항 ID·연산·선언 수도 비교한다(CI는 건너뜀).
+- npm run test:clean-room: Git이 추적하는 파일에 로컬 전용 경로(파일·디렉터리·symlink 대상), 실행 파일·네이티브 라이브러리(확장자·magic bytes), 1 MiB 초과 파일(package-lock.json 제외), 명세가 기술하는 프로그램 이름(해시로만 보관), CHEMIFREE_SPEC_DIR가 있으면 명세 파일과 바이트가 같은 파일이 없는지. 바꿔 쓴 비공개 자료는 잡지 못한다.
 - npm run test:client: 웹 클라이언트(document-contract.ts)를 브라우저 없이 Node의 타입 제거 실행으로 불러 각본대로 답하는 서비스에 붙인다. 브라우저로는 순서를 맞출 수 없는 경우(응답을 잃은 생성·사본·저장을 다시 묻는 사이 다른 요청이 서비스 재시작을 발견)를 매번 재현한다. 재시작 뒤에는 옛 request_id를 새 프로세스에 보내지 않고 결과를 알 수 없다고 알리는지, 프록시(Vite)가 연결이 끊겨 돌려준 502를 '응답 없음'으로 다루는지, 세션 토큰 요청이 실패해도 어디로 보냈는지를 잊지 않는지, 다시 물어 받은 생성·사본 응답이 옛 기록일 수 있어 문서를 다시 읽는지, 그 다시 읽기가 실패해도 ID를 유지해 중복 생성하지 않는지, 초안 실패 기록(code·reason)을 읽고 알 수 없는 reason을 거절하는지, 초안 결과 다시 읽기가 읽기 전·응답 중의 서비스 재시작을 알리고 같은 프로세스면 문서를 돌려주는지, 재시작을 알아챈 뒤의 편집이 옛 토큰으로 거절되어 새 프로세스에 그대로 적용되지 않는지, 아직 쓰지 않은 페이지도 문서를 연 뒤의 재시작을 알아채는지, 재시작을 본 뒤 문서를 다시 읽으면 새 프로세스에 묶이는지 확인한다(25개). 같은 문서의 초안이 바뀌어도 사본 복구 요청 키는 같으므로, 한 프로세스에서 같은 문서의 다른 초안을 연달아 사본 복구하면 이전 응답이 재생될 수 있다(두 프로세스가 한 데이터 디렉터리를 쓸 때만 가능).
 - npm run test:contracts: 실제 API·CLI 프로세스와 임시 데이터 디렉터리. HTTP = CLI JSON, 쓰기 보호, 생성→편집→undo/redo→저장→닫기→다시 열기, request_id 재전송·재사용 거절, revision/save 충돌, 저장 실패 후 재시도, API 강제 종료 후 마지막 커밋 복구. 같은 기준에서 동시에 저장하는 CLI 6개(정확히 하나만 커밋), 잠금을 쥔 채 강제 종료된 프로세스 뒤의 저장, API와 CLI의 저장 경쟁, 자동 저장 → SIGKILL → 재시작 → 복구(내용·Undo/Redo·ID·리비전), 초안 버리기와 재시작 후 미재출현, 오래된 초안의 사본 복구, 손상 초안, 자동 저장 실패·재시도, HTTP·CLI 사본 저장과 독립성, 사본 저장 실패 후 원본 보존·재시도, 원본 초안을 지울 수 없을 때(drafts/ 권한 오류) 사본은 커밋되고 원본 세션·초안이 그대로 남으며 응답이 closed: false로 알리는지. 저장 피드백: API의 저장이 잠금 안에서 멈춘 동안 같은 request_id로 다시 물으면 즉시 request_in_progress, 그 뒤에 줄 선 요청(저장·자동 저장·사본)은 3초 뒤, 같은 문서를 저장하려는 CLI는 5초 뒤 busy로 거절되고 아무것도 바뀌지 않음, 끝난 뒤 다시 물으면 다시 쓰지 않고 커밋 결과를 돌려줌, 읽기 전용 documents/는 reason read_only. 잠금 보유 여부는 sleep이 아니라 flock 비차단 시도로 확인한다. 경쟁 재현에는 debug 빌드 전용 CHEMIFREE_TEST_COMMIT_DELAY_MS(저장 잠금 안 대기)를 쓴다. 잠금을 끈 빌드에서는 6개가 모두 커밋되어 이 검사가 실패함을 확인했다.
 - npm run test:browser(로컬, CI browser job에서도 실행): Chrome으로 편집 흐름 전체, 키보드 단축키, 미저장 닫기 확인, 충돌 Reload, 낡은 화면에서 확인한 변경 버리기 거절, 저장 실패·재시도, 읽기 전용 저장소와 CLI가 잠금을 쥔 문서의 안내('Storage is read-only', 'Document busy'), 페이지 제한(10초)보다 늦게 온 저장 응답을 같은 request_id로 다시 물어 '저장됨'으로 확인(한 번만 커밋), 응답이 두 번 끊긴 저장의 'Save not confirmed'와 Check again, 사본 요청이 진행 중일 때 같은 ID로 다시 물어 사본 하나만 생성, CLI와의 저장 충돌, 요청 처리 중 반복 입력(원자 겹침 방지·전하 클릭 누락 방지), 잘못된 동위원소 입력 거절, 거절된 편집 오류가 뒤이은 성공에 지워지지 않음, 응답을 잃은 문서 생성의 재시도(중복 생성 없음), 그 사이 API가 재시작되면 재전송하지 않고 목록 확인 안내, 자동 저장 상태, API 강제 종료 후 Reload → 복구(그림·Undo 이력), 초안 버리기(확인 대화상자), 오래된 초안의 사본 복구와 원본 열기, 자동 저장 실패·Retry now, 편집이 계속되어도 밀리지 않는 재시도, 서비스의 초안 실패 기록 표시(사용자 조치 포함)와 서비스 혼자 하는 재시도(페이지 초안 요청 0회), 기록 첫 읽기가 실패해도 페이지가 옆에서 다시 쓰지 않음, 결과 읽기가 실패하면 다시 읽음, 다른 문서로 옮기면 실패가 보이지 않고 떠난 문서를 읽지 않음, 실패 중 API 재시작 때(아직 쓰지 않고 문서만 연 새 페이지에서도) 새 프로세스의 저장본 대신 '중지'와 그림 유지(API가 다시 뜰 때까지 문서 읽기를 route로 붙잡아 프록시 502를 피함), 기록 필드가 없는 서비스에서는 페이지가 직접 재시도, 재시작 뒤 새 서비스 기준의 초안 상태(이전 초안이 있으면 '일시정지', 버린 뒤 다시 초안 작성), 사본으로 저장(원본 파일 불변), 다른 문서로 넘어간 뒤 도착한 자동 저장 응답 무시, 문서를 떠나기 전 대기 중인 작업의 초안 작성, 다른 클라이언트가 세션을 앞서 나가도 자동 저장이 1초마다 반복되지 않음, 원본 초안을 지울 수 없어(drafts/ 읽기 전용) 원본이 미저장 변경과 함께 남은 사본 저장의 안내·원본 열기, 사본으로 돌아왔을 때와 서비스 재시작 뒤 지난 안내가 사라지는지, 320/390px, dark mode. 결과는 verification/editor-browser-smoke.json.
@@ -106,9 +116,15 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 - 브라우저 smoke에서 초안 버리기·사본 저장 직후 API를 죽이는 단계는 그 작업이 뒤따라 보내는 목록 읽기 응답을 기다린 뒤 죽인다. CI(run 40652695710)에서 강제 종료가 이 읽기를 끊어 Vite 프록시가 502로 답해 한 번 실패했다. 제품 결함이 아니라 테스트 동기화 문제이며 같은 순서가 main에도 있었다.
 - 브라우저 smoke의 '재시작 모의' 단계가 가끔 실패하던 문제(#8)는 제품 결함이 아니라 테스트 동기화 문제였다. Playwright 1.56.1은 마지막 page route가 사라지면(times: 1 route 소진, unroute) 요청 가로채기를 끈다. 그 순간 시작된 요청은 브라우저에 멈춘 채 서버에 닿지 않고 10초 뒤 클라이언트가 중단한다. smoke는 컨텍스트 전체에 통과용 route를 두어 가로채기를 끄지 않는다(scripts/lib/request-interception.mjs). npm run test:browser:routes가 Chemifree 코드 없이 이 경쟁을 재현한다. 재전송 편집 확인은 스피너 상태에만 기대지 않고 실제 200 응답을 기다린다. 실패하면 failure.png, requests.log, api.log(--log-requests), web.log를 남기고 임시 디렉터리를 지우지 않는다. 기록은 verification/browser-route-race.json.
 
+## 추적 현재 집계
+
+현재 집계: 요구사항 33개 — implemented 0, partial 7, not_implemented 26, unverified 0, intentionally_rejected 0 (partial: MODEL-01, MODEL-02, OPS-01, OPS-02, API-01, QUALITY-01, CLEANROOM-01). 부분 항목 47개 — implemented 13, partial 1, not_implemented 33, unverified 0, intentionally_rejected 0. 공개 선언 2914개 중 구현 0개, 단일 계획 항목 배정 0개. 적합성 사례 17개 — accept 통과 8·실패 0·미실행 4, reject 통과 4·실패 0·미실행 1.
+
+이 문장은 test:traceability가 도출값과 비교한다. 상태가 바뀌면 검사가 출력하는 문장을 TRACEABILITY.ko.md와 이곳에 그대로 붙여 넣는다.
+
 ## 다음 구현 단위 제안
 
-사용자 요청이 범위를 정한다. 후보:
+사용자 요청이 범위를 정한다. 로드맵(roadmap/implementation-roadmap.json)의 P08 이후 권장 순서는 P13(확장 기능의 버전 계약과 capability) → P09(화학 그래프와 문서·장면 모델 분리) → P10(수소·라디칼·질의·다양한 결합의 표현) → P11(장면·그룹·선택을 포함하는 트랜잭션과 이력) → P12(문서 스타일과 전역 환경 설정) → P14(외부 DATA registry와 typed loader) → P15(수치 프로필·단위·정밀도 경계)다. 각 PR은 추적표의 해당 부분과 적합성 사례(pending → 실행)를 함께 갱신한다. 그 밖의 후보:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
 2. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion). Chemifree 저장 형식은 손상 입력을 통째로 거절하지만, 외부 형식 가져오기는 공개 명세의 손상 입력 관찰(§Parsing)을 참고해 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.

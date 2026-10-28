@@ -1,0 +1,11 @@
+{
+  "id": "api-operation-version-refused",
+  "title": "A request for an operation version the service does not support is refused with a structured error",
+  "requirements": ["API-01", "QUALITY-01"],
+  "axis": "contract",
+  "kind": "reject",
+  "pending": {
+    "followup": "P13",
+    "reason": "Only the v1 document contract exists; there are no per-operation versions to negotiate."
+  }
+}

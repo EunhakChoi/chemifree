@@ -1,0 +1,24 @@
+{
+  "id": "api-request-id-replay",
+  "title": "Repeating a completed request with the same request_id returns the original reply without applying it again",
+  "requirements": ["API-01", "OPS-02"],
+  "axis": "idempotency",
+  "kind": "accept",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Replay", "request_id": "create-1" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0, "request_id": "edit-1",
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1" }] } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0, "request_id": "edit-1",
+      "note": "the same body again: a lost reply's retry",
+      "commands": [{ "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } }],
+      "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1" }] } }
+    },
+    { "call": "save", "doc": "d", "expected_revision": 1, "request_id": "save-1", "expect": { "session": { "saved_revision": 1 } } },
+    { "call": "save", "doc": "d", "expected_revision": 1, "request_id": "save-1", "expect": { "session": { "saved_revision": 1, "unsaved_changes": false } } },
+    { "call": "get", "doc": "d", "expect": { "document": { "revision": 1, "atoms": [{ "id": "a1" }] }, "session": { "undo_depth": 1 } } }
+  ]
+}

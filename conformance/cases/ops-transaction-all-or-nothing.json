@@ -1,0 +1,40 @@
+{
+  "id": "ops-transaction-all-or-nothing",
+  "title": "A transaction with one bad command changes nothing and names that command",
+  "requirements": ["OPS-02"],
+  "axis": "graph",
+  "kind": "reject",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "All or nothing", "expect": { "document": { "revision": 0, "atoms": [], "bonds": [] } } },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "note": "the third command bonds to an atom that does not exist",
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "add_atom", "element": "O", "position": { "x": 20, "y": 0 } },
+        { "op": "add_bond", "begin": "a1", "end": "a9", "order": "single" }
+      ],
+      "expect_error": { "api_version": "v1", "code": "invalid_command", "command_index": 2 }
+    },
+    {
+      "call": "get", "doc": "d",
+      "expect": { "document": { "revision": 0, "atoms": [], "bonds": [] }, "session": { "undo_depth": 0, "unsaved_changes": false } }
+    },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "note": "identifiers start at a1: the refused transaction allocated none",
+      "commands": [
+        { "op": "add_atom", "element": "C", "position": { "x": 0, "y": 0 } },
+        { "op": "add_atom", "element": "O", "position": { "x": 20, "y": 0 }, "bond_to": { "atom": "$0", "order": "single" } }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [{ "id": "a1", "element": "C" }, { "id": "a2", "element": "O" }],
+          "bonds": [{ "id": "b1", "begin": "a1", "end": "a2", "order": "single" }]
+        },
+        "session": { "undo_depth": 1 }
+      }
+    }
+  ]
+}

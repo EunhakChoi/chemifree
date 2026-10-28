@@ -1,0 +1,28 @@
+{
+  "id": "persist-draft-recovered-after-restart",
+  "title": "Unsaved edits in a recovery draft are offered and recovered, with their history, after a restart",
+  "requirements": ["OPS-02"],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    { "call": "create", "doc": "d", "title": "Drafted" },
+    {
+      "call": "transact", "doc": "d", "expected_revision": 0,
+      "commands": [{ "op": "add_atom", "element": "N", "position": { "x": 3, "y": 4 } }]
+    },
+    { "call": "autosave", "doc": "d", "expect": { "session": { "draft_revision": 1, "unsaved_changes": true } } },
+    { "call": "restart" },
+    {
+      "call": "get", "doc": "d",
+      "expect": { "document": { "revision": 0, "atoms": [] }, "recovery": { "state": "recoverable", "base_revision": 0 } }
+    },
+    {
+      "call": "recover", "doc": "d",
+      "expect": {
+        "document": { "atoms": [{ "id": "a1", "element": "N", "position": { "x": 3, "y": 4 } }] },
+        "session": { "unsaved_changes": true, "undo_depth": 1 },
+        "recovery": null
+      }
+    }
+  ]
+}

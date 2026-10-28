@@ -1,0 +1,11 @@
+{
+  "id": "model-graph-scene-separation",
+  "title": "Two scene instances of one chemical graph move independently while the graph stays the same",
+  "requirements": ["MODEL-01"],
+  "axis": "scene",
+  "kind": "accept",
+  "pending": {
+    "followup": "P09",
+    "reason": "The document keeps one position per atom; there is no separate scene model yet."
+  }
+}

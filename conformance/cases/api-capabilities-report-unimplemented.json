@@ -1,0 +1,27 @@
+{
+  "id": "api-capabilities-report-unimplemented",
+  "title": "Capabilities report chemistry, formats, models, authentication, and Windows integration as not implemented",
+  "requirements": ["API-01"],
+  "axis": "capability",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "capabilities",
+      "expect": {
+        "api_version": "v1",
+        "capabilities": {
+          "$contains": [
+            { "id": "runtime_inspection", "status": "available" },
+            { "id": "document_editing", "status": "available" },
+            { "id": "persistence", "status": "available" },
+            { "id": "structure_analysis", "status": "not_implemented" },
+            { "id": "format_conversion", "status": "not_implemented" },
+            { "id": "local_model_loading", "status": "not_implemented" },
+            { "id": "authentication", "status": "not_implemented" },
+            { "id": "windows_bridge", "status": "not_implemented" }
+          ]
+        }
+      }
+    }
+  ]
+}

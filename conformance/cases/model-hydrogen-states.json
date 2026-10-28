@@ -1,0 +1,11 @@
+{
+  "id": "model-hydrogen-states",
+  "title": "Explicit, inferred, and unknown hydrogen counts survive editing, saving, and reopening",
+  "requirements": ["MODEL-02", "CHEM-02"],
+  "axis": "graph",
+  "kind": "accept",
+  "pending": {
+    "followup": "P10",
+    "reason": "Atoms carry element, charge, and isotope only; hydrogen states are not represented."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "suite_version": "1.0.0",
+  "cases": [
+    "cases/ops-transaction-all-or-nothing.json",
+    "cases/ops-revision-no-op.json",
+    "cases/ops-undo-redo.json",
+    "cases/ops-stale-revision-refused.json",
+    "cases/ops-delete-atoms-removes-incident-bonds.json",
+    "cases/api-request-id-replay.json",
+    "cases/api-request-id-reuse-refused.json",
+    "cases/persist-fields-across-restart.json",
+    "cases/persist-unsaved-lost-at-restart.json",
+    "cases/persist-draft-recovered-after-restart.json",
+    "cases/validation-out-of-range-refused.json",
+    "cases/api-capabilities-report-unimplemented.json",
+    "cases/chem-formula-mass.json",
+    "cases/codec-molfile-round-trip.json",
+    "cases/model-graph-scene-separation.json",
+    "cases/model-hydrogen-states.json",
+    "cases/api-operation-version-refused.json"
+  ]
+}

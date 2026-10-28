@@ -25,7 +25,12 @@
     "test:contracts": "node scripts/contract-smoke.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:browser:routes": "node scripts/browser-route-race.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:contracts"
+    "test:conformance": "cargo run --locked --quiet --package chemifree-conformance -- conformance/suite.json --out target/conformance/report.json",
+    "conformance:record": "cargo run --locked --quiet --package chemifree-conformance -- conformance/suite.json --out docs/verification/conformance-report.json",
+    "test:checks": "node --test scripts/repository-checks.test.mjs",
+    "test:traceability": "node scripts/traceability-check.mjs",
+    "test:clean-room": "node scripts/clean-room-check.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:contracts && npm run test:conformance && npm run test:checks && npm run test:traceability && npm run test:clean-room"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

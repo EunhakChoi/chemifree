@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "about": "Per-route counts of the public declaration inventory. A declaration is one public member or command entry (collections, menus, availability and state getters included), not one user feature; a count of declarations is not a count of features or of tests.",
+  "source": {
+    "path": "spec/phase3-design-v3/declaration-requirements.json",
+    "sha256": "dea395ee57035ed45d0bc1a9fce2696f6ba5512709d6d6436edb46ed61d39ad7",
+    "use": "per-route and per-source counts"
+  },
+  "declarations": 2914,
+  "by_source": {
+    "automation_members": 1872,
+    "command_entries": 905,
+    "control_members": 137
+  },
+  "implemented": 0,
+  "assigned_to_single_plan_entry": 0,
+  "assignment_note": "Routes are design triage. No declaration is assigned to a single plan entry yet; follow-ups name the roadmap items expected to cover a route, and each item must still decide which declarations it implements.",
+  "source_labels": {
+    "automation_members": "public-automation-contracts.json",
+    "command_entries": "public-command-contracts.json",
+    "control_members": "public-control-contracts.json"
+  },
+  "evidence_status_labels": {
+    "declared_results_not_joined": "public declaration; member-specific runtime results not joined in this projection",
+    "declared_with_narrow_observation": "declared-with-narrow-runtime-observation",
+    "declared_without_runtime_link": "declared-without-qualifying-runtime-link",
+    "narrow_action_evidence": "narrow-exact-action-evidence",
+    "narrow_resource_evidence": "narrow-owned-resource-route-evidence",
+    "no_action_link": "no-exact-symbolic-action-link-established"
+  },
+  "routes": [
+    {
+      "route": "document",
+      "summary": "Document objects, settings, and collections exposed for automation.",
+      "declarations": 954,
+      "by_source": {
+        "automation_members": 951,
+        "control_members": 3
+      },
+      "by_evidence_status": {
+        "declared_results_not_joined": 3,
+        "declared_with_narrow_observation": 99,
+        "declared_without_runtime_link": 852
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P09",
+        "P11",
+        "P12",
+        "P32",
+        "P40"
+      ]
+    },
+    {
+      "route": "client_integration",
+      "summary": "Menu and command entries and client-side automation surfaces.",
+      "declarations": 947,
+      "by_source": {
+        "automation_members": 42,
+        "command_entries": 905
+      },
+      "by_evidence_status": {
+        "declared_with_narrow_observation": 1,
+        "declared_without_runtime_link": 41,
+        "narrow_action_evidence": 7,
+        "narrow_resource_evidence": 2,
+        "no_action_link": 896
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P48",
+        "P82",
+        "P83",
+        "P84",
+        "P85"
+      ]
+    },
+    {
+      "route": "render_scene",
+      "summary": "Drawing objects, styles, text, and rendering properties.",
+      "declarations": 570,
+      "by_source": {
+        "automation_members": 570
+      },
+      "by_evidence_status": {
+        "declared_with_narrow_observation": 65,
+        "declared_without_runtime_link": 505
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P12",
+        "P35",
+        "P36",
+        "P38",
+        "P40"
+      ]
+    },
+    {
+      "route": "chem_graph",
+      "summary": "Atom, bond, and fragment members of the chemical graph, including stereo.",
+      "declarations": 174,
+      "by_source": {
+        "automation_members": 174
+      },
+      "by_evidence_status": {
+        "declared_with_narrow_observation": 24,
+        "declared_without_runtime_link": 150
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P10",
+        "P16",
+        "P17",
+        "P25",
+        "P26"
+      ]
+    },
+    {
+      "route": "windows_adapter",
+      "summary": "Windows control and hosting members.",
+      "declarations": 145,
+      "by_source": {
+        "automation_members": 11,
+        "control_members": 134
+      },
+      "by_evidence_status": {
+        "declared_results_not_joined": 134,
+        "declared_with_narrow_observation": 1,
+        "declared_without_runtime_link": 10
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "W01",
+        "W02"
+      ]
+    },
+    {
+      "route": "layout_reaction",
+      "summary": "Reaction and cleanup members.",
+      "declarations": 85,
+      "by_source": {
+        "automation_members": 85
+      },
+      "by_evidence_status": {
+        "declared_with_narrow_observation": 3,
+        "declared_without_runtime_link": 82
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P42",
+        "P47",
+        "P49",
+        "P51"
+      ]
+    },
+    {
+      "route": "chem_properties",
+      "summary": "Computed chemical property members.",
+      "declarations": 33,
+      "by_source": {
+        "automation_members": 33
+      },
+      "by_evidence_status": {
+        "declared_without_runtime_link": 33
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P19",
+        "P58",
+        "P62",
+        "P63"
+      ]
+    },
+    {
+      "route": "codec_chem",
+      "summary": "Chemical text and file conversion members.",
+      "declarations": 6,
+      "by_source": {
+        "automation_members": 6
+      },
+      "by_evidence_status": {
+        "declared_without_runtime_link": 6
+      },
+      "status": "not_implemented",
+      "implemented": 0,
+      "assigned_to_single_plan_entry": 0,
+      "followups": [
+        "P20",
+        "P21",
+        "P48"
+      ]
+    }
+  ]
+}
