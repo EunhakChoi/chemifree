@@ -748,12 +748,25 @@ const clickFor = async (locator, path) => {
   await response
   await waitIdle()
 }
+/**
+ * Draws a bond and waits until the page has taken in the result. The response arrives before
+ * the page renders it, and until then the draft state may still read "saved" for the revision
+ * before, which `waitDraft('saved')` would take for the draft of this edit.
+ */
 const drawPair = async () => {
   await tool('Bond')
   const area = await page.locator('svg[role="img"]').boundingBox()
   const response = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/transactions'))
   await page.mouse.click(area.x + area.width * 0.3, area.y + area.height * 0.7)
-  await response
+  const answered = await response
+  if (answered.ok()) {
+    const { revision } = (await answered.json()).document
+    await page.waitForFunction((value) => {
+      const draft = document.querySelector('[data-testid="draft-state"]')
+      const saved = draft?.getAttribute('data-state') === 'saved' ? /\(revision (\d+)\)/.exec(draft.textContent) : null
+      return saved === null || Number(saved[1]) >= value
+    }, revision)
+  }
   await waitIdle()
 }
 const waitForTitle = (title) =>
