@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, Draft,
     DraftInfo, DraftStatus, ErrorCode, MAX_OPEN_SESSIONS, RecoveryState, StorageError,
+    StorageReason, TURN_WAIT,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -30,8 +31,12 @@ struct MemoryStore {
     drafts: Arc<Mutex<BTreeMap<DocumentId, OwnedDraft>>>,
     next: Arc<AtomicU32>,
     fail_writes: Arc<AtomicBool>,
+    /// When set, writes fail with this error instead.
+    fail_with: Arc<Mutex<Option<StorageError>>>,
     /// Held by a test to stall commits, as another process's save lock would.
     commit_gate: Arc<Mutex<()>>,
+    /// Saves that reached storage, counted before they wait for `commit_gate`.
+    saves_started: Arc<AtomicUsize>,
     process: u32,
 }
 
@@ -56,6 +61,9 @@ impl MemoryStore {
     }
 
     fn failing(&self) -> Result<(), StorageError> {
+        if let Some(error) = self.fail_with.lock().unwrap().clone() {
+            return Err(error);
+        }
         if self.fail_writes.load(Ordering::SeqCst) {
             return Err(StorageError::Unavailable("disk unavailable".into()));
         }
@@ -78,6 +86,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn save(&self, document: &Document, base: Option<u64>) -> Result<(), StorageError> {
+        self.saves_started.fetch_add(1, Ordering::SeqCst);
         let _commit = self.commit_gate.lock().unwrap();
         self.failing()?;
         let mut documents = self.documents.lock().unwrap();
@@ -1232,5 +1241,282 @@ fn recovering_as_a_copy_with_no_session_to_evict_changes_nothing() {
         app.document(&id).unwrap(),
         edited,
         "the source session is as it was"
+    );
+}
+
+/// A document with unsaved changes at revision 1.
+fn edited(app: &Application<NoCapabilities, MemoryStore>) -> String {
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    id
+}
+
+/// Runs `request` on another thread and returns once its save has reached storage, where it
+/// waits while the test holds `store.commit_gate`.
+fn stalled<T: Send + 'static>(
+    store: &MemoryStore,
+    request: impl FnOnce() -> T + Send + 'static,
+) -> std::thread::JoinHandle<T> {
+    let before = store.saves_started.load(Ordering::SeqCst);
+    let running = std::thread::spawn(request);
+    let started = std::time::Instant::now();
+    while store.saves_started.load(Ordering::SeqCst) == before {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the stalled request reached storage"
+        );
+        std::thread::yield_now();
+    }
+    running
+}
+
+/// Runs `request` on another thread and gives up on it after `limit`, so a request that
+/// blocks fails the test instead of hanging it.
+fn within<T: Send + 'static>(
+    limit: std::time::Duration,
+    request: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (answered, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = answered.send(request());
+    });
+    answer.recv_timeout(limit).ok()
+}
+
+#[test]
+fn storage_failures_say_whether_retrying_can_help() {
+    let (app, store) = application();
+    let id = edited(&app);
+    let cases = [
+        (
+            StorageError::Denied("read-only file system".into()),
+            StorageReason::ReadOnly,
+        ),
+        (
+            StorageError::Locked("another process is saving".into()),
+            StorageReason::Busy,
+        ),
+        (
+            StorageError::Unavailable("disk unavailable".into()),
+            StorageReason::Io,
+        ),
+    ];
+    for (error, reason) in cases {
+        *store.fail_with.lock().unwrap() = Some(error.clone());
+        let saved = app.save(&id, None, 1).unwrap_err();
+        assert_eq!(
+            (saved.code, saved.reason),
+            (ErrorCode::StorageFailed, Some(reason)),
+            "save failing with {error:?}"
+        );
+        assert_eq!(
+            saved.to_response().reason,
+            Some(reason.as_str()),
+            "the reason is in the v1 envelope"
+        );
+        // For a draft, a lock held elsewhere means another process owns it.
+        let expected = match reason {
+            StorageReason::Busy => (ErrorCode::DraftInUse, None),
+            reason => (ErrorCode::StorageFailed, Some(reason)),
+        };
+        let autosaved = app.autosave(&id, None).unwrap_err();
+        assert_eq!(
+            (autosaved.code, autosaved.reason),
+            expected,
+            "autosave failing with {error:?}"
+        );
+    }
+    *store.fail_with.lock().unwrap() = None;
+    let document = app.document(&id).unwrap();
+    assert!(
+        document.session.unsaved_changes,
+        "the session kept its changes"
+    );
+    assert_eq!(store.draft_count(), 0, "no draft was written");
+    assert!(!app.save(&id, None, 1).unwrap().session.unsaved_changes);
+}
+
+#[test]
+fn requests_queued_behind_a_stalled_save_are_answered_busy_without_changes() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let documents = store.documents.lock().unwrap().len();
+    let held = store.commit_gate.lock().unwrap();
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    });
+
+    let started = std::time::Instant::now();
+    let queued: Vec<_> = (0..3)
+        .map(|which| {
+            let (app, id) = (Arc::clone(&app), id.clone());
+            std::thread::spawn(move || match which {
+                0 => app.autosave(&id, Some("autosave-1")).map(|_| ()),
+                1 => app.save_as(&id, Some("copy-1"), 1, None).map(|_| ()),
+                _ => app.close(&id, Some("close-1"), true, Some(1)).map(|_| ()),
+            })
+        })
+        .collect();
+    for request in queued {
+        let refused = request.join().unwrap().unwrap_err();
+        assert_eq!(
+            (refused.code, refused.reason),
+            (ErrorCode::StorageFailed, Some(StorageReason::Busy)),
+            "{refused}"
+        );
+    }
+    let waited = started.elapsed();
+    assert!(
+        waited >= TURN_WAIT && waited < TURN_WAIT + std::time::Duration::from_secs(2),
+        "each waited for the turn, side by side ({waited:?})"
+    );
+
+    drop(held);
+    let saved = saving.join().unwrap().unwrap();
+    assert_eq!(saved.session.saved_revision, 1);
+    assert_eq!(
+        store.documents.lock().unwrap().len(),
+        documents,
+        "no copy was made"
+    );
+    assert_eq!(store.draft_count(), 0, "no draft was written");
+    assert_eq!(
+        app.document(&id).unwrap().document.revision,
+        1,
+        "the session was not closed"
+    );
+}
+
+#[test]
+fn a_save_whose_reply_was_lost_is_reported_by_asking_again() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    });
+
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    })
+    .expect("answered at once, not after waiting for its own turn");
+    assert_eq!(asked.unwrap_err().code, ErrorCode::RequestInProgress);
+
+    drop(held);
+    let committed = saving.join().unwrap().unwrap();
+    let saves = store.saves_started.load(Ordering::SeqCst);
+    assert_eq!(
+        app.save(&id, Some("save-1"), 1).unwrap(),
+        committed,
+        "once done, asking again returns the committed save"
+    );
+    assert_eq!(
+        store.saves_started.load(Ordering::SeqCst),
+        saves,
+        "storage was not written again"
+    );
+}
+
+#[test]
+fn a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let committed = app.save(&id, Some("save-1"), 1).unwrap();
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "Second"}])),
+    )
+    .unwrap();
+    let held = store.commit_gate.lock().unwrap();
+    // Another tab's save holds the document's turn.
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-2"), 2)
+    });
+
+    let saves = store.saves_started.load(Ordering::SeqCst);
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    })
+    .expect("answered without waiting for the turn");
+    assert_eq!(asked.unwrap(), committed, "the recorded reply, not busy");
+    assert_eq!(store.saves_started.load(Ordering::SeqCst), saves);
+
+    drop(held);
+    saving.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_copy_asked_about_while_it_writes_is_answered_at_once() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    // The copy's commit stalls while the copy holds the session table.
+    let copying = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save_as(&id, Some("copy-1"), 1, None)
+    });
+
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save_as(&id, Some("copy-1"), 1, None)
+    })
+    .expect("answered without waiting for the session table");
+    assert_eq!(asked.unwrap_err().code, ErrorCode::RequestInProgress);
+
+    drop(held);
+    let copied = copying.join().unwrap().unwrap();
+    let documents = store.documents.lock().unwrap().len();
+    assert_eq!(
+        app.save_as(&id, Some("copy-1"), 1, None).unwrap(),
+        copied,
+        "once done, asking again returns the same copy"
+    );
+    assert_eq!(
+        store.documents.lock().unwrap().len(),
+        documents,
+        "no second copy"
+    );
+}
+
+#[test]
+fn a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let other = app.create_document(None, None).unwrap().document.id;
+    let held = store.commit_gate.lock().unwrap();
+    let copying = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save_as(&id, Some("shared-1"), 1, None)
+    });
+
+    // Copies are remembered per process, so the same request_id names the running copy even
+    // for another document.
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.recover_as_copy(&other, Some("shared-1"), None)
+    })
+    .expect("answered without waiting for the session table");
+    assert_eq!(asked.unwrap_err().code, ErrorCode::RequestInProgress);
+
+    drop(held);
+    copying.join().unwrap().unwrap();
+    assert_eq!(
+        app.recover_as_copy(&other, Some("shared-1"), None)
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestIdReused,
+        "once done, the ID names the copy"
     );
 }

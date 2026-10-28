@@ -311,7 +311,7 @@ export function useDocumentEditor() {
       () => mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'redo', revision(document)))),
       [mutate],
     ),
-    save: useCallback(() => mutate((document) => client.revisionAction(id(), 'save', revision(document))), [mutate]),
+    save: useCallback(() => mutate((document) => client.save(id(), revision(document))), [mutate]),
     close: useCallback(
       (discardUnsaved: boolean) => {
         // The revision on screen when the user confirmed: a discard never drops edits that

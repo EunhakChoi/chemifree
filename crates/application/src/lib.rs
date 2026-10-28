@@ -4,6 +4,7 @@ mod contract;
 mod documents;
 mod error;
 mod repository;
+mod turns;
 
 use chemifree_domain::Capability;
 use serde::Serialize;
@@ -18,8 +19,9 @@ pub use contract::{
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
-pub use error::{ApplicationError, ErrorCode, ErrorResponse};
+pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError};
+pub use turns::TURN_WAIT;
 
 use documents::Documents;
 

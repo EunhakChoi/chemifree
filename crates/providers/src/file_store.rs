@@ -215,7 +215,7 @@ impl FileDocumentRepository {
     /// Waits for the document's save lock. The returned file holds it until dropped.
     fn lock_document(&self, id: &DocumentId) -> Result<File, StorageError> {
         let path = self.locks.join(format!("{id}.lock"));
-        let file = open_lock_file(&path).map_err(|error| unavailable("lock", &path, &error))?;
+        let file = open_lock_file(&path).map_err(|error| write_failed("lock", &path, &error))?;
         let deadline = Instant::now() + SAVE_LOCK_WAIT;
         loop {
             match file.try_lock() {
@@ -229,7 +229,7 @@ impl FileDocumentRepository {
                         SAVE_LOCK_WAIT.as_secs()
                     )));
                 }
-                Err(TryLockError::Error(error)) => return Err(unavailable("lock", &path, &error)),
+                Err(TryLockError::Error(error)) => return Err(write_failed("lock", &path, &error)),
             }
         }
     }
@@ -252,11 +252,11 @@ impl FileDocumentRepository {
     /// Takes the draft's owner lock if no running process holds it.
     fn try_own(&self, id: &DocumentId) -> Result<Option<File>, StorageError> {
         let path = self.drafts.join(format!("{id}.owner"));
-        let file = open_lock_file(&path).map_err(|error| unavailable("lock", &path, &error))?;
+        let file = open_lock_file(&path).map_err(|error| write_failed("lock", &path, &error))?;
         match file.try_lock() {
             Ok(()) => Ok(Some(file)),
             Err(TryLockError::WouldBlock) => Ok(None),
-            Err(TryLockError::Error(error)) => Err(unavailable("lock", &path, &error)),
+            Err(TryLockError::Error(error)) => Err(write_failed("lock", &path, &error)),
         }
     }
 
@@ -302,7 +302,7 @@ impl FileDocumentRepository {
         } else {
             fs::rename(&set_aside, self.draft_path(id))
         };
-        result.map_err(|error| unavailable("settle", &set_aside, &error))?;
+        result.map_err(|error| write_failed("settle", &set_aside, &error))?;
         let _ = sync_directory(&self.drafts);
         Ok(())
     }
@@ -410,14 +410,14 @@ impl DocumentRepository for FileDocumentRepository {
             && match fs::rename(self.draft_path(id), &set_aside) {
                 Ok(()) => true,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-                Err(error) => return Err(unavailable("set aside", &set_aside, &error)),
+                Err(error) => return Err(write_failed("set aside", &set_aside, &error)),
             };
         pause_for_tests();
         if let Err(error) = self.write_atomically(&target, &bytes) {
             if draft_set_aside {
                 let _ = fs::rename(&set_aside, self.draft_path(id));
             }
-            return Err(unavailable("save", &target, &error));
+            return Err(write_failed("save", &target, &error));
         }
         if draft_set_aside {
             // A leftover is settled as superseded by the next save lock holder.
@@ -484,7 +484,7 @@ impl DocumentRepository for FileDocumentRepository {
             )));
         }
         self.write_atomically(&path, &bytes)
-            .map_err(|error| unavailable("write draft", &path, &error))
+            .map_err(|error| write_failed("write draft", &path, &error))
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
@@ -526,7 +526,7 @@ impl DocumentRepository for FileDocumentRepository {
             match fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(unavailable("remove", &path, &error)),
+                Err(error) => return Err(write_failed("remove", &path, &error)),
             }
         }
         let _ = sync_directory(&self.drafts);
@@ -537,6 +537,18 @@ impl DocumentRepository for FileDocumentRepository {
 
 fn unavailable(action: &str, path: &Path, error: &io::Error) -> StorageError {
     StorageError::Unavailable(format!("could not {action} {}: {error}", path.display()))
+}
+
+/// A failed write (or lock, which creates a file): `Denied` when storage refused it
+/// (permissions or a read-only file system), `Unavailable` otherwise. Reads use `unavailable`,
+/// so an unreadable file is not reported as read-only storage.
+fn write_failed(action: &str, path: &Path, error: &io::Error) -> StorageError {
+    match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+            StorageError::Denied(format!("could not {action} {}: {error}", path.display()))
+        }
+        _ => unavailable(action, path, error),
+    }
 }
 
 #[cfg(unix)]
@@ -1119,5 +1131,61 @@ mod tests {
         store.write_draft(&draft).unwrap();
         store.release_draft(document.id());
         assert_eq!(store.claim_draft(document.id()), Ok(Some(Ok(draft))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_refused_by_permissions_is_denied_and_changes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, repository) = scratch();
+        let mut document = drawn(&repository);
+        repository.save(&document, None).unwrap();
+        let base = document.revision();
+        let committed = fs::read(repository.path(document.id())).unwrap();
+        let documents = repository.directory().to_path_buf();
+        fs::set_permissions(&documents, fs::Permissions::from_mode(0o500)).unwrap();
+        // Permissions do not stop a privileged user; there is nothing to check then.
+        let probe = documents.join("probe");
+        if fs::write(&probe, b"").is_ok() {
+            fs::remove_file(&probe).unwrap();
+            fs::set_permissions(&documents, fs::Permissions::from_mode(0o700)).unwrap();
+            eprintln!("skipped: permissions do not apply to this user");
+            return;
+        }
+
+        document.redo().unwrap();
+        let refused = repository.save(&document, Some(base));
+        fs::set_permissions(&documents, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            matches!(refused, Err(StorageError::Denied(_))),
+            "a permission error is Denied, got {refused:?}"
+        );
+        assert_eq!(fs::read(repository.path(document.id())).unwrap(), committed);
+        repository.save(&document, Some(base)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_refused_by_permissions_is_not_reported_as_read_only_storage() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, repository) = scratch();
+        let document = drawn(&repository);
+        repository.save(&document, None).unwrap();
+        let path = repository.path(document.id());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        // Permissions do not stop a privileged user; there is nothing to check then.
+        if fs::read(&path).is_ok() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            eprintln!("skipped: permissions do not apply to this user");
+            return;
+        }
+        let loaded = repository.load(document.id());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            matches!(loaded, Err(StorageError::Unavailable(_))),
+            "an unreadable file is a read failure, got {loaded:?}"
+        );
     }
 }

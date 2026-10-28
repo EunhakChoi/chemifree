@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -99,12 +99,12 @@ let api
 try {
   api = await startApi()
 
-  async function call(path, { method = 'GET', body, headers = {} } = {}) {
+  async function call(path, { method = 'GET', body, headers = {}, timeout = 5_000 } = {}) {
     const response = await fetch(`${api.baseUrl}${path}`, {
       method,
       headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(timeout),
     })
     assert.match(response.headers.get('content-type'), /application\/json/)
     assert.equal(response.headers.get('access-control-allow-origin'), null)
@@ -168,7 +168,7 @@ try {
   assert.deepEqual((await call('/api/v1/documents')).body.documents, [])
 
   // Create → edit → undo/redo → save → close → reopen over HTTP.
-  const write = (path, body) => call(path, { method: 'POST', body, headers: auth })
+  const write = (path, body, timeout) => call(path, { method: 'POST', body, headers: auth, timeout })
   const created = await write('/api/v1/documents', { request_id: 'create-1', title: 'Contract ethanol' })
   assert.equal(created.status, 201)
   const id = created.body.document.id
@@ -221,7 +221,7 @@ try {
   rmSync(file)
   mkdirSync(file)
   const failed = await write(`${doc}/save`, { request_id: 'save-1', expected_revision: 4 })
-  assert.deepEqual([failed.status, failed.body.code], [503, 'storage_failed'])
+  assert.deepEqual([failed.status, failed.body.code, failed.body.reason], [503, 'storage_failed', 'io'])
   assert.equal((await call(doc)).body.session.unsaved_changes, true)
   rmSync(file, { recursive: true })
   writeFileSync(file, committed)
@@ -542,6 +542,98 @@ try {
     assert.ok(!existsSync(draftFile))
   }
 
+  // ── Storage feedback ──────────────────────────────────────────────────────────────────
+  // The API's save of a document pauses inside its save lock, as a slow disk would. While it
+  // does: asked about again, that save is reported as running at once; requests queued
+  // behind it wait 3 s for the document's turn and fail as busy; a CLI save of the same
+  // document waits 5 s for the lock and fails as busy. None of them changes anything, and
+  // each is answered within the time budget. Afterwards, asking about the save again returns
+  // its committed reply without writing again.
+  await restartApi('SIGTERM', { [DELAY]: '15000' })
+  const busyDoc = cli('documents', 'create', '--title', 'Busy', '--json').body.document.id
+  const busyPath = `/api/v1/documents/${busyDoc}`
+  const busyFile = join(dataDir, 'documents', `${busyDoc}.json`)
+  const busyLock = join(dataDir, 'locks', `${busyDoc}.lock`)
+  await write(`${busyPath}/transactions`, {
+    request_id: 'busy-edit',
+    expected_revision: 0,
+    commands: [{ op: 'rename', title: 'Busy, edited' }],
+  })
+  const busyBytes = readFileSync(busyFile)
+  const documentCount = () => readdirSync(join(dataDir, 'documents')).filter((name) => name.endsWith('.json')).length
+  const busyDocuments = documentCount()
+  /** Held once a non-blocking attempt to take the lock is refused. */
+  const lockHeld = (path) => {
+    try {
+      execFileSync('flock', ['--nonblock', '--conflict-exit-code', '9', path, 'true'])
+      return false
+    } catch (error) {
+      if (error.status === 9) return true
+      throw error
+    }
+  }
+  const timed = async (request) => {
+    const started = performance.now()
+    const result = await request
+    return { ...result, ms: performance.now() - started }
+  }
+  const pausedSave = write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }, 30_000)
+  while (!existsSync(busyLock) || !lockHeld(busyLock)) await sleep(20)
+  const asked = await timed(write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }))
+  assert.deepEqual([asked.status, asked.body.code], [409, 'request_in_progress'])
+  assert.ok(asked.ms < 1_000, `answered at once (${Math.round(asked.ms)} ms)`)
+  const cliSave = cliProcess(['documents', 'apply', busyDoc, '--expected-revision', '0', '--json', '--commands',
+    JSON.stringify([{ op: 'rename', title: 'From the CLI' }])])
+  const queued = await Promise.all([
+    timed(write(`${busyPath}/save`, { request_id: 'busy-save-2', expected_revision: 1 }, 15_000)),
+    timed(write(`${busyPath}/autosave`, { request_id: 'busy-autosave' }, 15_000)),
+    timed(write(`${busyPath}/save-as`, { request_id: 'busy-copy', expected_revision: 1 }, 15_000)),
+  ])
+  for (const reply of queued) {
+    assert.deepEqual([reply.status, reply.body.code, reply.body.reason], [503, 'storage_failed', 'busy'])
+    assert.ok(reply.ms < 8_500, `answered within the time budget (${Math.round(reply.ms)} ms)`)
+  }
+  const cliBusy = await cliSave.done
+  assert.deepEqual([cliBusy.status, cliBusy.body.code, cliBusy.body.reason], [1, 'storage_failed', 'busy'])
+  assert.ok(cliBusy.ms < 8_500, `the CLI gave up within the time budget (${cliBusy.ms} ms)`)
+  assert.ok(lockHeld(busyLock), 'the paused save was still running')
+  assert.deepEqual(readFileSync(busyFile), busyBytes, 'nothing was committed meanwhile')
+  assert.equal(documentCount(), busyDocuments, 'no copy was made')
+  assert.ok(!existsSync(join(dataDir, 'drafts', `${busyDoc}.json`)), 'no draft was written')
+  const busySaved = await pausedSave
+  assert.deepEqual([busySaved.status, busySaved.body.session.unsaved_changes], [200, false])
+  const committedAt = statSync(busyFile).mtimeMs
+  const askedAgain = await timed(write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }))
+  assert.deepEqual(askedAgain.body, busySaved.body, 'the committed reply')
+  assert.ok(askedAgain.ms < 1_000, `replayed, not saved again (${Math.round(askedAgain.ms)} ms)`)
+  assert.equal(statSync(busyFile).mtimeMs, committedAt, 'not written again')
+  assert.equal(JSON.parse(readFileSync(busyFile, 'utf8')).document.title, 'Busy, edited')
+  await restartApi('SIGTERM')
+
+  // Read-only storage: the save fails with reason read_only and writes nothing. Permissions
+  // do not stop root, so this step is skipped then.
+  if (process.getuid?.() !== 0) {
+    await write(`${busyPath}/transactions`, {
+      request_id: 'read-only-edit',
+      expected_revision: 1,
+      commands: [{ op: 'rename', title: 'Read-only attempt' }],
+    })
+    const readOnlyBytes = readFileSync(busyFile)
+    const documentsDir = join(dataDir, 'documents')
+    chmodSync(documentsDir, 0o500)
+    let readOnly
+    try {
+      readOnly = await write(`${busyPath}/save`, { request_id: 'read-only-save', expected_revision: 2 })
+    } finally {
+      chmodSync(documentsDir, 0o700)
+    }
+    assert.deepEqual([readOnly.status, readOnly.body.code, readOnly.body.reason], [503, 'storage_failed', 'read_only'])
+    assert.deepEqual(readFileSync(busyFile), readOnlyBytes, 'nothing was written')
+    assert.equal((await call(busyPath)).body.session.unsaved_changes, true, 'the session kept its changes')
+    const writable = await write(`${busyPath}/save`, { request_id: 'read-only-save', expected_revision: 2 })
+    assert.equal(writable.status, 200)
+  }
+
   // At the 64-session limit, recovering a draft as a copy evicts the clean source session when
   // every other session holds unsaved work, and says so.
   const fullSource = (await write('/api/v1/documents', { request_id: 'full-source', title: 'Full table' })).body.document.id
@@ -593,7 +685,8 @@ try {
     'Contract smoke passed: HTTP = CLI; document create/edit/undo/redo/save/reopen, write guards, ' +
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
-      'unreadable, autosave failure, copy at the session limit), and save as copy (including a source draft that cannot be removed) verified.',
+      'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
+      'and storage feedback (lock waits, queued requests, lost replies, read-only storage) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

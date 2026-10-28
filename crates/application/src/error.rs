@@ -23,7 +23,8 @@ pub enum ErrorCode {
     UnsavedChanges,
     /// Stored data changed since this session last loaded or saved it.
     SaveConflict,
-    /// The storage provider failed; the session keeps its unsaved changes.
+    /// The storage provider failed, or the document stayed busy for longer than a request
+    /// waits; `reason` says which. The session keeps its unsaved changes.
     StorageFailed,
     DocumentUnreadable,
     ResourceLimit,
@@ -35,6 +36,8 @@ pub enum ErrorCode {
     /// Storage changed since the draft's base; it can be recovered only as a copy.
     DraftOutdated,
     DraftNotFound,
+    /// A request with this `request_id` is still running; ask again for its outcome.
+    RequestInProgress,
 }
 
 impl ErrorCode {
@@ -56,6 +59,30 @@ impl ErrorCode {
             Self::DraftInUse => "draft_in_use",
             Self::DraftOutdated => "draft_outdated",
             Self::DraftNotFound => "draft_not_found",
+            Self::RequestInProgress => "request_in_progress",
+        }
+    }
+}
+
+/// Why storage failed, so a client can tell whether retrying can help.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StorageReason {
+    /// Storage refused the write (permissions or a read-only file system). Retrying helps
+    /// only after that is fixed.
+    ReadOnly,
+    /// The document stayed busy (another request's turn, or another process's save lock) for
+    /// longer than a request waits. Nothing was changed; retrying later can succeed.
+    Busy,
+    /// Any other read or write failure.
+    Io,
+}
+
+impl StorageReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read_only",
+            Self::Busy => "busy",
+            Self::Io => "io",
         }
     }
 }
@@ -66,6 +93,8 @@ pub struct ApplicationError {
     pub message: String,
     pub current_revision: Option<u64>,
     pub command_index: Option<usize>,
+    /// Set with `StorageFailed`.
+    pub reason: Option<StorageReason>,
 }
 
 impl ApplicationError {
@@ -75,6 +104,15 @@ impl ApplicationError {
             message: message.into(),
             current_revision: None,
             command_index: None,
+            reason: None,
+        }
+    }
+
+    /// `StorageFailed` with its reason.
+    pub fn storage_failed(reason: StorageReason, message: impl Into<String>) -> Self {
+        Self {
+            reason: Some(reason),
+            ..Self::new(ErrorCode::StorageFailed, message)
         }
     }
 
@@ -85,6 +123,7 @@ impl ApplicationError {
             message: self.message.clone(),
             current_revision: self.current_revision,
             command_index: self.command_index,
+            reason: self.reason.map(StorageReason::as_str),
         }
     }
 }
@@ -107,4 +146,6 @@ pub struct ErrorResponse {
     pub current_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
 }

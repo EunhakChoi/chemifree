@@ -136,6 +136,8 @@ export function DocumentWorkspace() {
 /** Errors that report a state to act on rather than a failure. */
 const INFORMATIONAL = new Set([
   'invalid_command',
+  'save_unconfirmed',
+  'request_in_progress',
   'create_unconfirmed',
   'copy_unconfirmed',
   'recovery_pending',
@@ -157,7 +159,9 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
     draft_in_use: 'Draft in use',
     draft_not_found: 'No recovery draft',
     save_conflict: 'Saved elsewhere',
-    storage_failed: 'Save failed',
+    storage_failed: { read_only: 'Storage is read-only', busy: 'Document busy', io: 'Save failed' }[error.reason ?? 'io'],
+    save_unconfirmed: 'Save not confirmed',
+    request_in_progress: 'Still in progress',
     draft_not_written: 'Left work not autosaved',
     invalid_command: 'Edit rejected',
     unreachable: 'Local service unavailable',
@@ -174,6 +178,8 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
           <Button size="sm" variant="outline" onClick={() => void editor.reload()}>
             <RotateCwIcon data-icon="inline-start" aria-hidden="true" />Reload
           </Button>
+        ) : error.code === 'save_unconfirmed' ? (
+          <Button size="sm" variant="outline" onClick={() => void editor.save()}>Check again</Button>
         ) : (
           <Button size="sm" variant="ghost" onClick={editor.dismissError}>Dismiss</Button>
         )}

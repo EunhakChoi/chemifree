@@ -93,20 +93,38 @@ export type Command =
   | { op: 'delete_bonds'; bonds: string[] }
   | { op: 'rename'; title: string }
 
-/** A v1 error envelope, or a transport failure reported with code `unreachable`. */
+/** Why storage failed (`storage_failed`), so the page can say whether retrying can help. */
+export type StorageReason = 'read_only' | 'busy' | 'io'
+
+const isStorageReason = (value: unknown): value is StorageReason =>
+  value === 'read_only' || value === 'busy' || value === 'io'
+
+/** Optional fields of a v1 error envelope. */
+export interface ErrorDetails {
+  currentRevision?: number
+  commandIndex?: number
+  reason?: StorageReason
+}
+
+/**
+ * A v1 error envelope, or a failure found by the client. Status 0 means no reply arrived
+ * (code `unreachable`), so the request may or may not have taken effect.
+ */
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
   readonly currentRevision?: number
   readonly commandIndex?: number
+  readonly reason?: StorageReason
 
-  constructor(code: string, message: string, status: number, currentRevision?: number, commandIndex?: number) {
+  constructor(code: string, message: string, status: number, details: ErrorDetails = {}) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
-    this.currentRevision = currentRevision
-    this.commandIndex = commandIndex
+    this.currentRevision = details.currentRevision
+    this.commandIndex = details.commandIndex
+    this.reason = details.reason
   }
 }
 
@@ -228,6 +246,41 @@ function isClose(value: unknown): value is { discarded_changes: boolean } {
 }
 
 const TIMEOUT_MS = 10_000
+/**
+ * While the service reports that a request whose reply was lost is still running, its
+ * outcome is asked for this often, at most `OUTCOME_CHECKS` times. The service answers every
+ * such request within its own time budget (about 8 s plus the write itself).
+ */
+const OUTCOME_CHECK_INTERVAL_MS = 1000
+const OUTCOME_CHECKS = 12
+const GATEWAY_STATUSES = new Set([502, 503, 504])
+
+function pause(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+/** No reply arrived, or the service still runs the request: either way it may take effect. */
+function outcomeOpen(error: ApiError) {
+  return error.status === 0 || error.code === 'request_in_progress'
+}
+
+/**
+ * A write whose outcome is unknown. `sentTo` is the session token of the service that may
+ * have run it: each service process has its own token, and a different process has no record
+ * of the request, so asking it again with the same ID would run the request a second time.
+ */
+interface Unconfirmed {
+  requestId: string
+  sentTo?: string
+}
+
+function restarted(status: number) {
+  return new ApiError(
+    'service_restarted',
+    'The local service restarted, so unsaved edits it held are gone. Reload to continue from the last save.',
+    status,
+  )
+}
 
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
@@ -237,7 +290,9 @@ export class DocumentClient {
    * they asked for. They are not guarded by a revision, so a retry reuses the request ID and
    * the API replays the document it already committed instead of creating a second one.
    */
-  private unconfirmed = new Map<string, string>()
+  private unconfirmed = new Map<string, Unconfirmed>()
+  /** Saves whose outcome is unknown, by document and revision. */
+  private unconfirmedSaves = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -290,13 +345,16 @@ export class DocumentClient {
     const value: unknown = await response.json().catch(() => null)
     if (!response.ok) {
       if (isRecord(value) && typeof value.code === 'string' && typeof value.message === 'string') {
-        throw new ApiError(
-          value.code,
-          value.message,
-          response.status,
-          isCount(value.current_revision) ? value.current_revision : undefined,
-          isCount(value.command_index) ? value.command_index : undefined,
-        )
+        throw new ApiError(value.code, value.message, response.status, {
+          currentRevision: isCount(value.current_revision) ? value.current_revision : undefined,
+          commandIndex: isCount(value.command_index) ? value.command_index : undefined,
+          reason: isStorageReason(value.reason) ? value.reason : undefined,
+        })
+      }
+      // A gateway status without a v1 body comes from the proxy in front of the service (Vite's
+      // answers 502 when the connection drops): the service's own reply never arrived.
+      if (GATEWAY_STATUSES.has(response.status)) {
+        throw new ApiError('unreachable', `The local service did not answer (HTTP ${response.status} from the proxy).`, 0)
       }
       throw new ApiError('http_error', `The local service returned HTTP ${response.status}.`, response.status)
     }
@@ -307,10 +365,18 @@ export class DocumentClient {
    * A restarted API issues a new token and has lost its working copies, so revisions this
    * page has seen may since name different states. A first create attempt is retried with the
    * new token; an edit to an open document is not, and asks for a reload instead.
+   * `sending` is called with the token each attempt is about to be sent with, and may throw
+   * to stop it.
    */
-  private async write(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
+  private async write(
+    path: string,
+    body: Record<string, unknown>,
+    onRestart: 'retry' | 'reload',
+    sending?: (token: string) => void,
+  ) {
     for (let attempt = 0; ; attempt += 1) {
       const { header, token } = await this.session()
+      sending?.(token)
       try {
         return await this.request('POST', path, body, { [header]: token })
       } catch (error) {
@@ -318,13 +384,7 @@ export class DocumentClient {
         this.token = null
         for (const listener of this.restartListeners) listener()
         if (onRestart === 'retry' && attempt === 0) continue
-        if (onRestart === 'reload') {
-          throw new ApiError(
-            'service_restarted',
-            'The local service restarted, so unsaved edits it held are gone. Reload to continue from the last save.',
-            error.status,
-          )
-        }
+        if (onRestart === 'reload') throw restarted(error.status)
         throw error
       }
     }
@@ -352,36 +412,139 @@ export class DocumentClient {
   /**
    * Sends a write that creates a document at most once. A restarted service has forgotten the
    * request_id of an earlier unanswered attempt, so that attempt is not resent: if it was
-   * committed, a resend would create a second document.
+   * committed, a resend would create a second document. `settle` turns the reply into the
+   * result; `replayed` says the reply may be the service's record of an earlier attempt,
+   * which describes the document as it was then. The request ID is kept until `settle` is
+   * done, so a failure there leaves the request to be asked about again.
    */
-  private async createOnce(key: string, path: string, body: Record<string, unknown>, unknown: ApiError) {
-    const earlier = this.unconfirmed.get(key)
-    const id = earlier ?? requestId()
-    this.unconfirmed.set(key, id)
-    try {
-      const value = await this.write(path, { request_id: id, ...body }, earlier ? 'reload' : 'retry')
+  private async createOnce<T>(
+    key: string,
+    path: string,
+    body: Record<string, unknown>,
+    unknown: ApiError,
+    settle: (value: unknown, replayed: boolean) => Promise<T>,
+  ): Promise<T> {
+    const pending = this.unconfirmed.get(key) ?? { requestId: requestId() }
+    this.unconfirmed.set(key, pending)
+    let token: string | undefined
+    const sending = (current: string) => {
+      // Another request found that the service restarted since the unknown attempt.
+      if (pending.sentTo !== undefined && pending.sentTo !== current) throw restarted(401)
+      token = current
+    }
+    for (let checks = 0; ; checks += 1) {
+      let value: unknown
+      try {
+        value = await this.write(
+          path,
+          { request_id: pending.requestId, ...body },
+          pending.sentTo === undefined ? 'retry' : 'reload',
+          sending,
+        )
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        if (error.code === 'service_restarted') {
+          // The restarted service has forgotten the ID, so a later attempt is a new request.
+          this.unconfirmed.delete(key)
+          throw unknown
+        }
+        // Only an attempt that was sent can have taken effect.
+        if (outcomeOpen(error) && token !== undefined) pending.sentTo = token
+        if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+          await pause(OUTCOME_CHECK_INTERVAL_MS)
+          continue
+        }
+        if (!outcomeOpen(error)) {
+          this.unconfirmed.delete(key)
+          throw error
+        }
+        // The ID is kept, so asking again finds out without creating twice.
+        throw new ApiError(
+          error.code,
+          `${error.message} It may have been carried out; trying again finds out without repeating it.`,
+          error.status,
+        )
+      }
+      const replayed = pending.sentTo !== undefined
+      // The service answered, so the document exists. Until it is shown, the ID is kept, and
+      // trying again asks about it instead of creating another.
+      pending.sentTo = token
+      const result = await settle(value, replayed)
       this.unconfirmed.delete(key)
-      return value
-    } catch (error) {
-      // Status 0 means no answer arrived, so the document may exist; any other failure is an answer.
-      if (!(error instanceof ApiError && error.status === 0)) this.unconfirmed.delete(key)
-      if (error instanceof ApiError && error.code === 'service_restarted') throw unknown
-      throw error
+      return result
+    }
+  }
+
+  /**
+   * Saves the working copy at `expectedRevision`. When no reply arrives the save may have
+   * committed, so the client asks again with the same request_id, at once and then while the
+   * service reports it in progress; the service returns the committed reply rather than
+   * saving twice. If it stays unanswered, the save is reported as `save_unconfirmed`, and
+   * saving the same revision again asks about the same request; saving a later revision is a
+   * new save, which also commits the earlier changes.
+   */
+  async save(id: string, expectedRevision: number) {
+    const key = `${id}:${expectedRevision}`
+    const pending = this.unconfirmedSaves.get(key) ?? { requestId: requestId() }
+    this.unconfirmedSaves.set(key, pending)
+    const request = { request_id: pending.requestId, expected_revision: expectedRevision }
+    let token: string | undefined
+    const sending = (current: string) => {
+      // Another request found that the service restarted since the unknown attempt.
+      if (pending.sentTo !== undefined && pending.sentTo !== current) throw restarted(401)
+      token = current
+    }
+    let askedAgain = false
+    for (let checks = 0; ; ) {
+      try {
+        const value = DocumentClient.document(
+          await this.write(`${documentPath(id)}/save`, request, 'reload', sending),
+        )
+        // This commit covers every earlier revision of the document, so their checks are moot.
+        for (const pending of this.unconfirmedSaves.keys()) {
+          if (pending.startsWith(`${id}:`)) this.unconfirmedSaves.delete(pending)
+        }
+        return value
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        // Only an attempt that was sent can have taken effect.
+        if (outcomeOpen(error) && token !== undefined) pending.sentTo = token
+        if (error.status === 0 && !askedAgain) {
+          askedAgain = true
+          continue
+        }
+        if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+          checks += 1
+          await pause(OUTCOME_CHECK_INTERVAL_MS)
+          continue
+        }
+        if (!outcomeOpen(error)) {
+          this.unconfirmedSaves.delete(key)
+          throw error
+        }
+        throw new ApiError(
+          'save_unconfirmed',
+          'The local service has not confirmed this save, so it may or may not be saved. Check again to ask.',
+          error.status,
+        )
+      }
     }
   }
 
   async create(title?: string) {
-    return DocumentClient.document(
-      await this.createOnce(
-        `create:${title ?? ''}`,
-        '/api/v1/documents',
-        { title },
-        new ApiError(
-          'create_unconfirmed',
-          'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
-          401,
-        ),
+    return this.createOnce(
+      `create:${JSON.stringify(title ?? null)}`,
+      '/api/v1/documents',
+      { title },
+      new ApiError(
+        'create_unconfirmed',
+        'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
+        401,
       ),
+      async (value, replayed) => {
+        const created = DocumentClient.document(value)
+        return replayed ? this.get(created.document.id) : created
+      },
     )
   }
 
@@ -400,26 +563,30 @@ export class DocumentClient {
     )
   }
 
+  /** The copy as it is now, with what became of its source when it was made. */
+  private async settleCopy(value: unknown, replayed: boolean): Promise<CopyResponse> {
+    const copied = DocumentClient.copy(value)
+    return replayed ? { ...(await this.get(copied.document.id)), source: copied.source } : copied
+  }
+
   /** Saves the working copy as a new document; the source returns to its last save. */
   async saveAs(id: string, expectedRevision: number, title?: string) {
-    return DocumentClient.copy(
-      await this.createOnce(
-        `save-as:${id}:${expectedRevision}:${title ?? ''}`,
-        `${documentPath(id)}/save-as`,
-        { expected_revision: expectedRevision, title },
-        DocumentClient.copyUnconfirmed(),
-      ),
+    return this.createOnce(
+      `save-as:${id}:${expectedRevision}:${JSON.stringify(title ?? null)}`,
+      `${documentPath(id)}/save-as`,
+      { expected_revision: expectedRevision, title },
+      DocumentClient.copyUnconfirmed(),
+      (value, replayed) => this.settleCopy(value, replayed),
     )
   }
 
   async recoverAsCopy(id: string, title?: string) {
-    return DocumentClient.copy(
-      await this.createOnce(
-        `recover-as-copy:${id}:${title ?? ''}`,
-        `${documentPath(id)}/recover-as-copy`,
-        { title },
-        DocumentClient.copyUnconfirmed(),
-      ),
+    return this.createOnce(
+      `recover-as-copy:${id}:${JSON.stringify(title ?? null)}`,
+      `${documentPath(id)}/recover-as-copy`,
+      { title },
+      DocumentClient.copyUnconfirmed(),
+      (value, replayed) => this.settleCopy(value, replayed),
     )
   }
 
@@ -453,7 +620,7 @@ export class DocumentClient {
     )
   }
 
-  async revisionAction(id: string, action: 'undo' | 'redo' | 'save', expectedRevision: number) {
+  async revisionAction(id: string, action: 'undo' | 'redo', expectedRevision: number) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/${action}`,
