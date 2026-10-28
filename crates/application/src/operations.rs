@@ -21,6 +21,7 @@ use serde_json::{Map, Value};
 use crate::contract::{CommandDto, DocumentResponse, DocumentView, RecoveryView, SessionView};
 use crate::documents::validate_request_id;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
+use crate::json;
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 
 /// The operation contract version this service speaks.
@@ -654,13 +655,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// Runs one request of the operation contract, given as UTF-8 JSON, and returns its
     /// reply. Every request gets a reply; nothing here panics on input.
     pub fn execute(&self, request: &[u8]) -> OperationResponse {
-        let value: Value = match serde_json::from_slice(request) {
+        // A repeated key is refused rather than resolved, so a request means the same thing to
+        // every reader of it.
+        let value = match json::parse_strict(request) {
             Ok(value) => value,
             Err(error) => {
                 return malformed(
                     None,
                     None,
-                    format!("The request is not UTF-8 JSON: {error}"),
+                    format!("The request is not UTF-8 JSON without repeated keys: {error}"),
                 );
             }
         };
@@ -677,10 +680,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             .map(str::to_owned);
         let echo = || (request_id.clone(), operation_name.clone());
 
-        match fields.get("contract") {
-            Some(Value::Number(number))
-                if number.as_u64() == Some(u64::from(OPERATION_CONTRACT)) => {}
-            Some(Value::Number(number)) => {
+        match fields.get("contract").and_then(Value::as_u64) {
+            Some(version) if version == u64::from(OPERATION_CONTRACT) => {}
+            Some(version) => {
                 let (id, op) = echo();
                 let mut details = Map::new();
                 details.insert("supported".into(), Value::from(vec![OPERATION_CONTRACT]));
@@ -690,17 +692,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Outcome::Unsupported,
                     diagnostic(
                         "unsupported_contract",
-                        format!("Operation contract {number} is not supported."),
+                        format!("Operation contract {version} is not supported."),
                         details,
                     ),
                 );
             }
-            _ => {
+            None => {
                 let (id, op) = echo();
                 return malformed(
                     id,
                     op,
-                    "contract must be the operation contract version, a number.",
+                    "contract must be the operation contract version, a non-negative integer.",
                 );
             }
         }

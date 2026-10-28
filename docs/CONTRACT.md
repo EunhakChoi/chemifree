@@ -53,13 +53,13 @@ Capabilities: `{ api_version, capabilities: [{ id, label, status, description }]
 
 One request and reply shape for every operation, named and versioned apart from the HTTP routes above. HTTP and the CLI pass the request bytes to the same `Application::execute`, so both give the same reply, error codes included. Rust types: `crates/application/src/operations.rs`; vocabulary (operation names, profiles, representation, execution): `crates/domain/src/operation.rs`.
 
-Request: `{ "contract": 1, "request_id", "profile", "operation", "parameters": {} }`. All five fields are required and no others are allowed. `profile` is `preserve-semantics` (keep document meaning; report what is lost) or `legacy-observed` (reproduce another program's observed behavior: nothing runs under it except `capabilities.inspect`, which answers `profile_unavailable` for the rest). There is no default profile.
+Request: `{ "contract": 1, "request_id", "profile", "operation", "parameters": {} }`. All five fields are required and no others are allowed. `profile` is `preserve-semantics` (keep document meaning; report what is lost) or `legacy-observed` (reproduce another program's observed behavior: nothing runs under it except `capabilities.inspect`; every other operation is answered `unsupported` with the diagnostic `profile_unavailable`). There is no default profile.
 
 Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_revision, result, model_id, diagnostics, loss_report }`.
 
 - `envelope` is `operation_result`, or `protocol_error` when the request could not be read as an operation (`profile` is then null, and `request_id` and `operation` are null when they could not be read).
 - `outcome`: `ok` (it ran; this says nothing about chemical correctness), `partial` (it ran and `loss_report` lists what it could not keep; no operation reports loss yet), `error`, or `unsupported`. `result` is null unless the outcome is `ok` or `partial`.
-- `document_revision`: the document's revision afterwards, or the current one with a revision conflict; null when no document is involved.
+- `document_revision`: the document's revision after a document operation that succeeded, or the current one with a revision conflict; null otherwise (no document involved, `document.close`, or a failure that reports no revision).
 - `model_id`: the model or method that produced the result; null, because no result needs one yet.
 - `diagnostics`: `[{ code, severity, message, path, details }]`, `severity` ∈ `info | warning | error`. `path` points into the request (`parameters.commands[2]`) or is null.
 - `loss_report`: `[{ feature, source_path, disposition, reason, semantic_impact }]`, `disposition` ∈ `retained | normalized | dropped | rejected | unknown`, `semantic_impact` ∈ `none | chemistry | document | geometry | stereo | rendering | unknown`. Always empty so far: no operation converts or drops content.
@@ -81,15 +81,15 @@ Protocol errors (`envelope: "protocol_error"`):
 
 | Code | Outcome | When |
 | --- | --- | --- |
-| `malformed_request` | `error` | Not JSON, not an object, a missing or mistyped field, or an unknown field |
-| `unsupported_contract` | `unsupported` | `contract` is another number; `details.supported` lists the accepted versions |
+| `malformed_request` | `error` | Not JSON, not an object, a key repeated in any object, a missing or mistyped field (`contract` must be a non-negative integer), or an unknown field; over HTTP also a body that could not be read (400) |
+| `unsupported_contract` | `unsupported` | `contract` is another non-negative integer; `details.supported` lists the accepted versions |
 | `invalid_request` | `error` | `request_id` breaks the v1 rule (1–64 of `[A-Za-z0-9_-]`) |
 | `unknown_operation` | `unsupported` | No such operation; the name is echoed |
 | `unknown_profile` | `error` | No such profile |
-| `resource_limit` | `error` | Larger than the entry point reads: 256 KiB over HTTP (413), 1 MiB per CLI line (the line is skipped and answered) |
-| `unsupported_media_type` | `error` | HTTP without `Content-Type: application/json` (415) |
+| `resource_limit` | `error` | Larger than the entry point reads: 256 KiB over HTTP (413), 1 MiB per CLI request, not counting its line ending (the rest of the line is skipped and the request answered) |
+| `unsupported_media_type` | `error` | HTTP without a JSON `Content-Type`, `application/json` or `application/*+json` as on the v1 routes (415) |
 
-HTTP answers 200 with every operation result, whatever its outcome, and 400 with a protocol error. The route needs the session token like other writes. `chemifree operations` reads one JSON request per line (a line ending, `\n` or `\r\n`, is not part of it) and writes one compact reply per line, in order; its sessions last for the process, so only a `document.save` keeps edits.
+HTTP answers 200 with every operation result, whatever its outcome, and 400 with a protocol error. The route needs the session token like other writes. `chemifree operations` reads one JSON request per line (a line ending, `\n` or `\r\n`, is not part of it) and writes one compact reply per request, in order; blank lines are skipped without a reply. Its sessions last for the process and it writes no recovery drafts, so only a `document.save` keeps edits, and a session's draft fields can differ from the API's, which drafts open sessions in the background.
 
 Version transitions. Within contract 1, new operations, new optional parameters, new reply and catalog fields, new diagnostic codes, and new sub-operations may be added; clients ignore unknown fields and treat an unknown diagnostic code by its outcome. Removing or renaming anything, changing a type or a default, making a parameter required, or adding values to `outcome`, `envelope`, `representation`, `execution`, `severity`, `disposition`, or `semantic_impact` needs contract 2. A service that adds contract 2 keeps answering contract 1 requests as before and lists both in `contracts`; a request for a contract it does not speak gets `unsupported_contract` with the supported list. The HTTP `v1` routes are a separate contract and are not changed by this one.
 

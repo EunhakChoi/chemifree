@@ -6,6 +6,7 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
+use chemifree_application::json;
 use chemifree_application::{
     CloseRequest, CreateDocumentRequest, DraftRequest, RevisionRequest, TransactionRequest,
 };
@@ -15,7 +16,6 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::expect::{self, ExpectationError};
-use crate::json;
 
 /// Comparison axes a case can belong to. Each case names one.
 pub const AXES: [&str; 9] = [

@@ -29,6 +29,7 @@ use chemifree_application::{
     RevisionRequest, SaveAsRequest, TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use http_body_util::LengthLimitError;
 use serde::Serialize;
 
 pub type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
@@ -365,8 +366,7 @@ async fn operations(State(state): State<Shared>, request: Request) -> Response {
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"));
+        .is_some_and(is_json_media_type);
     if !json {
         let reply = OperationResponse::unread(
             "unsupported_media_type",
@@ -374,12 +374,9 @@ async fn operations(State(state): State<Shared>, request: Request) -> Response {
         );
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, Json(reply)).into_response();
     }
-    let Ok(body) = axum::body::to_bytes(request.into_body(), MAX_BODY_BYTES).await else {
-        let reply = OperationResponse::unread(
-            ErrorCode::ResourceLimit.as_str(),
-            format!("The request is larger than {MAX_BODY_BYTES} bytes or could not be read."),
-        );
-        return (StatusCode::PAYLOAD_TOO_LARGE, Json(reply)).into_response();
+    let body = match axum::body::to_bytes(request.into_body(), MAX_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(error) => return unread_body(error),
     };
     match run(state, move |app| Ok(app.execute(&body))).await {
         Ok(reply) if reply.is_protocol_error() => {
@@ -388,6 +385,32 @@ async fn operations(State(state): State<Shared>, request: Request) -> Response {
         Ok(reply) => Json(reply).into_response(),
         Err(error) => error.into_response(),
     }
+}
+
+/// Whether a `Content-Type` value names JSON: `application/json` or an `application/*+json`
+/// type, parameters aside, as the v1 routes accept.
+fn is_json_media_type(value: &str) -> bool {
+    let media = value.split(';').next().unwrap_or_default().trim();
+    let Some((kind, subtype)) = media.split_once('/') else {
+        return false;
+    };
+    let subtype = subtype.to_ascii_lowercase();
+    kind.eq_ignore_ascii_case("application") && (subtype == "json" || subtype.ends_with("+json"))
+}
+
+/// The reply to an operation request body that could not be read whole: 413 when it is over
+/// [`MAX_BODY_BYTES`], otherwise 400 (a broken transfer, for one).
+fn unread_body(error: axum::Error) -> Response {
+    if error.into_inner().is::<LengthLimitError>() {
+        let reply = OperationResponse::unread(
+            ErrorCode::ResourceLimit.as_str(),
+            format!("The request is larger than {MAX_BODY_BYTES} bytes."),
+        );
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(reply)).into_response();
+    }
+    let reply =
+        OperationResponse::unread("malformed_request", "The request body could not be read.");
+    (StatusCode::BAD_REQUEST, Json(reply)).into_response()
 }
 
 #[derive(Serialize)]
@@ -627,4 +650,48 @@ async fn method_not_allowed() -> ApiError {
         "method_not_allowed",
         "This route does not support the request method.",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::StatusCode;
+
+    use super::*;
+
+    #[test]
+    fn json_media_types_match_the_v1_routes() {
+        for accepted in [
+            "application/json",
+            "Application/JSON; charset=utf-8",
+            "application/merge-patch+json",
+        ] {
+            assert!(is_json_media_type(accepted), "{accepted} is JSON");
+        }
+        for refused in [
+            "text/plain",
+            "text/json",
+            "application/jsonx",
+            "application/json-seq",
+            "json",
+            "",
+        ] {
+            assert!(!is_json_media_type(refused), "{refused:?} is not JSON");
+        }
+    }
+
+    #[tokio::test]
+    async fn only_an_oversized_body_is_answered_as_too_large() {
+        let oversized =
+            axum::body::to_bytes(Body::from(vec![b' '; MAX_BODY_BYTES + 1]), MAX_BODY_BYTES)
+                .await
+                .expect_err("the body is over the limit");
+        assert_eq!(
+            unread_body(oversized).status(),
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+
+        let broken = axum::Error::new(std::io::Error::other("connection reset"));
+        assert_eq!(unread_body(broken).status(), StatusCode::BAD_REQUEST);
+    }
 }

@@ -1,5 +1,7 @@
 //! JSON parsing that refuses duplicate object keys, which plain parsing would resolve
-//! silently by keeping the last one (and so could drop an expectation unnoticed).
+//! silently by keeping the last one: an operation request could then mean one thing to a
+//! reader and another to the service, and a conformance case could drop an expectation
+//! unnoticed.
 
 use std::fmt;
 

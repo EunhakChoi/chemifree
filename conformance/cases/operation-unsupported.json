@@ -2,8 +2,7 @@
   "id": "operation-unsupported",
   "title": "An operation that does not run, or a profile that reproduces nothing, is answered unsupported without a result or a change",
   "requirements": [
-    "API-01",
-    "CHEM-02"
+    "API-01"
   ],
   "axis": "protocol",
   "kind": "reject",

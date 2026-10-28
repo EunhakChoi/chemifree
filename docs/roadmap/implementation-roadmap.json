@@ -3770,7 +3770,7 @@
     "deep-behavior-contracts.md",
     "phase2-naming-observed-contracts.json"
    ],
-   "current_status": "partial",
+   "current_status": "not_implemented",
    "planned_prs": [
     "P10",
     "P13",

@@ -274,15 +274,14 @@
       "id": "operation-unsupported",
       "title": "An operation that does not run, or a profile that reproduces nothing, is answered unsupported without a result or a change",
       "requirements": [
-        "API-01",
-        "CHEM-02"
+        "API-01"
       ],
       "axis": "protocol",
       "kind": "reject",
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "34955b6a45ba510723b36ae0132645133f84d03257c9b8b699c9e6a6484ab60e"
+      "case_sha256": "4369c4bd84fd2ee5012a294394d73ea96e774552460bd7b3b390782dcd838705"
     },
     {
       "id": "operation-version-refused",

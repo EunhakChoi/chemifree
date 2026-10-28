@@ -7,7 +7,6 @@
 
 pub mod case;
 pub mod expect;
-pub mod json;
 pub mod runner;
 
 pub use case::{Case, Kind, Problem, StepProblem, Suite, check_case_path, load_suite};

@@ -947,6 +947,28 @@ try {
     const saved = await both((id) => request('op-save', 'document.save', { document_id: id, expected_revision: 1 }))
     assert.equal(saved.result.session.unsaved_changes, false)
     await both((id) => request('op-close', 'document.close', { document_id: id }))
+
+    // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
+    const LINE_LIMIT = 1024 * 1024
+    /** A capabilities request padded with JSON whitespace to exactly `size` bytes. */
+    const padded = (id, size) => {
+      const text = request(id, 'capabilities.inspect', {})
+      return `${text.slice(0, -1)}${' '.repeat(size - Buffer.byteLength(text))}}`
+    }
+    /** Writes `text` as is and resolves with the reply it gets. */
+    const viaCliRaw = (text) =>
+      new Promise((resolveReply) => {
+        waiting.push(resolveReply)
+        operations.stdin.write(text)
+      })
+    for (const ending of ['\n', '\r\n']) {
+      const atLimit = await viaCliRaw(`${padded('op-limit', LINE_LIMIT)}${ending}`)
+      assert.deepEqual([atLimit.outcome, atLimit.diagnostics], ['ok', []], `a 1 MiB request ending ${JSON.stringify(ending)}`)
+    }
+    const overLimit = await viaCliRaw(`${padded('op-over', LINE_LIMIT + 1)}\r\n`)
+    assert.deepEqual([overLimit.envelope, overLimit.diagnostics[0].code], ['protocol_error', 'resource_limit'])
+    const afterOver = await viaCli(request('op-after', 'capabilities.inspect', {}))
+    assert.deepEqual([afterOver.request_id, afterOver.outcome], ['op-after', 'ok'], 'the next line still runs')
     operations.stdin.end()
     const [exitStatus] = await once(operations, 'exit')
     running.delete(operations)
@@ -965,6 +987,13 @@ try {
     })
     assert.equal(plain.status, 415)
     assert.deepEqual((await plain.json()).diagnostics[0].code, 'unsupported_media_type')
+    const suffixed = await viaHttp(request('op-suffix', 'capabilities.inspect', {}), {
+      ...auth,
+      'content-type': 'application/merge-patch+json',
+    })
+    assert.deepEqual([suffixed.status, suffixed.body.outcome], [200, 'ok'], 'a +json type is JSON, as on the v1 routes')
+    const oversized = await viaHttp(`${request('op-big', 'capabilities.inspect', {}).slice(0, -1)}${' '.repeat(256 * 1024)}}`)
+    assert.deepEqual([oversized.status, oversized.body.diagnostics[0].code], [413, 'resource_limit'])
   }
 
   for (const [path, method, status, code] of [

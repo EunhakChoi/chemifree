@@ -519,24 +519,11 @@
       "operations": [
         "chem.validate"
       ],
-      "status": "partial",
+      "status": "not_implemented",
       "parts": [
         {
-          "id": "CHEM-02.1",
-          "summary": "chem.validate, chem.properties and the other chemical operations are answered unsupported with their execution state and follow-up, never with a result or invented diagnostics.",
-          "status": "implemented",
-          "implementation": [
-            "crates/application/src/operations.rs"
-          ],
-          "evidence": [
-            "case:operation-unsupported",
-            "check:check:rust"
-          ],
-          "followups": []
-        },
-        {
           "id": "CHEM-02.rest",
-          "summary": "Telling chemical warnings, parser errors and opaque values apart: nothing of it is implemented.",
+          "summary": "All of this requirement: nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1034,7 +1021,7 @@
         },
         {
           "id": "API-01.4",
-          "summary": "Operation contract 1: each request names its contract version, request_id, compatibility profile and operation; each reply gives an envelope, an outcome (ok, partial, error, unsupported), the document revision, a typed result, model_id, diagnostics with paths and details, and a loss report. HTTP and the CLI pass the request bytes to the same Application::execute, and failures carry the v1 error codes. The catalog states, per operation and per transaction sub-operation, representation apart from execution, with the follow-up for what does not run. model_id is always null and the loss report always empty: no operation uses a model or drops content.",
+          "summary": "Operation contract 1: each request names its contract version, request_id, compatibility profile and operation; each reply gives an envelope, an outcome (ok, partial, error, unsupported), the document revision, a typed result, model_id, diagnostics with paths and details, and a loss report. HTTP and the CLI pass the request bytes to the same Application::execute, and failures carry the v1 error codes. The catalog states, per operation and per transaction sub-operation, representation apart from execution, with the follow-up for what does not run; an operation that does not run (every chem.* operation among them) is answered unsupported, never with a result. model_id is always null and the loss report always empty: no operation uses a model or drops content.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/operation.rs",
@@ -1046,6 +1033,7 @@
             "case:versioned-operation-contract",
             "case:operation-errors-match-v1",
             "case:operation-version-refused",
+            "case:operation-unsupported",
             "check:check:rust",
             "check:test:contracts"
           ],

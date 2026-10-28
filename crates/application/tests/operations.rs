@@ -257,7 +257,7 @@ fn invalid_parameters_of_a_known_operation_are_an_error_result_that_changes_noth
 #[test]
 fn requests_that_cannot_be_read_get_a_protocol_error() {
     let (app, _data) = application();
-    let cases: [(&str, Value, &str, &str); 8] = [
+    let cases: [(&str, Value, &str, &str); 11] = [
         (
             "not JSON",
             Value::String("{".into()),
@@ -299,6 +299,24 @@ fn requests_that_cannot_be_read_get_a_protocol_error() {
             "a malformed request ID",
             request("r 1", "document.create", json!({})),
             "invalid_request",
+            "error",
+        ),
+        (
+            "a repeated field",
+            Value::String(r#"{"contract": 1, "request_id": "r-1", "profile": "preserve-semantics", "operation": "capabilities.inspect", "operation": "document.create", "parameters": {}}"#.into()),
+            "malformed_request",
+            "error",
+        ),
+        (
+            "a repeated parameter",
+            Value::String(r#"{"contract": 1, "request_id": "r-1", "profile": "preserve-semantics", "operation": "document.create", "parameters": {"title": "A", "title": "B"}}"#.into()),
+            "malformed_request",
+            "error",
+        ),
+        (
+            "a contract that is not an integer",
+            json!({"contract": 1.0, "request_id": "r-1", "profile": "preserve-semantics", "operation": "document.create", "parameters": {}}),
+            "malformed_request",
             "error",
         ),
     ];

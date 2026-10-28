@@ -387,16 +387,18 @@ fn report<T: Serialize>(
     }
 }
 
-/// Answers each line of standard input as one operation request, in order. A line over
-/// [`MAX_COMMAND_INPUT_BYTES`] is answered as too large without being read whole.
+/// Answers each line of standard input as one operation request, in order. A request over
+/// [`MAX_COMMAND_INPUT_BYTES`], not counting its line ending, is answered as too large without
+/// being read whole. Blank lines are skipped without a reply.
 fn run_operations(application: &LocalApplication) -> ExitCode {
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
     let mut line = Vec::new();
     loop {
         line.clear();
+        // Two more bytes than a request may hold leave room for a CRLF ending.
         let read = (&mut input)
-            .take(MAX_COMMAND_INPUT_BYTES + 1)
+            .take(MAX_COMMAND_INPUT_BYTES + 2)
             .read_until(b'\n', &mut line);
         match read {
             Ok(0) => return ExitCode::SUCCESS,
@@ -406,9 +408,13 @@ fn run_operations(application: &LocalApplication) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        let ended = line.last() == Some(&b'\n');
-        let reply = if !ended && line.len() as u64 > MAX_COMMAND_INPUT_BYTES {
-            if let Err(error) = input.skip_until(b'\n') {
+        // The line ending separates requests; it is not part of the request.
+        let (request, ended) = match line.strip_suffix(b"\n") {
+            Some(request) => (request.strip_suffix(b"\r").unwrap_or(request), true),
+            None => (&line[..], false),
+        };
+        let reply = if request.len() as u64 > MAX_COMMAND_INPUT_BYTES {
+            if !ended && let Err(error) = input.skip_until(b'\n') {
                 eprintln!("error: could not read standard input: {error}");
                 return ExitCode::FAILURE;
             }
@@ -416,12 +422,10 @@ fn run_operations(application: &LocalApplication) -> ExitCode {
                 ErrorCode::ResourceLimit.as_str(),
                 format!("The request is larger than {MAX_COMMAND_INPUT_BYTES} bytes."),
             )
-        } else if line.iter().all(u8::is_ascii_whitespace) {
+        } else if request.iter().all(u8::is_ascii_whitespace) {
             continue;
         } else {
-            // The line ending separates requests; it is not part of the request.
-            let request = line.strip_suffix(b"\n").unwrap_or(&line);
-            application.execute(request.strip_suffix(b"\r").unwrap_or(request))
+            application.execute(request)
         };
         let written = serde_json::to_writer(&mut output, &reply)
             .map_err(io::Error::from)
