@@ -421,7 +421,8 @@ export class DocumentClient {
    * committed, so the client asks again with the same request_id, at once and then while the
    * service reports it in progress; the service returns the committed reply rather than
    * saving twice. If it stays unanswered, the save is reported as `save_unconfirmed`, and
-   * saving the same revision again asks about the same request.
+   * saving the same revision again asks about the same request; saving a later revision is a
+   * new save, which also commits the earlier changes.
    */
   async save(id: string, expectedRevision: number) {
     const key = `${id}:${expectedRevision}`
@@ -431,7 +432,10 @@ export class DocumentClient {
     for (let checks = 0; ; ) {
       try {
         const value = DocumentClient.document(await this.write(`${documentPath(id)}/save`, request, 'reload'))
-        this.unconfirmedSaves.delete(key)
+        // This commit covers every earlier revision of the document, so their checks are moot.
+        for (const pending of this.unconfirmedSaves.keys()) {
+          if (pending.startsWith(`${id}:`)) this.unconfirmedSaves.delete(pending)
+        }
         return value
       } catch (error) {
         if (!(error instanceof ApiError)) throw error

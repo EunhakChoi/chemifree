@@ -14,10 +14,12 @@ use chemifree_domain::document::DocumentId;
 /// How long a request waits for its document's turn before it is refused as busy.
 pub const TURN_WAIT: Duration = Duration::from_secs(3);
 
-/// A request as its `request_id` names it. Creates have no document yet.
+/// A request as its `request_id` names it, within the scope where its reply is remembered.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct RequestKey {
-    document: Option<DocumentId>,
+    /// The document, for requests remembered per document; `None` for requests remembered
+    /// per process.
+    scope: Option<DocumentId>,
     request_id: String,
 }
 
@@ -26,6 +28,8 @@ struct Table {
     running: HashSet<RequestKey>,
     /// Documents whose turn is taken.
     taken: HashSet<DocumentId>,
+    /// Requests waiting for a turn.
+    waiting: usize,
 }
 
 /// Why a request was not let in.
@@ -56,15 +60,15 @@ impl Turns {
     ///
     /// # Errors
     ///
-    /// `Refusal::InProgress` when a request with the same `request_id` for the same document
-    /// is still running.
+    /// `Refusal::InProgress` when a request with the same `request_id` in the same scope is
+    /// still running.
     pub fn start(
         &self,
-        document: Option<&DocumentId>,
+        scope: Option<&DocumentId>,
         request_id: Option<&str>,
     ) -> Result<Running<'_>, Refusal> {
         let key = request_id.map(|request_id| RequestKey {
-            document: document.cloned(),
+            scope: scope.cloned(),
             request_id: request_id.to_owned(),
         });
         if let Some(key) = &key
@@ -82,11 +86,13 @@ impl Turns {
     ///
     /// `Refusal::Busy` when the turn stayed taken for the whole wait.
     pub fn take(&self, document: &DocumentId, wait: Duration) -> Result<Turn<'_>, Refusal> {
-        let table = self.lock();
+        let mut table = self.lock();
+        table.waiting += 1;
         let (mut table, waited) = self
             .returned
             .wait_timeout_while(table, wait, |table| table.taken.contains(document))
             .unwrap_or_else(PoisonError::into_inner);
+        table.waiting -= 1;
         if waited.timed_out() && table.taken.contains(document) {
             return Err(Refusal::Busy);
         }
@@ -130,7 +136,6 @@ impl Drop for Turn<'_> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::mpsc;
     use std::thread;
     use std::time::Instant;
 
@@ -190,21 +195,29 @@ mod tests {
     }
 
     #[test]
-    fn a_waiting_request_gets_the_turn_when_it_is_given_back() {
+    fn a_waiting_request_gets_the_turn_as_soon_as_it_is_given_back() {
         let turns = Arc::new(Turns::default());
         let id = document("doc-1");
         let held = turns.take(&id, TURN_WAIT).unwrap();
-        let (waiting, got) = mpsc::channel();
         let waiter = {
             let (turns, id) = (Arc::clone(&turns), id.clone());
-            thread::spawn(move || {
-                waiting.send(()).unwrap();
-                turns.take(&id, TURN_WAIT).map(|_| ()).err()
-            })
+            thread::spawn(move || turns.take(&id, TURN_WAIT).map(|_| Instant::now()))
         };
-        got.recv().unwrap();
+        // The count changes under the table lock, which the waiter gives up only while it
+        // waits, so a count of one means it is waiting.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while turns.lock().waiting == 0 {
+            assert!(Instant::now() < deadline, "the waiter started waiting");
+            thread::yield_now();
+        }
+        let given_back = Instant::now();
         drop(held);
-        assert_eq!(waiter.join().unwrap(), None, "the waiter took the turn");
+        let got = waiter.join().unwrap().expect("the waiter took the turn");
+        assert!(
+            got.duration_since(given_back) < Duration::from_secs(1),
+            "woken when the turn was given back, not at the end of its wait ({:?})",
+            got.duration_since(given_back)
+        );
     }
 
     #[test]

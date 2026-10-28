@@ -1488,3 +1488,35 @@ fn a_copy_asked_about_while_it_writes_is_answered_at_once() {
         "no second copy"
     );
 }
+
+#[test]
+fn a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let other = app.create_document(None, None).unwrap().document.id;
+    let held = store.commit_gate.lock().unwrap();
+    let copying = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save_as(&id, Some("shared-1"), 1, None)
+    });
+
+    // Copies are remembered per process, so the same request_id names the running copy even
+    // for another document.
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.recover_as_copy(&other, Some("shared-1"), None)
+    })
+    .expect("answered without waiting for the session table");
+    assert_eq!(asked.unwrap_err().code, ErrorCode::RequestInProgress);
+
+    drop(held);
+    copying.join().unwrap().unwrap();
+    assert_eq!(
+        app.recover_as_copy(&other, Some("shared-1"), None)
+            .unwrap_err()
+            .code,
+        ErrorCode::RequestIdReused,
+        "once done, the ID names the copy"
+    );
+}

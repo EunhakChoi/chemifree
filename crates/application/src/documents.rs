@@ -308,13 +308,16 @@ impl<R: DocumentRepository> Documents<R> {
     }
 
     /// Marks the request as running. A repeated `request_id` that is still running is
-    /// answered at once, without waiting for any other lock.
+    /// answered at once, without waiting for any other lock. `scope` is where the request's
+    /// reply is remembered: its document for saves and autosaves (kept with the session),
+    /// `None` for requests kept per process (creates, closes, recoveries, draft discards,
+    /// copies).
     fn start(
         &self,
-        document: Option<&DocumentId>,
+        scope: Option<&DocumentId>,
         request_id: Option<&str>,
     ) -> Result<Running<'_>, ApplicationError> {
-        self.turns.start(document, request_id).map_err(refused)
+        self.turns.start(scope, request_id).map_err(refused)
     }
 
     /// Waits for the document's turn, at most `TURN_WAIT`.
@@ -590,7 +593,7 @@ impl<R: DocumentRepository> Documents<R> {
             discard_unsaved,
             expected_revision,
         };
-        let _running = self.start(Some(&document_id), request_id)?;
+        let _running = self.start(None, request_id)?;
         if let Some(response) = self.replayed(request_id, |sessions| {
             sessions.closed.find(request_id, &mutation)
         })? {
@@ -711,7 +714,7 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::Recover {
             document: document_id.clone(),
         };
-        let _running = self.start(Some(&document_id), request_id)?;
+        let _running = self.start(None, request_id)?;
         if let Some(response) = self.replayed(request_id, |sessions| {
             sessions.recovered.find(request_id, &mutation)
         })? {
@@ -836,7 +839,7 @@ impl<R: DocumentRepository> Documents<R> {
             document: document_id.clone(),
             title: title.map(str::to_owned),
         };
-        let _running = self.start(Some(&document_id), request_id)?;
+        let _running = self.start(None, request_id)?;
         if let Some(response) = self.replayed(request_id, |sessions| {
             sessions.copied.find(request_id, &mutation)
         })? {
@@ -892,7 +895,7 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::DiscardDraft {
             document: document_id.clone(),
         };
-        let _running = self.start(Some(&document_id), request_id)?;
+        let _running = self.start(None, request_id)?;
         if let Some(response) = self.replayed(request_id, |sessions| {
             sessions.drafts_discarded.find(request_id, &mutation)
         })? {
@@ -947,7 +950,7 @@ impl<R: DocumentRepository> Documents<R> {
             expected_revision,
             title: title.map(str::to_owned),
         };
-        let _running = self.start(Some(&document_id), request_id)?;
+        let _running = self.start(None, request_id)?;
         if let Some(response) = self.replayed(request_id, |sessions| {
             sessions.copied.find(request_id, &mutation)
         })? {

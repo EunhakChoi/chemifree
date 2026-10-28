@@ -549,7 +549,7 @@ try {
   // document waits 5 s for the lock and fails as busy. None of them changes anything, and
   // each is answered within the time budget. Afterwards, asking about the save again returns
   // its committed reply without writing again.
-  await restartApi('SIGTERM', { [DELAY]: '9000' })
+  await restartApi('SIGTERM', { [DELAY]: '15000' })
   const busyDoc = cli('documents', 'create', '--title', 'Busy', '--json').body.document.id
   const busyPath = `/api/v1/documents/${busyDoc}`
   const busyFile = join(dataDir, 'documents', `${busyDoc}.json`)
@@ -577,7 +577,7 @@ try {
     const result = await request
     return { ...result, ms: performance.now() - started }
   }
-  const pausedSave = write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }, 20_000)
+  const pausedSave = write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }, 30_000)
   while (!existsSync(busyLock) || !lockHeld(busyLock)) await sleep(20)
   const asked = await timed(write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }))
   assert.deepEqual([asked.status, asked.body.code], [409, 'request_in_progress'])
