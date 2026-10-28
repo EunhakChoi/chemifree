@@ -913,6 +913,7 @@ if (runningAsRoot) {
     'autosave_retry_is_not_postponed_by_edits',
     'autosave_failure_is_shown_and_retried',
     'service_draft_failure_is_shown_and_its_retry_appears',
+    'a_failed_outcome_read_is_made_again',
     'another_document_never_shows_a_draft_failure',
     'a_service_without_failure_records_leaves_retries_to_the_page',
   )
@@ -932,6 +933,7 @@ if (runningAsRoot) {
   assert.ok(draftRevision() > draftedBefore, 'the retry drafted the work while edits kept coming')
   await waitDraft('saved')
   results.autosave_retry_is_not_postponed_by_edits = true
+  step = 'after autosave_retry_is_not_postponed_by_edits'
 
   chmodSync(draftsDir, 0o500)
   await drawPair()
@@ -942,6 +944,7 @@ if (runningAsRoot) {
   await waitDraft('saved')
   assert.ok(existsSync(draftFile()))
   results.autosave_failure_is_shown_and_retried = true
+  step = 'after autosave_failure_is_shown_and_retried'
 
   // The service's own record of the failure is shown as it reports it, with what to do; the
   // page follows the service's retry instead of drafting again, and shows its success.
@@ -972,6 +975,26 @@ if (runningAsRoot) {
   assert.equal(pageAutosaves, 0, 'the service drafted on its own retry; the page read the outcome')
   assert.equal(draftRevision(), (await openDoc()).document.revision)
   results.service_draft_failure_is_shown_and_its_retry_appears = true
+  step = 'after service_draft_failure_is_shown_and_its_retry_appears'
+
+  // A read of the service's outcome that fails is made again, so the expired failure does not
+  // stay on screen.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('service')
+  let outcomeReads = 0
+  const cutFirstRead = async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    outcomeReads += 1
+    return outcomeReads === 1 ? route.abort('connectionreset') : route.fallback()
+  }
+  await page.route(`**/api/v1/documents/${docId}`, cutFirstRead)
+  chmodSync(draftsDir, 0o700)
+  await waitDraft('saved')
+  await page.unroute(`**/api/v1/documents/${docId}`, cutFirstRead)
+  assert.ok(outcomeReads >= 2, `the outcome was read again after a failed read (${outcomeReads} reads)`)
+  results.a_failed_outcome_read_is_made_again = true
+  step = 'after a_failed_outcome_read_is_made_again'
 
   // Another document never shows that failure, nor does the page re-read the failing one there.
   chmodSync(draftsDir, 0o500)
@@ -1001,6 +1024,7 @@ if (runningAsRoot) {
   await drawPair()
   await waitDraft('saved')
   results.another_document_never_shows_a_draft_failure = true
+  step = 'after another_document_never_shows_a_draft_failure'
 
   // A service from before it reported failures (no draft_failure) leaves retries to the page.
   const withoutFailureRecord = async (route) => {

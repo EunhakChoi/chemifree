@@ -197,7 +197,7 @@ export function useDocumentEditor() {
     ),
     refresh: useCallback(
       (documentId: string) =>
-        void run(async () => {
+        run(async () => {
           const fresh = await client.get(documentId)
           if (currentRef.current?.document.id === documentId) setCurrent(fresh)
         }),

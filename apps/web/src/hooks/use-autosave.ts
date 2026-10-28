@@ -45,8 +45,11 @@ export interface AutosaveHost {
   shown: () => DocumentResponse | null
   /** Shows an autosave reply if it describes the document on screen; says whether it did. */
   adopt: (response: DocumentResponse) => boolean
-  /** Re-reads the document: the page's view of earlier drafts is out of date. */
-  refresh: (id: string) => void
+  /**
+   * Re-reads the document: the page's view of earlier drafts is out of date. Settles once the
+   * read has ended; a failed read leaves the view as it was.
+   */
+  refresh: (id: string) => Promise<void>
   onRestart: (error: ApiError) => void
 }
 
@@ -82,8 +85,11 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
     retryAt: number
     view: DocumentResponse
   } | null>(null)
-  /** When the service's reported retry is due, fixed when the view reporting it is first shown. */
-  const reported = useRef<{ view: DocumentResponse; retryAt: number } | null>(null)
+  /**
+   * When the service's reported retry is due, fixed when the view reporting it is first shown,
+   * and how many reads of its outcome since then left that view on screen.
+   */
+  const reported = useRef<{ view: DocumentResponse; retryAt: number; missedReads: number } | null>(null)
   /** The view on which a restart was noticed; any newer view lifts the stop. */
   const stoppedOn = useRef<{ view: DocumentResponse; message: string } | null>(null)
   const written = useRef<{ revision: number; at: number } | null>(null)
@@ -138,7 +144,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           // The service went back or holds other content (a restart seen elsewhere, a closed
           // session): re-read it rather than draft again.
           fail('The service holds a different state than this page shows; reloading it.', null, view)
-          hostRef.current.refresh(id)
+          void hostRef.current.refresh(id)
         } catch (thrown) {
           if (owner.current !== id) return
           const error = thrown instanceof ApiError ? thrown : new ApiError('unexpected', 'Autosave failed.', 0)
@@ -150,7 +156,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           fail(error.message, error.reason ?? null, view)
           // A service that reports its drafting failures has recorded this one with the retry
           // it will make; read it, so the page shows and follows that one record.
-          if (STALE_VIEW.has(error.code) || view.session.draft_failure !== undefined) hostRef.current.refresh(id)
+          if (STALE_VIEW.has(error.code) || view.session.draft_failure !== undefined) void hostRef.current.refresh(id)
         } finally {
           if (inFlight.current === attempt) inFlight.current = null
           evaluate.current()
@@ -199,8 +205,9 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       const now = Date.now()
       const report = session.draft_failure
       if (report) {
-        if (reported.current?.view !== view) reported.current = { view, retryAt: now + report.retry_in_ms }
-        const { retryAt } = reported.current
+        if (reported.current?.view !== view) reported.current = { view, retryAt: now + report.retry_in_ms, missedReads: 0 }
+        const outcome = reported.current
+        const { retryAt, missedReads } = outcome
         setState({
           kind: 'failed',
           by: 'service',
@@ -209,10 +216,19 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           reason: report.reason ?? null,
           retryAt,
         })
-        timer.current = setTimeout(
-          () => hostRef.current.refresh(document.id),
-          Math.max(0, retryAt - now) + RECHECK_AFTER_RETRY_MS,
-        )
+        // Read the outcome once the service's retry is due. A read that fails leaves this view on
+        // screen; it is read again with the page's backoff rather than left stale.
+        const wait =
+          missedReads === 0
+            ? Math.max(0, retryAt - now) + RECHECK_AFTER_RETRY_MS
+            : RETRY_DELAYS_MS[Math.min(missedReads - 1, RETRY_DELAYS_MS.length - 1)]
+        timer.current = setTimeout(() => {
+          void hostRef.current.refresh(document.id).then(() => {
+            if (reported.current !== outcome || hostRef.current.shown() !== view) return
+            outcome.missedReads += 1
+            evaluate.current()
+          })
+        }, wait)
         return
       }
       const failed = failure.current
