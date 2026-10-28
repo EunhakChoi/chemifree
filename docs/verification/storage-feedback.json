@@ -7,7 +7,8 @@
     "cargo_test": "81 tests pass (domain 20, application 35, providers 17, api 9). New: the turn table's four unit tests; storage_failures_say_whether_retrying_can_help, requests_queued_behind_a_stalled_save_are_answered_busy_without_changes, a_save_whose_reply_was_lost_is_reported_by_asking_again, a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn, a_copy_asked_about_while_it_writes_is_answered_at_once, a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs (application); a_write_refused_by_permissions_is_denied_and_changes_nothing, a_read_refused_by_permissions_is_not_reported_as_read_only_storage (providers). The lost-reply tests also check that storage was not written again.",
     "contract_smoke": "Passes with real API and CLI processes. The API's save pauses 15 s inside its save lock (CHEMIFREE_TEST_COMMIT_DELAY_MS, debug builds only), detected with a non-blocking flock probe rather than a sleep. Meanwhile: the same request_id is answered 409 request_in_progress at once; a queued save, autosave, and save-as are answered 503 storage_failed busy within 8.5 s; a CLI save of the same document gives up after the 5 s lock wait with reason busy; nothing is committed, copied, or drafted. Afterwards the same request_id returns the committed reply at once and the file is not written again (unchanged mtime). A read-only documents/ gives reason read_only with the file unchanged; a save blocked by a directory in place of the file gives reason io.",
     "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1 (results in editor-browser-smoke.json). New steps: read_only_storage_is_named, busy_document_is_named_and_retried, late_save_reply_is_confirmed_not_failed (a reply held 11 s past the page's deadline: asked again once with the same request ID, shown as Saved, committed once), unconfirmed_save_is_checked_not_repeated (two replies dropped: 'Save not confirmed', then Check again confirms the same save; three requests, one ID), and copy_in_progress_keeps_its_request_id (no reply, then request_in_progress, then the copy: three requests, one ID, one copy).",
-    "typescript": "npm run lint and npm run typecheck pass."
+    "typescript": "npm run lint and npm run typecheck pass.",
+    "web_client": "npm run test:client passes 6 cases: the web client module runs under Node's type stripping against a scripted service. A create polled while another request finds the service restarted, a copy retried after that, and a save checked after that are not resent to the new process (create_unconfirmed, copy_unconfirmed, service_restarted); a create in progress is asked about with one request ID; a first attempt refused by an already restarted service is sent again; a lost save reply is asked about with the same ID."
   },
   "deliberate_breaks": [
     {
@@ -57,6 +58,10 @@
     {
       "change": "A turn given back does not wake waiting requests",
       "caught_by": "turn unit test a_waiting_request_gets_the_turn_as_soon_as_it_is_given_back: woken only at the end of its wait (3.0 s). It now waits until the waiter is blocked, after the review found it could pass without the wake-up."
+    },
+    {
+      "change": "Unknown outcomes are not tied to the service process they were sent to (the code before the fix for round 2 on #19)",
+      "caught_by": "npm run test:client: three cases fail; the old request ID was sent to the restarted service"
     }
   ],
   "limits": [

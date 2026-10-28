@@ -263,6 +263,24 @@ function outcomeOpen(error: ApiError) {
   return error.status === 0 || error.code === 'request_in_progress'
 }
 
+/**
+ * A write whose outcome is unknown. `sentTo` is the session token of the service that may
+ * have run it: each service process has its own token, and a different process has no record
+ * of the request, so asking it again with the same ID would run the request a second time.
+ */
+interface Unconfirmed {
+  requestId: string
+  sentTo?: string
+}
+
+function restarted(status: number) {
+  return new ApiError(
+    'service_restarted',
+    'The local service restarted, so unsaved edits it held are gone. Reload to continue from the last save.',
+    status,
+  )
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -271,9 +289,9 @@ export class DocumentClient {
    * they asked for. They are not guarded by a revision, so a retry reuses the request ID and
    * the API replays the document it already committed instead of creating a second one.
    */
-  private unconfirmed = new Map<string, string>()
-  /** Saves whose outcome is unknown, by document and revision, with their request IDs. */
-  private unconfirmedSaves = new Map<string, string>()
+  private unconfirmed = new Map<string, Unconfirmed>()
+  /** Saves whose outcome is unknown, by document and revision. */
+  private unconfirmedSaves = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -341,10 +359,18 @@ export class DocumentClient {
    * A restarted API issues a new token and has lost its working copies, so revisions this
    * page has seen may since name different states. A first create attempt is retried with the
    * new token; an edit to an open document is not, and asks for a reload instead.
+   * `sending` is called with the token each attempt is about to be sent with, and may throw
+   * to stop it.
    */
-  private async write(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
+  private async write(
+    path: string,
+    body: Record<string, unknown>,
+    onRestart: 'retry' | 'reload',
+    sending?: (token: string) => void,
+  ) {
     for (let attempt = 0; ; attempt += 1) {
       const { header, token } = await this.session()
+      sending?.(token)
       try {
         return await this.request('POST', path, body, { [header]: token })
       } catch (error) {
@@ -352,13 +378,7 @@ export class DocumentClient {
         this.token = null
         for (const listener of this.restartListeners) listener()
         if (onRestart === 'retry' && attempt === 0) continue
-        if (onRestart === 'reload') {
-          throw new ApiError(
-            'service_restarted',
-            'The local service restarted, so unsaved edits it held are gone. Reload to continue from the last save.',
-            error.status,
-          )
-        }
+        if (onRestart === 'reload') throw restarted(error.status)
         throw error
       }
     }
@@ -389,12 +409,22 @@ export class DocumentClient {
    * committed, a resend would create a second document.
    */
   private async createOnce(key: string, path: string, body: Record<string, unknown>, unknown: ApiError) {
-    const id = this.unconfirmed.get(key) ?? requestId()
-    let sent = this.unconfirmed.has(key)
-    this.unconfirmed.set(key, id)
+    const pending = this.unconfirmed.get(key) ?? { requestId: requestId() }
+    this.unconfirmed.set(key, pending)
+    let token: string | undefined
+    const sending = (current: string) => {
+      // Another request found that the service restarted since the unknown attempt.
+      if (pending.sentTo !== undefined && pending.sentTo !== current) throw restarted(401)
+      token = current
+    }
     for (let checks = 0; ; checks += 1) {
       try {
-        const value = await this.write(path, { request_id: id, ...body }, sent ? 'reload' : 'retry')
+        const value = await this.write(
+          path,
+          { request_id: pending.requestId, ...body },
+          pending.sentTo === undefined ? 'retry' : 'reload',
+          sending,
+        )
         this.unconfirmed.delete(key)
         return value
       } catch (error) {
@@ -404,7 +434,7 @@ export class DocumentClient {
           this.unconfirmed.delete(key)
           throw unknown
         }
-        sent = true
+        if (outcomeOpen(error)) pending.sentTo = token
         if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
           await pause(OUTCOME_CHECK_INTERVAL_MS)
           continue
@@ -426,12 +456,21 @@ export class DocumentClient {
    */
   async save(id: string, expectedRevision: number) {
     const key = `${id}:${expectedRevision}`
-    const request = { request_id: this.unconfirmedSaves.get(key) ?? requestId(), expected_revision: expectedRevision }
-    this.unconfirmedSaves.set(key, request.request_id)
+    const pending = this.unconfirmedSaves.get(key) ?? { requestId: requestId() }
+    this.unconfirmedSaves.set(key, pending)
+    const request = { request_id: pending.requestId, expected_revision: expectedRevision }
+    let token: string | undefined
+    const sending = (current: string) => {
+      // Another request found that the service restarted since the unknown attempt.
+      if (pending.sentTo !== undefined && pending.sentTo !== current) throw restarted(401)
+      token = current
+    }
     let askedAgain = false
     for (let checks = 0; ; ) {
       try {
-        const value = DocumentClient.document(await this.write(`${documentPath(id)}/save`, request, 'reload'))
+        const value = DocumentClient.document(
+          await this.write(`${documentPath(id)}/save`, request, 'reload', sending),
+        )
         // This commit covers every earlier revision of the document, so their checks are moot.
         for (const pending of this.unconfirmedSaves.keys()) {
           if (pending.startsWith(`${id}:`)) this.unconfirmedSaves.delete(pending)
@@ -439,6 +478,7 @@ export class DocumentClient {
         return value
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
+        if (outcomeOpen(error)) pending.sentTo = token
         if (error.status === 0 && !askedAgain) {
           askedAgain = true
           continue

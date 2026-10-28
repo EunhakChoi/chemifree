@@ -55,6 +55,7 @@ The development proxy targets port 3001. If you choose another API port, update 
 ```bash
 npm run lint             # ESLint: JS/TS + React Hooks checks
 npm run typecheck        # TypeScript project references
+npm run test:client      # Web client against a scripted service: unknown outcomes, restarts
 npm run build:web        # Production web assets in apps/web/dist
 npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures

@@ -21,10 +21,11 @@
     "lint": "npm run lint --workspace @chemifree/web",
     "typecheck": "npm run typecheck --workspace @chemifree/web",
     "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
+    "test:client": "node scripts/web-client-check.mjs",
     "test:contracts": "node scripts/contract-smoke.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:browser:routes": "node scripts/browser-route-race.mjs",
-    "check": "npm run lint && npm run typecheck && npm run build:web && npm run check:rust && npm run test:contracts"
+    "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:contracts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
