@@ -19,7 +19,7 @@
 // CHEMIFREE_SMOKE_NO_SKIPS=1 (set in CI) a skipped step fails the run.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
@@ -35,6 +35,9 @@ const work = mkdtempSync(join(tmpdir(), 'chemifree-browser-'))
 const dataDir = join(work, 'data')
 const outDir = process.env.CHEMIFREE_SMOKE_OUT ?? work
 mkdirSync(outDir, { recursive: true })
+// An earlier run's records in a reused CHEMIFREE_SMOKE_OUT would mix with this run's.
+const RECORD = /^(editor-[a-z-]+\.png|failure\.png|environment\.json|results\.json|requests\.log|api\.log|web\.log)$/
+for (const name of readdirSync(outDir).filter((entry) => RECORD.test(entry))) rmSync(join(outDir, name))
 
 // Failure handling is set up before the build, so a run that fails to build or start still
 // leaves its records.
@@ -72,6 +75,7 @@ function writeRecords(error) {
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
   const files = ['results.json', 'requests.log', 'api.log', 'web.log']
+  if (existsSync(join(outDir, 'environment.json'))) files.push('environment.json')
   // No page (for example, the browser did not launch) means no screenshot.
   if (page) {
     const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
