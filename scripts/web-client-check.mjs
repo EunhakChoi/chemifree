@@ -22,34 +22,58 @@ const lost = () => {
   throw new TypeError('fetch failed')
 }
 
+/** What Vite's development proxy answers when the API connection drops before a reply. */
+const proxyFailure = () => new Response('', { status: 502, headers: { 'content-type': 'text/plain' } })
+
 /**
- * A scripted service. `answers` maps a write's path suffix to the replies for its successive
- * requests (a function is called with the request; returning `lost` drops the reply). After
- * `restart()`, the service issues a new token and refuses the old one, as a new process
- * would.
+ * A scripted service. `answers` maps a request's path suffix (writes) or `GET <suffix>` (reads)
+ * to the replies for its successive requests (a function is called with the request;
+ * `lost` drops the reply). After `restart()`, the service issues a new token and refuses the
+ * old one, as a new process would. `failSessions(n)` drops the next n session requests.
  */
 function service(answers) {
   let token = 'token-1'
+  let sessionFailures = 0
   const writes = []
+  const reads = []
   const asked = new Map()
-  globalThis.fetch = async (path, init) => {
-    if (path === '/api/v1/session') return json(200, { header: 'x-chemifree-session', token })
+  const answer = (suffix) => {
+    const count = asked.get(suffix) ?? 0
+    asked.set(suffix, count + 1)
+    const reply = answers[suffix]?.[count]
+    assert.ok(reply, `no scripted answer for request ${count + 1} to ${suffix}`)
+    return reply()
+  }
+  globalThis.fetch = async (path, init = {}) => {
+    if (path === '/api/v1/session') {
+      if (sessionFailures > 0) {
+        sessionFailures -= 1
+        lost()
+      }
+      return json(200, { header: 'x-chemifree-session', token })
+    }
+    if ((init.method ?? 'GET') === 'GET') {
+      reads.push(path)
+      const suffix = Object.keys(answers).find((key) => key.startsWith('GET ') && path.endsWith(key.slice(4)))
+      assert.ok(suffix, `no scripted answer for GET ${path}`)
+      return answer(suffix)
+    }
     const sentWith = init.headers['x-chemifree-session']
     const body = JSON.parse(init.body)
     writes.push({ path, token: sentWith, requestId: body.request_id })
     if (sentWith !== token) return error(401, 'unauthorized')
-    const suffix = Object.keys(answers).find((end) => path.endsWith(end))
+    const suffix = Object.keys(answers).find((key) => !key.startsWith('GET ') && path.endsWith(key))
     assert.ok(suffix, `no scripted answer for ${path}`)
-    const count = asked.get(suffix) ?? 0
-    asked.set(suffix, count + 1)
-    const answer = answers[suffix][count]
-    assert.ok(answer, `no scripted answer for request ${count + 1} to ${suffix}`)
-    return answer()
+    return answer(suffix)
   }
   return {
     writes,
+    reads,
     restart() {
       token = `token-${Number(token.slice(6)) + 1}`
+    },
+    failSessions(count) {
+      sessionFailures = count
     },
   }
 }
@@ -105,12 +129,15 @@ test('an unconfirmed save checked after another request saw a restart is not res
 test('a create in progress is asked about with the same request ID until it is answered', async () => {
   const scripted = service({
     '/api/v1/documents': [() => error(409, 'request_in_progress'), () => json(201, document('doc-2'))],
+    // The answer to a repeated request may be the record of the first, so it is read again.
+    'GET /api/v1/documents/doc-2': [() => json(200, document('doc-2'))],
   })
   const created = await new DocumentClient().create('Kept')
   assert.equal(created.document.id, 'doc-2')
   const ids = scripted.writes.map((write) => write.requestId)
   assert.equal(ids.length, 2)
   assert.equal(ids[1], ids[0], 'one request ID')
+  assert.deepEqual(scripted.reads, ['/api/v1/documents/doc-2'])
 })
 
 test('a first attempt refused by an already restarted service is sent again', async () => {
@@ -134,4 +161,73 @@ test('a save whose reply was lost is asked about again with the same request ID'
   const ids = scripted.writes.map((write) => write.requestId)
   assert.equal(ids.length, 2)
   assert.equal(ids[1], ids[0], 'one request ID')
+})
+
+test("a create whose reply the proxy lost is not repeated after a restart", async () => {
+  const scripted = service({ '/api/v1/documents': [proxyFailure] })
+  const client = new DocumentClient()
+  await assert.rejects(client.create(), { code: 'unreachable' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(client.create(), { code: 'create_unconfirmed' })
+  const creates = scripted.writes.filter((write) => write.path === '/api/v1/documents')
+  assert.deepEqual(creates.map((write) => write.token), ['token-1'], 'not sent again as a new create')
+})
+
+test('a save whose reply the proxy lost is asked about again with the same request ID', async () => {
+  const scripted = service({ '/save': [proxyFailure, () => json(200, document('doc-1', 3))] })
+  const saved = await new DocumentClient().save('doc-1', 3)
+  assert.equal(saved.session.saved_revision, 3)
+  const ids = scripted.writes.map((write) => write.requestId)
+  assert.equal(ids.length, 2)
+  assert.equal(ids[1], ids[0], 'one request ID')
+})
+
+test('a failed session request does not forget where an unknown create was sent', async () => {
+  const scripted = service({ '/api/v1/documents': [lost] })
+  const client = new DocumentClient()
+  await assert.rejects(client.create(), { code: 'unreachable' })
+  scripted.restart()
+  await noticeRestart(client)
+  scripted.failSessions(1)
+  await assert.rejects(client.create(), { code: 'unreachable' })
+  await assert.rejects(client.create(), { code: 'create_unconfirmed' })
+  const creates = scripted.writes.filter((write) => write.path === '/api/v1/documents')
+  assert.deepEqual(creates.map((write) => write.token), ['token-1'], 'not sent to the restarted service')
+})
+
+test('a create answered by replay shows the document as it is now', async () => {
+  const now = { ...document('doc-2', 7), document: { ...document('doc-2', 7).document, title: 'Edited since' } }
+  const scripted = service({
+    '/api/v1/documents': [lost, () => json(201, document('doc-2', 0))],
+    'GET /api/v1/documents/doc-2': [() => json(200, now)],
+  })
+  const client = new DocumentClient()
+  await assert.rejects(client.create(), { code: 'unreachable' })
+  const shown = await client.create()
+  assert.deepEqual([shown.document.revision, shown.document.title], [7, 'Edited since'])
+  assert.deepEqual(scripted.reads, ['/api/v1/documents/doc-2'])
+})
+
+test('a copy answered by replay shows the copy as it is now, with what became of the source', async () => {
+  const now = { ...document('doc-2', 4) }
+  const scripted = service({
+    '/save-as': [lost, () => json(201, copy('doc-2'))],
+    'GET /api/v1/documents/doc-2': [() => json(200, now)],
+  })
+  const client = new DocumentClient()
+  await assert.rejects(client.saveAs('doc-1', 3), { code: 'unreachable' })
+  const shown = await client.saveAs('doc-1', 3)
+  assert.equal(shown.document.revision, 4)
+  assert.deepEqual(shown.source, { id: 'doc-1', closed: true, discarded_changes: false })
+  assert.equal(scripted.reads.length, 1)
+})
+
+test('a copy with an empty title and one without a title are different requests', async () => {
+  const scripted = service({ '/save-as': [lost, () => json(201, copy('doc-2'))] })
+  const client = new DocumentClient()
+  await assert.rejects(client.saveAs('doc-1', 3, ''), { code: 'unreachable' })
+  await client.saveAs('doc-1', 3)
+  const ids = scripted.writes.map((write) => write.requestId)
+  assert.notEqual(ids[1], ids[0], 'a different body gets its own request ID')
 })

@@ -253,6 +253,7 @@ const TIMEOUT_MS = 10_000
  */
 const OUTCOME_CHECK_INTERVAL_MS = 1000
 const OUTCOME_CHECKS = 12
+const GATEWAY_STATUSES = new Set([502, 503, 504])
 
 function pause(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -350,6 +351,11 @@ export class DocumentClient {
           reason: isStorageReason(value.reason) ? value.reason : undefined,
         })
       }
+      // A gateway status without a v1 body comes from the proxy in front of the service (Vite's
+      // answers 502 when the connection drops): the service's own reply never arrived.
+      if (GATEWAY_STATUSES.has(response.status)) {
+        throw new ApiError('unreachable', `The local service did not answer (HTTP ${response.status} from the proxy).`, 0)
+      }
       throw new ApiError('http_error', `The local service returned HTTP ${response.status}.`, response.status)
     }
     return value
@@ -406,9 +412,18 @@ export class DocumentClient {
   /**
    * Sends a write that creates a document at most once. A restarted service has forgotten the
    * request_id of an earlier unanswered attempt, so that attempt is not resent: if it was
-   * committed, a resend would create a second document.
+   * committed, a resend would create a second document. `settle` turns the reply into the
+   * result; `replayed` says the reply may be the service's record of an earlier attempt,
+   * which describes the document as it was then. The request ID is kept until `settle` is
+   * done, so a failure there leaves the request to be asked about again.
    */
-  private async createOnce(key: string, path: string, body: Record<string, unknown>, unknown: ApiError) {
+  private async createOnce<T>(
+    key: string,
+    path: string,
+    body: Record<string, unknown>,
+    unknown: ApiError,
+    settle: (value: unknown, replayed: boolean) => Promise<T>,
+  ): Promise<T> {
     const pending = this.unconfirmed.get(key) ?? { requestId: requestId() }
     this.unconfirmed.set(key, pending)
     let token: string | undefined
@@ -425,8 +440,9 @@ export class DocumentClient {
           pending.sentTo === undefined ? 'retry' : 'reload',
           sending,
         )
+        const result = await settle(value, pending.sentTo !== undefined)
         this.unconfirmed.delete(key)
-        return value
+        return result
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
         if (error.code === 'service_restarted') {
@@ -434,14 +450,22 @@ export class DocumentClient {
           this.unconfirmed.delete(key)
           throw unknown
         }
-        if (outcomeOpen(error)) pending.sentTo = token
+        // Only an attempt that was sent can have taken effect.
+        if (outcomeOpen(error) && token !== undefined) pending.sentTo = token
         if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
           await pause(OUTCOME_CHECK_INTERVAL_MS)
           continue
         }
-        // While the outcome is open the ID is kept, so asking again cannot create twice.
-        if (!outcomeOpen(error)) this.unconfirmed.delete(key)
-        throw error
+        if (!outcomeOpen(error)) {
+          this.unconfirmed.delete(key)
+          throw error
+        }
+        // The ID is kept, so asking again finds out without creating twice.
+        throw new ApiError(
+          error.code,
+          `${error.message} It may have been carried out; trying again finds out without repeating it.`,
+          error.status,
+        )
       }
     }
   }
@@ -478,7 +502,8 @@ export class DocumentClient {
         return value
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
-        if (outcomeOpen(error)) pending.sentTo = token
+        // Only an attempt that was sent can have taken effect.
+        if (outcomeOpen(error) && token !== undefined) pending.sentTo = token
         if (error.status === 0 && !askedAgain) {
           askedAgain = true
           continue
@@ -502,17 +527,19 @@ export class DocumentClient {
   }
 
   async create(title?: string) {
-    return DocumentClient.document(
-      await this.createOnce(
-        `create:${title ?? ''}`,
-        '/api/v1/documents',
-        { title },
-        new ApiError(
-          'create_unconfirmed',
-          'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
-          401,
-        ),
+    return this.createOnce(
+      `create:${JSON.stringify(title ?? null)}`,
+      '/api/v1/documents',
+      { title },
+      new ApiError(
+        'create_unconfirmed',
+        'The local service restarted before confirming the earlier new document, so it may already exist. Check Saved documents before creating another.',
+        401,
       ),
+      async (value, replayed) => {
+        const created = DocumentClient.document(value)
+        return replayed ? this.get(created.document.id) : created
+      },
     )
   }
 
@@ -531,26 +558,30 @@ export class DocumentClient {
     )
   }
 
+  /** The copy as it is now, with what became of its source when it was made. */
+  private async settleCopy(value: unknown, replayed: boolean): Promise<CopyResponse> {
+    const copied = DocumentClient.copy(value)
+    return replayed ? { ...(await this.get(copied.document.id)), source: copied.source } : copied
+  }
+
   /** Saves the working copy as a new document; the source returns to its last save. */
   async saveAs(id: string, expectedRevision: number, title?: string) {
-    return DocumentClient.copy(
-      await this.createOnce(
-        `save-as:${id}:${expectedRevision}:${title ?? ''}`,
-        `${documentPath(id)}/save-as`,
-        { expected_revision: expectedRevision, title },
-        DocumentClient.copyUnconfirmed(),
-      ),
+    return this.createOnce(
+      `save-as:${id}:${expectedRevision}:${JSON.stringify(title ?? null)}`,
+      `${documentPath(id)}/save-as`,
+      { expected_revision: expectedRevision, title },
+      DocumentClient.copyUnconfirmed(),
+      (value, replayed) => this.settleCopy(value, replayed),
     )
   }
 
   async recoverAsCopy(id: string, title?: string) {
-    return DocumentClient.copy(
-      await this.createOnce(
-        `recover-as-copy:${id}:${title ?? ''}`,
-        `${documentPath(id)}/recover-as-copy`,
-        { title },
-        DocumentClient.copyUnconfirmed(),
-      ),
+    return this.createOnce(
+      `recover-as-copy:${id}:${JSON.stringify(title ?? null)}`,
+      `${documentPath(id)}/recover-as-copy`,
+      { title },
+      DocumentClient.copyUnconfirmed(),
+      (value, replayed) => this.settleCopy(value, replayed),
     )
   }
 
