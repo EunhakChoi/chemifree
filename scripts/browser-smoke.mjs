@@ -25,7 +25,7 @@
 // CHEMIFREE_SMOKE_NO_SKIPS=1 (set in CI) a skipped step fails the run.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
@@ -173,7 +173,8 @@ const started = new Map()
 page.on('request', (request) => started.set(request, performance.now()))
 const note = (request, outcome) => {
   const at = started.get(request) ?? performance.now()
-  const path = new URL(request.url()).pathname
+  const { pathname, search } = new URL(request.url())
+  const path = `${pathname}${search}`
   requestLog.push(`+${Math.round(at - runStarted)} ${request.method()} ${path} ${outcome} ${Math.round(performance.now() - at)}ms`)
 }
 page.on('requestfinished', async (request) => note(request, (await request.response())?.status()))
@@ -415,14 +416,14 @@ const committed = readFileSync(file)
 rmSync(file)
 mkdirSync(file)
 await page.keyboard.press('Control+s')
-await page.getByText('Save failed', { exact: true }).waitFor()
+await page.getByText('Storage failed', { exact: true }).waitFor()
 assert.equal(await saveState(), 'Unsaved changes')
 rmSync(file, { recursive: true })
 writeFileSync(file, committed)
 await page.getByRole('button', { name: 'Save', exact: true }).click()
 await waitIdle()
 assert.equal(await saveState(), 'Saved')
-assert.equal(await page.getByText('Save failed', { exact: true }).count(), 0)
+assert.equal(await page.getByText('Storage failed', { exact: true }).count(), 0)
 results.save_failure_and_retry = true
 step = 'after save_failure_and_retry'
 
@@ -523,7 +524,7 @@ assert.deepEqual(held, [200], 'the first attempt committed')
 assert.equal(saveIds.length, 2, `asked again once (${saveIds.length} requests)`)
 assert.equal(saveIds[1], saveIds[0], 'with the same request ID')
 assert.equal(await saveState(), 'Saved')
-for (const title of ['Save failed', 'Save not confirmed']) {
+for (const title of ['Storage failed', 'Save not confirmed']) {
   assert.equal(await page.getByText(title, { exact: true }).count(), 0, `no "${title}" shown`)
 }
 assert.deepEqual([stored().title, stored().revision], ['Late reply', lateRevision], 'committed once')
@@ -1141,6 +1142,124 @@ if (runningAsRoot) {
   step = 'after copy_notice_ends_when_the_service_restarts'
 }
 
+
+// Document list: search, sort, rename, a refused and a confirmed move to the trash, restore.
+const apiWrite = (path, body) =>
+  page.evaluate(async ({ path, body }) => {
+    const session = await (await fetch('/api/v1/session')).json()
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [session.header]: session.token },
+      body: JSON.stringify(body),
+    })
+    return { status: response.status, body: await response.json() }
+  }, { path, body })
+await page.keyboard.press('Control+s')
+await waitIdle()
+await page.getByRole('button', { name: 'Close document' }).click()
+const listed = {}
+for (const [index, title] of ['Smoke list alpha', 'Smoke list beta'].entries()) {
+  listed[title] = (await apiWrite('/api/v1/documents', { request_id: `smoke-list-${index}`, title })).body.document.id
+}
+const shownTitles = () =>
+  page.locator('section[aria-labelledby="saved-documents"] li[data-document-id] span.truncate').allTextContents()
+const waitForTitles = (expected) =>
+  page.waitForFunction(
+    (titles) =>
+      JSON.stringify(
+        [...document.querySelectorAll('section[aria-labelledby="saved-documents"] li[data-document-id] span.truncate')].map(
+          (node) => node.textContent,
+        ),
+      ) === JSON.stringify(titles),
+    expected,
+  )
+// Recent sorts by the stored file's modification time, a wall-clock time that a clock
+// adjustment can move backward (WSL2's clock did, by about 0.7 s, in 2 of 8 local runs). Alpha
+// is therefore made an hour old, so the order below shows the rename moving beta first and not
+// the clock between the two writes.
+const anHourAgo = new Date(Date.now() - 3_600_000)
+utimesSync(join(dataDir, 'documents', `${listed['Smoke list alpha']}.json`), anHourAgo, anHourAgo)
+utimesSync(join(dataDir, 'documents', `${listed['Smoke list beta']}.json`), anHourAgo, anHourAgo)
+await page.getByLabel('Search titles').fill('SMOKE LIST')
+await waitForTitles(['Smoke list alpha', 'Smoke list beta'])
+const alphaItem = page.locator(`li[data-document-id="${listed['Smoke list alpha']}"]`)
+const betaItem = page.locator(`li[data-document-id="${listed['Smoke list beta']}"]`)
+await betaItem.getByRole('button', { name: 'Rename Smoke list beta' }).click()
+await page.getByLabel('Title', { exact: true }).fill('Smoke list beta, renamed')
+await page.getByRole('button', { name: 'Rename', exact: true }).click()
+await page.getByRole('dialog').waitFor({ state: 'detached' })
+await waitForTitles(['Smoke list alpha', 'Smoke list beta, renamed'])
+const fileTitle = (id, folder = 'documents') => JSON.parse(readFileSync(join(dataDir, folder, `${id}.json`), 'utf8')).document.title
+assert.equal(fileTitle(listed['Smoke list beta']), 'Smoke list beta, renamed', 'renamed in storage at once')
+const sortedByRecent = page.waitForResponse((r) => new URL(r.url()).searchParams.get('sort') === 'recent')
+await page.getByRole('radio', { name: 'Recent' }).or(page.getByRole('button', { name: 'Recent', exact: true })).click()
+await sortedByRecent
+await waitForTitles(['Smoke list beta, renamed', 'Smoke list alpha'])
+results.list_search_sort_and_rename = true
+step = 'after list_search_sort_and_rename'
+
+// Unsaved work in the service's session is never moved to the trash.
+await apiWrite(`/api/v1/documents/${listed['Smoke list alpha']}/transactions`, {
+  request_id: 'smoke-list-unsaved',
+  expected_revision: 0,
+  commands: [{ op: 'rename', title: 'Smoke list alpha, unsaved' }],
+})
+await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+await alphaItem.getByText('Unsaved', { exact: true }).waitFor()
+await alphaItem.getByRole('button', { name: /^Move .* to trash$/ }).click()
+await page.getByRole('alertdialog').getByRole('button', { name: 'Move to trash' }).click()
+await page.getByText('Unsaved changes', { exact: true }).waitFor()
+assert.ok(existsSync(join(dataDir, 'documents', `${listed['Smoke list alpha']}.json`)), 'still stored')
+await page.getByRole('button', { name: 'Dismiss' }).click()
+await apiWrite(`/api/v1/documents/${listed['Smoke list alpha']}/close`, {
+  request_id: 'smoke-list-discard',
+  discard_unsaved: true,
+  expected_revision: 1,
+})
+await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+await alphaItem.getByText('Unsaved', { exact: true }).waitFor({ state: 'detached' })
+results.unsaved_document_is_not_trashed = true
+step = 'after unsaved_document_is_not_trashed'
+
+// Confirmed: the document moves to the trash, and Restore brings it back.
+await alphaItem.getByRole('button', { name: 'Move Smoke list alpha to trash' }).click()
+await page.getByRole('alertdialog').getByRole('button', { name: 'Move to trash' }).click()
+await waitForTitles(['Smoke list beta, renamed'])
+const trashedItem = page.locator(`li[data-trashed-id="${listed['Smoke list alpha']}"]`)
+await trashedItem.waitFor()
+assert.equal(fileTitle(listed['Smoke list alpha'], 'trash'), 'Smoke list alpha')
+assert.ok(!existsSync(join(dataDir, 'documents', `${listed['Smoke list alpha']}.json`)))
+await trashedItem.getByRole('button', { name: 'Restore' }).click()
+await waitForTitles(['Smoke list beta, renamed', 'Smoke list alpha'])
+await page.getByText('The trash is empty.', { exact: true }).waitFor()
+assert.equal(fileTitle(listed['Smoke list alpha']), 'Smoke list alpha', 'restored as trashed')
+// A rename refused because the document changed elsewhere: the list then shows the document
+// as it is now, and Reload, with no document open, only reads the list again.
+await apiWrite(`/api/v1/documents/${listed['Smoke list beta']}/rename`, {
+  request_id: 'smoke-list-elsewhere',
+  expected_revision: 1,
+  title: 'Smoke list beta, elsewhere',
+})
+await betaItem.getByRole('button', { name: 'Rename Smoke list beta, renamed' }).click()
+await page.getByLabel('Title', { exact: true }).fill('Smoke list beta, mine')
+await page.getByRole('button', { name: 'Rename', exact: true }).click()
+await page.getByText('The document changed', { exact: true }).waitFor()
+await betaItem.getByText('Smoke list beta, elsewhere', { exact: true }).waitFor()
+await page.getByRole('button', { name: 'Reload' }).click()
+await page.getByText('The document changed', { exact: true }).waitFor({ state: 'detached' })
+assert.equal(await page.getByRole('alert').count(), 0, 'Reload leaves no error behind')
+assert.equal(fileTitle(listed['Smoke list beta']), 'Smoke list beta, elsewhere', 'the refused rename changed nothing')
+await page.getByLabel('Search titles').fill('')
+// The list with its search, sort, and per-document actions fits a narrow screen.
+await page.setViewportSize({ width: 320, height: 800 })
+const listOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+assert.ok(listOverflow <= 0, `no horizontal overflow in the document list at 320px (${listOverflow})`)
+await page.screenshot({ path: join(outDir, 'list-mobile.png'), fullPage: true })
+await page.setViewportSize({ width: 1280, height: 900 })
+await alphaItem.getByRole('button', { name: 'Open' }).click()
+await page.getByLabel('Document title').waitFor()
+results.trash_and_restore = true
+step = 'after trash_and_restore'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

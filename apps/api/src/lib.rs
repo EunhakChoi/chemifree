@@ -14,8 +14,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::rejection::JsonRejection;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request, State};
+use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -23,9 +23,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
-    CopyResponse, CreateDocumentRequest, DocumentListResponse, DocumentResponse,
-    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
-    RecoverAsCopyRequest, RevisionRequest, SaveAsRequest, TransactionRequest,
+    CopyResponse, CreateDocumentRequest, DeleteResponse, DocumentListResponse, DocumentResponse,
+    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse, ListQuery,
+    RecoverAsCopyRequest, RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest,
+    SaveAsRequest, TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde::Serialize;
@@ -139,6 +140,9 @@ pub fn router(state: Shared) -> Router {
             post(recover_as_copy),
         )
         .route("/api/v1/documents/{id}/discard-draft", post(discard_draft))
+        .route("/api/v1/documents/{id}/rename", post(rename))
+        .route("/api/v1/documents/{id}/delete", post(delete))
+        .route("/api/v1/trash/{id}/restore", post(restore))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_token))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -154,6 +158,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/health", get(health))
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/documents", get(list_documents))
+        .route("/api/v1/trash", get(list_trash))
         .route("/api/v1/documents/{id}", get(document))
         .merge(writes)
         .merge(session)
@@ -344,8 +349,61 @@ async fn session(State(state): State<Shared>) -> Json<SessionResponse> {
 
 async fn list_documents(
     State(state): State<Shared>,
+    query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<DocumentListResponse>, ApiError> {
-    run(state, |app| app.list_documents()).await.map(Json)
+    let Query(query) = query.map_err(|rejection| {
+        ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_request",
+            rejection.body_text(),
+        )
+    })?;
+    run(state, move |app| app.list_documents(&query))
+        .await
+        .map(Json)
+}
+
+async fn rename(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<RenameRequest>,
+) -> Result<Json<DocumentResponse>, ApiError> {
+    run(state, move |app| {
+        app.rename(
+            &id,
+            Some(&body.request_id),
+            body.expected_revision,
+            &body.title,
+        )
+    })
+    .await
+    .map(Json)
+}
+
+async fn delete(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<RevisionRequest>,
+) -> Result<Json<DeleteResponse>, ApiError> {
+    run(state, move |app| {
+        app.delete(&id, Some(&body.request_id), body.expected_revision)
+    })
+    .await
+    .map(Json)
+}
+
+async fn list_trash(State(state): State<Shared>) -> Result<Json<TrashListResponse>, ApiError> {
+    run(state, |app| app.list_trash()).await.map(Json)
+}
+
+async fn restore(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<RestoreRequest>,
+) -> Result<Json<RestoreResponse>, ApiError> {
+    run(state, move |app| app.restore(&id, Some(&body.request_id)))
+        .await
+        .map(Json)
 }
 
 async fn create_document(

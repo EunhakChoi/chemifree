@@ -1,0 +1,96 @@
+{
+  "scope": "Document management: list search and sort, rename, delete to the trash, and restore, over HTTP, the CLI, and the web page. Storage and document management only; no chemistry or external formats.",
+  "date": "2026-10-28",
+  "environment": "Linux 6.6 (WSL2), Rust 1.95.0, Node 22.22.2; browser checks with Chromium 141.0.7390.37 (Playwright build v1194) via playwright-core 1.56.1",
+  "design": "The Application filters (title contains the query, ignoring case) and sorts (title, or last commit by the stored file's modification time); the web page and the CLI only pass the query. Rename commits the new title as one revision through the ordinary save path, only for a copy without unsaved changes and without an abandoned draft. Delete moves documents/<id>.json to trash/<id>.json with one rename, after checking the base revision and the absence of drafts under the document's save lock and its draft owner lock; restore moves it back under the save lock. While a rename or delete commits, the session is held and edits to it are answered busy. Rename, delete, and restore follow the request order of #19: the request_id is marked running (a repeat is answered request_in_progress at once), a finished reply is looked up without waiting, then the document's turn is taken (at most 3 s, else busy). A rename's reply is remembered with the session, delete and restore replies per process. Trash and restore writes report permission errors as Denied (reason read_only). The web client asks about a lost rename, delete, or restore reply once more with the same request_id and polls while it is in progress; a later attempt is a new request that the operation's precondition refuses if the first took effect.",
+  "checks": {
+    "cargo_test": "99 tests pass (api 9, application 4 + 43, domain 2 + 18, providers 23). New in this change: the_list_is_searched_by_title_and_sorted_by_title_or_last_save, renaming_commits_at_once_and_needs_a_clean_copy, renaming_or_deleting_waits_for_an_earlier_sessions_draft, deleting_moves_a_clean_document_to_the_trash_and_restoring_brings_it_back, deleting_refuses_to_lose_unsaved_work_anywhere, copies_in_other_processes_never_bring_a_deleted_document_back, edits_wait_while_a_delete_is_in_progress, renames_and_deletes_queued_behind_a_stalled_save_are_answered_busy_without_changes, a_delete_or_restore_asked_about_while_it_writes_is_answered_at_once_and_not_repeated, a_rename_asked_about_while_it_commits_is_answered_at_once, rename_delete_and_restore_failures_say_whether_retrying_can_help; file store: trashing_moves_the_document_whole_and_restoring_brings_it_back, trashing_is_refused_while_another_writer_or_a_draft_holds_the_document, a_trash_move_or_restore_refused_by_permissions_is_denied_and_moves_nothing, a_trash_waiting_for_another_stores_save_does_not_hold_up_draft_checks, stale_temporaries_are_pruned_from_documents_drafts_and_the_trash; application: the_most_recently_trashed_documents_are_listed_however_full_the_trash_is.",
+    "contract_smoke": "Passes with real API and CLI processes: list search and sort with HTTP = CLI, rename, delete over HTTP and the CLI, a clean API copy closing and an unsaved one unable to re-create the document after a CLI delete, deletes refused for a draft in use and an abandoned draft, a process killed in the middle of a delete (stored or trashed, never both or neither), and restore.",
+    "browser_smoke": "Passes with CHEMIFREE_SMOKE_NO_SKIPS=1 and FORCE_COLOR=1 (results in editor-browser-smoke.json). Steps: list_search_sort_and_rename, unsaved_document_is_not_trashed, trash_and_restore (including the list at 320 px). The list step and the contract smoke make the listed documents an hour old before the rename, so the recency order they check does not depend on the wall clock between two writes (see limits). After that change, 3 consecutive runs passed. The list step also refuses a rename whose document changed elsewhere and checks that the list then shows it as it is and that Reload with no document open only reads the list.",
+    "typescript": "npm run lint and npm run typecheck pass.",
+    "web_client": "npm run test:client passes 17 cases. New: a rename whose reply was lost is asked about again with the same request ID; a delete still running is asked about until it is answered; a restore the service refused is reported, not asked again; a restore whose reply was lost is not asked of a restarted service."
+  },
+  "deliberate_breaks": [
+    {
+      "change": "rename, delete, and restore no longer wait for the document's turn (rename's turn removed)",
+      "caught_by": "application test renames_and_deletes_queued_behind_a_stalled_save_are_answered_busy_without_changes: the rename met the stalled save's unsaved copy (unsaved_changes) instead of busy"
+    },
+    {
+      "change": "delete no longer marks its request_id as running",
+      "caught_by": "application test a_delete_or_restore_asked_about_while_it_writes_is_answered_at_once_and_not_repeated: the repeat waited for the turn instead of being answered at once"
+    },
+    {
+      "change": "trash and restore writes report permission errors as Unavailable instead of Denied",
+      "caught_by": "file store test a_trash_move_or_restore_refused_by_permissions_is_denied_and_moves_nothing"
+    },
+    {
+      "change": "copies in other processes stay open after the document was deleted",
+      "caught_by": "application test copies_in_other_processes_never_bring_a_deleted_document_back"
+    },
+    {
+      "change": "edits are accepted while a delete holds the session",
+      "caught_by": "application test edits_wait_while_a_delete_is_in_progress"
+    },
+    {
+      "change": "delete no longer refuses an open copy with unsaved changes",
+      "caught_by": "application test deleting_refuses_to_lose_unsaved_work_anywhere"
+    },
+    {
+      "change": "an abandoned draft no longer blocks rename and delete",
+      "caught_by": "application test renaming_or_deleting_waits_for_an_earlier_sessions_draft"
+    },
+    {
+      "change": "sort recent puts the oldest save first",
+      "caught_by": "application test the_list_is_searched_by_title_and_sorted_by_title_or_last_save"
+    },
+    {
+      "change": "the title search is case-sensitive",
+      "caught_by": "application test the_list_is_searched_by_title_and_sorted_by_title_or_last_save"
+    },
+    {
+      "change": "rename skips the commit",
+      "caught_by": "application tests renaming_commits_at_once_and_needs_a_clean_copy, rename_delete_and_restore_failures_say_whether_retrying_can_help, a_rename_asked_about_while_it_commits_is_answered_at_once, and the list test"
+    },
+    {
+      "change": "the web client no longer asks about a lost rename or delete reply",
+      "caught_by": "web client tests 14 and 15 (a lost rename reply; a delete still running)"
+    },
+    {
+      "change": "the web client drops the search text from the list request",
+      "caught_by": "browser smoke step list_search_sort_and_rename: the searched list never showed only the two matching documents"
+    },
+    {
+      "change": "the page deletes at a revision other than the one the user confirmed",
+      "caught_by": "browser smoke step unsaved_document_is_not_trashed: the refusal for unsaved changes never appeared (the request met a revision conflict instead)"
+    },
+    {
+      "change": "the page does not re-read the list after a restore",
+      "caught_by": "browser smoke step trash_and_restore: the restored document never reappeared in the list"
+    },
+    {
+      "change": "trash holds the ownership mutex for its whole run again",
+      "caught_by": "file store test a_trash_waiting_for_another_stores_save_does_not_hold_up_draft_checks: a draft check timed out while the trash waited for a save lock"
+    },
+    {
+      "change": "temporaries in trash/ are not pruned",
+      "caught_by": "file store test stale_temporaries_are_pruned_from_documents_drafts_and_the_trash"
+    },
+    {
+      "change": "the trash list is cut in identifier order before sorting (as first written)",
+      "caught_by": "application test the_most_recently_trashed_documents_are_listed_however_full_the_trash_is (failed before the fix: doc-1000 listed first instead of the newest doc-999)"
+    },
+    {
+      "change": "the web client no longer binds a guarded write's unknown outcome to the session token",
+      "caught_by": "web client test a restore whose reply was lost is not asked of a restarted service"
+    }
+  ],
+  "limits": [
+    "Nothing is ever removed from the trash: there is no permanent delete or emptying yet, and trashed documents keep their space.",
+    "Another process's unsaved work that has no draft yet is invisible to the CLI; deleting the document then succeeds, and that work is kept only through save as copy.",
+    "Sort recent uses the stored file's modification time, a wall-clock time. A clock adjustment can reorder documents saved within it: on WSL2 the clock stepped back about 0.7 s between two writes in 2 of 8 local browser runs and in 2 of 120 direct API probes, listing the earlier save first. Another program touching the file also changes it.",
+    "Listing restores and validates every stored and trashed document; a large library lists slowly (outside the session lock).",
+    "A rename, delete, or restore whose reply stays lost beyond one re-ask and the in-progress polling is reported as failed; trying again is safe but may meet its own first attempt as revision_conflict or document_not_found.",
+    "A list reads at most 1000 documents (open ones first, then stored ones by identifier) before searching and sorting, so a larger library is searched only in part; the trash lists the 1000 most recently deleted."
+  ],
+  "independent_review": "A reviewer without this session's context read the commit: no P1. P2: trash held the file store's process-wide ownership mutex across waiting for another process's save lock and the move, stalling every draft status check (and the session table behind it); now it covers only taking the owner lock. P3: Reload with no document open read an empty ID; list rename and restore did not refresh after a refusal; the trash list cut at 1000 entries in ID order before sorting; the contract did not state the list cap, the busy reply when a draft is taken over during a delete, or that a restore is asked about only in the process it was sent to (the client resent it to a restarted one); trash/ temporaries were never pruned; a test helper comment was wrong. All fixed, with the tests and breaks listed here."
+}

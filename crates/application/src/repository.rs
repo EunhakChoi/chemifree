@@ -37,8 +37,9 @@ pub trait DocumentRepository: Send + Sync {
 
     /// Durably replaces the document's recovery draft and keeps it owned by this repository.
     ///
-    /// Fails with `Locked` when another running process owns the draft, and with `Conflict`
-    /// when an abandoned draft is present: that one must be recovered or discarded first.
+    /// Fails with `Locked` when another running process owns the draft, with `Conflict`
+    /// when an abandoned draft is present (that one must be recovered or discarded first), and
+    /// with `Missing` when the document is not stored (for example, trashed).
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError>;
 
     /// Takes over an abandoned draft (or one already owned) and returns it; `Ok(None)` means
@@ -52,6 +53,35 @@ pub trait DocumentRepository: Send + Sync {
     /// Removes the draft this repository owns, and gives up ownership. Succeeds when there is
     /// nothing owned to remove.
     fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError>;
+
+    /// When the stored document was last committed, in milliseconds since the Unix epoch.
+    fn saved_at_ms(&self, id: &DocumentId) -> Result<Option<u64>, StorageError>;
+
+    /// Moves the stored document to the trash in one step, so it is either stored or trashed,
+    /// never both or neither, even if the process ends meanwhile.
+    ///
+    /// Requires the stored revision to equal `base_revision` (else `Conflict`) and no recovery
+    /// draft for the document: `DraftPending` when an abandoned one exists, `Locked` when
+    /// another running process owns one. The check and the move are one step for every writer
+    /// of the same storage. While the document is trashed, no draft can be written for it.
+    fn trash(&self, id: &DocumentId, base_revision: u64) -> Result<(), StorageError>;
+
+    /// Moves a trashed document back. `Missing` when it is not in the trash.
+    fn restore(&self, id: &DocumentId) -> Result<(), StorageError>;
+
+    /// Trashed documents, with when each was trashed.
+    fn list_trash(&self) -> Result<Vec<TrashEntry>, StorageError>;
+
+    /// A trashed document as it was stored. `Ok(None)` means it is not in the trash.
+    fn load_trashed(&self, id: &DocumentId) -> Result<Option<Document>, StorageError>;
+}
+
+/// A trashed document's identifier and when it was trashed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrashEntry {
+    pub id: DocumentId,
+    /// Milliseconds since the Unix epoch, when known.
+    pub deleted_at_ms: Option<u64>,
 }
 
 /// An autosaved working copy, stored apart from the committed document so unsaved work
@@ -98,6 +128,11 @@ pub enum StorageError {
     Denied(String),
     /// Reading or writing failed; any previously committed document is intact.
     Unavailable(String),
+    /// No document is stored (or trashed, for a restore) under this identifier.
+    Missing,
+    /// An abandoned recovery draft holds unsaved work for the document; it must be recovered
+    /// or discarded first.
+    DraftPending,
 }
 
 impl fmt::Display for StorageError {
@@ -112,6 +147,10 @@ impl fmt::Display for StorageError {
             | Self::Locked(message)
             | Self::Denied(message)
             | Self::Unavailable(message) => formatter.write_str(message),
+            Self::Missing => formatter.write_str("no such document is stored"),
+            Self::DraftPending => {
+                formatter.write_str("an abandoned recovery draft holds unsaved work")
+            }
         }
     }
 }

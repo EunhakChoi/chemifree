@@ -9,6 +9,7 @@ import {
   HexagonIcon,
   MinusIcon,
   MousePointer2Icon,
+  PencilIcon,
   PlusIcon,
   Redo2Icon,
   RotateCwIcon,
@@ -71,7 +72,9 @@ import type {
   BondOrder,
   Command,
   DocumentResponse,
+  DocumentSummary,
   DocumentView,
+  ListSort,
   RecoveryView,
 } from '@/lib/document-contract'
 
@@ -158,8 +161,10 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
     draft_outdated: 'Saved elsewhere since this draft',
     draft_in_use: 'Draft in use',
     draft_not_found: 'No recovery draft',
+    document_not_found: 'Document not found',
+    unsaved_changes: 'Unsaved changes',
     save_conflict: 'Saved elsewhere',
-    storage_failed: { read_only: 'Storage is read-only', busy: 'Document busy', io: 'Save failed' }[error.reason ?? 'io'],
+    storage_failed: { read_only: 'Storage is read-only', busy: 'Document busy', io: 'Storage failed' }[error.reason ?? 'io'],
     save_unconfirmed: 'Save not confirmed',
     request_in_progress: 'Still in progress',
     draft_not_written: 'Left work not autosaved',
@@ -211,15 +216,18 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
             <RotateCwIcon data-icon="inline-start" aria-hidden="true" />Refresh
           </Button>
         </div>
+        <ListControls editor={editor} />
         {list.kind === 'loading' && <Skeleton className="h-10 w-full" />}
         {list.kind === 'error' && <p className="text-sm text-muted-foreground">{list.message}</p>}
         {list.kind === 'ready' && list.list.documents.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nothing saved yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {editor.listQuery.query.trim() ? 'No saved document matches this search.' : 'Nothing saved yet.'}
+          </p>
         )}
         {list.kind === 'ready' && list.list.documents.length > 0 && (
           <ul className="flex flex-col divide-y rounded-lg border">
             {list.list.documents.map((item) => (
-              <li key={item.id} data-document-id={item.id} className="flex items-center justify-between gap-3 p-3">
+              <li key={item.id} data-document-id={item.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="truncate text-sm font-medium">{item.title}</span>
                   <span className="text-xs text-muted-foreground">
@@ -232,6 +240,8 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
                   <Button size="sm" variant="outline" onClick={() => void editor.open(item.id)} disabled={editor.busy}>
                     <FolderOpenIcon data-icon="inline-start" aria-hidden="true" />Open
                   </Button>
+                  <RenameButton editor={editor} item={item} />
+                  <DeleteButton editor={editor} item={item} />
                 </div>
               </li>
             ))}
@@ -247,7 +257,170 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
           </Alert>
         )}
       </section>
+      <TrashSection editor={editor} />
     </div>
+  )
+}
+
+/** How long typing pauses before the list is searched. */
+const SEARCH_PAUSE_MS = 250
+
+const SORTS: Array<{ value: ListSort; label: string }> = [
+  { value: 'title', label: 'Title' },
+  { value: 'recent', label: 'Recent' },
+]
+
+function ListControls({ editor }: { editor: DocumentEditor }) {
+  const { listQuery, queryList } = editor
+  const [text, setText] = useState(listQuery.query)
+  // Searches once typing pauses, not on every keystroke.
+  useEffect(() => {
+    if (text === listQuery.query) return
+    const timer = setTimeout(() => queryList({ ...listQuery, query: text }), SEARCH_PAUSE_MS)
+    return () => clearTimeout(timer)
+  }, [text, listQuery, queryList])
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <Field className="min-w-0 flex-1">
+        <FieldLabel htmlFor="document-search">Search titles</FieldLabel>
+        <Input
+          id="document-search"
+          type="search"
+          value={text}
+          maxLength={MAX_TITLE_CHARS}
+          onChange={(event) => setText(event.currentTarget.value)}
+        />
+      </Field>
+      <ToggleGroup
+        aria-label="Sort documents"
+        variant="outline"
+        size="sm"
+        value={[listQuery.sort]}
+        onValueChange={(values) => {
+          const sort = SORTS.find((item) => item.value === values[0])?.value
+          if (sort) queryList({ ...listQuery, sort })
+        }}
+      >
+        {SORTS.map((item) => (
+          <ToggleGroupItem key={item.value} value={item.value}>{item.label}</ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  )
+}
+
+function RenameButton({ editor, item }: { editor: DocumentEditor; item: DocumentSummary }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Hint label="Rename">
+        <DialogTrigger render={<Button size="icon-sm" variant="ghost" aria-label={`Rename ${item.title}`} disabled={editor.busy} />}>
+          <PencilIcon aria-hidden="true" />
+        </DialogTrigger>
+      </Hint>
+      <DialogContent>
+        <form
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const title = new FormData(event.currentTarget).get('title')?.toString().trim()
+            setOpen(false)
+            if (title && title !== item.title) void editor.rename(item.id, item.revision, title)
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Rename document</DialogTitle>
+            <DialogDescription>
+              The new title is saved at once. A document with unsaved changes is renamed in the editor instead.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor={`rename-${item.id}`}>Title</FieldLabel>
+            <Input id={`rename-${item.id}`} name="title" defaultValue={item.title} maxLength={MAX_TITLE_CHARS} autoFocus />
+          </Field>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit">Rename</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DeleteButton({ editor, item }: { editor: DocumentEditor; item: DocumentSummary }) {
+  // Controlled so confirming closes the dialog at once and a refusal shows behind it.
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <AlertDialog open={confirming} onOpenChange={setConfirming}>
+      <Hint label="Move to trash">
+        <AlertDialogTrigger render={<Button size="icon-sm" variant="ghost" aria-label={`Move ${item.title} to trash`} disabled={editor.busy} />}>
+          <Trash2Icon aria-hidden="true" />
+        </AlertDialogTrigger>
+      </Hint>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Move “{item.title}” to the trash?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Revision {item.revision} leaves Saved documents and can be restored from the trash. A document with unsaved
+            changes or a recovery draft is not moved: save, discard, or recover that work first.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() => {
+              setConfirming(false)
+              void editor.remove(item.id, item.revision)
+            }}
+          >
+            Move to trash
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function TrashSection({ editor }: { editor: DocumentEditor }) {
+  const { trash } = editor
+  return (
+    <section aria-labelledby="trash" className="flex flex-col gap-3">
+      <h3 id="trash" className="text-sm font-medium">Trash</h3>
+      {trash.kind === 'loading' && <Skeleton className="h-10 w-full" />}
+      {trash.kind === 'error' && <p className="text-sm text-muted-foreground">{trash.message}</p>}
+      {trash.kind === 'ready' && trash.trash.documents.length === 0 && (
+        <p className="text-sm text-muted-foreground">The trash is empty.</p>
+      )}
+      {trash.kind === 'ready' && trash.trash.documents.length > 0 && (
+        <ul className="flex flex-col divide-y rounded-lg border">
+          {trash.trash.documents.map((item) => (
+            <li key={item.id} data-trashed-id={item.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-sm font-medium">{item.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {item.atom_count} atoms · {item.bond_count} bonds · revision {item.revision}
+                  {item.deleted_at_ms !== null && ` · deleted ${new Date(item.deleted_at_ms).toLocaleString()}`}
+                </span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => void editor.restore(item.id)} disabled={editor.busy}>
+                <ArchiveRestoreIcon data-icon="inline-start" aria-hidden="true" />Restore
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {trash.kind === 'ready' && trash.trash.unreadable.length > 0 && (
+        <Alert variant="destructive">
+          <TriangleAlertIcon aria-hidden="true" />
+          <AlertTitle>Unreadable files in the trash</AlertTitle>
+          <AlertDescription>
+            {trash.trash.unreadable.map((item) => `${item.id}: ${item.message}`).join(' · ')}
+          </AlertDescription>
+        </Alert>
+      )}
+    </section>
   )
 }
 

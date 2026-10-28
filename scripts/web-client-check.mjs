@@ -245,3 +245,44 @@ test('a replayed create whose re-read fails keeps its request ID', async () => {
   const ids = scripted.writes.map((write) => write.requestId)
   assert.ok(ids.every((id) => id === ids[0]), `the created document is asked about, not created again: ${ids.join(', ')}`)
 })
+
+test('a rename whose reply was lost is asked about again with the same request ID', async () => {
+  const scripted = service({ '/rename': [lost, () => json(200, document('doc-1', 4))] })
+  const renamed = await new DocumentClient().rename('doc-1', 3, 'Renamed')
+  assert.equal(renamed.document.revision, 4)
+  const ids = scripted.writes.map((write) => write.requestId)
+  assert.equal(ids.length, 2)
+  assert.equal(ids[1], ids[0], 'one request ID')
+})
+
+test('a delete still running is asked about until it is answered', async () => {
+  const scripted = service({
+    '/delete': [proxyFailure, () => error(409, 'request_in_progress'), () => json(200, { api_version: 'v1', id: 'doc-1', title: 'Gone' })],
+  })
+  const deleted = await new DocumentClient().delete('doc-1', 3)
+  assert.equal(deleted.title, 'Gone')
+  const ids = scripted.writes.map((write) => write.requestId)
+  assert.equal(ids.length, 3)
+  assert.ok(ids.every((id) => id === ids[0]), `one request ID: ${ids.join(', ')}`)
+})
+
+test('a restore the service refused is reported, not asked again', async () => {
+  const scripted = service({ '/restore': [() => error(404, 'document_not_found')] })
+  await assert.rejects(new DocumentClient().restore('doc-1'), { code: 'document_not_found' })
+  assert.equal(scripted.writes.length, 1)
+})
+
+test('a restore whose reply was lost is not asked of a restarted service', async () => {
+  // The service restarts while the reply to the first attempt is lost.
+  const scripted = service({
+    '/restore': [
+      () => {
+        scripted.restart()
+        lost()
+      },
+    ],
+  })
+  await assert.rejects(new DocumentClient().restore('doc-1'), { code: 'service_restarted' })
+  const restores = scripted.writes.filter((write) => write.path.endsWith('/restore'))
+  assert.deepEqual(restores.map((write) => write.token), ['token-1', 'token-1'], 'not sent to the restarted service')
+})

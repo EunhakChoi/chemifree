@@ -72,6 +72,32 @@ export interface DocumentSummary {
   open: boolean
   unsaved_changes: boolean
   recovery: RecoveryView | null
+  /** When storage last committed it, in milliseconds since the Unix epoch. */
+  saved_at_ms: number | null
+}
+
+/** Title order, or most recently saved first. */
+export type ListSort = 'title' | 'recent'
+
+export interface ListQuery {
+  /** Text the title must contain, ignoring case. */
+  query: string
+  sort: ListSort
+}
+
+export interface TrashedSummary {
+  id: string
+  title: string
+  revision: number
+  atom_count: number
+  bond_count: number
+  deleted_at_ms: number | null
+}
+
+export interface TrashListResponse {
+  api_version: typeof API_VERSION
+  documents: TrashedSummary[]
+  unreadable: { id: string; message: string }[]
 }
 
 export interface DocumentListResponse {
@@ -226,8 +252,37 @@ function isSummary(value: unknown): value is DocumentSummary {
     isCount(value.bond_count) &&
     typeof value.open === 'boolean' &&
     typeof value.unsaved_changes === 'boolean' &&
-    isRecovery(value.recovery)
+    isRecovery(value.recovery) &&
+    isCountOrNull(value.saved_at_ms)
   )
+}
+
+function isTrashed(value: unknown): value is TrashedSummary {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.title === 'string' &&
+    isCount(value.revision) &&
+    isCount(value.atom_count) &&
+    isCount(value.bond_count) &&
+    isCountOrNull(value.deleted_at_ms)
+  )
+}
+
+function isTrashList(value: unknown): value is TrashListResponse {
+  return (
+    isRecord(value) &&
+    value.api_version === API_VERSION &&
+    Array.isArray(value.documents) &&
+    value.documents.every(isTrashed) &&
+    Array.isArray(value.unreadable) &&
+    value.unreadable.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.message === 'string')
+  )
+}
+
+/** A delete or restore reply: which document moved, and its title. */
+function isMoved(value: unknown): value is { id: string; title: string } {
+  return isRecord(value) && value.api_version === API_VERSION && typeof value.id === 'string' && typeof value.title === 'string'
 }
 
 function isList(value: unknown): value is DocumentListResponse {
@@ -397,10 +452,85 @@ export class DocumentClient {
     return value
   }
 
-  async list(): Promise<DocumentListResponse> {
-    const value = await this.request('GET', '/api/v1/documents')
+  async list(query?: ListQuery): Promise<DocumentListResponse> {
+    const params = new URLSearchParams()
+    if (query?.query.trim()) params.set('query', query.query.trim())
+    if (query && query.sort !== 'title') params.set('sort', query.sort)
+    const search = params.size ? `?${params}` : ''
+    const value = await this.request('GET', `/api/v1/documents${search}`)
     if (!isList(value)) {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible list.', 200)
+    }
+    return value
+  }
+
+  async trash(): Promise<TrashListResponse> {
+    const value = await this.request('GET', '/api/v1/trash')
+    if (!isTrashList(value)) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible trash list.', 200)
+    }
+    return value
+  }
+
+  /** Commits a new title for a document without unsaved changes. */
+  async rename(id: string, expectedRevision: number, title: string) {
+    return DocumentClient.document(
+      await this.guarded(`${documentPath(id)}/rename`, { expected_revision: expectedRevision, title }, 'reload'),
+    )
+  }
+
+  /** Moves a document without unsaved changes to the trash; `expectedRevision` is the one the user confirmed. */
+  async delete(id: string, expectedRevision: number) {
+    return DocumentClient.moved(
+      await this.guarded(`${documentPath(id)}/delete`, { expected_revision: expectedRevision }, 'reload'),
+    )
+  }
+
+  /** Restoring again after a restart is safe: a restored document is simply no longer in the trash. */
+  async restore(id: string) {
+    return DocumentClient.moved(await this.guarded(`/api/v1/trash/${encodeURIComponent(id)}/restore`, {}, 'retry'))
+  }
+
+  /**
+   * A write that its own precondition (a revision, or the document being in the trash) keeps
+   * from taking effect twice. A lost reply is asked about once more with the same request ID,
+   * and while the service reports the request still running it is asked again, so the page
+   * learns what happened instead of meeting its own first attempt as a conflict. Any later
+   * repeat needs no record: the precondition refuses it. As for saves, an attempt that may
+   * have run is asked about only in the service process it was sent to.
+   */
+  private async guarded(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
+    const request = { ...body, request_id: requestId() }
+    let sentTo: string | undefined
+    let token: string | undefined
+    const sending = (current: string) => {
+      if (sentTo !== undefined && sentTo !== current) throw restarted(401)
+      token = current
+    }
+    let askedAgain = false
+    for (let checks = 0; ; ) {
+      try {
+        return await this.write(path, request, onRestart, sending)
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error
+        if (outcomeOpen(error) && token !== undefined) sentTo ??= token
+        if (error.status === 0 && !askedAgain) {
+          askedAgain = true
+          continue
+        }
+        if (error.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+          checks += 1
+          await pause(OUTCOME_CHECK_INTERVAL_MS)
+          continue
+        }
+        throw error
+      }
+    }
+  }
+
+  private static moved(value: unknown) {
+    if (!isMoved(value)) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible reply.', 200)
     }
     return value
   }

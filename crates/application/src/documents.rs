@@ -6,14 +6,15 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chemifree_domain::document::{
-    Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted,
+    Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
+    RevisionsExhausted, TransactionError,
 };
 
 use crate::API_VERSION;
 use crate::contract::{
-    self, CloseResponse, CommandDto, CopyResponse, CopySource, DocumentListResponse,
-    DocumentResponse, DocumentSummary, DraftDiscardResponse, RecoveryState, RecoveryView,
+    self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
+    DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse, ListQuery,
+    ListSort, RecoveryState, RecoveryView, RestoreResponse, TrashListResponse, TrashedSummary,
     UnreadableDocument,
 };
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
@@ -68,6 +69,17 @@ enum Mutation {
     DiscardDraft {
         document: DocumentId,
     },
+    Rename {
+        expected_revision: u64,
+        title: String,
+    },
+    Delete {
+        document: DocumentId,
+        expected_revision: u64,
+    },
+    Restore {
+        document: DocumentId,
+    },
 }
 
 struct ReplayLog<T>(VecDeque<(String, Mutation, T)>);
@@ -118,7 +130,17 @@ struct Session {
     saved_revision: u64,
     /// The revision held by this session's recovery draft, which the repository owns.
     draft_revision: Option<u64>,
+    /// Set while the clean copy is being renamed or deleted in storage: edits wait for the
+    /// outcome instead of changing a copy that is about to be replaced or end.
+    hold: Option<Hold>,
     replays: ReplayLog<DocumentResponse>,
+}
+
+/// A storage change that briefly holds a session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Hold {
+    Rename,
+    Delete,
 }
 
 impl Session {
@@ -128,6 +150,7 @@ impl Session {
             stored_revision: document.revision(),
             saved_revision: document.revision(),
             draft_revision: None,
+            hold: None,
             document,
             replays: ReplayLog::default(),
         }
@@ -229,6 +252,8 @@ struct Sessions {
     drafts_discarded: ReplayLog<DraftDiscardResponse>,
     /// Kept outside the sessions they end, so a retried close cannot end a newer session.
     closed: ReplayLog<CloseResponse>,
+    deleted: ReplayLog<DeleteResponse>,
+    restored: ReplayLog<RestoreResponse>,
 }
 
 impl Sessions {
@@ -256,7 +281,8 @@ impl Sessions {
         let clean = self
             .open
             .iter()
-            .filter(|(_, session)| !session.is_dirty())
+            // A session held by a rename or delete in progress is not evicted under it.
+            .filter(|(_, session)| !session.is_dirty() && session.hold.is_none())
             .map(|(id, _)| id);
         clean
             .clone()
@@ -346,7 +372,19 @@ impl<R: DocumentRepository> Documents<R> {
 
     /// Open sessions are summarized under the lock; other stored documents are restored
     /// without holding it, so listing does not stall edits to open documents.
-    pub(crate) fn list(&self) -> Result<DocumentListResponse, ApplicationError> {
+    /// Stored and open documents whose title contains `query.query` (ignoring case), in
+    /// `query.sort` order. Unreadable files are always reported.
+    pub(crate) fn list(&self, query: &ListQuery) -> Result<DocumentListResponse, ApplicationError> {
+        let needle = match query.query.as_deref().map(str::trim) {
+            Some(text) if text.chars().count() > MAX_TITLE_CHARS => {
+                return Err(ApplicationError::new(
+                    ErrorCode::InvalidRequest,
+                    format!("query is longer than {MAX_TITLE_CHARS} characters"),
+                ));
+            }
+            Some(text) if !text.is_empty() => Some(text.to_lowercase()),
+            _ => None,
+        };
         let stored = self.repository.list_ids().map_err(storage_error)?;
         let mut documents = Vec::new();
         let (open, retired): (HashSet<DocumentId>, HashMap<DocumentId, Retired>) = {
@@ -371,6 +409,7 @@ impl<R: DocumentRepository> Documents<R> {
         for summary in &mut documents {
             if let Ok(id) = parse_id(&summary.id) {
                 summary.recovery = self.recovery(&id);
+                summary.saved_at_ms = self.repository.saved_at_ms(&id).ok().flatten();
             }
         }
         let mut unreadable = Vec::new();
@@ -386,6 +425,7 @@ impl<R: DocumentRepository> Documents<R> {
                     Ok(session) => {
                         let mut listed = summary(&id, &session.document, false, false);
                         listed.recovery = self.recovery(&id);
+                        listed.saved_at_ms = self.repository.saved_at_ms(&id).ok().flatten();
                         documents.push(listed);
                     }
                     Err(error) => unreadable.push(UnreadableDocument {
@@ -400,7 +440,21 @@ impl<R: DocumentRepository> Documents<R> {
                 }),
             }
         }
-        documents.sort_by(|a, b| a.title.cmp(&b.title).then_with(|| a.id.cmp(&b.id)));
+        if let Some(needle) = needle {
+            documents.retain(|document| document.title.to_lowercase().contains(&needle));
+        }
+        let by_title = |a: &DocumentSummary, b: &DocumentSummary| {
+            a.title.cmp(&b.title).then_with(|| a.id.cmp(&b.id))
+        };
+        match query.sort {
+            ListSort::Title => documents.sort_by(by_title),
+            // Newest first; documents without a known time last.
+            ListSort::Recent => documents.sort_by(|a, b| {
+                b.saved_at_ms
+                    .cmp(&a.saved_at_ms)
+                    .then_with(|| by_title(a, b))
+            }),
+        }
         Ok(DocumentListResponse {
             api_version: API_VERSION,
             documents,
@@ -466,16 +520,7 @@ impl<R: DocumentRepository> Documents<R> {
                 .document
                 .apply(&domain_commands)
                 .map(|_: Outcome| ())
-                .map_err(|error| {
-                    let code = match error.error {
-                        EditError::RevisionLimit => ErrorCode::ResourceLimit,
-                        _ => ErrorCode::InvalidCommand,
-                    };
-                    ApplicationError {
-                        command_index: error.index,
-                        ..ApplicationError::new(code, error.to_string())
-                    }
-                })
+                .map_err(rejected_edit)
         })
     }
 
@@ -822,6 +867,7 @@ impl<R: DocumentRepository> Documents<R> {
             document,
             stored_revision: draft.base_revision,
             saved_revision,
+            hold: None,
             replays: ReplayLog::default(),
         })
     }
@@ -932,6 +978,238 @@ impl<R: DocumentRepository> Documents<R> {
             .drafts_discarded
             .record(request_id, mutation, &response);
         Ok(response)
+    }
+
+    /// Renames the stored document in one commit. The open copy must have no unsaved changes:
+    /// a rename from the document list is not a way to save other work. An abandoned draft
+    /// would be left behind by the commit, so it must be recovered or discarded first.
+    pub(crate) fn rename(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        title: &str,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::Rename {
+            expected_revision,
+            title: title.to_owned(),
+        };
+        let _running = self.start(Some(&document_id), request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
+        let pending = self.pending_draft(&document_id)?;
+        let (renamed, base) = {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+            session.expect_revision(expected_revision)?;
+            if session.is_dirty() {
+                return Err(unsaved_before("renaming it from the list", session));
+            }
+            if let Some(error) = pending {
+                return Err(error);
+            }
+            let mut renamed = session.document.clone();
+            let command = Command::Rename {
+                title: title.to_owned(),
+            };
+            if renamed.apply(&[command]).map_err(rejected_edit)? == Outcome::Unchanged {
+                let response = self.respond(session);
+                session.replays.record(request_id, mutation, &response);
+                return Ok(response);
+            }
+            session.hold = Some(Hold::Rename);
+            (renamed, session.stored_revision)
+        };
+        let committed = self.repository.save(&renamed, Some(base));
+        let mut sessions = self.lock();
+        let mut session = sessions.open.get_mut(&document_id);
+        if let Some(session) = session.as_deref_mut() {
+            session.hold = None;
+        }
+        committed.map_err(|error| storage_failure(error, "rename failed; nothing was changed"))?;
+        let Some(session) = session else {
+            // Held sessions are neither evicted nor refreshed; the commit stands regardless.
+            return Ok(DocumentResponse::new(&renamed, renamed.revision(), None));
+        };
+        session.stored_revision = renamed.revision();
+        session.saved_revision = renamed.revision();
+        session.document = renamed;
+        let response = self.respond(session);
+        session.replays.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// Moves the document to the trash. Nothing unsaved may be lost by it: the open copy must
+    /// be clean at `expected_revision`, and no recovery draft may hold unsaved work, whether
+    /// abandoned (`recovery_pending`) or another running process's (`draft_in_use`). The
+    /// session ends; other processes' copies close on their next access, and their saves meet
+    /// the missing document as a conflict instead of re-creating it.
+    pub(crate) fn delete(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<DeleteResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::Delete {
+            document: document_id.clone(),
+            expected_revision,
+        };
+        let _running = self.start(None, request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.deleted.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
+        let pending = self.pending_draft(&document_id)?;
+        let (base, title) = {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            session.expect_revision(expected_revision)?;
+            if session.is_dirty() {
+                return Err(unsaved_before("deleting it", session));
+            }
+            if let Some(error) = pending {
+                return Err(error);
+            }
+            session.hold = Some(Hold::Delete);
+            (session.stored_revision, session.document.title().to_owned())
+        };
+        // A draft that appears meanwhile is refused by the repository: it checks under the
+        // draft's owner lock. A refusal there is reported as busy; a retry names the draft.
+        let trashed = self.repository.trash(&document_id, base);
+        let mut sessions = self.lock();
+        if let Err(error) = trashed {
+            if let Some(session) = sessions.open.get_mut(&document_id) {
+                session.hold = None;
+            }
+            return Err(storage_failure(
+                error,
+                "delete failed; the document is still stored",
+            ));
+        }
+        sessions.remove(&document_id);
+        let response = DeleteResponse {
+            api_version: API_VERSION,
+            id: document_id.to_string(),
+            title,
+        };
+        sessions.deleted.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// Trashed documents, most recently trashed first.
+    pub(crate) fn list_trash(&self) -> Result<TrashListResponse, ApplicationError> {
+        let mut entries = self.repository.list_trash().map_err(storage_error)?;
+        // The cap keeps the most recent deletions, which the stamps give without reading the
+        // documents.
+        entries.sort_by(|a, b| {
+            b.deleted_at_ms
+                .cmp(&a.deleted_at_ms)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        let mut documents = Vec::new();
+        let mut unreadable = Vec::new();
+        for entry in entries.into_iter().take(MAX_LISTED_DOCUMENTS) {
+            match self.repository.load_trashed(&entry.id) {
+                Ok(Some(document)) => documents.push(TrashedSummary {
+                    id: entry.id.to_string(),
+                    title: document.title().to_owned(),
+                    revision: document.revision(),
+                    atom_count: document.atoms().len(),
+                    bond_count: document.bonds().len(),
+                    deleted_at_ms: entry.deleted_at_ms,
+                }),
+                Ok(None) => {}
+                Err(error) => unreadable.push(UnreadableDocument {
+                    id: entry.id.to_string(),
+                    message: error.to_string(),
+                }),
+            }
+        }
+        documents.sort_by(|a, b| {
+            b.deleted_at_ms
+                .cmp(&a.deleted_at_ms)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(TrashListResponse {
+            api_version: API_VERSION,
+            documents,
+            unreadable,
+        })
+    }
+
+    /// Moves a trashed document back among the stored documents, as it was trashed.
+    pub(crate) fn restore(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+    ) -> Result<RestoreResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::Restore {
+            document: document_id.clone(),
+        };
+        let _running = self.start(None, request_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.restored.find(request_id, &mutation)
+        })? {
+            return Ok(response);
+        }
+        let _turn = self.turn(&document_id)?;
+        let not_trashed = || {
+            ApplicationError::new(
+                ErrorCode::DocumentNotFound,
+                format!("document {document_id} is not in the trash"),
+            )
+        };
+        let document = self
+            .repository
+            .load_trashed(&document_id)
+            .map_err(storage_error)?
+            .ok_or_else(not_trashed)?;
+        self.repository
+            .restore(&document_id)
+            .map_err(|error| match error {
+                StorageError::Missing => not_trashed(),
+                error => storage_failure(error, "restore failed; the document stays in the trash"),
+            })?;
+        let response = RestoreResponse {
+            api_version: API_VERSION,
+            id: document_id.to_string(),
+            title: document.title().to_owned(),
+        };
+        self.lock().restored.record(request_id, mutation, &response);
+        Ok(response)
+    }
+
+    /// The error for a recovery draft that holds unsaved work this process does not own.
+    fn pending_draft(&self, id: &DocumentId) -> Result<Option<ApplicationError>, ApplicationError> {
+        Ok(
+            match self.repository.draft_status(id).map_err(storage_error)? {
+                DraftStatus::None | DraftStatus::Owned => None,
+                DraftStatus::Locked => Some(ApplicationError::new(
+                    ErrorCode::DraftInUse,
+                    format!(
+                        "another running process has unsaved work in document {id}'s recovery draft"
+                    ),
+                )),
+                DraftStatus::Abandoned(_) => Some(storage_error(StorageError::DraftPending)),
+            },
+        )
     }
 
     /// Commits the working copy as a new document. The source session closes: its working
@@ -1097,6 +1375,9 @@ impl<R: DocumentRepository> Documents<R> {
         if let Some(response) = session.replays.find(request_id, &mutation)? {
             return Ok(response);
         }
+        if let Some(hold) = session.hold {
+            return Err(held(id, hold));
+        }
         session.expect_revision(expected_revision)?;
         change(session)?;
         let response = self.respond(session);
@@ -1136,13 +1417,15 @@ impl<R: DocumentRepository> Documents<R> {
     /// it is: it is still the last commit this session saw. Fails when no revision remains to
     /// name the newer commit; the caller then closes the clean copy.
     fn refresh(&self, id: &DocumentId, session: &mut Session) -> Result<(), ApplicationError> {
-        if session.is_dirty() {
+        if session.is_dirty() || session.hold.is_some() {
             return Ok(());
         }
-        let newer = matches!(
-            self.repository.stored_revision(id),
-            Ok(Some(stored)) if stored > session.stored_revision
-        );
+        let stored = self.repository.stored_revision(id);
+        // Deleted elsewhere: a clean copy has nothing to keep, and must not show it as stored.
+        if matches!(stored, Ok(None)) {
+            return Err(not_found(id));
+        }
+        let newer = matches!(stored, Ok(Some(stored)) if stored > session.stored_revision);
         if newer && let Ok(Some(document)) = self.repository.load(id) {
             // The copy being replaced named the old commit; the new one must not reuse that.
             let reached = Retired {
@@ -1170,6 +1453,7 @@ fn summary(
     unsaved_changes: bool,
 ) -> DocumentSummary {
     DocumentSummary {
+        saved_at_ms: None,
         id: id.to_string(),
         title: document.title().to_owned(),
         revision: document.revision(),
@@ -1240,6 +1524,38 @@ fn own_draft(id: &DocumentId) -> ApplicationError {
     )
 }
 
+fn unsaved_before(action: &str, session: &Session) -> ApplicationError {
+    ApplicationError::new(
+        ErrorCode::UnsavedChanges,
+        format!(
+            "revision {} is not saved; save or discard it before {action}",
+            session.document.revision()
+        ),
+    )
+}
+
+fn rejected_edit(error: TransactionError) -> ApplicationError {
+    let code = match error.error {
+        EditError::RevisionLimit => ErrorCode::ResourceLimit,
+        _ => ErrorCode::InvalidCommand,
+    };
+    ApplicationError {
+        command_index: error.index,
+        ..ApplicationError::new(code, error.to_string())
+    }
+}
+
+fn held(id: &str, hold: Hold) -> ApplicationError {
+    let action = match hold {
+        Hold::Rename => "renamed",
+        Hold::Delete => "deleted",
+    };
+    ApplicationError::storage_failed(
+        StorageReason::Busy,
+        format!("document {id} is being {action}; nothing was changed, retry"),
+    )
+}
+
 fn draft_error(error: StorageError) -> ApplicationError {
     match error {
         StorageError::Locked(message) => ApplicationError::new(ErrorCode::DraftInUse, message),
@@ -1280,6 +1596,13 @@ fn storage_error(error: StorageError) -> ApplicationError {
             ErrorCode::DocumentUnreadable,
             format!("the stored document is unreadable: {message}"),
         ),
+        StorageError::Missing => {
+            ApplicationError::new(ErrorCode::DocumentNotFound, "no such document is stored")
+        }
+        StorageError::DraftPending => ApplicationError::new(
+            ErrorCode::RecoveryPending,
+            "an earlier session's recovery draft holds unsaved work for this document; recover or discard it first",
+        ),
         error => storage_failure(error, "storage failed"),
     }
 }
@@ -1291,9 +1614,10 @@ fn storage_failure(error: StorageError, context: &str) -> ApplicationError {
         StorageError::Locked(message) => (StorageReason::Busy, message),
         StorageError::Denied(message) => (StorageReason::ReadOnly, message),
         StorageError::Unavailable(message) => (StorageReason::Io, message),
-        error @ (StorageError::Conflict { .. } | StorageError::Corrupt(_)) => {
-            return storage_error(error);
-        }
+        error @ (StorageError::Conflict { .. }
+        | StorageError::Corrupt(_)
+        | StorageError::Missing
+        | StorageError::DraftPending) => return storage_error(error),
     };
     ApplicationError::storage_failed(reason, format!("{context}: {message}"))
 }

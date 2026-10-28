@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, Draft,
-    DraftInfo, DraftStatus, ErrorCode, MAX_OPEN_SESSIONS, RecoveryState, StorageError,
-    StorageReason, TURN_WAIT,
+    DraftInfo, DraftStatus, ErrorCode, ListQuery, ListSort, MAX_OPEN_SESSIONS, RecoveryState,
+    StorageError, StorageReason, TURN_WAIT, TrashEntry,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -35,8 +35,14 @@ struct MemoryStore {
     fail_with: Arc<Mutex<Option<StorageError>>>,
     /// Held by a test to stall commits, as another process's save lock would.
     commit_gate: Arc<Mutex<()>>,
-    /// Saves that reached storage, counted before they wait for `commit_gate`.
+    /// Saves, trash moves, and restores that reached storage, counted before they wait for
+    /// `commit_gate`.
     saves_started: Arc<AtomicUsize>,
+    /// Trashed documents with when they were trashed.
+    trash: Arc<Mutex<BTreeMap<DocumentId, (Document, u64)>>>,
+    /// Commit times on a fake clock that advances by one per commit or delete.
+    saved_at: Arc<Mutex<BTreeMap<DocumentId, u64>>>,
+    clock: Arc<AtomicU64>,
     process: u32,
 }
 
@@ -102,6 +108,11 @@ impl DocumentRepository for MemoryStore {
             });
         }
         documents.insert(document.id().clone(), document.clone());
+        let at = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        self.saved_at
+            .lock()
+            .unwrap()
+            .insert(document.id().clone(), at);
         let mut drafts = self.drafts.lock().unwrap();
         if drafts
             .get(document.id())
@@ -136,7 +147,16 @@ impl DocumentRepository for MemoryStore {
                     stored_revision: None,
                 });
             }
-            _ => {}
+            Some(_) => {}
+            None if !self
+                .documents
+                .lock()
+                .unwrap()
+                .contains_key(draft.document.id()) =>
+            {
+                return Err(StorageError::Missing);
+            }
+            None => {}
         }
         self.failing()?;
         drafts.insert(
@@ -178,6 +198,79 @@ impl DocumentRepository for MemoryStore {
             drafts.remove(id);
         }
         Ok(())
+    }
+
+    fn saved_at_ms(&self, id: &DocumentId) -> Result<Option<u64>, StorageError> {
+        Ok(self.saved_at.lock().unwrap().get(id).copied())
+    }
+
+    fn trash(&self, id: &DocumentId, base_revision: u64) -> Result<(), StorageError> {
+        self.saves_started.fetch_add(1, Ordering::SeqCst);
+        let _commit = self.commit_gate.lock().unwrap();
+        match self.drafts.lock().unwrap().get(id) {
+            Some((_, Some(owner))) if *owner != self.process => {
+                return Err(StorageError::Locked("owned by another process".into()));
+            }
+            Some(_) => return Err(StorageError::DraftPending),
+            None => {}
+        }
+        self.failing()?;
+        let mut documents = self.documents.lock().unwrap();
+        let stored = documents.get(id).ok_or(StorageError::Missing)?;
+        if stored.revision() != base_revision {
+            return Err(StorageError::Conflict {
+                stored_revision: Some(stored.revision()),
+            });
+        }
+        let document = documents.remove(id).expect("checked above");
+        let at = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        self.trash
+            .lock()
+            .unwrap()
+            .insert(id.clone(), (document, at));
+        Ok(())
+    }
+
+    fn restore(&self, id: &DocumentId) -> Result<(), StorageError> {
+        self.saves_started.fetch_add(1, Ordering::SeqCst);
+        let _commit = self.commit_gate.lock().unwrap();
+        self.failing()?;
+        let mut documents = self.documents.lock().unwrap();
+        if let Some(stored) = documents.get(id) {
+            return Err(StorageError::Conflict {
+                stored_revision: Some(stored.revision()),
+            });
+        }
+        let (document, _) = self
+            .trash
+            .lock()
+            .unwrap()
+            .remove(id)
+            .ok_or(StorageError::Missing)?;
+        documents.insert(id.clone(), document);
+        Ok(())
+    }
+
+    fn list_trash(&self) -> Result<Vec<TrashEntry>, StorageError> {
+        Ok(self
+            .trash
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, (_, at))| TrashEntry {
+                id: id.clone(),
+                deleted_at_ms: Some(*at),
+            })
+            .collect())
+    }
+
+    fn load_trashed(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
+        Ok(self
+            .trash
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|(document, _)| document.clone()))
     }
 }
 
@@ -543,7 +636,7 @@ fn the_last_revision_is_kept_for_a_reopened_copy_and_never_named_twice() {
 
     let exhausted = app.document(&id).unwrap_err();
     assert_eq!(exhausted.code, ErrorCode::ResourceLimit);
-    let listed = app.list_documents().unwrap();
+    let listed = app.list_documents(&ListQuery::default()).unwrap();
     assert!(listed.documents.is_empty(), "{listed:?}");
     assert_eq!(listed.unreadable.len(), 1);
     assert_eq!(
@@ -567,7 +660,7 @@ fn a_clean_session_follows_another_writers_save() {
     assert_eq!(seen.document.revision, 1, "the clean copy reloads");
     assert_eq!(seen.session.saved_revision, 1);
     assert!(!seen.session.unsaved_changes);
-    let listed = viewer.list_documents().unwrap();
+    let listed = viewer.list_documents(&ListQuery::default()).unwrap();
     assert_eq!(listed.documents[0].revision, 1);
 
     // An edit based on the old view is a revision conflict, not a later save conflict.
@@ -623,7 +716,7 @@ fn rejected_requests_do_not_evict_open_sessions() {
         app.create_document(None, None).unwrap();
     }
     let open = |app: &Application<NoCapabilities, MemoryStore>| {
-        let listed = app.list_documents().unwrap();
+        let listed = app.list_documents(&ListQuery::default()).unwrap();
         listed
             .documents
             .iter()
@@ -662,7 +755,7 @@ fn listing_merges_storage_with_open_sessions() {
     let b = app.create_document(None, Some("Beta")).unwrap().document.id;
     app.create_document(None, Some("Alpha")).unwrap();
     app.apply_transaction(&b, None, 0, draw_ethanol()).unwrap();
-    let list = app.list_documents().unwrap();
+    let list = app.list_documents(&ListQuery::default()).unwrap();
     let titles: Vec<_> = list.documents.iter().map(|d| d.title.as_str()).collect();
     assert_eq!(titles, ["Alpha", "Beta"]);
     assert_eq!(list.documents[1].atom_count, 3);
@@ -747,7 +840,7 @@ fn a_draft_left_by_an_ended_process_recovers_with_history_and_numbering() {
     let offer = opened.recovery.unwrap();
     assert_eq!(offer.state, RecoveryState::Recoverable);
     assert_eq!((offer.revision, offer.base_revision), (Some(3), Some(0)));
-    let listed = app.list_documents().unwrap();
+    let listed = app.list_documents(&ListQuery::default()).unwrap();
     assert_eq!(
         listed.documents[0].recovery.as_ref().unwrap().state,
         RecoveryState::Recoverable
@@ -1100,7 +1193,7 @@ fn recovery_and_copies_reuse_their_session_slot_when_every_other_is_unsaved() {
         .unwrap();
     assert!(copied.source.closed);
     let open = app
-        .list_documents()
+        .list_documents(&ListQuery::default())
         .unwrap()
         .documents
         .iter()
@@ -1140,7 +1233,7 @@ fn full_table_beside_an_abandoned_draft(
 }
 
 fn open_ids(app: &Application<NoCapabilities, MemoryStore>) -> Vec<String> {
-    let listed = app.list_documents().unwrap();
+    let listed = app.list_documents(&ListQuery::default()).unwrap();
     listed
         .documents
         .into_iter()
@@ -1518,5 +1611,492 @@ fn a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs
             .code,
         ErrorCode::RequestIdReused,
         "once done, the ID names the copy"
+    );
+}
+
+/// A document titled `title`, saved at revision 1 and still open in this process.
+fn stored(app: &Application<NoCapabilities, MemoryStore>, title: &str) -> String {
+    let id = app.create_document(None, Some(title)).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    app.save(&id, None, 1).unwrap();
+    id
+}
+
+fn listed(
+    app: &Application<NoCapabilities, MemoryStore>,
+    query: Option<&str>,
+    sort: ListSort,
+) -> Vec<String> {
+    app.list_documents(&ListQuery {
+        query: query.map(str::to_owned),
+        sort,
+    })
+    .unwrap()
+    .documents
+    .into_iter()
+    .map(|document| document.title)
+    .collect()
+}
+
+#[test]
+fn the_list_is_searched_by_title_and_sorted_by_title_or_last_save() {
+    let (app, _store) = application();
+    stored(&app, "Methane");
+    let ethanol = stored(&app, "Ethanol");
+    stored(&app, "benzene");
+    assert_eq!(
+        listed(&app, None, ListSort::Title),
+        ["Ethanol", "Methane", "benzene"],
+        "by title (code point order), then identifier"
+    );
+    assert_eq!(
+        listed(&app, Some("  ETH "), ListSort::Title),
+        ["Ethanol", "Methane"]
+    );
+    assert_eq!(
+        listed(&app, Some("xyz"), ListSort::Title),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        listed(&app, Some(""), ListSort::Title).len(),
+        3,
+        "empty lists all"
+    );
+
+    app.rename(&ethanol, None, 1, "Ethanol, renamed").unwrap();
+    assert_eq!(
+        listed(&app, None, ListSort::Recent),
+        ["Ethanol, renamed", "benzene", "Methane"],
+        "most recently saved first"
+    );
+    let long = "x".repeat(1_000);
+    let refused = app
+        .list_documents(&ListQuery {
+            query: Some(long),
+            sort: ListSort::Title,
+        })
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::InvalidRequest);
+}
+
+#[test]
+fn renaming_commits_at_once_and_needs_a_clean_copy() {
+    let (app, store) = application();
+    let id = stored(&app, "Ethanol");
+    let renamed = app
+        .rename(&id, Some("rename-1"), 1, "Ethyl alcohol")
+        .unwrap();
+    assert_eq!(renamed.document.title, "Ethyl alcohol");
+    assert_eq!(renamed.document.revision, 2);
+    assert!(
+        !renamed.session.unsaved_changes,
+        "committed, not just edited"
+    );
+    let key = DocumentId::parse(&id).unwrap();
+    assert_eq!(store.load(&key).unwrap().unwrap().title(), "Ethyl alcohol");
+    assert_eq!(
+        app.rename(&id, Some("rename-1"), 1, "Ethyl alcohol")
+            .unwrap(),
+        renamed,
+        "a retried request replays"
+    );
+    let same = app.rename(&id, None, 2, "Ethyl alcohol").unwrap();
+    assert_eq!(
+        same.document.revision, 2,
+        "an unchanged title commits nothing"
+    );
+
+    let stale = app.rename(&id, None, 1, "Other").unwrap_err();
+    assert_eq!(stale.code, ErrorCode::RevisionConflict);
+    app.apply_transaction(
+        &id,
+        None,
+        2,
+        commands(json!([{"op": "delete_atoms", "atoms": ["a1"]}])),
+    )
+    .unwrap();
+    let unsaved = app.rename(&id, None, 3, "Other").unwrap_err();
+    assert_eq!(unsaved.code, ErrorCode::UnsavedChanges);
+    assert_eq!(store.load(&key).unwrap().unwrap().title(), "Ethyl alcohol");
+    assert_eq!(
+        app.document(&id).unwrap().document.atoms.len(),
+        2,
+        "the edit is kept"
+    );
+}
+
+#[test]
+fn renaming_or_deleting_waits_for_an_earlier_sessions_draft() {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    let revision = app.document(&id).unwrap().document.revision;
+    let rename = app
+        .rename(&id, None, revision, "Renamed over a draft")
+        .unwrap_err();
+    assert_eq!(rename.code, ErrorCode::RecoveryPending);
+    let delete = app.delete(&id, None, revision).unwrap_err();
+    assert_eq!(delete.code, ErrorCode::RecoveryPending);
+    let key = DocumentId::parse(&id).unwrap();
+    assert_eq!(
+        store.load(&key).unwrap().unwrap().title(),
+        "Draft",
+        "nothing changed"
+    );
+    assert_eq!(store.draft_count(), 1, "the draft is kept");
+}
+
+#[test]
+fn deleting_moves_a_clean_document_to_the_trash_and_restoring_brings_it_back() {
+    let (app, store) = application();
+    let id = stored(&app, "Ethanol");
+    let deleted = app.delete(&id, Some("delete-1"), 1).unwrap();
+    assert_eq!(
+        (deleted.id.as_str(), deleted.title.as_str()),
+        (id.as_str(), "Ethanol")
+    );
+    assert_eq!(
+        app.delete(&id, Some("delete-1"), 1).unwrap(),
+        deleted,
+        "replayed"
+    );
+    assert_eq!(listed(&app, None, ListSort::Title), Vec::<String>::new());
+    assert_eq!(
+        app.document(&id).unwrap_err().code,
+        ErrorCode::DocumentNotFound
+    );
+    let trash = app.list_trash().unwrap();
+    assert_eq!(trash.documents.len(), 1);
+    assert_eq!(
+        (
+            trash.documents[0].title.as_str(),
+            trash.documents[0].revision
+        ),
+        ("Ethanol", 1)
+    );
+
+    let restored = app.restore(&id, Some("restore-1")).unwrap();
+    assert_eq!(restored.title, "Ethanol");
+    assert_eq!(
+        app.restore(&id, Some("restore-1")).unwrap(),
+        restored,
+        "replayed"
+    );
+    assert_eq!(
+        app.restore(&id, Some("restore-2")).unwrap_err().code,
+        ErrorCode::DocumentNotFound,
+        "not in the trash any more"
+    );
+    assert!(app.list_trash().unwrap().documents.is_empty());
+    let reopened = app.document(&id).unwrap();
+    assert_eq!(reopened.document.atoms.len(), 3, "content as trashed");
+    assert!(
+        store
+            .load_trashed(&DocumentId::parse(&id).unwrap())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn deleting_refuses_to_lose_unsaved_work_anywhere() {
+    let (app, store) = application();
+    let id = stored(&app, "Ethanol");
+    assert_eq!(
+        app.delete(&id, None, 0).unwrap_err().code,
+        ErrorCode::RevisionConflict
+    );
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "Edited"}])),
+    )
+    .unwrap();
+    assert_eq!(
+        app.delete(&id, None, 2).unwrap_err().code,
+        ErrorCode::UnsavedChanges
+    );
+    app.autosave(&id, None).unwrap();
+
+    // Another process sees the first one's draft as in use.
+    let other = Application::new(NoCapabilities, store.as_process(2));
+    let refused = other.delete(&id, None, 1).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::DraftInUse);
+    assert!(other.list_trash().unwrap().documents.is_empty());
+    assert_eq!(
+        app.document(&id).unwrap().document.title,
+        "Edited",
+        "still unsaved, not lost"
+    );
+}
+
+#[test]
+fn copies_in_other_processes_never_bring_a_deleted_document_back() {
+    let (first, store) = application();
+    let id = stored(&first, "Ethanol");
+    let clean = Application::new(NoCapabilities, store.as_process(2));
+    let dirty = Application::new(NoCapabilities, store.as_process(3));
+    assert_eq!(clean.document(&id).unwrap().document.revision, 1);
+    dirty
+        .apply_transaction(
+            &id,
+            None,
+            1,
+            commands(json!([{"op": "rename", "title": "Late"}])),
+        )
+        .unwrap();
+
+    first.delete(&id, None, 1).unwrap();
+    // A clean copy closes on its next access instead of showing the document as stored.
+    assert_eq!(
+        clean.document(&id).unwrap_err().code,
+        ErrorCode::DocumentNotFound
+    );
+    assert_eq!(listed(&clean, None, ListSort::Title), Vec::<String>::new());
+    // A copy with unsaved work keeps it, but cannot save or draft it as the deleted document.
+    assert_eq!(
+        dirty.save(&id, None, 2).unwrap_err().code,
+        ErrorCode::SaveConflict
+    );
+    assert_eq!(
+        dirty.autosave(&id, None).unwrap_err().code,
+        ErrorCode::DocumentNotFound
+    );
+    let key = DocumentId::parse(&id).unwrap();
+    assert!(store.load(&key).unwrap().is_none(), "not re-created");
+    assert_eq!(store.draft_count(), 0, "no draft outlives it");
+    assert_eq!(
+        dirty.document(&id).unwrap().document.title,
+        "Late",
+        "still held in memory"
+    );
+    // Its work can still be kept as a new document.
+    assert_eq!(
+        dirty
+            .save_as(&id, None, 2, None)
+            .unwrap()
+            .copy
+            .document
+            .title,
+        "Late (copy)"
+    );
+}
+
+#[test]
+fn edits_wait_while_a_delete_is_in_progress() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = stored(&app, "Ethanol");
+    let stalled = store.commit_gate.lock().unwrap();
+    let before = store.saves_started.load(Ordering::SeqCst);
+    let deleting = {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        std::thread::spawn(move || app.delete(&id, None, 1))
+    };
+    while store.saves_started.load(Ordering::SeqCst) == before {
+        std::thread::yield_now();
+    }
+    let edit = app
+        .apply_transaction(
+            &id,
+            None,
+            1,
+            commands(json!([{"op": "rename", "title": "Lost?"}])),
+        )
+        .unwrap_err();
+    assert_eq!(
+        (edit.code, edit.reason),
+        (ErrorCode::StorageFailed, Some(StorageReason::Busy)),
+        "{}",
+        edit.message
+    );
+    drop(stalled);
+    deleting.join().unwrap().unwrap();
+    let trashed = store
+        .load_trashed(&DocumentId::parse(&id).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        trashed.title(),
+        "Ethanol",
+        "trashed as confirmed, without the refused edit"
+    );
+}
+
+#[test]
+fn renames_and_deletes_queued_behind_a_stalled_save_are_answered_busy_without_changes() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let title = app.document(&id).unwrap().document.title;
+    let held = store.commit_gate.lock().unwrap();
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    });
+
+    let started = std::time::Instant::now();
+    let renaming = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.rename(&id, Some("rename-1"), 1, "Renamed").map(|_| ())
+    });
+    let deleting = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.delete(&id, Some("delete-1"), 1).map(|_| ())
+    });
+    for request in [renaming, deleting] {
+        let refused = request.join().unwrap().unwrap_err();
+        assert_eq!(
+            (refused.code, refused.reason),
+            (ErrorCode::StorageFailed, Some(StorageReason::Busy)),
+            "{refused}"
+        );
+    }
+    let waited = started.elapsed();
+    assert!(
+        waited >= TURN_WAIT && waited < TURN_WAIT + std::time::Duration::from_secs(2),
+        "each waited for the turn, side by side ({waited:?})"
+    );
+
+    drop(held);
+    saving.join().unwrap().unwrap();
+    let shown = app.document(&id).unwrap();
+    assert_eq!(
+        (shown.document.title, shown.document.revision),
+        (title, 1),
+        "neither the rename nor the delete took effect"
+    );
+    assert!(
+        store.trash.lock().unwrap().is_empty(),
+        "nothing was trashed"
+    );
+}
+
+#[test]
+fn a_delete_or_restore_asked_about_while_it_writes_is_answered_at_once_and_not_repeated() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = stored(&app, "Moved");
+
+    for step in ["delete", "restore"] {
+        let request = {
+            let (app, id) = (Arc::clone(&app), id.clone());
+            move || match step {
+                "delete" => app.delete(&id, Some("move-1"), 1).map(|moved| moved.title),
+                _ => app.restore(&id, Some("move-2")).map(|moved| moved.title),
+            }
+        };
+        let held = store.commit_gate.lock().unwrap();
+        let moving = stalled(&store, request.clone());
+        let asked = within(std::time::Duration::from_millis(500), request.clone())
+            .expect("answered without waiting for the running request");
+        assert_eq!(
+            asked.unwrap_err().code,
+            ErrorCode::RequestInProgress,
+            "{step}"
+        );
+
+        drop(held);
+        let moved = moving.join().unwrap().unwrap();
+        let writes = store.saves_started.load(Ordering::SeqCst);
+        assert_eq!(request().unwrap(), moved, "{step}: the recorded reply");
+        assert_eq!(
+            store.saves_started.load(Ordering::SeqCst),
+            writes,
+            "{step}: storage was not written again"
+        );
+    }
+    assert_eq!(app.document(&id).unwrap().document.title, "Moved");
+}
+
+#[test]
+fn a_rename_asked_about_while_it_commits_is_answered_at_once() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = stored(&app, "Before");
+    let held = store.commit_gate.lock().unwrap();
+    let renaming = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.rename(&id, Some("rename-1"), 1, "After")
+    });
+
+    let asked = within(std::time::Duration::from_millis(500), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.rename(&id, Some("rename-1"), 1, "After")
+    })
+    .expect("answered without waiting for the turn");
+    assert_eq!(asked.unwrap_err().code, ErrorCode::RequestInProgress);
+
+    drop(held);
+    let renamed = renaming.join().unwrap().unwrap();
+    assert_eq!(
+        app.rename(&id, Some("rename-1"), 1, "After").unwrap(),
+        renamed
+    );
+}
+
+#[test]
+fn rename_delete_and_restore_failures_say_whether_retrying_can_help() {
+    let (app, store) = application();
+    let renamed = stored(&app, "Renamed");
+    let deleted = stored(&app, "Deleted");
+    let restored = stored(&app, "Restored");
+    app.delete(&restored, None, 1).unwrap();
+    let cases = [
+        (
+            StorageError::Denied("read-only file system".into()),
+            StorageReason::ReadOnly,
+        ),
+        (
+            StorageError::Locked("another process is saving".into()),
+            StorageReason::Busy,
+        ),
+        (
+            StorageError::Unavailable("disk unavailable".into()),
+            StorageReason::Io,
+        ),
+    ];
+    for (error, reason) in cases {
+        *store.fail_with.lock().unwrap() = Some(error);
+        let failures = [
+            app.rename(&renamed, None, 1, "Other").map(|_| ()),
+            app.delete(&deleted, None, 1).map(|_| ()),
+            app.restore(&restored, None).map(|_| ()),
+        ];
+        for failure in failures {
+            let failure = failure.unwrap_err();
+            assert_eq!(
+                (failure.code, failure.reason),
+                (ErrorCode::StorageFailed, Some(reason)),
+                "{failure}"
+            );
+        }
+    }
+    *store.fail_with.lock().unwrap() = None;
+    assert_eq!(app.document(&renamed).unwrap().document.title, "Renamed");
+    assert_eq!(app.document(&deleted).unwrap().document.title, "Deleted");
+    assert!(app.document(&restored).is_err(), "still in the trash");
+}
+
+#[test]
+fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
+    let (app, _store) = application();
+    let ids: Vec<String> = (0..1001)
+        .map(|_| app.create_document(None, None).unwrap().document.id)
+        .collect();
+    // Deleted last, and last in identifier order ("doc-999" sorts after "doc-1000").
+    let newest = "doc-999".to_owned();
+    assert!(ids.contains(&newest));
+    for id in ids.iter().filter(|id| **id != newest) {
+        app.delete(id, None, 0).unwrap();
+    }
+    app.delete(&newest, None, 0).unwrap();
+
+    let trash = app.list_trash().unwrap();
+    assert_eq!(trash.documents.len(), 1000, "the list is capped");
+    assert_eq!(
+        trash.documents[0].id, newest,
+        "the newest deletion is listed first"
     );
 }
