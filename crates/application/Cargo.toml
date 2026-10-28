@@ -10,9 +10,13 @@ publish = false
 [dependencies]
 chemifree-domain.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+# The operation contract tests run against the real file store; providers depends on this
+# crate, which Cargo allows for tests.
+chemifree-providers.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

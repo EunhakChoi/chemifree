@@ -501,3 +501,83 @@ fn the_suite_refuses_bad_fields() {
         assert_eq!(load_suite(&suite).unwrap_err(), problem, "{value}");
     }
 }
+
+fn operation(expect: Value) -> Value {
+    json!({"call": "operation", "request": {"contract": 1, "parameters": {}}, "expect": expect})
+}
+
+#[test]
+fn an_operation_step_expects_the_reply_outcome_and_no_error_envelope() {
+    let mut with_error = operation(json!({"outcome": "error"}));
+    with_error["expect_error"] = json!({"code": "x"});
+    assert_eq!(
+        step_problem(&with_steps(json!([with_error]))),
+        StepProblem::OperationExpectsNoError
+    );
+    for step in [
+        json!({"call": "operation", "request": {"parameters": {}}}),
+        operation(json!({"envelope": "operation_result"})),
+        operation(json!({"outcome": 1})),
+    ] {
+        assert_eq!(
+            step_problem(&with_steps(json!([step.clone()]))),
+            StepProblem::OperationExpectsOutcome,
+            "{step}"
+        );
+    }
+    let mut numeric = operation(json!({"outcome": "ok"}));
+    numeric["request"] = json!(1);
+    assert_eq!(
+        step_problem(&with_steps(json!([numeric]))),
+        StepProblem::OperationRequest("must be an object or a string")
+    );
+    let mut with_id = operation(json!({"outcome": "ok"}));
+    with_id["request_id"] = json!("r");
+    assert_eq!(
+        step_problem(&with_steps(json!([with_id]))),
+        StepProblem::RequestIdNotTaken
+    );
+}
+
+#[test]
+fn an_operation_document_needs_a_binding_and_a_parameters_object() {
+    let mut unbound = operation(json!({"outcome": "ok"}));
+    unbound["document"] = json!("other");
+    assert_eq!(
+        step_problem(&with_steps(json!([unbound]))),
+        StepProblem::UnboundDocument("other".to_owned())
+    );
+    let mut raw = operation(json!({"outcome": "ok"}));
+    raw["document"] = json!("d");
+    raw["request"] = json!("{}");
+    assert_eq!(
+        step_problem(&with_steps(json!([raw]))),
+        StepProblem::OperationRequest("needs a parameters object to receive the document")
+    );
+    let mut rebinding = operation(json!({"outcome": "ok"}));
+    rebinding["bind"] = json!("d");
+    assert_eq!(
+        step_problem(&with_steps(json!([rebinding]))),
+        StepProblem::BoundTwice("d".to_owned())
+    );
+}
+
+#[test]
+fn an_operation_counts_for_its_kind_by_the_outcome_it_expects() {
+    let case = |kind: &str, outcome: &str| {
+        json!({
+            "id": "sample", "title": "Sample", "requirements": ["API-01"],
+            "axis": "graph", "kind": kind, "steps": [operation(json!({"outcome": outcome}))],
+        })
+    };
+    assert!(matches!(
+        parse_case(&case("accept", "unsupported")),
+        Err(Problem::AcceptWithoutExpectStep)
+    ));
+    assert!(matches!(
+        parse_case(&case("reject", "ok")),
+        Err(Problem::RejectWithoutErrorStep)
+    ));
+    assert!(parse_case(&case("accept", "partial")).is_ok());
+    assert!(parse_case(&case("reject", "error")).is_ok());
+}

@@ -2,6 +2,7 @@
 
 pub mod document;
 pub mod element;
+pub mod operation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityId {

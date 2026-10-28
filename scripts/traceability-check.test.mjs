@@ -147,8 +147,20 @@ test('an implemented part needs evidence that executes', () => {
 
 test('a pending case is not executing evidence', () => {
   const inputs = base()
-  part(inputs, 'API-01.3').evidence = ['case:versioned-operation-contract']
-  expectProblem(inputs, /evidence case:versioned-operation-contract did not pass in the recorded run/)
+  // A pending case cited by an implemented part of a requirement the case names.
+  const [pending, cited] =
+    inputs.cases
+      .map((entry) => entry.value)
+      .filter((value) => value.pending)
+      .flatMap((value) =>
+        inputs.requirements.value.requirements
+          .filter((item) => value.requirements.includes(item.id))
+          .flatMap((item) => item.parts.filter((each) => each.status === 'implemented'))
+          .map((each) => [value, each]),
+      )[0] ?? []
+  assert.ok(pending, 'a pending case names a requirement with an implemented part')
+  cited.evidence = [`case:${pending.id}`]
+  expectProblem(inputs, new RegExp(`evidence case:${pending.id} did not pass in the recorded run`))
 })
 
 test('case evidence must name the owning requirement', () => {

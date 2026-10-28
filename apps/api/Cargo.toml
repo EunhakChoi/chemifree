@@ -13,6 +13,7 @@ chemifree-providers.workspace = true
 axum.workspace = true
 clap.workspace = true
 getrandom.workspace = true
+http-body-util.workspace = true
 serde.workspace = true
 tokio.workspace = true
 

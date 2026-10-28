@@ -1,0 +1,114 @@
+{
+  "id": "operation-version-refused",
+  "title": "A request for an operation contract version, operation or shape the service does not support is refused with a structured protocol error",
+  "requirements": [
+    "API-01",
+    "QUALITY-01"
+  ],
+  "axis": "protocol",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 2,
+        "request_id": "op-future",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {}
+      },
+      "expect": {
+        "envelope": "protocol_error",
+        "contract": 1,
+        "request_id": "op-future",
+        "profile": null,
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_contract",
+            "details": {
+              "supported": [
+                1
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-unknown",
+        "profile": "preserve-semantics",
+        "operation": "chem.teleport",
+        "parameters": {}
+      },
+      "expect": {
+        "envelope": "protocol_error",
+        "operation": "chem.teleport",
+        "outcome": "unsupported",
+        "diagnostics": [
+          {
+            "code": "unknown_operation"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-profile",
+        "profile": "fastest",
+        "operation": "document.create",
+        "parameters": {}
+      },
+      "expect": {
+        "envelope": "protocol_error",
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "unknown_profile"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-extra",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {},
+        "priority": "high"
+      },
+      "expect": {
+        "envelope": "protocol_error",
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "malformed_request"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": "{\"contract\": 1,",
+      "expect": {
+        "envelope": "protocol_error",
+        "request_id": null,
+        "operation": null,
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "malformed_request"
+          }
+        ]
+      }
+    }
+  ]
+}

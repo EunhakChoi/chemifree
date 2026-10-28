@@ -2,7 +2,7 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-현재 집계: 요구사항 33개(partial 6, not_implemented 27) · 부분 49개(implemented 10, partial 1, unverified 2, not_implemented 36) · conformance 사례 18개(passed 13: accept 8·reject 5, not_run 5, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 6, not_implemented 27) · 부분 49개(implemented 11, partial 1, unverified 2, not_implemented 35) · conformance 사례 21개(passed 17: accept 9·reject 8, not_run 4, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
@@ -61,7 +61,8 @@
 - 불러올 때 거절: 호출별 알 수 없는 필드(명시적으로 확인), 중복 JSON 키, 사례 ID 중복, 잘못된 사례·요구사항·로드맵 ID, 빈 제목, 단계가 있는 pending, 단계 없는 실행 사례, `expect`와 `expect_error`를 함께 가진 단계, 알 수 없는 축, 요청 본문 DTO가 거절하는 본문.
 - 기대값: `expect`는 JSON 객체, `expect_error`는 문자열 `code`를 가진 객체. 어느 깊이에서든 빈 객체, 비었거나 목록이 아닌 `$contains`, 알 수 없는 `$` 연산자, 옆에 다른 키가 있는 `$contains`를 거절한다. `api_version` 말고 비교하는 값이 하나 이상 있어야 한다(`null`과 `[]`도 값). 크기 2^53 이상의 실수는 정수가 반올림됐을 수 있으므로 거절한다.
 - 일치 규칙: 객체는 부분집합, 배열은 같은 길이로 원소별, `$contains`는 서로 다른 원소에 대응(최대 이분 매칭, 원소 재사용 없음), 정수는 반올림 없이 정확히, 실수와 정수는 정확히 같은 값일 때만 같다. 잘못된 기대값은 실행 중에도 일치하지 않는다.
-- kind 규칙: 실행 가능한 `reject` 사례는 `expect_error` 단계가, `accept` 사례는 (`restart`가 아닌 호출의) `expect` 단계가 하나 이상 있어야 한다. 결과는 kind별로 센다.
+- `operation` 단계는 연산 계약 1의 요청(`request`, JSON 객체 또는 바이트 그대로 보낼 문자열)을 HTTP·CLI와 같은 `Application::execute`에 넘긴다. `document`가 있으면 묶인 문서 ID를 `parameters.document_id`에 넣고(요청에 `parameters` 객체가 있어야 함), `bind`가 있으면 결과 문서를 그 이름에 묶는다. 요청이 자기 `request_id`를 가지므로 단계의 `request_id`는 거절한다. 연산은 결과가 무엇이든 연산 응답으로 답하므로 `expect_error`는 거절하고, `expect`에 문자열 `outcome`이 있어야 한다.
+- kind 규칙: 실행 가능한 `reject` 사례는 `expect_error` 단계가, `accept` 사례는 (`restart`가 아닌 호출의) `expect` 단계가 하나 이상 있어야 한다. `operation` 단계는 기대하는 `outcome`으로 센다: `ok`·`partial`은 결과, `error`·`unsupported`는 거절. 결과는 kind별로 센다.
 - 사례 경로는 묶음 파일 기준 상대 경로이며, 원래 문자열을 `/`와 `\`로 나눠 빈 조각·`.`·`..`가 있거나, 절대 경로이거나, 드라이브 접두(`C:`)가 있으면 거절한다. Rust와 JS가 같은 규칙을 쓴다.
 - 실행 파일: `chemifree-conformance [--out PATH] SUITE`. 값 없는(또는 `-`로 시작하는 값의) `--out`, 두 번째 `--out`, 알 수 없는 옵션, 묶음 없음·두 번째 묶음은 실행 없이 사용법 오류(종료 2). 실패한 사례가 있으면 종료 1(기록은 씀), 묶음을 불러오지 못하면 종료 1(기록 없음). `--out`이 없으면 기록을 표준 출력에 쓴다.
 - 기록: 결과마다 `id`, `title`, `requirements`, `axis`, `kind`, `outcome`(`passed`|`failed`|`not_run`), `pending`, `failure`, 사례 파일 바이트의 SHA-256, 그리고 kind별·전체 개수. 시각은 기록하지 않는다. 실패한 사례가 없는 실행은 같은 바이트의 기록을 쓴다. `failure` 문구에는 응답 JSON(`saved_at_ms`, 생성된 문서 ID)과 저장소 오류 메시지가 그대로 들어가므로 실행마다 다른 값과 데이터 디렉터리 경로가 포함될 수 있다(커밋하는 기록에는 실패가 없어야 한다).

@@ -1444,6 +1444,26 @@ await page.getByLabel('Document title').waitFor()
 results.trash_and_restore = true
 step = 'after trash_and_restore'
 
+// The capabilities card shows per-operation support from the operation catalog, with
+// representation apart from execution; the layout checks below run with it open.
+const operations = page.locator('#capabilities')
+await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 operations run' }).waitFor()
+await operations.getByRole('button', { name: 'Operations' }).click()
+const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
+await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
+for (const [id, followup] of [['chem.properties', 'P19'], ['document.transaction/radical', 'P10'], ['document.transaction/scene_placement', 'P09']]) {
+  const row = operationRow(id)
+  assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
+  assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
+}
+assert.equal(
+  await operations.locator('[data-profile="legacy-observed"] [data-execution]').getAttribute('data-execution'),
+  'not_implemented',
+  'the legacy-observed profile is not shown as available',
+)
+results.operation_catalog = true
+step = 'after operation_catalog'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

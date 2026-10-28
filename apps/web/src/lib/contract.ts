@@ -16,14 +16,49 @@ export interface Capability {
   description: string
 }
 
+/** Whether a document and the operation contract can hold an operation's inputs and results. */
+export type Representation = 'supported' | 'not_supported'
+
+/** Whether the service runs an operation. Only `executable` means it does. */
+export type Execution = 'executable' | 'requires_data' | 'not_implemented' | 'rejected'
+
+export interface OperationSupport {
+  id: string
+  representation: Representation
+  execution: Execution
+  /** The plan entry expected to change this, for an operation that does not run. */
+  followup?: string
+  note: string
+  sub_operations?: OperationSupport[]
+}
+
+export interface ProfileSupport {
+  id: string
+  execution: Execution
+  note: string
+}
+
+/** The operation contract's catalog (`capabilities.inspect`), mirrored in the capabilities reply. */
+export interface OperationCatalog {
+  implementation: string
+  version: string
+  contracts: number[]
+  profiles: ProfileSupport[]
+  operations: OperationSupport[]
+}
+
 export interface CapabilitiesResponse {
   api_version: typeof API_VERSION
   capabilities: Capability[]
+  /** Added within v1; a service from before it leaves it out. */
+  operation_catalog?: OperationCatalog
 }
 
 export interface RuntimeSnapshot {
   health: HealthResponse
   capabilities: Capability[]
+  /** Null when the service predates the operation catalog. */
+  operationCatalog: OperationCatalog | null
   checkedAt: Date
 }
 
@@ -38,6 +73,55 @@ function isCapability(value: unknown): value is Capability {
     typeof value.label === 'string' &&
     typeof value.description === 'string' &&
     (value.status === 'available' || value.status === 'not_implemented')
+  )
+}
+
+const REPRESENTATIONS: readonly unknown[] = ['supported', 'not_supported']
+const EXECUTIONS: readonly unknown[] = ['executable', 'requires_data', 'not_implemented', 'rejected']
+
+function hasDistinctIds(items: Array<{ id: string }>): boolean {
+  return new Set(items.map((item) => item.id)).size === items.length
+}
+
+function isOperationSupport(value: unknown): value is OperationSupport {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    REPRESENTATIONS.includes(value.representation) &&
+    EXECUTIONS.includes(value.execution) &&
+    typeof value.note === 'string' &&
+    (value.followup === undefined || typeof value.followup === 'string') &&
+    (value.sub_operations === undefined ||
+      (Array.isArray(value.sub_operations) &&
+        value.sub_operations.every(isOperationSupport) &&
+        hasDistinctIds(value.sub_operations)))
+  )
+}
+
+function isProfileSupport(value: unknown): value is ProfileSupport {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    EXECUTIONS.includes(value.execution) &&
+    typeof value.note === 'string'
+  )
+}
+
+function isOperationCatalog(value: unknown): value is OperationCatalog {
+  return (
+    isRecord(value) &&
+    typeof value.implementation === 'string' &&
+    typeof value.version === 'string' &&
+    Array.isArray(value.contracts) &&
+    value.contracts.length > 0 &&
+    value.contracts.every((contract) => Number.isInteger(contract)) &&
+    Array.isArray(value.profiles) &&
+    value.profiles.every(isProfileSupport) &&
+    hasDistinctIds(value.profiles) &&
+    Array.isArray(value.operations) &&
+    value.operations.length > 0 &&
+    value.operations.every(isOperationSupport) &&
+    hasDistinctIds(value.operations)
   )
 }
 
@@ -59,7 +143,8 @@ function isCapabilities(value: unknown): value is CapabilitiesResponse {
     Array.isArray(value.capabilities) &&
     value.capabilities.length > 0 &&
     value.capabilities.every(isCapability) &&
-    new Set(value.capabilities.map((item) => item.id)).size === value.capabilities.length
+    hasDistinctIds(value.capabilities) &&
+    (value.operation_catalog === undefined || isOperationCatalog(value.operation_catalog))
   )
 }
 
@@ -83,6 +168,7 @@ export async function readRuntime(signal: AbortSignal): Promise<RuntimeSnapshot>
   return {
     health,
     capabilities: response.capabilities,
+    operationCatalog: response.operation_catalog ?? null,
     checkedAt: new Date(),
   }
 }

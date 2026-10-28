@@ -1,13 +1,224 @@
 {
   "id": "versioned-operation-contract",
-  "title": "Each operation has a versioned request, result and error schema",
+  "title": "Operation contract 1 runs create, edit, save and read with a typed reply naming its contract, profile, outcome, revision, model and losses",
   "requirements": [
-    "API-01"
+    "API-01",
+    "OPS-02"
   ],
   "axis": "protocol",
   "kind": "accept",
-  "pending": {
-    "followup": "P13",
-    "reason": "Only the v1 document API exists; no per-operation versioned contract yet."
-  }
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-create",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Operations"
+        }
+      },
+      "expect": {
+        "envelope": "operation_result",
+        "contract": 1,
+        "request_id": "op-create",
+        "operation": "document.create",
+        "profile": "preserve-semantics",
+        "outcome": "ok",
+        "document_revision": 0,
+        "model_id": null,
+        "diagnostics": [],
+        "loss_report": [],
+        "result": {
+          "document": {
+            "title": "Operations",
+            "revision": 0
+          }
+        }
+      },
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-edit",
+        "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {
+          "expected_revision": 0,
+          "commands": [
+            {
+              "op": "add_atom",
+              "element": "N",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "revision": 1,
+            "atoms": [
+              {
+                "id": "a1",
+                "element": "N"
+              }
+            ]
+          },
+          "session": {
+            "unsaved_changes": true
+          }
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-edit",
+        "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {
+          "expected_revision": 0,
+          "commands": [
+            {
+              "op": "add_atom",
+              "element": "N",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "id": "a1"
+              }
+            ]
+          }
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-save",
+        "profile": "preserve-semantics",
+        "operation": "document.save",
+        "parameters": {
+          "expected_revision": 1
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "session": {
+            "saved_revision": 1,
+            "unsaved_changes": false
+          }
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-read",
+        "profile": "preserve-semantics",
+        "operation": "document.snapshot",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "title": "Operations",
+            "atoms": [
+              {
+                "id": "a1",
+                "element": "N"
+              }
+            ]
+          }
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "op-catalog",
+        "profile": "preserve-semantics",
+        "operation": "capabilities.inspect",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "contracts": [
+            1
+          ],
+          "operations": {
+            "$contains": [
+              {
+                "id": "document.transaction",
+                "representation": "supported",
+                "execution": "executable",
+                "sub_operations": {
+                  "$contains": [
+                    {
+                      "id": "add_atom",
+                      "execution": "executable"
+                    },
+                    {
+                      "id": "radical",
+                      "representation": "not_supported",
+                      "execution": "not_implemented",
+                      "followup": "P10"
+                    },
+                    {
+                      "id": "scene_placement",
+                      "representation": "not_supported",
+                      "execution": "not_implemented",
+                      "followup": "P09"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "chem.properties",
+                "representation": "not_supported",
+                "execution": "not_implemented",
+                "followup": "P19"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

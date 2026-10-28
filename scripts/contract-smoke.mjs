@@ -876,6 +876,126 @@ try {
     assert.equal(retried.draft_failure, null, 'the retry clears the failure')
   }
 
+  // Operation contract 1: the same requests get the same replies over HTTP and from one CLI
+  // process (whose sessions last as long as it runs), apart from the generated document ID.
+  {
+    const operations = spawn(cliPath, ['operations'], { env, stdio: ['pipe', 'pipe', 'inherit'] })
+    running.add(operations)
+    const replies = []
+    const waiting = []
+    let pendingText = ''
+    operations.stdout.on('data', (data) => {
+      pendingText += data
+      for (let end = pendingText.indexOf('\n'); end >= 0; end = pendingText.indexOf('\n')) {
+        const line = pendingText.slice(0, end)
+        pendingText = pendingText.slice(end + 1)
+        const reply = JSON.parse(line)
+        if (waiting.length > 0) waiting.shift()(reply)
+        else replies.push(reply)
+      }
+    })
+    /** Sends one line to the CLI and resolves with its reply. */
+    const viaCli = (line) =>
+      new Promise((resolveReply) => {
+        waiting.push(resolveReply)
+        operations.stdin.write(`${line}\n`)
+      })
+    const viaHttp = async (text, headers = auth) => {
+      const response = await fetch(`${api.baseUrl}/api/v1/operations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: text,
+        signal: AbortSignal.timeout(5_000),
+      })
+      assert.equal(response.headers.get('access-control-allow-origin'), null)
+      return { status: response.status, body: await response.json() }
+    }
+    const request = (id, operation, parameters) =>
+      JSON.stringify({ contract: 1, request_id: id, profile: 'preserve-semantics', operation, parameters })
+    let httpDoc
+    let cliDoc
+    /** Sends `build(documentId)` both ways and checks that the replies agree. */
+    const both = async (build, status = 200) => {
+      const http = await viaHttp(build(httpDoc))
+      const viaLine = await viaCli(build(cliDoc))
+      assert.equal(http.status, status, JSON.stringify(http.body))
+      const masked = (reply, id) => JSON.parse(JSON.stringify(reply).replaceAll(id ?? '\u0000', '<document>'))
+      assert.deepEqual(masked(http.body, httpDoc), masked(viaLine, cliDoc), 'HTTP operation = CLI operation')
+      return http.body
+    }
+
+    const catalog = await both(() => request('op-caps', 'capabilities.inspect', {}))
+    assert.deepEqual(catalog.result, (await call('/api/v1/capabilities')).body.operation_catalog)
+    const create = request('op-create', 'document.create', { title: 'Operations parity' })
+    httpDoc = (await viaHttp(create)).body.result.document.id
+    cliDoc = (await viaCli(create)).result.document.id
+    const edit = (id) =>
+      request('op-edit', 'document.transaction', {
+        document_id: id,
+        expected_revision: 0,
+        commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }],
+      })
+    assert.equal((await both(edit)).document_revision, 1)
+    assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
+    const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
+    assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
+    const unsupported = await both(() => request('op-props', 'chem.properties', {}))
+    assert.deepEqual([unsupported.outcome, unsupported.result], ['unsupported', null])
+    await both(() => request('op-x', 'chem.teleport', {}), 400)
+    const malformed = await both(() => '{"contract": 1,', 400)
+    assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
+    const saved = await both((id) => request('op-save', 'document.save', { document_id: id, expected_revision: 1 }))
+    assert.equal(saved.result.session.unsaved_changes, false)
+    await both((id) => request('op-close', 'document.close', { document_id: id }))
+
+    // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
+    const LINE_LIMIT = 1024 * 1024
+    /** A capabilities request padded with JSON whitespace to exactly `size` bytes. */
+    const padded = (id, size) => {
+      const text = request(id, 'capabilities.inspect', {})
+      return `${text.slice(0, -1)}${' '.repeat(size - Buffer.byteLength(text))}}`
+    }
+    /** Writes `text` as is and resolves with the reply it gets. */
+    const viaCliRaw = (text) =>
+      new Promise((resolveReply) => {
+        waiting.push(resolveReply)
+        operations.stdin.write(text)
+      })
+    for (const ending of ['\n', '\r\n']) {
+      const atLimit = await viaCliRaw(`${padded('op-limit', LINE_LIMIT)}${ending}`)
+      assert.deepEqual([atLimit.outcome, atLimit.diagnostics], ['ok', []], `a 1 MiB request ending ${JSON.stringify(ending)}`)
+    }
+    const overLimit = await viaCliRaw(`${padded('op-over', LINE_LIMIT + 1)}\r\n`)
+    assert.deepEqual([overLimit.envelope, overLimit.diagnostics[0].code], ['protocol_error', 'resource_limit'])
+    const afterOver = await viaCli(request('op-after', 'capabilities.inspect', {}))
+    assert.deepEqual([afterOver.request_id, afterOver.outcome], ['op-after', 'ok'], 'the next line still runs')
+    operations.stdin.end()
+    const [exitStatus] = await once(operations, 'exit')
+    running.delete(operations)
+    assert.equal(exitStatus, 0)
+    assert.deepEqual(replies, [], 'one reply per request')
+    assert.equal(cli('documents', 'show', cliDoc, '--json').body.document.atoms.length, 1, 'the CLI process saved its edit')
+
+    // The HTTP adapter keeps the write guards, and answers what it cannot read in the envelope.
+    const unguarded = await viaHttp(request('op-guard', 'document.create', {}), {})
+    assert.deepEqual([unguarded.status, unguarded.body.code], [401, 'unauthorized'])
+    const plain = await fetch(`${api.baseUrl}/api/v1/operations`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'text/plain' },
+      body: request('op-plain', 'document.create', {}),
+      signal: AbortSignal.timeout(5_000),
+    })
+    assert.equal(plain.status, 415)
+    assert.deepEqual((await plain.json()).diagnostics[0].code, 'unsupported_media_type')
+    const suffixed = await viaHttp(request('op-suffix', 'capabilities.inspect', {}), {
+      ...auth,
+      'content-type': 'application/merge-patch+json',
+    })
+    assert.deepEqual([suffixed.status, suffixed.body.outcome], [200, 'ok'], 'a +json type is JSON, as on the v1 routes')
+    const oversized = await viaHttp(`${request('op-big', 'capabilities.inspect', {}).slice(0, -1)}${' '.repeat(256 * 1024)}}`)
+    assert.deepEqual([oversized.status, oversized.body.diagnostics[0].code], [413, 'resource_limit'])
+  }
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -894,7 +1014,7 @@ try {
       'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
       'storage feedback (lock waits, queued requests, lost replies, read-only storage), the document list (search, ' +
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
-      'client (crash, stop, maximum wait, retry) verified.',
+      'client (crash, stop, maximum wait, retry), and operation contract 1 (HTTP = CLI, guards, protocol errors) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

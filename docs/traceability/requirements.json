@@ -530,7 +530,6 @@
           "evidence": [],
           "followups": [
             "P10",
-            "P13",
             "P16",
             "P17",
             "P24",
@@ -1022,23 +1021,33 @@
         },
         {
           "id": "API-01.4",
-          "summary": "Each operation has a versioned request, result and error schema.",
-          "status": "not_implemented",
-          "implementation": [],
-          "evidence": [],
-          "followups": [
-            "P13"
-          ]
+          "summary": "Operation contract 1: each request names its contract version, request_id, compatibility profile and operation; each reply gives an envelope, an outcome (ok, partial, error, unsupported), the document revision, a typed result, model_id, diagnostics with paths and details, and a loss report. HTTP and the CLI pass the request bytes to the same Application::execute, and failures carry the v1 error codes. The catalog states, per operation and per transaction sub-operation, representation apart from execution, with the follow-up for what does not run; an operation that does not run (every chem.* operation among them) is answered unsupported, never with a result. model_id is always null and the loss report always empty: no operation uses a model or drops content.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/operation.rs",
+            "crates/application/src/operations.rs",
+            "apps/api/src/lib.rs",
+            "apps/cli/src/main.rs"
+          ],
+          "evidence": [
+            "case:versioned-operation-contract",
+            "case:operation-errors-match-v1",
+            "case:operation-version-refused",
+            "case:operation-unsupported",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
         },
         {
           "id": "API-01.rest",
-          "summary": "Protocol errors versus operation results, resource and cancel errors, compatibility profiles, other adapters.",
+          "summary": "Model identifiers from operations that use a model or method, resource and cancel errors, reproducing observed behaviour under the legacy-observed profile, other adapters.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P13",
+            "P14",
             "P41",
             "P82",
             "P83",
@@ -1103,7 +1112,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P13",
             "P18",
             "P41",
             "P57",

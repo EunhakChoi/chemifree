@@ -67,3 +67,25 @@ CI(3689d1b): check·browser 성공(run 40753734609). 그러나 3회 모두 통�
 ## #28 P08 세 번째 구현 — 검사가 확인할 수 있는 것만 주장하는 추적·적합성 runner
 
 #27을 닫은 뒤 최신 main(a785059)에서 새 브랜치 `feat/requirement-tracing`으로 다시 구현했다. #26·#27의 코드를 읽거나 재사용하지 않도록 새 컨텍스트의 에이전트가 작성했다. 앞선 리뷰 지적이 모두 "검사가 주장하는 성질이 거짓인데도 통과"하는 종류였으므로 범위를 좁혔다. 근거는 통과한 적합성 사례와 `npm run check`가 부르는 npm 스크립트 두 종류뿐이고, CI·Rust 소스·cargo 출력·git 내부를 해석하지 않는다. 공개 저장소에 비공개 자료가 없다는 부분은 자동 검사 없이 `unverified`로 기록한다. PR 전에 독립 사전 검토(P2 2건·P3 3건)를 반영했다(c85de26). 회차 기록은 이 PR이 끝난 뒤 다음 PR에서 덧붙인다.
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-28 22:31:59 | a41f34a | 22:34:28 | 통과: 이 head의 코드 리뷰 완료, 지적 없음(요약 댓글의 review state `completed`, `has_any_findings: false`, 👍 반응) | [summary](https://github.com/EunhakChoi/chemifree/pull/28#issuecomment-6482371868) |
+
+CI(a41f34a): check·browser 성공(run 40780684248). 병합 ede7230, 병합 후 main CI 성공([run 40781143752](https://github.com/EunhakChoi/chemifree/actions/runs/40781143752), check·browser).
+
+## #29 P13 — 연산 계약 1과 연산별 capability 카탈로그
+
+최신 main(ede7230) 위의 브랜치 `feat/operation-contract-1`. PR을 연 뒤 받은 독립 사전 검토(P1 없음, P2 판단 1건·P3 9건)는 1회차 지적과 함께 반영했다.
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-28 22:48:18 | 6e82fc6 | 22:51:06 | 지적 1건(P2): 정확히 1 MiB인 요청이 CRLF로 끝나면 CLI가 `\r`까지만 읽어 `resource_limit`으로 거절(LF는 통과) → 수용: 실패하는 계약 스모크(1 MiB LF·CRLF, 1 MiB 초과 뒤 다음 줄)를 먼저 작성해 CRLF 실패를 재현한 뒤, 줄 끝 2바이트 여유를 두고 줄 끝을 뺀 길이로 판정 | [review](https://github.com/EunhakChoi/chemifree/pull/29#pullrequestreview-5690737819) |
+
+사전 검토 반영(같은 수정 커밋):
+
+1. CHEM-02가 화학 검증 없이 `partial`로 표시됨 → CHEM-02를 `not_implemented`로 되돌리고, 실행하지 않는 연산이 결과 없이 `unsupported`로 답한다는 보장은 API-01.4로 옮김(사례 `operation-unsupported`의 요구사항도 API-01만)
+2. 요청의 중복 키가 마지막 값으로 조용히 처리됨 → 적합성 로더의 엄격한 JSON 파서를 application으로 옮겨 연산 요청에도 쓰고 `malformed_request`로 거절. 실패 테스트 먼저 작성
+3. `"contract": 1.0`이 `unsupported_contract`로 답함 → 음이 아닌 정수가 아니면 `malformed_request`. 실패 테스트와 변이 확인
+4. 연산 경로만 `application/*+json`을 415로 거절 → v1 경로처럼 허용. 본문을 읽지 못한 경우를 모두 413으로 답함 → 길이 초과만 413, 나머지는 400 `malformed_request`. 단위 테스트(변이 확인)와 계약 스모크의 413·`+json` 단계 추가
+5. 문서: `document_revision`이 null인 경우, CLI의 빈 줄 처리, CLI는 복구 초안을 쓰지 않아 세션의 초안 필드가 API와 다를 수 있음, legacy-observed 문장의 모호함을 CONTRACT.md에 바로잡음

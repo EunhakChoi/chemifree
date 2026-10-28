@@ -146,6 +146,7 @@ dependencies = [
  "chemifree-providers",
  "clap",
  "getrandom",
+ "http-body-util",
  "serde",
  "serde_json",
  "tempfile",
@@ -158,8 +159,10 @@ name = "chemifree-application"
 version = "0.1.0"
 dependencies = [
  "chemifree-domain",
+ "chemifree-providers",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

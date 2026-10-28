@@ -5,6 +5,8 @@ mod documents;
 mod draft_schedule;
 mod draft_writer;
 mod error;
+pub mod json;
+mod operations;
 mod repository;
 mod turns;
 
@@ -29,6 +31,11 @@ pub use documents::{
 pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
+pub use operations::{
+    ClosedResult, Diagnostic, DocumentResult, Envelope, Loss, LossDisposition, OPERATION_CONTRACT,
+    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
+    Severity, Support,
+};
 pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry};
 pub use turns::TURN_WAIT;
 
@@ -81,6 +88,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     description: capability.description,
                 })
                 .collect(),
+            operation_catalog: self.operation_catalog(),
         }
     }
 
@@ -293,6 +301,9 @@ pub struct HealthResponse {
 pub struct CapabilitiesResponse {
     pub api_version: &'static str,
     pub capabilities: Vec<CapabilityResponse>,
+    /// Support per operation of the operation contract, as `capabilities.inspect` reports it.
+    /// Added within v1.
+    pub operation_catalog: OperationCatalog,
 }
 
 #[derive(Debug, Serialize)]

@@ -27,6 +27,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { DocumentWorkspace } from '@/components/document-workspace'
+import { OperationCatalogSection } from '@/components/operation-catalog'
 import {
   Empty,
   EmptyDescription,
@@ -34,6 +35,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useRuntime, type RuntimeState } from '@/hooks/use-runtime'
 
@@ -133,24 +135,28 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
           </Empty>
         )}
         {state.kind === 'ready' && (
-          <ul className="grid gap-x-8 gap-y-6 md:grid-cols-2">
-            {state.snapshot.capabilities.map((capability) => (
-              <li key={capability.id} className="flex items-start gap-3">
-                {capability.status === 'available'
-                  ? <CircleCheckIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-                  : <CircleDashedIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium">{capability.label}</h3>
-                    <Badge variant={capability.status === 'available' ? 'secondary' : 'outline'}>
-                      {capability.status === 'available' ? 'Available' : 'Not implemented'}
-                    </Badge>
+          <div className="flex flex-col gap-6">
+            <ul className="grid gap-x-8 gap-y-6 md:grid-cols-2">
+              {state.snapshot.capabilities.map((capability) => (
+                <li key={capability.id} className="flex items-start gap-3">
+                  {capability.status === 'available'
+                    ? <CircleCheckIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+                    : <CircleDashedIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-medium">{capability.label}</h3>
+                      <Badge variant={capability.status === 'available' ? 'secondary' : 'outline'}>
+                        {capability.status === 'available' ? 'Available' : 'Not implemented'}
+                      </Badge>
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{capability.description}</p>
                   </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{capability.description}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+            <Separator />
+            <OperationCatalogSection catalog={state.snapshot.operationCatalog} />
+          </div>
         )}
       </CardContent>
       <CardFooter>
