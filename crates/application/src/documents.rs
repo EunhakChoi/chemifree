@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
@@ -13,10 +13,11 @@ use chemifree_domain::document::{
 use crate::API_VERSION;
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse, ListQuery,
-    ListSort, RecoveryState, RecoveryView, RestoreResponse, TrashListResponse, TrashedSummary,
-    UnreadableDocument,
+    DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
+    DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
+    TrashListResponse, TrashedSummary, UnreadableDocument,
 };
+use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
 use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
 use crate::turns::{Refusal, Running, TURN_WAIT, Turn, Turns};
@@ -133,7 +134,32 @@ struct Session {
     /// Set while the clean copy is being renamed or deleted in storage: edits wait for the
     /// outcome instead of changing a copy that is about to be replaced or end.
     hold: Option<Hold>,
+    /// When the service drafts unsaved work this draft does not hold yet.
+    drafting: DraftSchedule,
     replays: ReplayLog<DocumentResponse>,
+}
+
+/// Who asked for a draft: a client's autosave may open the session from storage, while the
+/// service drafts only sessions that are open.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Drafter {
+    Client,
+    /// The service's periodic pass over due drafts.
+    Service,
+    /// The service's last pass before the process stops.
+    Stop,
+}
+
+impl Drafter {
+    /// How long the attempt waits for the document's turn. The periodic pass does not wait:
+    /// a document whose turn is taken (by a save, say) must not hold up the others, and it is
+    /// simply tried again on the next pass. At a stop no request is running any more.
+    fn turn_wait(self) -> Duration {
+        match self {
+            Self::Client | Self::Stop => TURN_WAIT,
+            Self::Service => Duration::ZERO,
+        }
+    }
 }
 
 /// A storage change that briefly holds a session.
@@ -151,6 +177,7 @@ impl Session {
             saved_revision: document.revision(),
             draft_revision: None,
             hold: None,
+            drafting: DraftSchedule::default(),
             document,
             replays: ReplayLog::default(),
         }
@@ -170,11 +197,29 @@ impl Session {
     }
 
     fn response(&self) -> DocumentResponse {
-        DocumentResponse::new(&self.document, self.saved_revision, self.draft_revision)
+        let mut response =
+            DocumentResponse::new(&self.document, self.saved_revision, self.draft_revision);
+        response.session.draft_failure = self.drafting.failure().map(|failure| DraftFailureView {
+            attempts: failure.attempts,
+            retry_in_ms: u64::try_from(
+                failure
+                    .retry_at
+                    .saturating_duration_since(Instant::now())
+                    .as_millis(),
+            )
+            .unwrap_or(u64::MAX),
+            message: failure.message.clone(),
+        });
+        response
     }
 
     fn is_dirty(&self) -> bool {
         self.document.revision() != self.saved_revision
+    }
+
+    /// Whether the session's draft holds everything unsaved (trivially, when nothing is).
+    fn is_drafted(&self) -> bool {
+        !self.is_dirty() || self.draft_revision == Some(self.document.revision())
     }
 
     /// What a later copy must not hand out again once this one ends, if anything.
@@ -608,6 +653,9 @@ impl<R: DocumentRepository> Documents<R> {
         session.saved_revision = committed;
         // The repository removed the session's draft with the commit.
         session.draft_revision = None;
+        if !session.is_dirty() {
+            session.drafting.settled();
+        }
         let response = self.respond(session);
         session.replays.record(request_id, mutation, &response);
         Ok(response)
@@ -694,6 +742,18 @@ impl<R: DocumentRepository> Documents<R> {
         id: &str,
         request_id: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
+        self.draft_at(id, request_id, Instant::now(), Drafter::Client)
+    }
+
+    /// Writes the draft for `drafter`. `now` is when the service found it due; a failure's
+    /// retry counts from when the failure happened, which may be a turn wait later.
+    fn draft_at(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        now: Instant,
+        drafter: Drafter,
+    ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
         let _running = self.start(Some(&document_id), request_id)?;
@@ -704,15 +764,72 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let _turn = self.turn(&document_id)?;
+        let _turn = match self
+            .turns
+            .take(&document_id, drafter.turn_wait())
+            .map_err(refused)
+        {
+            Ok(turn) => turn,
+            Err(error) => {
+                // A document that stayed busy is a failed attempt for undrafted work only; the
+                // periodic pass, which does not wait, just tries again next time.
+                if drafter != Drafter::Service
+                    && let Some(session) = self.lock().open.get_mut(&document_id)
+                    && !session.is_drafted()
+                {
+                    session
+                        .drafting
+                        .failed(now.max(Instant::now()), error.message.clone());
+                }
+                return Err(error);
+            }
+        };
+        self.write_draft(&document_id, id, request_id, now, drafter)
+    }
+
+    /// The draft write itself, with the document's turn held. Every attempt, whoever asked for
+    /// it, moves the service's own schedule under the same lock: a success leaves it nothing to
+    /// do, and a failure is retried on its backoff, not sooner.
+    fn write_draft(
+        &self,
+        document_id: &DocumentId,
+        id: &str,
+        request_id: Option<&str>,
+        now: Instant,
+        drafter: Drafter,
+    ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
+        if drafter != Drafter::Client && !sessions.open.contains_key(document_id) {
+            // Closed since the service found it due: there is nothing left to draft, and
+            // opening it again would only make a session nobody asked for.
+            return Err(ApplicationError::new(
+                ErrorCode::DocumentNotFound,
+                format!("document {id} is no longer open; nothing to draft"),
+            ));
+        }
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
             return Ok(response);
         }
+        if let Err(error) = Self::write_session_draft(&self.repository, session) {
+            session
+                .drafting
+                .failed(now.max(Instant::now()), error.message.clone());
+            return Err(error);
+        }
+        session.drafting.settled();
+        let response = self.respond(session);
+        session
+            .replays
+            .record(request_id, Mutation::Autosave, &response);
+        Ok(response)
+    }
+
+    /// Makes the session's draft hold its unsaved work, or removes it when nothing is unsaved.
+    fn write_session_draft(repository: &R, session: &mut Session) -> Result<(), ApplicationError> {
         let revision = session.document.revision();
         if !session.is_dirty() {
-            self.repository
+            repository
                 .remove_draft(session.document.id())
                 .map_err(storage_error)?;
             session.draft_revision = None;
@@ -722,7 +839,7 @@ impl<R: DocumentRepository> Documents<R> {
                 base_revision: session.stored_revision,
                 saved_at_ms: now_ms(),
             };
-            self.repository
+            repository
                 .write_draft(&draft)
                 .map_err(|error| match error {
                     StorageError::Conflict { .. } => ApplicationError::new(
@@ -739,11 +856,48 @@ impl<R: DocumentRepository> Documents<R> {
                 })?;
             session.draft_revision = Some(revision);
         }
-        let response = self.respond(session);
-        session
-            .replays
-            .record(request_id, Mutation::Autosave, &response);
-        Ok(response)
+        Ok(())
+    }
+
+    /// Writes the drafts that are due at `now` (see [`DraftSchedule`]) and returns when the next
+    /// one will be. Failures are kept on each session's schedule and retried there.
+    pub(crate) fn write_due_drafts(&self, now: Instant) -> Option<Instant> {
+        let due: Vec<String> = self
+            .lock()
+            .open
+            .iter()
+            .filter(|(_, session)| session.drafting.due_at().is_some_and(|at| at <= now))
+            .map(|(id, _)| id.to_string())
+            .collect();
+        for id in due {
+            // The outcome is recorded on the session's schedule.
+            let _drafted = self.draft_at(&id, None, now, Drafter::Service);
+        }
+        self.lock()
+            .open
+            .values()
+            .filter_map(|session| session.drafting.due_at())
+            .min()
+    }
+
+    /// Drafts every working copy whose draft does not hold its unsaved work, now, as before the
+    /// process stops. Returns the documents that could not be drafted, with why.
+    pub(crate) fn draft_all(&self) -> Vec<(String, ApplicationError)> {
+        let undrafted: Vec<String> = self
+            .lock()
+            .open
+            .iter()
+            .filter(|(_, session)| !session.is_drafted())
+            .map(|(id, _)| id.to_string())
+            .collect();
+        undrafted
+            .into_iter()
+            .filter_map(|id| {
+                self.draft_at(&id, None, Instant::now(), Drafter::Stop)
+                    .err()
+                    .map(|error| (id, error))
+            })
+            .collect()
     }
 
     /// Makes an abandoned draft the working copy: content, history, and identifier counters as
@@ -868,6 +1022,7 @@ impl<R: DocumentRepository> Documents<R> {
             stored_revision: draft.base_revision,
             saved_revision,
             hold: None,
+            drafting: DraftSchedule::default(),
             replays: ReplayLog::default(),
         })
     }
@@ -1379,7 +1534,11 @@ impl<R: DocumentRepository> Documents<R> {
             return Err(held(id, hold));
         }
         session.expect_revision(expected_revision)?;
+        let before = session.document.revision();
         change(session)?;
+        if session.document.revision() != before && !session.is_drafted() {
+            session.drafting.changed(Instant::now());
+        }
         let response = self.respond(session);
         session.replays.record(request_id, mutation, &response);
         Ok(response)

@@ -12,7 +12,9 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
@@ -119,6 +121,48 @@ pub fn log_requests(router: Router) -> Router {
             response
         },
     ))
+}
+
+/// How often the background writer looks for drafts that are due.
+const DRAFT_TICK: Duration = Duration::from_millis(250);
+
+/// Writes recovery drafts in the background, so unsaved work is drafted whether or not a client
+/// autosaves. [`DraftWriter::finish`] stops it and drafts whatever is still undrafted, as the
+/// process does before it exits on a shutdown signal.
+pub struct DraftWriter {
+    state: Shared,
+    /// Dropping it stops the thread.
+    stop: mpsc::Sender<()>,
+    thread: JoinHandle<()>,
+}
+
+impl DraftWriter {
+    pub fn start(state: Shared) -> Self {
+        let (stop, stopped) = mpsc::channel();
+        let thread = {
+            let state = Arc::clone(&state);
+            thread::spawn(move || {
+                while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(DRAFT_TICK) {
+                    state.application.write_due_drafts(Instant::now());
+                }
+            })
+        };
+        Self {
+            state,
+            stop,
+            thread,
+        }
+    }
+
+    /// Stops the background writer, then drafts every working copy with undrafted changes.
+    /// Returns the documents that could not be drafted, with why.
+    pub fn finish(self) -> Vec<(String, ApplicationError)> {
+        drop(self.stop);
+        // A panic in the loop has already been reported on standard error; drafting below
+        // still runs.
+        let _ended = self.thread.join();
+        self.state.application.draft_all()
+    }
 }
 
 pub fn router(state: Shared) -> Router {

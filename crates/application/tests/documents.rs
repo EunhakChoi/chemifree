@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
-    Application, CapabilityCatalog, CommandDto, DocumentRepository, DocumentResponse, Draft,
-    DraftInfo, DraftStatus, ErrorCode, ListQuery, ListSort, MAX_OPEN_SESSIONS, RecoveryState,
-    StorageError, StorageReason, TURN_WAIT, TrashEntry,
+    Application, CapabilityCatalog, CommandDto, DRAFT_MAX_WAIT, DRAFT_QUIET, DocumentRepository,
+    DocumentResponse, Draft, DraftInfo, DraftStatus, ErrorCode, ListQuery, ListSort,
+    MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT, TrashEntry,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -2099,4 +2099,285 @@ fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
         trash.documents[0].id, newest,
         "the newest deletion is listed first"
     );
+}
+
+fn later(after: std::time::Duration) -> std::time::Instant {
+    std::time::Instant::now() + after
+}
+
+fn stored_draft(store: &MemoryStore, id: &str) -> Option<Draft> {
+    store
+        .drafts
+        .lock()
+        .unwrap()
+        .get(&DocumentId::parse(id).unwrap())
+        .map(|(draft, _)| draft.clone())
+}
+
+#[test]
+fn the_service_drafts_unsaved_work_without_a_client_asking() {
+    let (app, store) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    let edited = app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+
+    let next = app.write_due_drafts(std::time::Instant::now());
+    assert!(
+        stored_draft(&store, &id).is_none(),
+        "not before the quiet period"
+    );
+    assert!(next.is_some_and(|at| at <= later(DRAFT_QUIET)));
+
+    assert_eq!(
+        app.write_due_drafts(later(DRAFT_QUIET)),
+        None,
+        "nothing else is due"
+    );
+    let draft = stored_draft(&store, &id).expect("drafted after the quiet period");
+    assert_eq!(draft.document.revision(), edited.document.revision);
+    assert_eq!(app.document(&id).unwrap().session.draft_revision, Some(1));
+
+    // A save leaves nothing to draft; a closed session is not drafted.
+    app.save(&id, None, 1).unwrap();
+    assert_eq!(
+        app.write_due_drafts(later(DRAFT_MAX_WAIT)),
+        None,
+        "nothing is due after a save"
+    );
+    assert!(stored_draft(&store, &id).is_none());
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "rename", "title": "Discarded"}])),
+    )
+    .unwrap();
+    app.close(&id, None, true, Some(2)).unwrap();
+    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT)), None);
+    assert!(stored_draft(&store, &id).is_none());
+}
+
+#[test]
+fn a_client_autosave_leaves_the_service_nothing_to_draft() {
+    let (app, store) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    app.autosave(&id, Some("page-1")).unwrap();
+    let written = stored_draft(&store, &id).unwrap();
+
+    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT)), None);
+    assert_eq!(
+        stored_draft(&store, &id).unwrap(),
+        written,
+        "not written again"
+    );
+}
+
+#[test]
+fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
+    // Process 1 left a draft; process 2 edits the same document without recovering it.
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let earlier = stored_draft(&store, &id).unwrap();
+    let app = Application::new(NoCapabilities, store.as_process(2));
+    app.apply_transaction(
+        &id,
+        None,
+        0,
+        commands(json!([{"op": "rename", "title": "New work"}])),
+    )
+    .unwrap();
+
+    let first = later(DRAFT_QUIET);
+    let retry = app.write_due_drafts(first).expect("a retry is scheduled");
+    let failure = app.document(&id).unwrap().session.draft_failure.unwrap();
+    assert_eq!(failure.attempts, 1);
+    assert!(
+        failure.message.contains("earlier session"),
+        "{}",
+        failure.message
+    );
+    assert!(
+        retry >= first + std::time::Duration::from_secs(1),
+        "the retry waits its backoff"
+    );
+    assert_eq!(
+        stored_draft(&store, &id).unwrap(),
+        earlier,
+        "the earlier draft is not replaced"
+    );
+    app.write_due_drafts(retry - std::time::Duration::from_millis(500));
+    assert_eq!(
+        app.document(&id)
+            .unwrap()
+            .session
+            .draft_failure
+            .unwrap()
+            .attempts,
+        1,
+        "not tried again before the retry is due"
+    );
+
+    // Once the earlier draft is discarded, the next attempt drafts the new work.
+    app.discard_draft(&id, None).unwrap();
+    app.write_due_drafts(retry);
+    let session = app.document(&id).unwrap().session;
+    assert_eq!(session.draft_failure, None);
+    assert_eq!(
+        stored_draft(&store, &id).unwrap().document.title(),
+        "New work"
+    );
+}
+
+#[test]
+fn drafting_everything_before_a_stop_ignores_the_schedule() {
+    let (app, store) = application();
+    let first = app.create_document(None, None).unwrap().document.id;
+    let second = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&first, None, 0, draw_ethanol())
+        .unwrap();
+    app.apply_transaction(&second, None, 0, draw_ethanol())
+        .unwrap();
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let failed = app.draft_all();
+    assert_eq!(failed.len(), 2, "failures are reported, not hidden");
+    store.fail_writes.store(false, Ordering::SeqCst);
+
+    assert!(app.draft_all().is_empty());
+    assert!(stored_draft(&store, &first).is_some() && stored_draft(&store, &second).is_some());
+    assert!(app.draft_all().is_empty(), "nothing left to draft");
+}
+
+#[test]
+fn a_busy_document_does_not_hold_up_the_services_drafts_of_others() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    // Two due documents whose saves stall with their turns, then one that is free.
+    let busy: Vec<String> = (0..2).map(|_| edited(&app)).collect();
+    let free = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saves: Vec<_> = busy
+        .iter()
+        .enumerate()
+        .map(|(index, id)| {
+            stalled(&store, {
+                let (app, id) = (Arc::clone(&app), id.clone());
+                move || app.save(&id, Some(&format!("save-{index}")), 1)
+            })
+        })
+        .collect();
+
+    // The pass does not wait for the busy documents' turns, so the free one is drafted at
+    // once; the busy ones are not drafted beside their saves and are not counted as failed.
+    within(std::time::Duration::from_millis(1_000), {
+        let app = Arc::clone(&app);
+        move || app.write_due_drafts(later(DRAFT_MAX_WAIT))
+    })
+    .expect("busy documents did not hold up the pass");
+    assert_eq!(
+        stored_draft(&store, &free).map(|draft| draft.document.revision()),
+        Some(1),
+        "the free document was drafted"
+    );
+    for id in &busy {
+        assert_eq!(
+            stored_draft(&store, id),
+            None,
+            "nothing was drafted beside a save"
+        );
+        assert_eq!(app.document(id).unwrap().session.draft_failure, None);
+    }
+
+    drop(held);
+    for save in saves {
+        save.join().unwrap().unwrap();
+    }
+    // The saves left nothing to draft.
+    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT * 10)), None);
+    for id in &busy {
+        assert_eq!(stored_draft(&store, id), None);
+    }
+}
+
+#[test]
+fn a_session_closed_while_the_stop_drafts_others_is_not_reopened() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    // Created first, so the stop drafts it first; its save stalls with the turn, which the
+    // stop waits for.
+    let stalled_id = edited(&app);
+    let closed_id = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), stalled_id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    });
+    let drafting = std::thread::spawn({
+        let app = Arc::clone(&app);
+        move || app.draft_all()
+    });
+    // Not synchronization the test relies on: if the stop has not listed the sessions yet,
+    // the closed one is simply not listed, and the assertions below hold either way.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    app.close(&closed_id, Some("close-1"), true, Some(1))
+        .unwrap();
+
+    drafting.join().unwrap();
+    drop(held);
+    saving.join().unwrap().unwrap();
+    let listed = app
+        .list_documents(&ListQuery::default())
+        .unwrap()
+        .documents
+        .into_iter()
+        .find(|document| document.id == closed_id)
+        .expect("listed");
+    assert!(
+        !listed.open,
+        "the closed session was not opened again to draft it"
+    );
+    assert_eq!(stored_draft(&store, &closed_id), None);
+}
+
+#[test]
+fn a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let drafted = edited(&app);
+    app.autosave(&drafted, Some("auto-1")).unwrap();
+    let undrafted = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saves: Vec<_> = [(&drafted, "save-1"), (&undrafted, "save-2")]
+        .into_iter()
+        .map(|(id, request)| {
+            stalled(&store, {
+                let (app, id) = (Arc::clone(&app), id.clone());
+                move || app.save(&id, Some(request), 1)
+            })
+        })
+        .collect();
+
+    for (id, request) in [(&drafted, "auto-2"), (&undrafted, "auto-3")] {
+        let refused = app.autosave(id, Some(request)).unwrap_err();
+        assert_eq!(refused.reason, Some(StorageReason::Busy), "{refused}");
+    }
+    assert_eq!(
+        app.document(&drafted).unwrap().session.draft_failure,
+        None,
+        "its draft holds everything; nothing failed to be drafted"
+    );
+    let failure = app
+        .document(&undrafted)
+        .unwrap()
+        .session
+        .draft_failure
+        .expect("undrafted work that could not be drafted is reported");
+    assert!(
+        failure.retry_in_ms > 1_000,
+        "the retry counts from the failure, not from before the turn wait: {failure:?}"
+    );
+
+    drop(held);
+    for save in saves {
+        save.join().unwrap().unwrap();
+    }
 }

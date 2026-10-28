@@ -406,6 +406,18 @@ pub struct SessionView {
     pub redo_depth: usize,
     /// The revision this session's recovery draft holds, or `null` when it has none.
     pub draft_revision: Option<u64>,
+    /// The service's latest failed attempt to draft unsaved work this draft does not hold,
+    /// while it keeps retrying; `null` otherwise.
+    pub draft_failure: Option<DraftFailureView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DraftFailureView {
+    /// Failed attempts in a row.
+    pub attempts: u32,
+    /// Milliseconds until the service tries again.
+    pub retry_in_ms: u64,
+    pub message: String,
 }
 
 impl DocumentResponse {
@@ -449,6 +461,7 @@ impl DocumentResponse {
                 undo_depth: document.undo_depth(),
                 redo_depth: document.redo_depth(),
                 draft_revision,
+                draft_failure: None,
             },
             recovery: None,
         }

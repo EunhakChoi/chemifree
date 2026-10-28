@@ -56,13 +56,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Chemifree API listening on http://{address}");
     eprintln!("Documents: {}", documents.display());
-    let mut router = chemifree_api::router(Arc::new(state));
+    let state = Arc::new(state);
+    let drafts = chemifree_api::DraftWriter::start(Arc::clone(&state));
+    let mut router = chemifree_api::router(state);
     if args.log_requests {
         router = chemifree_api::log_requests(router);
     }
-    axum::serve(listener, router)
+    let served = axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        .await;
+    // Unsaved work survives a stop in its recovery draft, also when serving ended in an error.
+    for (id, error) in drafts.finish() {
+        eprintln!("Could not draft unsaved changes to {id} before stopping: {error}");
+    }
+    served?;
     Ok(())
 }
 

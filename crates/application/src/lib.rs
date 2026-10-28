@@ -2,6 +2,7 @@
 
 mod contract;
 mod documents;
+mod draft_schedule;
 mod error;
 mod repository;
 mod turns;
@@ -12,14 +13,15 @@ use serde::Serialize;
 pub use contract::{
     AtomView, BondOrderDto, BondToDto, BondView, CloseRequest, CloseResponse, CommandDto,
     CopyResponse, CopySource, CreateDocumentRequest, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftRequest, ListQuery,
-    ListSort, PointDto, PositionView, RecoverAsCopyRequest, RecoveryState, RecoveryView,
-    RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SessionView,
-    TransactionRequest, TrashListResponse, TrashedSummary, UnreadableDocument,
+    DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftFailureView,
+    DraftRequest, ListQuery, ListSort, PointDto, PositionView, RecoverAsCopyRequest, RecoveryState,
+    RecoveryView, RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
+    SessionView, TransactionRequest, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
 };
+pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry};
 pub use turns::TURN_WAIT;
@@ -141,6 +143,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         request_id: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
         self.documents.autosave(id, request_id)
+    }
+
+    /// Writes the recovery drafts due at `now` and returns when the next one is due. A
+    /// long-running host calls this regularly, so unsaved work is drafted even when no client
+    /// autosaves; see [`DRAFT_QUIET`], [`DRAFT_MAX_WAIT`], and [`DRAFT_RETRY`].
+    pub fn write_due_drafts(&self, now: std::time::Instant) -> Option<std::time::Instant> {
+        self.documents.write_due_drafts(now)
+    }
+
+    /// Drafts all unsaved work not yet in a draft, at once; a host calls this before it stops.
+    /// Returns the documents that could not be drafted, with the reason.
+    pub fn draft_all(&self) -> Vec<(String, ApplicationError)> {
+        self.documents.draft_all()
     }
 
     /// Reopens an abandoned recovery draft as the working copy, with its history, unsaved.

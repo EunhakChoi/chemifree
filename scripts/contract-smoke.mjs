@@ -78,16 +78,21 @@ function cli(...args) {
   return { status: result.status, body: JSON.parse(result.stdout) }
 }
 
-/** Starts a CLI process without waiting; `done` resolves with its result and duration. */
+/**
+ * Starts a CLI process without waiting; `done` resolves with its result and duration.
+ * Durations use the monotonic clock: the wall clock can be stepped by time synchronization.
+ */
 function cliProcess(args, extraEnv = {}) {
-  const started = Date.now()
+  const started = performance.now()
   const child = spawn(cliPath, args, { env: { ...env, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] })
   running.add(child)
   let stdout = ''
+  let stderr = ''
   child.stdout.on('data', (data) => (stdout += data))
-  const done = once(child, 'exit').then(([status]) => {
+  child.stderr.on('data', (data) => (stderr += data))
+  const done = once(child, 'exit').then(([status, signal]) => {
     running.delete(child)
-    return { status, body: stdout ? JSON.parse(stdout) : null, ms: Date.now() - started }
+    return { status, signal, stderr, body: stdout ? JSON.parse(stdout) : null, ms: Math.round(performance.now() - started) }
   })
   return { child, done }
 }
@@ -233,6 +238,7 @@ try {
     undo_depth: 2,
     redo_depth: 0,
     draft_revision: null,
+    draft_failure: null,
   })
   const closed = await write(`${doc}/close`, { request_id: 'close-1' })
   assert.deepEqual(closed.body, { api_version: 'v1', id, discarded_changes: false })
@@ -303,7 +309,7 @@ try {
   )
   const results = await Promise.all(racers)
   const winners = results.filter((result) => result.status === 0)
-  assert.equal(winners.length, 1, `exactly one concurrent save commits: ${JSON.stringify(results.map((r) => r.body.code ?? 'ok'))}`)
+  assert.equal(winners.length, 1, `exactly one concurrent save commits: ${JSON.stringify(results.map((r) => r.body?.code ?? (r.body ? 'ok' : { status: r.status, signal: r.signal, stderr: r.stderr })))}`)
   for (const loser of results.filter((result) => result.status !== 0)) {
     assert.ok(['save_conflict', 'revision_conflict'].includes(loser.body.code), loser.body.code)
   }
@@ -443,16 +449,17 @@ try {
   assert.equal((await write(`${draftPath}/discard-draft`, { request_id: 'discard-2' })).status, 200)
   assert.ok(!existsSync(draftFile))
 
-  // A failed autosave keeps the session's changes and the saved file; a retry succeeds.
+  // A failed autosave keeps the session's changes and the saved file; a retry succeeds. The
+  // drafts directory is read-only before the edit, so the service cannot draft it on its own.
+  const writable = process.getuid?.() !== 0 // Permissions do not stop root.
+  const draftsDir = join(dataDir, 'drafts')
+  if (writable) chmodSync(draftsDir, 0o500)
   await write(`${draftPath}/transactions`, {
     request_id: 'draft-edit-6',
     expected_revision: 6,
     commands: [{ op: 'rename', title: 'Autosave retry' }],
   })
-  const writable = process.getuid?.() !== 0 // Permissions do not stop root.
   if (writable) {
-    const draftsDir = join(dataDir, 'drafts')
-    chmodSync(draftsDir, 0o500)
     const failedAutosave = await write(`${draftPath}/autosave`, { request_id: 'auto-4' })
     chmodSync(draftsDir, 0o700)
     assert.deepEqual([failedAutosave.status, failedAutosave.body.code], [503, 'storage_failed'])
@@ -787,6 +794,83 @@ try {
   assert.equal(cli('documents', 'restore', gamma, '--json').status, 0)
   assert.equal((await call(`/api/v1/documents/${gamma}`)).body.document.title, 'Library gamma')
 
+  // ── Drafts written by the service, with no client asking ─────────────────────────────────
+  /** Reads `path` until `done` holds for its session, or fails after `ms` with the last one. */
+  async function untilSession(path, done, ms) {
+    const deadline = performance.now() + ms
+    for (;;) {
+      const { session } = (await call(path)).body
+      if (done(session)) return session
+      if (performance.now() > deadline) assert.fail(`session did not reach the expected state: ${JSON.stringify(session)}`)
+      await sleep(100)
+    }
+  }
+  // Quiet period (2 s) plus the writer's tick, with room for a loaded machine.
+  const DRAFTED_WITHIN = 6_000
+  const unattended = (await write('/api/v1/documents', { request_id: 'unattended-create', title: 'Unattended' })).body
+  const unattendedPath = `/api/v1/documents/${unattended.document.id}`
+  const unattendedDraft = join(draftsDir, `${unattended.document.id}.json`)
+  const unattendedEdited = (await write(`${unattendedPath}/transactions`, { ...draw, request_id: 'unattended-edit' })).body
+  assert.ok(!existsSync(unattendedDraft), 'not drafted before the quiet period')
+  await untilSession(unattendedPath, (session) => session.draft_revision === 1, DRAFTED_WITHIN)
+  assert.ok(existsSync(unattendedDraft))
+  await restartApi() // SIGKILL: the drafted work survives a crash.
+  assert.equal((await call(unattendedPath)).body.recovery.state, 'recoverable')
+  const unattendedRecovered = await write(`${unattendedPath}/recover`, { request_id: 'unattended-recover' })
+  assert.deepEqual(unattendedRecovered.body.document, unattendedEdited.document, 'recovered exactly as edited')
+  assert.equal(unattendedRecovered.body.session.undo_depth, 1)
+
+  // A normal stop drafts unsaved work at once instead of losing the quiet period's worth.
+  await write(`${unattendedPath}/transactions`, {
+    request_id: 'unattended-rename',
+    expected_revision: 1,
+    commands: [{ op: 'rename', title: 'Drafted at stop' }],
+  })
+  await restartApi('SIGTERM')
+  assert.equal((await call(unattendedPath)).body.recovery.revision, 2, 'the stop drafted the last edit')
+  await write(`${unattendedPath}/recover`, { request_id: 'unattended-recover-2' })
+
+  // Continuous edits cannot postpone a draft past the maximum wait (10 s).
+  const editing = performance.now()
+  let continuousRevision = 2
+  let continuous
+  for (;;) {
+    continuous = (await write(`${unattendedPath}/transactions`, {
+      request_id: `unattended-continuous-${continuousRevision}`,
+      expected_revision: continuousRevision,
+      commands: [{ op: 'rename', title: `Edit ${continuousRevision}` }],
+    })).body.session
+    continuousRevision += 1
+    if (continuous.draft_revision !== 2) break
+    assert.ok(performance.now() - editing < 13_000, 'drafted while edits continue')
+    await sleep(400)
+  }
+  const waited = Math.round(performance.now() - editing)
+  assert.ok(waited >= 9_500, `not drafted before the maximum wait (${waited} ms): ${JSON.stringify(continuous)}`)
+
+  // A failed draft is retried on its own once storage recovers, and reported meanwhile.
+  if (writable) {
+    chmodSync(draftsDir, 0o500)
+    let failing
+    try {
+      await write(`${unattendedPath}/transactions`, {
+        request_id: 'unattended-blocked',
+        expected_revision: continuousRevision,
+        commands: [{ op: 'rename', title: 'Drafted after a failure' }],
+      })
+      failing = await untilSession(unattendedPath, (session) => session.draft_failure !== null, DRAFTED_WITHIN)
+    } finally {
+      chmodSync(draftsDir, 0o700)
+    }
+    assert.equal(failing.draft_failure.attempts, 1)
+    const retried = await untilSession(
+      unattendedPath,
+      (session) => session.draft_revision === continuousRevision + 1,
+      DRAFTED_WITHIN,
+    )
+    assert.equal(retried.draft_failure, null, 'the retry clears the failure')
+  }
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -803,8 +887,9 @@ try {
       'revision and save conflicts, no revision reuse after discard, save failure, restart recovery, ' +
       'cross-process save lock (race and crash), recovery drafts (recover, discard, outdated copy, ' +
       'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
-      'storage feedback (lock waits, queued requests, lost replies, read-only storage), and the document list (search, ' +
-      'sort, rename, trash, restore, stale sessions, an interrupted delete) verified.',
+      'storage feedback (lock waits, queued requests, lost replies, read-only storage), the document list (search, ' +
+      'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
+      'client (crash, stop, maximum wait, retry) verified.',
   )
 } finally {
   for (const child of running) await stop(child)
