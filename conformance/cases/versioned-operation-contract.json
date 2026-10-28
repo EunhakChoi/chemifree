@@ -202,9 +202,12 @@
                     },
                     {
                       "id": "scene_placement",
-                      "representation": "not_supported",
-                      "execution": "not_implemented",
-                      "followup": "P09"
+                      "representation": "supported",
+                      "execution": "executable"
+                    },
+                    {
+                      "id": "add_instance",
+                      "execution": "executable"
                     }
                   ]
                 }

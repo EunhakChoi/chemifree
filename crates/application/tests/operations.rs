@@ -493,3 +493,68 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
     );
     assert_eq!(catalog["contracts"], json!([1]));
 }
+
+/// A transaction accepts exactly the commands its catalog entry lists as executable: each one
+/// is a command the parser knows, and each part that does not run is not one. Scene placement
+/// is the group the instance commands belong to, not a command.
+#[test]
+fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
+    let (app, _data) = application();
+    let id = created(&app);
+    let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
+    let transaction = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "document.transaction")
+        .unwrap();
+    let mut commands = Vec::new();
+    for (index, part) in transaction["sub_operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let op = part["id"].as_str().unwrap();
+        let reply = send(
+            &app,
+            &request(
+                &format!("part-{index}"),
+                "document.transaction",
+                json!({"document_id": id, "expected_revision": 0, "commands": [{"op": op}]}),
+            ),
+        );
+        let message = reply["diagnostics"][0]["message"].as_str().unwrap();
+        let unknown = message.contains("unknown variant");
+        match (part["execution"].as_str().unwrap(), op) {
+            ("executable", "scene_placement") => {
+                assert!(
+                    unknown,
+                    "scene_placement is a group, not a command: {message}"
+                );
+            }
+            ("executable", _) => {
+                assert!(!unknown, "{op} is listed as executable: {message}");
+                commands.push(op);
+            }
+            (other, _) => assert!(unknown, "{op} is {other} but parsed: {message}"),
+        }
+    }
+    assert_eq!(
+        commands,
+        [
+            "add_atom",
+            "update_atom",
+            "move_atoms",
+            "delete_atoms",
+            "add_bond",
+            "update_bond",
+            "delete_bonds",
+            "rename",
+            "add_instance",
+            "move_instance",
+            "delete_instance",
+        ]
+    );
+    assert_eq!(document_count(&app), 1, "no part changed anything");
+}

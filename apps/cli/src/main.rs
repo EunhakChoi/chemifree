@@ -518,6 +518,18 @@ fn print_document(response: &DocumentResponse) {
             atom.id, atom.element, atom.position.x, atom.position.y
         );
     }
+    let instances = &document.scene.instances;
+    if let [first, _, ..] = instances.as_slice() {
+        let ids: Vec<&str> = instances
+            .iter()
+            .map(|instance| instance.id.as_str())
+            .collect();
+        println!(
+            "  scene instances {} (positions above are {}'s)",
+            ids.join(", "),
+            first.id
+        );
+    }
     for bond in &document.bonds {
         let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
         println!(

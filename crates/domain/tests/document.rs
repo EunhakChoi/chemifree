@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use chemifree_domain::document::{
     Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command, Document,
-    DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS, MAX_EDIT_REVISION,
-    MAX_REVISION, Outcome, Point, RevisionsExhausted, TransactionError, Vector,
+    DocumentId, EditError, HISTORY_LIMIT, HistoryError, InstanceId, MAX_ATOMS, MAX_COMMANDS,
+    MAX_EDIT_REVISION, MAX_INSTANCES, MAX_REVISION, NewAtomPositions, Outcome, Point, PositionKey,
+    RevisionsExhausted, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 
@@ -21,6 +24,30 @@ fn bond(serial: u32) -> BondId {
     BondId::from_serial(serial).unwrap()
 }
 
+fn instance(serial: u32) -> InstanceId {
+    InstanceId::from_serial(serial).unwrap()
+}
+
+fn here(x: f64, y: f64) -> NewAtomPositions {
+    NewAtomPositions::Single(point(x, y))
+}
+
+fn move_atoms(atoms: Vec<AtomId>, dx: f64, dy: f64) -> Command {
+    Command::MoveAtoms {
+        atoms,
+        delta: Vector { dx, dy },
+        instance: None,
+    }
+}
+
+/// Positions of `instance` as `(atom, x, y)`.
+fn positions(document: &Document, instance: InstanceId) -> Vec<(String, f64, f64)> {
+    document
+        .positions(instance)
+        .map(|(atom, point)| (atom.to_string(), point.x(), point.y()))
+        .collect()
+}
+
 fn empty() -> Document {
     Document::new(DocumentId::parse("doc-1").unwrap(), "  Ethanol sketch ").unwrap()
 }
@@ -28,7 +55,7 @@ fn empty() -> Document {
 fn add(symbol: &str, x: f64, y: f64) -> Command {
     Command::AddAtom {
         element: element(symbol),
-        position: point(x, y),
+        positions: here(x, y),
         bond_to: None,
     }
 }
@@ -41,7 +68,7 @@ fn ethanol() -> Document {
             add("C", 0.0, 0.0),
             Command::AddAtom {
                 element: Element::CARBON,
-                position: point(26.0, 15.0),
+                positions: here(26.0, 15.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Id(atom(1)),
                     order: BondOrder::Single,
@@ -49,7 +76,7 @@ fn ethanol() -> Document {
             },
             Command::AddAtom {
                 element: element("O"),
-                position: point(52.0, 0.0),
+                positions: here(52.0, 0.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Id(atom(2)),
                     order: BondOrder::Single,
@@ -126,23 +153,21 @@ fn atoms_and_bonds_can_be_edited() {
                 bond: bond(1),
                 order: BondOrder::Double,
             },
-            Command::MoveAtoms {
-                atoms: vec![atom(1), atom(1), atom(2)],
-                delta: Vector { dx: 10.0, dy: -5.0 },
-            },
+            move_atoms(vec![atom(1), atom(1), atom(2)], 10.0, -5.0),
             Command::Rename {
                 title: "Edited".into(),
             },
         ])
         .unwrap();
     let atoms: Vec<_> = document.atoms().map(|(_, atom)| atom.clone()).collect();
+    let s1 = instance(1);
     assert_eq!(
-        atoms[0].position,
-        point(10.0, -5.0),
+        document.position(s1, atom(1)),
+        Some(point(10.0, -5.0)),
         "duplicate targets move once"
     );
-    assert_eq!(atoms[1].position, point(36.0, 10.0));
-    assert_eq!(atoms[2].position, point(52.0, 0.0));
+    assert_eq!(document.position(s1, atom(2)), Some(point(36.0, 10.0)));
+    assert_eq!(document.position(s1, atom(3)), Some(point(52.0, 0.0)));
     assert_eq!(
         (atoms[2].element.symbol(), atoms[2].charge, atoms[2].isotope),
         ("N", 1, Some(15))
@@ -232,23 +257,11 @@ fn invalid_commands_reject_the_whole_transaction_with_the_failing_index() {
             EditError::IsotopeOutOfRange(0),
         ),
         (
-            Command::MoveAtoms {
-                atoms: vec![atom(1)],
-                delta: Vector {
-                    dx: 200_000.0,
-                    dy: 0.0,
-                },
-            },
+            move_atoms(vec![atom(1)], 200_000.0, 0.0),
             EditError::CoordinateOutOfRange,
         ),
         (
-            Command::MoveAtoms {
-                atoms: vec![atom(1)],
-                delta: Vector {
-                    dx: f64::NAN,
-                    dy: 0.0,
-                },
-            },
+            move_atoms(vec![atom(1)], f64::NAN, 0.0),
             EditError::CoordinateOutOfRange,
         ),
         (
@@ -302,10 +315,7 @@ fn no_effective_change_keeps_revision_history_and_identifier_counters() {
             Command::Rename {
                 title: "Ethanol sketch".into(),
             },
-            Command::MoveAtoms {
-                atoms: vec![atom(1)],
-                delta: Vector { dx: 0.0, dy: 0.0 },
-            },
+            move_atoms(vec![atom(1)], 0.0, 0.0),
             add("C", 5.0, 5.0),
             Command::DeleteAtoms {
                 atoms: vec![atom(4)],
@@ -467,10 +477,7 @@ fn revisions_stop_at_the_largest_exact_client_number() {
     assert_eq!(document.redo(), Err(HistoryError::RevisionLimit));
     assert_eq!(document, before, "nothing changed");
     assert_eq!(
-        document.apply(&[Command::MoveAtoms {
-            atoms: vec![atom(1)],
-            delta: Vector { dx: 0.0, dy: 0.0 }
-        }]),
+        document.apply(&[move_atoms(vec![atom(1)], 0.0, 0.0)]),
         Ok(Outcome::Unchanged),
         "a no-op still succeeds"
     );
@@ -561,7 +568,7 @@ fn a_transaction_can_bond_atoms_it_creates() {
             add("N", 100.0, 0.0),
             Command::AddAtom {
                 element: element("O"),
-                position: point(126.0, 15.0),
+                positions: here(126.0, 15.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Created(0),
                     order: BondOrder::Double,
@@ -655,4 +662,368 @@ fn a_copy_is_independent_and_keeps_identifiers_but_not_history() {
         source.copy_as(DocumentId::parse("doc-x").unwrap(), "\u{7}"),
         Err(EditError::InvalidTitle)
     );
+}
+
+fn add_instance(offset_x: f64, offset_y: f64) -> Command {
+    Command::AddInstance {
+        source: None,
+        offset: Vector {
+            dx: offset_x,
+            dy: offset_y,
+        },
+    }
+}
+
+fn move_instance(serial: u32, dx: f64, dy: f64) -> Command {
+    Command::MoveInstance {
+        instance: instance(serial),
+        offset: Vector { dx, dy },
+    }
+}
+
+/// Ethanol drawn twice: `s2` is `s1` moved 100 pt down.
+fn ethanol_twice() -> Document {
+    let mut document = ethanol();
+    document.apply(&[add_instance(0.0, 100.0)]).unwrap();
+    document
+}
+
+fn graph(document: &Document) -> (Vec<(AtomId, Atom)>, Vec<String>) {
+    let parts = document.to_parts();
+    (
+        parts.atoms,
+        parts
+            .bonds
+            .iter()
+            .map(|(id, bond)| format!("{id}:{}-{}:{:?}", bond.begin, bond.end, bond.order))
+            .collect(),
+    )
+}
+
+#[test]
+fn a_new_document_has_one_empty_scene_instance() {
+    let document = empty();
+    assert_eq!(document.instances().collect::<Vec<_>>(), [instance(1)]);
+    assert_eq!(document.first_instance(), instance(1));
+    assert_eq!(positions(&document, instance(1)), []);
+    assert_eq!(document.numbering().next_instance, 2);
+}
+
+#[test]
+fn an_added_instance_copies_the_source_positions_with_the_offset() {
+    let document = ethanol_twice();
+    assert_eq!(
+        document.instances().collect::<Vec<_>>(),
+        [instance(1), instance(2)]
+    );
+    assert_eq!(
+        positions(&document, instance(2)),
+        [
+            ("a1".to_owned(), 0.0, 100.0),
+            ("a2".to_owned(), 26.0, 115.0),
+            ("a3".to_owned(), 52.0, 100.0)
+        ]
+    );
+    assert_eq!(document.revision(), 2, "one revision for the new instance");
+
+    // A named source is copied instead of the first instance.
+    let mut document = document;
+    document
+        .apply(&[Command::AddInstance {
+            source: Some(instance(2)),
+            offset: Vector { dx: 10.0, dy: 0.0 },
+        }])
+        .unwrap();
+    assert_eq!(
+        positions(&document, instance(3))[0],
+        ("a1".to_owned(), 10.0, 100.0)
+    );
+}
+
+#[test]
+fn instances_move_independently_keeping_the_graph_and_the_other_instances() {
+    let mut document = ethanol_twice();
+    let graph_before = graph(&document);
+    let first_before = positions(&document, instance(1));
+
+    document.apply(&[move_instance(2, 50.0, -20.0)]).unwrap();
+    assert_eq!(
+        positions(&document, instance(2)),
+        [
+            ("a1".to_owned(), 50.0, 80.0),
+            ("a2".to_owned(), 76.0, 95.0),
+            ("a3".to_owned(), 102.0, 80.0)
+        ],
+        "every position of the instance moves exactly once"
+    );
+    assert_eq!(positions(&document, instance(1)), first_before);
+    assert_eq!(graph(&document), graph_before, "chemistry is untouched");
+
+    // Atom moves stay inside the named instance.
+    document
+        .apply(&[Command::MoveAtoms {
+            atoms: vec![atom(1)],
+            delta: Vector { dx: 1.0, dy: 1.0 },
+            instance: Some(instance(1)),
+        }])
+        .unwrap();
+    assert_eq!(
+        document.position(instance(1), atom(1)),
+        Some(point(1.0, 1.0))
+    );
+    assert_eq!(
+        document.position(instance(2), atom(1)),
+        Some(point(50.0, 80.0))
+    );
+
+    // Each scene change is one revision and one undo entry, undone as a whole.
+    assert_eq!(document.revision(), 4);
+    document.undo().unwrap();
+    document.undo().unwrap();
+    assert_eq!(positions(&document, instance(1)), first_before);
+    assert_eq!(
+        positions(&document, instance(2))[0],
+        ("a1".to_owned(), 0.0, 100.0)
+    );
+    document.undo().unwrap();
+    assert_eq!(document.instances().collect::<Vec<_>>(), [instance(1)]);
+    assert_eq!(graph(&document), graph_before);
+    document.redo().unwrap();
+    assert_eq!(
+        positions(&document, instance(2))[1],
+        ("a2".to_owned(), 26.0, 115.0)
+    );
+}
+
+#[test]
+fn a_new_atom_needs_a_position_in_every_instance_once_there_are_several() {
+    let mut document = ethanol_twice();
+    let per_instance = |entries: &[(u32, f64, f64)]| Command::AddAtom {
+        element: element("N"),
+        positions: NewAtomPositions::PerInstance(
+            entries
+                .iter()
+                .map(|&(serial, x, y)| (instance(serial), point(x, y)))
+                .collect::<BTreeMap<_, _>>(),
+        ),
+        bond_to: None,
+    };
+    let cases = [
+        (
+            add("N", 0.0, 50.0),
+            EditError::PositionsRequired { instances: 2 },
+        ),
+        (
+            per_instance(&[(1, 0.0, 50.0)]),
+            EditError::MissingPosition(instance(2)),
+        ),
+        (
+            per_instance(&[(1, 0.0, 50.0), (2, 0.0, 150.0), (9, 0.0, 0.0)]),
+            EditError::UnknownInstance(instance(9)),
+        ),
+    ];
+    for (command, expected) in cases {
+        let error = command_error(
+            &mut document,
+            &[Command::Rename { title: "x".into() }, command],
+        );
+        assert_eq!(
+            error,
+            TransactionError {
+                index: Some(1),
+                error: expected
+            }
+        );
+    }
+
+    document
+        .apply(&[per_instance(&[(1, 0.0, 50.0), (2, 70.0, 150.0)])])
+        .unwrap();
+    assert_eq!(
+        document.position(instance(1), atom(4)),
+        Some(point(0.0, 50.0))
+    );
+    assert_eq!(
+        document.position(instance(2), atom(4)),
+        Some(point(70.0, 150.0))
+    );
+    assert_eq!(
+        document.atoms().last().unwrap().1.element.symbol(),
+        "N",
+        "the atom is created once, in the graph"
+    );
+}
+
+#[test]
+fn moving_atoms_names_the_instance_once_there_are_several() {
+    let mut document = ethanol_twice();
+    assert_eq!(
+        command_error(&mut document, &[move_atoms(vec![atom(1)], 5.0, 0.0)]),
+        TransactionError {
+            index: Some(0),
+            error: EditError::InstanceRequired { instances: 2 }
+        }
+    );
+    let unknown = Command::MoveAtoms {
+        atoms: vec![atom(1)],
+        delta: Vector { dx: 5.0, dy: 0.0 },
+        instance: Some(instance(7)),
+    };
+    assert_eq!(
+        command_error(&mut document, &[unknown]).error,
+        EditError::UnknownInstance(instance(7))
+    );
+    assert_eq!(
+        command_error(&mut document, &[move_instance(7, 1.0, 1.0)]).error,
+        EditError::UnknownInstance(instance(7))
+    );
+}
+
+#[test]
+fn deleting_atoms_removes_their_positions_everywhere_and_undo_restores_them() {
+    let mut document = ethanol_twice();
+    let before = document.clone();
+    document
+        .apply(&[Command::DeleteAtoms {
+            atoms: vec![atom(2)],
+        }])
+        .unwrap();
+    for serial in [1, 2] {
+        assert_eq!(
+            positions(&document, instance(serial))
+                .iter()
+                .map(|(id, _, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["a1", "a3"],
+            "s{serial}"
+        );
+    }
+    assert_eq!(document.undo_depth(), before.undo_depth() + 1);
+    document.undo().unwrap();
+    assert_eq!(document.to_parts().atoms, before.to_parts().atoms);
+    assert_eq!(document.to_parts().bonds, before.to_parts().bonds);
+    assert_eq!(document.to_parts().positions, before.to_parts().positions);
+}
+
+#[test]
+fn the_last_instance_stays_and_instance_identifiers_are_never_reused() {
+    let mut document = ethanol_twice();
+    let delete = |serial| Command::DeleteInstance {
+        instance: instance(serial),
+    };
+    document.apply(&[delete(1)]).unwrap();
+    assert_eq!(document.instances().collect::<Vec<_>>(), [instance(2)]);
+    assert_eq!(document.first_instance(), instance(2));
+    assert_eq!(
+        command_error(&mut document, &[delete(2)]),
+        TransactionError {
+            index: Some(0),
+            error: EditError::LastInstance
+        }
+    );
+    // With one instance left, a single position and an unnamed move are enough again.
+    document
+        .apply(&[add("S", 9.0, 9.0), move_atoms(vec![atom(1)], 1.0, 0.0)])
+        .unwrap();
+    assert_eq!(
+        document.position(instance(2), atom(4)),
+        Some(point(9.0, 9.0))
+    );
+
+    document.undo().unwrap();
+    document.undo().unwrap();
+    assert_eq!(
+        document.instances().collect::<Vec<_>>(),
+        [instance(1), instance(2)],
+        "undo brings the deleted instance back in its place"
+    );
+    document.apply(&[add_instance(0.0, 0.0)]).unwrap();
+    assert_eq!(
+        document.instances().last(),
+        Some(instance(3)),
+        "s3, not a reused identifier"
+    );
+}
+
+#[test]
+fn scene_changes_that_change_nothing_add_no_revision() {
+    let mut document = ethanol_twice();
+    let before = document.clone();
+    let outcome = document
+        .apply(&[
+            move_instance(2, 0.0, 0.0),
+            add_instance(5.0, 5.0),
+            Command::DeleteInstance {
+                instance: instance(3),
+            },
+        ])
+        .unwrap();
+    assert_eq!(outcome, Outcome::Unchanged);
+    assert_eq!(document, before);
+    document.apply(&[add_instance(1.0, 1.0)]).unwrap();
+    assert_eq!(document.instances().last(), Some(instance(3)));
+}
+
+#[test]
+fn instance_offsets_and_count_are_bounded() {
+    let mut document = ethanol();
+    assert_eq!(
+        command_error(&mut document, &[add_instance(100_000.0, 0.0)]).error,
+        EditError::CoordinateOutOfRange
+    );
+    let more: Vec<_> = (1..MAX_INSTANCES).map(|_| add_instance(1.0, 1.0)).collect();
+    document.apply(&more).unwrap();
+    assert_eq!(document.instances().len(), MAX_INSTANCES);
+    assert_eq!(
+        command_error(&mut document, &[add_instance(1.0, 1.0)]).error,
+        EditError::InstanceLimit
+    );
+}
+
+#[test]
+fn restore_rejects_scenes_commands_could_not_produce() {
+    let mut document = ethanol_twice();
+    document.apply(&[move_instance(2, 3.0, 0.0)]).unwrap();
+    assert_eq!(Document::restore(document.to_parts()).unwrap(), document);
+
+    let mut missing = document.to_parts();
+    missing.positions.pop();
+    assert!(
+        Document::restore(missing).is_err(),
+        "an atom without a position in s2"
+    );
+
+    let mut stray = document.to_parts();
+    stray.positions.push((
+        PositionKey {
+            instance: instance(5),
+            atom: atom(1),
+        },
+        point(0.0, 0.0),
+    ));
+    assert!(
+        Document::restore(stray).is_err(),
+        "a position in no instance"
+    );
+
+    let mut none = document.to_parts();
+    none.instances.clear();
+    none.positions.clear();
+    assert!(Document::restore(none).is_err(), "no instance at all");
+
+    let mut reused = document.to_parts();
+    reused.next_instance = 2;
+    assert!(
+        Document::restore(reused).is_err(),
+        "s2 would be handed out again"
+    );
+
+    let mut zero = document.to_parts();
+    zero.next_instance = 0;
+    assert!(Document::restore(zero).is_err());
+
+    let mut mismatched = document.to_parts();
+    let last = mismatched.undo.len() - 1;
+    mismatched.undo[last].positions[0].1.after = Some(point(-1.0, -1.0));
+    assert!(Document::restore(mismatched).is_err());
 }

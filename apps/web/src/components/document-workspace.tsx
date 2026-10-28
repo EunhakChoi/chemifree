@@ -1,7 +1,12 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArchiveRestoreIcon,
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
   AtomIcon,
+  CopyIcon,
   CopyPlusIcon,
   EraserIcon,
   FilePlus2Icon,
@@ -74,7 +79,9 @@ import type {
   DocumentResponse,
   DocumentSummary,
   DocumentView,
+  InstanceView,
   ListSort,
+  Position,
   RecoveryView,
   StorageReason,
 } from '@/lib/document-contract'
@@ -600,11 +607,15 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             disabled={editor.busy}
           />
         </div>
-        <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+        <div className="flex min-w-0 flex-col gap-4">
+          <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+          {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
+        </div>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         Bond tool: click an atom to grow a chain, drag to bond, click a bond to cycle its order. Atom tool: click empty space
-        to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select.
+        to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select. Each
+        placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
       </p>
     </div>
   )
@@ -912,6 +923,63 @@ function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor
         <FieldDescription id="atom-isotope-help">Leave empty for natural abundance.</FieldDescription>
       )}
     </Field>
+  )
+}
+
+/** Where a duplicated placement goes, relative to the first one: below and slightly right. */
+const DUPLICATE_OFFSET: Position = { x: 40, y: 80 }
+/** How far one press of a move button takes a placement, in points. */
+const NUDGE = 10
+const NUDGES: { label: string; offset: Position; icon: ReactNode }[] = [
+  { label: 'left', offset: { x: -NUDGE, y: 0 }, icon: <ArrowLeftIcon /> },
+  { label: 'up', offset: { x: 0, y: -NUDGE }, icon: <ArrowUpIcon /> },
+  { label: 'down', offset: { x: 0, y: NUDGE }, icon: <ArrowDownIcon /> },
+  { label: 'right', offset: { x: NUDGE, y: 0 }, icon: <ArrowRightIcon /> },
+]
+
+/**
+ * The document's scene instances: each draws the same graph at its own positions. A placement
+ * is duplicated, moved, or deleted as a whole; the last one cannot be deleted.
+ */
+function Placements({ instances, editor }: { instances: InstanceView[]; editor: DocumentEditor }) {
+  return (
+    <section aria-labelledby="placements-heading" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+      <h3 id="placements-heading" className="text-sm font-medium">Placements</h3>
+      <ul className="flex flex-col gap-2">
+        {instances.map((instance) => (
+          <li key={instance.id} data-placement={instance.id} className="flex flex-wrap items-center gap-1">
+            <span className="mr-auto font-mono text-xs">{instance.id}</span>
+            {NUDGES.map((nudge) => (
+              <Button
+                key={nudge.label}
+                size="icon-xs"
+                variant="outline"
+                aria-label={`Move placement ${instance.id} ${nudge.label}`}
+                onClick={() => void editor.apply([{ op: 'move_instance', instance: instance.id, offset: nudge.offset }])}
+              >
+                {nudge.icon}
+              </Button>
+            ))}
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label={`Delete placement ${instance.id}`}
+              disabled={instances.length === 1}
+              onClick={() => void editor.apply([{ op: 'delete_instance', instance: instance.id }])}
+            >
+              <Trash2Icon aria-hidden="true" />
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void editor.apply([{ op: 'add_instance', offset: DUPLICATE_OFFSET }])}
+      >
+        <CopyIcon data-icon="inline-start" aria-hidden="true" />Duplicate placement
+      </Button>
+    </section>
   )
 }
 

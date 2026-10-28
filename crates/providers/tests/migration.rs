@@ -1,0 +1,307 @@
+//! Version 1 documents and drafts, written before graph and scene were separated, are
+//! migrated when read and keep their identifiers, revision, and undo/redo history; the first
+//! save that replaces one keeps its exact bytes.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use chemifree_application::{DocumentRepository, Draft, DraftStatus, StorageError};
+use chemifree_domain::document::{
+    AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId, InstanceId,
+    NewAtomPositions, Point, Vector,
+};
+use chemifree_domain::element::Element;
+use chemifree_providers::FileDocumentRepository;
+
+const ID: &str = "doc-00000000000000f1";
+
+fn fixture(name: &str) -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(name);
+    fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+fn id() -> DocumentId {
+    DocumentId::parse(ID).unwrap()
+}
+
+fn atom(serial: u32) -> AtomId {
+    AtomId::from_serial(serial).unwrap()
+}
+
+fn s1() -> InstanceId {
+    InstanceId::from_serial(1).unwrap()
+}
+
+fn point(x: f64, y: f64) -> Point {
+    Point::new(x, y).unwrap()
+}
+
+/// A data directory holding `bytes` as the stored document `ID`.
+fn stored(bytes: &[u8]) -> (tempfile::TempDir, FileDocumentRepository, PathBuf) {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let path = root.path().join("documents").join(format!("{ID}.json"));
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, bytes).unwrap();
+    (root, repository, path)
+}
+
+/// The fixture's history made with today's commands: draw C–O⁻(¹⁸O), move the oxygen,
+/// change carbon to nitrogen with a double bond and a new title, then undo that.
+fn drawn_today() -> Document {
+    let mut document = Document::new(id(), "Fixture").unwrap();
+    document
+        .apply(&[
+            Command::AddAtom {
+                element: Element::CARBON,
+                positions: NewAtomPositions::Single(point(0.0, 0.0)),
+                bond_to: None,
+            },
+            Command::AddAtom {
+                element: Element::from_symbol("O").unwrap(),
+                positions: NewAtomPositions::Single(point(30.0, 0.0)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Id(atom(1)),
+                    order: BondOrder::Single,
+                }),
+            },
+            Command::UpdateAtom {
+                atom: atom(2),
+                element: None,
+                charge: Some(-1),
+                isotope: Some(Some(18)),
+            },
+        ])
+        .unwrap();
+    document
+        .apply(&[Command::MoveAtoms {
+            atoms: vec![atom(2)],
+            delta: Vector { dx: 0.0, dy: 10.5 },
+            instance: None,
+        }])
+        .unwrap();
+    document
+        .apply(&[
+            Command::UpdateAtom {
+                atom: atom(1),
+                element: Some(Element::from_symbol("N").unwrap()),
+                charge: None,
+                isotope: None,
+            },
+            Command::UpdateBond {
+                bond: BondId::from_serial(1).unwrap(),
+                order: BondOrder::Double,
+            },
+            Command::Rename {
+                title: "Fixture edited".into(),
+            },
+        ])
+        .unwrap();
+    document.undo().unwrap();
+    document
+}
+
+#[test]
+fn a_version_1_file_migrates_with_its_graph_positions_and_history() {
+    let (_root, repository, _path) = stored(&fixture("v1-document.json"));
+    let document = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(
+        document,
+        drawn_today(),
+        "the same graph, s1 positions, counters, revision, and history"
+    );
+    assert_eq!(document.revision(), 4);
+    assert_eq!(document.instances().collect::<Vec<_>>(), [s1()]);
+    assert_eq!(document.position(s1(), atom(2)), Some(point(30.0, 10.5)));
+    assert_eq!((document.undo_depth(), document.redo_depth()), (2, 1));
+    assert_eq!(repository.stored_revision(&id()), Ok(Some(4)));
+}
+
+#[test]
+fn undo_and_redo_work_after_migration() {
+    let (_root, repository, _path) = stored(&fixture("v1-document.json"));
+    let mut document = repository.load(&id()).unwrap().unwrap();
+
+    document.undo().unwrap();
+    assert_eq!(
+        document.position(s1(), atom(2)),
+        Some(point(30.0, 0.0)),
+        "a move-only entry undoes as a position change"
+    );
+    assert_eq!(document.atoms().len(), 2, "and leaves the graph alone");
+
+    document.redo().unwrap();
+    document.redo().unwrap();
+    assert_eq!(document.title(), "Fixture edited");
+    assert_eq!(document.atoms().next().unwrap().1.element.symbol(), "N");
+    assert_eq!(document.bonds().next().unwrap().1.order, BondOrder::Double);
+    assert_eq!(document.revision(), 7);
+
+    document.undo().unwrap();
+    document.undo().unwrap();
+    document.undo().unwrap();
+    assert_eq!(document.atoms().len(), 0);
+    assert_eq!(document.positions(s1()).count(), 0);
+}
+
+#[test]
+fn reading_a_version_1_file_writes_nothing() {
+    let original = fixture("v1-document.json");
+    let (root, repository, path) = stored(&original);
+    repository.load(&id()).unwrap().unwrap();
+    repository.stored_revision(&id()).unwrap();
+    assert_eq!(repository.list_ids().unwrap(), [id()]);
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(!root.path().join("migrated").exists());
+}
+
+#[test]
+fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
+    let original = fixture("v1-document.json");
+    let (_root, repository, path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, Some(4)).unwrap();
+
+    let kept = repository.migrated_path(&id());
+    assert_eq!(
+        kept.file_name().unwrap(),
+        format!("{ID}.v1.json").as_str(),
+        "{}",
+        kept.display()
+    );
+    assert_eq!(fs::read(&kept).unwrap(), original);
+    let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+    assert!(
+        saved.contains("\"format_version\": 2"),
+        "the document is stored as version 2"
+    );
+    assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
+    assert_eq!(
+        repository.list_ids().unwrap(),
+        [id()],
+        "the kept copy is not a document"
+    );
+
+    // A second save replaces version 2 and leaves the kept copy alone.
+    let base = document.revision();
+    document.undo().unwrap();
+    repository.save(&document, Some(base)).unwrap();
+    assert_eq!(fs::read(&kept).unwrap(), original);
+}
+
+#[test]
+fn a_kept_version_1_copy_is_never_overwritten() {
+    let (_root, repository, _path) = stored(&fixture("v1-document.json"));
+    let kept = repository.migrated_path(&id());
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(&kept, b"an earlier copy").unwrap();
+
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, Some(4)).unwrap();
+    assert_eq!(fs::read(&kept).unwrap(), b"an earlier copy");
+}
+
+#[test]
+fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
+    let original = fixture("v1-document.json");
+    let (root, repository, path) = stored(&original);
+    // A file where the directory belongs fails the copy on every platform, even for root.
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    assert!(matches!(
+        repository.save(&document, Some(4)),
+        Err(StorageError::Unavailable(_))
+    ));
+    assert_eq!(fs::read(&path).unwrap(), original, "the original stays");
+}
+
+#[test]
+fn a_newer_format_version_is_refused_and_left_untouched() {
+    let newer = fixture("v3-document.json");
+    let (root, repository, path) = stored(&newer);
+    let refused = |result: Result<_, StorageError>| match result {
+        Err(StorageError::Corrupt(message)) => message,
+        other => panic!("expected an unreadable file, got {other:?}"),
+    };
+    let message = refused(repository.load(&id()).map(|_| ()));
+    assert!(
+        message.contains("version 3") && message.contains("versions 1 and 2"),
+        "the reason names the version: {message}"
+    );
+    refused(repository.stored_revision(&id()).map(|_| ()));
+    let replacement = Document::new(id(), "Replacement").unwrap();
+    refused(repository.save(&replacement, Some(4)));
+    refused(repository.save(&replacement, None));
+    assert_eq!(fs::read(&path).unwrap(), newer);
+    assert!(!root.path().join("migrated").exists());
+}
+
+#[test]
+fn a_version_1_draft_migrates_when_it_is_recovered() {
+    let (root, repository, _path) = stored(&fixture("v1-document.json"));
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    let original = fixture("v1-draft.json");
+    fs::write(&draft_path, &original).unwrap();
+
+    let DraftStatus::Abandoned(Ok(info)) = repository.draft_status(&id()).unwrap() else {
+        panic!("the version 1 draft is offered for recovery");
+    };
+    assert_eq!(
+        (info.revision, info.base_revision, info.saved_at_ms),
+        (4, 2, 1_767_225_600_000)
+    );
+    let Some(Ok(draft)) = repository.claim_draft(&id()).unwrap() else {
+        panic!("the version 1 draft is recovered");
+    };
+    assert_eq!(draft.document, drawn_today());
+    assert_eq!(
+        fs::read(&draft_path).unwrap(),
+        original,
+        "reading wrote nothing"
+    );
+
+    // The recovered session's next draft is version 2.
+    repository
+        .write_draft(&Draft {
+            saved_at_ms: 1_767_225_700_000,
+            ..draft
+        })
+        .unwrap();
+    let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
+    assert!(rewritten.contains("\"format_version\": 2"), "{rewritten}");
+}
+
+#[test]
+fn several_scene_instances_round_trip_in_version_2() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document = drawn_today();
+    document
+        .apply(&[Command::AddInstance {
+            source: None,
+            offset: Vector { dx: 0.1, dy: 80.0 },
+        }])
+        .unwrap();
+    document
+        .apply(&[Command::MoveInstance {
+            instance: InstanceId::from_serial(2).unwrap(),
+            offset: Vector { dx: 5.0, dy: 0.0 },
+        }])
+        .unwrap();
+    document.undo().unwrap();
+    repository.save(&document, None).unwrap();
+    let loaded = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(loaded, document);
+    assert_eq!(loaded.instances().len(), 2);
+    assert_eq!(
+        loaded.position(InstanceId::from_serial(2).unwrap(), atom(2)),
+        Some(point(30.1, 90.5))
+    );
+    assert!(!repository.migrated_path(&id()).exists());
+}

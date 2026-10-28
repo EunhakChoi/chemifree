@@ -1,11 +1,15 @@
 //! v1 document request and response shapes shared by HTTP and the CLI.
 //! The browser mirror lives in `apps/web/src/lib/document-contract.ts`.
 
+use std::collections::BTreeMap;
+use std::fmt;
+
 use chemifree_domain::document::{
-    AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE, MIN_CHARGE, Point,
-    Vector,
+    AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, InstanceId, MAX_CHARGE,
+    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, PAGE_ID, Point, Vector,
 };
 use chemifree_domain::element::Element;
+use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::API_VERSION;
@@ -129,15 +133,20 @@ pub struct BondToDto {
     pub order: BondOrderDto,
 }
 
-/// One command in a transaction, tagged by `op`. Identifiers use the `a1`/`b1` form.
+/// One command in a transaction, tagged by `op`. Identifiers use the `a1`/`b1`/`s1` form.
 /// Where a new bond names an atom (`bond_to.atom`, `begin`, `end`), `"$N"` also refers to
 /// the atom added by the `add_atom` command at index `N` earlier in the same transaction.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandDto {
+    /// Exactly one of `position` (while the document has one scene instance) and `positions`
+    /// (a point for each scene instance, keyed by instance identifier).
     AddAtom {
         element: String,
-        position: PointDto,
+        #[serde(default)]
+        position: Option<PointDto>,
+        #[serde(default, deserialize_with = "distinct_keys")]
+        positions: Option<BTreeMap<String, PointDto>>,
         #[serde(default)]
         bond_to: Option<BondToDto>,
     },
@@ -156,9 +165,12 @@ pub enum CommandDto {
         #[serde(default, deserialize_with = "present")]
         isotope: Option<Option<u64>>,
     },
+    /// `instance` may be left out while the document has one scene instance.
     MoveAtoms {
         atoms: Vec<String>,
         delta: PointDto,
+        #[serde(default)]
+        instance: Option<String>,
     },
     UpdateBond {
         bond: String,
@@ -173,6 +185,47 @@ pub enum CommandDto {
     Rename {
         title: String,
     },
+    /// Copies the positions of `source` (default: the first instance) moved by `offset`.
+    AddInstance {
+        #[serde(default)]
+        source: Option<String>,
+        offset: PointDto,
+    },
+    MoveInstance {
+        instance: String,
+        offset: PointDto,
+    },
+    DeleteInstance {
+        instance: String,
+    },
+}
+
+/// Reads an object into a map, refusing a repeated key instead of keeping the last value.
+fn distinct_keys<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BTreeMap<String, PointDto>>, D::Error> {
+    struct Distinct;
+
+    impl<'de> Visitor<'de> for Distinct {
+        type Value = BTreeMap<String, PointDto>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an object of points keyed by scene instance")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut points = BTreeMap::new();
+            while let Some((key, point)) = map.next_entry::<String, PointDto>()? {
+                if points.contains_key(&key) {
+                    return Err(de::Error::custom(format!("duplicate key {key:?}")));
+                }
+                points.insert(key, point);
+            }
+            Ok(points)
+        }
+    }
+
+    deserializer.deserialize_map(Distinct).map(Some)
 }
 
 /// Distinguishes an explicit `null` (`Some(None)`) from an absent field (`None`).
@@ -222,10 +275,23 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
         CommandDto::AddAtom {
             element: symbol,
             position,
+            positions,
             bond_to,
         } => Command::AddAtom {
             element: element(symbol)?,
-            position: point(*position)?,
+            positions: match (position, positions) {
+                (Some(position), None) => NewAtomPositions::Single(point(*position)?),
+                (None, Some(positions)) => NewAtomPositions::PerInstance(
+                    positions
+                        .iter()
+                        .map(|(id, position)| Ok((instance_id(id)?, point(*position)?)))
+                        .collect::<Result<_, String>>()?,
+                ),
+                (Some(_), Some(_)) => {
+                    return Err("give either position or positions, not both".to_owned());
+                }
+                (None, None) => return Err("add_atom needs position or positions".to_owned()),
+            },
             bond_to: bond_to
                 .as_ref()
                 .map(|target| {
@@ -268,15 +334,17 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
                 })
                 .transpose()?,
         },
-        CommandDto::MoveAtoms { atoms, delta } => Command::MoveAtoms {
+        CommandDto::MoveAtoms {
+            atoms,
+            delta,
+            instance,
+        } => Command::MoveAtoms {
             atoms: atoms
                 .iter()
                 .map(|id| atom_id(id))
                 .collect::<Result<_, _>>()?,
-            delta: Vector {
-                dx: delta.x,
-                dy: delta.y,
-            },
+            delta: vector(*delta),
+            instance: instance.as_deref().map(instance_id).transpose()?,
         },
         CommandDto::UpdateBond { bond, order } => Command::UpdateBond {
             bond: bond_id(bond)?,
@@ -297,7 +365,30 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
         CommandDto::Rename { title } => Command::Rename {
             title: title.clone(),
         },
+        CommandDto::AddInstance { source, offset } => Command::AddInstance {
+            source: source.as_deref().map(instance_id).transpose()?,
+            offset: vector(*offset),
+        },
+        CommandDto::MoveInstance { instance, offset } => Command::MoveInstance {
+            instance: instance_id(instance)?,
+            offset: vector(*offset),
+        },
+        CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
+            instance: instance_id(instance)?,
+        },
     })
+}
+
+/// The domain checks the translated positions.
+fn vector(delta: PointDto) -> Vector {
+    Vector {
+        dx: delta.x,
+        dy: delta.y,
+    }
+}
+
+fn instance_id(value: &str) -> Result<InstanceId, String> {
+    InstanceId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
 }
 
 fn element(symbol: &str) -> Result<Element, String> {
@@ -363,6 +454,7 @@ pub enum RecoveryState {
     InUse,
 }
 
+/// `atoms` and `bonds` are the chemical graph, `molecule`; `scene` places it on the page.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DocumentView {
     pub id: String,
@@ -370,6 +462,8 @@ pub struct DocumentView {
     pub revision: u64,
     pub atoms: Vec<AtomView>,
     pub bonds: Vec<BondView>,
+    pub molecule: MoleculeView,
+    pub scene: SceneView,
 }
 
 /// Positions are scene points; x grows right and y grows down.
@@ -379,7 +473,41 @@ pub struct AtomView {
     pub element: &'static str,
     pub charge: i8,
     pub isotope: Option<u16>,
+    /// The atom's position in the first scene instance, kept for v1 clients.
     pub position: PositionView,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MoleculeView {
+    pub id: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SceneView {
+    pub pages: Vec<PageView>,
+    /// In order; the first one's positions are `atoms[].position`.
+    pub instances: Vec<InstanceView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PageView {
+    pub id: &'static str,
+}
+
+/// A molecule scene instance: the molecule drawn on a page, one position per atom.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct InstanceView {
+    pub id: String,
+    pub page: &'static str,
+    pub molecule: &'static str,
+    pub positions: Vec<AtomPositionView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AtomPositionView {
+    pub atom: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -431,6 +559,7 @@ impl DocumentResponse {
         saved_revision: u64,
         draft_revision: Option<u64>,
     ) -> Self {
+        let first = document.first_instance();
         Self {
             api_version: API_VERSION,
             document: DocumentView {
@@ -439,15 +568,20 @@ impl DocumentResponse {
                 revision: document.revision(),
                 atoms: document
                     .atoms()
-                    .map(|(id, atom)| AtomView {
-                        id: id.to_string(),
-                        element: atom.element.symbol(),
-                        charge: atom.charge,
-                        isotope: atom.isotope,
-                        position: PositionView {
-                            x: atom.position.x(),
-                            y: atom.position.y(),
-                        },
+                    .map(|(id, atom)| {
+                        let position = document
+                            .position(first, id)
+                            .expect("every atom has a position in every scene instance");
+                        AtomView {
+                            id: id.to_string(),
+                            element: atom.element.symbol(),
+                            charge: atom.charge,
+                            isotope: atom.isotope,
+                            position: PositionView {
+                                x: position.x(),
+                                y: position.y(),
+                            },
+                        }
                     })
                     .collect(),
                 bonds: document
@@ -459,6 +593,26 @@ impl DocumentResponse {
                         order: bond.order.into(),
                     })
                     .collect(),
+                molecule: MoleculeView { id: MOLECULE_ID },
+                scene: SceneView {
+                    pages: vec![PageView { id: PAGE_ID }],
+                    instances: document
+                        .instances()
+                        .map(|instance| InstanceView {
+                            id: instance.to_string(),
+                            page: PAGE_ID,
+                            molecule: MOLECULE_ID,
+                            positions: document
+                                .positions(instance)
+                                .map(|(atom, point)| AtomPositionView {
+                                    atom: atom.to_string(),
+                                    x: point.x(),
+                                    y: point.y(),
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                },
             },
             session: SessionView {
                 saved_revision,

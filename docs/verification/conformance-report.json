@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 2,
+  "suite_version": 3,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -212,19 +212,31 @@
     },
     {
       "id": "graph-scene-separation",
-      "title": "Chemical graph and scene positions are kept and compared separately",
+      "title": "Chemical graph and scene positions are kept and compared separately: a second scene instance of the same graph moves independently, chemistry and the first instance stay, and undo restores each step",
       "requirements": [
-        "MODEL-01"
+        "MODEL-01",
+        "OPS-02"
       ],
       "axis": "scene",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P09",
-        "reason": "Atoms carry their positions directly; there is no separate scene model yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "7052b8660332a5669dcd0ce384b96fb9c0e7cb96e42c2be7ac21f6a81b3745a3"
+      "case_sha256": "d64bbe9e12f04d2085b9557424c7165ee8ff263f6bb1c81a26627c6f57abcb57"
+    },
+    {
+      "id": "scene-positions-required",
+      "title": "With two scene instances, an atom added with one position, positions that leave out an instance, an atom move that names no instance, and deleting the last instance are refused with the command index and change nothing",
+      "requirements": [
+        "MODEL-01",
+        "OPS-02"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "0a4c127648d9b0ed8e0af43ef98bef84825d11c810bcd764bc4340308a2685b0"
     },
     {
       "id": "hydrogen-states",
@@ -254,7 +266,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2eab62a6d6825f9973cc7c6cdf066b8d050c8e4a9241258f8abcc9667786b074"
+      "case_sha256": "356eee3992407fa0dd39631506c67f5641797ce730746a75d73c51090559cd8e"
     },
     {
       "id": "operation-errors-match-v1",
@@ -300,19 +312,19 @@
   ],
   "counts": {
     "accept": {
-      "passed": 9,
+      "passed": 10,
       "failed": 0,
-      "not_run": 4
+      "not_run": 3
     },
     "reject": {
-      "passed": 8,
+      "passed": 9,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 17,
+      "passed": 19,
       "failed": 0,
-      "not_run": 4
+      "not_run": 3
     }
   }
 }

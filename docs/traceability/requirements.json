@@ -22,21 +22,28 @@
         "document.snapshot",
         "document.transaction"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
           "id": "MODEL-01.1",
           "summary": "Chemical graph and scene positions are held and compared separately.",
-          "status": "not_implemented",
-          "implementation": [],
-          "evidence": [],
-          "followups": [
-            "P09"
-          ]
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:graph-scene-separation",
+            "case:scene-positions-required",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
         },
         {
           "id": "MODEL-01.rest",
-          "summary": "Containment trees, groups and external references.",
+          "summary": "Several chemical graphs per document, containment trees beyond page and molecule instance, groups, other scene objects, and external references.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -454,8 +461,23 @@
           "followups": []
         },
         {
+          "id": "OPS-02.5",
+          "summary": "Adding, moving and deleting scene instances, moving atoms within one instance, and the positions a new or deleted atom has in every instance are one change set with the graph changes: one revision per effective change, none for a no-op, undone and redone as a whole; refused commands change nothing.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs"
+          ],
+          "evidence": [
+            "case:graph-scene-separation",
+            "case:scene-positions-required",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "OPS-02.rest",
-          "summary": "Change sets, references and history for scene objects, groups and other non-atom/bond objects.",
+          "summary": "Change sets, references and history for groups, containment and other scene objects than molecule instances.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

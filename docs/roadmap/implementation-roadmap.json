@@ -508,7 +508,7 @@
    "acceptance": "기존 저장·초안·Undo 자료를 실제로 마이그레이션하고 재개방한다. 같은 그래프의 복수 장면을 독립 이동해도 화학과 다른 장면이 유지된다.",
    "kind": "core",
    "id": "P09",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",
@@ -614,7 +614,7 @@
    "acceptance": "웹·HTTP·CLI에서 같은 의미의 오류와 결과를 검증한다. 일부 하위 기능이 구현됐다는 이유로 전체 화학 기능을 available로 광고하지 않는다.",
    "kind": "core",
    "id": "P13",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -622,7 +622,14 @@
    ],
    "depends_on": [
     "P08"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     29
+    ],
+    "merge_commit": "85d4788",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40784845386"
+   }
   },
   {
    "phase": "foundation",
@@ -3445,7 +3452,7 @@
     "deep-behavior-contracts.md",
     "deep-format-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P09",
     "P11",

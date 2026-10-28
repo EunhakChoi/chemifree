@@ -13,7 +13,29 @@ export interface AtomView {
   element: string
   charge: number
   isotope: number | null
+  /** The atom's position in the first scene instance. */
   position: Position
+}
+
+/** One atom's position in a scene instance. */
+export interface InstancePosition {
+  atom: string
+  x: number
+  y: number
+}
+
+/** A molecule scene instance: the molecule drawn on a page, one position per atom. */
+export interface InstanceView {
+  id: string
+  page: string
+  molecule: string
+  positions: InstancePosition[]
+}
+
+export interface SceneView {
+  pages: { id: string }[]
+  /** In order; the first one's positions are `atoms[].position`. */
+  instances: InstanceView[]
 }
 
 export interface BondView {
@@ -27,8 +49,15 @@ export interface DocumentView {
   id: string
   title: string
   revision: number
+  /** The chemical graph `molecule` holds: atoms and bonds. */
   atoms: AtomView[]
   bonds: BondView[]
+  /**
+   * The graph and its scene, added within v1. A service from before them leaves both out; its
+   * document is one drawing of the atoms at their positions.
+   */
+  molecule?: { id: string }
+  scene?: SceneView
 }
 
 export interface SessionView {
@@ -127,15 +156,46 @@ export interface DocumentListResponse {
 /** `"$N"` names the atom added by command N earlier in the same transaction. */
 export type AtomRef = string
 
+/**
+ * Where a new atom goes: one `position` while the document has one scene instance, otherwise
+ * `positions` with a point for every instance.
+ */
+export type NewAtomPlacement = { position: Position } | { positions: Record<string, Position> }
+
 export type Command =
-  | { op: 'add_atom'; element: string; position: Position; bond_to?: { atom: AtomRef; order: BondOrder } }
+  | ({ op: 'add_atom'; element: string; bond_to?: { atom: AtomRef; order: BondOrder } } & NewAtomPlacement)
   | { op: 'add_bond'; begin: AtomRef; end: AtomRef; order: BondOrder }
   | { op: 'update_atom'; atom: string; element?: string; charge?: number; isotope?: number | null }
-  | { op: 'move_atoms'; atoms: string[]; delta: Position }
+  /** `instance` may be left out while the document has one scene instance. */
+  | { op: 'move_atoms'; atoms: string[]; delta: Position; instance?: string }
   | { op: 'update_bond'; bond: string; order: BondOrder }
   | { op: 'delete_atoms'; atoms: string[] }
   | { op: 'delete_bonds'; bonds: string[] }
   | { op: 'rename'; title: string }
+  /** Draws the molecule again: a scene instance copying `source` (default: the first) moved by `offset`. */
+  | { op: 'add_instance'; source?: string; offset: Position }
+  | { op: 'move_instance'; instance: string; offset: Position }
+  | { op: 'delete_instance'; instance: string }
+
+/**
+ * One drawing of the document's atoms: a scene instance, or, for a service from before scene
+ * instances (`id` null), the atoms at their own positions.
+ */
+export interface Placement {
+  id: string | null
+  positions: ReadonlyMap<string, Position>
+}
+
+/** The document's drawings in order. There is always at least one. */
+export function placements(document: DocumentView): Placement[] {
+  if (!document.scene) {
+    return [{ id: null, positions: new Map(document.atoms.map((atom) => [atom.id, atom.position])) }]
+  }
+  return document.scene.instances.map((instance) => ({
+    id: instance.id,
+    positions: new Map(instance.positions.map(({ atom, x, y }) => [atom, { x, y }])),
+  }))
+}
 
 /** Why storage failed (`storage_failed`), so the page can say whether retrying can help. */
 export type StorageReason = 'read_only' | 'busy' | 'io'
@@ -217,6 +277,65 @@ function isRecovery(value: unknown): value is RecoveryView | null {
   )
 }
 
+/**
+ * The graph and scene fields, which come together or not at all: one page, at least one
+ * instance with unique IDs on that page drawing `molecule`, each with exactly one position per
+ * atom, and the first instance's positions repeated as `atoms[].position`.
+ */
+function isScene(document: Record<string, unknown>, atoms: AtomView[]): boolean {
+  const { molecule, scene } = document
+  if (molecule === undefined && scene === undefined) return true
+  if (!isRecord(molecule) || typeof molecule.id !== 'string' || !isRecord(scene)) return false
+  const { pages, instances } = scene
+  if (
+    !Array.isArray(pages) ||
+    pages.length !== 1 ||
+    !isRecord(pages[0]) ||
+    typeof pages[0].id !== 'string' ||
+    !Array.isArray(instances) ||
+    instances.length === 0
+  ) {
+    return false
+  }
+  const page = pages[0].id
+  const atomIds = new Set(atoms.map((atom) => atom.id))
+  const instanceIds = new Set<string>()
+  for (const instance of instances) {
+    if (
+      !isRecord(instance) ||
+      typeof instance.id !== 'string' ||
+      instanceIds.has(instance.id) ||
+      instance.page !== page ||
+      instance.molecule !== molecule.id ||
+      !Array.isArray(instance.positions)
+    ) {
+      return false
+    }
+    instanceIds.add(instance.id)
+    const placed = new Set<string>()
+    for (const position of instance.positions) {
+      if (
+        !isRecord(position) ||
+        typeof position.atom !== 'string' ||
+        !atomIds.has(position.atom) ||
+        placed.has(position.atom) ||
+        !isFiniteNumber(position.x) ||
+        !isFiniteNumber(position.y)
+      ) {
+        return false
+      }
+      placed.add(position.atom)
+    }
+    if (placed.size !== atomIds.size) return false
+  }
+  // Every instance, the first included, was checked above.
+  const first = new Map((instances[0] as InstanceView).positions.map((position) => [position.atom, position]))
+  return atoms.every((atom) => {
+    const position = first.get(atom.id)
+    return position !== undefined && position.x === atom.position.x && position.y === atom.position.y
+  })
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -239,6 +358,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     atomIds.size === document.atoms.length &&
     bondIds.size === document.bonds.length &&
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
+    isScene(document, document.atoms) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
