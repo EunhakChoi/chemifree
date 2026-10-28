@@ -14,12 +14,17 @@ import { checkCleanRoom, forbiddenNamesIn, localPathProblem, magicProblem } from
 import {
   checkAgainstSpec,
   checkTraceability,
-  definesRunningTest,
   deriveStatus,
   isPlainRelative,
+  KNOWN_RECORDS,
+  listedTestRuns,
   loadRepository,
+  parseTestList,
   rootFromModuleUrl,
+  runsWorkspaceTests,
+  rustTestTarget,
   scriptsRunByCheck,
+  testExecutables,
   totalsSentence,
 } from './traceability-check.mjs'
 
@@ -114,10 +119,10 @@ describe('traceability check', () => {
       )
     })
     assertProblem(problems, /evidence case:no-such-case names no case/)
-    assertProblem(problems, /evidence test:.*#no_such_test names no #\[test\] fn no_such_test/)
+    assertProblem(problems, /evidence test:.*#no_such_test names no test no_such_test that cargo test runs/)
     assertProblem(problems, /evidence test:crates\/domain\/tests\/missing.rs names a missing file/)
     assertProblem(problems, /evidence report:docs\/verification\/missing.json is not a run record this check knows/)
-    assertProblem(problems, /evidence smoke:scripts\/lib\/request-interception.mjs is not run by npm run check or the CI workflow/)
+    assertProblem(problems, /evidence smoke:scripts\/lib\/request-interception.mjs is not run by a script that npm run check runs/)
     assertProblem(problems, /evidence proof:anything has unknown kind proof/)
   })
 
@@ -313,10 +318,9 @@ describe('traceability check', () => {
     for (const ref of [
       'case:ops-undo-redo',
       'check:test:conformance',
-      'smoke:scripts/browser-smoke.mjs',
+      'smoke:scripts/contract-smoke.mjs',
       'test:crates/domain/tests/document.rs#undo_and_redo_restore_exact_states_as_new_revisions',
       'test:apps/api/tests/http.rs#domain_errors_map_to_v1_envelopes',
-      'test:scripts/repository-checks.test.mjs#the repository has no problems',
     ]) {
       const problems = problemsAfter((copy) => {
         part(copy, 'OPS-02.history').evidence = ['doc:README.md', ref]
@@ -329,34 +333,114 @@ describe('traceability check', () => {
     const helper = problemsAfter((copy) => {
       part(copy, 'OPS-02.history').evidence.push('test:crates/domain/tests/document.rs#ethanol')
     })
-    assertProblem(helper, /names no #\[test\] fn ethanol/)
+    assertProblem(helper, /test:crates\/domain\/tests\/document.rs#ethanol names no test ethanol that cargo test runs/)
     const notRun = problemsAfter((copy) => {
       copy.packageJson.scripts.check = copy.packageJson.scripts.check.replace(' && npm run test:checks', '')
       part(copy, 'OPS-02.history').evidence.push('test:scripts/repository-checks.test.mjs#the repository has no problems')
     })
-    assertProblem(notRun, /is a test file npm run check does not run/)
+    assertProblem(notRun, /a named test counts only as a Rust test that cargo test lists/)
   })
 
-  test('an ignored or skipped test is not a running test', () => {
-    const rust = (attributes) => `${attributes}\nfn saves_once() {}\n`
-    assert.equal(definesRunningTest(rust('#[test]'), 'saves_once', 'rust'), true)
-    assert.equal(definesRunningTest(rust('#[tokio::test]\n#[should_panic(expected = "x")]'), 'saves_once', 'rust'), true)
-    assert.equal(definesRunningTest(rust('/// Doc.\n#[test]'), 'saves_once', 'rust'), true)
-    assert.equal(definesRunningTest(rust('#[test]\n#[ignore]'), 'saves_once', 'rust'), false)
-    assert.equal(definesRunningTest(rust('#[ignore = "slow"]\n#[test]'), 'saves_once', 'rust'), false)
-    assert.equal(definesRunningTest(rust('#[cfg(feature = "x")]'), 'saves_once', 'rust'), false)
-    assert.equal(definesRunningTest("test('counts', () => {})", 'counts', 'node'), true)
-    assert.equal(definesRunningTest("  it(\"counts\", async () => {})", 'counts', 'node'), true)
-    assert.equal(definesRunningTest("test.skip('counts', () => {})", 'counts', 'node'), false)
-    assert.equal(definesRunningTest("test('counts', { skip: true }, () => {})", 'counts', 'node'), false)
-    assert.equal(definesRunningTest("test('counts', { todo: 'later' }, () => {})", 'counts', 'node'), false)
+  test('a named test counts only as one cargo test lists and does not ignore', () => {
+    const listing = (text) => parseTestList(text)
+    assert.deepEqual(listing('tests::saves_once: test\nhelper: bench\nrestores: test\n\n'), ['tests::saves_once', 'restores'])
+    const tests = {
+      listed: ['saves_once', 'tests::restores', 'store::tests::loads', 'ignored_one', 'tests::deep::inner'],
+      ignored: ['ignored_one'],
+    }
+    const noFileModules = () => false
+    // Integration test target: names are exact.
+    assert.equal(listedTestRuns(tests, '', 'saves_once', noFileModules), true)
+    assert.equal(listedTestRuns(tests, '', 'ignored_one', noFileModules), false, 'ignored tests do not run')
+    assert.equal(listedTestRuns(tests, '', 'commented_out', noFileModules), false, 'unlisted tests do not run')
+    // Unit tests: the test sits in the file's module or an inline module below it.
+    assert.equal(listedTestRuns(tests, 'store::', 'loads', noFileModules), true)
+    assert.equal(listedTestRuns(tests, '', 'restores', noFileModules), true)
+    assert.equal(listedTestRuns(tests, '', 'inner', noFileModules), true)
+    assert.equal(listedTestRuns(tests, '', 'loads', (module) => module === 'store'), false, 'a test of another file does not count')
   })
 
-  test('smoke evidence must be run by the checks or by CI', () => {
-    const problems = problemsAfter((copy) => {
-      copy.ciWorkflow = copy.ciWorkflow.replace(/npm run test:browser\b(?!:)/g, 'true')
+  test('smoke evidence counts only when npm run check runs it', () => {
+    // The browser smoke runs in a CI job, which this check does not read.
+    const ciOnly = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence.push('smoke:scripts/browser-smoke.mjs')
     })
-    assertProblem(problems, /evidence smoke:scripts\/browser-smoke.mjs is not run by npm run check or the CI workflow/)
+    assertProblem(ciOnly, /evidence smoke:scripts\/browser-smoke.mjs is not run by a script that npm run check runs/)
+    const dropped = problemsAfter((copy) => {
+      copy.packageJson.scripts.check = copy.packageJson.scripts.check.replace(' && npm run test:contracts', '')
+    })
+    assertProblem(dropped, /evidence smoke:scripts\/contract-smoke.mjs is not run by a script that npm run check runs/)
+  })
+
+  test('named Rust tests count only when npm run check runs cargo test --workspace', () => {
+    assert.ok(runsWorkspaceTests(['cargo fmt --all --check && cargo test --workspace --locked']))
+    assert.ok(!runsWorkspaceTests(['cargo test -p chemifree-domain', 'echo cargo test --workspace']))
+    assert.ok(!runsWorkspaceTests(['cargo test --workspaces']))
+    const problems = problemsAfter((copy) => {
+      copy.packageJson.scripts['check:rust'] = 'cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings'
+    })
+    assertProblem(problems, /test:crates\/domain\/tests\/document.rs#.* is a Rust test, but no script that npm run check runs has a cargo test --workspace step/)
+  })
+
+  test('test executables come from what cargo test --workspace builds', () => {
+    const root = '/repo'
+    const message = (src, test, executable) =>
+      JSON.stringify({ reason: 'compiler-artifact', target: { src_path: `${root}/${src}` }, profile: { test }, executable })
+    const messages = [
+      message('crates/a/src/lib.rs', true, '/repo/target/debug/deps/a-1'),
+      message('crates/a/src/lib.rs', false, null),
+      message('crates/a/tests/flow.rs', true, '/repo/target/debug/deps/flow-2'),
+      message('crates/b/tests/skipped.rs', false, '/repo/target/debug/deps/skipped-3'),
+      message('crates/c/src/lib.rs', true, null),
+      JSON.stringify({ reason: 'build-finished', success: true }),
+      'Compiling noise',
+    ].join('\n')
+    const executables = testExecutables(messages, root)
+    assert.deepEqual([...executables.entries()], [
+      ['crates/a/src/lib.rs', '/repo/target/debug/deps/a-1'],
+      ['crates/a/tests/flow.rs', '/repo/target/debug/deps/flow-2'],
+    ])
+    const members = ['crates/a', 'crates/b']
+    // A target the workspace run does not build as a test (e.g. `test = false`) has no executable.
+    assert.equal(
+      rustTestTarget(root, members, executables, 'crates/b/tests/skipped.rs').problem,
+      'is in a target that cargo test --workspace does not run',
+    )
+    assert.equal(rustTestTarget(root, members, executables, 'crates/a/tests/flow.rs').executable, '/repo/target/debug/deps/flow-2')
+    assert.equal(rustTestTarget(root, members, executables, 'crates/a/src/store.rs').executable, '/repo/target/debug/deps/a-1')
+    assert.equal(rustTestTarget(root, members, executables, 'crates/a/src/store.rs').prefix, 'store::')
+    assert.equal(rustTestTarget(root, members, executables, 'crates/a/src/main.rs').problem, 'is neither an integration test file nor a library source file')
+    assert.equal(rustTestTarget(root, members, executables, 'other/x.rs').problem, 'is not in a Cargo workspace member')
+  })
+
+  test('an integration test file\'s file modules are the files beside it', () => {
+    const directory = mkdtempSync(path.join(temporary, 'crate '))
+    mkdirSync(path.join(directory, 'crates', 'a', 'tests', 'shared'), { recursive: true })
+    for (const file of ['flow.rs', 'support.rs', 'shared/mod.rs']) writeFileSync(path.join(directory, 'crates', 'a', 'tests', file), '')
+    const executables = new Map([['crates/a/tests/flow.rs', '/x']])
+    const target = rustTestTarget(directory, ['crates/a'], executables, 'crates/a/tests/flow.rs')
+    assert.deepEqual([...target.fileModules].sort(), ['shared', 'support'])
+    // `support::saves` lives in tests/support.rs, so it is not a test of flow.rs itself.
+    const listing = { listed: ['saves', 'support::saves', 'inline::loads'], ignored: [] }
+    const isFileModule = (module) => target.fileModules.includes(module)
+    assert.equal(listedTestRuns({ listed: ['support::saves'], ignored: [] }, '', 'saves', isFileModule), false)
+    assert.equal(listedTestRuns(listing, '', 'loads', isFileModule), true)
+  })
+
+  test('the only known run record is the conformance report, and it runs nothing', () => {
+    assert.deepEqual(Object.keys(KNOWN_RECORDS), ['docs/verification/conformance-report.json'])
+    const problems = problemsAfter((copy) => {
+      part(copy, 'OPS-02.history').evidence = ['report:docs/verification/conformance-report.json']
+    })
+    assertProblem(problems, /OPS-02.history: an implemented part needs evidence that runs it/)
+  })
+
+  test('case and suite files keep LF line endings, since the report fingerprints their bytes', () => {
+    const attributes = execFileSync('git', ['check-attr', 'eol', '--', 'conformance/suite.json', 'conformance/cases/ops-undo-redo.json'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(attributes, 'conformance/suite.json: eol: lf\nconformance/cases/ops-undo-redo.json: eol: lf\n')
   })
 
   test('report evidence must name a run record the check knows', () => {
@@ -366,7 +450,14 @@ describe('traceability check', () => {
     assertProblem(problems, /evidence report:docs\/verification\/browser-ci.json is not a run record this check knows/)
   })
 
-  test('a catch-all part is never implemented or partial', () => {
+  test('a catch-all part is only not_implemented or unverified', () => {
+    const rejected = problemsAfter((copy) => {
+      const catchAll = part(copy, 'CHEM-01.uncovered')
+      catchAll.status = 'intentionally_rejected'
+      catchAll.reason = 'out of scope'
+      catchAll.followups = []
+    })
+    assertProblem(rejected, /CHEM-01.uncovered: a catch-all part cannot be intentionally_rejected/)
     for (const status of ['implemented', 'partial']) {
       const problems = problemsAfter((copy) => {
         const catchAll = part(copy, 'CHEM-01.uncovered')
@@ -378,6 +469,44 @@ describe('traceability check', () => {
       assertProblem(problems, new RegExp(`CHEM-01.uncovered: a catch-all part cannot be ${status}`))
       assertProblem(problems, /CHEM-01.uncovered: an (implemented|partial) part needs evidence that runs it/)
     }
+  })
+
+  test('an intentionally rejected part gives its reason', () => {
+    const add = (reason) =>
+      problemsAfter((copy) => {
+        requirement(copy, 'WIN-01').parts.unshift({
+          id: 'WIN-01.legacy-host',
+          summary: 'A specific host behaviour the product will not offer.',
+          status: 'intentionally_rejected',
+          implementation: [],
+          evidence: [],
+          followups: [],
+          ...(reason === undefined ? {} : { reason }),
+        })
+      })
+    assertProblem(add(undefined), /WIN-01.legacy-host: an intentionally_rejected part gives its reason/)
+    assertProblem(add('  '), /WIN-01.legacy-host: an intentionally_rejected part gives its reason/)
+    // With a reason only the quoted totals move (one more part).
+    const given = add('Not offered: it needs a host this product does not run on.')
+    assert.deepEqual(given.filter((problem) => !problem.includes('totals line')), [])
+  })
+
+  test('the traceability files must name their specification sources', () => {
+    const missing = problemsAfter((copy) => {
+      copy.requirements.sources = []
+      delete copy.declarations.source
+    })
+    assertProblem(missing, /requirements.json: needs exactly one specification source with role requirements, found 0/)
+    assertProblem(missing, /requirements.json: needs exactly one specification source with role operations, found 0/)
+    assertProblem(missing, /declarations.json: needs exactly one specification source with role declarations, found 0/)
+    const malformed = problemsAfter((copy) => {
+      copy.requirements.sources[0].path = 'docs/requirements.json'
+      copy.requirements.sources[1].sha256 = 'abc'
+      copy.declarations.source.path = '../spec/x.json'
+    })
+    assertProblem(malformed, /source docs\/requirements.json \(requirements\) needs a relative path under spec\/ and a SHA-256/)
+    assertProblem(malformed, /\(operations\) needs a relative path under spec\/ and a SHA-256/)
+    assertProblem(malformed, /\(declarations\) needs a relative path under spec\/ and a SHA-256/)
   })
 
   test('case evidence must name a case tagged with the owning requirement', () => {
@@ -637,6 +766,29 @@ describe('clean-room check', () => {
     const problems = check(directory)
     assert.equal(problems.length, 1, problems.join('\n'))
     assert.match(problems[0], /^ok\tprivate\.key: /)
+  })
+
+  test('a tracked name that is not valid UTF-8 is refused and its content still checked', () => {
+    const elf = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(60)])
+    const directory = repository({ 'README.md': 'x' }, (git, where) => {
+      const sha = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: where, input: elf }).toString().trim()
+      const name = Buffer.from([0x6f, 0x6b, 0xff, 0x2e, 0x62, 0x69, 0x6e])
+      const entry = Buffer.concat([Buffer.from(`100644 ${sha}\t`), name, Buffer.from('\n')])
+      execFileSync('git', ['update-index', '--index-info'], { cwd: where, input: entry })
+    })
+    const problems = check(directory)
+    assertProblem(problems, /^ok\uFFFD\.bin: the tracked name is not valid UTF-8/)
+    assertProblem(problems, /^ok\uFFFD\.bin: ELF/)
+  })
+
+  test('contents are read from what Git tracks, not from the working tree', () => {
+    const elf = Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46]), Buffer.alloc(60)])
+    const directory = repository({ 'tool.dat': elf, 'gone.dat': elf })
+    writeFileSync(path.join(directory, 'tool.dat'), 'harmless now\n')
+    rmSync(path.join(directory, 'gone.dat'))
+    const problems = check(directory)
+    assertProblem(problems, /^tool\.dat: ELF/)
+    assertProblem(problems, /^gone\.dat: ELF/)
   })
 
   test('a nested repository is refused', () => {

@@ -28,25 +28,64 @@ impl fmt::Display for Mismatch {
     }
 }
 
-/// Checks that `expected` uses operators correctly, so a malformed expectation is refused when
-/// a case loads instead of failing (or passing) only once it runs.
+/// Checks that `expected` uses operators correctly and checks something, so a malformed or
+/// vacuous expectation is refused when a case loads instead of failing (or passing) only once
+/// it runs.
 ///
 /// # Errors
 ///
-/// Returns the first misuse: an unknown `$` key, `$contains` beside other keys, or a
-/// `$contains` value that is not a list.
+/// Returns the first misuse: an unknown `$` key, `$contains` beside other keys, a `$contains`
+/// value that is not a list or is empty, an empty object at any depth, or an expectation
+/// whose only values (leaves: strings, numbers, booleans, `null`, or `[]`) are `api_version`.
 pub fn validate(expected: &Value) -> Result<(), Mismatch> {
-    validate_at(expected, "$")
+    validate_at(expected, "$")?;
+    if checked_values(expected, None) == 0 {
+        return Err(Mismatch {
+            path: "$".to_owned(),
+            message: "an expectation names at least one value besides api_version".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// The leaves `expected` compares, not counting those under an `api_version` key, which every
+/// v1 reply carries. `key` is the object key `expected` sits under, if any.
+fn checked_values(expected: &Value, key: Option<&str>) -> usize {
+    match expected {
+        Value::Object(object) => match object.get(CONTAINS) {
+            Some(Value::Array(items)) => items.iter().map(|item| checked_values(item, None)).sum(),
+            _ => object
+                .iter()
+                .map(|(key, value)| checked_values(value, Some(key)))
+                .sum(),
+        },
+        Value::Array(items) if !items.is_empty() => {
+            items.iter().map(|item| checked_values(item, None)).sum()
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
+            usize::from(key != Some("api_version"))
+        }
+    }
 }
 
 fn validate_at(expected: &Value, path: &str) -> Result<(), Mismatch> {
     match expected {
         Value::Object(object) => {
+            let vacuous = |message: &str| Mismatch {
+                path: path.to_owned(),
+                message: message.to_owned(),
+            };
             if let Some(items) = operator(object, path)? {
+                if items.is_empty() {
+                    return Err(vacuous("$contains needs at least one item"));
+                }
                 for (index, item) in items.iter().enumerate() {
                     validate_at(item, &format!("{path}.{CONTAINS}[{index}]"))?;
                 }
                 return Ok(());
+            }
+            if object.is_empty() {
+                return Err(vacuous("an empty object checks nothing"));
             }
             for (key, value) in object {
                 validate_at(value, &format!("{path}.{key}"))?;
@@ -349,6 +388,35 @@ mod tests {
             validate(&nested).expect_err("misuse inside contains").path,
             "$.$contains[0]"
         );
+    }
+
+    #[test]
+    fn empty_objects_and_contains_lists_are_refused_at_any_depth() {
+        let refused = |expected: Value| validate(&expected).expect_err(&expected.to_string());
+        assert_eq!(refused(json!({})).message, "an empty object checks nothing");
+        assert_eq!(refused(json!({ "a": [{ "b": {} }] })).path, "$.a[0].b");
+        assert_eq!(
+            refused(json!({ "a": { "$contains": [] } })).message,
+            "$contains needs at least one item"
+        );
+    }
+
+    #[test]
+    fn an_expectation_compares_a_value_besides_api_version() {
+        let only_version = validate(&json!({ "api_version": "v1" })).expect_err("vacuous");
+        assert_eq!(
+            only_version.message,
+            "an expectation names at least one value besides api_version"
+        );
+        // null and [] are values: they assert absence and emptiness.
+        for expected in [
+            json!({ "api_version": "v1", "recovery": null }),
+            json!({ "document": { "bonds": [] } }),
+            json!({ "capabilities": { "$contains": [{ "id": "x" }] } }),
+            json!({ "code": "revision_conflict" }),
+        ] {
+            assert_eq!(validate(&expected), Ok(()), "{expected}");
+        }
     }
 
     #[test]

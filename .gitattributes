@@ -1,0 +1,2 @@
+# Case and suite files are fingerprinted byte for byte in the conformance report.
+conformance/**/*.json text eol=lf

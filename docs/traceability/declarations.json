@@ -2,6 +2,7 @@
   "schema_version": 1,
   "about": "Per-route counts of the public declaration inventory. A declaration is one public member or command entry (collections, menus, availability and state getters included), not one user feature; a count of declarations is not a count of features or of tests.",
   "source": {
+    "role": "declarations",
     "path": "spec/phase3-design-v3/declaration-requirements.json",
     "sha256": "dea395ee57035ed45d0bc1a9fce2696f6ba5512709d6d6436edb46ed61d39ad7",
     "use": "per-route and per-source counts"

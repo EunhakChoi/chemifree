@@ -78,7 +78,7 @@ fn every_case_starts_on_an_empty_data_directory() {
             case(
                 "second",
                 "accept",
-                json!([{ "call": "capabilities", "expect": { "api_version": "v1" } }]),
+                json!([{ "call": "capabilities", "expect": { "capabilities": { "$contains": [{ "id": "persistence" }] } } }]),
             ),
         ],
     };
@@ -92,7 +92,7 @@ fn an_unexpected_error_fails_at_its_step() {
         "unexpected-error",
         "accept",
         json!([
-            { "call": "create", "doc": "d", "expect": { "api_version": "v1" } },
+            { "call": "create", "doc": "d", "expect": { "document": { "revision": 0 } } },
             { "call": "undo", "doc": "d", "expected_revision": 0 },
         ]),
     ));
@@ -179,7 +179,7 @@ fn outcomes_are_counted_per_kind_and_pending_cases_are_not_run() {
             case(
                 "accepted",
                 "accept",
-                json!([{ "call": "create", "doc": "d", "expect": { "api_version": "v1" } }]),
+                json!([{ "call": "create", "doc": "d", "expect": { "document": { "revision": 0 } } }]),
             ),
             case(
                 "refused",

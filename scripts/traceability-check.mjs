@@ -3,21 +3,26 @@
 // workspace root, it also checks source hashes, requirement IDs, operation names, and
 // declaration counts against spec/ there; without it (as in CI) only those comparisons are
 // skipped. Exits 1 and lists every problem when anything disagrees.
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const STATUSES = ['implemented', 'partial', 'not_implemented', 'unverified', 'intentionally_rejected']
-/** Statuses a catch-all part may have: what it covers is, by definition, not implemented. */
-const CATCH_ALL_STATUSES = ['not_implemented', 'unverified', 'intentionally_rejected']
-/** Committed run records that `report:` evidence may name, with what writes them. */
+/**
+ * Statuses a catch-all part may have. What it covers is unfinished by definition, so it can be
+ * neither implemented nor intentionally rejected (either would let the requirement derive
+ * implemented while work remains).
+ */
+const CATCH_ALL_STATUSES = ['not_implemented', 'unverified']
+/** Committed run records that `report:` evidence may name. A record never counts as running anything. */
 export const KNOWN_RECORDS = {
-  'docs/verification/conformance-report.json': 'npm run conformance:record (checked here against the cases)',
-  'docs/verification/editor-browser-smoke.json': 'npm run test:browser',
+  'docs/verification/conformance-report.json': 'written by npm run conformance:record and checked here against the cases',
 }
+/** The specification sources the traceability files must name, by role. */
+const SOURCE_ROLES = { requirements: 'requirements.json', operations: 'requirements.json', declarations: 'declarations.json' }
 const SUITE = 'conformance/suite.json'
-const CI_WORKFLOW = '.github/workflows/ci.yml'
 const TOTALS_PREFIX = '현재 집계:'
 const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', 'docs/HANDOFF.ko.md']
 const REPORT = 'docs/verification/conformance-report.json'
@@ -89,12 +94,119 @@ export function loadRepository(root, { suite: suitePath = path.join(root, SUITE)
     cases,
     caseHashes,
     caseFileProblems,
-    ciWorkflow: readText(at(CI_WORKFLOW)) ?? '',
     cargoManifest: readText(at('Cargo.toml')) ?? '',
     report: readJson(at(REPORT)),
     freshReport: existsSync(at(FRESH_REPORT)) ? readJson(at(FRESH_REPORT)) : null,
     docs: Object.fromEntries(TOTALS_DOCS.map((doc) => [doc, readText(at(doc))])),
+    testListing: listCitedRustTests(root, readJson(at('docs/traceability/requirements.json'))),
   }
+}
+
+/**
+ * For every Rust file cited as `test:<file>.rs#<name>` evidence, the tests that
+ * `cargo test --workspace` runs for it. The test executables come from what that run builds
+ * (`--no-run --message-format=json`: test-profile artifacts with an executable), so a target
+ * the workspace run skips (e.g. `test = false`) has none. Each executable is asked for
+ * `--list` and `--list --ignored`; ignored, commented-out, or compiled-out tests never count.
+ */
+function listCitedRustTests(root, requirements) {
+  const files = new Set(
+    (requirements.requirements ?? [])
+      .flatMap((requirement) => requirement.parts ?? [])
+      .flatMap((part) => part.evidence ?? [])
+      .filter((ref) => typeof ref === 'string' && /^test:[^#]+\.rs#.+$/.test(ref))
+      .map((ref) => ref.slice('test:'.length).split('#')[0]),
+  )
+  if (files.size === 0) return {}
+  const messages = execFileSync('cargo', ['test', '--workspace', '--locked', '--no-run', '--message-format=json'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 256 * 1024 * 1024,
+  })
+  const executables = testExecutables(messages, root)
+  const members = cargoMembers(readText(path.join(root, 'Cargo.toml')) ?? '')
+  const listings = new Map()
+  const result = {}
+  for (const file of files) {
+    const target = rustTestTarget(root, members, executables, file)
+    if (target.problem) {
+      result[file] = { problem: target.problem }
+      continue
+    }
+    if (!listings.has(target.executable)) {
+      const list = (extra) =>
+        parseTestList(
+          execFileSync(target.executable, ['--list', '--format', 'terse', ...extra], {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            maxBuffer: 16 * 1024 * 1024,
+          }),
+        )
+      listings.set(target.executable, { listed: list([]), ignored: list(['--ignored']) })
+    }
+    result[file] = { ...listings.get(target.executable), prefix: target.prefix, fileModules: target.fileModules, problem: null }
+  }
+  return result
+}
+
+/**
+ * Test executables that `cargo test --workspace` builds, by their target's source file
+ * relative to `root` (`crates/x/src/lib.rs`, `crates/x/tests/y.rs`), from cargo's JSON
+ * messages: compiler artifacts built with the test profile that have an executable.
+ */
+export function testExecutables(messages, root) {
+  const executables = new Map()
+  for (const line of messages.split('\n')) {
+    if (!line.startsWith('{')) continue
+    const message = JSON.parse(line)
+    if (message.reason !== 'compiler-artifact' || message.profile?.test !== true || !message.executable) continue
+    const source = path.relative(root, message.target?.src_path ?? '').split(path.sep).join('/')
+    executables.set(source, message.executable)
+  }
+  return executables
+}
+
+/** Names of the modules that are files of their own in `directory` (`x.rs` or `x/mod.rs`). */
+function fileModulesIn(directory, except) {
+  if (!existsSync(directory)) return []
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isFile() && entry.name.endsWith('.rs') && entry.name !== except && !['lib.rs', 'main.rs', 'mod.rs'].includes(entry.name)) {
+      return [entry.name.slice(0, -'.rs'.length)]
+    }
+    return entry.isDirectory() && existsSync(path.join(directory, entry.name, 'mod.rs')) ? [entry.name] : []
+  })
+}
+
+/**
+ * The test executable, module prefix, and file modules of a cited Rust file, or a problem.
+ * An integration test file (`tests/x.rs`) is its own target; its `mod y;` files sit beside it
+ * (`tests/y.rs`, `tests/y/mod.rs`). A library source file belongs to the `src/lib.rs` target,
+ * under its module path.
+ */
+export function rustTestTarget(root, members, executables, file) {
+  const member = members.find((directory) => file.startsWith(`${directory}/`))
+  if (!member) return { problem: 'is not in a Cargo workspace member' }
+  const inner = file.slice(member.length + 1)
+  const integration = /^tests\/([^/]+)\.rs$/.exec(inner)
+  if (!integration && (!inner.startsWith('src/') || inner === 'src/main.rs')) {
+    return { problem: 'is neither an integration test file nor a library source file' }
+  }
+  const targetSource = integration ? file : `${member}/src/lib.rs`
+  const executable = executables.get(targetSource)
+  if (!executable) return { problem: 'is in a target that cargo test --workspace does not run' }
+  if (integration) {
+    return { executable, prefix: '', fileModules: fileModulesIn(path.join(root, member, 'tests'), path.basename(inner)) }
+  }
+  const modulePath = inner.slice('src/'.length, -'.rs'.length).replace(/(^|\/)(lib|mod)$/, '')
+  const prefix = modulePath === '' ? '' : `${modulePath.split('/').join('::')}::`
+  // Modules declared in their own file sit beside lib.rs/mod.rs, or in a directory named
+  // after a non-mod file.
+  const childDirectory = /(^|\/)(lib|mod)\.rs$/.test(inner)
+    ? path.dirname(path.join(root, member, inner))
+    : path.join(root, member, inner.slice(0, -'.rs'.length))
+  return { executable, prefix, fileModules: fileModulesIn(childDirectory) }
 }
 
 /** The npm scripts reached from `roots`, following `npm run X` through nested scripts. */
@@ -119,10 +231,14 @@ export function scriptsRunByCheck(scripts) {
   return reached
 }
 
-/** The npm scripts the CI workflow runs (its `npm run X` steps and what they run). */
-export function scriptsRunByCi(scripts, workflow) {
-  const roots = [...workflow.matchAll(/\bnpm run ([\w:.-]+)/g)].map((match) => match[1])
-  return scriptsReachedFrom(scripts, roots)
+/**
+ * Whether one of `commands` (npm script commands) runs `cargo test --workspace` as one of its
+ * `&&`-separated steps, so that Rust tests are part of what runs them.
+ */
+export function runsWorkspaceTests(commands) {
+  return commands.some((command) =>
+    command.split('&&').some((step) => /^cargo test --workspace(\s|$)/.test(step.trim())),
+  )
 }
 
 /** Directories of the Cargo workspace members, whose tests `cargo test --workspace` runs. */
@@ -272,28 +388,57 @@ function checkReport(inputs, cases, problem, requireFresh) {
 
 const blankCounts = () => ({ passed: 0, failed: 0, not_run: 0 })
 
+/**
+ * The specification sources by role: requirements.json names the requirements and operations
+ * files, declarations.json the declaration file. Each must appear once, with a relative path
+ * under spec/ and a SHA-256, whether or not the specification itself is available.
+ */
+export function specSources(inputs) {
+  const named = [
+    ...(inputs.requirements.sources ?? []).map((source) => ({ file: 'requirements.json', source })),
+    ...(inputs.declarations.source ? [{ file: 'declarations.json', source: inputs.declarations.source }] : []),
+  ]
+  return Object.fromEntries(
+    Object.entries(SOURCE_ROLES).map(([role, file]) => [
+      role,
+      named.filter((entry) => entry.file === file && entry.source?.role === role).map((entry) => entry.source),
+    ]),
+  )
+}
+
+function sourceProblems(inputs) {
+  const problems = []
+  for (const [role, sources] of Object.entries(specSources(inputs))) {
+    const file = SOURCE_ROLES[role]
+    if (sources.length !== 1) {
+      problems.push(`${file}: needs exactly one specification source with role ${role}, found ${sources.length}`)
+      continue
+    }
+    const [source] = sources
+    if (!isRelativePath(source.path) || !source.path.startsWith('spec/') || !/^[0-9a-f]{64}$/.test(source.sha256 ?? '')) {
+      problems.push(`${file}: source ${source.path} (${role}) needs a relative path under spec/ and a SHA-256`)
+    }
+  }
+  return problems
+}
+
 function checkRequirements(inputs, context) {
   const { problem, exists, followupsUsable, cases, outcomes } = context
   const document = inputs.requirements
   const ids = new Set()
   if (document.schema_version !== 1) problem('requirements.json: schema_version must be 1')
-  for (const source of document.sources ?? []) {
-    if (!isRelativePath(source.path) || !/^[0-9a-f]{64}$/.test(source.sha256 ?? '')) {
-      problem(`requirements.json: source ${source.path} needs a relative path and a SHA-256`)
-    }
-  }
+  for (const message of sourceProblems(inputs)) problem(message)
   const scripts = inputs.packageJson.scripts ?? {}
   const checkScripts = scriptsRunByCheck(scripts)
-  const ciScripts = scriptsRunByCi(scripts, inputs.ciWorkflow ?? '')
-  const commandsOf = (names) => [...names].map((name) => scripts[name]).filter((command) => typeof command === 'string')
+  const checkCommands = [...checkScripts].map((name) => scripts[name]).filter((command) => typeof command === 'string')
   const evidenceContext = {
     exists,
     cases,
     outcomes,
     checkScripts,
-    checkCommands: commandsOf(checkScripts),
-    ciCommands: commandsOf(ciScripts),
-    cargoMembers: cargoMembers(inputs.cargoManifest ?? ''),
+    checkCommands,
+    rustTestsRun: runsWorkspaceTests(checkCommands),
+    testListing: inputs.testListing ?? {},
     root: inputs.root,
   }
   for (const requirement of document.requirements ?? []) {
@@ -323,6 +468,9 @@ function checkRequirements(inputs, context) {
       partIds.add(part.id)
       if (!STATUSES.includes(part.status)) problem(`${where}: unknown status ${part.status}`)
       if (typeof part.summary !== 'string' || part.summary.trim() === '') problem(`${where}: needs a summary`)
+      if (part.status === 'intentionally_rejected' && (typeof part.reason !== 'string' || part.reason.trim() === '')) {
+        problem(`${where}: an intentionally_rejected part gives its reason`)
+      }
       const claimed = part.status === 'implemented' || part.status === 'partial'
       const implementation = part.implementation ?? []
       const evidence = part.evidence ?? []
@@ -340,7 +488,7 @@ function checkRequirements(inputs, context) {
       }
       if (claimed && executing === 0) {
         problem(
-          `${where}: an ${part.status} part needs evidence that runs it (a passed case:, a check: or smoke: that the checks or CI run, or a test:<file>#<test>)`,
+          `${where}: an ${part.status} part needs evidence that runs it (a passed case:, a check: or smoke: that npm run check runs, or a test:<file>.rs#<test> that cargo test --workspace runs)`,
         )
       }
       if ((part.status === 'not_implemented' || part.status === 'partial') && followups.length === 0) {
@@ -357,30 +505,36 @@ function checkRequirements(inputs, context) {
   return ids
 }
 
-/**
- * Resolves one evidence reference. `problem` says why it does not resolve (or is null);
- * `executes` says whether it runs the behaviour: a case that passed, a script the checks or CI
- * run, or a named test that the test runners execute. `report:` and `doc:` never execute.
- */
-/**
- * Whether `text` defines a test called `name` that the test command runs: a Rust `fn` with
- * `#[test]` or `#[tokio::test]` and no `#[ignore]` among its attributes, or a node
- * `test(...)`/`it(...)` that is not `.skip`/`.todo` and has no `skip` or `todo` option.
- */
-export function definesRunningTest(text, name, language) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  if (language === 'rust') {
-    const declaration = new RegExp(
-      `((?:(?:#\\[[^\\]]*\\]|///[^\\n]*)\\s*)*)(?:pub\\s+)?(?:async\\s+)?fn\\s+${escaped}\\s*\\(`,
-    )
-    const attributes = declaration.exec(text)?.[1] ?? ''
-    return /#\[(?:tokio::)?test\b/.test(attributes) && !/#\[ignore\b/.test(attributes)
-  }
-  const call = new RegExp(`(?:^|[^\\w.])(?:test|it)\\(\\s*(['"\`])${escaped}\\1\\s*(,\\s*\\{[^}]*\\})?`, 'm')
-  const match = call.exec(text)
-  return match !== null && !/\b(?:skip|todo)\b/.test(match[2] ?? '')
+/** Test names in `cargo test -- --list --format terse` output (lines `name: test`). */
+export function parseTestList(output) {
+  return output
+    .split('\n')
+    .map((line) => /^(.+): test$/.exec(line.trim())?.[1])
+    .filter((name) => name !== undefined)
 }
 
+/**
+ * Whether `name` is a test that cargo runs in a target whose tests are `listed` and `ignored`.
+ * `prefix` is the module path of the cited file within its target (`store::` for
+ * `src/store.rs`, empty for `src/lib.rs` or an integration test file); the test must sit in
+ * that module or an inline module below it, not in another file's module (`isFileModule`
+ * tells whether a module directly below the cited file is a file of its own).
+ */
+export function listedTestRuns({ listed, ignored }, prefix, name, isFileModule) {
+  const skipped = new Set(ignored)
+  return listed.some((test) => {
+    if (skipped.has(test) || !test.startsWith(prefix)) return false
+    const segments = test.slice(prefix.length).split('::')
+    return segments.at(-1) === name && (segments.length === 1 || !isFileModule(segments[0]))
+  })
+}
+
+/**
+ * Resolves one evidence reference. `problem` says why it does not resolve (or is null);
+ * `executes` says whether it runs the behaviour: a case that passed, a script that
+ * `npm run check` runs, or a named Rust test that `cargo test --workspace` runs within it.
+ * `report:` and `doc:` never execute.
+ */
 export function resolveEvidence(ref, context) {
   const fail = (problem) => ({ problem, executes: false })
   const separator = typeof ref === 'string' ? ref.indexOf(':') : -1
@@ -403,9 +557,9 @@ export function resolveEvidence(ref, context) {
     case 'smoke': {
       if (!context.exists(target)) return fail('names a missing file')
       const runs = (command) => command.split(/\s+/).includes(target)
-      return context.checkCommands.some(runs) || context.ciCommands.some(runs)
+      return context.checkCommands.some(runs)
         ? { problem: null, executes: true }
-        : fail('is not run by npm run check or the CI workflow')
+        : fail('is not run by a script that npm run check runs')
     }
     case 'report': {
       if (!(target in KNOWN_RECORDS)) return fail('is not a run record this check knows')
@@ -423,15 +577,15 @@ export function resolveEvidence(ref, context) {
       const [file, name] = target.split('#')
       if (!context.exists(file)) return fail('names a missing file')
       if (name === undefined) return { problem: null, executes: false }
-      const text = readFileSync(path.join(context.root, file), 'utf8')
-      if (file.endsWith('.rs')) {
-        if (!definesRunningTest(text, name, 'rust')) return fail(`names no #[test] fn ${name} in ${file} that runs`)
-        const member = context.cargoMembers.some((directory) => file.startsWith(`${directory}/`))
-        return member ? { problem: null, executes: true } : fail(`is not in a Cargo workspace member`)
+      if (!file.endsWith('.rs')) {
+        return fail('a named test counts only as a Rust test that cargo test lists; cite a script that runs it as check:')
       }
-      if (!definesRunningTest(text, name, 'node')) return fail(`names no test ${name} in ${file} that runs`)
-      const runs = context.checkCommands.some((command) => command.split(/\s+/).includes(file))
-      return runs ? { problem: null, executes: true } : fail('is a test file npm run check does not run')
+      if (!context.rustTestsRun) return fail('is a Rust test, but no script that npm run check runs has a cargo test --workspace step')
+      const listing = context.testListing?.[file]
+      if (!listing) return fail('is in a file whose tests were not listed when the repository was loaded')
+      if (listing.problem) return fail(listing.problem)
+      const runs = listedTestRuns(listing, listing.prefix, name, (module) => listing.fileModules.includes(module))
+      return runs ? { problem: null, executes: true } : fail(`names no test ${name} that cargo test runs in ${file}`)
     }
     default:
       return fail(`has unknown kind ${kind}`)
@@ -535,9 +689,9 @@ export function checkAgainstSpec(inputs, specDir) {
     const file = specFile(source.path)
     if (file && sha256(file) !== source.sha256) problem(`source ${source.path}: SHA-256 differs from the recorded one`)
   }
-  const bySuffix = (suffix) => (inputs.requirements.sources ?? []).find((source) => source.path.endsWith(suffix))
-  const requirementSource = bySuffix('readiness-requirements-v2.json')
-  const operationSource = bySuffix('operations.json')
+  const roles = specSources(inputs)
+  const requirementSource = roles.requirements[0]
+  const operationSource = roles.operations[0]
   const ours = inputs.requirements.requirements ?? []
   if (requirementSource && specFile(requirementSource.path)) {
     const spec = readJson(path.join(specDir, requirementSource.path))

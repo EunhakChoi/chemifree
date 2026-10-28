@@ -3,11 +3,13 @@
   "about": "Traceability of the 33 specified requirements to what Chemifree implements now. Statuses describe this product only; nothing here claims chemistry, file formats, or equivalence with another program.",
   "sources": [
     {
+      "role": "requirements",
       "path": "spec/phase7-readiness-requirements-v2.json",
       "sha256": "9c3265ad6d67aefceab2f600aa8dcdce248f9574f9c047357daf15f5015230f2",
       "use": "requirement IDs and domains"
     },
     {
+      "role": "operations",
       "path": "spec/phase3-design-v3/operations.json",
       "sha256": "0559742d481d93dcc45a82848a921cb854f54f7e9b7140c92a7cb64cdd5cc308",
       "use": "operation names"
@@ -1069,18 +1071,16 @@
         },
         {
           "id": "QUALITY-01.regression-checks",
-          "summary": "The drawing slice has repeatable checks: Rust tests, the HTTP/CLI contract smoke, and the browser smoke in CI.",
+          "summary": "npm run check runs repeatable checks of the drawing slice: the Rust tests and the HTTP/CLI contract smoke. (The browser smoke runs in the CI browser job; this traceability check does not verify it.)",
           "status": "implemented",
           "implementation": [
             "scripts/contract-smoke.mjs",
-            "scripts/browser-smoke.mjs",
-            ".github/workflows/ci.yml"
+            "package.json"
           ],
           "evidence": [
             "check:check:rust",
             "check:test:contracts",
-            "smoke:scripts/browser-smoke.mjs",
-            "report:docs/verification/editor-browser-smoke.json"
+            "smoke:scripts/contract-smoke.mjs"
           ],
           "followups": []
         },

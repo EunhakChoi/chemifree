@@ -7,7 +7,7 @@
 // re-encoded, or split, so it is a guard, not proof that nothing private is here.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -129,18 +129,59 @@ function forbiddenNamesInWords(distinctWords, names) {
   return [...found]
 }
 
-/** Tracked entries with their index mode, from `git ls-files --stage`. */
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true })
+
+/**
+ * The index entries Git tracks, from `git ls-files --stage -z`: mode, blob ID, and the name as
+ * text (invalid UTF-8 bytes shown as U+FFFD, with `utf8: false`). Names are split at the first
+ * tab only, as they may contain tabs.
+ */
 function trackedEntries(root) {
-  const output = execFileSync('git', ['ls-files', '--stage', '-z'], { cwd: root, maxBuffer: 64 * 1024 * 1024 })
-  return output
-    .toString('utf8')
-    .split('\0')
-    .filter(Boolean)
-    .map((line) => {
-      // The name follows the first tab and may itself contain tabs.
-      const tab = line.indexOf('\t')
-      return { mode: line.slice(0, tab).split(' ')[0], file: line.slice(tab + 1) }
-    })
+  const output = execFileSync('git', ['ls-files', '--stage', '-z'], { cwd: root, maxBuffer: 256 * 1024 * 1024 })
+  const entries = []
+  let start = 0
+  while (start < output.length) {
+    let end = output.indexOf(0, start)
+    if (end === -1) end = output.length
+    const line = output.subarray(start, end)
+    start = end + 1
+    if (line.length === 0) continue
+    const tab = line.indexOf(0x09)
+    const [mode, blob] = line.subarray(0, tab).toString('latin1').split(' ')
+    const nameBytes = line.subarray(tab + 1)
+    let file
+    let utf8 = true
+    try {
+      file = strictUtf8.decode(nameBytes)
+    } catch {
+      file = nameBytes.toString('utf8')
+      utf8 = false
+    }
+    entries.push({ mode, blob, file, utf8 })
+  }
+  return entries
+}
+
+/** The contents of `blobs` as Git stores them, read with `git cat-file --batch`. */
+function blobContents(root, blobs) {
+  const contents = new Map()
+  const unique = [...new Set(blobs)]
+  if (unique.length === 0) return contents
+  const output = execFileSync('git', ['cat-file', '--batch'], {
+    cwd: root,
+    input: `${unique.join('\n')}\n`,
+    maxBuffer: 1024 * 1024 * 1024,
+  })
+  let offset = 0
+  for (const blob of unique) {
+    const header = output.subarray(offset, output.indexOf(0x0a, offset)).toString('latin1')
+    offset += header.length + 1
+    const [id, type, size] = header.split(' ')
+    if (id !== blob || type !== 'blob') throw new Error(`git cat-file returned ${header} for ${blob}`)
+    contents.set(blob, output.subarray(offset, offset + Number(size)))
+    offset += Number(size) + 1
+  }
+  return contents
 }
 
 /** SHA-256 of every file under `specDir`/spec, read only to hash it. */
@@ -176,40 +217,40 @@ export function checkCleanRoom({ root, specDir = null, names = FORBIDDEN_NAMES }
       if (!wordSources.has(word)) wordSources.set(word, file)
     }
   }
-  for (const { mode, file } of trackedEntries(root)) {
+  // Contents come from the index, not the working tree: what Git tracks is what is published.
+  const entries = trackedEntries(root)
+  const contents = blobContents(
+    root,
+    entries.filter((entry) => entry.mode !== '160000').map((entry) => entry.blob),
+  )
+  for (const { mode, blob, file, utf8 } of entries) {
     collect(file, file)
+    if (!utf8) problem(file, 'the tracked name is not valid UTF-8')
     const pathProblem = localPathProblem(file)
     if (pathProblem) problem(file, pathProblem)
     if (mode === '160000') {
       problem(file, 'a nested repository (gitlink) is not a regular file')
       continue
     }
-    const full = path.join(root, file)
-    let stats
-    try {
-      stats = lstatSync(full)
-    } catch {
-      continue // Deleted in the working tree; nothing to read.
-    }
-    if (stats.isSymbolicLink()) {
-      const target = readlinkSync(full)
+    const bytes = contents.get(blob)
+    if (mode === '120000') {
+      const target = bytes.toString('utf8')
       collect(file, target)
-      const resolved = path.normalize(path.join(path.dirname(file), target))
-      if (path.isAbsolute(target) || resolved.startsWith('..')) {
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), target))
+      if (path.posix.isAbsolute(target) || resolved.startsWith('..')) {
         problem(file, `symlink points outside the repository (${target})`)
       }
       const targetProblem = localPathProblem(resolved)
       if (targetProblem) problem(file, `symlink target: ${targetProblem}`)
       continue
     }
-    if (!stats.isFile()) {
-      problem(file, 'tracked entry is not a regular file')
+    if (mode !== '100644' && mode !== '100755') {
+      problem(file, `tracked entry has mode ${mode}, not a regular file`)
       continue
     }
-    if (stats.size > MAX_TRACKED_BYTES && !SIZE_EXEMPT.has(file)) {
-      problem(file, `${stats.size} bytes exceeds the ${MAX_TRACKED_BYTES}-byte limit`)
+    if (bytes.length > MAX_TRACKED_BYTES && !SIZE_EXEMPT.has(file)) {
+      problem(file, `${bytes.length} bytes exceeds the ${MAX_TRACKED_BYTES}-byte limit`)
     }
-    const bytes = readFileSync(full)
     const magic = magicProblem(bytes)
     if (magic) problem(file, magic)
     if (copies?.has(sha256(bytes))) problem(file, 'byte-identical to a specification file')

@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use chemifree_application::CommandDto;
 use serde::{Deserialize, Serialize};
@@ -248,7 +248,7 @@ impl std::error::Error for LoadError {}
 struct SuiteFile {
     suite_version: String,
     /// Case files, relative to the suite file, in run order.
-    cases: Vec<PathBuf>,
+    cases: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -289,8 +289,7 @@ pub fn load_suite(path: &Path) -> Result<Suite, LoadError> {
     for relative in &file.cases {
         if !is_plain_relative(relative) {
             return Err(error(format!(
-                "case path {} must be relative to the suite file, without '..'",
-                relative.display()
+                "case path {relative:?} must be relative to the suite file, without empty, '.', or '..' segments"
             )));
         }
         let case_path = base.join(relative);
@@ -312,12 +311,14 @@ pub fn load_suite(path: &Path) -> Result<Suite, LoadError> {
     })
 }
 
-/// A path with only normal components: not absolute and without `..` or `.`.
-fn is_plain_relative(path: &Path) -> bool {
-    path.components().next().is_some()
-        && path
-            .components()
-            .all(|component| matches!(component, Component::Normal(_)))
+/// A suite entry made of plain segments, checked on the text as written (as the JS check does):
+/// not absolute, no drive prefix, and no empty, `.`, or `..` segment between `/` or backslashes.
+fn is_plain_relative(entry: &str) -> bool {
+    let drive = entry.as_bytes().get(1) == Some(&b':') && entry.as_bytes()[0].is_ascii_alphabetic();
+    !drive
+        && entry
+            .split(['/', '\\'])
+            .all(|segment| !matches!(segment, "" | "." | ".."))
 }
 
 /// The first case ID used more than once.
@@ -337,8 +338,10 @@ fn check_unique_ids(cases: &[Case]) -> Result<(), String> {
 /// - a pending case has no steps, and a runnable case has steps;
 /// - each step's fields are the ones its call takes (`request_id` only where the call takes
 ///   one), it expects at most one of a reply or an error, and its expectation uses operators
-///   correctly; an expected reply names at least one field, an expected error names its
-///   `code`, and `restart` expects nothing;
+///   correctly; an expected reply is an object and an expected error names its `code`;
+///   neither may hold an empty object or an empty `$contains` at any depth, and each must
+///   compare at least one value other than `api_version` (see [`expect::validate`]);
+///   `restart` expects nothing;
 /// - a document is used only after a `create` binds its name, and is bound once;
 /// - a runnable `reject` case expects an error in some step, and a runnable `accept` case
 ///   expects a successful reply in some step. Because of the rules above, those expectations
@@ -502,8 +505,8 @@ pub fn parse_step(value: &Value) -> Result<Step, String> {
             return Err("restart has no reply to expect".to_owned());
         }
         (Some(expected), None) => {
-            if expected.as_object().is_none_or(Map::is_empty) {
-                return Err("expect names at least one field of the reply".to_owned());
+            if !expected.is_object() {
+                return Err("expect is an object of reply fields".to_owned());
             }
             Expectation::Reply(expected.clone())
         }
@@ -705,15 +708,48 @@ mod tests {
     }
 
     #[test]
-    fn an_expected_reply_names_at_least_one_field() {
-        for expected in [json!({}), json!([]), json!(null), json!(1)] {
+    fn an_expected_reply_is_an_object() {
+        for expected in [json!([]), json!(null), json!(1), json!("v1")] {
             let step = json!({ "call": "get", "doc": "d", "expect": expected });
             assert_eq!(
                 parse_step(&step),
-                Err("expect names at least one field of the reply".to_owned()),
+                Err("expect is an object of reply fields".to_owned()),
                 "{step}"
             );
         }
+    }
+
+    #[test]
+    fn vacuous_expectations_are_refused_at_any_depth() {
+        let cases = [
+            (json!({}), "expectation $: an empty object checks nothing"),
+            (
+                json!({ "document": {} }),
+                "expectation $.document: an empty object checks nothing",
+            ),
+            (
+                json!({ "document": { "atoms": { "$contains": [] } } }),
+                "expectation $.document.atoms: $contains needs at least one item",
+            ),
+            (
+                json!({ "document": { "atoms": { "$contains": [{}] } } }),
+                "expectation $.document.atoms.$contains[0]: an empty object checks nothing",
+            ),
+            (
+                json!({ "api_version": "v1" }),
+                "expectation $: an expectation names at least one value besides api_version",
+            ),
+        ];
+        for (expected, message) in cases {
+            let step = json!({ "call": "get", "doc": "d", "expect": expected });
+            assert_eq!(parse_step(&step), Err(message.to_owned()), "{step}");
+        }
+        let error =
+            json!({ "call": "get", "doc": "d", "expect_error": { "code": "x", "detail": {} } });
+        assert_eq!(
+            parse_step(&error),
+            Err("expectation $.detail: an empty object checks nothing".to_owned())
+        );
     }
 
     #[test]
@@ -999,6 +1035,11 @@ mod tests {
             "/tmp/a.json",
             "./a.json",
             "cases/../a.json",
+            "cases//a.json",
+            "cases/./a.json",
+            "a.json/",
+            "C:a.json",
+            "\\a.json",
             "",
         ] {
             let suite = directory.path().join("suite.json");
