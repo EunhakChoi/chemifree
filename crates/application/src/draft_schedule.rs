@@ -7,6 +7,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::ApplicationError;
+
 /// A draft is written this long after the last change…
 pub const DRAFT_QUIET: Duration = Duration::from_secs(2);
 /// …and at most this long after the first change it does not hold yet.
@@ -42,7 +44,8 @@ struct Pending {
 pub(crate) struct Failure {
     pub(crate) attempts: u32,
     pub(crate) retry_at: Instant,
-    pub(crate) message: String,
+    /// The latest attempt's error.
+    pub(crate) error: ApplicationError,
 }
 
 impl DraftSchedule {
@@ -94,7 +97,7 @@ impl DraftSchedule {
     }
 
     /// Notes a failed attempt at `now`; the next one waits per [`DRAFT_RETRY`].
-    pub(crate) fn failed(&mut self, now: Instant, message: String) {
+    pub(crate) fn failed(&mut self, now: Instant, error: ApplicationError) {
         self.writing = None;
         let pending = self.pending.get_or_insert(Pending {
             since: now,
@@ -111,7 +114,7 @@ impl DraftSchedule {
         pending.failure = Some(Failure {
             attempts,
             retry_at: now + wait,
-            message,
+            error,
         });
     }
 
@@ -133,6 +136,7 @@ impl DraftSchedule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StorageReason;
 
     const SECOND: Duration = Duration::from_secs(1);
 
@@ -202,7 +206,10 @@ mod tests {
         let mut at = start + DRAFT_QUIET;
         let mut waits = Vec::new();
         for _ in 0..6 {
-            schedule.failed(at, "disk full".into());
+            schedule.failed(
+                at,
+                ApplicationError::storage_failed(StorageReason::Io, "disk full"),
+            );
             let retry = schedule.due_at().unwrap();
             waits.push(retry - at);
             schedule.changed(retry - SECOND / 2);

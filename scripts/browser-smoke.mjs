@@ -907,31 +907,80 @@ assert.equal(draftRevision(), afterRestart)
 results.drafts_after_a_restart_follow_the_new_service = true
 step = 'after drafts_after_a_restart_follow_the_new_service'
 
-// A failed autosave is shown and retried; the saved file is untouched meanwhile.
+// A failed autosave is shown and retried; the saved file is untouched meanwhile. This
+// service records its drafting failures, so the page shows that record and leaves the retries
+// to the service; a service from before the record leaves them to the page.
+const failureSteps = [
+  'autosave_retry_is_not_postponed_by_edits',
+  'autosave_failure_is_shown_and_retried',
+  'a_recorded_failure_is_retried_by_the_service_alone',
+  'a_failed_first_read_of_the_record_still_leaves_the_retry_to_the_service',
+  'a_failed_read_of_the_outcome_is_made_again',
+  'another_document_never_shows_a_draft_failure',
+  'a_restart_while_drafts_fail_stops_drafting_and_keeps_the_drawing',
+  'a_service_without_failure_records_leaves_retries_to_the_page',
+]
 if (runningAsRoot) {
-  results.skipped_steps.push('autosave_retry_is_not_postponed_by_edits', 'autosave_failure_is_shown_and_retried')
+  results.skipped_steps.push(...failureSteps)
 } else {
   const draftsDir = join(dataDir, 'drafts')
+  const isAutosave = (request) => request.method() === 'POST' && request.url().endsWith(`/${docId}/autosave`)
+  const isDocumentRead = (request) => request.method() === 'GET' && request.url().endsWith(`/api/v1/documents/${docId}`)
+  /** Counts the page's draft requests until the returned function is called, which gives the count. */
+  const countDrafts = () => {
+    let count = 0
+    const counted = (request) => {
+      if (isAutosave(request)) count += 1
+    }
+    page.on('request', counted)
+    return () => {
+      page.off('request', counted)
+      return count
+    }
+  }
+  /** Aborts the next `count` reads of the open document; the returned function removes the route and gives how many reads there were. */
+  const cutReads = async (count) => {
+    let reads = 0
+    const route = (routed) => {
+      if (!isDocumentRead(routed.request())) return routed.fallback()
+      reads += 1
+      return reads <= count ? routed.abort('connectionreset') : routed.fallback()
+    }
+    await page.route(`**/api/v1/documents/${docId}`, route)
+    return async () => {
+      await page.unroute(`**/api/v1/documents/${docId}`, route)
+      return reads
+    }
+  }
+  const failedBy = (by, attemptsAtLeast = 1) =>
+    page.waitForFunction(
+      ([who, least]) => {
+        const draft = document.querySelector('[data-testid="draft-state"]')
+        if (draft?.getAttribute('data-state') !== 'failed' || draft.getAttribute('data-by') !== who) return false
+        const times = /failed (\d+) times/.exec(draft.textContent ?? '')
+        return (times ? Number(times[1]) : 1) >= least
+      },
+      [by, attemptsAtLeast],
+      { timeout: 20_000 },
+    )
+
+  step = 'autosave_retry_is_not_postponed_by_edits'
   // The retry keeps its schedule (2 s after the first failure) while edits keep coming.
+  const draftedBefore = draftRevision()
   chmodSync(draftsDir, 0o500)
   await drawPair()
   await waitDraft('failed')
   chmodSync(draftsDir, 0o700)
-  let retried = false
-  const onRetry = (r) => {
-    if (r.url().endsWith(`/${docId}/autosave`) && r.status() === 200) retried = true
-  }
-  page.on('response', onRetry)
   const drawingUntil = performance.now() + 8_000
-  while (!retried && performance.now() < drawingUntil) {
+  while (draftRevision() <= draftedBefore && performance.now() < drawingUntil) {
     await drawPair()
     await page.waitForTimeout(300)
   }
-  page.off('response', onRetry)
-  assert.ok(retried, 'the retry ran while edits kept coming')
+  assert.ok(draftRevision() > draftedBefore, 'a retry drafted the work while edits kept coming')
   await waitDraft('saved')
   results.autosave_retry_is_not_postponed_by_edits = true
 
+  step = 'autosave_failure_is_shown_and_retried'
   chmodSync(draftsDir, 0o500)
   await drawPair()
   await waitDraft('failed')
@@ -941,6 +990,140 @@ if (runningAsRoot) {
   await waitDraft('saved')
   assert.ok(existsSync(draftFile()))
   results.autosave_failure_is_shown_and_retried = true
+
+  step = 'a_recorded_failure_is_retried_by_the_service_alone'
+  // The service's record is shown with what to do about it, and its retry is the only one.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('service', 2)
+  const shown = await draftState.textContent()
+  assert.match(shown, /the service retries at/, shown)
+  assert.match(shown, /Make the data directory writable/, shown)
+  const pageDrafts = countDrafts()
+  chmodSync(draftsDir, 0o700)
+  await waitDraft('saved')
+  assert.equal(pageDrafts(), 0, 'the service drafted on its own retry; the page only read the outcome')
+  assert.equal(draftRevision(), (await openDoc()).document.revision)
+  results.a_recorded_failure_is_retried_by_the_service_alone = true
+
+  step = 'a_failed_first_read_of_the_record_still_leaves_the_retry_to_the_service'
+  // The page's own draft fails, and its read of the service's record of that failure fails
+  // too. The page must not fall back to drafting beside the service, which would count two
+  // attempts and skip ahead in the service's backoff.
+  let readsCut = await cutReads(1)
+  chmodSync(draftsDir, 0o500)
+  const draftsSinceEdit = countDrafts()
+  await drawPair()
+  await failedBy('service', 2)
+  assert.equal(draftsSinceEdit(), 1, 'only the page’s first draft was sent')
+  assert.ok((await readsCut()) >= 2, 'the record was read again after the failed read')
+  chmodSync(draftsDir, 0o700)
+  await waitDraft('saved')
+  results.a_failed_first_read_of_the_record_still_leaves_the_retry_to_the_service = true
+
+  step = 'a_failed_read_of_the_outcome_is_made_again'
+  // Once the service's retry is due the page reads its outcome; when that read fails it reads
+  // again rather than leave an expired failure on screen.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('service')
+  readsCut = await cutReads(1)
+  chmodSync(draftsDir, 0o700)
+  await waitDraft('saved')
+  assert.ok((await readsCut()) >= 2, 'the outcome was read again after a failed read')
+  results.a_failed_read_of_the_outcome_is_made_again = true
+
+  step = 'another_document_never_shows_a_draft_failure'
+  // Another document never shows that failure, and the one left behind is not read meanwhile.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('service')
+  const failingId = docId
+  const readAgainBy = Date.now() + (await openDoc()).session.draft_failure.retry_in_ms + 2_000
+  chmodSync(draftsDir, 0o700)
+  await closeShown()
+  let failingReads = 0
+  const countFailingReads = (request) => {
+    if (request.method() === 'GET' && request.url().endsWith(`/api/v1/documents/${failingId}`)) failingReads += 1
+  }
+  page.on('request', countFailingReads)
+  const otherDocument = page.locator(
+    `section[aria-labelledby="saved-documents"] li[data-document-id]:not([data-document-id="${failingId}"])`,
+  )
+  await otherDocument.first().getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await waitDraft('clean')
+  await page.waitForFunction((at) => Date.now() > at, readAgainBy, { timeout: 60_000 })
+  page.off('request', countFailingReads)
+  assert.equal(await draftKind(), 'clean', 'the other document shows its own state')
+  assert.equal(failingReads, 0, 'the document left behind is not read again')
+  await closeShown()
+  await page.locator(`li[data-document-id="${failingId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await drawPair()
+  await waitDraft('saved')
+  results.another_document_never_shows_a_draft_failure = true
+
+  step = 'a_restart_while_drafts_fail_stops_drafting_and_keeps_the_drawing'
+  // The service restarts while it cannot draft, so the drawing is in no draft. The page's read
+  // of the outcome meets the new process, which holds only the stored document: the page stops
+  // drafting and keeps the drawing on screen rather than showing what the new process holds.
+  // The page is loaded afresh first and only opens the document, so it has written nothing to
+  // the old process; it must still tell the processes apart.
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('service')
+  await page.reload()
+  await page.locator(`section[aria-labelledby="saved-documents"] li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await failedBy('service')
+  const canvas = page.locator('svg[role="img"]')
+  const drawn = await canvas.getAttribute('aria-label')
+  // Reads of the document wait while the API is down, so none of them meets the proxy's 502.
+  let apiBack
+  const restarted = new Promise((resolve) => (apiBack = resolve))
+  const holdReads = async (route) => {
+    if (!isDocumentRead(route.request())) return route.fallback()
+    await restarted
+    return route.fallback()
+  }
+  await page.route(`**/api/v1/documents/${docId}`, holdReads)
+  await crashApi()
+  apiBack()
+  await waitDraft('stopped')
+  await page.unroute(`**/api/v1/documents/${docId}`, holdReads)
+  await page.getByText('Local service restarted', { exact: true }).waitFor()
+  assert.equal(await canvas.getAttribute('aria-label'), drawn, 'the unsaved drawing stays on screen')
+  chmodSync(draftsDir, 0o700)
+  // The reloaded document offers the old process's last draft, from before drafting failed.
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await page.getByTestId('recovery-notice').waitFor()
+  await page.getByTestId('recovery-notice').getByRole('button', { name: 'Discard draft' }).click()
+  await clickFor(page.getByRole('alertdialog').getByRole('button', { name: 'Discard draft' }), '/discard-draft')
+  await page.getByTestId('recovery-notice').waitFor({ state: 'detached' })
+  await waitDraft('clean')
+  results.a_restart_while_drafts_fail_stops_drafting_and_keeps_the_drawing = true
+
+  step = 'a_service_without_failure_records_leaves_retries_to_the_page'
+  // A service from before it recorded failures (no draft_failure) leaves retries to the page.
+  const withoutFailureRecord = async (route) => {
+    const response = await route.fetch()
+    const body = await response.json().catch(() => null)
+    if (body?.session) delete body.session.draft_failure
+    await route.fulfill(body ? { response, json: body } : { response })
+  }
+  await page.route(`**/api/v1/documents/${docId}**`, withoutFailureRecord)
+  chmodSync(draftsDir, 0o500)
+  await drawPair()
+  await failedBy('page')
+  const pageRetry = page.waitForResponse((response) => isAutosave(response.request()) && response.status() === 200, {
+    timeout: 15_000,
+  })
+  chmodSync(draftsDir, 0o700)
+  await pageRetry
+  await waitDraft('saved')
+  await page.unroute(`**/api/v1/documents/${docId}**`, withoutFailureRecord)
+  results.a_service_without_failure_records_leaves_retries_to_the_page = true
 }
 step = 'after autosave_failure_is_shown_and_retried'
 

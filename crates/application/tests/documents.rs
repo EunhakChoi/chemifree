@@ -2232,6 +2232,11 @@ fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
     let retry = write_due_drafts(&app, first).expect("a retry is scheduled");
     let failure = app.document(&id).unwrap().session.draft_failure.unwrap();
     assert_eq!(failure.attempts, 1);
+    assert_eq!(
+        (failure.code, failure.reason),
+        ("recovery_pending", None),
+        "the failure names the refusal as the v1 error does"
+    );
     assert!(
         failure.message.contains("earlier session"),
         "{}",
@@ -2412,6 +2417,11 @@ fn a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work() {
         .session
         .draft_failure
         .expect("undrafted work that could not be drafted is reported");
+    assert_eq!(
+        (failure.code, failure.reason),
+        ("storage_failed", Some("busy")),
+        "the failure says storage was busy, as the refused autosave did"
+    );
     assert!(
         failure.retry_in_ms > 1_000,
         "the retry counts from the failure, not from before the turn wait: {failure:?}"
@@ -2548,6 +2558,10 @@ fn a_draft_failure_reported_after_later_edits_keeps_them_due_for_its_retry() {
     assert_eq!(session.draft_revision, None, "nothing was drafted");
     let failure = session.draft_failure.expect("the failure is reported");
     assert_eq!(failure.attempts, 1);
+    assert_eq!(
+        (failure.code, failure.reason),
+        ("storage_failed", Some("io"))
+    );
     assert_eq!(stored_draft(&store, &id), None);
 
     store.fail_writes.store(false, Ordering::SeqCst);

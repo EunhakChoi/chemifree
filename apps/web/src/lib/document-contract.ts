@@ -49,6 +49,12 @@ export interface DraftFailureView {
   /** Failed attempts in a row. */
   attempts: number
   retry_in_ms: number
+  /**
+   * The latest attempt's error code and, for `storage_failed`, its reason, as in the v1 error
+   * envelope. Added within v1 after the record itself, so an earlier service leaves them out.
+   */
+  code?: string
+  reason?: StorageReason
   message: string
 }
 
@@ -250,6 +256,8 @@ function isDraftFailure(value: unknown): value is DraftFailureView | null | unde
     (isRecord(value) &&
       isCount(value.attempts) &&
       isCount(value.retry_in_ms) &&
+      (value.code === undefined || typeof value.code === 'string') &&
+      (value.reason === undefined || isStorageReason(value.reason)) &&
       typeof value.message === 'string')
   )
 }
@@ -364,6 +372,11 @@ function restarted(status: number) {
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
   /**
+   * `reread` found that the process holding `token` was replaced. Writes keep presenting the
+   * token so they meet the restart; the next `get` learns the new process's token.
+   */
+  private replaced = false
+  /**
    * Writes that create a document and whose outcome is unknown (no response arrived), by what
    * they asked for. They are not guarded by a revision, so a retry reuses the request ID and
    * the API replays the document it already committed instead of creating a second one.
@@ -384,13 +397,19 @@ export class DocumentClient {
     }
   }
 
+  private static sessionOf(value: unknown) {
+    if (!isRecord(value) || typeof value.header !== 'string' || typeof value.token !== 'string') {
+      throw new ApiError('incompatible_response', 'The local service returned an invalid session.', 200)
+    }
+    return { header: value.header, token: value.token }
+  }
+
+  private notifyRestart() {
+    for (const listener of this.restartListeners) listener()
+  }
+
   private async session() {
-    this.token ??= this.request('GET', '/api/v1/session').then((value) => {
-      if (!isRecord(value) || typeof value.header !== 'string' || typeof value.token !== 'string') {
-        throw new ApiError('incompatible_response', 'The local service returned an invalid session.', 200)
-      }
-      return { header: value.header, token: value.token }
-    })
+    this.token ??= this.request('GET', '/api/v1/session').then((value) => DocumentClient.sessionOf(value))
     try {
       return await this.token
     } catch (error) {
@@ -460,7 +479,8 @@ export class DocumentClient {
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
-        for (const listener of this.restartListeners) listener()
+        this.replaced = false
+        this.notifyRestart()
         if (onRestart === 'retry' && attempt === 0) continue
         if (onRestart === 'reload') throw restarted(error.status)
         throw error
@@ -558,8 +578,39 @@ export class DocumentClient {
     return value
   }
 
+  /**
+   * Reads a document. The service process's session token is learned first, so the view is
+   * tied to that process and a later `reread` can tell that it restarted since, even when the
+   * page has not written anything yet.
+   */
   async get(id: string) {
+    if (this.replaced) {
+      this.token = null
+      this.replaced = false
+    }
+    await this.session()
     return DocumentClient.document(await this.request('GET', documentPath(id)))
+  }
+
+  /**
+   * Reads a document again to see what the service holds now, from the service process this
+   * client writes to. A restarted process has lost the working copy the page shows and would
+   * answer with the stored document only, so a restart is reported instead of that reply
+   * (`service_restarted`, also to the `onRestart` listeners). Reads carry no token, so the
+   * process is compared by its session token after the read, which catches a restart at any
+   * point before the reply. Until the page reads the document again with `get`, the old token
+   * is kept, so a write is refused and meets the restart as writes do, rather than reaching
+   * the new process as if nothing happened.
+   */
+  async reread(id: string) {
+    const { token } = await this.session()
+    const value = await this.request('GET', documentPath(id))
+    if (DocumentClient.sessionOf(await this.request('GET', '/api/v1/session')).token !== token) {
+      this.replaced = true
+      this.notifyRestart()
+      throw restarted(200)
+    }
+    return DocumentClient.document(value)
   }
 
   /**

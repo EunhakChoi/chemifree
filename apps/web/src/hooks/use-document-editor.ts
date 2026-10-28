@@ -195,11 +195,20 @@ export function useDocumentEditor() {
       },
       [setCurrent],
     ),
+    // Queued with edits so an older read cannot replace a newer edit's view. Its failure goes
+    // to autosave, which retries or stops, rather than to the page's error.
     refresh: useCallback(
       (documentId: string) =>
-        void run(async () => {
-          const fresh = await client.get(documentId)
-          if (currentRef.current?.document.id === documentId) setCurrent(fresh)
+        new Promise<void>((resolve, reject) => {
+          void run(async () => {
+            try {
+              const fresh = await client.reread(documentId)
+              if (currentRef.current?.document.id === documentId) setCurrent(fresh)
+              resolve()
+            } catch (failure) {
+              reject(failure)
+            }
+          })
         }),
       [run, setCurrent],
     ),

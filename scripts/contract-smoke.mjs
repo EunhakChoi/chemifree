@@ -863,6 +863,11 @@ try {
       chmodSync(draftsDir, 0o700)
     }
     assert.equal(failing.draft_failure.attempts, 1)
+    assert.deepEqual(
+      [failing.draft_failure.code, failing.draft_failure.reason],
+      ['storage_failed', 'read_only'],
+      'the record names the failure as the v1 error envelope does',
+    )
     const retried = await untilSession(
       unattendedPath,
       (session) => session.draft_revision === continuousRevision + 1,
