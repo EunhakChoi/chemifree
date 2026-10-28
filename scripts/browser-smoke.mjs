@@ -7,9 +7,9 @@
 //
 // Uses playwright-core with an installed Chrome/Chromium: set CHEMIFREE_BROWSER to its
 // executable, or install Playwright's build with `npx playwright-core install chromium`.
-// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory). On failure it also
-// writes failure.png, requests.log (every browser request), api.log (the API's request log), and
-// web.log there.
+// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory, removed after a passing
+// run and kept after a failing one). On failure it also writes failure.png, requests.log (every
+// browser request), api.log (the API's request log), and web.log there.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -63,7 +63,8 @@ const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:517
 // Registered before anything can fail so a failed start or launch never leaves servers running.
 let browser = null
 let step = 'start'
-async function cleanup() {
+/** Stops the servers; the temporary directory is removed only when `keepWork` is not set. */
+async function cleanup({ keepWork = false } = {}) {
   await browser?.close().catch(() => {})
   apiServer.child.kill('SIGTERM')
   try {
@@ -71,7 +72,7 @@ async function cleanup() {
   } catch {
     // Already stopped.
   }
-  if (!process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
+  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
 }
 let page = null
 const recentRequests = []
@@ -84,7 +85,8 @@ process.on('uncaughtException', async (error) => {
   writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- API restarted\n'))
   writeFileSync(join(outDir, 'web.log'), web.log())
   console.error(`Diagnostics in ${outDir}: failure.png, requests.log, api.log, web.log`)
-  await cleanup()
+  // The diagnostics may be in the temporary directory, so a failed run keeps it.
+  await cleanup({ keepWork: true })
   process.exit(1)
 })
 await Promise.all([apiServer.started, web.started])

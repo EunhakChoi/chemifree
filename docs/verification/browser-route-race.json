@@ -10,7 +10,7 @@
   "classification": "test synchronization (Playwright request interception), not a product defect",
   "cause": "Playwright intercepts requests only while a route is registered. When the last page route goes away (a times: 1 route that has fired, or unroute), it disables interception. A request the page starts in that window is already paused by the browser, but Playwright records it as not intercepted and never continues it, so it never reaches the server and fails only when the client aborts it after 10 s (net::ERR_ABORTED). In the smoke, the step's refused-token route (times: 1) expires right before the client re-reads the document after the 401. When that read stalls, the edit is not retried (3 !== 4) or the 'Local service restarted' alert never appears. The API request log showed the stalled request never arrived.",
   "fix": "The smoke keeps interception on for the whole run with a pass-through context route (scripts/lib/request-interception.mjs), and the retried-edit check waits for the actual 200 transaction response. No sleeps, retries, or assertions were added or removed.",
-  "diagnostics": "The API logs one line per request with --log-requests. A failed smoke run leaves failure.png, requests.log (browser requests with status and duration), api.log, and web.log in CHEMIFREE_SMOKE_OUT.",
+  "diagnostics": "The API logs one line per request with --log-requests. A failed smoke run leaves failure.png, requests.log (browser requests with status and duration), api.log, and web.log in CHEMIFREE_SMOKE_OUT (default: the temporary directory, which a failed run keeps and prints).",
   "runs": [
     {
       "check": "npm run test:browser:routes -- --unguarded",
