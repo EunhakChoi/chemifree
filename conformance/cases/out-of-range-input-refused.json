@@ -1,6 +1,6 @@
 {
   "id": "out-of-range-input-refused",
-  "title": "Out-of-range charge, isotope, coordinate, element and request_id are refused and change nothing",
+  "title": "Charge, isotope, coordinate, element and request_id just outside their ranges are refused and change nothing; the range ends are accepted",
   "requirements": [
     "MODEL-02",
     "API-01"
@@ -208,6 +208,90 @@
         },
         "session": {
           "undo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "H",
+          "position": {
+            "x": -100000,
+            "y": 100000
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Og",
+          "position": {
+            "x": 100000,
+            "y": -100000
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "H",
+              "position": {
+                "x": -100000,
+                "y": 100000
+              }
+            },
+            {
+              "id": "a2",
+              "element": "Og",
+              "position": {
+                "x": 100000,
+                "y": -100000
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "charge": -8,
+          "isotope": 1
+        },
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "charge": 8,
+          "isotope": 999
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "H",
+              "charge": -8,
+              "isotope": 1
+            },
+            {
+              "id": "a2",
+              "element": "Og",
+              "charge": 8,
+              "isotope": 999
+            }
+          ]
         }
       }
     }

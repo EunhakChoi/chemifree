@@ -46,9 +46,7 @@ const RESULT_FIELDS = [
   'case_sha256',
 ]
 const SHA256 = /^[0-9a-f]{64}$/
-// Shell syntax that could make a script do something other than its && segments say:
-// separators, pipes, redirection, comments, expansion, globs, quoting, grouping.
-const SHELL_SYNTAX = /[;|&`\n\r<>#$*?[\]{}~'"\\()!]/
+const SCRIPT_NAME = /^[A-Za-z0-9:_.@/-]+$/
 const REQUIREMENT_FIELDS = ['id', 'domain', 'summary', 'operations', 'status', 'parts']
 const REQUIREMENT_ID = /^[A-Z]+-[0-9]{2}$/
 const ROADMAP_ID = /^[A-Z][0-9]{1,3}$/
@@ -222,40 +220,59 @@ export function deriveStatus(statuses) {
 }
 
 /**
- * Scripts that `npm run check` invokes: reached from `check` by following segments that are
- * exactly `npm run <name>` in scripts made only of `&&`-joined segments. Returns the reached
- * names in visiting order, the order of `check`'s own direct steps, and errors.
+ * Scripts that `npm run check` invokes. Only a "pure" script is followed: one whose every
+ * `&&`-separated segment is exactly `npm run <name>` (three words, the name made of
+ * [A-Za-z0-9:_.@/-]). Its named scripts are invoked, in order, as long as the earlier ones
+ * succeed. Any other reached script is a leaf: it is invoked, but what it runs is not read.
+ * If `check` itself is not pure, nothing is reachable. `pre<name>`/`post<name>` scripts,
+ * which npm runs implicitly, are refused for `check` and every reached script.
+ * Returns the reached names, `check`'s own steps in order, and errors.
  */
 export function reachableScripts(scripts) {
   const errors = []
   const reached = new Set()
   const direct = []
+  if (typeof scripts?.check !== 'string') {
+    errors.push('package.json: script "check" does not exist')
+    return { reached, direct, errors }
+  }
+  if (pureSteps(scripts.check) === null) {
+    errors.push('package.json: script "check" is not a pure chain of npm run steps; nothing is reachable')
+    return { reached, direct, errors }
+  }
   const queue = ['check']
   while (queue.length > 0) {
     const name = queue.shift()
     if (reached.has(name)) continue
-    if (typeof scripts?.[name] !== 'string') {
+    if (typeof scripts[name] !== 'string') {
       errors.push(`package.json: script ${JSON.stringify(name)} does not exist`)
       continue
     }
     reached.add(name)
-    const text = scripts[name]
-    const rest = text.replaceAll('&&', ' ')
-    if (SHELL_SYNTAX.test(rest)) {
-      errors.push(
-        `package.json: script ${JSON.stringify(name)} is reached from check but is not a plain && chain`,
-      )
-      continue
-    }
-    for (const segment of text.split('&&')) {
-      const tokens = segment.trim().split(/\s+/)
-      if (tokens.length === 3 && tokens[0] === 'npm' && tokens[1] === 'run') {
-        if (name === 'check') direct.push(tokens[2])
-        queue.push(tokens[2])
+    for (const hook of [`pre${name}`, `post${name}`]) {
+      if (hook in scripts) {
+        errors.push(`package.json: script ${JSON.stringify(hook)} would run implicitly around ${JSON.stringify(name)}`)
       }
     }
+    const steps = pureSteps(scripts[name])
+    if (steps === null) continue
+    if (name === 'check') direct.push(...steps)
+    queue.push(...steps)
   }
   return { reached, direct, errors }
+}
+
+/** The script names of a pure `npm run a && npm run b` chain, or null. */
+function pureSteps(text) {
+  const steps = []
+  for (const segment of text.split('&&')) {
+    const words = segment.trim().split(/\s+/)
+    if (words.length !== 3 || words[0] !== 'npm' || words[1] !== 'run' || !SCRIPT_NAME.test(words[2])) {
+      return null
+    }
+    steps.push(words[2])
+  }
+  return steps
 }
 
 function isPlainObject(value) {
@@ -371,6 +388,7 @@ export function checkInputs(inputs) {
       checkFollowups(`case ${value.id} pending`, [value.pending?.followup])
     }
   }
+  checkMapping(inputs, fail)
   checkDeclarations(inputs, checkFollowups, fail)
   checkTotals(inputs, fail)
   if (inputs.spec) checkSpec(inputs, fail)
@@ -401,6 +419,30 @@ function checkRoadmap(roadmap, fail) {
   }
   if (rows.size === 0) fail('roadmap: no rows')
   return rows
+}
+
+/** The roadmap's requirement_mapping keeps one entry per traced requirement, with its status. */
+function checkMapping(inputs, fail) {
+  const where = 'docs/roadmap/implementation-roadmap.json'
+  const traced = new Map(
+    arrayOr(inputs.requirements.value?.requirements).map((requirement) => [requirement?.id, requirement?.status]),
+  )
+  const seen = new Set()
+  for (const entry of arrayOr(inputs.roadmap.value?.requirement_mapping)) {
+    const id = entry?.id
+    if (seen.has(id)) fail(`${where}: requirement_mapping lists ${id} twice`)
+    seen.add(id)
+    if (!traced.has(id)) {
+      fail(`${where}: requirement_mapping lists untraced requirement ${JSON.stringify(id)}`)
+    } else if (entry.current_status !== traced.get(id)) {
+      fail(
+        `${where}: requirement_mapping ${id} current_status ${entry.current_status} differs from the traced status ${traced.get(id)}`,
+      )
+    }
+  }
+  for (const id of traced.keys()) {
+    if (!seen.has(id)) fail(`${where}: requirement_mapping has no entry for ${id}`)
+  }
 }
 
 function checkConformance(inputs, fail) {

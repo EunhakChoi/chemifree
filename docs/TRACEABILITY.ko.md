@@ -14,8 +14,8 @@
 | `docs/traceability/declarations.json` | 공개 선언 2,914개를 제안 경로(route) 8개별로 센 수, 출처별 수, 경로별 상태·구현 수·단일 계획 할당 수·후속 로드맵 행. 선언 수는 기능 수가 아니다(collection·메뉴·상태 getter 포함) |
 | `conformance/suite.json`, `conformance/cases/*.json` | 사례 묶음(`suite_version`)과 사례(실행 가능 또는 대기(pending)). 개수는 위 집계 줄에 있다 |
 | `crates/conformance` | runner(lib)와 실행 파일 `chemifree-conformance` |
-| `docs/verification/conformance-report.json` | 커밋된 실행 기록. 시각을 담지 않고 결과 같은 실행은 같은 바이트를 쓴다 |
-| `scripts/traceability-check.mjs`, `scripts/traceability-check.test.mjs` | 추적 검사와 그 규칙별 테스트 |
+| `docs/verification/conformance-report.json` | 커밋된 실행 기록. 시각을 담지 않으며, 실패한 사례가 없는 실행은 같은 바이트를 쓴다 |
+| `scripts/traceability-check.mjs`, `scripts/traceability-check.test.mjs` | 추적 검사와 주요 규칙의 테스트(모든 규칙에 테스트가 있지는 않다) |
 | `docs/roadmap/implementation-roadmap.json` | 로드맵(입력, 이 작업에서 수정하지 않음). 후속 계획은 이 파일의 행 ID다 |
 
 명세 파일은 저장소 밖(로컬)에 있고 복사하지 않는다. 추적 파일에는 경로·SHA-256과, 명세에서 도출한 ID·개수·자체 요약만 있다.
@@ -34,6 +34,8 @@
 
 부분이 없는 요구사항은 거절한다. 요구사항마다 다루지 않은 나머지를 담는 catch-all 부분(`catch_all: true`)이 정확히 하나 있고, 그 상태는 `not_implemented`나 `unverified`만 될 수 있다. `intentionally_rejected` 부분은 비지 않은 `reason`이 필요하다(다른 상태는 `reason`을 가질 수 없다). `implemented`·`partial` 부분은 존재하는 구현 경로 하나 이상과 실행되는 근거 하나 이상이 필요하다. `not_implemented`·`unverified`·`partial` 부분은 후속 계획이 필요하고 `implemented` 부분은 후속 계획이 없다. 모든 후속 계획은 완료(done)가 아닌 로드맵 행이다.
 
+이 버전에서는 모든 요구사항이 catch-all을 하나 가져야 하고 catch-all은 `not_implemented`나 `unverified`이므로, 위 규칙에서 요구사항 상태는 `implemented`나 `intentionally_rejected`가 될 수 없고 최대 `partial`이다. 요구사항이 catch-all 없이 끝날 수 있게 하는 변경은 검사도 함께 바꿔야 한다.
+
 공개 선언 경로의 상태는 구현 수로 정해진다. 구현 0이면 `not_implemented`나 `unverified`, 전부면 `implemented`, 그 사이면 `partial`. 현재 모든 경로가 구현 0, 단일 계획 할당 0이다.
 
 ## 근거는 두 종류뿐이다
@@ -41,15 +43,15 @@
 | 근거 | 실행되는 근거로 인정하는 조건 | 확립하는 것 |
 | --- | --- | --- |
 | `case:<사례 ID>` | 사례가 묶음에 있고, 그 사례의 `requirements`가 이 부분의 요구사항을 포함하고, 기록된 실행에서 `passed`. 검사는 새 실행(`target/conformance/report.json`)이 기록과 바이트 단위로 같은지도 확인한다 | 그 사례의 단계가 비교하는 값들이 이 제품에서 그 실행 때 기대대로였다는 것. 사례가 비교하지 않는 성질은 확립하지 않는다 |
-| `check:<npm 스크립트 이름>` | `check`에서 시작해 `&&`로만 이어진 스크립트의 조각 중 정확히 `npm run <이름>`(토큰 3개)인 것을 따라가 도달한 스크립트 | `npm run check`가 그 스크립트를 호출한다는 것(앞선 단계가 성공했을 때). 그 스크립트가 무엇을 검사하는지, 이 부분과 관련된 것을 검사하는지는 확립하지 않는다 |
+| `check:<npm 스크립트 이름>` | 아래 도달 규칙으로 `check`에서 도달한 스크립트 | `npm run check`가 그 스크립트를 호출한다는 것(앞선 단계가 성공했을 때). 그 스크립트가 무엇을 검사하는지, 이 부분과 관련된 것을 검사하는지는 확립하지 않는다 |
 
 구현 경로는 근거가 아니며 작업 트리에 존재하는지만 확인한다(Git 추적 여부나 관련성은 확인하지 않는다). 대기 사례(`not_run`)는 근거가 될 수 없다. 이 밖의 근거 형식은 거절한다.
 
-`check:` 도달 규칙은 보수적이다. `npm run x -- --flag`, `FOO=1 npm run x`, `npm run x --workspace w`처럼 토큰이 셋이 아닌 조각은 따라가지 않는다. 도달한 스크립트(`&&` 제외)에 `;`, `|`, `&`, `<`, `>`, `#`, `$`, `*`, `?`, `[`, `]`, `{`, `}`, `~`, 따옴표, 역슬래시, 괄호, `!`, 백틱, 줄바꿈 중 하나라도 있으면 그 스크립트는 오류다(셸이 조각과 다르게 실행할 수 있는 문법).
+`check:` 도달 규칙: `&&`로 나눈 모든 조각이 정확히 `npm run <이름>`(낱말 셋, 이름은 `[A-Za-z0-9:_.@/-]`)인 스크립트만 "순수"하다. 순수한 스크립트가 가리키는 이름은 호출된 것으로 세고, 그 이름도 순수하면 다시 따라간다. 순수하지 않은 스크립트는 잎(leaf)이다: 호출된 것으로 세지만 그 안에서 무엇을 실행하는지는 읽지 않는다(`exit 0`, `cd`, `exec`, `npm run x -- --flag`, `npm run x --workspace w` 등을 해석하지 않는다). `check` 자체가 순수하지 않으면 아무 스크립트도 도달한 것으로 세지 않는다. npm이 암묵적으로 실행하는 `pre<이름>`·`post<이름>` 스크립트가 `check`나 도달한 스크립트에 있으면 오류다.
 
 ## conformance runner
 
-사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 단계는 공유 Application을 HTTP 어댑터와 같은 방식으로 호출한다(같은 요청 DTO로 본문을 역직렬화하고 `Some(request_id)`로 호출): `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
+사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 단계는 공유 Application을 HTTP 핸들러와 같은 요청 타입(같은 DTO로 본문을 역직렬화)과 같은 인자로 호출하고, 모든 쓰기에 `request_id`를 보낸다. HTTP 계층(상태 코드, Host·Origin·토큰 검사, JSON 거절 응답)은 거치지 않으며 상태 코드는 비교하지 않는다. 호출: `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
 
 - 모든 쓰기는 `request_id`를 보낸다. 단계에 없으면 `step-<단계 번호>`를 만든다(`[A-Za-z0-9_-]`만 사용). `get`·`capabilities`·`restart`에 `request_id`가 있으면 거절한다.
 - 문서는 `create`의 `bind` 이름으로 가리킨다. 바인딩 전 사용, 두 번 바인딩, 오류를 기대하는 `create`의 바인딩은 거절한다.
@@ -62,7 +64,8 @@
 - kind 규칙: 실행 가능한 `reject` 사례는 `expect_error` 단계가, `accept` 사례는 (`restart`가 아닌 호출의) `expect` 단계가 하나 이상 있어야 한다. 결과는 kind별로 센다.
 - 사례 경로는 묶음 파일 기준 상대 경로이며, 원래 문자열을 `/`와 `\`로 나눠 빈 조각·`.`·`..`가 있거나, 절대 경로이거나, 드라이브 접두(`C:`)가 있으면 거절한다. Rust와 JS가 같은 규칙을 쓴다.
 - 실행 파일: `chemifree-conformance [--out PATH] SUITE`. 값 없는(또는 `-`로 시작하는 값의) `--out`, 두 번째 `--out`, 알 수 없는 옵션, 묶음 없음·두 번째 묶음은 실행 없이 사용법 오류(종료 2). 실패한 사례가 있으면 종료 1(기록은 씀), 묶음을 불러오지 못하면 종료 1(기록 없음). `--out`이 없으면 기록을 표준 출력에 쓴다.
-- 기록: 결과마다 `id`, `title`, `requirements`, `axis`, `kind`, `outcome`(`passed`|`failed`|`not_run`), `pending`, `failure`, 사례 파일 바이트의 SHA-256, 그리고 kind별·전체 개수. 시각이나 사례·데이터 디렉터리 경로는 기록하지 않는다. `failure` 문구에는 애플리케이션의 오류 메시지가 그대로 들어가므로, 실패한 실행의 기록에는 문서 ID 같은 실행마다 다른 값이 들어갈 수 있다(커밋하는 기록에는 실패가 없어야 한다).
+- 기록: 결과마다 `id`, `title`, `requirements`, `axis`, `kind`, `outcome`(`passed`|`failed`|`not_run`), `pending`, `failure`, 사례 파일 바이트의 SHA-256, 그리고 kind별·전체 개수. 시각은 기록하지 않는다. 실패한 사례가 없는 실행은 같은 바이트의 기록을 쓴다. `failure` 문구에는 응답 JSON(`saved_at_ms`, 생성된 문서 ID)과 저장소 오류 메시지가 그대로 들어가므로 실행마다 다른 값과 데이터 디렉터리 경로가 포함될 수 있다(커밋하는 기록에는 실패가 없어야 한다).
+- 애플리케이션이 panic하면 runner 프로세스가 중단된다(종료 101, 기록 없음). 모든 결과가 기록된다는 보장은 runner가 끝까지 실행됐을 때만 성립한다.
 
 ## 검사가 확인하는 것
 
@@ -70,6 +73,7 @@
 
 - 위의 상태 도출·catch-all·reason·구현 경로·근거·후속 계획 규칙.
 - 로드맵의 완료 행마다 `delivered {prs, merge_commit, main_ci}`.
+- 로드맵의 `requirement_mapping`이 추적한 요구사항마다 항목을 정확히 하나 가지고, 그 `current_status`가 requirements.json의 상태와 같음(두 파일이 어긋나지 않게).
 - 모든 사례의 요구사항 ID가 requirements.json에 있고, 대기 사례의 후속 계획이 열린 로드맵 행.
 - 출처: requirements.json에 `requirements`·`operations` 출처가 정확히 하나씩, declarations.json에 `declarations` 출처 하나. 각각 `spec/` 아래 상대 경로(역슬래시·빈 조각·`.`·`..` 없음)와 소문자 64자리 SHA-256. 명세 디렉터리 없이도 확인한다.
 - declarations.json: 정수, 경로 합 = 전체, 출처별 합 일치, 경로마다 `0 ≤ implemented ≤ assigned_to_single_plan_entry ≤ declarations`, `about`이 선언 수가 기능 수가 아님을 말함.

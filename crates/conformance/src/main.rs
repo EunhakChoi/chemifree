@@ -2,6 +2,7 @@
 //!
 //! Exit status: 0 when no case failed (pending cases do not run), 1 when a case failed or the
 //! suite could not be loaded or the record written, 2 for a usage error (nothing runs).
+//! A panic in the application aborts the run (exit 101) without writing a record.
 
 use std::ffi::OsString;
 use std::fs;

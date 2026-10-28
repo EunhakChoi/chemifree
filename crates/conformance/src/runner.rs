@@ -1,5 +1,5 @@
-//! Runs cases against the shared [`Application`], calling it the way the HTTP adapter does,
-//! each case on its own fresh data directory.
+//! Runs cases against the shared [`Application`] with the request types and arguments the HTTP
+//! handlers use (not through HTTP), each case on its own fresh data directory.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,8 +17,9 @@ pub const REPORT_VERSION: u32 = 1;
 
 type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
 
-/// A run record. It holds no times and no case or data-directory paths, so runs with the same
-/// outcomes write identical records; a failure message quotes the application's error as is.
+/// A run record. It holds no times, and runs in which no case fails write identical records.
+/// A failure message quotes the reply or error as is, so it may contain run-specific values,
+/// including data-directory paths.
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub report_version: u32,

@@ -1,7 +1,10 @@
-// One test per rule of traceability-check.mjs: each mutates the real inputs in memory so
-// that exactly one rule is broken, and expects that rule's message.
+// Tests for the main rules of traceability-check.mjs (not every rule has one). Most mutate
+// the real inputs in memory so that one rule is broken, and expect that rule's message.
 
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -348,27 +351,112 @@ test('npm run check must run the conformance and traceability steps in order', (
   expectProblem(order, /check runs test:traceability before test:conformance/)
 })
 
-test('script reachability follows only exact npm run segments of && chains', () => {
-  const { reached, errors } = reachableScripts({
-    check: 'npm run a && npm run b -- --x && FOO=1 npm run c && npm run d',
-    a: 'echo a',
-    b: 'echo b',
+test('script reachability follows only pure npm run chains', () => {
+  const { reached, direct, errors } = reachableScripts({
+    check: 'npm run a && npm run b && npm run d',
+    a: 'echo a && npm run x',
+    b: 'npm run c',
     c: 'echo c',
-    d: 'npm run e || true',
+    d: 'exit 0 && npm run e',
     e: 'echo e',
+    x: 'echo x',
   })
-  assert.deepEqual([...reached].sort(), ['a', 'check', 'd'])
-  assert.ok(errors.some((error) => error.includes('"d" is reached from check but is not a plain && chain')))
-  for (const text of ['npm run a # && npm run b', 'npm run a && npm run "b"', 'npm run a && npm run $B', 'npm run a && (npm run b)']) {
-    const shell = reachableScripts({ check: text, a: 'echo a', b: 'echo b' })
-    assert.ok(
-      shell.errors.some((error) => error.includes('"check" is reached from check but is not a plain && chain')),
-      text,
-    )
-    assert.ok(!shell.reached.has('b'), `${text} must not count b as invoked`)
+  assert.deepEqual(errors, [])
+  assert.deepEqual(direct, ['a', 'b', 'd'])
+  // a and d are leaves: invoked, but what they run is not read, so x and e are not counted.
+  assert.deepEqual([...reached].sort(), ['a', 'b', 'c', 'check', 'd'])
+})
+
+test('a check script that is not a pure chain reaches nothing', () => {
+  for (const check of [
+    'exit 0 && npm run a',
+    'cd x && npm run a',
+    'npm run a && exec true',
+    'npm run a -- --x',
+    'npm run a # && npm run b',
+    'npm run "a"',
+    'npm run a && ',
+  ]) {
+    const { reached, errors } = reachableScripts({ check, a: 'echo a', b: 'echo b' })
+    assert.equal(reached.size, 0, check)
+    assert.ok(errors.some((error) => error.includes('"check" is not a pure chain')), check)
   }
+  const inputs = base()
+  inputs.packageJson.value.scripts.check = `exit 0 && ${inputs.packageJson.value.scripts.check}`
+  expectProblem(inputs, /evidence check:check:rust is not a script npm run check invokes/)
+})
+
+test('pre and post scripts of reached scripts are refused', () => {
+  for (const hook of ['precheck', 'postcheck', 'prea', 'posta']) {
+    const { errors } = reachableScripts({ check: 'npm run a', a: 'echo a', [hook]: 'echo hook' })
+    assert.ok(errors.some((error) => error.includes(`"${hook}" would run implicitly`)), hook)
+  }
+  const inputs = base()
+  inputs.packageJson.value.scripts['pretest:conformance'] = 'echo before'
+  expectProblem(inputs, /"pretest:conformance" would run implicitly around "test:conformance"/)
+})
+
+test('a missing script reached from check is reported', () => {
   const missing = reachableScripts({ check: 'npm run gone' })
   assert.ok(missing.errors.some((error) => error.includes('"gone" does not exist')))
+})
+
+test('the roadmap requirement mapping carries each traced status once', () => {
+  const status = base()
+  status.roadmap.value.requirement_mapping.find((entry) => entry.id === 'OPS-02').current_status = 'implemented'
+  expectProblem(status, /requirement_mapping OPS-02 current_status implemented differs from the traced status partial/)
+  const missing = base()
+  missing.roadmap.value.requirement_mapping = missing.roadmap.value.requirement_mapping.filter((entry) => entry.id !== 'CHEM-01')
+  expectProblem(missing, /requirement_mapping has no entry for CHEM-01/)
+  const twice = base()
+  twice.roadmap.value.requirement_mapping.push({ ...twice.roadmap.value.requirement_mapping[0] })
+  expectProblem(twice, /requirement_mapping lists MODEL-01 twice/)
+  const extra = base()
+  extra.roadmap.value.requirement_mapping.push({ id: 'NEW-01', current_status: 'not_implemented' })
+  expectProblem(extra, /requirement_mapping lists untraced requirement "NEW-01"/)
+})
+
+test('loadInputs reads the spec files in their real field shapes', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'chemifree-spec-'))
+  try {
+    const sources = Object.fromEntries(
+      [...loaded.requirements.value.sources, loaded.declarations.value.source].map((source) => [source.role, source.path]),
+    )
+    const write = (relative, value) => {
+      mkdirSync(path.dirname(path.join(dir, relative)), { recursive: true })
+      writeFileSync(path.join(dir, relative), JSON.stringify(value))
+    }
+    write(sources.requirements, { requirements: [{ requirement_id: 'OPS-02', title_ko: 'x' }, { requirement_id: 'API-01' }] })
+    write(sources.operations, { operations: ['document.create', 'history.undo'], support_status: 'x' })
+    write(sources.declarations, {
+      requirements: [
+        { id: 'D-1', source_contract: 'a.json', proposed_route: 'document' },
+        { id: 'D-2', source_contract: 'b.json', proposed_route: 'document' },
+        { id: 'D-3', source_contract: 'a.json', proposed_route: 'render_scene' },
+      ],
+    })
+    const inputs = loadInputs(ROOT, { CHEMIFREE_SPEC_DIR: dir })
+    assert.deepEqual(inputs.spec.requirementIds, ['OPS-02', 'API-01'])
+    assert.deepEqual(inputs.spec.operationNames, ['document.create', 'history.undo'])
+    assert.deepEqual(inputs.spec.declarations, {
+      total: 3,
+      by_source: { 'a.json': 2, 'b.json': 1 },
+      routes: {
+        document: { declarations: 2, by_source: { 'a.json': 1, 'b.json': 1 } },
+        render_scene: { declarations: 1, by_source: { 'a.json': 1 } },
+      },
+    })
+    assert.match(inputs.spec.files[sources.operations].sha256, /^[0-9a-f]{64}$/)
+    inputs.fresh = { text: inputs.record.text }
+    syncDocs(inputs)
+    const errors = checkInputs(inputs)
+    assert.ok(errors.some((error) => error.startsWith(`spec: ${sources.requirements} has SHA-256`)), errors.join('\n'))
+    assert.ok(errors.some((error) => error.includes('traced requirement ids differ')))
+    assert.ok(errors.some((error) => error.includes('names unknown operation chem.properties')))
+    assert.ok(errors.some((error) => error.includes('declaration counts per route differ')))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('case paths: the same rule as the Rust loader', () => {

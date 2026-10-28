@@ -1,5 +1,5 @@
 //! Conformance runner: loads the cases of a suite and runs them against the shared
-//! application, the way the HTTP adapter calls it, recording passed, failed, and not-run
+//! application with the request types the HTTP handlers use, recording passed, failed, and not-run
 //! (pending) cases separately.
 //!
 //! A passing case shows only what its steps compare, on this product and this run. It does

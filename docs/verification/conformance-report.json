@@ -138,7 +138,7 @@
     },
     {
       "id": "out-of-range-input-refused",
-      "title": "Out-of-range charge, isotope, coordinate, element and request_id are refused and change nothing",
+      "title": "Charge, isotope, coordinate, element and request_id just outside their ranges are refused and change nothing; the range ends are accepted",
       "requirements": [
         "MODEL-02",
         "API-01"
@@ -148,7 +148,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "3fef4cdd31a1b52476dac63926afcff7683aecb4cdae74f084806e8b0c20b171"
+      "case_sha256": "94e69a7bd22406a407ab9f9e25926d63e58f2f8290532c43afad90121eec277a"
     },
     {
       "id": "close-keeps-unsaved-work",

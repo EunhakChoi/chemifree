@@ -3435,7 +3435,7 @@
     "deep-behavior-contracts.md",
     "deep-format-contracts.md"
    ],
-   "current_status": "partial",
+   "current_status": "not_implemented",
    "planned_prs": [
     "P09",
     "P11",

@@ -995,7 +995,7 @@
         },
         {
           "id": "API-01.2",
-          "summary": "A repeated request_id with the same body returns the first reply without acting again; reusing it for a different body is refused.",
+          "summary": "Within one process and its replay window (the latest 64 successful mutations of an open document; keyed per document for edits, saves, autosaves and renames, per process for creates, closes, recoveries, draft discards, copies, deletes and restores), a repeated request_id with the same body returns the first reply without acting again, and reusing it for a different body is refused. A restart forgets every request_id.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/documents.rs"
@@ -1038,7 +1038,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P08",
             "P13",
             "P41",
             "P82",
@@ -1070,7 +1069,7 @@
       "parts": [
         {
           "id": "QUALITY-01.1",
-          "summary": "A runner executes the cases in conformance/cases against the shared application, one fresh data directory per case, and records passed, failed and not-run (pending) cases separately per kind; runs with the same outcomes write identical records.",
+          "summary": "A runner executes the cases in conformance/cases against the shared application, one fresh data directory per case, and records passed, failed and not-run (pending) cases separately per kind; runs in which no case fails write identical records; failure messages may contain run-specific values, including data-directory paths.",
           "status": "implemented",
           "implementation": [
             "crates/conformance",
@@ -1104,7 +1103,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P08",
             "P13",
             "P18",
             "P41",
@@ -1169,7 +1167,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P08",
             "P14",
             "P82",
             "P88",
