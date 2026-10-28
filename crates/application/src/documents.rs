@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
@@ -144,7 +144,22 @@ struct Session {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Drafter {
     Client,
+    /// The service's periodic pass over due drafts.
     Service,
+    /// The service's last pass before the process stops.
+    Stop,
+}
+
+impl Drafter {
+    /// How long the attempt waits for the document's turn. The periodic pass does not wait:
+    /// a document whose turn is taken (by a save, say) must not hold up the others, and it is
+    /// simply tried again on the next pass. At a stop no request is running any more.
+    fn turn_wait(self) -> Duration {
+        match self {
+            Self::Client | Self::Stop => TURN_WAIT,
+            Self::Service => Duration::ZERO,
+        }
+    }
 }
 
 /// A storage change that briefly holds a session.
@@ -749,11 +764,17 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let _turn = match self.turn(&document_id) {
+        let _turn = match self
+            .turns
+            .take(&document_id, drafter.turn_wait())
+            .map_err(refused)
+        {
             Ok(turn) => turn,
             Err(error) => {
-                // A document that stayed busy is a failed attempt for undrafted work only.
-                if let Some(session) = self.lock().open.get_mut(&document_id)
+                // A document that stayed busy is a failed attempt for undrafted work only; the
+                // periodic pass, which does not wait, just tries again next time.
+                if drafter != Drafter::Service
+                    && let Some(session) = self.lock().open.get_mut(&document_id)
                     && !session.is_drafted()
                 {
                     session
@@ -778,7 +799,7 @@ impl<R: DocumentRepository> Documents<R> {
         drafter: Drafter,
     ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
-        if drafter == Drafter::Service && !sessions.open.contains_key(document_id) {
+        if drafter != Drafter::Client && !sessions.open.contains_key(document_id) {
             // Closed since the service found it due: there is nothing left to draft, and
             // opening it again would only make a session nobody asked for.
             return Err(ApplicationError::new(
@@ -872,7 +893,7 @@ impl<R: DocumentRepository> Documents<R> {
         undrafted
             .into_iter()
             .filter_map(|id| {
-                self.draft_at(&id, None, Instant::now(), Drafter::Service)
+                self.draft_at(&id, None, Instant::now(), Drafter::Stop)
                     .err()
                     .map(|error| (id, error))
             })

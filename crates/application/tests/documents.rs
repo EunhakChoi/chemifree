@@ -2248,55 +2248,62 @@ fn drafting_everything_before_a_stop_ignores_the_schedule() {
 }
 
 #[test]
-fn a_service_draft_due_during_a_stalled_save_waits_its_turn_and_is_retried() {
+fn a_busy_document_does_not_hold_up_the_services_drafts_of_others() {
     let (app, store) = application();
     let app = Arc::new(app);
-    let id = edited(&app);
+    // Two due documents whose saves stall with their turns, then one that is free.
+    let busy: Vec<String> = (0..2).map(|_| edited(&app)).collect();
+    let free = edited(&app);
     let held = store.commit_gate.lock().unwrap();
-    let saving = stalled(&store, {
-        let (app, id) = (Arc::clone(&app), id.clone());
-        move || app.save(&id, Some("save-1"), 1)
-    });
+    let saves: Vec<_> = busy
+        .iter()
+        .enumerate()
+        .map(|(index, id)| {
+            stalled(&store, {
+                let (app, id) = (Arc::clone(&app), id.clone());
+                move || app.save(&id, Some(&format!("save-{index}")), 1)
+            })
+        })
+        .collect();
 
-    // The draft is due, but the save holds the document's turn: the service waits at most
-    // `TURN_WAIT`, writes nothing beside the save, and keeps the failure on its schedule.
-    let started = std::time::Instant::now();
-    within(TURN_WAIT + std::time::Duration::from_secs(2), {
+    // The pass does not wait for the busy documents' turns, so the free one is drafted at
+    // once; the busy ones are not drafted beside their saves and are not counted as failed.
+    within(std::time::Duration::from_millis(1_000), {
         let app = Arc::clone(&app);
         move || app.write_due_drafts(later(DRAFT_MAX_WAIT))
     })
-    .expect("the service's drafting is not held up past the turn wait");
-    assert!(started.elapsed() >= TURN_WAIT, "it waited for the turn");
+    .expect("busy documents did not hold up the pass");
     assert_eq!(
-        stored_draft(&store, &id),
-        None,
-        "no draft was written beside the save"
+        stored_draft(&store, &free).map(|draft| draft.document.revision()),
+        Some(1),
+        "the free document was drafted"
     );
-    let failure = app.document(&id).unwrap().session.draft_failure;
-    assert!(
-        failure
-            .as_ref()
-            .is_some_and(|failure| failure.attempts == 1),
-        "the busy turn is kept as a failed attempt: {failure:?}"
-    );
+    for id in &busy {
+        assert_eq!(
+            stored_draft(&store, id),
+            None,
+            "nothing was drafted beside a save"
+        );
+        assert_eq!(app.document(id).unwrap().session.draft_failure, None);
+    }
 
     drop(held);
-    saving.join().unwrap().unwrap();
-    let saved = app.document(&id).unwrap();
-    assert_eq!(
-        (saved.session.unsaved_changes, saved.session.draft_failure),
-        (false, None),
-        "the save leaves nothing to draft"
-    );
-    app.write_due_drafts(later(DRAFT_MAX_WAIT * 10));
-    assert_eq!(stored_draft(&store, &id), None);
+    for save in saves {
+        save.join().unwrap().unwrap();
+    }
+    // The saves left nothing to draft.
+    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT * 10)), None);
+    for id in &busy {
+        assert_eq!(stored_draft(&store, id), None);
+    }
 }
 
 #[test]
-fn a_session_closed_while_the_service_drafts_others_is_not_reopened() {
+fn a_session_closed_while_the_stop_drafts_others_is_not_reopened() {
     let (app, store) = application();
     let app = Arc::new(app);
-    // Created first, so the service drafts it first; its save stalls with the turn.
+    // Created first, so the stop drafts it first; its save stalls with the turn, which the
+    // stop waits for.
     let stalled_id = edited(&app);
     let closed_id = edited(&app);
     let held = store.commit_gate.lock().unwrap();
@@ -2306,10 +2313,10 @@ fn a_session_closed_while_the_service_drafts_others_is_not_reopened() {
     });
     let drafting = std::thread::spawn({
         let app = Arc::clone(&app);
-        move || app.write_due_drafts(later(DRAFT_MAX_WAIT))
+        move || app.draft_all()
     });
-    // Not synchronization the test relies on: if the pass has not started yet, the closed
-    // session is simply not due, and the assertions below hold either way.
+    // Not synchronization the test relies on: if the stop has not listed the sessions yet,
+    // the closed one is simply not listed, and the assertions below hold either way.
     std::thread::sleep(std::time::Duration::from_millis(200));
     app.close(&closed_id, Some("close-1"), true, Some(1))
         .unwrap();
