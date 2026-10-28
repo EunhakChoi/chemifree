@@ -59,6 +59,12 @@ pub struct FileDocumentRepository {
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
     /// Locked owner files of the drafts this repository owns. Dropping one releases it.
     owned: Arc<Mutex<HashMap<DocumentId, File>>>,
+    /// Held from checking whether this store owns a draft until it has acted on taking the
+    /// owner lock. An OS file lock refuses every other handle, including this process's own,
+    /// so without it a concurrent request here would read another request's brief probe as
+    /// a different running process. Order: this, then an owner lock, then a save lock
+    /// (`save` takes only the save lock).
+    taking_ownership: Arc<Mutex<()>>,
 }
 
 /// Length, modification time, and on Unix the inode. Saves replace the file by rename, so
@@ -86,6 +92,7 @@ impl FileDocumentRepository {
             locks: root.join(LOCKS_DIR),
             probes: Arc::default(),
             owned: Arc::default(),
+            taking_ownership: Arc::default(),
         }
     }
 
@@ -229,6 +236,13 @@ impl FileDocumentRepository {
 
     fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, File>> {
         self.owned.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Serializes taking draft owner locks within this store; see `taking_ownership`.
+    fn taking_ownership(&self) -> MutexGuard<'_, ()> {
+        self.taking_ownership
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn owns(&self, id: &DocumentId) -> bool {
@@ -417,6 +431,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
+        let _taking = self.taking_ownership();
         if self.owns(id) {
             return Ok(DraftStatus::Owned);
         }
@@ -446,6 +461,7 @@ impl DocumentRepository for FileDocumentRepository {
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
         let id = draft.document.id();
         let path = self.draft_path(id);
+        let taking = self.taking_ownership();
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -459,6 +475,7 @@ impl DocumentRepository for FileDocumentRepository {
             }
             self.owned().insert(id.clone(), owner);
         }
+        drop(taking);
         let bytes = file_format::encode_draft(draft);
         if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
             return Err(StorageError::Unavailable(format!(
@@ -471,6 +488,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
+        let taking = self.taking_ownership();
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -479,6 +497,7 @@ impl DocumentRepository for FileDocumentRepository {
             };
             self.owned().insert(id.clone(), owner);
         }
+        drop(taking);
         let path = self.draft_path(id);
         let bytes = match self.read_bytes(&path) {
             Ok(Some(bytes)) => bytes,
@@ -895,6 +914,51 @@ mod tests {
             })
         );
         assert_eq!(first.load(document.id()).unwrap(), Some(document));
+    }
+
+    #[test]
+    fn requests_in_one_process_never_mistake_its_own_probe_for_another_owner() {
+        let (directory, writer) = scratch();
+        let document = drawn(&writer);
+        writer.save(&document, None).unwrap();
+        writer.write_draft(&draft_of(&document, 1)).unwrap();
+        drop(writer); // Its process ended: the draft is abandoned.
+
+        // Concurrent requests in one process (for example, two list requests from one page)
+        // each inspect the abandoned draft through the same store.
+        let store = FileDocumentRepository::new(directory.path());
+        let threads = 8;
+        let probes = 200;
+        let start = Arc::new(std::sync::Barrier::new(threads));
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let store = store.clone();
+                let id = document.id().clone();
+                let start = Arc::clone(&start);
+                std::thread::spawn(move || {
+                    start.wait();
+                    let mut misread = Vec::new();
+                    for _ in 0..probes {
+                        match store.draft_status(&id) {
+                            Ok(DraftStatus::Abandoned(Ok(_))) => {}
+                            other => misread.push(other),
+                        }
+                    }
+                    misread
+                })
+            })
+            .collect();
+        let misread: Vec<_> = workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect();
+        assert!(
+            misread.is_empty(),
+            "{} of {} probes misread the abandoned draft, e.g. {:?}",
+            misread.len(),
+            threads * probes,
+            misread.first()
+        );
     }
 
     #[test]

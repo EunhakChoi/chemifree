@@ -6,6 +6,7 @@ use std::sync::Arc;
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::Parser;
+use clap::builder::FalseyValueParser;
 use tokio::net::TcpListener;
 
 #[derive(Parser)]
@@ -21,6 +22,11 @@ struct Args {
     /// development and preview origins on ports 5173 and 4173.
     #[arg(long = "allow-origin", value_name = "ORIGIN")]
     allow_origins: Vec<String>,
+    /// Log one line per request to standard error (method, path, status, duration), for
+    /// diagnosing test runs. Headers and bodies are never logged.
+    /// The variable accepts the usual on/off spellings (`1`, `true`, `0`, `false`, …).
+    #[arg(long, env = "CHEMIFREE_LOG_REQUESTS", value_parser = FalseyValueParser::new())]
+    log_requests: bool,
 }
 
 #[tokio::main]
@@ -50,7 +56,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Chemifree API listening on http://{address}");
     eprintln!("Documents: {}", documents.display());
-    axum::serve(listener, chemifree_api::router(Arc::new(state)))
+    let mut router = chemifree_api::router(Arc::new(state));
+    if args.log_requests {
+        router = chemifree_api::log_requests(router);
+    }
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())

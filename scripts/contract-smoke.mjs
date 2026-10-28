@@ -43,7 +43,23 @@ async function startApi(extraEnv = {}) {
       }
     })
   })
-  return { child, baseUrl }
+  return { child, baseUrl, log: () => log }
+}
+
+/** Resolves once `child` has written a line matching `pattern` to standard error. */
+function logged(api, pattern) {
+  if (pattern.test(api.log())) return Promise.resolve()
+  return new Promise((resolveLine, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no log line matching ${pattern}. ${api.log()}`)), 5_000)
+    const read = () => {
+      if (pattern.test(api.log())) {
+        clearTimeout(timer)
+        api.child.stderr.off('data', read)
+        resolveLine()
+      }
+    }
+    api.child.stderr.on('data', read)
+  })
 }
 
 async function stop(child, signal = 'SIGTERM') {
@@ -112,6 +128,20 @@ try {
     ['runtime_inspection', 'document_editing', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
+
+  // The opt-in request log: one line per request with method, path, and status, and
+  // nothing from the headers (such as the session token).
+  const logging = await startApi({ CHEMIFREE_LOG_REQUESTS: '1' })
+  try {
+    assert.equal((await fetch(`${logging.baseUrl}/api/v1/health`)).status, 200)
+    const loggedSession = await (await fetch(`${logging.baseUrl}/api/v1/session`)).json()
+    await logged(logging, /^\+\d+ GET \/api\/v1\/session 200 \d+ms$/m)
+    assert.match(logging.log(), /^\+\d+ GET \/api\/v1\/health 200 \d+ms$/m)
+    assert.ok(!logging.log().includes(loggedSession.token), 'the session token is never logged')
+  } finally {
+    await stop(logging.child)
+  }
+  assert.doesNotMatch(api.log(), /GET \/api\/v1\/health/, 'nothing is logged without the option')
 
   // Write protection.
   const { token, header } = (await call('/api/v1/session')).body

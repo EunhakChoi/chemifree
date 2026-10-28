@@ -7,13 +7,18 @@
 //
 // Uses playwright-core with an installed Chrome/Chromium: set CHEMIFREE_BROWSER to its
 // executable, or install Playwright's build with `npx playwright-core install chromium`.
-// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory).
+// Screenshots go to CHEMIFREE_SMOKE_OUT (default: the temporary directory, removed after a
+// passing run). A failing run also writes failure.png, requests.log (every browser request with
+// its outcome and duration), api.log (the request log of every API process the run started),
+// and web.log there, and keeps the temporary directory so they can be read.
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright-core'
+
+import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
 const results = {}
@@ -49,15 +54,18 @@ function start(command, args, ready, options = {}) {
     child.stderr.on('data', read)
     child.once('exit', (code) => reject(new Error(`${command} exited (${code}). ${log}`)))
   })
-  return { child, started }
+  return { child, started, log: () => log }
 }
-const startApi = () => start(apiPath, ['--port', '3001'], /listening on http:\/\/127\.0\.0\.1:3001/)
+const startApi = () => start(apiPath, ['--port', '3001', '--log-requests'], /listening on http:\/\/127\.0\.0\.1:3001/)
+/** Output of API processes that have ended; some steps kill the API and start a new one. */
+const endedApiLogs = []
 let apiServer = startApi()
 const web = start('npm', ['run', 'dev:web'], /Local:\s+http:\/\/127\.0\.0\.1:5173/, { detached: true })
 // Registered before anything can fail so a failed start or launch never leaves servers running.
 let browser = null
 let step = 'start'
-async function cleanup() {
+/** Stops the servers. The temporary directory is removed unless `keepWork` is set. */
+async function cleanup({ keepWork = false } = {}) {
   await browser?.close().catch(() => {})
   apiServer.child.kill('SIGTERM')
   try {
@@ -65,15 +73,29 @@ async function cleanup() {
   } catch {
     // Already stopped.
   }
-  if (!process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
+  if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
 }
 let page = null
-const recentRequests = []
+/** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
+const requestLog = []
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
-  await page?.screenshot({ path: join(outDir, 'failure.png') }).catch(() => {})
-  console.error(recentRequests.join('\n'))
-  await cleanup()
+  const files = ['requests.log', 'api.log', 'web.log']
+  // No page (for example, the browser did not launch) means no screenshot.
+  if (page) {
+    const shot = await page.screenshot({ path: join(outDir, 'failure.png') }).then(
+      () => true,
+      () => false,
+    )
+    if (shot) files.unshift('failure.png')
+  }
+  console.error(requestLog.slice(-40).join('\n'))
+  writeFileSync(join(outDir, 'requests.log'), `${requestLog.join('\n')}\n`)
+  writeFileSync(join(outDir, 'api.log'), [...endedApiLogs, apiServer.log()].join('\n--- next API process\n'))
+  writeFileSync(join(outDir, 'web.log'), web.log())
+  console.error(`Diagnostics in ${outDir}: ${files.join(', ')}`)
+  // The diagnostics may be in the temporary directory, so a failed run keeps it.
+  await cleanup({ keepWork: true })
   process.exit(1)
 })
 await Promise.all([apiServer.started, web.started])
@@ -82,19 +104,26 @@ async function crashApi() {
   const exited = new Promise((resolveExit) => apiServer.child.once('exit', resolveExit))
   apiServer.child.kill('SIGKILL')
   await exited
+  endedApiLogs.push(apiServer.log())
   apiServer = startApi()
   await apiServer.started
 }
 
 browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+// Steps add and remove page routes; without this, a request sent just as the last one goes
+// away can stall in the browser (see scripts/lib/request-interception.mjs and #8).
+await keepRequestInterception(context)
 page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
+// Durations use the monotonic clock: the wall clock can be stepped by time synchronization.
+const runStarted = performance.now()
 const started = new Map()
-page.on('request', (request) => started.set(request, Date.now()))
+page.on('request', (request) => started.set(request, performance.now()))
 const note = (request, outcome) => {
-  recentRequests.push(`${new Date().toISOString()} ${request.method()} ${new URL(request.url()).pathname} ${outcome} ${Date.now() - (started.get(request) ?? Date.now())}ms`)
-  if (recentRequests.length > 40) recentRequests.shift()
+  const at = started.get(request) ?? performance.now()
+  const path = new URL(request.url()).pathname
+  requestLog.push(`+${Math.round(at - runStarted)} ${request.method()} ${path} ${outcome} ${Math.round(performance.now() - at)}ms`)
 }
 page.on('requestfinished', async (request) => note(request, (await request.response())?.status()))
 page.on('requestfailed', (request) => note(request, request.failure()?.errorText))
@@ -425,7 +454,11 @@ const refuseToken = () =>
 const a1Charge = async () => (await openDoc()).document.atoms.find((atom) => atom.id === 'a1').charge
 const chargeBeforeRestart = await a1Charge()
 await refuseToken()
+const retriedEdit = page.waitForResponse(
+  (r) => r.request().method() === 'POST' && r.url().endsWith('/transactions') && r.status() === 200,
+)
 await page.getByRole('button', { name: 'Increase charge' }).click()
+await retriedEdit
 await waitIdle()
 assert.equal(await a1Charge(), chargeBeforeRestart + 1, 'same drawing: the edit is retried')
 assert.equal(await page.getByText('Local service restarted', { exact: true }).count(), 0)
@@ -682,8 +715,8 @@ if (process.getuid?.() !== 0) {
     if (r.url().endsWith(`/${docId}/autosave`) && r.status() === 200) retried = true
   }
   page.on('response', onRetry)
-  const drawingUntil = Date.now() + 8_000
-  while (!retried && Date.now() < drawingUntil) {
+  const drawingUntil = performance.now() + 8_000
+  while (!retried && performance.now() < drawingUntil) {
     await drawPair()
     await page.waitForTimeout(300)
   }

@@ -12,6 +12,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Request, State};
@@ -95,6 +96,29 @@ fn loopback_authority(origin: &str) -> Option<&str> {
 }
 
 type Shared = Arc<ApiState>;
+
+/// Adds a diagnostic log to `router`: one line per request on standard error, written when
+/// the response is ready, as `+<ms since the log started> <method> <path> <status> <ms>ms`.
+/// Times come from the monotonic clock, so wall-clock adjustments do not skew them. Headers,
+/// query strings, and bodies are never logged.
+pub fn log_requests(router: Router) -> Router {
+    let started = Instant::now();
+    router.layer(middleware::from_fn(
+        move |request: Request, next: Next| async move {
+            let method = request.method().clone();
+            let path = request.uri().path().to_owned();
+            let received = Instant::now();
+            let response = next.run(request).await;
+            eprintln!(
+                "+{} {method} {path} {} {}ms",
+                received.duration_since(started).as_millis(),
+                response.status().as_u16(),
+                received.elapsed().as_millis()
+            );
+            response
+        },
+    ))
+}
 
 pub fn router(state: Shared) -> Router {
     let writes = Router::new()
