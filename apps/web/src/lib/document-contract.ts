@@ -433,16 +433,14 @@ export class DocumentClient {
       token = current
     }
     for (let checks = 0; ; checks += 1) {
+      let value: unknown
       try {
-        const value = await this.write(
+        value = await this.write(
           path,
           { request_id: pending.requestId, ...body },
           pending.sentTo === undefined ? 'retry' : 'reload',
           sending,
         )
-        const result = await settle(value, pending.sentTo !== undefined)
-        this.unconfirmed.delete(key)
-        return result
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
         if (error.code === 'service_restarted') {
@@ -467,6 +465,13 @@ export class DocumentClient {
           error.status,
         )
       }
+      const replayed = pending.sentTo !== undefined
+      // The service answered, so the document exists. Until it is shown, the ID is kept, and
+      // trying again asks about it instead of creating another.
+      pending.sentTo = token
+      const result = await settle(value, replayed)
+      this.unconfirmed.delete(key)
+      return result
     }
   }
 

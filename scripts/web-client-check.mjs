@@ -231,3 +231,17 @@ test('a copy with an empty title and one without a title are different requests'
   const ids = scripted.writes.map((write) => write.requestId)
   assert.notEqual(ids[1], ids[0], 'a different body gets its own request ID')
 })
+
+test('a replayed create whose re-read fails keeps its request ID', async () => {
+  const scripted = service({
+    '/api/v1/documents': [lost, () => json(201, document('doc-2', 0)), () => json(201, document('doc-2', 0))],
+    'GET /api/v1/documents/doc-2': [() => error(503, 'resource_limit'), () => json(200, document('doc-2', 5))],
+  })
+  const client = new DocumentClient()
+  await assert.rejects(client.create(), { code: 'unreachable' })
+  await assert.rejects(client.create(), { code: 'resource_limit' })
+  const shown = await client.create()
+  assert.equal(shown.document.revision, 5)
+  const ids = scripted.writes.map((write) => write.requestId)
+  assert.ok(ids.every((id) => id === ids[0]), `the created document is asked about, not created again: ${ids.join(', ')}`)
+})
