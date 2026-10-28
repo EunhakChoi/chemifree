@@ -51,3 +51,12 @@ CI(08e72d8): check·browser 성공(run 40748675913). 병합 a785059, 병합 후 
 6. 문서의 현재 합계 문장이 추적표와 어긋나도 통과 → TRACEABILITY.ko.md·HANDOFF.ko.md가 추적표에서 만든 정확한 문장을 담는지 확인
 
 CI(3689d1b): check·browser 성공(run 40753734609). 그러나 3회 모두 통과하지 못해 규칙대로 PR을 닫았다(병합 없음, [닫은 이유](https://github.com/EunhakChoi/chemifree/pull/26#issuecomment-6478530918)). 최신 main(a785059)에서 새 브랜치로 다시 구현한다(#26 코드 재사용·cherry-pick 없음). 후속 PR은 아래에 기록한다.
+
+## #27 P08 재구현 — 요구사항·공개 선언 추적과 버전 있는 적합성 runner
+
+#26을 닫은 뒤 최신 main(a785059)에서 새 브랜치 `feat/requirement-traceability`로 다시 구현했다. #26의 코드를 읽거나 재사용하지 않도록 새 컨텍스트의 에이전트가 작성했고, #26의 모든 지적과 독립 검토 지적을 설계 요건으로 넣었다. PR 전에 별도 독립 검토(지적 P2 3건·P3 1건 등)를 반영했다(c2eb869). 리뷰·CI 기록(review-history*.md)과 로드맵은 GitHub 기록과 로드맵 생성 결과로, 제품 코드가 아니다.
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-28 20:15:21 | c2eb869 | 20:20:01 | 지적 2건(P2). ① 탭이 든 추적 파일 이름을 첫 탭 뒤에서 자르지 않아 이름이 잘리고 검사를 건너뜀 → 수용: 첫 탭에서만 나눔 ② `#[ignore]` 테스트를 실행되는 근거로 인정 → 수용: 무시·건너뛴 테스트 거절. 각각 실패 테스트를 먼저 작성. dc36cae에서 수정 | [review](https://github.com/EunhakChoi/chemifree/pull/27#pullrequestreview-5689145595) |
+| 2 (요청) | 21:12:52 | dc36cae | 21:15:33 | 지적 2건(P2). ① UTF-8이 아닌 추적 파일 이름이 대체 문자로 바뀌어 검사를 건너뜀 ② `/* */` 주석 안 테스트를 실행 근거로 인정 → 수용: 텍스트 추정 대신 원천을 읽도록 바꿈. clean-room은 index의 이름 바이트와 blob 내용을 읽고 UTF-8이 아닌 이름을 거절, 테스트 근거는 cargo가 실제로 나열·실행하는 테스트만 인정 | [review](https://github.com/EunhakChoi/chemifree/pull/27#pullrequestreview-5689798963) |
