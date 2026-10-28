@@ -2138,6 +2138,12 @@ fn the_service_drafts_unsaved_work_without_a_client_asking() {
 
     // A save leaves nothing to draft; a closed session is not drafted.
     app.save(&id, None, 1).unwrap();
+    assert_eq!(
+        app.write_due_drafts(later(DRAFT_MAX_WAIT)),
+        None,
+        "nothing is due after a save"
+    );
+    assert!(stored_draft(&store, &id).is_none());
     app.apply_transaction(
         &id,
         None,
@@ -2284,4 +2290,87 @@ fn a_service_draft_due_during_a_stalled_save_waits_its_turn_and_is_retried() {
     );
     app.write_due_drafts(later(DRAFT_MAX_WAIT * 10));
     assert_eq!(stored_draft(&store, &id), None);
+}
+
+#[test]
+fn a_session_closed_while_the_service_drafts_others_is_not_reopened() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    // Created first, so the service drafts it first; its save stalls with the turn.
+    let stalled_id = edited(&app);
+    let closed_id = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saving = stalled(&store, {
+        let (app, id) = (Arc::clone(&app), stalled_id.clone());
+        move || app.save(&id, Some("save-1"), 1)
+    });
+    let drafting = std::thread::spawn({
+        let app = Arc::clone(&app);
+        move || app.write_due_drafts(later(DRAFT_MAX_WAIT))
+    });
+    // Not synchronization the test relies on: if the pass has not started yet, the closed
+    // session is simply not due, and the assertions below hold either way.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    app.close(&closed_id, Some("close-1"), true, Some(1))
+        .unwrap();
+
+    drafting.join().unwrap();
+    drop(held);
+    saving.join().unwrap().unwrap();
+    let listed = app
+        .list_documents(&ListQuery::default())
+        .unwrap()
+        .documents
+        .into_iter()
+        .find(|document| document.id == closed_id)
+        .expect("listed");
+    assert!(
+        !listed.open,
+        "the closed session was not opened again to draft it"
+    );
+    assert_eq!(stored_draft(&store, &closed_id), None);
+}
+
+#[test]
+fn a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let drafted = edited(&app);
+    app.autosave(&drafted, Some("auto-1")).unwrap();
+    let undrafted = edited(&app);
+    let held = store.commit_gate.lock().unwrap();
+    let saves: Vec<_> = [(&drafted, "save-1"), (&undrafted, "save-2")]
+        .into_iter()
+        .map(|(id, request)| {
+            stalled(&store, {
+                let (app, id) = (Arc::clone(&app), id.clone());
+                move || app.save(&id, Some(request), 1)
+            })
+        })
+        .collect();
+
+    for (id, request) in [(&drafted, "auto-2"), (&undrafted, "auto-3")] {
+        let refused = app.autosave(id, Some(request)).unwrap_err();
+        assert_eq!(refused.reason, Some(StorageReason::Busy), "{refused}");
+    }
+    assert_eq!(
+        app.document(&drafted).unwrap().session.draft_failure,
+        None,
+        "its draft holds everything; nothing failed to be drafted"
+    );
+    let failure = app
+        .document(&undrafted)
+        .unwrap()
+        .session
+        .draft_failure
+        .expect("undrafted work that could not be drafted is reported");
+    assert!(
+        failure.retry_in_ms > 1_000,
+        "the retry counts from the failure, not from before the turn wait: {failure:?}"
+    );
+
+    drop(held);
+    for save in saves {
+        save.join().unwrap().unwrap();
+    }
 }

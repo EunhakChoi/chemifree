@@ -62,13 +62,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if args.log_requests {
         router = chemifree_api::log_requests(router);
     }
-    axum::serve(listener, router)
+    let served = axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
-        .await?;
-    // Unsaved work survives a normal stop in its recovery draft.
+        .await;
+    // Unsaved work survives a stop in its recovery draft, also when serving ended in an error.
     for (id, error) in drafts.finish() {
         eprintln!("Could not draft unsaved changes to {id} before stopping: {error}");
     }
+    served?;
     Ok(())
 }
 

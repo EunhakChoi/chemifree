@@ -139,6 +139,14 @@ struct Session {
     replays: ReplayLog<DocumentResponse>,
 }
 
+/// Who asked for a draft: a client's autosave may open the session from storage, while the
+/// service drafts only sessions that are open.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Drafter {
+    Client,
+    Service,
+}
+
 /// A storage change that briefly holds a session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Hold {
@@ -719,15 +727,17 @@ impl<R: DocumentRepository> Documents<R> {
         id: &str,
         request_id: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
-        self.draft_at(id, request_id, Instant::now())
+        self.draft_at(id, request_id, Instant::now(), Drafter::Client)
     }
 
-    /// Writes the draft as of `now`, the time a failure's retry is scheduled from.
+    /// Writes the draft for `drafter`. `now` is when the service found it due; a failure's
+    /// retry counts from when the failure happened, which may be a turn wait later.
     fn draft_at(
         &self,
         id: &str,
         request_id: Option<&str>,
         now: Instant,
+        drafter: Drafter,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
@@ -739,37 +749,66 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let result = self
-            .turn(&document_id)
-            .and_then(|_turn| self.write_draft(id, request_id));
-        // Every attempt, whoever asked for it, moves the service's own schedule: a success
-        // leaves it nothing to do, and a failure (including a document that stayed busy) is
-        // retried on its backoff, not sooner.
-        let mut sessions = self.lock();
-        if let Some(session) = sessions.open.get_mut(&document_id) {
-            match &result {
-                Ok(_) if session.is_drafted() => session.drafting.settled(),
-                Ok(_) => {}
-                Err(error) => session.drafting.failed(now, error.message.clone()),
+        let _turn = match self.turn(&document_id) {
+            Ok(turn) => turn,
+            Err(error) => {
+                // A document that stayed busy is a failed attempt for undrafted work only.
+                if let Some(session) = self.lock().open.get_mut(&document_id)
+                    && !session.is_drafted()
+                {
+                    session
+                        .drafting
+                        .failed(now.max(Instant::now()), error.message.clone());
+                }
+                return Err(error);
             }
-        }
-        result
+        };
+        self.write_draft(&document_id, id, request_id, now, drafter)
     }
 
-    /// The draft write itself, with the document's turn held.
+    /// The draft write itself, with the document's turn held. Every attempt, whoever asked for
+    /// it, moves the service's own schedule under the same lock: a success leaves it nothing to
+    /// do, and a failure is retried on its backoff, not sooner.
     fn write_draft(
         &self,
+        document_id: &DocumentId,
         id: &str,
         request_id: Option<&str>,
+        now: Instant,
+        drafter: Drafter,
     ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
+        if drafter == Drafter::Service && !sessions.open.contains_key(document_id) {
+            // Closed since the service found it due: there is nothing left to draft, and
+            // opening it again would only make a session nobody asked for.
+            return Err(ApplicationError::new(
+                ErrorCode::DocumentNotFound,
+                format!("document {id} is no longer open; nothing to draft"),
+            ));
+        }
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &Mutation::Autosave)? {
             return Ok(response);
         }
+        if let Err(error) = Self::write_session_draft(&self.repository, session) {
+            session
+                .drafting
+                .failed(now.max(Instant::now()), error.message.clone());
+            return Err(error);
+        }
+        session.drafting.settled();
+        let response = self.respond(session);
+        session
+            .replays
+            .record(request_id, Mutation::Autosave, &response);
+        Ok(response)
+    }
+
+    /// Makes the session's draft hold its unsaved work, or removes it when nothing is unsaved.
+    fn write_session_draft(repository: &R, session: &mut Session) -> Result<(), ApplicationError> {
         let revision = session.document.revision();
         if !session.is_dirty() {
-            self.repository
+            repository
                 .remove_draft(session.document.id())
                 .map_err(storage_error)?;
             session.draft_revision = None;
@@ -779,7 +818,7 @@ impl<R: DocumentRepository> Documents<R> {
                 base_revision: session.stored_revision,
                 saved_at_ms: now_ms(),
             };
-            self.repository
+            repository
                 .write_draft(&draft)
                 .map_err(|error| match error {
                     StorageError::Conflict { .. } => ApplicationError::new(
@@ -796,11 +835,7 @@ impl<R: DocumentRepository> Documents<R> {
                 })?;
             session.draft_revision = Some(revision);
         }
-        let response = self.respond(session);
-        session
-            .replays
-            .record(request_id, Mutation::Autosave, &response);
-        Ok(response)
+        Ok(())
     }
 
     /// Writes the drafts that are due at `now` (see [`DraftSchedule`]) and returns when the next
@@ -815,7 +850,7 @@ impl<R: DocumentRepository> Documents<R> {
             .collect();
         for id in due {
             // The outcome is recorded on the session's schedule.
-            let _drafted = self.draft_at(&id, None, now);
+            let _drafted = self.draft_at(&id, None, now, Drafter::Service);
         }
         self.lock()
             .open
@@ -836,7 +871,11 @@ impl<R: DocumentRepository> Documents<R> {
             .collect();
         undrafted
             .into_iter()
-            .filter_map(|id| self.autosave(&id, None).err().map(|error| (id, error)))
+            .filter_map(|id| {
+                self.draft_at(&id, None, Instant::now(), Drafter::Service)
+                    .err()
+                    .map(|error| (id, error))
+            })
             .collect()
     }
 
