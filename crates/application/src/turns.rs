@@ -104,6 +104,13 @@ impl Turns {
     }
 }
 
+impl Turns {
+    /// Whether the document's turn is taken at this moment.
+    pub fn is_taken(&self, document: &DocumentId) -> bool {
+        self.lock().taken.contains(document)
+    }
+}
+
 /// A request marked as running.
 #[must_use = "the request stops counting as running when this is dropped"]
 pub struct Running<'a> {

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DRAFT_MAX_WAIT, DRAFT_QUIET, DocumentRepository,
-    DocumentResponse, Draft, DraftInfo, DraftStatus, ErrorCode, ListQuery, ListSort,
+    DocumentResponse, Draft, DraftInfo, DraftStatus, DraftWriter, ErrorCode, ListQuery, ListSort,
     MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT, TrashEntry,
 };
 use chemifree_domain::Capability;
@@ -44,6 +44,15 @@ struct MemoryStore {
     saved_at: Arc<Mutex<BTreeMap<DocumentId, u64>>>,
     clock: Arc<AtomicU64>,
     process: u32,
+    /// The document whose draft writes and removals wait for `draft_gate`, as a stalled disk
+    /// would; other documents' drafts go through.
+    stalled_drafts: Arc<Mutex<Option<DocumentId>>>,
+    draft_gate: Arc<Mutex<()>>,
+    /// Draft writes and removals of the stalled document, counted before they wait.
+    stalled_drafts_started: Arc<AtomicUsize>,
+    /// Set while one of them waits. Like taking a draft's ownership in the file store, it
+    /// makes the document's draft status wait too.
+    stalled_draft_waiting: Arc<AtomicBool>,
 }
 
 impl MemoryStore {
@@ -64,6 +73,20 @@ impl MemoryStore {
 
     fn draft_count(&self) -> usize {
         self.drafts.lock().unwrap().len()
+    }
+
+    /// Waits for `draft_gate` when `id` is the stalled document.
+    fn draft_io(&self, id: &DocumentId) {
+        if self.is_stalled(id) {
+            self.stalled_draft_waiting.store(true, Ordering::SeqCst);
+            self.stalled_drafts_started.fetch_add(1, Ordering::SeqCst);
+            drop(self.draft_gate.lock().unwrap());
+            self.stalled_draft_waiting.store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn is_stalled(&self, id: &DocumentId) -> bool {
+        self.stalled_drafts.lock().unwrap().as_ref() == Some(id)
     }
 
     fn failing(&self) -> Result<(), StorageError> {
@@ -124,6 +147,9 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
+        if self.is_stalled(id) && self.stalled_draft_waiting.load(Ordering::SeqCst) {
+            drop(self.draft_gate.lock().unwrap());
+        }
         Ok(match self.drafts.lock().unwrap().get(id) {
             None => DraftStatus::None,
             Some((_, Some(owner))) if *owner == self.process => DraftStatus::Owned,
@@ -137,6 +163,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
+        self.draft_io(draft.document.id());
         let mut drafts = self.drafts.lock().unwrap();
         match drafts.get(draft.document.id()) {
             Some((_, Some(owner))) if *owner != self.process => {
@@ -189,6 +216,7 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn remove_draft(&self, id: &DocumentId) -> Result<(), StorageError> {
+        self.draft_io(id);
         let mut drafts = self.drafts.lock().unwrap();
         if drafts
             .get(id)
@@ -2101,6 +2129,17 @@ fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
     );
 }
 
+/// Runs the service's drafting pass at `now` to its end and returns when the next draft is due.
+fn write_due_drafts(
+    app: &Arc<Application<NoCapabilities, MemoryStore>>,
+    now: std::time::Instant,
+) -> Option<std::time::Instant> {
+    for (_, attempt) in app.start_due_drafts(now) {
+        let _outcome = attempt.join().expect("the draft attempt did not panic");
+    }
+    app.next_draft_due()
+}
+
 fn later(after: std::time::Duration) -> std::time::Instant {
     std::time::Instant::now() + after
 }
@@ -2117,10 +2156,11 @@ fn stored_draft(store: &MemoryStore, id: &str) -> Option<Draft> {
 #[test]
 fn the_service_drafts_unsaved_work_without_a_client_asking() {
     let (app, store) = application();
+    let app = Arc::new(app);
     let id = app.create_document(None, None).unwrap().document.id;
     let edited = app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
 
-    let next = app.write_due_drafts(std::time::Instant::now());
+    let next = write_due_drafts(&app, std::time::Instant::now());
     assert!(
         stored_draft(&store, &id).is_none(),
         "not before the quiet period"
@@ -2128,7 +2168,7 @@ fn the_service_drafts_unsaved_work_without_a_client_asking() {
     assert!(next.is_some_and(|at| at <= later(DRAFT_QUIET)));
 
     assert_eq!(
-        app.write_due_drafts(later(DRAFT_QUIET)),
+        write_due_drafts(&app, later(DRAFT_QUIET)),
         None,
         "nothing else is due"
     );
@@ -2139,7 +2179,7 @@ fn the_service_drafts_unsaved_work_without_a_client_asking() {
     // A save leaves nothing to draft; a closed session is not drafted.
     app.save(&id, None, 1).unwrap();
     assert_eq!(
-        app.write_due_drafts(later(DRAFT_MAX_WAIT)),
+        write_due_drafts(&app, later(DRAFT_MAX_WAIT)),
         None,
         "nothing is due after a save"
     );
@@ -2152,19 +2192,20 @@ fn the_service_drafts_unsaved_work_without_a_client_asking() {
     )
     .unwrap();
     app.close(&id, None, true, Some(2)).unwrap();
-    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT)), None);
+    assert_eq!(write_due_drafts(&app, later(DRAFT_MAX_WAIT)), None);
     assert!(stored_draft(&store, &id).is_none());
 }
 
 #[test]
 fn a_client_autosave_leaves_the_service_nothing_to_draft() {
     let (app, store) = application();
+    let app = Arc::new(app);
     let id = app.create_document(None, None).unwrap().document.id;
     app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
     app.autosave(&id, Some("page-1")).unwrap();
     let written = stored_draft(&store, &id).unwrap();
 
-    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT)), None);
+    assert_eq!(write_due_drafts(&app, later(DRAFT_MAX_WAIT)), None);
     assert_eq!(
         stored_draft(&store, &id).unwrap(),
         written,
@@ -2178,7 +2219,7 @@ fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
     let (store, id, _) = autosaved_drawing();
     store.end_process();
     let earlier = stored_draft(&store, &id).unwrap();
-    let app = Application::new(NoCapabilities, store.as_process(2));
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
     app.apply_transaction(
         &id,
         None,
@@ -2188,7 +2229,7 @@ fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
     .unwrap();
 
     let first = later(DRAFT_QUIET);
-    let retry = app.write_due_drafts(first).expect("a retry is scheduled");
+    let retry = write_due_drafts(&app, first).expect("a retry is scheduled");
     let failure = app.document(&id).unwrap().session.draft_failure.unwrap();
     assert_eq!(failure.attempts, 1);
     assert!(
@@ -2205,7 +2246,7 @@ fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
         earlier,
         "the earlier draft is not replaced"
     );
-    app.write_due_drafts(retry - std::time::Duration::from_millis(500));
+    write_due_drafts(&app, retry - std::time::Duration::from_millis(500));
     assert_eq!(
         app.document(&id)
             .unwrap()
@@ -2219,7 +2260,7 @@ fn failed_drafts_are_retried_on_schedule_and_never_replace_earlier_work() {
 
     // Once the earlier draft is discarded, the next attempt drafts the new work.
     app.discard_draft(&id, None).unwrap();
-    app.write_due_drafts(retry);
+    write_due_drafts(&app, retry);
     let session = app.document(&id).unwrap().session;
     assert_eq!(session.draft_failure, None);
     assert_eq!(
@@ -2270,7 +2311,7 @@ fn a_busy_document_does_not_hold_up_the_services_drafts_of_others() {
     // once; the busy ones are not drafted beside their saves and are not counted as failed.
     within(std::time::Duration::from_millis(1_000), {
         let app = Arc::clone(&app);
-        move || app.write_due_drafts(later(DRAFT_MAX_WAIT))
+        move || write_due_drafts(&app, later(DRAFT_MAX_WAIT))
     })
     .expect("busy documents did not hold up the pass");
     assert_eq!(
@@ -2292,7 +2333,7 @@ fn a_busy_document_does_not_hold_up_the_services_drafts_of_others() {
         save.join().unwrap().unwrap();
     }
     // The saves left nothing to draft.
-    assert_eq!(app.write_due_drafts(later(DRAFT_MAX_WAIT * 10)), None);
+    assert_eq!(write_due_drafts(&app, later(DRAFT_MAX_WAIT * 10)), None);
     for id in &busy {
         assert_eq!(stored_draft(&store, id), None);
     }
@@ -2380,4 +2421,282 @@ fn a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work() {
     for save in saves {
         save.join().unwrap().unwrap();
     }
+}
+
+/// Stalls `id`'s draft I/O until the returned guard is dropped, runs `request` on another
+/// thread, and returns once that request is waiting in storage.
+fn stalled_draft<'a, T: Send + 'static>(
+    store: &'a MemoryStore,
+    id: &str,
+    request: impl FnOnce() -> T + Send + 'static,
+) -> (std::sync::MutexGuard<'a, ()>, std::thread::JoinHandle<T>) {
+    let held = store.draft_gate.lock().unwrap();
+    let before = store.stalled_drafts_started.load(Ordering::SeqCst);
+    *store.stalled_drafts.lock().unwrap() = Some(DocumentId::parse(id).unwrap());
+    let running = std::thread::spawn(request);
+    let started = std::time::Instant::now();
+    while store.stalled_drafts_started.load(Ordering::SeqCst) == before {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the stalled draft reached storage"
+        );
+        std::thread::yield_now();
+    }
+    (held, running)
+}
+
+fn rename_to(title: &str) -> Vec<CommandDto> {
+    commands(json!([{"op": "rename", "title": title}]))
+}
+
+#[test]
+fn a_stalled_draft_write_does_not_hold_up_other_requests() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let slow = edited(&app);
+    let other = edited(&app);
+    let (held, autosave) = stalled_draft(&store, &slow, {
+        let (app, id) = (Arc::clone(&app), slow.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+
+    let answered = within(std::time::Duration::from_secs(1), {
+        let (app, slow, other) = (Arc::clone(&app), slow.clone(), other.clone());
+        move || {
+            app.apply_transaction(&other, None, 1, rename_to("Other"))
+                .unwrap();
+            app.autosave(&other, Some("auto-2")).unwrap();
+            app.save(&other, None, 2).unwrap();
+            app.create_document(None, None).unwrap();
+            app.list_documents(&ListQuery::default()).unwrap();
+            // The document whose draft is being written can still be read and edited.
+            app.document(&slow).unwrap();
+            app.apply_transaction(&slow, None, 1, rename_to("Later"))
+                .unwrap()
+                .document
+                .revision
+        }
+    });
+    assert_eq!(
+        answered,
+        Some(2),
+        "requests went on while a draft write was stalled"
+    );
+    drop(held);
+    autosave.join().unwrap().unwrap();
+}
+
+#[test]
+fn edits_made_while_a_draft_is_written_are_left_for_the_next_draft() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    let (held, autosave) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 1, rename_to("Later"))
+    })
+    .expect("the edit was not held up by the draft write")
+    .unwrap();
+    drop(held);
+    *store.stalled_drafts.lock().unwrap() = None;
+
+    let reply = autosave.join().unwrap().unwrap();
+    assert_eq!(reply.document.revision, 2, "the reply shows the later edit");
+    assert_eq!(
+        reply.session.draft_revision,
+        Some(1),
+        "the draft holds the revision written, not the later edit"
+    );
+    assert_eq!(reply.session.draft_failure, None);
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 1);
+
+    let now = std::time::Instant::now();
+    let due = write_due_drafts(&app, now).expect("the later edit is still due");
+    assert!(due > now, "due after its own quiet period, not at once");
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 1);
+    assert_eq!(write_due_drafts(&app, later(DRAFT_QUIET)), None);
+    assert_eq!(stored_draft(&store, &id).unwrap().document.revision(), 2);
+    assert_eq!(app.document(&id).unwrap().session.draft_revision, Some(2));
+}
+
+#[test]
+fn a_draft_failure_reported_after_later_edits_keeps_them_due_for_its_retry() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let id = edited(&app);
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let (held, autosave) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 1, rename_to("Later"))
+    })
+    .expect("the edit was not held up by the draft write")
+    .unwrap();
+    drop(held);
+    *store.stalled_drafts.lock().unwrap() = None;
+
+    let refused = autosave.join().unwrap().unwrap_err();
+    assert_eq!(refused.reason, Some(StorageReason::Io), "{refused}");
+    let session = app.document(&id).unwrap().session;
+    assert_eq!(session.draft_revision, None, "nothing was drafted");
+    let failure = session.draft_failure.expect("the failure is reported");
+    assert_eq!(failure.attempts, 1);
+    assert_eq!(stored_draft(&store, &id), None);
+
+    store.fail_writes.store(false, Ordering::SeqCst);
+    let retry = write_due_drafts(&app, std::time::Instant::now()).unwrap();
+    assert_eq!(write_due_drafts(&app, retry), None);
+    assert_eq!(
+        stored_draft(&store, &id).unwrap().document.revision(),
+        2,
+        "the retry drafts the later edit too"
+    );
+}
+
+#[test]
+fn a_clean_session_is_not_evicted_while_its_draft_is_removed() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let ids: Vec<String> = (0..MAX_OPEN_SESSIONS)
+        .map(|_| app.create_document(None, None).unwrap().document.id)
+        .collect();
+    let lowest = ids.iter().min().unwrap().clone();
+    // A clean session's autosave removes its draft; that removal stalls.
+    let (held, autosave) = stalled_draft(&store, &lowest, {
+        let (app, id) = (Arc::clone(&app), lowest.clone());
+        move || app.autosave(&id, Some("auto-1"))
+    });
+    within(std::time::Duration::from_secs(1), {
+        let app = Arc::clone(&app);
+        move || app.create_document(None, None)
+    })
+    .expect("creating was not held up by the draft removal")
+    .unwrap();
+    drop(held);
+
+    let reply = autosave.join().unwrap().unwrap();
+    assert_eq!(reply.document.id, lowest);
+    assert!(
+        open_ids(&app).contains(&lowest),
+        "another clean session made room instead"
+    );
+}
+
+#[test]
+fn a_stalled_draft_does_not_hold_up_the_services_drafts_of_other_documents() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let slow = edited(&app);
+    let other = edited(&app);
+    let (held, pass) = stalled_draft(&store, &slow, {
+        let app = Arc::clone(&app);
+        move || app.start_due_drafts(later(DRAFT_MAX_WAIT))
+    });
+    let attempts = within(std::time::Duration::from_secs(1), move || {
+        pass.join().unwrap()
+    })
+    .expect("the pass did not wait for the stalled draft");
+    let mut started: Vec<&str> = attempts.iter().map(|(id, _)| id.as_str()).collect();
+    started.sort_unstable();
+    let mut expected = [slow.as_str(), other.as_str()];
+    expected.sort_unstable();
+    assert_eq!(started, expected, "both were due");
+
+    let (_, other_attempt) = attempts.into_iter().find(|(id, _)| *id == other).unwrap();
+    within(std::time::Duration::from_secs(1), move || {
+        other_attempt.join()
+    })
+    .expect("the other document's draft was not held up")
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        stored_draft(&store, &other).map(|draft| draft.document.revision()),
+        Some(1)
+    );
+    assert!(
+        app.start_due_drafts(later(DRAFT_MAX_WAIT)).is_empty(),
+        "a draft still being written is not started again"
+    );
+
+    drop(held);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while stored_draft(&store, &slow).is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stalled draft ended"
+        );
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn a_stalled_draft_does_not_keep_the_stop_from_drafting_other_documents() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    // The stop goes through documents in identifier order; the stalled one comes first.
+    let slow = edited(&app);
+    let other = edited(&app);
+    assert!(slow < other);
+    let (held, stop) = stalled_draft(&store, &slow, {
+        let app = Arc::clone(&app);
+        move || app.draft_all()
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while stored_draft(&store, &other).is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the other document was drafted while one write stalled"
+        );
+        std::thread::yield_now();
+    }
+    drop(held);
+    assert!(stop.join().unwrap().is_empty(), "both were drafted");
+    assert!(stored_draft(&store, &slow).is_some());
+}
+
+#[test]
+fn a_stop_waits_for_a_draft_the_service_is_still_writing() {
+    let (app, store) = application();
+    let app = Arc::new(app);
+    let slow = edited(&app);
+    let held = store.draft_gate.lock().unwrap();
+    let before = store.stalled_drafts_started.load(Ordering::SeqCst);
+    *store.stalled_drafts.lock().unwrap() = Some(DocumentId::parse(&slow).unwrap());
+    let writer = DraftWriter::start(Arc::clone(&app), std::time::Duration::from_millis(10));
+    // The draft falls due after the quiet period; the writer's attempt then stalls in storage.
+    let deadline = later(DRAFT_QUIET + std::time::Duration::from_secs(5));
+    while store.stalled_drafts_started.load(Ordering::SeqCst) == before {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the service started the draft"
+        );
+        std::thread::yield_now();
+    }
+
+    let (finished, finish) = std::sync::mpsc::channel();
+    std::thread::spawn(move || finished.send(writer.finish()).unwrap());
+    // Longer than a stop waits for a document's turn: a stop that only made a last pass would
+    // have given up on the stalled document by now and reported it as busy.
+    assert!(
+        finish
+            .recv_timeout(TURN_WAIT + std::time::Duration::from_millis(500))
+            .is_err(),
+        "the stop waits for the write in progress"
+    );
+    drop(held);
+    let left = finish
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the stop ended once the write did");
+    assert_eq!(left, Vec::new(), "nothing was left undrafted");
+    assert_eq!(
+        stored_draft(&store, &slow).map(|draft| draft.document.revision()),
+        Some(1)
+    );
 }

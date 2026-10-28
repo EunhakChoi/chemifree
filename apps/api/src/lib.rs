@@ -12,8 +12,6 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use axum::extract::rejection::{JsonRejection, QueryRejection};
@@ -46,7 +44,7 @@ pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
 ];
 
 pub struct ApiState {
-    application: LocalApplication,
+    application: Arc<LocalApplication>,
     token: String,
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
@@ -75,7 +73,7 @@ impl ApiState {
             allowed_origins.insert(origin);
         }
         Ok(Self {
-            application,
+            application: Arc::new(application),
             token,
             allowed_hosts,
             allowed_origins,
@@ -127,41 +125,23 @@ pub fn log_requests(router: Router) -> Router {
 const DRAFT_TICK: Duration = Duration::from_millis(250);
 
 /// Writes recovery drafts in the background, so unsaved work is drafted whether or not a client
-/// autosaves. [`DraftWriter::finish`] stops it and drafts whatever is still undrafted, as the
-/// process does before it exits on a shutdown signal.
-pub struct DraftWriter {
-    state: Shared,
-    /// Dropping it stops the thread.
-    stop: mpsc::Sender<()>,
-    thread: JoinHandle<()>,
-}
+/// autosaves. [`DraftWriter::finish`] stops it, waits for drafts still being written, and drafts
+/// whatever is still undrafted, as the process does before it exits on a shutdown signal.
+pub struct DraftWriter(
+    chemifree_application::DraftWriter<LocalCapabilities, FileDocumentRepository>,
+);
 
 impl DraftWriter {
     pub fn start(state: Shared) -> Self {
-        let (stop, stopped) = mpsc::channel();
-        let thread = {
-            let state = Arc::clone(&state);
-            thread::spawn(move || {
-                while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(DRAFT_TICK) {
-                    state.application.write_due_drafts(Instant::now());
-                }
-            })
-        };
-        Self {
-            state,
-            stop,
-            thread,
-        }
+        Self(chemifree_application::DraftWriter::start(
+            Arc::clone(&state.application),
+            DRAFT_TICK,
+        ))
     }
 
-    /// Stops the background writer, then drafts every working copy with undrafted changes.
     /// Returns the documents that could not be drafted, with why.
     pub fn finish(self) -> Vec<(String, ApplicationError)> {
-        drop(self.stop);
-        // A panic in the loop has already been reported on standard error; drafting below
-        // still runs.
-        let _ended = self.thread.join();
-        self.state.application.draft_all()
+        self.0.finish()
     }
 }
 

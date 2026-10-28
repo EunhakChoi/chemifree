@@ -18,12 +18,12 @@
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use chemifree_application::{
@@ -63,12 +63,39 @@ pub struct FileDocumentRepository {
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
     /// Locked owner files of the drafts this repository owns. Dropping one releases it.
     owned: Arc<Mutex<HashMap<DocumentId, File>>>,
-    /// Held from checking whether this store owns a draft until it has acted on taking the
-    /// owner lock. An OS file lock refuses every other handle, including this process's own,
-    /// so without it a concurrent request here would read another request's brief probe as
-    /// a different running process. Order: this, then an owner lock, then a save lock
-    /// (`save` takes only the save lock).
-    taking_ownership: Arc<Mutex<()>>,
+    /// Held per document from checking whether this store owns its draft until it has acted
+    /// on taking the owner lock. An OS file lock refuses every other handle, including this
+    /// process's own, so without it a concurrent request here would read another request's
+    /// brief probe as a different running process. It is per document because the owner lock
+    /// is: taking one document's ownership, which may wait on storage, must not hold up
+    /// another's draft status. Order: this, then an owner lock, then a save lock (`save` takes
+    /// only the save lock).
+    taking_ownership: Arc<OwnershipTurns>,
+}
+
+/// Documents whose draft ownership is being checked or taken in this store.
+#[derive(Debug, Default)]
+struct OwnershipTurns {
+    taken: Mutex<HashSet<DocumentId>>,
+    returned: Condvar,
+}
+
+/// One document's turn to check or take its draft's ownership.
+struct OwnershipTurn<'a> {
+    turns: &'a OwnershipTurns,
+    id: DocumentId,
+}
+
+impl Drop for OwnershipTurn<'_> {
+    fn drop(&mut self) {
+        // The set only gains and loses whole keys, so a poisoned lock holds no partial change.
+        self.turns
+            .taken
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.id);
+        self.turns.returned.notify_all();
+    }
 }
 
 /// Length, modification time, and on Unix the inode. Saves replace the file by rename, so
@@ -260,11 +287,19 @@ impl FileDocumentRepository {
         self.owned.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Serializes taking draft owner locks within this store; see `taking_ownership`.
-    fn taking_ownership(&self) -> MutexGuard<'_, ()> {
-        self.taking_ownership
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    /// Serializes taking `id`'s draft owner lock within this store; see `taking_ownership`.
+    fn taking_ownership(&self, id: &DocumentId) -> OwnershipTurn<'_> {
+        let turns = &*self.taking_ownership;
+        let taken = turns.taken.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut taken = turns
+            .returned
+            .wait_while(taken, |taken| taken.contains(id))
+            .unwrap_or_else(PoisonError::into_inner);
+        taken.insert(id.clone());
+        OwnershipTurn {
+            turns,
+            id: id.clone(),
+        }
     }
 
     fn owns(&self, id: &DocumentId) -> bool {
@@ -454,7 +489,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn draft_status(&self, id: &DocumentId) -> Result<DraftStatus, StorageError> {
-        let _taking = self.taking_ownership();
+        let _taking = self.taking_ownership(id);
         if self.owns(id) {
             return Ok(DraftStatus::Owned);
         }
@@ -484,7 +519,7 @@ impl DocumentRepository for FileDocumentRepository {
     fn write_draft(&self, draft: &Draft) -> Result<(), StorageError> {
         let id = draft.document.id();
         let path = self.draft_path(id);
-        let taking = self.taking_ownership();
+        let taking = self.taking_ownership(id);
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -516,7 +551,7 @@ impl DocumentRepository for FileDocumentRepository {
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
-        let taking = self.taking_ownership();
+        let taking = self.taking_ownership(id);
         if !self.owns(id) {
             let Some(owner) = self.adopt(id)? else {
                 return Err(StorageError::Locked(format!(
@@ -558,12 +593,12 @@ impl DocumentRepository for FileDocumentRepository {
 
     fn trash(&self, id: &DocumentId, base_revision: u64) -> Result<(), StorageError> {
         // The owner lock first, then the save lock, as when taking a draft's ownership. The
-        // process-wide mutex covers only taking the owner lock: waiting for another process's
-        // save and the move itself would otherwise hold up every draft status check. A draft
+        // ownership turn covers only taking the owner lock: waiting for another process's
+        // save and the move itself would otherwise hold up the document's draft status checks. A draft
         // this process owns cannot be released meanwhile, since the caller holds the
         // document's turn.
         let _owner = {
-            let _taking = self.taking_ownership();
+            let _taking = self.taking_ownership(id);
             if self.owns(id) {
                 None
             } else {
@@ -794,6 +829,42 @@ mod tests {
         );
         assert_eq!(repository.list_ids().unwrap(), []);
         (directory, repository)
+    }
+
+    #[test]
+    fn taking_one_documents_draft_ownership_does_not_hold_up_anothers_draft_status() {
+        let (_directory, repository) = scratch();
+        let slow = drawn(&repository);
+        let other = drawn(&repository);
+        repository.save(&slow, None).unwrap();
+        repository.save(&other, None).unwrap();
+        // As while a first draft write of `slow` waits on storage to take its ownership.
+        let taking = repository.taking_ownership(slow.id());
+        let (answered, answer) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let (repository, id) = (repository.clone(), other.id().clone());
+            move || answered.send(repository.draft_status(&id)).unwrap()
+        });
+        assert_eq!(
+            answer.recv_timeout(Duration::from_secs(1)),
+            Ok(Ok(DraftStatus::None)),
+            "another document's status was answered at once"
+        );
+
+        let (answered, answer) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let (repository, id) = (repository.clone(), slow.id().clone());
+            move || answered.send(repository.draft_status(&id)).unwrap()
+        });
+        assert!(
+            answer.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the same document's status waits for its ownership to be taken"
+        );
+        drop(taking);
+        assert_eq!(
+            answer.recv_timeout(Duration::from_secs(5)),
+            Ok(Ok(DraftStatus::None))
+        );
     }
 
     fn drawn(repository: &FileDocumentRepository) -> Document {
