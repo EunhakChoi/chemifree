@@ -295,3 +295,15 @@ test("a session's draft failure is read when present and optional otherwise", as
   assert.deepEqual((await client.get('doc-1')).session.draft_failure, { attempts: 2, retry_in_ms: 4000, message: 'disk full' })
   assert.equal((await client.get('doc-2')).session.draft_failure, undefined, 'a service from before the field is still compatible')
 })
+
+test("a draft failure's code and reason are read when present and a malformed reason is refused", async () => {
+  const failing = document('doc-1', 2)
+  const failure = { attempts: 1, retry_in_ms: 2000, code: 'storage_failed', reason: 'read_only', message: 'permission denied' }
+  failing.session = { ...failing.session, draft_failure: failure }
+  const malformed = document('doc-2', 2)
+  malformed.session = { ...malformed.session, draft_failure: { ...failure, reason: 'full' } }
+  service({ 'GET /api/v1/documents/doc-1': [() => json(200, failing)], 'GET /api/v1/documents/doc-2': [() => json(200, malformed)] })
+  const client = new DocumentClient()
+  assert.deepEqual((await client.get('doc-1')).session.draft_failure, failure)
+  await assert.rejects(client.get('doc-2'), { code: 'incompatible_response' })
+})

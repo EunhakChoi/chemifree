@@ -863,6 +863,8 @@ try {
       chmodSync(draftsDir, 0o700)
     }
     assert.equal(failing.draft_failure.attempts, 1)
+    assert.equal(failing.draft_failure.code, 'storage_failed')
+    assert.equal(failing.draft_failure.reason, 'read_only', 'a read-only drafts directory says so')
     const retried = await untilSession(
       unattendedPath,
       (session) => session.draft_revision === continuousRevision + 1,

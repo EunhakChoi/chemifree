@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError, type DocumentClient, type DocumentResponse, type RecoveryState } from '@/lib/document-contract'
+import {
+  ApiError,
+  type DocumentClient,
+  type DocumentResponse,
+  type RecoveryState,
+  type StorageReason,
+} from '@/lib/document-contract'
 
 /** A recovery draft is written this long after the last change… */
 export const AUTOSAVE_DELAY_MS = 1000
 /** …and at least this often while changes keep coming. */
 export const AUTOSAVE_MAX_WAIT_MS = 5000
 const RETRY_DELAYS_MS = [2000, 5000, 15_000, 30_000]
+/** How long after the service's own retry is due the page reads the document to show its outcome. */
+const RECHECK_AFTER_RETRY_MS = 1000
 
 export type AutosaveState =
   | { kind: 'clean' }
@@ -14,7 +22,19 @@ export type AutosaveState =
   | { kind: 'saving' }
   /** `at` is known when this page wrote the draft. */
   | { kind: 'saved'; revision: number; at: number | null }
-  | { kind: 'failed'; message: string; retryAt: number }
+  /**
+   * Drafting keeps failing. With `by: 'service'` this is the service's own record
+   * (`session.draft_failure`): it retries on its own schedule and counts every attempt,
+   * the page's included. A service from before that record leaves the page to keep its own.
+   */
+  | {
+      kind: 'failed'
+      by: 'service' | 'page'
+      attempts: number
+      message: string
+      reason: StorageReason | null
+      retryAt: number
+    }
   /** An earlier session's draft must be recovered or discarded (or its process end) first. */
   | { kind: 'blocked'; recovery: RecoveryState }
   /** The service restarted; nothing can be drafted until the page shows its new state. */
@@ -42,6 +62,11 @@ const STALE_VIEW = new Set(['recovery_pending', 'draft_in_use'])
  * shows as blocking for as long as the view shows it. The pending window and retries
  * belong to one document and start over when another is shown. Drafts run beside the edit
  * queue; the service serializes them with edits.
+ *
+ * A failure the service reports for the shown document is shown as it reports it, and the
+ * page follows the service's retry instead of keeping a schedule of its own: it reads the
+ * document again once that retry is due. Like the draft revision, the failure is read from
+ * the view, so a save, a recovery, a restart, or another document never shows it.
  */
 export function useAutosave(client: DocumentClient, current: DocumentResponse | null, host: AutosaveHost) {
   const [state, setState] = useState<AutosaveState>({ kind: 'clean' })
@@ -50,7 +75,15 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
   const owner = useRef<string | null>(null)
   const firstPending = useRef<number | null>(null)
   const attempts = useRef(0)
-  const failure = useRef<{ message: string; retryAt: number } | null>(null)
+  /** The page's own failed attempt, with the view it was made from. */
+  const failure = useRef<{
+    message: string
+    reason: StorageReason | null
+    retryAt: number
+    view: DocumentResponse
+  } | null>(null)
+  /** When the service's reported retry is due, fixed when the view reporting it is first shown. */
+  const reported = useRef<{ view: DocumentResponse; retryAt: number } | null>(null)
   /** The view on which a restart was noticed; any newer view lifts the stop. */
   const stoppedOn = useRef<{ view: DocumentResponse; message: string } | null>(null)
   const written = useRef<{ revision: number; at: number } | null>(null)
@@ -71,10 +104,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       attempts.current = 0
       failure.current = null
     }
-    const fail = (message: string) => {
+    const fail = (message: string, reason: StorageReason | null, view: DocumentResponse) => {
       const delay = RETRY_DELAYS_MS[Math.min(attempts.current, RETRY_DELAYS_MS.length - 1)]
       attempts.current += 1
-      failure.current = { message, retryAt: Date.now() + delay }
+      failure.current = { message, reason, retryAt: Date.now() + delay, view }
     }
 
     save.current = () => {
@@ -104,7 +137,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           }
           // The service went back or holds other content (a restart seen elsewhere, a closed
           // session): re-read it rather than draft again.
-          fail('The service holds a different state than this page shows; reloading it.')
+          fail('The service holds a different state than this page shows; reloading it.', null, view)
           hostRef.current.refresh(id)
         } catch (thrown) {
           if (owner.current !== id) return
@@ -114,8 +147,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
             hostRef.current.onRestart(error)
             return
           }
-          fail(error.message)
-          if (STALE_VIEW.has(error.code)) hostRef.current.refresh(id)
+          fail(error.message, error.reason ?? null, view)
+          // A service that reports its drafting failures has recorded this one with the retry
+          // it will make; read it, so the page shows and follows that one record.
+          if (STALE_VIEW.has(error.code) || view.session.draft_failure !== undefined) hostRef.current.refresh(id)
         } finally {
           if (inFlight.current === attempt) inFlight.current = null
           evaluate.current()
@@ -162,10 +197,39 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
         return
       }
       const now = Date.now()
+      const report = session.draft_failure
+      if (report) {
+        if (reported.current?.view !== view) reported.current = { view, retryAt: now + report.retry_in_ms }
+        const { retryAt } = reported.current
+        setState({
+          kind: 'failed',
+          by: 'service',
+          attempts: report.attempts,
+          message: report.message,
+          reason: report.reason ?? null,
+          retryAt,
+        })
+        timer.current = setTimeout(
+          () => hostRef.current.refresh(document.id),
+          Math.max(0, retryAt - now) + RECHECK_AFTER_RETRY_MS,
+        )
+        return
+      }
       const failed = failure.current
-      if (failed) {
+      if (failed && report === null && failed.view !== view) {
+        // A newer view from a service that reports failures shows none for this work.
+        failure.current = null
+        attempts.current = 0
+      } else if (failed) {
         // The retry keeps its time; edits meanwhile do not push it back.
-        setState({ kind: 'failed', ...failed })
+        setState({
+          kind: 'failed',
+          by: 'page',
+          attempts: attempts.current,
+          message: failed.message,
+          reason: failed.reason,
+          retryAt: failed.retryAt,
+        })
         timer.current = setTimeout(() => void save.current(), Math.max(0, failed.retryAt - now))
         return
       }
@@ -186,6 +250,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       stoppedOn.current = null
       written.current = null
       passed.current = null
+      reported.current = null
     }
     evaluate.current()
   }, [current])

@@ -49,6 +49,10 @@ export interface DraftFailureView {
   /** Failed attempts in a row. */
   attempts: number
   retry_in_ms: number
+  /** The latest attempt's error code; added after the field, so older services leave it out. */
+  code?: string
+  /** Set with `storage_failed`, as in the error envelope. */
+  reason?: StorageReason
   message: string
 }
 
@@ -250,6 +254,8 @@ function isDraftFailure(value: unknown): value is DraftFailureView | null | unde
     (isRecord(value) &&
       isCount(value.attempts) &&
       isCount(value.retry_in_ms) &&
+      (value.code === undefined || typeof value.code === 'string') &&
+      (value.reason === undefined || isStorageReason(value.reason)) &&
       typeof value.message === 'string')
   )
 }
