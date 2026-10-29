@@ -1490,6 +1490,42 @@ test('after a group reply the new group takes the place of the grouped objects i
   assert.equal(selectionAfterReply(new Set(['s2']), commands, before, after), null, 'a service without selections')
 })
 
+const { pressEdit } = await import('../apps/web/src/hooks/use-document-editor.ts')
+
+test('an edit carries the selection it was made with, even when the selection changes before it is sent', () => {
+  const shown = grouped()
+  // Delete clears the live selection as it queues the edit; the request is built later.
+  const pressed = new Set(['a2', 'b1', 's3'])
+  const deleteAtom = [{ op: 'delete_atoms', atoms: ['a2'] }]
+  const build = pressEdit(deleteAtom, pressed, shown.document)
+  pressed.clear()
+  assert.deepEqual(build(grouped()), {
+    revision: 2,
+    commands: deleteAtom,
+    selections: {
+      before: { objects: ['s3'], atoms: ['a2'], bonds: ['b1'] },
+      after: { objects: ['s3'], atoms: [], bonds: [] },
+    },
+  }, 'undo restores what the edit acted on')
+  // An edit built from the latest document uses its revision, and the selection when pressed.
+  const later = grouped()
+  later.document.revision = 5
+  const latest = pressEdit((document) => [{ op: 'delete_atoms', atoms: [document.atoms[1].id] }], new Set(['a2']), shown.document)
+  assert.deepEqual(latest(later).selections.before.atoms, ['a2'])
+  assert.equal(latest(later).revision, 5)
+  // A list is built from the document on screen: it is sent with that revision, never to another
+  // document, and after a restart only when the restarted service matched the same view.
+  assert.equal(build(later).revision, 2)
+  const other = grouped()
+  other.document.id = 'doc-2'
+  assert.equal(build(other), null, 'another document is shown')
+  assert.equal(build(later, later), null, 'the restarted service matched a newer view')
+  assert.equal(build(later, grouped()).revision, 5, 'the same view, at the restarted revision')
+  const older = drawnTwice()
+  assert.equal(pressEdit(deleteAtom, new Set(['a2']), older.document)(older).selections, undefined, 'a service without selections')
+  assert.equal(pressEdit([], new Set(), shown.document)(grouped()), null, 'nothing to send')
+})
+
 test('an edit carries the selection before it and after it', () => {
   const { document } = grouped()
   const live = new Set(['s4', 's3', 'a1', 's9'])

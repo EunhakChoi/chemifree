@@ -54,9 +54,48 @@ export type TrashState =
  * that revision, so if an earlier queued request changed the document first, the server
  * rejects it as a revision conflict. Edits relative to the latest state (such as "one more
  * charge") pass a function instead, evaluated when the queued request runs. Returning null
- * skips the request.
+ * skips the request. Either way the edit carries the selection it was made with.
  */
 export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
+
+/** A transaction ready to send: the revision it is based on, its commands, and its selections. */
+export interface EditRequest {
+  revision: number
+  commands: Command[]
+  /** Left out for a service that takes no selection. */
+  selections?: ReturnType<typeof selections>
+}
+
+/**
+ * Fixes `edit` as the user makes it, with `pressed` (the live selection then) and `shown` (the
+ * document on screen), and returns what builds its request once the queue reaches it: on
+ * `document`, the latest, or after a restart on the document the restarted service reopened,
+ * `restartedFrom` being the view it matched. Null sends nothing. The selections it carries are
+ * the pressed one before the edit and the pressed one less what the edit deletes after it (a
+ * group named `$N`), whatever the live selection has become by then: Delete clears it as it
+ * queues the edit, yet undo restores what the edit acted on.
+ */
+export function pressEdit(edit: Edit, pressed: ReadonlySet<string>, shown: DocumentView | undefined) {
+  const selected: ReadonlySet<string> = new Set(pressed)
+  return (document: DocumentResponse, restartedFrom?: DocumentResponse): EditRequest | null => {
+    const request = (revision: number, commands: Command[]): EditRequest => ({
+      revision,
+      commands,
+      ...(document.document.selection ? { selections: selections(selected, commands, document.document) } : {}),
+    })
+    if (typeof edit === 'function') {
+      const commands = edit(document.document)
+      return commands?.length ? request(document.document.revision, commands) : null
+    }
+    if (!edit.length || shown?.id !== document.document.id) return null
+    if (restartedFrom) {
+      // Built on an older view than the one the restarted service matched: it lapses.
+      if (restartedFrom.document.revision !== shown.revision) return null
+      return request(document.document.revision, edit)
+    }
+    return request(shown.revision, edit)
+  }
+}
 
 const client = new DocumentClient()
 
@@ -212,15 +251,15 @@ export function useDocumentEditor() {
   )
 
   /**
-   * Sends `commands` with the live selection before them and less what they delete after them,
-   * for a service that records selections in history. A group's reply selects the new group in
-   * place of the grouped objects (the selection after names it by its command's index, so
-   * history records it too), keeping whatever else is selected, also since the request was sent.
+   * Sends `request` (see pressEdit: its selections are the ones the edit was made with) to
+   * `document`. A group's reply selects the new group in place of the grouped objects (the
+   * selection after names it by its command's index, so history records it too), keeping
+   * whatever else is live, also what changed since the edit was made.
    */
   const transact = useCallback(
-    async (document: DocumentView, revision: number, commands: Command[]) => {
-      const sent = document.selection ? selections(selectionRef.current, commands, document) : undefined
-      const reply = await client.transact(document.id, revision, commands, sent)
+    async (document: DocumentView, request: EditRequest) => {
+      const { revision, commands } = request
+      const reply = await client.transact(document.id, revision, commands, request.selections)
       const grouped = selectionAfterReply(selectionRef.current, commands, document, reply.document)
       if (grouped && currentRef.current?.document.id === reply.document.id) select(grouped)
       return reply
@@ -408,21 +447,13 @@ export function useDocumentEditor() {
         }),
       [run, setCurrent, refreshList],
     ),
+    /** Queues `edit` with the selection it is made with (see pressEdit). */
     apply: useCallback(
       (edit: Edit) => {
-        const shown = currentRef.current?.document
+        const build = pressEdit(edit, selectionRef.current, currentRef.current?.document)
         return mutate((document, restartedFrom) => {
-          if (typeof edit === 'function') {
-            const commands = edit(document.document)
-            return commands?.length ? transact(document.document, revision(document), commands) : null
-          }
-          if (!edit.length || shown?.id !== document.document.id) return null
-          if (restartedFrom) {
-            // Built on an older view than the one the restarted service matched: it lapses.
-            if (restartedFrom.document.revision !== shown.revision) return null
-            return transact(document.document, revision(document), edit)
-          }
-          return transact(document.document, shown.revision, edit)
+          const request = build(document, restartedFrom)
+          return request ? transact(document.document, request) : null
         })
       },
       [mutate, transact],

@@ -1956,8 +1956,8 @@ step = 'after recorded_states_drawn_and_kept'
     return refused
   }
 
-  /** Presses `button`, runs `during` while its /transactions request is held, then lets it go. */
-  const pressedWhileHeld = async (button, during) => {
+  /** Runs `press`, then `during` while the /transactions request it sends is held, then lets it go. */
+  const pressedWhileHeld = async (press, during) => {
     let release
     const held = new Promise((resolveHeld) => {
       release = resolveHeld
@@ -1967,7 +1967,7 @@ step = 'after recorded_states_drawn_and_kept'
       await route.continue()
     }
     await page.route('**/transactions', hold)
-    await button.click()
+    await press()
     await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
     await during()
     release()
@@ -2075,7 +2075,7 @@ step = 'after recorded_states_drawn_and_kept'
   // The rectangle s8 is selected while the group request is held: the new group takes the place
   // of the grouped objects only, and s8 stays selected.
   await selectOnly(['s2', 's9'])
-  await pressedWhileHeld(scenePanel.getByRole('button', { name: 'Group', exact: true }), () => setChecked('s8', true))
+  await pressedWhileHeld(() => scenePanel.getByRole('button', { name: 'Group', exact: true }).click(), () => setChecked('s8', true))
   await scenePanel.locator('li[data-scene-object="s10"]').waitFor()
   assert.deepEqual(
     [await checked('s10'), await checked('s8'), await checked('s2'), await checked('s9')],
@@ -2117,6 +2117,46 @@ step = 'after recorded_states_drawn_and_kept'
   assert.equal(await page.locator('[data-frame][data-selected]').count(), 1, 'only the selected placement')
   assert.deepEqual(await outsideView(), [], 'with a placement selected')
   assert.match(await canvas.getAttribute('aria-label'), /: \d+ atoms, \d+ bonds?, 2 graphics, 1 group$/, 'the canvas names its graphics and groups')
+
+  // Delete clears the selection as it queues its edit. With the request held, the clearing comes
+  // first, yet the edit records the atom and bond it deleted as the selection before it, so undo
+  // brings them back selected.
+  await tool('Select and move')
+  const drawnAtoms = await sceneDoc()
+  const at = (id) => drawnAtoms.atoms.find((atom) => atom.id === id).position
+  const middle = (item) => ({ x: (at(item.begin).x + at(item.end).x) / 2, y: (at(item.begin).y + at(item.end).y) / 2 })
+  // A bond whose middle (in s1, where `position` is) is clear of every atom and label box.
+  const labelBoxes = await page
+    .locator('[data-atom-label][data-box]')
+    .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-box').split(' ').map(Number)))
+  const points = drawnAtoms.scene.instances.flatMap((instance) => instance.positions)
+  const clear = (point) =>
+    labelBoxes.every(([x, y, width, height]) => point.x < x - 4 || point.x > x + width + 4 || point.y < y - 4 || point.y > y + height + 4) &&
+    points.every((other) => Math.hypot(other.x - point.x, other.y - point.y) > 12)
+  const bond = drawnAtoms.bonds.find((item) => clear(middle(item)))
+  assert.ok(bond, 'a bond that can be clicked')
+  // The scene panel's buttons may have scrolled the canvas out of view.
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const atomAt = await screen(at(bond.begin))
+  await page.mouse.click(atomAt.x, atomAt.y)
+  await page.getByRole('heading', { name: `Atom ${bond.begin}` }).waitFor()
+  const bondAt = await screen(middle(bond))
+  await page.keyboard.down('Shift')
+  await page.mouse.click(bondAt.x, bondAt.y)
+  await page.keyboard.up('Shift')
+  const inspectorHeading = page.locator('aside[aria-label="Selection"] h3')
+  await page.getByRole('heading', { name: '2 selected' }).waitFor()
+  await pressedWhileHeld(() => page.keyboard.press('Delete'), async () => {
+    assert.equal(await inspectorHeading.textContent(), 'Selection', 'Delete cleared the selection before its request ran')
+  })
+  const afterDelete = await sceneDoc()
+  assert.equal(afterDelete.atoms.some((atom) => atom.id === bond.begin), false, 'the atom is deleted')
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await waitIdle()
+  const undoneDelete = await sceneDoc()
+  assert.deepEqual([undoneDelete.atoms.length, undoneDelete.bonds.length], [drawnAtoms.atoms.length, drawnAtoms.bonds.length], 'undo brings them back')
+  assert.deepEqual(undoneDelete.selection, { objects: [], atoms: [bond.begin], bonds: [bond.id] }, 'the selection before the delete')
+  assert.equal(await inspectorHeading.textContent(), '2 selected', 'and they are selected again')
 }
 results.scene_groups_and_selection = true
 step = 'after scene_groups_and_selection'
