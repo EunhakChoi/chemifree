@@ -1664,6 +1664,25 @@ impl Document {
         content
             .check_selection(&parts.selection)
             .map_err(|error| RestoreError(format!("invalid selection: {error}")))?;
+        // The selection is what the latest edit, undo, or redo left: the newest undo entry's
+        // selection after (an edit or a redo) or the nearest redo entry's selection before (an
+        // undo). Either may apply when both exist, since a client may send a selection before
+        // an edit other than the one the previous edit left; a redo then leaves the next redo
+        // entry's selection before apart from the selection. An edit whose entry alone exceeds
+        // the history limits leaves no history, and with none any selection that exists is
+        // accepted.
+        let boundaries = [
+            parts.undo.last().map(|set| &set.selection.after),
+            parts.redo.last().map(|set| &set.selection.before),
+        ];
+        if boundaries.iter().any(Option::is_some)
+            && !boundaries
+                .iter()
+                .flatten()
+                .any(|end| **end == parts.selection)
+        {
+            return Err(invalid("the selection is not the one the history ends at"));
+        }
         // Editing keeps undo + redo within the limits (undo and redo only move entries between
         // them). A stored history beyond them, e.g. written under looser limits, is trimmed the
         // way editing trims: oldest undo entries first, then the farthest redo entries.
@@ -1676,11 +1695,18 @@ impl Document {
                 redo.remove(0);
             }
         }
+        // Trimming every undo entry may drop the one the selection matched; the history left
+        // then ends at the nearest redo entry's selection before, so the document restores
+        // again once saved.
+        let selection = match redo.last() {
+            Some(set) if undo.is_empty() => set.selection.before.clone(),
+            _ => parts.selection,
+        };
         let document = Self {
             id: parts.id,
             revision: parts.revision,
             content,
-            selection: parts.selection,
+            selection,
             next_atom: parts.next_atom,
             next_bond: parts.next_bond,
             next_object: parts.next_object,

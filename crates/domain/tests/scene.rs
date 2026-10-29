@@ -852,3 +852,114 @@ fn restore_rejects_containment_deeper_than_the_limit() {
     parts.objects.retain(|(id, _)| *id != s(first));
     Document::restore(parts).unwrap();
 }
+
+/// The edit `move_objects(s3)` sent with `before` and `after` as the client's selections.
+fn nudged_with(document: &mut Document, before: Selection, after: Selection) {
+    document
+        .apply_with_selections(
+            &[move_objects(&[3], 1.0, 0.0)],
+            SelectionUpdate {
+                before: Some(before),
+                after: Some(after.into()),
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn restore_refuses_a_selection_that_is_not_where_its_history_ends() {
+    let mut document = drawing();
+    nudged_with(&mut document, selection(&[], &[]), selection(&[3], &[]));
+    nudged_with(
+        &mut document,
+        selection(&[2], &[]),
+        selection(&[2, 3], &[1]),
+    );
+    // After an edit: the newest undo entry's selection after, and nothing else that exists.
+    let mut parts = document.to_parts();
+    parts.selection = selection(&[3], &[]);
+    assert!(
+        Document::restore(parts).is_err(),
+        "an edit's selection after"
+    );
+    Document::restore(document.to_parts()).unwrap();
+
+    // After an undo: the nearest redo entry's selection before, or the newest undo entry's
+    // selection after (which a redo leaves); anything else is refused.
+    document.undo().unwrap();
+    assert_eq!(*document.selection(), selection(&[2], &[]));
+    for (chosen, accepted) in [
+        (selection(&[2], &[]), true),
+        (selection(&[3], &[]), true),
+        (selection(&[2, 3], &[1]), false),
+        (selection(&[], &[]), false),
+    ] {
+        let mut parts = document.to_parts();
+        parts.selection = chosen.clone();
+        assert_eq!(
+            Document::restore(parts).is_ok(),
+            accepted,
+            "{chosen:?} after an undo"
+        );
+    }
+}
+
+#[test]
+fn a_redo_that_leaves_another_redo_entry_with_a_different_selection_before_restores() {
+    // The client changed the selection between the edits, so the second edit's selection
+    // before differs from what the first left. Redoing the first leaves the second in redo.
+    let mut document = drawing();
+    nudged_with(&mut document, selection(&[], &[]), selection(&[3], &[]));
+    nudged_with(&mut document, selection(&[2], &[]), selection(&[2], &[]));
+    document.undo().unwrap();
+    document.undo().unwrap();
+    document.redo().unwrap();
+    assert_eq!(*document.selection(), selection(&[3], &[]));
+    assert_eq!(Document::restore(document.to_parts()).unwrap(), document);
+}
+
+#[test]
+fn trimming_every_undo_entry_on_restore_leaves_the_selection_at_the_nearest_redo_entry() {
+    // A stored history one entry over the limit (as looser limits could have written): the
+    // undo entry the selection matches is trimmed, so the selection becomes the one the
+    // remaining history ends at, and the result restores again.
+    let mut first = Document::new(DocumentId::parse("doc-trim").unwrap(), "Trim").unwrap();
+    first
+        .apply_with_selection(
+            &[add_graphic(rectangle(0.0, 0.0), None)],
+            Some(selection(&[2], &[])),
+        )
+        .unwrap();
+    let added = first.to_parts().undo;
+    let mut document = first.clone();
+    for _ in 0..chemifree_domain::document::HISTORY_LIMIT {
+        document
+            .apply_with_selections(
+                &[Command::MoveObjects {
+                    objects: vec![s(2)],
+                    offset: offset(1.0, 0.0),
+                }],
+                SelectionUpdate {
+                    before: Some(selection(&[], &[])),
+                    after: Some(selection(&[2], &[]).into()),
+                },
+            )
+            .unwrap();
+    }
+    while document.undo_depth() > 0 {
+        document.undo().unwrap();
+    }
+    let mut parts = document.to_parts();
+    parts.undo = added;
+    parts.selection = selection(&[2], &[]);
+    let restored = Document::restore(parts).unwrap();
+    assert_eq!(
+        (restored.undo_depth(), restored.redo_depth()),
+        (0, chemifree_domain::document::HISTORY_LIMIT)
+    );
+    assert!(
+        restored.selection().is_empty(),
+        "the nearest redo entry's before"
+    );
+    assert_eq!(Document::restore(restored.to_parts()).unwrap(), restored);
+}

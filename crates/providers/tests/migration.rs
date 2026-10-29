@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use chemifree_application::{DocumentRepository, Draft, DraftStatus, StorageError};
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId,
-    NewAtomPositions, ObjectId, Point, Vector,
+    NewAtomPositions, ObjectId, Point, SelectionUpdate, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{DeleteMode, Graphic, SceneObject, Selection, Shape};
@@ -965,6 +965,77 @@ fn the_scene_tree_and_selections_round_trip_in_version_4() {
     reopened.undo().unwrap();
     assert!(reopened.selection().is_empty());
     assert_eq!(reopened.roots(), [object(1), object(3)]);
+}
+
+/// The stored selection is where the stored history ends: what the newest undo entry left
+/// after it or, after an undo, the nearest redo entry's selection before. Any other selection
+/// is unreadable even when everything it names exists.
+#[test]
+fn a_stored_selection_the_history_does_not_end_at_is_unreadable() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let objects = |serials: &[u32]| Selection {
+        objects: serials.iter().map(|serial| object(*serial)).collect(),
+        ..Selection::default()
+    };
+    let nudge = |document: &mut Document, before: &[u32], after: &[u32]| {
+        document
+            .apply_with_selections(
+                &[Command::MoveObjects {
+                    objects: vec![object(3)],
+                    offset: Vector { dx: 1.0, dy: 0.0 },
+                }],
+                SelectionUpdate {
+                    before: Some(objects(before)),
+                    after: Some(objects(after).into()),
+                },
+            )
+            .unwrap();
+    };
+    let mut document = Document::new(id(), "Selected").unwrap();
+    document
+        .apply(&[
+            Command::AddInstance {
+                source: None,
+                offset: Vector { dx: 1.0, dy: 0.0 },
+            },
+            Command::AddGraphic {
+                graphic: Graphic {
+                    shape: Shape::Line,
+                    points: [point(0.0, 0.0), point(5.0, 0.0)],
+                },
+                parent: None,
+            },
+        ])
+        .unwrap();
+    // The selection changed between the nudges (not an edit), so after undoing both and
+    // redoing the first, the selection (s3) differs from the next redo entry's before (s2).
+    nudge(&mut document, &[], &[3]);
+    nudge(&mut document, &[2], &[2]);
+    document.undo().unwrap();
+    document.undo().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, None).unwrap();
+    assert_eq!(
+        repository.load(&id()).unwrap().unwrap(),
+        document,
+        "it reopens"
+    );
+
+    let path = root.path().join("documents").join(format!("{ID}.json"));
+    let valid = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+    let current = "\"selection\":{\"objects\":[\"s3\"]";
+    assert_eq!(
+        valid.matches(current).count(),
+        1,
+        "only the current selection"
+    );
+    let corrupt = valid.replace(current, "\"selection\":{\"objects\":[\"s1\"]");
+    fs::write(&path, &corrupt).unwrap();
+    assert!(
+        matches!(repository.load(&id()), Err(StorageError::Corrupt(_))),
+        "an existing object the history does not end at was accepted"
+    );
 }
 
 #[test]
