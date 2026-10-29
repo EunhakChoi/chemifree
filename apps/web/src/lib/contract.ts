@@ -29,6 +29,11 @@ export interface OperationSupport {
   /** The plan entry expected to change this, for an operation that does not run. */
   followup?: string
   note: string
+  /**
+   * On a sub-operation that is a capability rather than a command: the commands that carry it
+   * out (empty while it is not implemented). Absent on command rows and in older replies.
+   */
+  commands?: string[]
   sub_operations?: OperationSupport[]
 }
 
@@ -91,6 +96,8 @@ function isOperationSupport(value: unknown): value is OperationSupport {
     EXECUTIONS.includes(value.execution) &&
     typeof value.note === 'string' &&
     (value.followup === undefined || typeof value.followup === 'string') &&
+    (value.commands === undefined ||
+      (Array.isArray(value.commands) && value.commands.every((command) => typeof command === 'string'))) &&
     (value.sub_operations === undefined ||
       (Array.isArray(value.sub_operations) &&
         value.sub_operations.every(isOperationSupport) &&

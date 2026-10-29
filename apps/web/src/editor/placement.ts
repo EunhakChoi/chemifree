@@ -5,7 +5,14 @@
  * every scene instance.
  */
 import { distance, round } from '@/editor/geometry'
-import { placements, type DocumentView, type NewAtomPlacement, type Placement, type Position } from '@/lib/document-contract'
+import {
+  placements,
+  type Command,
+  type DocumentView,
+  type NewAtomPlacement,
+  type Placement,
+  type Position,
+} from '@/lib/document-contract'
 
 /** The document with its atoms at `placement`'s positions, for drawing and hit testing it. */
 export function placedView(document: DocumentView, placement: Placement): DocumentView {
@@ -39,25 +46,69 @@ export function placementAt(document: DocumentView, point: Position): string | n
 }
 
 /**
- * Where an atom placed at `point` in placement `clicked` goes. With one placement that is the
- * point itself. With several, every other placement gets the point shifted by how far that
- * placement has moved the atom nearest to the point in the clicked placement, so the new atom
- * keeps the same place relative to its neighbors in each drawing. Without atoms every
- * placement gets the point.
+ * Where an atom placed at `point` in placement `clicked` goes, when it is bonded to nothing:
+ * see `placeNewAtoms`.
  */
 export function newAtomPlacement(document: DocumentView, clicked: string | null, point: Position): NewAtomPlacement {
+  return placeNewAtoms(document, clicked, [{ point }])[0]
+}
+
+/**
+ * A new atom of one gesture: where it was put in the clicked placement, and the atom it is
+ * bonded to, an existing atom's ID or `$N` for the gesture's Nth new atom (the gesture's
+ * commands are its new atoms, in order, so `$N` is also their transaction reference).
+ */
+export interface NewAtom {
+  point: Position
+  bondTo?: string
+}
+
+/**
+ * Where a gesture's new atoms go in every placement, in order. With one placement each goes
+ * where it was put. With several, every other placement gets the point shifted so the atom
+ * keeps its place relative to an anchor: the atom it is bonded to (an existing atom, or the
+ * position already chosen there for an earlier new atom), so new bonds have the same length
+ * and direction in every drawing; an atom bonded to nothing follows the atom nearest to it
+ * in the clicked placement, and without atoms every placement gets the point.
+ */
+export function placeNewAtoms(document: DocumentView, clicked: string | null, atoms: NewAtom[]): NewAtomPlacement[] {
   const all = placements(document)
   const source = all.find((placement) => placement.id === clicked) ?? all[0]
-  if (all.length === 1 || source.id === null) return { position: point }
-  const anchor = nearestAtom(source, point)?.atom
-  const from = anchor === undefined ? undefined : source.positions.get(anchor)
-  const positions: Record<string, Position> = {}
-  for (const placement of all) {
-    if (placement.id === null) continue
-    const to = anchor === undefined ? undefined : placement.positions.get(anchor)
-    const shift = from && to ? { x: to.x - from.x, y: to.y - from.y } : { x: 0, y: 0 }
-    positions[placement.id] =
-      placement.id === source.id ? point : { x: round(point.x + shift.x), y: round(point.y + shift.y) }
+  if (all.length === 1 || source.id === null) return atoms.map(({ point }) => ({ position: point }))
+  const placed: Record<string, Position>[] = []
+  for (const { point, bondTo } of atoms) {
+    // Where the anchor is in each placement, by placement ID.
+    let anchor: (placement: Placement) => Position | undefined
+    const earlier = bondTo?.startsWith('$') ? placed[Number(bondTo.slice(1))] : undefined
+    if (earlier) {
+      anchor = (placement) => (placement.id === null ? undefined : earlier[placement.id])
+    } else {
+      const atom = bondTo !== undefined && source.positions.has(bondTo) ? bondTo : nearestAtom(source, point)?.atom
+      anchor = (placement) => (atom === undefined ? undefined : placement.positions.get(atom))
+    }
+    const from = anchor(source)
+    const positions: Record<string, Position> = {}
+    for (const placement of all) {
+      if (placement.id === null) continue
+      const to = anchor(placement)
+      const shift = from && to ? { x: to.x - from.x, y: to.y - from.y } : { x: 0, y: 0 }
+      positions[placement.id] =
+        placement.id === source.id ? point : { x: round(point.x + shift.x), y: round(point.y + shift.y) }
+    }
+    placed.push(positions)
   }
-  return { positions }
+  return placed.map((positions) => ({ positions }))
+}
+
+/** Where a duplicated placement goes, relative to the one it copies: below and slightly right. */
+export const DUPLICATE_OFFSET: Position = { x: 40, y: 80 }
+
+/**
+ * The command that draws the molecule once more: a copy of the last placement, offset from it,
+ * so repeated copies step down the page instead of landing on each other. Null for a service
+ * without scene instances.
+ */
+export function duplicatePlacement(document: DocumentView): Command | null {
+  const last = document.scene?.instances.at(-1)
+  return last ? { op: 'add_instance', source: last.id, offset: DUPLICATE_OFFSET } : null
 }

@@ -509,6 +509,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         .find(|entry| entry["id"] == "document.transaction")
         .unwrap();
     let mut commands = Vec::new();
+    let mut capabilities: Vec<(String, Vec<String>)> = Vec::new();
     for (index, part) in transaction["sub_operations"]
         .as_array()
         .unwrap()
@@ -526,18 +527,33 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         );
         let message = reply["diagnostics"][0]["message"].as_str().unwrap();
         let unknown = message.contains("unknown variant");
-        match (part["execution"].as_str().unwrap(), op) {
-            ("executable", "scene_placement") => {
-                assert!(
-                    unknown,
-                    "scene_placement is a group, not a command: {message}"
+        let executable = part["execution"] == "executable";
+        // A row with `commands` is a capability carried out by those commands; one without
+        // is itself a command, which parses exactly when it is executable.
+        match part.get("commands") {
+            Some(listed) => {
+                assert!(unknown, "the capability {op} is not a command: {message}");
+                let listed: Vec<String> = serde_json::from_value(listed.clone())
+                    .unwrap_or_else(|error| panic!("{op}: commands is a list of names: {error}"));
+                assert_eq!(
+                    !listed.is_empty(),
+                    executable,
+                    "{op}: an executable capability names its commands, another names none"
                 );
+                capabilities.push((op.to_owned(), listed));
             }
-            ("executable", _) => {
-                assert!(!unknown, "{op} is listed as executable: {message}");
+            None => {
+                assert_eq!(!unknown, executable, "{op}: {message}");
                 commands.push(op);
             }
-            (other, _) => assert!(unknown, "{op} is {other} but parsed: {message}"),
+        }
+    }
+    for (capability, listed) in &capabilities {
+        for command in listed {
+            assert!(
+                commands.contains(&command.as_str()),
+                "{capability} names {command}, which is not an executable command row"
+            );
         }
     }
     assert_eq!(
@@ -556,5 +572,14 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "delete_instance",
         ]
     );
+    let placement = capabilities
+        .iter()
+        .find(|(id, _)| id == "scene_placement")
+        .expect("scene_placement is a capability row");
+    assert_eq!(
+        placement.1,
+        ["add_instance", "move_instance", "delete_instance"]
+    );
+    assert_eq!(capabilities.len(), 6, "{capabilities:?}");
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

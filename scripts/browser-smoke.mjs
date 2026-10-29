@@ -1529,6 +1529,15 @@ step = 'after operation_catalog'
   await page.getByRole('button', { name: 'Undo' }).click()
   await waitIdle()
   assert.deepEqual(positionsOf(await placedDoc(), 's2'), positionsOf(grown, 's2'), 'undo puts it back')
+
+  // Another copy is made from the last placement, the moved s2, so it does not land on it.
+  await page.getByRole('button', { name: 'Duplicate placement' }).click()
+  await waitIdle()
+  await page.locator('li[data-placement="s3"]').waitFor()
+  const copied = await placedDoc()
+  for (const [atom, position] of Object.entries(positionsOf(copied, 's2'))) {
+    assert.deepEqual(positionsOf(copied, 's3')[atom], { x: position.x + 40, y: position.y + 80 }, `${atom} in s3`)
+  }
 }
 results.placements_move_independently = true
 step = 'after placements_move_independently'

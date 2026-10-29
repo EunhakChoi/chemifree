@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
-import { newAtomPlacement, placedView, placementAt } from '@/editor/placement'
+import { placeNewAtoms, placedView, placementAt, type NewAtom } from '@/editor/placement'
 import {
   atomIndex,
   bondSegments,
@@ -119,8 +119,16 @@ export function StructureCanvas({
     return { hit: null, instance: only === undefined ? placementAt(document, point) : only }
   }
 
-  function newAtom(element: string, instance: string | null, position: Position) {
-    return { op: 'add_atom' as const, element, ...newAtomPlacement(document, instance, position) }
+  /**
+   * Commands adding a gesture's new atoms, in order, each placed in every placement and bonded
+   * to `bondTo` (an existing atom or `$N`, the gesture's Nth new atom) when it has one.
+   */
+  function addAtoms(element: string, instance: string | null, atoms: NewAtom[]): Command[] {
+    const placed = placeNewAtoms(document, instance, atoms)
+    return atoms.map(({ bondTo }, index): Command => {
+      const add = { op: 'add_atom' as const, element, ...placed[index] }
+      return bondTo === undefined ? add : { ...add, bond_to: { atom: bondTo, order: bondOrder } }
+    })
   }
 
   function toDocument(event: PointerEvent<SVGSVGElement>): Position {
@@ -261,14 +269,14 @@ export function StructureCanvas({
   }
 
   function bondCommands(gesture: Extract<Drag, { kind: 'bond' }>, point: Position, dragged: boolean): Command[] {
-    const at = (position: Position) => newAtom('C', gesture.instance, position)
+    const carbons = (atoms: NewAtom[]) => addAtoms('C', gesture.instance, atoms)
     if (!dragged) {
       if (gesture.fromAtom) {
         const position = freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom)
-        return position ? [{ ...at(position), bond_to: { atom: gesture.fromAtom, order: bondOrder } }] : []
+        return position ? carbons([{ point: position, bondTo: gesture.fromAtom }]) : []
       }
       const end = snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 })
-      return [at(gesture.start), { ...at(end), bond_to: { atom: '$0', order: bondOrder } }]
+      return carbons([{ point: gesture.start }, { point: end, bondTo: '$0' }])
     }
     const target = bondTarget(gesture, point)
     if (!target) return []
@@ -279,12 +287,12 @@ export function StructureCanvas({
         : [{ op: 'add_bond', begin: gesture.fromAtom, end: target.atom, order: bondOrder }]
     }
     if (gesture.fromAtom) {
-      return [{ ...at(target.position), bond_to: { atom: gesture.fromAtom, order: bondOrder } }]
+      return carbons([{ point: target.position, bondTo: gesture.fromAtom }])
     }
     if (target.atom) {
-      return [{ ...at(gesture.start), bond_to: { atom: target.atom, order: bondOrder } }]
+      return carbons([{ point: gesture.start, bondTo: target.atom }])
     }
-    return [at(gesture.start), { ...at(target.position), bond_to: { atom: '$0', order: bondOrder } }]
+    return carbons([{ point: gesture.start }, { point: target.position, bondTo: '$0' }])
   }
 
   function clickCommands(hit: Hit, instance: string | null, point: Position): Command[] {
@@ -301,7 +309,7 @@ export function StructureCanvas({
       if (hit?.kind === 'atom') {
         return atoms.get(hit.id)?.element === element ? [] : [{ op: 'update_atom', atom: hit.id, element }]
       }
-      if (!hit) return [newAtom(element, instance, point)]
+      if (!hit) return addAtoms(element, instance, [{ point }])
     }
     return []
   }

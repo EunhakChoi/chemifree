@@ -198,15 +198,29 @@
                       "id": "radical",
                       "representation": "not_supported",
                       "execution": "not_implemented",
-                      "followup": "P10"
+                      "followup": "P10",
+                      "commands": []
                     },
                     {
                       "id": "scene_placement",
                       "representation": "supported",
-                      "execution": "executable"
+                      "execution": "executable",
+                      "commands": [
+                        "add_instance",
+                        "move_instance",
+                        "delete_instance"
+                      ]
                     },
                     {
                       "id": "add_instance",
+                      "execution": "executable"
+                    },
+                    {
+                      "id": "move_instance",
+                      "execution": "executable"
+                    },
+                    {
+                      "id": "delete_instance",
                       "execution": "executable"
                     }
                   ]

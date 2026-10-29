@@ -108,7 +108,8 @@ try {
     const response = await fetch(`${api.baseUrl}${path}`, {
       method,
       headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      // A string body is sent as written, for JSON that JSON.stringify cannot produce.
+      body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),
     })
     assert.match(response.headers.get('content-type'), /application\/json/)
@@ -202,6 +203,14 @@ try {
     commands: [{ op: 'add_bond', begin: 'a1', end: 'a2', order: 'double' }],
   })
   assert.deepEqual([invalid.status, invalid.body.code, invalid.body.command_index], [422, 'invalid_command', 0])
+  // A key given twice in `positions` makes the body malformed: `invalid_request` without a
+  // command index, like any other malformed body, and nothing changes. The CLI agrees below.
+  const repeatedKey = '[{"op":"add_atom","element":"N","positions":{"s1":{"x":0,"y":0},"s1":{"x":5,"y":5}}}]'
+  const twice = await write(`${doc}/transactions`,
+    `{"request_id":"edit-twice","expected_revision":1,"commands":${repeatedKey}}`)
+  assert.deepEqual([twice.status, twice.body.code, 'command_index' in twice.body], [422, 'invalid_request', false])
+  assert.match(twice.body.message, /duplicate key "s1"/)
+  assert.equal((await call(doc)).body.document.revision, 1, 'nothing changed')
 
   const changed = await write(`${doc}/transactions`, {
     request_id: 'edit-2',
@@ -256,6 +265,9 @@ try {
     expected_revision: 4,
     commands: [{ op: 'rename', title: 'HTTP title' }],
   })
+  const cliTwice = cli('documents', 'apply', id, '--expected-revision', '4', '--json', '--commands', repeatedKey)
+  assert.deepEqual([cliTwice.status, cliTwice.body.code, 'command_index' in cliTwice.body], [1, 'invalid_request', false])
+  assert.match(cliTwice.body.message, /duplicate key "s1"/)
   const cliEdit = cli('documents', 'apply', id, '--expected-revision', '4', '--json', '--commands',
     JSON.stringify([{ op: 'move_atoms', atoms: ['a1'], delta: { x: 5, y: 5 } }]))
   assert.equal(cliEdit.status, 0)

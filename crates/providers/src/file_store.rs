@@ -20,7 +20,9 @@
 //! - `migrated/<id>.v1.json`: the exact bytes of a version 1 document file, kept by the first
 //!   save that replaces it with version 2 (reading and migrating a file never writes). Under
 //!   the save lock, the copy is written to a temporary file, flushed to disk, and renamed into
-//!   place before the document is replaced; an existing copy is never overwritten. These
+//!   place before the document is replaced. A copy is never overwritten: a later version 1
+//!   file with other bytes under the same ID is kept as `migrated/<id>.v1.2.json`, then
+//!   `.v1.3.json`, and so on, while one whose bytes are already kept is not copied again. These
 //!   copies are not documents: they are not listed, opened, trashed, restored, or removed.
 
 use std::collections::{HashMap, HashSet};
@@ -163,21 +165,42 @@ impl FileDocumentRepository {
         self.drafts.join(format!("{id}.committing"))
     }
 
-    /// Where the first save over a version 1 file keeps that file's bytes.
+    /// Where the first save over a version 1 file keeps that file's bytes. Later version 1
+    /// files with other bytes under the same ID are kept as `<id>.v1.2.json`, `.v1.3.json`, ….
     pub fn migrated_path(&self, id: &DocumentId) -> PathBuf {
-        self.migrated.join(format!("{id}.v1.{EXTENSION}"))
+        self.migrated_copy_path(id, 1)
     }
 
-    /// Keeps `stored`, the version 1 file a save is about to replace, unless a copy is already
-    /// kept. Called with the save lock held, so no other save checks or writes the copy
-    /// meanwhile.
-    fn keep_version_1(&self, id: &DocumentId, stored: &[u8]) -> Result<(), StorageError> {
-        let kept = self.migrated_path(id);
-        if exists(&kept)? {
-            return Ok(());
+    fn migrated_copy_path(&self, id: &DocumentId, number: u32) -> PathBuf {
+        if number == 1 {
+            self.migrated.join(format!("{id}.v1.{EXTENSION}"))
+        } else {
+            self.migrated.join(format!("{id}.v1.{number}.{EXTENSION}"))
         }
-        self.write_atomically(&kept, stored)
-            .map_err(|error| write_failed("keep the version 1 file as", &kept, &error))
+    }
+
+    /// Keeps `stored`, the version 1 file a save is about to replace, unless a copy with the
+    /// same bytes is already kept. Copies are numbered in order and never overwritten: the
+    /// bytes go to the first free name. Called with the save lock held, so no other save
+    /// checks or writes these copies meanwhile.
+    fn keep_version_1(&self, id: &DocumentId, stored: &[u8]) -> Result<(), StorageError> {
+        for number in 1..=u32::MAX {
+            let kept = self.migrated_copy_path(id, number);
+            match fs::read(&kept) {
+                Ok(bytes) if bytes == stored => return Ok(()),
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return self.write_atomically(&kept, stored).map_err(|error| {
+                        write_failed("keep the version 1 file as", &kept, &error)
+                    });
+                }
+                Err(error) => return Err(unavailable("read", &kept, &error)),
+            }
+        }
+        Err(StorageError::Unavailable(format!(
+            "no free name to keep the version 1 file of {id} in {}",
+            self.migrated.display()
+        )))
     }
 
     /// Removes temporary files that interrupted writes abandoned more than an hour ago.

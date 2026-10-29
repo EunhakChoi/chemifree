@@ -8,7 +8,9 @@ import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 const { DocumentClient, isDocumentResponse } = await import('../apps/web/src/lib/document-contract.ts')
-const { newAtomPlacement, placementAt } = await import('../apps/web/src/editor/placement.ts')
+const { DUPLICATE_OFFSET, duplicatePlacement, newAtomPlacement, placeNewAtoms, placementAt } = await import(
+  '../apps/web/src/editor/placement.ts'
+)
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 
@@ -405,7 +407,22 @@ const catalog = () => ({
       execution: 'executable',
       note: 'Edits.',
       sub_operations: [
-        { id: 'radical', representation: 'not_supported', execution: 'not_implemented', followup: 'P10', note: 'No.' },
+        { id: 'add_instance', representation: 'supported', execution: 'executable', note: 'A command.' },
+        {
+          id: 'scene_placement',
+          representation: 'supported',
+          execution: 'executable',
+          note: 'A capability.',
+          commands: ['add_instance'],
+        },
+        {
+          id: 'radical',
+          representation: 'not_supported',
+          execution: 'not_implemented',
+          followup: 'P10',
+          note: 'No.',
+          commands: [],
+        },
       ],
     },
     { id: 'chem.properties', representation: 'not_supported', execution: 'not_implemented', followup: 'P19', note: 'No.' },
@@ -423,9 +440,16 @@ test('a capabilities reply without an operation catalog, from before it was adde
   assert.deepEqual(snapshot.capabilities, [capability])
 })
 
-test('an operation catalog is read with its sub-operations and follow-ups', async () => {
+test('an operation catalog is read with its sub-operations, follow-ups, and capability commands', async () => {
   const snapshot = await runtime({ api_version: 'v1', capabilities: [capability], operation_catalog: catalog() })
   assert.deepEqual(snapshot.operationCatalog, catalog())
+})
+
+test('an operation catalog from before capability rows named their commands is accepted', async () => {
+  const older = catalog()
+  for (const part of older.operations[0].sub_operations) delete part.commands
+  const snapshot = await runtime({ api_version: 'v1', capabilities: [capability], operation_catalog: older })
+  assert.deepEqual(snapshot.operationCatalog, older)
 })
 
 for (const [name, change] of [
@@ -433,6 +457,8 @@ for (const [name, change] of [
   ['an unknown representation', (value) => (value.operations[0].sub_operations[0].representation = 'partial')],
   ['a duplicate operation', (value) => value.operations.push(value.operations[1])],
   ['a non-string follow-up', (value) => (value.operations[1].followup = 19)],
+  ['capability commands that are not a list', (value) => (value.operations[0].sub_operations[1].commands = 'add_instance')],
+  ['a capability command that is not a name', (value) => (value.operations[0].sub_operations[1].commands = [7])],
   ['no contract version', (value) => (value.contracts = [])],
   ['a profile without its execution', (value) => delete value.profiles[0].execution],
 ]) {
@@ -555,5 +581,45 @@ test('a queued gesture lapses when the placements it names have changed', () => 
   withS3.scene.instances.push({ ...withS3.scene.instances[1], id: 's3' })
   assert.equal(stillApplicable([placed], withS3), null, 'no position for a new instance')
   assert.equal(stillApplicable([{ op: 'add_atom', element: 'N', position: { x: 0, y: 0 } }], document), null)
+})
+
+/** a1 (0, 0) and a2 (100, 0) in s1; s2 drawn 80 pt lower, then a2 dragged 40 pt right in s2 only. */
+function stretched() {
+  const value = drawnTwice().document
+  value.atoms[1].position = { x: 100, y: 0 }
+  value.bonds = []
+  const at = (atom, x, y) => ({ atom, x, y })
+  value.scene.instances[0].positions = [at('a1', 0, 0), at('a2', 100, 0)]
+  value.scene.instances[1].positions = [at('a1', 0, 80), at('a2', 140, 80)]
+  return value
+}
+
+const vector = (from, to) => ({ x: to.x - from.x, y: to.y - from.y })
+
+test('two new atoms bonded to each other keep their bond in every placement', () => {
+  // A bond-tool click on empty canvas in s1: $0 at the click, $1 at the snapped end.
+  const [first, second] = placeNewAtoms(stretched(), 's1', [
+    { point: { x: 45, y: 30 } },
+    { point: { x: 71, y: 15 }, bondTo: '$0' },
+  ])
+  assert.deepEqual(first.positions, { s1: { x: 45, y: 30 }, s2: { x: 45, y: 110 } }, 'the first follows its nearest atom, a1')
+  for (const instance of ['s1', 's2']) {
+    assert.deepEqual(vector(first.positions[instance], second.positions[instance]), { x: 26, y: -15 }, instance)
+  }
+})
+
+test('a new atom bonded to an existing one keeps its bond in every placement, whatever atom is nearest', () => {
+  // Nearer a1, bonded to a2: s2 moved a2 by (40, 80) but a1 by (0, 80).
+  const [placed] = placeNewAtoms(stretched(), 's1', [{ point: { x: 30, y: 10 }, bondTo: 'a2' }])
+  assert.deepEqual(placed.positions, { s1: { x: 30, y: 10 }, s2: { x: 70, y: 90 } })
+})
+
+test('duplicating a placement copies the last one, so repeated copies do not land on each other', () => {
+  const document = stretched()
+  assert.deepEqual(duplicatePlacement(document), { op: 'add_instance', source: 's2', offset: DUPLICATE_OFFSET })
+  const older = drawnTwice().document
+  delete older.scene
+  delete older.molecule
+  assert.equal(duplicatePlacement(older), null, 'a service without scene instances cannot duplicate')
 })
 

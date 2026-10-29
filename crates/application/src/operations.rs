@@ -213,6 +213,10 @@ pub struct Support {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
     pub note: &'static str,
+    /// Present on a sub-operation that is a capability rather than a command: the commands
+    /// that carry it out (none while it is not implemented). Added within operation contract 1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<&'static [&'static str]>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sub_operations: Vec<Support>,
 }
@@ -224,6 +228,7 @@ struct Entry {
     execution: Execution,
     followup: Option<&'static str>,
     note: &'static str,
+    commands: Option<&'static [&'static str]>,
 }
 
 const fn runs(id: &'static str, note: &'static str) -> Entry {
@@ -233,6 +238,7 @@ const fn runs(id: &'static str, note: &'static str) -> Entry {
         execution: Execution::Executable,
         followup: None,
         note,
+        commands: None,
     }
 }
 
@@ -243,10 +249,19 @@ const fn missing(id: &'static str, followup: &'static str, note: &'static str) -
         execution: Execution::NotImplemented,
         followup: Some(followup),
         note,
+        commands: None,
     }
 }
 
 impl Entry {
+    /// Marks a transaction part as a capability carried out by `commands`, not a command.
+    const fn carried_out_by(self, commands: &'static [&'static str]) -> Self {
+        Self {
+            commands: Some(commands),
+            ..self
+        }
+    }
+
     fn view(&self, sub_operations: &[Entry]) -> Support {
         Support {
             id: self.id,
@@ -254,6 +269,7 @@ impl Entry {
             execution: self.execution.as_str(),
             followup: self.followup,
             note: self.note,
+            commands: self.commands,
             sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
         }
     }
@@ -304,28 +320,33 @@ const TRANSACTION_PARTS: [Entry; 17] = [
         "hydrogen_state",
         "P10",
         "Explicit, inferred, or unknown hydrogen counts are not represented.",
-    ),
-    missing("radical", "P10", "Radicals are not represented."),
+    )
+    .carried_out_by(&[]),
+    missing("radical", "P10", "Radicals are not represented.").carried_out_by(&[]),
     missing(
         "query_atom_or_bond",
         "P10",
         "Query atoms and bonds are not represented.",
-    ),
+    )
+    .carried_out_by(&[]),
     missing(
         "aromatic_or_dative_bond",
         "P10",
         "Aromatic and dative bond types are not represented.",
-    ),
+    )
+    .carried_out_by(&[]),
     missing(
         "attachment_point",
         "P10",
         "Attachment points are not represented.",
-    ),
+    )
+    .carried_out_by(&[]),
     runs(
         "scene_placement",
         "One chemical graph per document, drawn by scene instances on one page, each with its \
          own atom positions. Groups and other scene objects are not represented.",
-    ),
+    )
+    .carried_out_by(&["add_instance", "move_instance", "delete_instance"]),
 ];
 
 const PROPERTY_PARTS: [Entry; 2] = [

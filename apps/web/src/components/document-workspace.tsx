@@ -69,6 +69,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { stillApplicable } from '@/editor/commands'
+import { duplicatePlacement } from '@/editor/placement'
 import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
@@ -926,8 +927,6 @@ function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor
   )
 }
 
-/** Where a duplicated placement goes, relative to the first one: below and slightly right. */
-const DUPLICATE_OFFSET: Position = { x: 40, y: 80 }
 /** How far one press of a move button takes a placement, in points. */
 const NUDGE = 10
 const NUDGES: { label: string; offset: Position; icon: ReactNode }[] = [
@@ -942,6 +941,11 @@ const NUDGES: { label: string; offset: Position; icon: ReactNode }[] = [
  * is duplicated, moved, or deleted as a whole; the last one cannot be deleted.
  */
 function Placements({ instances, editor }: { instances: InstanceView[]; editor: DocumentEditor }) {
+  // Built from the latest document when the request runs, so it copies the placement that is last then.
+  const duplicate = () => void editor.apply((latest) => {
+    const command = duplicatePlacement(latest)
+    return command && [command]
+  })
   return (
     <section aria-labelledby="placements-heading" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
       <h3 id="placements-heading" className="text-sm font-medium">Placements</h3>
@@ -975,7 +979,7 @@ function Placements({ instances, editor }: { instances: InstanceView[]; editor: 
       <Button
         size="sm"
         variant="outline"
-        onClick={() => void editor.apply([{ op: 'add_instance', offset: DUPLICATE_OFFSET }])}
+        onClick={duplicate}
       >
         <CopyIcon data-icon="inline-start" aria-hidden="true" />Duplicate placement
       </Button>

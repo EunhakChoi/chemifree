@@ -192,17 +192,79 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
 }
 
+/// The names in `migrated/`, sorted.
+fn migrated_names(root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(root.join("migrated"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
-fn a_kept_version_1_copy_is_never_overwritten() {
-    let (_root, repository, _path) = stored(&fixture("v1-document.json"));
+fn a_different_version_1_file_under_a_kept_id_gets_the_next_numbered_copy() {
+    let original = fixture("v1-document.json");
+    let (root, repository, _path) = stored(&original);
     let kept = repository.migrated_path(&id());
     fs::create_dir_all(kept.parent().unwrap()).unwrap();
     fs::write(&kept, b"an earlier copy").unwrap();
+    fs::write(kept.with_file_name(format!("{ID}.v1.2.json")), b"another").unwrap();
 
     let mut document = repository.load(&id()).unwrap().unwrap();
     document.redo().unwrap();
     repository.save(&document, Some(4)).unwrap();
+
+    assert_eq!(
+        fs::read(&kept).unwrap(),
+        b"an earlier copy",
+        "never overwritten"
+    );
+    assert_eq!(
+        fs::read(kept.with_file_name(format!("{ID}.v1.2.json"))).unwrap(),
+        b"another"
+    );
+    assert_eq!(
+        fs::read(kept.with_file_name(format!("{ID}.v1.3.json"))).unwrap(),
+        original,
+        "the replaced bytes are kept under the next free name"
+    );
+    assert_eq!(
+        migrated_names(root.path()),
+        [
+            format!("{ID}.v1.2.json"),
+            format!("{ID}.v1.3.json"),
+            format!("{ID}.v1.json"),
+        ]
+    );
+}
+
+#[test]
+fn a_version_1_file_already_kept_byte_for_byte_is_not_copied_again() {
+    let original = fixture("v1-document.json");
+    let (root, repository, path) = stored(&original);
+    let kept = repository.migrated_path(&id());
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(&kept, b"an earlier copy").unwrap();
+    fs::write(kept.with_file_name(format!("{ID}.v1.2.json")), &original).unwrap();
+
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, Some(4)).unwrap();
+
+    assert_eq!(
+        migrated_names(root.path()),
+        [format!("{ID}.v1.2.json"), format!("{ID}.v1.json")],
+        "identical bytes are already kept"
+    );
     assert_eq!(fs::read(&kept).unwrap(), b"an earlier copy");
+
+    // The same version 1 bytes stored again under this ID are recognised as kept too.
+    fs::write(&path, &original).unwrap();
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, Some(4)).unwrap();
+    assert_eq!(migrated_names(root.path()).len(), 2);
 }
 
 #[test]
@@ -304,4 +366,64 @@ fn several_scene_instances_round_trip_in_version_2() {
         Some(point(30.1, 90.5))
     );
     assert!(!repository.migrated_path(&id()).exists());
+}
+
+/// A version 1 file whose history fits the version 1 limit but not version 2's: 60 entries
+/// alternately adding and deleting 1000 atoms are 60 000 changes in version 1, where an atom
+/// was one change, and 120 000 in version 2, where it is the atom plus its position.
+fn version_1_with_long_history() -> Vec<u8> {
+    use serde_json::{Value, json};
+    let atom = |serial: u32| json!({ "element": "C", "charge": 0, "isotope": null, "position": { "x": f64::from(serial % 1000), "y": 0.0 } });
+    let block = |block: u32, added: bool| -> Value {
+        let atoms: Vec<Value> = (1000 * block + 1..=1000 * block + 1000)
+            .map(|serial| {
+                let (before, after) = if added {
+                    (Value::Null, atom(serial))
+                } else {
+                    (atom(serial), Value::Null)
+                };
+                json!({ "id": format!("a{serial}"), "before": before, "after": after })
+            })
+            .collect();
+        json!({ "title": null, "atoms": atoms, "bonds": [] })
+    };
+    let undo: Vec<Value> = (0..30)
+        .flat_map(|k| [block(k, true), block(k, false)])
+        .collect();
+    let file = json!({
+        "format": "chemifree.document",
+        "format_version": 1,
+        "document": {
+            "id": ID, "revision": 60, "title": "Long history",
+            "atoms": [], "bonds": [], "next_atom": 30_001, "next_bond": 1
+        },
+        "history": { "undo": undo, "redo": [] }
+    });
+    serde_json::to_vec(&file).unwrap()
+}
+
+#[test]
+fn migrated_history_beyond_the_version_2_limit_is_trimmed_oldest_first_and_kept_in_full_on_save() {
+    let original = version_1_with_long_history();
+    let (_root, repository, _path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+
+    // 50 entries of 2000 changes fill the 100 000-change limit; the oldest 10 are dropped.
+    assert_eq!(document.undo_depth(), 50);
+    for _ in 0..50 {
+        document.undo().unwrap();
+    }
+    assert_eq!(document.atoms().len(), 0);
+    document.redo().unwrap();
+    let ids: Vec<String> = document.atoms().map(|(id, _)| id.to_string()).collect();
+    assert_eq!(ids.len(), 1000);
+    assert_eq!(
+        (ids.first().unwrap().as_str(), ids.last().unwrap().as_str()),
+        ("a5001", "a6000"),
+        "the oldest remaining entry is the sixth block's addition"
+    );
+
+    // The first save keeps the version 1 bytes, full history included.
+    repository.save(&document, Some(60)).unwrap();
+    assert_eq!(fs::read(repository.migrated_path(&id())).unwrap(), original);
 }
