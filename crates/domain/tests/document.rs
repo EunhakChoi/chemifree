@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command, Document,
-    DocumentId, EditError, HISTORY_LIMIT, HistoryError, InstanceId, MAX_ATOMS, MAX_COMMANDS,
-    MAX_EDIT_REVISION, MAX_INSTANCES, MAX_REVISION, NewAtomPositions, Outcome, Point, PositionKey,
-    RevisionsExhausted, TransactionError, Vector,
+    Atom, AtomId, AtomKind, AtomRef, AtomUpdate, BondId, BondOrder, BondTo, Change, ChangeSet,
+    Command, Document, DocumentId, EditError, HISTORY_LIMIT, HistoryError, InstanceId, MAX_ATOMS,
+    MAX_COMMANDS, MAX_EDIT_REVISION, MAX_INSTANCES, MAX_REVISION, NewAtomPositions, Outcome, Point,
+    PositionKey, RevisionsExhausted, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 
@@ -54,7 +54,7 @@ fn empty() -> Document {
 
 fn add(symbol: &str, x: f64, y: f64) -> Command {
     Command::AddAtom {
-        element: element(symbol),
+        atom: Atom::from(element(symbol)),
         positions: here(x, y),
         bond_to: None,
     }
@@ -67,7 +67,7 @@ fn ethanol() -> Document {
         .apply(&[
             add("C", 0.0, 0.0),
             Command::AddAtom {
-                element: Element::CARBON,
+                atom: Atom::from(Element::CARBON),
                 positions: here(26.0, 15.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Id(atom(1)),
@@ -75,7 +75,7 @@ fn ethanol() -> Document {
                 }),
             },
             Command::AddAtom {
-                element: element("O"),
+                atom: Atom::from(element("O")),
                 positions: here(52.0, 0.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Id(atom(2)),
@@ -119,7 +119,7 @@ fn one_transaction_is_one_revision_and_one_undo_entry() {
     assert_eq!(document.undo_depth(), 1);
     let atoms: Vec<_> = document
         .atoms()
-        .map(|(id, atom)| (id.to_string(), atom.element.symbol()))
+        .map(|(id, atom)| (id.to_string(), atom.element().unwrap().symbol()))
         .collect();
     assert_eq!(
         atoms,
@@ -145,9 +145,12 @@ fn atoms_and_bonds_can_be_edited() {
         .apply(&[
             Command::UpdateAtom {
                 atom: atom(3),
-                element: Some(element("N")),
-                charge: Some(1),
-                isotope: Some(Some(15)),
+                update: AtomUpdate {
+                    kind: Some(AtomKind::Element(element("N"))),
+                    charge: Some(1),
+                    isotope: Some(Some(15)),
+                    ..AtomUpdate::default()
+                },
             },
             Command::UpdateBond {
                 bond: bond(1),
@@ -169,7 +172,11 @@ fn atoms_and_bonds_can_be_edited() {
     assert_eq!(document.position(s1, atom(2)), Some(point(36.0, 10.0)));
     assert_eq!(document.position(s1, atom(3)), Some(point(52.0, 0.0)));
     assert_eq!(
-        (atoms[2].element.symbol(), atoms[2].charge, atoms[2].isotope),
+        (
+            atoms[2].element().unwrap().symbol(),
+            atoms[2].charge,
+            atoms[2].isotope
+        ),
         ("N", 1, Some(15))
     );
     assert_eq!(document.bonds().next().unwrap().1.order, BondOrder::Double);
@@ -178,9 +185,10 @@ fn atoms_and_bonds_can_be_edited() {
     document
         .apply(&[Command::UpdateAtom {
             atom: atom(3),
-            element: None,
-            charge: None,
-            isotope: Some(None),
+            update: AtomUpdate {
+                isotope: Some(None),
+                ..AtomUpdate::default()
+            },
         }])
         .unwrap();
     assert_eq!(document.atoms().nth(2).unwrap().1.isotope, None);
@@ -241,18 +249,20 @@ fn invalid_commands_reject_the_whole_transaction_with_the_failing_index() {
         (
             Command::UpdateAtom {
                 atom: atom(1),
-                element: None,
-                charge: Some(9),
-                isotope: None,
+                update: AtomUpdate {
+                    charge: Some(9),
+                    ..AtomUpdate::default()
+                },
             },
             EditError::ChargeOutOfRange(9),
         ),
         (
             Command::UpdateAtom {
                 atom: atom(1),
-                element: None,
-                charge: None,
-                isotope: Some(Some(0)),
+                update: AtomUpdate {
+                    isotope: Some(Some(0)),
+                    ..AtomUpdate::default()
+                },
             },
             EditError::IsotopeOutOfRange(0),
         ),
@@ -525,7 +535,7 @@ fn restore_rejects_change_sets_that_only_replay_one_way() {
     document.apply(&[add("C", 0.0, 0.0)]).unwrap();
     let carbon = document.atoms().next().unwrap().1.clone();
     let oxygen = Atom {
-        element: element("O"),
+        kind: AtomKind::Element(element("O")),
         ..carbon.clone()
     };
 
@@ -567,7 +577,7 @@ fn a_transaction_can_bond_atoms_it_creates() {
         .apply(&[
             add("N", 100.0, 0.0),
             Command::AddAtom {
-                element: element("O"),
+                atom: Atom::from(element("O")),
                 positions: here(126.0, 15.0),
                 bond_to: Some(BondTo {
                     atom: AtomRef::Created(0),
@@ -584,7 +594,13 @@ fn a_transaction_can_bond_atoms_it_creates() {
     let bonds: Vec<_> = document
         .bonds()
         .skip(2)
-        .map(|(_, bond)| (bond.begin.to_string(), bond.end.to_string(), bond.order))
+        .map(|(_, bond)| {
+            (
+                bond.begin.to_string(),
+                bond.end.to_string(),
+                bond.order.clone(),
+            )
+        })
         .collect();
     assert_eq!(
         bonds,
@@ -799,7 +815,7 @@ fn instances_move_independently_keeping_the_graph_and_the_other_instances() {
 fn a_new_atom_needs_a_position_in_every_instance_once_there_are_several() {
     let mut document = ethanol_twice();
     let per_instance = |entries: &[(u32, f64, f64)]| Command::AddAtom {
-        element: element("N"),
+        atom: Atom::from(element("N")),
         positions: NewAtomPositions::PerInstance(
             entries
                 .iter()
@@ -848,7 +864,14 @@ fn a_new_atom_needs_a_position_in_every_instance_once_there_are_several() {
         Some(point(70.0, 150.0))
     );
     assert_eq!(
-        document.atoms().last().unwrap().1.element.symbol(),
+        document
+            .atoms()
+            .last()
+            .unwrap()
+            .1
+            .element()
+            .unwrap()
+            .symbol(),
         "N",
         "the atom is created once, in the graph"
     );

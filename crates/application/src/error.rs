@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use chemifree_domain::document::EditError;
 use serde::Serialize;
 
 use crate::API_VERSION;
@@ -87,6 +88,98 @@ impl StorageReason {
     }
 }
 
+/// Why a command's atom or bond state was refused (`invalid_command`): a stable code that
+/// says which values do not hold together. Only these refusals carry one; other invalid
+/// commands are explained by their message alone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandReason {
+    /// A stated hydrogen count above 16.
+    HydrogenCountOutOfRange,
+    /// `hydrogens.mode` is `specified` without a `count`.
+    HydrogenCountMissing,
+    /// `hydrogens.mode` is `inferred` or `unknown` with a `count`.
+    HydrogenCountUnexpected,
+    /// A query atom with a nonzero charge.
+    QueryAtomCharge,
+    /// A query atom with an isotope.
+    QueryAtomIsotope,
+    /// A query list (elements of a query atom, orders of a query bond) with no entry.
+    QueryListEmpty,
+    /// A query list naming an entry twice.
+    QueryListRepeated,
+    /// A query atom's element list longer than 10.
+    QueryListTooLong,
+    /// `elements`, `negated`, or `orders` given with a query kind other than `list`.
+    QueryListUnexpected,
+    /// Both `element` and `query` were given for one atom.
+    ElementAndQuery,
+    /// `add_atom` gave neither `element` nor `query`.
+    AtomKindMissing,
+    /// `order` is `query` without a `query` expression.
+    BondQueryMissing,
+    /// A `query` expression with an `order` other than `query`.
+    BondQueryUnexpected,
+    /// An attachment point outside 1–4.
+    AttachmentPointOutOfRange,
+    /// An attachment point given twice.
+    AttachmentPointRepeated,
+}
+
+impl CommandReason {
+    pub const ALL: [Self; 15] = [
+        Self::HydrogenCountOutOfRange,
+        Self::HydrogenCountMissing,
+        Self::HydrogenCountUnexpected,
+        Self::QueryAtomCharge,
+        Self::QueryAtomIsotope,
+        Self::QueryListEmpty,
+        Self::QueryListRepeated,
+        Self::QueryListTooLong,
+        Self::QueryListUnexpected,
+        Self::ElementAndQuery,
+        Self::AtomKindMissing,
+        Self::BondQueryMissing,
+        Self::BondQueryUnexpected,
+        Self::AttachmentPointOutOfRange,
+        Self::AttachmentPointRepeated,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::HydrogenCountOutOfRange => "hydrogen_count_out_of_range",
+            Self::HydrogenCountMissing => "hydrogen_count_missing",
+            Self::HydrogenCountUnexpected => "hydrogen_count_unexpected",
+            Self::QueryAtomCharge => "query_atom_charge",
+            Self::QueryAtomIsotope => "query_atom_isotope",
+            Self::QueryListEmpty => "query_list_empty",
+            Self::QueryListRepeated => "query_list_repeated",
+            Self::QueryListTooLong => "query_list_too_long",
+            Self::QueryListUnexpected => "query_list_unexpected",
+            Self::ElementAndQuery => "element_and_query",
+            Self::AtomKindMissing => "atom_kind_missing",
+            Self::BondQueryMissing => "bond_query_missing",
+            Self::BondQueryUnexpected => "bond_query_unexpected",
+            Self::AttachmentPointOutOfRange => "attachment_point_out_of_range",
+            Self::AttachmentPointRepeated => "attachment_point_repeated",
+        }
+    }
+
+    /// The reason a domain refusal carries, if it is one of these.
+    pub fn of(error: &EditError) -> Option<Self> {
+        Some(match error {
+            EditError::HydrogenCountOutOfRange(_) => Self::HydrogenCountOutOfRange,
+            EditError::QueryAtomCharge => Self::QueryAtomCharge,
+            EditError::QueryAtomIsotope => Self::QueryAtomIsotope,
+            EditError::EmptyQueryList => Self::QueryListEmpty,
+            EditError::RepeatedQueryEntry => Self::QueryListRepeated,
+            EditError::QueryListTooLong => Self::QueryListTooLong,
+            EditError::AttachmentPointOutOfRange(_) => Self::AttachmentPointOutOfRange,
+            EditError::RepeatedAttachmentPoint(_) => Self::AttachmentPointRepeated,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationError {
     pub code: ErrorCode,
@@ -95,6 +188,9 @@ pub struct ApplicationError {
     pub command_index: Option<usize>,
     /// Set with `StorageFailed`.
     pub reason: Option<StorageReason>,
+    /// Set with `InvalidCommand` when an atom or bond state was refused. The envelope reports
+    /// it as `reason`, which `StorageFailed` uses for its own reasons.
+    pub command_reason: Option<CommandReason>,
 }
 
 impl ApplicationError {
@@ -105,7 +201,15 @@ impl ApplicationError {
             current_revision: None,
             command_index: None,
             reason: None,
+            command_reason: None,
         }
+    }
+
+    /// The `reason` the error envelope and the operation diagnostic report.
+    pub fn reason_code(&self) -> Option<&'static str> {
+        self.reason
+            .map(StorageReason::as_str)
+            .or(self.command_reason.map(CommandReason::as_str))
     }
 
     /// `StorageFailed` with its reason.
@@ -123,7 +227,7 @@ impl ApplicationError {
             message: self.message.clone(),
             current_revision: self.current_revision,
             command_index: self.command_index,
-            reason: self.reason.map(StorageReason::as_str),
+            reason: self.reason_code(),
         }
     }
 }

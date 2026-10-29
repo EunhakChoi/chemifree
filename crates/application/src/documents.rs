@@ -19,7 +19,7 @@ use crate::contract::{
     TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
-use crate::error::{ApplicationError, ErrorCode, StorageReason};
+use crate::error::{ApplicationError, CommandReason, ErrorCode, StorageReason};
 use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
 use crate::turns::{Refusal, Running, TURN_WAIT, Turn, Turns};
 
@@ -1824,6 +1824,7 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
     };
     ApplicationError {
         command_index: error.index,
+        command_reason: CommandReason::of(&error.error),
         ..ApplicationError::new(code, error.to_string())
     }
 }

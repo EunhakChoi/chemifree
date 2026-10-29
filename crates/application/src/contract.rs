@@ -5,15 +5,17 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use chemifree_domain::document::{
-    AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, InstanceId, MAX_CHARGE,
-    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, PAGE_ID, Point, Vector,
+    Atom, AtomId, AtomKind, AtomQuery, AtomRef, AtomUpdate, AttachmentPoints, Bond, BondId,
+    BondOrder, BondQuery, BondTo, Command, Document, EditError, Hydrogens, InstanceId, MAX_CHARGE,
+    MAX_HYDROGEN_COUNT, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, PAGE_ID, Point, QueryBondOrder,
+    Radical, Vector,
 };
 use chemifree_domain::element::Element;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::API_VERSION;
-use crate::error::{ApplicationError, ErrorCode};
+use crate::error::{ApplicationError, CommandReason, ErrorCode};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,12 +120,103 @@ pub struct PointDto {
     pub y: f64,
 }
 
+/// A bond's kind on the wire. `query` comes with a `query` expression; `dative` points from
+/// `begin` (the donor) to `end`. `single`, `double`, and `triple` are the original v1 values.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BondOrderDto {
     Single,
     Double,
     Triple,
+    Aromatic,
+    Dative,
+    Query,
+    Unknown,
+}
+
+/// A query bond's expression: `{"kind": "any"}`, or `{"kind": "list", "orders": [...]}` with
+/// distinct orders among `single`, `double`, `triple`, and `aromatic`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BondQueryDto {
+    pub kind: QueryListKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orders: Option<Vec<QueryOrderDto>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryListKind {
+    Any,
+    List,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryOrderDto {
+    Single,
+    Double,
+    Triple,
+    Aromatic,
+}
+
+/// A query atom's expression: `{"kind": "any" | "any_heavy" | "heteroatom" | "halogen"}`, or
+/// `{"kind": "list", "elements": [...], "negated": bool}` (`negated` defaults to `false` in
+/// commands and is always present in replies).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AtomQueryDto {
+    pub kind: AtomQueryKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elements: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub negated: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AtomQueryKind {
+    Any,
+    AnyHeavy,
+    Heteroatom,
+    Halogen,
+    List,
+}
+
+/// Hydrogens not drawn as atoms: `{"mode": "inferred"}` (not computed: no count is known),
+/// `{"mode": "unknown"}`, or `{"mode": "specified", "count": 0..16}`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HydrogensDto {
+    pub mode: HydrogenMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HydrogenMode {
+    Inferred,
+    Unknown,
+    Specified,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RadicalDto {
+    None,
+    Singlet,
+    Doublet,
+    Triplet,
+    Unknown,
+}
+
+/// Whether an atom is an element or a query.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AtomKindName {
+    Element,
+    Query,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -131,6 +224,9 @@ pub enum BondOrderDto {
 pub struct BondToDto {
     pub atom: String,
     pub order: BondOrderDto,
+    /// With `order: "query"` only.
+    #[serde(default)]
+    pub query: Option<BondQueryDto>,
 }
 
 /// One command in a transaction, tagged by `op`. Identifiers use the `a1`/`b1`/`s1` form.
@@ -139,31 +235,54 @@ pub struct BondToDto {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandDto {
-    /// Exactly one of `position` (while the document has one scene instance) and `positions`
-    /// (a point for each scene instance, keyed by instance identifier).
+    /// Exactly one of `element` and `query`, and exactly one of `position` (while the document
+    /// has one scene instance) and `positions` (a point for each scene instance, keyed by
+    /// instance identifier). The new atom is neutral and of natural abundance; omitted
+    /// `hydrogens`, `radical`, and `attachment_points` are inferred, none, and none.
     AddAtom {
-        element: String,
+        #[serde(default)]
+        element: Option<String>,
+        #[serde(default)]
+        query: Option<AtomQueryDto>,
         #[serde(default)]
         position: Option<PointDto>,
         #[serde(default, deserialize_with = "distinct_keys")]
         positions: Option<BTreeMap<String, PointDto>>,
         #[serde(default)]
         bond_to: Option<BondToDto>,
+        #[serde(default)]
+        hydrogens: Option<HydrogensDto>,
+        #[serde(default)]
+        radical: Option<RadicalDto>,
+        #[serde(default)]
+        attachment_points: Option<Vec<u64>>,
     },
     AddBond {
         begin: String,
         end: String,
         order: BondOrderDto,
+        /// With `order: "query"` only.
+        #[serde(default)]
+        query: Option<BondQueryDto>,
     },
-    /// Omitted fields are unchanged; `"isotope": null` restores natural abundance.
+    /// Omitted fields are unchanged; `"isotope": null` restores natural abundance. `element`
+    /// and `query` change the atom's kind; at most one of them may be given.
     UpdateAtom {
         atom: String,
         #[serde(default)]
         element: Option<String>,
         #[serde(default)]
+        query: Option<AtomQueryDto>,
+        #[serde(default)]
         charge: Option<i64>,
         #[serde(default, deserialize_with = "present")]
         isotope: Option<Option<u64>>,
+        #[serde(default)]
+        hydrogens: Option<HydrogensDto>,
+        #[serde(default)]
+        radical: Option<RadicalDto>,
+        #[serde(default)]
+        attachment_points: Option<Vec<u64>>,
     },
     /// `instance` may be left out while the document has one scene instance.
     MoveAtoms {
@@ -175,6 +294,9 @@ pub enum CommandDto {
     UpdateBond {
         bond: String,
         order: BondOrderDto,
+        /// With `order: "query"` only.
+        #[serde(default)]
+        query: Option<BondQueryDto>,
     },
     DeleteAtoms {
         atoms: Vec<String>,
@@ -233,22 +355,35 @@ fn present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Option<u
     Option::<u64>::deserialize(deserializer).map(Some)
 }
 
-impl From<BondOrderDto> for BondOrder {
-    fn from(order: BondOrderDto) -> Self {
-        match order {
-            BondOrderDto::Single => Self::Single,
-            BondOrderDto::Double => Self::Double,
-            BondOrderDto::Triple => Self::Triple,
+/// Why a wire command could not become a domain command.
+struct Refusal {
+    message: String,
+    reason: Option<CommandReason>,
+}
+
+impl Refusal {
+    fn new(reason: CommandReason, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            reason: Some(reason),
         }
     }
 }
 
-impl From<BondOrder> for BondOrderDto {
-    fn from(order: BondOrder) -> Self {
-        match order {
-            BondOrder::Single => Self::Single,
-            BondOrder::Double => Self::Double,
-            BondOrder::Triple => Self::Triple,
+impl From<String> for Refusal {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            reason: None,
+        }
+    }
+}
+
+impl From<EditError> for Refusal {
+    fn from(error: EditError) -> Self {
+        Self {
+            message: error.to_string(),
+            reason: CommandReason::of(&error),
         }
     }
 }
@@ -259,26 +394,47 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
         .iter()
         .enumerate()
         .map(|(index, command)| {
-            to_command(command).map_err(|message| ApplicationError {
+            to_command(command).map_err(|refusal| ApplicationError {
                 command_index: Some(index),
+                command_reason: refusal.reason,
                 ..ApplicationError::new(
                     ErrorCode::InvalidCommand,
-                    format!("command {index}: {message}"),
+                    format!("command {index}: {}", refusal.message),
                 )
             })
         })
         .collect()
 }
 
-fn to_command(command: &CommandDto) -> Result<Command, String> {
+fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
     Ok(match command {
         CommandDto::AddAtom {
             element: symbol,
+            query,
             position,
             positions,
             bond_to,
+            hydrogens,
+            radical,
+            attachment_points,
         } => Command::AddAtom {
-            element: element(symbol)?,
+            atom: Atom {
+                hydrogens: hydrogens.map(to_hydrogens).transpose()?.unwrap_or_default(),
+                radical: radical.map(Radical::from).unwrap_or_default(),
+                attachment_points: attachment_points
+                    .as_deref()
+                    .map(AttachmentPoints::try_new)
+                    .transpose()?
+                    .unwrap_or_default(),
+                ..Atom::from(
+                    atom_kind(symbol.as_deref(), query.as_ref())?.ok_or_else(|| {
+                        Refusal::new(
+                            CommandReason::AtomKindMissing,
+                            "add_atom needs element or query",
+                        )
+                    })?,
+                )
+            },
             positions: match (position, positions) {
                 (Some(position), None) => NewAtomPositions::Single(point(*position)?),
                 (None, Some(positions)) => NewAtomPositions::PerInstance(
@@ -288,51 +444,72 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
                         .collect::<Result<_, String>>()?,
                 ),
                 (Some(_), Some(_)) => {
-                    return Err("give either position or positions, not both".to_owned());
+                    return Err("give either position or positions, not both"
+                        .to_owned()
+                        .into());
                 }
-                (None, None) => return Err("add_atom needs position or positions".to_owned()),
+                (None, None) => {
+                    return Err("add_atom needs position or positions".to_owned().into());
+                }
             },
             bond_to: bond_to
                 .as_ref()
                 .map(|target| {
-                    Ok::<_, String>(BondTo {
+                    Ok::<_, Refusal>(BondTo {
                         atom: atom_ref(&target.atom)?,
-                        order: target.order.into(),
+                        order: bond_order(target.order, target.query.as_ref())?,
                     })
                 })
                 .transpose()?,
         },
-        CommandDto::AddBond { begin, end, order } => Command::AddBond {
+        CommandDto::AddBond {
+            begin,
+            end,
+            order,
+            query,
+        } => Command::AddBond {
             begin: atom_ref(begin)?,
             end: atom_ref(end)?,
-            order: (*order).into(),
+            order: bond_order(*order, query.as_ref())?,
         },
         CommandDto::UpdateAtom {
             atom,
             element: symbol,
+            query,
             charge,
             isotope,
+            hydrogens,
+            radical,
+            attachment_points,
         } => Command::UpdateAtom {
             atom: atom_id(atom)?,
-            element: symbol.as_deref().map(element).transpose()?,
-            // The domain checks the charge range; this only narrows the wire integer.
-            charge: charge
-                .map(|charge| {
-                    i8::try_from(charge).map_err(|_| {
-                        format!("charge {charge} is outside {MIN_CHARGE}..={MAX_CHARGE}")
-                    })
-                })
-                .transpose()?,
-            isotope: isotope
-                .map(|isotope| {
-                    isotope
-                        .map(|mass| {
-                            u16::try_from(mass)
-                                .map_err(|_| format!("isotope mass number {mass} is too large"))
+            update: AtomUpdate {
+                kind: atom_kind(symbol.as_deref(), query.as_ref())?,
+                // The domain checks the charge range; this only narrows the wire integer.
+                charge: charge
+                    .map(|charge| {
+                        i8::try_from(charge).map_err(|_| {
+                            format!("charge {charge} is outside {MIN_CHARGE}..={MAX_CHARGE}")
                         })
-                        .transpose()
-                })
-                .transpose()?,
+                    })
+                    .transpose()?,
+                isotope: isotope
+                    .map(|isotope| {
+                        isotope
+                            .map(|mass| {
+                                u16::try_from(mass)
+                                    .map_err(|_| format!("isotope mass number {mass} is too large"))
+                            })
+                            .transpose()
+                    })
+                    .transpose()?,
+                hydrogens: hydrogens.map(to_hydrogens).transpose()?,
+                radical: radical.map(Radical::from),
+                attachment_points: attachment_points
+                    .as_deref()
+                    .map(AttachmentPoints::try_new)
+                    .transpose()?,
+            },
         },
         CommandDto::MoveAtoms {
             atoms,
@@ -346,9 +523,9 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
             delta: vector(*delta),
             instance: instance.as_deref().map(instance_id).transpose()?,
         },
-        CommandDto::UpdateBond { bond, order } => Command::UpdateBond {
+        CommandDto::UpdateBond { bond, order, query } => Command::UpdateBond {
             bond: bond_id(bond)?,
-            order: (*order).into(),
+            order: bond_order(*order, query.as_ref())?,
         },
         CommandDto::DeleteAtoms { atoms } => Command::DeleteAtoms {
             atoms: atoms
@@ -377,6 +554,262 @@ fn to_command(command: &CommandDto) -> Result<Command, String> {
             instance: instance_id(instance)?,
         },
     })
+}
+
+/// The kind named by `element` or `query`; `None` when neither is given.
+fn atom_kind(
+    symbol: Option<&str>,
+    query: Option<&AtomQueryDto>,
+) -> Result<Option<AtomKind>, Refusal> {
+    match (symbol, query) {
+        (Some(_), Some(_)) => Err(Refusal::new(
+            CommandReason::ElementAndQuery,
+            "give either element or query, not both",
+        )),
+        (Some(symbol), None) => Ok(Some(AtomKind::Element(element(symbol)?))),
+        (None, Some(query)) => Ok(Some(AtomKind::Query(atom_query(query)?))),
+        (None, None) => Ok(None),
+    }
+}
+
+fn atom_query(query: &AtomQueryDto) -> Result<AtomQuery, Refusal> {
+    let simple = match query.kind {
+        AtomQueryKind::Any => AtomQuery::Any,
+        AtomQueryKind::AnyHeavy => AtomQuery::AnyHeavy,
+        AtomQueryKind::Heteroatom => AtomQuery::Heteroatom,
+        AtomQueryKind::Halogen => AtomQuery::Halogen,
+        AtomQueryKind::List => {
+            // A list without elements is an empty list, which the domain refuses.
+            let elements = query
+                .elements
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|symbol| element(symbol))
+                .collect::<Result<_, _>>()?;
+            return Ok(AtomQuery::List {
+                elements,
+                negated: query.negated.unwrap_or(false),
+            });
+        }
+    };
+    if query.elements.is_some() || query.negated.is_some() {
+        return Err(Refusal::new(
+            CommandReason::QueryListUnexpected,
+            "elements and negated belong to a query of kind list",
+        ));
+    }
+    Ok(simple)
+}
+
+fn to_hydrogens(hydrogens: HydrogensDto) -> Result<Hydrogens, Refusal> {
+    match (hydrogens.mode, hydrogens.count) {
+        (HydrogenMode::Specified, Some(count)) => u8::try_from(count)
+            .ok()
+            .filter(|count| *count <= MAX_HYDROGEN_COUNT)
+            .map(Hydrogens::Specified)
+            .ok_or_else(|| EditError::HydrogenCountOutOfRange(count).into()),
+        (HydrogenMode::Specified, None) => Err(Refusal::new(
+            CommandReason::HydrogenCountMissing,
+            "specified hydrogens need a count",
+        )),
+        (HydrogenMode::Inferred | HydrogenMode::Unknown, Some(_)) => Err(Refusal::new(
+            CommandReason::HydrogenCountUnexpected,
+            "only specified hydrogens have a count",
+        )),
+        (HydrogenMode::Inferred, None) => Ok(Hydrogens::Inferred),
+        (HydrogenMode::Unknown, None) => Ok(Hydrogens::Unknown),
+    }
+}
+
+fn bond_order(order: BondOrderDto, query: Option<&BondQueryDto>) -> Result<BondOrder, Refusal> {
+    let simple = match order {
+        BondOrderDto::Single => BondOrder::Single,
+        BondOrderDto::Double => BondOrder::Double,
+        BondOrderDto::Triple => BondOrder::Triple,
+        BondOrderDto::Aromatic => BondOrder::Aromatic,
+        BondOrderDto::Dative => BondOrder::Dative,
+        BondOrderDto::Unknown => BondOrder::Unknown,
+        BondOrderDto::Query => {
+            let query = query.ok_or_else(|| {
+                Refusal::new(
+                    CommandReason::BondQueryMissing,
+                    "a query bond needs a query expression",
+                )
+            })?;
+            return Ok(BondOrder::Query(match query.kind {
+                QueryListKind::Any if query.orders.is_some() => {
+                    return Err(Refusal::new(
+                        CommandReason::QueryListUnexpected,
+                        "orders belong to a query of kind list",
+                    ));
+                }
+                QueryListKind::Any => BondQuery::Any,
+                // A list without orders is an empty list, which the domain refuses.
+                QueryListKind::List => BondQuery::List(
+                    query
+                        .orders
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|order| QueryBondOrder::from(*order))
+                        .collect(),
+                ),
+            }));
+        }
+    };
+    if query.is_some() {
+        return Err(Refusal::new(
+            CommandReason::BondQueryUnexpected,
+            "a query expression needs order query",
+        ));
+    }
+    Ok(simple)
+}
+
+impl From<QueryOrderDto> for QueryBondOrder {
+    fn from(order: QueryOrderDto) -> Self {
+        match order {
+            QueryOrderDto::Single => Self::Single,
+            QueryOrderDto::Double => Self::Double,
+            QueryOrderDto::Triple => Self::Triple,
+            QueryOrderDto::Aromatic => Self::Aromatic,
+        }
+    }
+}
+
+impl From<QueryBondOrder> for QueryOrderDto {
+    fn from(order: QueryBondOrder) -> Self {
+        match order {
+            QueryBondOrder::Single => Self::Single,
+            QueryBondOrder::Double => Self::Double,
+            QueryBondOrder::Triple => Self::Triple,
+            QueryBondOrder::Aromatic => Self::Aromatic,
+        }
+    }
+}
+
+impl From<RadicalDto> for Radical {
+    fn from(radical: RadicalDto) -> Self {
+        match radical {
+            RadicalDto::None => Self::None,
+            RadicalDto::Singlet => Self::Singlet,
+            RadicalDto::Doublet => Self::Doublet,
+            RadicalDto::Triplet => Self::Triplet,
+            RadicalDto::Unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<Radical> for RadicalDto {
+    fn from(radical: Radical) -> Self {
+        match radical {
+            Radical::None => Self::None,
+            Radical::Singlet => Self::Singlet,
+            Radical::Doublet => Self::Doublet,
+            Radical::Triplet => Self::Triplet,
+            Radical::Unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<Hydrogens> for HydrogensDto {
+    fn from(hydrogens: Hydrogens) -> Self {
+        let (mode, count) = match hydrogens {
+            Hydrogens::Inferred => (HydrogenMode::Inferred, None),
+            Hydrogens::Unknown => (HydrogenMode::Unknown, None),
+            Hydrogens::Specified(count) => (HydrogenMode::Specified, Some(count.into())),
+        };
+        Self { mode, count }
+    }
+}
+
+impl From<&AtomQuery> for AtomQueryDto {
+    fn from(query: &AtomQuery) -> Self {
+        let (kind, list) = match query {
+            AtomQuery::Any => (AtomQueryKind::Any, None),
+            AtomQuery::AnyHeavy => (AtomQueryKind::AnyHeavy, None),
+            AtomQuery::Heteroatom => (AtomQueryKind::Heteroatom, None),
+            AtomQuery::Halogen => (AtomQueryKind::Halogen, None),
+            AtomQuery::List { elements, negated } => {
+                (AtomQueryKind::List, Some((elements, *negated)))
+            }
+        };
+        Self {
+            kind,
+            elements: list.map(|(elements, _)| {
+                elements
+                    .iter()
+                    .map(|element| element.symbol().to_owned())
+                    .collect()
+            }),
+            negated: list.map(|(_, negated)| negated),
+        }
+    }
+}
+
+/// The wire order and, for a query bond, its expression.
+fn order_view(order: &BondOrder) -> (BondOrderDto, Option<BondQueryDto>) {
+    let order = match order {
+        BondOrder::Single => BondOrderDto::Single,
+        BondOrder::Double => BondOrderDto::Double,
+        BondOrder::Triple => BondOrderDto::Triple,
+        BondOrder::Aromatic => BondOrderDto::Aromatic,
+        BondOrder::Dative => BondOrderDto::Dative,
+        BondOrder::Unknown => BondOrderDto::Unknown,
+        BondOrder::Query(BondQuery::Any) => {
+            let query = BondQueryDto {
+                kind: QueryListKind::Any,
+                orders: None,
+            };
+            return (BondOrderDto::Query, Some(query));
+        }
+        BondOrder::Query(BondQuery::List(orders)) => {
+            let query = BondQueryDto {
+                kind: QueryListKind::List,
+                orders: Some(orders.iter().map(|order| (*order).into()).collect()),
+            };
+            return (BondOrderDto::Query, Some(query));
+        }
+    };
+    (order, None)
+}
+
+fn atom_view(id: AtomId, atom: &Atom, position: Point) -> AtomView {
+    let (kind, element, query) = match &atom.kind {
+        AtomKind::Element(element) => (AtomKindName::Element, element.symbol().to_owned(), None),
+        AtomKind::Query(query) => (
+            AtomKindName::Query,
+            query.label(),
+            Some(AtomQueryDto::from(query)),
+        ),
+    };
+    AtomView {
+        id: id.to_string(),
+        element,
+        charge: atom.charge,
+        isotope: atom.isotope,
+        position: PositionView {
+            x: position.x(),
+            y: position.y(),
+        },
+        kind,
+        query,
+        hydrogens: atom.hydrogens.into(),
+        radical: atom.radical.into(),
+        attachment_points: atom.attachment_points.iter().collect(),
+    }
+}
+
+fn bond_view(id: BondId, bond: &Bond) -> BondView {
+    let (order, query) = order_view(&bond.order);
+    BondView {
+        id: id.to_string(),
+        begin: bond.begin.to_string(),
+        end: bond.end.to_string(),
+        order,
+        query,
+    }
 }
 
 /// The domain checks the translated positions.
@@ -470,11 +903,22 @@ pub struct DocumentView {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AtomView {
     pub id: String,
-    pub element: &'static str,
+    /// The element symbol, or for a query atom (`kind: "query"`) its label (`*`, `A`, `Q`, `X`,
+    /// `[N,O]`, `![N,O]`), which is never an element symbol.
+    pub element: String,
     pub charge: i8,
     pub isotope: Option<u16>,
     /// The atom's position in the first scene instance, kept for v1 clients.
     pub position: PositionView,
+    pub kind: AtomKindName,
+    /// The query, for a query atom only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<AtomQueryDto>,
+    /// `inferred` means not computed: no hydrogen count is reported for it.
+    pub hydrogens: HydrogensDto,
+    pub radical: RadicalDto,
+    /// In increasing order.
+    pub attachment_points: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -522,6 +966,9 @@ pub struct BondView {
     pub begin: String,
     pub end: String,
     pub order: BondOrderDto,
+    /// The expression of a query bond (`order: "query"`) only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<BondQueryDto>,
 }
 
 /// State of the in-memory editing session that holds the working copy.
@@ -572,26 +1019,12 @@ impl DocumentResponse {
                         let position = document
                             .position(first, id)
                             .expect("every atom has a position in every scene instance");
-                        AtomView {
-                            id: id.to_string(),
-                            element: atom.element.symbol(),
-                            charge: atom.charge,
-                            isotope: atom.isotope,
-                            position: PositionView {
-                                x: position.x(),
-                                y: position.y(),
-                            },
-                        }
+                        atom_view(id, atom, position)
                     })
                     .collect(),
                 bonds: document
                     .bonds()
-                    .map(|(id, bond)| BondView {
-                        id: id.to_string(),
-                        begin: bond.begin.to_string(),
-                        end: bond.end.to_string(),
-                        order: bond.order.into(),
-                    })
+                    .map(|(id, bond)| bond_view(id, bond))
                     .collect(),
                 molecule: MoleculeView { id: MOLECULE_ID },
                 scene: SceneView {

@@ -92,10 +92,10 @@ fn refuses_unknown_step_fields_per_call() {
 fn refuses_unknown_command_fields_in_the_body() {
     let case = with_steps(json!([{
         "call": "transact", "document": "d", "expected_revision": 0,
-        "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}, "hydrogens": 3}]
+        "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}, "implicit_hydrogens": 3}]
     }, get_expect()]));
     assert!(
-        matches!(step_problem(&case), StepProblem::Body(message) if message.contains("hydrogens")),
+        matches!(step_problem(&case), StepProblem::Body(message) if message.contains("implicit_hydrogens")),
         "an unknown command field must be refused as the HTTP adapter would"
     );
 }

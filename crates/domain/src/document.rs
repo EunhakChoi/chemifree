@@ -10,8 +10,10 @@
 //!
 //! This is a drawing model. It records what the user drew and enforces structural
 //! invariants (no dangling or duplicate bonds, a position per atom in every instance,
-//! bounded values). It does not perceive valence, aromaticity, stereochemistry, or implicit
-//! hydrogens.
+//! bounded values, and atom and bond states that hold together). It can represent a stated
+//! hydrogen count, radicals, query atoms and bonds, aromatic and dative bonds, and attachment
+//! points, but it does not perceive or compute anything: no valence, implicit hydrogen
+//! count, aromaticity, stereochemistry, or query matching.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
@@ -33,6 +35,12 @@ pub const MAX_COORDINATE: f64 = 100_000.0;
 pub const MIN_CHARGE: i8 = -8;
 pub const MAX_CHARGE: i8 = 8;
 pub const MAX_ISOTOPE_MASS_NUMBER: u16 = 999;
+/// The most hydrogens an atom can be stated to carry ([`Hydrogens::Specified`]).
+pub const MAX_HYDROGEN_COUNT: u8 = 16;
+/// The most elements a query atom's element list names.
+pub const MAX_QUERY_ELEMENTS: usize = 10;
+/// Attachment points are numbered 1 through this.
+pub const MAX_ATTACHMENT_POINT: u8 = 4;
 /// Undo entries beyond this depth are discarded, oldest first.
 pub const HISTORY_LIMIT: usize = 100;
 /// The largest revision. Clients exchange revisions as JSON numbers, which are exact only up
@@ -153,10 +161,153 @@ pub struct Vector {
 /// An atom of the chemical graph. Its positions belong to the scene instances.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Atom {
-    pub element: Element,
+    pub kind: AtomKind,
     pub charge: i8,
     /// Explicit isotope mass number; `None` means natural abundance.
     pub isotope: Option<u16>,
+    pub hydrogens: Hydrogens,
+    pub radical: Radical,
+    pub attachment_points: AttachmentPoints,
+}
+
+impl Atom {
+    /// The element, or `None` for a query atom.
+    pub fn element(&self) -> Option<Element> {
+        match self.kind {
+            AtomKind::Element(element) => Some(element),
+            AtomKind::Query(_) => None,
+        }
+    }
+}
+
+/// A neutral, natural-abundance atom of `element` with inferred hydrogens, no radical, and
+/// no attachment points: the state a new atom starts in.
+impl From<Element> for Atom {
+    fn from(element: Element) -> Self {
+        Self::from(AtomKind::Element(element))
+    }
+}
+
+/// An atom of `kind` in the state a new atom starts in.
+impl From<AtomKind> for Atom {
+    fn from(kind: AtomKind) -> Self {
+        Self {
+            kind,
+            charge: 0,
+            isotope: None,
+            hydrogens: Hydrogens::default(),
+            radical: Radical::default(),
+            attachment_points: AttachmentPoints::default(),
+        }
+    }
+}
+
+/// What an atom stands for: one element, or a query naming which atoms it would match.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AtomKind {
+    Element(Element),
+    /// Recorded only: nothing matches queries yet.
+    Query(AtomQuery),
+}
+
+/// A query atom: the atoms it stands for. Representation only; no matching is implemented.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AtomQuery {
+    /// Any atom (`*`).
+    Any,
+    /// Any atom but hydrogen (`A`).
+    AnyHeavy,
+    /// Any atom but carbon and hydrogen (`Q`).
+    Heteroatom,
+    /// F, Cl, Br, I, or At (`X`).
+    Halogen,
+    /// One of `elements` (1 to [`MAX_QUERY_ELEMENTS`], distinct, in the order given), or with
+    /// `negated` any atom that is none of them.
+    List {
+        elements: Vec<Element>,
+        negated: bool,
+    },
+}
+
+impl AtomQuery {
+    /// The label drawn for the query: `*`, `A`, `Q`, `X`, `[N,O]`, or `![N,O]` when negated.
+    /// No label is an element symbol.
+    pub fn label(&self) -> String {
+        match self {
+            Self::Any => "*".to_owned(),
+            Self::AnyHeavy => "A".to_owned(),
+            Self::Heteroatom => "Q".to_owned(),
+            Self::Halogen => "X".to_owned(),
+            Self::List { elements, negated } => {
+                let symbols: Vec<&str> = elements.iter().map(|element| element.symbol()).collect();
+                let negation = if *negated { "!" } else { "" };
+                format!("{negation}[{}]", symbols.join(","))
+            }
+        }
+    }
+}
+
+/// Hydrogens on an atom that are not drawn as atoms of their own. A hydrogen drawn as a
+/// separate atom is an ordinary atom of the graph and is never counted here.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Hydrogens {
+    /// To be derived from valence. Nothing derives it yet, so no count is known: this is not
+    /// a computed result.
+    #[default]
+    Inferred,
+    /// Stated to be unknown.
+    Unknown,
+    /// Stated: this many hydrogens on the atom, 0 to [`MAX_HYDROGEN_COUNT`].
+    Specified(u8),
+}
+
+/// Unpaired electrons as drawn; recorded, not derived from valence.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Radical {
+    #[default]
+    None,
+    Singlet,
+    Doublet,
+    Triplet,
+    Unknown,
+}
+
+/// The attachment points an atom carries: distinct numbers 1 to [`MAX_ATTACHMENT_POINT`]
+/// giving the order in which a substituent attaches. A set, read in increasing order.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AttachmentPoints(u8);
+
+impl AttachmentPoints {
+    /// The set of `points`, in any order.
+    ///
+    /// # Errors
+    ///
+    /// [`EditError::AttachmentPointOutOfRange`] for a number outside 1 to
+    /// [`MAX_ATTACHMENT_POINT`], and [`EditError::RepeatedAttachmentPoint`] for one given twice.
+    pub fn try_new(points: &[u64]) -> Result<Self, EditError> {
+        let mut bits = 0_u8;
+        for &point in points {
+            let number = u8::try_from(point)
+                .ok()
+                .filter(|number| (1..=MAX_ATTACHMENT_POINT).contains(number))
+                .ok_or(EditError::AttachmentPointOutOfRange(point))?;
+            let bit = 1 << (number - 1);
+            if bits & bit != 0 {
+                return Err(EditError::RepeatedAttachmentPoint(number));
+            }
+            bits |= bit;
+        }
+        Ok(Self(bits))
+    }
+
+    /// The numbers in increasing order.
+    pub fn iter(self) -> impl Iterator<Item = u8> {
+        (1..=MAX_ATTACHMENT_POINT).filter(move |number| self.0 & (1 << (number - 1)) != 0)
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
 }
 
 /// A molecule scene instance: one drawing of the document's molecule on its page. Its atom
@@ -172,11 +323,36 @@ pub struct PositionKey {
     pub atom: AtomId,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// A bond's kind as drawn. Aromatic, dative, query, and unknown bonds are recorded as such:
+/// none is turned into a single bond, and nothing perceives aromaticity or matches queries.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BondOrder {
     Single,
     Double,
     Triple,
+    Aromatic,
+    /// A dative bond from `begin` (the donor) to `end`.
+    Dative,
+    Query(BondQuery),
+    /// Stated to be unknown.
+    Unknown,
+}
+
+/// The bonds a query bond stands for. Representation only.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BondQuery {
+    Any,
+    /// Any of these orders: 1 to 4 distinct, in the order given.
+    List(Vec<QueryBondOrder>),
+}
+
+/// An order a query bond can list.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum QueryBondOrder {
+    Single,
+    Double,
+    Triple,
+    Aromatic,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,7 +377,7 @@ pub enum AtomRef {
     Created(usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BondTo {
     pub atom: AtomRef,
     pub order: BondOrder,
@@ -219,9 +395,10 @@ pub enum NewAtomPositions {
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    /// Adds a neutral, natural-abundance atom, optionally bonded to another atom.
+    /// Adds an atom in the state given, optionally bonded to another atom (the bond begins at
+    /// that atom and ends at the new one).
     AddAtom {
-        element: Element,
+        atom: Atom,
         positions: NewAtomPositions,
         bond_to: Option<BondTo>,
     },
@@ -230,12 +407,10 @@ pub enum Command {
         end: AtomRef,
         order: BondOrder,
     },
-    /// Changes only the fields that are `Some`; `isotope: Some(None)` clears the isotope.
+    /// Changes only the fields of `update` that are `Some`.
     UpdateAtom {
         atom: AtomId,
-        element: Option<Element>,
-        charge: Option<i8>,
-        isotope: Option<Option<u16>>,
+        update: AtomUpdate,
     },
     /// Translates each listed atom once, even if it is listed repeatedly, in one scene
     /// instance. `instance` may be left out only while the document has exactly one.
@@ -275,6 +450,18 @@ pub enum Command {
     },
 }
 
+/// The fields of an atom an `UpdateAtom` command changes; `None` leaves a field as it is.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AtomUpdate {
+    pub kind: Option<AtomKind>,
+    pub charge: Option<i8>,
+    /// `Some(None)` restores natural abundance.
+    pub isotope: Option<Option<u16>>,
+    pub hydrogens: Option<Hydrogens>,
+    pub radical: Option<Radical>,
+    pub attachment_points: Option<AttachmentPoints>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
     EmptyTransaction,
@@ -310,6 +497,20 @@ pub enum EditError {
     /// A document keeps at least one scene instance of its molecule.
     LastInstance,
     InstanceLimit,
+    /// A stated hydrogen count above [`MAX_HYDROGEN_COUNT`].
+    HydrogenCountOutOfRange(u64),
+    /// A query atom with a formal charge: charges in queries are not represented.
+    QueryAtomCharge,
+    /// A query atom with an isotope: isotopes in queries are not represented.
+    QueryAtomIsotope,
+    /// A query list (of elements or bond orders) with no entry.
+    EmptyQueryList,
+    /// A query list naming an entry twice.
+    RepeatedQueryEntry,
+    /// An element list longer than [`MAX_QUERY_ELEMENTS`].
+    QueryListTooLong,
+    AttachmentPointOutOfRange(u64),
+    RepeatedAttachmentPoint(u8),
 }
 
 impl fmt::Display for EditError {
@@ -377,6 +578,31 @@ impl fmt::Display for EditError {
                 formatter,
                 "a document holds at most {MAX_INSTANCES} scene instances"
             ),
+            Self::HydrogenCountOutOfRange(count) => write!(
+                formatter,
+                "hydrogen count {count} is outside 0..={MAX_HYDROGEN_COUNT}"
+            ),
+            Self::QueryAtomCharge => write!(
+                formatter,
+                "a query atom cannot carry a charge; set the charge to 0 first"
+            ),
+            Self::QueryAtomIsotope => write!(
+                formatter,
+                "a query atom cannot carry an isotope; restore natural abundance first"
+            ),
+            Self::EmptyQueryList => write!(formatter, "a query list needs at least one entry"),
+            Self::RepeatedQueryEntry => write!(formatter, "a query list names an entry twice"),
+            Self::QueryListTooLong => write!(
+                formatter,
+                "a query element list names at most {MAX_QUERY_ELEMENTS} elements"
+            ),
+            Self::AttachmentPointOutOfRange(point) => write!(
+                formatter,
+                "attachment point {point} is outside 1..={MAX_ATTACHMENT_POINT}"
+            ),
+            Self::RepeatedAttachmentPoint(point) => {
+                write!(formatter, "attachment point {point} is given twice")
+            }
         }
     }
 }
@@ -641,11 +867,11 @@ impl Content {
             return Err(EditError::BondLimit);
         }
         for atom in self.atoms.values() {
-            validate_charge(atom.charge)?;
-            validate_isotope(atom.isotope)?;
+            validate_atom(atom)?;
         }
         let mut pairs = HashSet::with_capacity(self.bonds.len());
         for (id, bond) in &self.bonds {
+            validate_order(&bond.order)?;
             self.require_atom(bond.begin)?;
             self.require_atom(bond.end)?;
             if bond.begin == bond.end {
@@ -715,6 +941,58 @@ fn validate_isotope(isotope: Option<u16>) -> Result<(), EditError> {
     }
 }
 
+fn validate_hydrogens(hydrogens: Hydrogens) -> Result<(), EditError> {
+    match hydrogens {
+        Hydrogens::Specified(count) if count > MAX_HYDROGEN_COUNT => {
+            Err(EditError::HydrogenCountOutOfRange(count.into()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Checks an atom's values and that they hold together: a query atom has a valid query and
+/// no charge or isotope.
+fn validate_atom(atom: &Atom) -> Result<(), EditError> {
+    validate_charge(atom.charge)?;
+    validate_isotope(atom.isotope)?;
+    validate_hydrogens(atom.hydrogens)?;
+    if let AtomKind::Query(query) = &atom.kind {
+        if let AtomQuery::List { elements, .. } = query {
+            validate_list(elements)?;
+            if elements.len() > MAX_QUERY_ELEMENTS {
+                return Err(EditError::QueryListTooLong);
+            }
+        }
+        if atom.charge != 0 {
+            return Err(EditError::QueryAtomCharge);
+        }
+        if atom.isotope.is_some() {
+            return Err(EditError::QueryAtomIsotope);
+        }
+    }
+    Ok(())
+}
+
+fn validate_order(order: &BondOrder) -> Result<(), EditError> {
+    match order {
+        BondOrder::Query(BondQuery::List(orders)) => validate_list(orders),
+        _ => Ok(()),
+    }
+}
+
+/// A query list is non-empty and names each entry once.
+fn validate_list<T: Copy + Ord>(entries: &[T]) -> Result<(), EditError> {
+    if entries.is_empty() {
+        return Err(EditError::EmptyQueryList);
+    }
+    let distinct: BTreeSet<T> = entries.iter().copied().collect();
+    if distinct.len() == entries.len() {
+        Ok(())
+    } else {
+        Err(EditError::RepeatedQueryEntry)
+    }
+}
+
 /// Mutable working state for one transaction; discarded unless every command succeeds.
 struct Draft {
     content: Content,
@@ -744,6 +1022,7 @@ impl Draft {
         end: AtomId,
         order: BondOrder,
     ) -> Result<(), EditError> {
+        validate_order(&order)?;
         self.content.require_atom(begin)?;
         self.content.require_atom(end)?;
         if begin == end {
@@ -841,12 +1120,16 @@ impl Draft {
         let mut created = None;
         match command {
             Command::AddAtom {
-                element,
+                atom,
                 positions,
                 bond_to,
             } => {
+                validate_atom(atom)?;
                 let target = bond_to
-                    .map(|target| Ok::<_, EditError>((self.resolve(target.atom)?, target.order)))
+                    .as_ref()
+                    .map(|target| {
+                        Ok::<_, EditError>((self.resolve(target.atom)?, target.order.clone()))
+                    })
                     .transpose()?;
                 if let Some((atom, _)) = target {
                     self.content.require_atom(atom)?;
@@ -854,14 +1137,7 @@ impl Draft {
                 let points = self.new_atom_positions(positions)?;
                 let id = self.allocate_atom()?;
                 created = Some(id);
-                self.content.atoms.insert(
-                    id,
-                    Atom {
-                        element: *element,
-                        charge: 0,
-                        isotope: None,
-                    },
-                );
+                self.content.atoms.insert(id, atom.clone());
                 for (instance, point) in points {
                     self.content
                         .positions
@@ -873,34 +1149,45 @@ impl Draft {
             }
             Command::AddBond { begin, end, order } => {
                 let (begin, end) = (self.resolve(*begin)?, self.resolve(*end)?);
-                self.insert_bond(begin, end, *order)?;
+                self.insert_bond(begin, end, order.clone())?;
             }
-            Command::UpdateAtom {
-                atom,
-                element,
-                charge,
-                isotope,
-            } => {
-                if let Some(charge) = charge {
-                    validate_charge(*charge)?;
+            Command::UpdateAtom { atom, update } => {
+                // Each value on its own first, then the atom it makes.
+                if let Some(charge) = update.charge {
+                    validate_charge(charge)?;
                 }
-                if let Some(isotope) = isotope {
-                    validate_isotope(*isotope)?;
+                if let Some(isotope) = update.isotope {
+                    validate_isotope(isotope)?;
+                }
+                if let Some(hydrogens) = update.hydrogens {
+                    validate_hydrogens(hydrogens)?;
                 }
                 let target = self
                     .content
                     .atoms
                     .get_mut(atom)
                     .ok_or(EditError::UnknownAtom(*atom))?;
-                if let Some(element) = element {
-                    target.element = *element;
+                let mut updated = target.clone();
+                if let Some(kind) = &update.kind {
+                    updated.kind = kind.clone();
                 }
-                if let Some(charge) = charge {
-                    target.charge = *charge;
+                if let Some(charge) = update.charge {
+                    updated.charge = charge;
                 }
-                if let Some(isotope) = isotope {
-                    target.isotope = *isotope;
+                if let Some(isotope) = update.isotope {
+                    updated.isotope = isotope;
                 }
+                if let Some(hydrogens) = update.hydrogens {
+                    updated.hydrogens = hydrogens;
+                }
+                if let Some(radical) = update.radical {
+                    updated.radical = radical;
+                }
+                if let Some(points) = update.attachment_points {
+                    updated.attachment_points = points;
+                }
+                validate_atom(&updated)?;
+                *target = updated;
             }
             Command::MoveAtoms {
                 atoms,
@@ -912,11 +1199,12 @@ impl Draft {
                 self.translate(instance, atoms, *delta)?;
             }
             Command::UpdateBond { bond, order } => {
+                validate_order(order)?;
                 self.content
                     .bonds
                     .get_mut(bond)
                     .ok_or(EditError::UnknownBond(*bond))?
-                    .order = *order;
+                    .order = order.clone();
             }
             Command::DeleteAtoms { atoms } => {
                 let targets = unique(atoms)?;
