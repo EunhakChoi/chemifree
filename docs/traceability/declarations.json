@@ -24,7 +24,6 @@
       "assigned_to_single_plan_entry": 0,
       "status": "not_implemented",
       "followups": [
-        "P09",
         "P11",
         "P89"
       ]
@@ -72,7 +71,6 @@
       "assigned_to_single_plan_entry": 0,
       "status": "not_implemented",
       "followups": [
-        "P10",
         "P16",
         "P17",
         "P89"

@@ -1,0 +1,389 @@
+{
+  "id": "invalid-state-combinations-refused",
+  "title": "Invalid combinations of recorded states are refused with their command index and reason code and change nothing",
+  "requirements": [
+    "MODEL-02"
+  ],
+  "axis": "graph",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "hydrogens": {
+            "mode": "specified",
+            "count": 17
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "hydrogen_count_out_of_range"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "query": {
+            "kind": "any"
+          },
+          "charge": -1
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "query_atom_charge"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "query": {
+            "kind": "any_heavy"
+          },
+          "isotope": 2
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "query_atom_isotope"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "query": {
+            "kind": "list",
+            "elements": [
+              "N",
+              "N"
+            ]
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "query_list_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "query": {
+            "kind": "list",
+            "elements": [
+              "H",
+              "He",
+              "Li",
+              "Be",
+              "B",
+              "C",
+              "N",
+              "O",
+              "F",
+              "Ne",
+              "Na"
+            ]
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "query_list_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_bond",
+          "bond": "b1",
+          "order": "query",
+          "query": {
+            "kind": "list",
+            "orders": []
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "bond_query_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_bond",
+          "bond": "b1",
+          "order": "query"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "bond_query_missing"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_bond",
+          "bond": "b1",
+          "order": "dative",
+          "query": {
+            "kind": "any"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "bond_query_unexpected"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "attachment_points": [
+            3,
+            3
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "attachment_points_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "attachment_points": [
+            0
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "attachment_points_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "element": "O",
+          "query": {
+            "kind": "any"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "atom_kind_conflict"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "radical": "singlet"
+        },
+        {
+          "op": "add_atom",
+          "position": {
+            "x": 90,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "atom_kind_conflict"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              },
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a2",
+              "element": "N",
+              "radical": "none"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "order": "single",
+              "query": null
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,13 +1,306 @@
 {
   "id": "hydrogen-states",
-  "title": "Explicit, implicit and unspecified hydrogens are told apart",
+  "title": "Stated, unknown and inferred hydrogens are told apart through edits, undo, a save and a restart (that an inferred state has no count field is checked in crates/application/tests/states.rs)",
   "requirements": [
     "MODEL-02"
   ],
   "axis": "graph",
   "kind": "accept",
-  "pending": {
-    "followup": "P10",
-    "reason": "Atoms record no hydrogen state yet."
-  }
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "hydrogens": {
+            "mode": "specified",
+            "count": 3
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "hydrogens": {
+            "mode": "specified",
+            "count": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 60,
+            "y": 0
+          },
+          "hydrogens": {
+            "mode": "unknown"
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$2",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "H",
+          "position": {
+            "x": 0,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 3
+              }
+            },
+            {
+              "id": "a2",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 0
+              }
+            },
+            {
+              "id": "a3",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a5",
+              "element": "H",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "hydrogens": {
+            "mode": "specified",
+            "count": 16
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a3",
+          "hydrogens": {
+            "mode": "inferred"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 16
+              }
+            },
+            {
+              "id": "a2"
+            },
+            {
+              "id": "a3",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a4"
+            },
+            {
+              "id": "a5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 3
+              }
+            },
+            {
+              "id": "a2"
+            },
+            {
+              "id": "a3",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4"
+            },
+            {
+              "id": "a5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "session": {
+          "saved_revision": 3,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 3
+              }
+            },
+            {
+              "id": "a2",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 0
+              }
+            },
+            {
+              "id": "a3",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a5",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 16
+              }
+            },
+            {
+              "id": "a2"
+            },
+            {
+              "id": "a3",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a4"
+            },
+            {
+              "id": "a5"
+            }
+          ]
+        }
+      }
+    }
+  ]
 }

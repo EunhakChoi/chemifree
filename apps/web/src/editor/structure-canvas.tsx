@@ -1,29 +1,45 @@
-import { useMemo, useRef, useState, type PointerEvent } from 'react'
+import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
-import { placeNewAtoms, placedView, placementAt, type NewAtom } from '@/editor/placement'
+import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
+import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
   atomIndex,
-  bondSegments,
-  chargeText,
+  bondName,
+  bondRings,
+  bondSides,
+  bondStrokes,
   degrees,
   distance,
+  drawingStrokes,
   freeNeighborPosition,
   hitTest,
+  leaningRight,
+  placementFrame,
   round,
   sameHit,
-  showsLabel,
   snappedEndpoint,
   viewBox,
   type Hit,
+  type Stroke,
 } from '@/editor/geometry'
+import { DOT_SIZE, atomLabel, atomName, placed, type AtomLabel, type Box, type LabelChunk } from '@/editor/label'
+
+export type { DrawnOrder } from '@/editor/bond-gestures'
 
 export type Tool = 'select' | 'atom' | 'bond' | 'erase'
 
 /** Below this pointer travel (pt) a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
-const NEXT_ORDER: Record<BondOrder, BondOrder> = { single: 'double', double: 'triple', triple: 'single' }
+/** A bond tool click cycles single, double, and triple; any other kind becomes single. */
+const nextOrder = (order: BondOrder): DrawnOrder => (order === 'single' ? 'double' : order === 'double' ? 'triple' : 'single')
+
+const DASHES: Record<Extract<Stroke, { shape: 'line' }>['pattern'], string | undefined> = {
+  solid: undefined,
+  dashed: '2.5 2',
+  dotted: '0.1 2.2',
+}
 
 /**
  * Gestures act in the scene instance (placement) where they start; `instance` is null for a
@@ -47,11 +63,20 @@ interface Located {
   instance: string | null
 }
 
-/** One placement of the document, drawn with its own atom positions. */
+/**
+ * One placement of the document, drawn with its own atom positions, and everything derived
+ * from it once per document rather than per render: label layouts (relative to each atom;
+ * which side stated hydrogens take depends on the placement's bonds), the side of each bond's
+ * inner line, every bond's strokes, and its frame when there are several placements.
+ */
 interface Drawing {
   id: string | null
   view: DocumentView
   atoms: ReadonlyMap<string, AtomView>
+  labels: ReadonlyMap<string, AtomLabel | null>
+  sides: ReadonlyMap<string, 1 | -1>
+  strokes: ReadonlyMap<string, Stroke[]>
+  frame: ReturnType<typeof placementFrame> | null
 }
 
 const sameLocated = (a: Located | null, b: Located | null) =>
@@ -61,7 +86,7 @@ interface StructureCanvasProps {
   document: DocumentView
   tool: Tool
   element: string
-  bondOrder: BondOrder
+  bondOrder: DrawnOrder
   /** Selected atom (`a…`) and bond (`b…`) identifiers. */
   selection: ReadonlySet<string>
   onSelectionChange: (selection: Set<string>) => void
@@ -91,19 +116,49 @@ export function StructureCanvas({
 
   // Derived per document, not per render: pointer moves re-render the canvas.
   const atoms = useMemo(() => atomIndex(document), [document])
-  const drawings = useMemo<Drawing[]>(
-    () =>
-      placements(document).map((placement) => {
-        const view = placedView(document, placement)
-        return { id: placement.id, view, atoms: atomIndex(view) }
-      }),
-    [document],
-  )
-  const labeled = useMemo(() => {
+  // One label layout per atom and placement: what is drawn, and the box that bond trimming,
+  // the view box, and hit testing all use.
+  const drawings = useMemo<Drawing[]>(() => {
     const counts = degrees(document)
-    return new Map(document.atoms.map((atom) => [atom.id, showsLabel(atom, counts.get(atom.id) ?? 0)]))
+    const all = placements(document)
+    // Rings depend on the graph alone: searched once for every placement.
+    const rings = bondRings(document)
+    // A label depends on the atom and the side its hydrogens take, not on the placement.
+    const layouts = new Map<string, AtomLabel | null>()
+    const layoutOf = (atom: AtomView, left: boolean) => {
+      const key = `${atom.id}:${left}`
+      if (!layouts.has(key)) layouts.set(key, atomLabel(atom, counts.get(atom.id) ?? 0, left))
+      return layouts.get(key) ?? null
+    }
+    return all.map((placement) => {
+      const view = placedView(document, placement)
+      const index = atomIndex(view)
+      const left = leaningRight(view)
+      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, layoutOf(atom, left.has(atom.id))]))
+      const sides = bondSides(view, index, rings)
+      const frame =
+        all.length > 1 && placement.id !== null && view.atoms.length > 0
+          ? placementFrame(
+              view.atoms.map((atom) => atom.position),
+              view.atoms.flatMap((atom) => labelBox(labels, atom.id, atom.position) ?? []),
+              placement.id,
+            )
+          : null
+      return { id: placement.id, view, atoms: index, labels, sides, strokes: drawingStrokes(view, labels, index, sides), frame }
+    })
   }, [document])
-  const box = viewBox(drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)))
+  // The view box holds every atom, label box, and placement frame (with its ID).
+  const box = useMemo(
+    () =>
+      viewBox(
+        drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
+        drawings.flatMap((drawing) => [
+          ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
+          ...(drawing.frame ? [drawing.frame.box] : []),
+        ]),
+      ),
+    [drawings],
+  )
 
   function drawingOf(instance: string | null) {
     return drawings.find((drawing) => drawing.id === instance) ?? drawings[0]
@@ -113,22 +168,16 @@ export function StructureCanvas({
   function locate(point: Position, ignore?: ReadonlySet<string>, only?: string | null): Located {
     for (const drawing of [...drawings].reverse()) {
       if (only !== undefined && drawing.id !== only) continue
-      const hit = hitTest(drawing.view, point, ignore, drawing.atoms)
+      const hit = hitTest(drawing.view, point, ignore, drawing.atoms, drawing.labels)
       if (hit) return { hit, instance: drawing.id }
     }
     return { hit: null, instance: only === undefined ? placementAt(document, point) : only }
   }
 
-  /**
-   * Commands adding a gesture's new atoms, in order, each placed in every placement and bonded
-   * to `bondTo` (an existing atom or `$N`, the gesture's Nth new atom) when it has one.
-   */
-  function addAtoms(element: string, instance: string | null, atoms: NewAtom[]): Command[] {
-    const placed = placeNewAtoms(document, instance, atoms)
-    return atoms.map(({ bondTo }, index): Command => {
-      const add = { op: 'add_atom' as const, element, ...placed[index] }
-      return bondTo === undefined ? add : { ...add, bond_to: { atom: bondTo, order: bondOrder } }
-    })
+  /** The command adding an unbonded atom of `element` at `point`, placed in every placement. */
+  function addAtom(element: string, instance: string | null, point: Position): Command {
+    const [placement] = placeNewAtoms(document, instance, [{ point }])
+    return { op: 'add_atom', element, ...placement }
   }
 
   function toDocument(event: PointerEvent<SVGSVGElement>): Position {
@@ -137,10 +186,6 @@ export function StructureCanvas({
     if (!svg || !matrix) return { x: 0, y: 0 }
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
     return { x: round(point.x), y: round(point.y) }
-  }
-
-  function bondBetween(a: string, b: string) {
-    return document.bonds.find((bond) => (bond.begin === a && bond.end === b) || (bond.begin === b && bond.end === a))
   }
 
   function movableAtoms(ids: ReadonlySet<string>) {
@@ -268,31 +313,22 @@ export function StructureCanvas({
     }
   }
 
+  /** A bond gesture's commands: the bond begins where the gesture starts (see drawBond). */
   function bondCommands(gesture: Extract<Drag, { kind: 'bond' }>, point: Position, dragged: boolean): Command[] {
-    const carbons = (atoms: NewAtom[]) => addAtoms('C', gesture.instance, atoms)
+    const from: BondEnd = gesture.fromAtom ? { atom: gesture.fromAtom } : { point: gesture.start }
+    let to: BondEnd
     if (!dragged) {
-      if (gesture.fromAtom) {
-        const position = freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom)
-        return position ? carbons([{ point: position, bondTo: gesture.fromAtom }]) : []
-      }
-      const end = snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 })
-      return carbons([{ point: gesture.start }, { point: end, bondTo: '$0' }])
+      const end = gesture.fromAtom
+        ? freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom)
+        : snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 })
+      if (!end) return []
+      to = { point: end }
+    } else {
+      const target = bondTarget(gesture, point)
+      if (!target) return []
+      to = target.atom ? { atom: target.atom } : { point: target.position }
     }
-    const target = bondTarget(gesture, point)
-    if (!target) return []
-    if (gesture.fromAtom && target.atom) {
-      const existing = bondBetween(gesture.fromAtom, target.atom)
-      return existing
-        ? [{ op: 'update_bond', bond: existing.id, order: bondOrder }]
-        : [{ op: 'add_bond', begin: gesture.fromAtom, end: target.atom, order: bondOrder }]
-    }
-    if (gesture.fromAtom) {
-      return carbons([{ point: target.position, bondTo: gesture.fromAtom }])
-    }
-    if (target.atom) {
-      return carbons([{ point: gesture.start, bondTo: target.atom }])
-    }
-    return carbons([{ point: gesture.start }, { point: target.position, bondTo: '$0' }])
+    return drawBond(document, gesture.instance, from, to, bondOrder)
   }
 
   function clickCommands(hit: Hit, instance: string | null, point: Position): Command[] {
@@ -303,13 +339,14 @@ export function StructureCanvas({
     }
     if (tool === 'bond' && hit?.kind === 'bond') {
       const bond = document.bonds.find((candidate) => candidate.id === hit.id)
-      return bond ? [{ op: 'update_bond', bond: bond.id, order: NEXT_ORDER[bond.order] }] : []
+      return bond ? [{ op: 'update_bond', bond: bond.id, order: nextOrder(bond.order) }] : []
     }
     if (tool === 'atom') {
       if (hit?.kind === 'atom') {
-        return atoms.get(hit.id)?.element === element ? [] : [{ op: 'update_atom', atom: hit.id, element }]
+        const current = atoms.get(hit.id)
+        return current?.kind === 'element' && current.element === element ? [] : [{ op: 'update_atom', atom: hit.id, element }]
       }
-      if (!hit) return addAtoms(element, instance, [{ point }])
+      if (!hit) return [addAtom(element, instance, point)]
     }
     return []
   }
@@ -328,7 +365,8 @@ export function StructureCanvas({
   return (
     <svg
       ref={svgRef}
-      role="img"
+      role="group"
+      data-structure-canvas=""
       aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
       viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
       className={cn(
@@ -347,7 +385,7 @@ export function StructureCanvas({
     >
       {drawings.map((drawing) => (
         <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
-          {drawings.length > 1 && <PlacementFrame drawing={drawing} />}
+          {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
           <g className="fill-primary/15 stroke-primary/40">
             {document.bonds
               .filter((bond) => selection.has(bond.id) || hovered(drawing, 'bond', bond.id))
@@ -360,43 +398,19 @@ export function StructureCanvas({
               .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
               .map((atom) => {
                 const p = position(drawing, atom.id)
-                return <circle key={atom.id} cx={p.x} cy={p.y} r={8} strokeWidth={1} />
-              })}
-          </g>
-          <g className="stroke-foreground" strokeWidth={1.2} strokeLinecap="round">
-            {document.bonds.map((bond) =>
-              bondSegments(
-                bond,
-                position(drawing, bond.begin),
-                position(drawing, bond.end),
-                labeled.get(bond.begin)!,
-                labeled.get(bond.end)!,
-              ).map((segment, index) => <line key={`${bond.id}-${index}`} {...segment} data-bond={bond.id} />),
-            )}
-          </g>
-          <g className="fill-foreground font-sans" fontSize={12} fontWeight={500}>
-            {document.atoms
-              .filter((atom) => labeled.get(atom.id))
-              .map((atom) => {
-                const p = position(drawing, atom.id)
-                const charge = chargeText(atom.charge)
-                return (
-                  <text key={atom.id} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central" data-atom={atom.id}>
-                    {atom.isotope !== null && (
-                      <tspan dy={-5} fontSize={8}>
-                        {atom.isotope}
-                      </tspan>
-                    )}
-                    <tspan dy={atom.isotope !== null ? 5 : 0}>{atom.element}</tspan>
-                    {charge && (
-                      <tspan dy={-5} fontSize={8}>
-                        {charge}
-                      </tspan>
-                    )}
-                  </text>
+                const label = labelBox(drawing.labels, atom.id, p)
+                return label ? (
+                  <rect key={atom.id} {...label} rx={3} strokeWidth={1} />
+                ) : (
+                  <circle key={atom.id} cx={p.x} cy={p.y} r={8} strokeWidth={1} />
                 )
               })}
           </g>
+          <DrawingLayer
+            drawing={drawing}
+            several={drawings.length > 1}
+            moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
+          />
         </g>
       ))}
       {preview?.kind === 'bond' && (
@@ -425,30 +439,176 @@ export function StructureCanvas({
   )
 }
 
-const FRAME_PADDING = 14
+/** An atom's label box placed at `at`, or null for a bare vertex. */
+function labelBox(labels: ReadonlyMap<string, AtomLabel | null>, id: string, at: Position): Box | null {
+  const label = labels.get(id)
+  return label ? placed(label.box, at) : null
+}
 
-/** A dashed outline and the instance ID around one of several placements, so each reads as its own drawing. */
-function PlacementFrame({ drawing }: { drawing: Drawing }) {
-  const points = drawing.view.atoms.map((atom) => atom.position)
-  if (points.length === 0 || drawing.id === null) return null
-  const xs = points.map((point) => point.x)
-  const ys = points.map((point) => point.y)
-  const left = Math.min(...xs) - FRAME_PADDING
-  const top = Math.min(...ys) - FRAME_PADDING
+/** A drag preview moving some atoms of one placement by `delta`. */
+interface Moved {
+  atoms: ReadonlySet<string>
+  delta: Position
+}
+
+/**
+ * One placement's bonds and atom labels. It re-renders only when its drawing changes or atoms
+ * of this placement are being dragged, not on hover or selection, which large documents would
+ * otherwise pay for on every pointer move.
+ */
+const DrawingLayer = memo(function DrawingLayer({
+  drawing,
+  several,
+  moved,
+}: {
+  drawing: Drawing
+  several: boolean
+  moved: Moved | null
+}) {
+  const position = (id: string) => {
+    const at = drawing.atoms.get(id)!.position
+    return moved?.atoms.has(id) ? { x: at.x + moved.delta.x, y: at.y + moved.delta.y } : at
+  }
+  const placement = several ? drawing.id : null
+  const strokesOf = (bond: (typeof drawing.view.bonds)[number]) => {
+    if (!moved || !(moved.atoms.has(bond.begin) || moved.atoms.has(bond.end))) return drawing.strokes.get(bond.id) ?? []
+    const begin = position(bond.begin)
+    const end = position(bond.end)
+    return bondStrokes(
+      bond,
+      begin,
+      end,
+      labelBox(drawing.labels, bond.begin, begin),
+      labelBox(drawing.labels, bond.end, end),
+      drawing.sides.get(bond.id),
+    )
+  }
+  return (
+    <>
+      <g className="fill-none stroke-foreground" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round">
+        {drawing.view.bonds.map((bond) => (
+          <g key={bond.id} role="img" aria-label={bondName(bond, placement)} data-bond-kind={bond.order}>
+            {strokesOf(bond).map((stroke, index) =>
+              stroke.shape === 'line' ? (
+                <line
+                  key={index}
+                  x1={stroke.x1}
+                  y1={stroke.y1}
+                  x2={stroke.x2}
+                  y2={stroke.y2}
+                  strokeDasharray={DASHES[stroke.pattern]}
+                  data-bond={bond.id}
+                  data-pattern={stroke.pattern}
+                />
+              ) : (
+                <polyline key={index} points={stroke.points.map((p) => `${p.x},${p.y}`).join(' ')} data-bond={bond.id} />
+              ),
+            )}
+          </g>
+        ))}
+      </g>
+      <g className="fill-foreground font-sans">
+        {drawing.view.atoms.map((atom) => {
+          const label = drawing.labels.get(atom.id)
+          return label ? (
+            <AtomMark key={atom.id} id={atom.id} name={atomName(atom, placement)} label={label} at={position(atom.id)} />
+          ) : null
+        })}
+      </g>
+    </>
+  )
+})
+
+/** `box` as an attribute value, so a test can compare it with what the browser draws. */
+const boxAttribute = (box: Box) => `${round(box.x)} ${round(box.y)} ${round(box.width)} ${round(box.height)}`
+
+/** A chunk of label text flowing from its anchor; each run is drawn at its natural width. */
+function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; className?: string } & Record<`data-${string}`, string>) {
+  return (
+    <text
+      x={round(at.x + chunk.x)}
+      y={round(at.y + chunk.y)}
+      textAnchor={chunk.anchor}
+      dominantBaseline="central"
+      aria-hidden="true"
+      data-box={boxAttribute(placed(chunk.box, at))}
+      {...rest}
+    >
+      {chunk.runs.map((run, index) => {
+        const shift = run.shift - (index === 0 ? 0 : chunk.runs[index - 1].shift)
+        return (
+          <tspan
+            key={index}
+            dy={shift === 0 ? undefined : shift}
+            fontSize={run.size}
+            fontWeight={run.weight}
+            dominantBaseline="central"
+            data-part={run.part}
+          >
+            {run.text}
+          </tspan>
+        )
+      })}
+    </text>
+  )
+}
+
+/**
+ * An atom's label as laid out: its text chunks, its marks, and its radical dots. The whole
+ * group is one image named in full; `data-box` is the label box the canvas reserves for it.
+ */
+function AtomMark({ id, name, label, at }: { id: string; name: string; label: AtomLabel; at: Position }) {
+  return (
+    <g role="img" aria-label={name} data-atom-label={id} data-box={boxAttribute(placed(label.box, at))}>
+      {label.chunks.map((chunk) => (
+        <ChunkText key={chunk.role} chunk={chunk} at={at} data-atom={id} data-chunk={chunk.role} />
+      ))}
+      {label.marks.map((mark) => (
+        <ChunkText key={mark.role} chunk={mark} at={at} className="fill-muted-foreground" data-mark={mark.role} />
+      ))}
+      {label.dots.map((dot, index) => (
+        <circle
+          key={index}
+          cx={round(at.x + dot.dx)}
+          cy={round(at.y + dot.dy)}
+          r={DOT_SIZE}
+          className={dot.hollow ? 'fill-none stroke-foreground' : undefined}
+          strokeWidth={dot.hollow ? 0.6 : undefined}
+          data-mark="radical"
+          aria-hidden="true"
+        />
+      ))}
+    </g>
+  )
+}
+
+/**
+ * A dashed outline and the instance ID around one of several placements, so each reads as its
+ * own drawing. It encloses every atom and label box; the view box holds all of it.
+ */
+function PlacementFrame({ id, frame }: { id: string; frame: ReturnType<typeof placementFrame> }) {
   return (
     <g className="pointer-events-none" aria-hidden="true">
       <rect
-        x={left}
-        y={top}
-        width={Math.max(...xs) - Math.min(...xs) + 2 * FRAME_PADDING}
-        height={Math.max(...ys) - Math.min(...ys) + 2 * FRAME_PADDING}
+        x={frame.rect.x}
+        y={frame.rect.y}
+        width={frame.rect.width}
+        height={frame.rect.height}
         rx={4}
         className="fill-none stroke-muted-foreground/40"
         strokeWidth={0.8}
         strokeDasharray="4 3"
+        data-frame={id}
       />
-      <text x={left + 2} y={top - 3} fontSize={8} className="fill-muted-foreground font-sans">
-        {drawing.id}
+      <text
+        x={frame.idAt.x}
+        y={frame.idAt.y}
+        fontSize={frame.idSize}
+        dominantBaseline="central"
+        className="fill-muted-foreground font-sans"
+        data-frame-id={id}
+      >
+        {id}
       </text>
     </g>
   )

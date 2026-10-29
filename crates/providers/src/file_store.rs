@@ -17,13 +17,14 @@
 //! - `drafts/<id>.committing`: an owned draft set aside during a save. If the saving process
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
-//! - `migrated/<id>.v1.json`: the exact bytes of a version 1 document file, kept by the first
-//!   save that replaces it with version 2 (reading and migrating a file never writes). Under
-//!   the save lock, the copy is written to a temporary file, flushed to disk, and renamed into
-//!   place before the document is replaced. A copy is never overwritten: a later version 1
-//!   file with other bytes under the same ID is kept as `migrated/<id>.v1.2.json`, then
-//!   `.v1.3.json`, and so on, while one whose bytes are already kept is not copied again. These
-//!   copies are not documents: they are not listed, opened, trashed, restored, or removed.
+//! - `migrated/<id>.v<N>.json`: the exact bytes of a document file of an earlier version `N`
+//!   (1 or 2), kept by the first save that replaces it with the current version (reading and
+//!   migrating a file never writes). Under the save lock, the copy is written to a temporary
+//!   file, flushed to disk, and renamed into place before the document is replaced. A copy is
+//!   never overwritten: a later version `N` file with other bytes under the same ID is kept as
+//!   `migrated/<id>.v<N>.2.json`, then `.v<N>.3.json`, and so on, while one whose bytes are
+//!   already kept under any of these names is not copied again. These copies are not
+//!   documents: they are not listed, opened, trashed, restored, or removed.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -165,40 +166,51 @@ impl FileDocumentRepository {
         self.drafts.join(format!("{id}.committing"))
     }
 
-    /// Where the first save over a version 1 file keeps that file's bytes. Later version 1
-    /// files with other bytes under the same ID are kept as `<id>.v1.2.json`, `.v1.3.json`, ….
-    pub fn migrated_path(&self, id: &DocumentId) -> PathBuf {
-        self.migrated_copy_path(id, 1)
+    /// Where the first save over a file of the earlier format `version` keeps that file's
+    /// bytes. Later files of that version with other bytes under the same ID are kept as
+    /// `<id>.v<version>.2.json`, `.v<version>.3.json`, ….
+    pub fn migrated_path(&self, id: &DocumentId, version: u32) -> PathBuf {
+        self.migrated_copy_path(id, version, 1)
     }
 
-    fn migrated_copy_path(&self, id: &DocumentId, number: u32) -> PathBuf {
+    fn migrated_copy_path(&self, id: &DocumentId, version: u32, number: u32) -> PathBuf {
         if number == 1 {
-            self.migrated.join(format!("{id}.v1.{EXTENSION}"))
+            self.migrated.join(format!("{id}.v{version}.{EXTENSION}"))
         } else {
-            self.migrated.join(format!("{id}.v1.{number}.{EXTENSION}"))
+            self.migrated
+                .join(format!("{id}.v{version}.{number}.{EXTENSION}"))
         }
     }
 
-    /// Keeps `stored`, the version 1 file a save is about to replace, unless a copy with the
-    /// same bytes is already kept. Copies are numbered in order and never overwritten: the
-    /// bytes go to the first free name. Called with the save lock held, so no other save
-    /// checks or writes these copies meanwhile.
-    fn keep_version_1(&self, id: &DocumentId, stored: &[u8]) -> Result<(), StorageError> {
+    /// Keeps `stored`, the file of the earlier format `version` a save is about to replace,
+    /// unless a copy with the same bytes is already kept. Copies are numbered in order and
+    /// never overwritten: the bytes go to the first free name. Called with the save lock held,
+    /// so no other save checks or writes these copies meanwhile.
+    fn keep_earlier_version(
+        &self,
+        id: &DocumentId,
+        version: u32,
+        stored: &[u8],
+    ) -> Result<(), StorageError> {
         for number in 1..=u32::MAX {
-            let kept = self.migrated_copy_path(id, number);
+            let kept = self.migrated_copy_path(id, version, number);
             match fs::read(&kept) {
                 Ok(bytes) if bytes == stored => return Ok(()),
                 Ok(_) => continue,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     return self.write_atomically(&kept, stored).map_err(|error| {
-                        write_failed("keep the version 1 file as", &kept, &error)
+                        write_failed(
+                            &format!("keep the version {version} file as"),
+                            &kept,
+                            &error,
+                        )
                     });
                 }
                 Err(error) => return Err(unavailable("read", &kept, &error)),
             }
         }
         Err(StorageError::Unavailable(format!(
-            "no free name to keep the version 1 file of {id} in {}",
+            "no free name to keep the version {version} file of {id} in {}",
             self.migrated.display()
         )))
     }
@@ -514,9 +526,9 @@ impl DocumentRepository for FileDocumentRepository {
             )));
         }
         if let Some(stored) = stored_bytes.as_deref()
-            && file_format::is_version_1(stored)
+            && let Some(version) = file_format::earlier_version(stored)
         {
-            self.keep_version_1(id, stored)?;
+            self.keep_earlier_version(id, version, stored)?;
         }
         // The owned draft is set aside before the commit and removed after it, so a draft
         // left behind by a crash in between is recognized as superseded.
@@ -871,10 +883,15 @@ pub fn default_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use chemifree_domain::document::{
-        AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, InstanceId, MAX_ATOMS,
-        MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MIN_CHARGE, NewAtomPositions, Point, Vector,
+        Atom, AtomEdit, AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, InstanceId,
+        MAX_ATOMS, MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MAX_REVISION, MIN_CHARGE,
+        NewAtomPositions, Point, Vector,
     };
     use chemifree_domain::element::Element;
+    use chemifree_domain::states::{
+        AtomKind, AttachmentPoints, BondQuery, Hydrogens, MAX_STATED_HYDROGENS, QueryAtom,
+        QueryBondOrder, Radical,
+    };
 
     use super::*;
 
@@ -930,7 +947,7 @@ mod tests {
         document
             .apply(&[
                 Command::AddAtom {
-                    element: Element::CARBON,
+                    atom: Atom::from(Element::CARBON),
                     // Needs the full round-trip float parser to reload bit-exactly.
                     positions: NewAtomPositions::Single(
                         Point::new(150.8, 226.399_999_999_999_98).unwrap(),
@@ -938,7 +955,7 @@ mod tests {
                     bond_to: None,
                 },
                 Command::AddAtom {
-                    element: Element::from_symbol("Cl").unwrap(),
+                    atom: Atom::from(Element::from_symbol("Cl").unwrap()),
                     positions: NewAtomPositions::Single(Point::new(30.0, 0.1).unwrap()),
                     bond_to: Some(BondTo {
                         atom: AtomRef::Id(AtomId::from_serial(1).unwrap()),
@@ -974,21 +991,19 @@ mod tests {
         assert_eq!(loaded.title(), "Stored twice");
     }
 
-    /// Entity and history limits together must keep every document within the read limit,
-    /// or a save could commit a file that can never be opened again.
-    #[test]
-    fn a_document_at_every_limit_encodes_within_the_read_limit() {
+    /// A document at every entity limit, with the largest atom and bond states: every atom an
+    /// element with the widest charge, isotope, stated hydrogens, radical, and attachment points,
+    /// every bond a query listing all four kinds, and every scene instance holding a position
+    /// for every atom.
+    fn at_every_limit() -> Document {
         let mut document =
             Document::new(DocumentId::parse("doc-limits").unwrap(), "Limits").unwrap();
         let atom = |serial: usize| AtomRef::Id(AtomId::from_serial(serial as u32).unwrap());
-        let ids = |range: std::ops::Range<usize>| {
-            range.map(|serial| AtomId::from_serial(serial as u32).unwrap())
-        };
         for batch in (0..MAX_ATOMS).collect::<Vec<_>>().chunks(MAX_COMMANDS) {
             let commands: Vec<_> = batch
                 .iter()
                 .map(|&index| Command::AddAtom {
-                    element: Element::CARBON,
+                    atom: widest_element(),
                     // Long shortest-round-trip decimals, near the coordinate bound.
                     positions: NewAtomPositions::Single(
                         Point::new(
@@ -1013,24 +1028,16 @@ mod tests {
                 .map(|&(begin, end)| Command::AddBond {
                     begin: atom(begin),
                     end: atom(end),
-                    order: BondOrder::Triple,
+                    order: BondOrder::Query(BondQuery::OneOf(vec![
+                        QueryBondOrder::Aromatic,
+                        QueryBondOrder::Double,
+                        QueryBondOrder::Triple,
+                        QueryBondOrder::Single,
+                    ])),
                 })
                 .collect();
             document.apply(&commands).unwrap();
         }
-        for batch in (1..=MAX_ATOMS).collect::<Vec<_>>().chunks(MAX_COMMANDS) {
-            let commands: Vec<_> = batch
-                .iter()
-                .map(|&serial| Command::UpdateAtom {
-                    atom: AtomId::from_serial(serial as u32).unwrap(),
-                    element: Some(Element::from_symbol("Og").unwrap()),
-                    charge: Some(MIN_CHARGE),
-                    isotope: Some(Some(999)),
-                })
-                .collect();
-            document.apply(&commands).unwrap();
-        }
-        // Every scene instance holds a position for every atom.
         let instances: Vec<_> = (1..MAX_INSTANCES)
             .map(|_| Command::AddInstance {
                 source: None,
@@ -1041,12 +1048,75 @@ mod tests {
             })
             .collect();
         document.apply(&instances).unwrap();
+        document
+    }
+
+    /// The largest element atom state.
+    fn widest_element() -> Atom {
+        Atom {
+            charge: MIN_CHARGE,
+            isotope: Some(999),
+            hydrogens: Hydrogens::Specified(MAX_STATED_HYDROGENS),
+            radical: Radical::Triplet,
+            attachment_points: AttachmentPoints::new(&[1, 2, 3, 4]).unwrap(),
+            ..Atom::from(Element::from_symbol("Og").unwrap())
+        }
+    }
+
+    /// The largest query atom state: ten two-letter elements, negated.
+    fn widest_query() -> Atom {
+        let elements = ["Og", "Ts", "Lv", "Mc", "Fl", "Nh", "Cn", "Rg", "Ds", "Mt"]
+            .map(|symbol| Element::from_symbol(symbol).unwrap());
+        Atom {
+            charge: 0,
+            isotope: None,
+            ..Atom {
+                kind: AtomKind::Query(QueryAtom::List {
+                    elements: elements.to_vec(),
+                    negated: true,
+                }),
+                ..widest_element()
+            }
+        }
+    }
+
+    fn assert_within_read_limit(document: &Document) {
+        let bytes = file_format::encode(document);
+        assert!(
+            (bytes.len() as u64) < MAX_DOCUMENT_BYTES,
+            "{} bytes exceed {MAX_DOCUMENT_BYTES}",
+            bytes.len()
+        );
+        assert_eq!(&file_format::decode(&bytes).unwrap(), document);
+        let draft = Draft {
+            document: document.clone(),
+            base_revision: MAX_REVISION,
+            saved_at_ms: u64::MAX,
+        };
+        let draft_bytes = file_format::encode_draft(&draft);
+        assert!(
+            (draft_bytes.len() as u64) < MAX_DOCUMENT_BYTES,
+            "the draft's {} bytes exceed {MAX_DOCUMENT_BYTES}",
+            draft_bytes.len()
+        );
+        assert_eq!(file_format::decode_draft(&draft_bytes).unwrap(), draft);
+    }
+
+    /// Entity and history limits together must keep every document within the read limit,
+    /// or a save could commit a file that can never be opened again. Here the history is full
+    /// of position changes.
+    #[test]
+    fn a_document_at_every_limit_encodes_within_the_read_limit() {
+        let mut document = at_every_limit();
         let last = InstanceId::from_serial(MAX_INSTANCES as u32).unwrap();
-        // Moving every atom repeatedly fills the history with the largest entries.
+        let atoms: Vec<AtomId> = (1..=MAX_ATOMS)
+            .map(|serial| AtomId::from_serial(serial as u32).unwrap())
+            .collect();
+        // Moving every atom repeatedly fills the history with the largest position entries.
         for _ in 0..HISTORY_LIMIT {
             document
                 .apply(&[Command::MoveAtoms {
-                    atoms: ids(1..MAX_ATOMS + 1).collect(),
+                    atoms: atoms.clone(),
                     delta: Vector {
                         dx: 0.000_123_456_789,
                         dy: -0.000_987_654_321,
@@ -1055,13 +1125,37 @@ mod tests {
                 }])
                 .unwrap();
         }
-        let bytes = file_format::encode(&document);
-        assert!(
-            (bytes.len() as u64) < MAX_DOCUMENT_BYTES,
-            "{} bytes exceed {MAX_DOCUMENT_BYTES}",
-            bytes.len()
-        );
-        assert_eq!(file_format::decode(&bytes).unwrap(), document);
+        assert_within_read_limit(&document);
+    }
+
+    /// The same, with the history full of the largest atom changes. A transaction holds at most
+    /// 500 commands, so an entry changes at most 500 atoms with both sides present, and 100
+    /// entries of them (every atom turning from the widest element state into the widest query
+    /// state and back) carry more bytes per change than any other history.
+    #[test]
+    fn a_document_with_the_largest_atom_states_in_its_history_encodes_within_the_read_limit() {
+        let mut document = at_every_limit();
+        for round in 0..HISTORY_LIMIT {
+            let state = if round % 2 == 0 {
+                widest_query()
+            } else {
+                widest_element()
+            };
+            let commands: Vec<_> = (1..=MAX_COMMANDS)
+                .map(|serial| Command::UpdateAtom {
+                    atom: AtomId::from_serial(serial as u32).unwrap(),
+                    edit: AtomEdit {
+                        kind: Some(state.kind.clone()),
+                        charge: Some(state.charge),
+                        isotope: Some(state.isotope),
+                        ..AtomEdit::default()
+                    },
+                })
+                .collect();
+            document.apply(&commands).unwrap();
+        }
+        assert_eq!(document.undo_depth(), HISTORY_LIMIT);
+        assert_within_read_limit(&document);
     }
 
     #[test]
@@ -1150,8 +1244,8 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\": 2", "\"format_version\": 99"),
-            valid.replacen("\"begin\": \"a1\"", "\"begin\": \"a9\"", 1),
+            valid.replace("\"format_version\":3", "\"format_version\":99"),
+            valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {
             assert_ne!(corrupt, valid, "each variant changes the file");

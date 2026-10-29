@@ -66,25 +66,33 @@ import { Kbd } from '@/components/ui/kbd'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { Toggle } from '@/components/ui/toggle'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import * as edits from '@/editor/atom-edits'
 import { stillApplicable } from '@/editor/commands'
+import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
-import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
+import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
-import type {
-  AtomView,
-  BondOrder,
-  Command,
-  DocumentResponse,
-  DocumentSummary,
-  DocumentView,
-  InstanceView,
-  ListSort,
-  Position,
-  RecoveryView,
-  StorageReason,
+import {
+  ATTACHMENT_POINTS,
+  type AtomView,
+  type BondOrder,
+  type BondView,
+  type Command,
+  type DocumentResponse,
+  type DocumentSummary,
+  type DocumentView,
+  type InstanceView,
+  type ListSort,
+  type Position,
+  type RecoveryView,
+  type Hydrogens,
+  type QueryAtom,
+  type Radical,
+  type StorageReason,
 } from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
@@ -94,10 +102,37 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
 ]
-const ORDERS: { value: BondOrder; label: string; glyph: string }[] = [
+/** The kinds the bond tool draws. Each is recorded only: aromaticity is not perceived. */
+const DRAWN_ORDERS: { value: DrawnOrder; label: string; glyph: string }[] = [
   { value: 'single', label: 'Single bond', glyph: '—' },
   { value: 'double', label: 'Double bond', glyph: '=' },
   { value: 'triple', label: 'Triple bond', glyph: '≡' },
+  { value: 'aromatic', label: 'Aromatic bond', glyph: 'ar' },
+  { value: 'dative', label: 'Dative bond, from where the drag starts (the donor)', glyph: '→' },
+  { value: 'unknown', label: 'Bond of unknown kind', glyph: '~' },
+]
+/** The kinds a bond can be given in the inspector: a query bond starts as "any kind". */
+const ORDERS: { value: BondOrder; label: string; glyph: string }[] = [
+  ...DRAWN_ORDERS,
+  { value: 'query', label: 'Query bond', glyph: '?' },
+]
+const QUERY_ATOMS: { value: Exclude<QueryAtom['kind'], 'list'>; label: string }[] = [
+  { value: 'any', label: 'Query: any atom' },
+  { value: 'any_heavy', label: 'Query: any atom except hydrogen' },
+  { value: 'heteroatom', label: 'Query: any atom except carbon and hydrogen' },
+  { value: 'halogen', label: 'Query: any halogen' },
+]
+const HYDROGEN_MODES: { value: Hydrogens['mode']; label: string; text: string }[] = [
+  { value: 'inferred', label: 'Hydrogens inferred (not computed)', text: 'Inferred' },
+  { value: 'unknown', label: 'Hydrogens unknown', text: 'Unknown' },
+  { value: 'specified', label: 'Hydrogens stated', text: 'Stated' },
+]
+const RADICALS: { value: Radical; label: string; glyph: string }[] = [
+  { value: 'none', label: 'No radical', glyph: '0' },
+  { value: 'singlet', label: 'Singlet radical', glyph: ':' },
+  { value: 'doublet', label: 'Doublet radical', glyph: '•' },
+  { value: 'triplet', label: 'Triplet radical', glyph: '∘∘' },
+  { value: 'unknown', label: 'Radical unknown', glyph: '?' },
 ]
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const MOD = isMac ? '⌘' : 'Ctrl'
@@ -186,6 +221,11 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
         {error.message}
+        {error.stateReason && (
+          <span className="block font-mono text-xs" data-testid="state-reason">
+            Reason: {error.stateReason}
+          </span>
+        )}
       </AlertDescription>
       <AlertAction>
         {stale ? (
@@ -437,7 +477,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const { document, session } = current
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
-  const [bondOrder, setBondOrder] = useState<BondOrder>('single')
+  const [bondOrder, setBondOrder] = useState<DrawnOrder>('single')
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const exists = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id)])
   const selected = new Set([...selection].filter((id) => exists.has(id)))
@@ -583,11 +623,11 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           value={[bondOrder]}
           onValueChange={(values) => {
             if (!values[0]) return
-            setBondOrder(values[0] as BondOrder)
+            setBondOrder(values[0] as DrawnOrder)
             setTool('bond')
           }}
         >
-          {ORDERS.map((order) => (
+          {DRAWN_ORDERS.map((order) => (
             <ToggleGroupItem key={order.value} value={order.value} aria-label={order.label} className="min-w-8 font-mono">
               {order.glyph}
             </ToggleGroupItem>
@@ -857,31 +897,28 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
   )
 }
 
-/** Charge steps are applied to the latest document, so quick repeated clicks all count. */
-function changeCharge(atom: string, step: number) {
-  return (document: DocumentView): Command[] | null => {
-    const current = document.atoms.find((item) => item.id === atom)
-    return current ? [{ op: 'update_atom', atom, charge: current.charge + step }] : null
-  }
-}
-
-/** Shows the atom's element again after an empty entry or a rejected symbol. */
+/**
+ * Shows the atom's element again after an empty entry or a rejected symbol. A query atom shows
+ * no element; entering one makes it an element atom.
+ */
 function ElementField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
   const [attempt, setAttempt] = useState(0)
   const reset = () => setAttempt((count) => count + 1)
+  const symbol = atom.kind === 'element' ? atom.element : ''
   return (
     <Field>
       <FieldLabel htmlFor="atom-element">Element</FieldLabel>
       <Input
         id="atom-element"
-        key={`${atom.element}:${attempt}`}
-        defaultValue={atom.element}
+        key={`${atom.kind}:${symbol}:${attempt}`}
+        defaultValue={symbol}
+        placeholder={atom.kind === 'query' ? 'Symbol' : undefined}
         maxLength={3}
         onKeyDown={commitOnEnter}
         onBlur={(event) => {
           const value = event.currentTarget.value.trim()
-          if (!value || value === atom.element) return reset()
-          void editor.apply([{ op: 'update_atom', atom: atom.id, element: value }]).then(reset)
+          if (!value || value === symbol) return reset()
+          void editor.apply(edits.setElement(atom.id, value)).then(reset)
         }}
       />
     </Field>
@@ -904,6 +941,7 @@ function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor
       <Input
         id="atom-isotope"
         key={atom.isotope}
+        disabled={atom.kind === 'query'}
         inputMode="numeric"
         placeholder="Natural"
         defaultValue={atom.isotope ?? ''}
@@ -913,9 +951,7 @@ function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor
         onBlur={(event) => {
           const isotope = parseIsotope(event.currentTarget.value.trim())
           setInvalid(isotope === undefined)
-          if (isotope !== undefined && isotope !== atom.isotope) {
-            void editor.apply([{ op: 'update_atom', atom: atom.id, isotope }])
-          }
+          if (isotope !== undefined && isotope !== atom.isotope) void editor.apply(edits.setIsotope(atom.id, isotope))
         }}
       />
       {invalid ? (
@@ -1012,63 +1048,269 @@ function Inspector({
           Use the select tool (V) to inspect an atom or bond. {document.atoms.length} atoms, {document.bonds.length} bonds.
         </p>
       )}
-      {atom && (
-        <FieldGroup className="gap-3">
-          <ElementField key={`element-${atom.id}`} atom={atom} editor={editor} />
-          <Field>
-            <FieldLabel id="atom-charge">Charge</FieldLabel>
-            <div role="group" aria-labelledby="atom-charge" className="flex items-center gap-2">
-              <Button
-                size="icon-sm"
-                variant="outline"
-                aria-label="Decrease charge"
-                onClick={() => void editor.apply(changeCharge(atom.id, -1))}
-              >
-                <MinusIcon aria-hidden="true" />
-              </Button>
-              <output className="min-w-8 text-center font-mono text-sm" aria-live="polite">
-                {atom.charge > 0 ? `+${atom.charge}` : atom.charge}
-              </output>
-              <Button
-                size="icon-sm"
-                variant="outline"
-                aria-label="Increase charge"
-                onClick={() => void editor.apply(changeCharge(atom.id, 1))}
-              >
-                <PlusIcon aria-hidden="true" />
-              </Button>
-            </div>
-          </Field>
-          <IsotopeField key={`isotope-${atom.id}`} atom={atom} editor={editor} />
-        </FieldGroup>
-      )}
-      {bond && (
-        <Field>
-          <FieldLabel id="bond-order">Order</FieldLabel>
-          <ToggleGroup
-            aria-labelledby="bond-order"
-            variant="outline"
-            size="sm"
-            spacing={0}
-            value={[bond.order]}
-            onValueChange={(values) => {
-              const order = values[0] as BondOrder | undefined
-              if (order && order !== bond.order) void editor.apply([{ op: 'update_bond', bond: bond.id, order }])
-            }}
-          >
-            {ORDERS.map((order) => (
-              <ToggleGroupItem key={order.value} value={order.value} aria-label={order.label} className="min-w-8 font-mono">
-                {order.glyph}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </Field>
-      )}
+      {atom && <AtomInspector atom={atom} editor={editor} />}
+      {bond && <BondInspector bond={bond} editor={editor} />}
       {selected.length > 0 && (
         <Button size="sm" variant="outline" onClick={onDelete}>
           <Trash2Icon data-icon="inline-start" aria-hidden="true" />Delete
         </Button>
       )}
     </aside>
+  )
+}
+
+/** A row of small labelled controls that wraps inside the narrow inspector. */
+function Choice({ label, id, children }: { label: string; id: string; children: ReactNode }) {
+  return (
+    <Field>
+      <FieldLabel id={id}>{label}</FieldLabel>
+      {children}
+    </Field>
+  )
+}
+
+/** A value with buttons that step it; a step that no longer applies is not sent. */
+function Stepper({
+  name,
+  value,
+  onStep,
+  disabled,
+}: {
+  name: string
+  value: string
+  onStep: (step: number) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Button size="icon-sm" variant="outline" aria-label={`Decrease ${name}`} disabled={disabled} onClick={() => onStep(-1)}>
+        <MinusIcon aria-hidden="true" />
+      </Button>
+      <output className="min-w-8 text-center font-mono text-sm" aria-live="polite">
+        {value}
+      </output>
+      <Button size="icon-sm" variant="outline" aria-label={`Increase ${name}`} disabled={disabled} onClick={() => onStep(1)}>
+        <PlusIcon aria-hidden="true" />
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * An atom's element or query, charge, isotope, and recorded states. Every change is built from
+ * the latest document when its request runs (see editor/atom-edits), so quick presses in any
+ * order never send a combination the service refuses.
+ */
+function AtomInspector({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
+  const query = atom.kind === 'query' ? atom.query : null
+  return (
+    <FieldGroup className="gap-3">
+      <ElementField key={`element-${atom.id}`} atom={atom} editor={editor} />
+      <Choice label="Query atom" id="atom-query">
+        <ToggleGroup
+          aria-labelledby="atom-query"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={query && query.kind !== 'list' ? [query.kind] : []}
+          onValueChange={(values) => {
+            const kind = QUERY_ATOMS.find((item) => item.value === values[0])?.value
+            if (kind) void editor.apply(edits.setQuery(atom.id, { kind }))
+          }}
+        >
+          {QUERY_ATOMS.map((item) => (
+            <ToggleGroupItem key={item.value} value={item.value} aria-label={item.label} className="min-w-8 font-mono">
+              {queryLabel({ kind: item.value })}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Choice>
+      <QueryListField key={`list-${atom.id}-${JSON.stringify(query)}`} atom={atom} editor={editor} />
+      {query && (
+        <p className="text-xs leading-relaxed text-muted-foreground" data-testid="query-expression">
+          Query {queryLabel(query)}: {queryDescription(query)}. Recorded only; nothing is matched.
+        </p>
+      )}
+      <Field data-disabled={query ? true : undefined}>
+        <FieldLabel id="atom-charge">Charge</FieldLabel>
+        <div role="group" aria-labelledby="atom-charge">
+          <Stepper
+            name="charge"
+            value={atom.charge > 0 ? `+${atom.charge}` : String(atom.charge)}
+            disabled={query !== null}
+            onStep={(step) => void editor.apply(edits.stepCharge(atom.id, step))}
+          />
+        </div>
+      </Field>
+      <IsotopeField key={`isotope-${atom.id}`} atom={atom} editor={editor} />
+      <Choice label="Hydrogens" id="atom-hydrogens">
+        <ToggleGroup
+          aria-labelledby="atom-hydrogens"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={[atom.hydrogens.mode]}
+          onValueChange={(values) => {
+            const mode = HYDROGEN_MODES.find((item) => item.value === values[0])?.value
+            if (mode) void editor.apply(edits.setHydrogenMode(atom.id, mode))
+          }}
+        >
+          {HYDROGEN_MODES.map((item) => (
+            <ToggleGroupItem key={item.value} value={item.value} aria-label={item.label} className="text-xs">
+              {item.text}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        {atom.hydrogens.mode === 'specified' && (
+          <Stepper
+            name="stated hydrogens"
+            value={`H${atom.hydrogens.count}`}
+            onStep={(step) => void editor.apply(edits.stepHydrogens(atom.id, step))}
+          />
+        )}
+      </Choice>
+      <Choice label="Radical" id="atom-radical">
+        <ToggleGroup
+          aria-labelledby="atom-radical"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={[atom.radical]}
+          onValueChange={(values) => {
+            const radical = RADICALS.find((item) => item.value === values[0])?.value
+            if (radical) void editor.apply(edits.setRadical(atom.id, radical))
+          }}
+        >
+          {RADICALS.map((item) => (
+            <ToggleGroupItem key={item.value} value={item.value} aria-label={item.label} className="min-w-8 font-mono">
+              {item.glyph}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Choice>
+      <Choice label="Attachment points" id="atom-attachment">
+        <div role="group" aria-labelledby="atom-attachment" className="flex gap-1">
+          {ATTACHMENT_POINTS.map((point) => (
+            <Toggle
+              key={point}
+              variant="outline"
+              size="sm"
+              className="min-w-8 font-mono"
+              aria-label={`Attachment point ${point}`}
+              pressed={atom.attachment_points.includes(point)}
+              onPressedChange={() => void editor.apply(edits.toggleAttachmentPoint(atom.id, point))}
+            >
+              {point}
+            </Toggle>
+          ))}
+        </div>
+      </Choice>
+    </FieldGroup>
+  )
+}
+
+/**
+ * A query atom's element list, typed as "N, O, S", with whether it is negated. Each change is
+ * built from the latest list and negation, so a list typed while a negation is on its way (or
+ * the reverse) keeps both.
+ */
+function QueryListField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
+  const list = atom.query?.kind === 'list' ? atom.query : null
+  const [invalid, setInvalid] = useState(false)
+  const negated = list?.negated ?? false
+  return (
+    <Field data-invalid={invalid || undefined}>
+      <FieldLabel htmlFor="atom-query-list">Query element list</FieldLabel>
+      <div className="flex items-center gap-1">
+        <Input
+          id="atom-query-list"
+          placeholder="N, O, S"
+          defaultValue={list?.elements.join(', ') ?? ''}
+          aria-invalid={invalid || undefined}
+          aria-describedby="atom-query-list-help"
+          onKeyDown={commitOnEnter}
+          onBlur={(event) => {
+            const text = event.currentTarget.value.trim()
+            if (text === (list?.elements.join(', ') ?? '')) return setInvalid(false)
+            const elements = edits.parseQueryList(text)
+            setInvalid(elements === null)
+            if (elements) void editor.apply(edits.setQueryElements(atom.id, elements))
+          }}
+        />
+        <Toggle
+          variant="outline"
+          size="sm"
+          aria-label="Negate the list: any atom except these"
+          disabled={!list}
+          pressed={negated}
+          onPressedChange={(pressed) => void editor.apply(edits.setQueryNegated(atom.id, pressed))}
+        >
+          not
+        </Toggle>
+      </div>
+      {invalid ? (
+        <FieldError id="atom-query-list-help">Enter 1 to 10 different element symbols.</FieldError>
+      ) : (
+        <FieldDescription id="atom-query-list-help">Up to 10 elements; the canvas shows the first 3.</FieldDescription>
+      )}
+    </Field>
+  )
+}
+
+/** A bond's kind, and for a query bond the kinds it allows (none listed: any kind). */
+function BondInspector({ bond, editor }: { bond: BondView; editor: DocumentEditor }) {
+  const listed = bond.query?.kind === 'list' ? bond.query.orders : []
+  return (
+    <FieldGroup className="gap-3">
+      <Choice label="Kind" id="bond-order">
+        <ToggleGroup
+          aria-labelledby="bond-order"
+          variant="outline"
+          size="sm"
+          spacing={1}
+          className="flex-wrap"
+          value={[bond.order]}
+          onValueChange={(values) => {
+            const order = ORDERS.find((item) => item.value === values[0])?.value
+            if (!order) return
+            const kind = order === 'query' ? { order, query: { kind: 'any' as const } } : { order }
+            void editor.apply(edits.setBondKind(bond.id, kind))
+          }}
+        >
+          {ORDERS.map((order) => (
+            <ToggleGroupItem key={order.value} value={order.value} aria-label={order.label} className="min-w-8 font-mono">
+              {order.glyph}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </Choice>
+      {bond.order === 'dative' && (
+        <p className="text-xs text-muted-foreground" data-testid="dative-direction">
+          From {bond.begin} (the donor) to {bond.end}. To reverse it, draw it again from {bond.end}.
+        </p>
+      )}
+      {bond.order === 'query' && (
+        <Choice label="Query bond allows" id="bond-query">
+          <div role="group" aria-labelledby="bond-query" className="flex flex-wrap gap-1">
+            {edits.QUERY_BOND_ORDERS.map((order) => (
+              <Toggle
+                key={order}
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                aria-label={`Query bond allows ${order}`}
+                pressed={listed.includes(order)}
+                onPressedChange={() => void editor.apply(edits.toggleQueryBondOrder(bond.id, order))}
+              >
+                {order}
+              </Toggle>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground" data-testid="bond-query-expression">
+            {listed.length > 0 ? `One of: ${listed.join(', ')}.` : 'Any kind.'} Recorded only; nothing is matched.
+          </p>
+        </Choice>
+      )}
+    </FieldGroup>
   )
 }

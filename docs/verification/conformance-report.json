@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 3,
+  "suite_version": 4,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -240,19 +240,42 @@
     },
     {
       "id": "hydrogen-states",
-      "title": "Explicit, implicit and unspecified hydrogens are told apart",
+      "title": "Stated, unknown and inferred hydrogens are told apart through edits, undo, a save and a restart (that an inferred state has no count field is checked in crates/application/tests/states.rs)",
       "requirements": [
         "MODEL-02"
       ],
       "axis": "graph",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P10",
-        "reason": "Atoms record no hydrogen state yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "e243d1be65f05d46d6db5f2037c1875ba8822521a9ff63f46dce0f5c3f188578"
+      "case_sha256": "e8888d43cbceecd830efcad643dabdc2bade2b0439b028dfb2115df8044e393b"
+    },
+    {
+      "id": "recorded-states-round-trip",
+      "title": "Radicals, query atoms and bonds, aromatic, dative and unknown bonds, and attachment points survive edits, element-query conversion, undo, redo, a save and a restart",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "3b75c718e0674ae072ffdec42cc04ee8d37ce78c631503f8208d0529d8861a49"
+    },
+    {
+      "id": "invalid-state-combinations-refused",
+      "title": "Invalid combinations of recorded states are refused with their command index and reason code and change nothing",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "db5c6b08e008d4cf8dfec0773c8bd2abd4c11fd92a0d0d583286d361886e787a"
     },
     {
       "id": "versioned-operation-contract",
@@ -266,7 +289,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2a2d7f2d2b20bd442ffe45f26a7e90c551707e2937f7282a7532536191bb46a7"
+      "case_sha256": "3c726eec15d45f02ed4b5929f582f8df3ee6858ad10d86660abd3229514acc10"
     },
     {
       "id": "operation-errors-match-v1",
@@ -312,19 +335,19 @@
   ],
   "counts": {
     "accept": {
-      "passed": 10,
+      "passed": 12,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     },
     "reject": {
-      "passed": 9,
+      "passed": 10,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 19,
+      "passed": 22,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     }
   }
 }

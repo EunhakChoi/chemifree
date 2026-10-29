@@ -49,7 +49,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P09",
             "P11",
             "P35",
             "P37",
@@ -87,23 +86,52 @@
         },
         {
           "id": "MODEL-02.2",
-          "summary": "Explicit, implicit and unspecified hydrogen states are recorded and told apart.",
-          "status": "not_implemented",
-          "implementation": [],
-          "evidence": [],
-          "followups": [
-            "P10"
-          ]
+          "summary": "Hydrogen states are recorded and told apart as drawn: stated with a count of 0 to 16, unknown, or inferred (the default). An inferred state carries no count, since nothing computes one.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/states.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs",
+            "apps/web/src/editor/label.ts"
+          ],
+          "evidence": [
+            "case:hydrogen-states",
+            "case:invalid-state-combinations-refused",
+            "check:check:rust",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
+          "id": "MODEL-02.3",
+          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Representation only: no query is matched and no aromaticity is perceived.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/states.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs",
+            "apps/web/src/editor/label.ts",
+            "apps/web/src/editor/geometry.ts"
+          ],
+          "evidence": [
+            "case:recorded-states-round-trip",
+            "case:invalid-state-combinations-refused",
+            "check:check:rust",
+            "check:test:client",
+            "check:test:contracts"
+          ],
+          "followups": []
         },
         {
           "id": "MODEL-02.rest",
-          "summary": "Radicals, query atoms and bonds, aromaticity and Kekule forms, valence and inferred hydrogens.",
+          "summary": "Valence, computed (inferred) hydrogen counts, aromaticity perception and Kekule forms, and query matching.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P10",
             "P16",
             "P17",
             "P18",
@@ -483,7 +511,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P09",
             "P11",
             "P25",
             "P32",
@@ -551,7 +578,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P10",
             "P16",
             "P17",
             "P24",

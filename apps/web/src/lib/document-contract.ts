@@ -1,20 +1,60 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
 
-export type BondOrder = 'single' | 'double' | 'triple'
+/**
+ * A bond's kind. `aromatic`, `dative` (from `begin`, the donor), `query`, and `unknown` were
+ * added within v1. They are recorded only: aromaticity is not perceived and no query matches.
+ */
+export type BondOrder = 'single' | 'double' | 'triple' | 'aromatic' | 'dative' | 'query' | 'unknown'
+/** The kinds a query bond may list. */
+export type QueryBondOrder = 'single' | 'double' | 'triple' | 'aromatic'
 
 export interface Position {
   x: number
   y: number
 }
 
+/** What a query atom stands for. Nothing matches it. */
+export type QueryAtom =
+  | { kind: 'any' | 'any_heavy' | 'heteroatom' | 'halogen' }
+  | { kind: 'list'; elements: string[]; negated: boolean }
+
+/** What a query bond stands for. Nothing matches it. */
+export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
+
+/**
+ * An atom's hydrogen state. `inferred` means "to be derived from valence"; nothing derives it,
+ * so it has no count and nothing is shown for it.
+ */
+export type Hydrogens = { mode: 'inferred' } | { mode: 'unknown' } | { mode: 'specified'; count: number }
+
+export type Radical = 'none' | 'singlet' | 'doublet' | 'triplet' | 'unknown'
+
+/** The most hydrogens an atom can be stated to carry, and the attachment points it may have. */
+export const MAX_STATED_HYDROGENS = 16
+export const ATTACHMENT_POINTS = [1, 2, 3, 4] as const
+
 export interface AtomView {
   id: string
+  /**
+   * The element symbol, or for a query atom its label (`*`, `A`, `Q`, `X`, `[N,O]`, `![N,O]`),
+   * which is not a symbol: `kind` says which.
+   */
   element: string
   charge: number
   isotope: number | null
   /** The atom's position in the first scene instance. */
   position: Position
+  /**
+   * Recorded states, added within v1. A reply from before them leaves them out; the client
+   * fills in the defaults (an element, inferred hydrogens, no radical, no attachment points).
+   */
+  kind: 'element' | 'query'
+  query: QueryAtom | null
+  hydrogens: Hydrogens
+  radical: Radical
+  /** Ascending, 1–4. */
+  attachment_points: number[]
 }
 
 /** One atom's position in a scene instance. */
@@ -43,6 +83,8 @@ export interface BondView {
   begin: string
   end: string
   order: BondOrder
+  /** With order `query`, what it stands for; null otherwise. Filled in as null for older replies. */
+  query: BondQuery | null
 }
 
 export interface DocumentView {
@@ -162,13 +204,37 @@ export type AtomRef = string
  */
 export type NewAtomPlacement = { position: Position } | { positions: Record<string, Position> }
 
+/** The recorded states a command may set; omitted ones keep their default or current value. */
+export interface AtomStates {
+  hydrogens?: Hydrogens
+  radical?: Radical
+  attachment_points?: number[]
+}
+
+/** A bond's kind as a command sends it: `query` comes with order `query` and only with it. */
+export interface BondKind {
+  order: BondOrder
+  query?: BondQuery
+}
+
 export type Command =
-  | ({ op: 'add_atom'; element: string; bond_to?: { atom: AtomRef; order: BondOrder } } & NewAtomPlacement)
-  | { op: 'add_bond'; begin: AtomRef; end: AtomRef; order: BondOrder }
-  | { op: 'update_atom'; atom: string; element?: string; charge?: number; isotope?: number | null }
+  /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
+  | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
+      NewAtomPlacement &
+      AtomStates)
+  | ({ op: 'add_bond'; begin: AtomRef; end: AtomRef } & BondKind)
+  /** At most one of `element` and `query`; a query atom carries no charge or isotope. */
+  | ({
+      op: 'update_atom'
+      atom: string
+      element?: string
+      query?: QueryAtom
+      charge?: number
+      isotope?: number | null
+    } & AtomStates)
   /** `instance` may be left out while the document has one scene instance. */
   | { op: 'move_atoms'; atoms: string[]; delta: Position; instance?: string }
-  | { op: 'update_bond'; bond: string; order: BondOrder }
+  | ({ op: 'update_bond'; bond: string } & BondKind)
   | { op: 'delete_atoms'; atoms: string[] }
   | { op: 'delete_bonds'; bonds: string[] }
   | { op: 'rename'; title: string }
@@ -208,6 +274,8 @@ export interface ErrorDetails {
   currentRevision?: number
   commandIndex?: number
   reason?: StorageReason
+  /** With `invalid_command`, the code of a refused combination of recorded states. */
+  stateReason?: string
 }
 
 /**
@@ -220,6 +288,7 @@ export class ApiError extends Error {
   readonly currentRevision?: number
   readonly commandIndex?: number
   readonly reason?: StorageReason
+  readonly stateReason?: string
 
   constructor(code: string, message: string, status: number, details: ErrorDetails = {}) {
     super(message)
@@ -229,6 +298,7 @@ export class ApiError extends Error {
     this.currentRevision = details.currentRevision
     this.commandIndex = details.commandIndex
     this.reason = details.reason
+    this.stateReason = details.stateReason
   }
 }
 
@@ -238,29 +308,143 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
-const isOrder = (value: unknown): value is BondOrder => value === 'single' || value === 'double' || value === 'triple'
+const BOND_ORDERS: readonly unknown[] = ['single', 'double', 'triple', 'aromatic', 'dative', 'query', 'unknown']
+const QUERY_BOND_ORDERS: readonly unknown[] = ['single', 'double', 'triple', 'aromatic']
+const RADICALS: readonly unknown[] = ['none', 'singlet', 'doublet', 'triplet', 'unknown']
+const NAMED_QUERIES: readonly unknown[] = ['any', 'any_heavy', 'heteroatom', 'halogen']
+/** The recorded-state fields of an atom, which come all together or not at all. */
+const ATOM_STATE_FIELDS = ['kind', 'query', 'hydrogens', 'radical', 'attachment_points'] as const
 
-function isAtom(value: unknown): value is AtomView {
+const distinct = (items: unknown[]) => new Set(items).size === items.length
+const hasOnly = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every((key) => keys.includes(key))
+
+function isQueryAtom(value: unknown): value is QueryAtom {
+  if (!isRecord(value)) return false
+  if (NAMED_QUERIES.includes(value.kind)) return hasOnly(value, ['kind'])
   return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    typeof value.element === 'string' &&
-    Number.isSafeInteger(value.charge) &&
-    (value.isotope === null || isCount(value.isotope)) &&
-    isRecord(value.position) &&
-    isFiniteNumber(value.position.x) &&
-    isFiniteNumber(value.position.y)
+    value.kind === 'list' &&
+    hasOnly(value, ['kind', 'elements', 'negated']) &&
+    Array.isArray(value.elements) &&
+    value.elements.length >= 1 &&
+    value.elements.length <= 10 &&
+    value.elements.every((element) => typeof element === 'string') &&
+    distinct(value.elements) &&
+    typeof value.negated === 'boolean'
   )
 }
 
-function isBond(value: unknown): value is BondView {
+function isBondQuery(value: unknown): value is BondQuery {
+  if (!isRecord(value)) return false
+  if (value.kind === 'any') return hasOnly(value, ['kind'])
   return (
-    isRecord(value) &&
-    typeof value.id === 'string' &&
-    typeof value.begin === 'string' &&
-    typeof value.end === 'string' &&
-    isOrder(value.order)
+    value.kind === 'list' &&
+    hasOnly(value, ['kind', 'orders']) &&
+    Array.isArray(value.orders) &&
+    value.orders.length >= 1 &&
+    value.orders.every((order) => QUERY_BOND_ORDERS.includes(order)) &&
+    distinct(value.orders)
   )
+}
+
+function isHydrogens(value: unknown): value is Hydrogens {
+  if (!isRecord(value)) return false
+  if (value.mode === 'inferred' || value.mode === 'unknown') return hasOnly(value, ['mode'])
+  return (
+    value.mode === 'specified' &&
+    hasOnly(value, ['mode', 'count']) &&
+    isCount(value.count) &&
+    value.count <= MAX_STATED_HYDROGENS
+  )
+}
+
+const isAttachmentPoints = (value: unknown) =>
+  Array.isArray(value) &&
+  value.every((point, index) => Number.isInteger(point) && point >= 1 && point <= 4 && (index === 0 || point > value[index - 1]))
+
+/** Which recorded-state fields an atom carries: all, none, or (refused) only some. */
+function atomStates(value: object): 'all' | 'none' | 'some' {
+  const present = ATOM_STATE_FIELDS.filter((field) => field in value).length
+  return present === ATOM_STATE_FIELDS.length ? 'all' : present === 0 ? 'none' : 'some'
+}
+
+function isAtom(value: unknown): value is AtomView {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.element !== 'string' ||
+    !Number.isSafeInteger(value.charge) ||
+    !(value.isotope === null || isCount(value.isotope)) ||
+    !isRecord(value.position) ||
+    !isFiniteNumber(value.position.x) ||
+    !isFiniteNumber(value.position.y)
+  ) {
+    return false
+  }
+  const states = atomStates(value)
+  switch (states) {
+    case 'none':
+      return true
+    case 'some':
+      return false
+    case 'all':
+      return (
+        (value.kind === 'element'
+          ? value.query === null
+          : value.kind === 'query' && isQueryAtom(value.query) && value.charge === 0 && value.isotope === null) &&
+        isHydrogens(value.hydrogens) &&
+        RADICALS.includes(value.radical) &&
+        isAttachmentPoints(value.attachment_points)
+      )
+    default: {
+      const unhandled: never = states
+      return unhandled
+    }
+  }
+}
+
+function isBond(value: unknown): value is BondView {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.begin !== 'string' ||
+    typeof value.end !== 'string' ||
+    !BOND_ORDERS.includes(value.order)
+  ) {
+    return false
+  }
+  // A reply from before recorded states has no `query`, and then only the first three orders.
+  if (!('query' in value)) return value.order === 'single' || value.order === 'double' || value.order === 'triple'
+  return value.order === 'query' ? isBondQuery(value.query) : value.query === null
+}
+
+/**
+ * Every atom carries the recorded-state fields or none does, and the bonds agree: a reply holds
+ * them all (a service with recorded states) or none (one from before them).
+ */
+function statesAgree(atoms: readonly object[], bonds: readonly object[]) {
+  const shapes = new Set([
+    ...atoms.map((atom) => atomStates(atom) === 'all'),
+    ...bonds.map((bond) => 'query' in bond),
+  ])
+  return shapes.size <= 1
+}
+
+/** A document whose atoms and bonds carry every recorded-state field, defaults filled in. */
+function withStates(response: DocumentResponse): DocumentResponse {
+  const atoms = response.document.atoms as Array<AtomView | Omit<AtomView, (typeof ATOM_STATE_FIELDS)[number]>>
+  const bonds = response.document.bonds as Array<BondView | Omit<BondView, 'query'>>
+  return {
+    ...response,
+    document: {
+      ...response.document,
+      atoms: atoms.map((atom) =>
+        'kind' in atom
+          ? atom
+          : { ...atom, kind: 'element', query: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [] },
+      ),
+      bonds: bonds.map((bond) => ('query' in bond ? bond : { ...bond, query: null })),
+    },
+  }
 }
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
@@ -358,6 +542,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     atomIds.size === document.atoms.length &&
     bondIds.size === document.bonds.length &&
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
+    statesAgree(document.atoms, document.bonds) &&
     isScene(document, document.atoms) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
@@ -566,6 +751,7 @@ export class DocumentClient {
           currentRevision: isCount(value.current_revision) ? value.current_revision : undefined,
           commandIndex: isCount(value.command_index) ? value.command_index : undefined,
           reason: isStorageReason(value.reason) ? value.reason : undefined,
+          stateReason: value.code === 'invalid_command' && typeof value.reason === 'string' ? value.reason : undefined,
         })
       }
       // A gateway status without a v1 body comes from the proxy in front of the service (Vite's
@@ -612,7 +798,7 @@ export class DocumentClient {
     if (!isDocumentResponse(value)) {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
     }
-    return value
+    return withStates(value)
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {
@@ -876,7 +1062,7 @@ export class DocumentClient {
     if (!isCopy(value)) {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible copy.', 200)
     }
-    return value
+    return { ...withStates(value), source: value.source }
   }
 
   private static copyUnconfirmed() {

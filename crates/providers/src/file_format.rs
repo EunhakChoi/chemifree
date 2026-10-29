@@ -1,13 +1,19 @@
-//! Chemifree document file format, version 2 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 3 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 2 stores the chemical graph (`molecule`), the page, and the molecule scene
+//! Version 3 stores the chemical graph (`molecule`), the page, and the molecule scene
 //! instances with their atom positions apart, and history entries record graph, instance,
-//! and position changes apart. Version 1 files and drafts, which kept one position on each
-//! atom, are still read: they are migrated in memory into one page `p1` and one instance `s1`
-//! holding the old positions, keeping identifiers, revision, title, and undo/redo history.
-//! Reading never writes; whatever is written next is version 2. Any other version is refused.
+//! and position changes apart. An atom state records its kind (an element or a query),
+//! charge, isotope, hydrogen state, radical, and attachment points; a bond state its order and,
+//! for a query bond, its query. Files are compact JSON, so the largest document a save allows,
+//! full history included, stays within the read limit.
+//!
+//! Older versions are still read and migrated in memory, history included: version 2 atoms and
+//! bonds get the defaults (an element atom, inferred hydrogens, no radical, no attachment
+//! points), and version 1 files, which kept one position on each atom, also move those
+//! positions into one page `p1` and one instance `s1`. Reading never writes; whatever is
+//! written next is version 3. Any other version is refused.
 
 use chemifree_application::{Draft, DraftInfo};
 use chemifree_domain::document::{
@@ -15,46 +21,54 @@ use chemifree_domain::document::{
     InstanceId, MOLECULE_ID, PAGE_ID, Point, PositionKey, SceneInstance,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::states::{
+    AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 3;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 2;
+const DRAFT_FORMAT_VERSION: u32 = 3;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
+/// The version before recorded hydrogen, radical, query, and attachment states; read and
+/// migrated, never written.
+const VERSION_2: u32 = 2;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
+/// A document file whose atom and bond states are `A` and `B`; versions 2 and 3 differ only
+/// there.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct FileV2 {
+struct File<A, B> {
     format: String,
     format_version: u32,
-    document: StoredDocument,
-    history: StoredHistory,
+    document: StoredDocument<A, B>,
+    history: StoredHistory<A, B>,
 }
 
 /// A recovery draft: the working copy with the stored revision it started from.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct DraftV2 {
+struct DraftFile<A, B> {
     format: String,
     format_version: u32,
     base_revision: u64,
     saved_at_ms: u64,
-    document: StoredDocument,
-    history: StoredHistory,
+    document: StoredDocument<A, B>,
+    history: StoredHistory<A, B>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredDocument {
+struct StoredDocument<A, B> {
     id: String,
     revision: u64,
     title: String,
-    molecule: StoredMolecule,
+    molecule: StoredMolecule<A, B>,
     pages: Vec<StoredPage>,
     /// In order; the v1 view reports the first one's positions as `atoms[].position`.
     instances: Vec<StoredInstance>,
@@ -67,25 +81,63 @@ struct StoredDocument {
 /// `{"id": ..., "state": {...}}`, matching history entries.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredMolecule {
+struct StoredMolecule<A, B> {
     id: String,
-    atoms: Vec<StoredAtom>,
-    bonds: Vec<StoredBond>,
+    atoms: Vec<Stored<A>>,
+    bonds: Vec<Stored<B>>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredAtom {
+struct Stored<T> {
     id: String,
-    state: AtomState,
+    state: T,
 }
 
+/// A version 3 atom: exactly one of `element` and `query`.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct AtomState {
-    element: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    element: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query: Option<StoredQuery>,
     charge: i8,
     isotope: Option<u16>,
+    hydrogens: StoredHydrogens,
+    radical: StoredRadical,
+    attachment_points: Vec<u8>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredQuery {
+    Any {},
+    AnyHeavy {},
+    Heteroatom {},
+    Halogen {},
+    List {
+        elements: Vec<String>,
+        negated: bool,
+    },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredHydrogens {
+    Inferred {},
+    Unknown {},
+    Specified { count: u8 },
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredRadical {
+    None,
+    Singlet,
+    Doublet,
+    Triplet,
+    Unknown,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -119,19 +171,15 @@ struct StoredPoint {
     y: f64,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct StoredBond {
-    id: String,
-    state: BondState,
-}
-
+/// A version 3 bond: `query` is present exactly when `order` is `query`.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BondState {
     begin: String,
     end: String,
     order: StoredOrder,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query: Option<StoredBondQuery>,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -140,22 +188,42 @@ enum StoredOrder {
     Single,
     Double,
     Triple,
+    Aromatic,
+    Dative,
+    Query,
+    Unknown,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredBondQuery {
+    Any {},
+    List { orders: Vec<StoredQueryOrder> },
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredQueryOrder {
+    Single,
+    Double,
+    Triple,
+    Aromatic,
 }
 
 /// `undo` is oldest first; `redo` is a stack whose last entry is redone next.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredHistory {
-    undo: Vec<StoredChangeSet>,
-    redo: Vec<StoredChangeSet>,
+struct StoredHistory<A, B> {
+    undo: Vec<StoredChangeSet<A, B>>,
+    redo: Vec<StoredChangeSet<A, B>>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredChangeSet {
+struct StoredChangeSet<A, B> {
     title: Option<StoredChange<String>>,
-    atoms: Vec<Keyed<AtomState>>,
-    bonds: Vec<Keyed<BondState>>,
+    atoms: Vec<Keyed<A>>,
+    bonds: Vec<Keyed<B>>,
     instances: Vec<Keyed<InstanceState>>,
     positions: Vec<PositionChange>,
 }
@@ -194,13 +262,54 @@ struct PositionChange {
     after: Option<StoredPoint>,
 }
 
+/// A stored atom state of any version, as a domain atom.
+trait AtomRecord {
+    fn into_atom(self) -> Result<Atom, String>;
+}
+
+/// A stored bond state of any version, as a domain bond.
+trait BondRecord {
+    fn into_bond(self) -> Result<Bond, String>;
+}
+
+/// The version 2 atom and bond states, read for migration only: an element atom with its
+/// charge and isotope, and a single, double, or triple bond. Everything else takes its
+/// default.
+mod v2 {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct AtomState {
+        pub element: String,
+        pub charge: i8,
+        pub isotope: Option<u16>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct BondState {
+        pub begin: String,
+        pub end: String,
+        pub order: Order,
+    }
+
+    #[derive(Clone, Copy, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub(super) enum Order {
+        Single,
+        Double,
+        Triple,
+    }
+}
+
 /// The version 1 shapes, read for migration only. The header fields are checked by
 /// [`version`] before these are parsed.
 mod v1 {
     use serde::Deserialize;
     use serde::de::IgnoredAny;
 
-    use super::{BondState, Keyed, StoredBond, StoredChange, StoredPoint};
+    use super::{Keyed, Stored, StoredChange, StoredPoint, v2};
 
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -233,7 +342,7 @@ mod v1 {
         pub revision: u64,
         pub title: String,
         pub atoms: Vec<Atom>,
-        pub bonds: Vec<StoredBond>,
+        pub bonds: Vec<Stored<v2::BondState>>,
         pub next_atom: u32,
         pub next_bond: u32,
     }
@@ -267,7 +376,7 @@ mod v1 {
     pub(super) struct ChangeSet {
         pub title: Option<StoredChange<String>>,
         pub atoms: Vec<Keyed<AtomState>>,
-        pub bonds: Vec<Keyed<BondState>>,
+        pub bonds: Vec<Keyed<v2::BondState>>,
     }
 }
 
@@ -282,6 +391,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Two,
     One,
 }
 
@@ -295,10 +405,11 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        VERSION_2 => Ok(Version::Two),
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1} and {current}"
+             {VERSION_1}, {VERSION_2}, and {current}"
         )),
     }
 }
@@ -309,7 +420,7 @@ fn parse<T: DeserializeOwned>(bytes: &[u8], kind: &str) -> Result<T, String> {
 
 pub(crate) fn encode(document: &Document) -> Vec<u8> {
     let (document, history) = stored(document);
-    to_bytes(&FileV2 {
+    to_bytes(&File {
         format: FORMAT.to_owned(),
         format_version: FORMAT_VERSION,
         document,
@@ -319,7 +430,7 @@ pub(crate) fn encode(document: &Document) -> Vec<u8> {
 
 pub(crate) fn encode_draft(draft: &Draft) -> Vec<u8> {
     let (document, history) = stored(&draft.document);
-    to_bytes(&DraftV2 {
+    to_bytes(&DraftFile {
         format: DRAFT_FORMAT.to_owned(),
         format_version: DRAFT_FORMAT_VERSION,
         base_revision: draft.base_revision,
@@ -329,13 +440,20 @@ pub(crate) fn encode_draft(draft: &Draft) -> Vec<u8> {
     })
 }
 
+/// Compact JSON and a final newline. Indentation would multiply the size of a full history
+/// beyond the read limit.
 fn to_bytes(value: &impl Serialize) -> Vec<u8> {
-    let mut bytes = serde_json::to_vec_pretty(value).expect("document values are serializable");
+    let mut bytes = serde_json::to_vec(value).expect("document values are serializable");
     bytes.push(b'\n');
     bytes
 }
 
-fn stored(document: &Document) -> (StoredDocument, StoredHistory) {
+type Current = (
+    StoredDocument<AtomState, BondState>,
+    StoredHistory<AtomState, BondState>,
+);
+
+fn stored(document: &Document) -> Current {
     let parts = document.to_parts();
     let instances = parts
         .instances
@@ -363,7 +481,7 @@ fn stored(document: &Document) -> (StoredDocument, StoredHistory) {
             atoms: parts
                 .atoms
                 .iter()
-                .map(|(id, atom)| StoredAtom {
+                .map(|(id, atom)| Stored {
                     id: id.to_string(),
                     state: atom_state(atom),
                 })
@@ -371,7 +489,7 @@ fn stored(document: &Document) -> (StoredDocument, StoredHistory) {
             bonds: parts
                 .bonds
                 .iter()
-                .map(|(id, bond)| StoredBond {
+                .map(|(id, bond)| Stored {
                     id: id.to_string(),
                     state: bond_state(bond),
                 })
@@ -408,18 +526,26 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// True when `bytes` are a document file of version 1, which a save replaces only after
-/// keeping a copy of them.
-pub(crate) fn is_version_1(bytes: &[u8]) -> bool {
-    version(bytes, FORMAT, FORMAT_VERSION, "document") == Ok(Version::One)
+/// The version of `bytes` when they are a document file of an earlier version this build reads
+/// (1 or 2), which a save replaces only after keeping a copy of them; `None` otherwise.
+pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
+    match version(bytes, FORMAT, FORMAT_VERSION, "document") {
+        Ok(Version::One) => Some(VERSION_1),
+        Ok(Version::Two) => Some(VERSION_2),
+        Ok(Version::Current) | Err(_) => None,
+    }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 file
-/// is migrated.
+/// Parses and fully validates a stored document, including its history; a version 1 or 2
+/// file is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let parts = match version(bytes, FORMAT, FORMAT_VERSION, "document")? {
         Version::Current => {
-            let file: FileV2 = parse(bytes, "document")?;
+            let file: File<AtomState, BondState> = parse(bytes, "document")?;
+            parts(file.document, file.history)?
+        }
+        Version::Two => {
+            let file: File<v2::AtomState, v2::BondState> = parse(bytes, "document")?;
             parts(file.document, file.history)?
         }
         Version::One => {
@@ -430,12 +556,17 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 or 2 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let (parts, base_revision, saved_at_ms) =
         match version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")? {
             Version::Current => {
-                let file: DraftV2 = parse(bytes, "draft")?;
+                let file: DraftFile<AtomState, BondState> = parse(bytes, "draft")?;
+                let parts = parts(file.document, file.history)?;
+                (parts, file.base_revision, file.saved_at_ms)
+            }
+            Version::Two => {
+                let file: DraftFile<v2::AtomState, v2::BondState> = parse(bytes, "draft")?;
                 let parts = parts(file.document, file.history)?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
@@ -469,7 +600,10 @@ pub(crate) fn decode_draft_info(bytes: &[u8]) -> Result<DraftInfo, String> {
     })
 }
 
-fn parts(stored: StoredDocument, history: StoredHistory) -> Result<DocumentParts, String> {
+fn parts<A: AtomRecord, B: BondRecord>(
+    stored: StoredDocument<A, B>,
+    history: StoredHistory<A, B>,
+) -> Result<DocumentParts, String> {
     if stored.molecule.id != MOLECULE_ID {
         return Err(format!(
             "molecule {:?} is not this document's molecule {MOLECULE_ID:?}",
@@ -501,13 +635,13 @@ fn parts(stored: StoredDocument, history: StoredHistory) -> Result<DocumentParts
             .molecule
             .atoms
             .into_iter()
-            .map(|atom| Ok((atom_id(&atom.id)?, to_atom(atom.state)?)))
+            .map(|atom| Ok((atom_id(&atom.id)?, atom.state.into_atom()?)))
             .collect::<Result<_, String>>()?,
         bonds: stored
             .molecule
             .bonds
             .into_iter()
-            .map(|bond| Ok((bond_id(&bond.id)?, to_bond(bond.state)?)))
+            .map(|bond| Ok((bond_id(&bond.id)?, bond.state.into_bond()?)))
             .collect::<Result<_, String>>()?,
         instances,
         positions,
@@ -527,7 +661,7 @@ fn parts(stored: StoredDocument, history: StoredHistory) -> Result<DocumentParts
     })
 }
 
-/// A version 1 document as version 2 parts: the atoms' positions move into instance `s1`, and
+/// A version 1 document as current parts: the atoms' positions move into instance `s1`, and
 /// each history entry's atom changes split into graph changes and `s1` position changes (an
 /// entry that only moved atoms becomes position changes only). `Document::restore` then
 /// checks the result as it checks any stored document.
@@ -554,7 +688,7 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
         bonds: stored
             .bonds
             .into_iter()
-            .map(|bond| Ok((bond_id(&bond.id)?, to_bond(bond.state)?)))
+            .map(|bond| Ok((bond_id(&bond.id)?, bond.state.into_bond()?)))
             .collect::<Result<_, String>>()?,
         instances: vec![instance],
         positions,
@@ -597,8 +731,8 @@ fn migrate_change_set(set: v1::ChangeSet, instance: InstanceId) -> Result<Change
                 Ok((
                     bond_id(&keyed.id)?,
                     Change {
-                        before: keyed.before.map(to_bond).transpose()?,
-                        after: keyed.after.map(to_bond).transpose()?,
+                        before: keyed.before.map(BondRecord::into_bond).transpose()?,
+                        after: keyed.after.map(BondRecord::into_bond).transpose()?,
                     },
                 ))
             })
@@ -608,34 +742,194 @@ fn migrate_change_set(set: v1::ChangeSet, instance: InstanceId) -> Result<Change
     })
 }
 
-/// A version 1 atom state as the graph atom and its position.
+/// A version 1 atom state as the graph atom, with the version 2 defaults, and its position.
 fn split_atom(state: v1::AtomState) -> Result<(Atom, Point), String> {
     let position = point(state.position.x, state.position.y)?;
-    let atom = to_atom(AtomState {
+    let atom = v2::AtomState {
         element: state.element,
         charge: state.charge,
         isotope: state.isotope,
-    })?;
+    }
+    .into_atom()?;
     Ok((atom, position))
 }
 
+impl AtomRecord for v2::AtomState {
+    /// An element atom with inferred hydrogens, no radical, and no attachment points.
+    fn into_atom(self) -> Result<Atom, String> {
+        Ok(Atom {
+            charge: self.charge,
+            isotope: self.isotope,
+            ..Atom::from(element(&self.element)?)
+        })
+    }
+}
+
+impl BondRecord for v2::BondState {
+    fn into_bond(self) -> Result<Bond, String> {
+        Ok(Bond {
+            begin: atom_id(&self.begin)?,
+            end: atom_id(&self.end)?,
+            order: match self.order {
+                v2::Order::Single => BondOrder::Single,
+                v2::Order::Double => BondOrder::Double,
+                v2::Order::Triple => BondOrder::Triple,
+            },
+        })
+    }
+}
+
+impl AtomRecord for AtomState {
+    fn into_atom(self) -> Result<Atom, String> {
+        let kind = match (self.element, self.query) {
+            (Some(symbol), None) => AtomKind::Element(element(&symbol)?),
+            (None, Some(query)) => AtomKind::Query(query_atom(query)?),
+            _ => return Err("an atom has exactly one of element and query".to_owned()),
+        };
+        Ok(Atom {
+            kind,
+            charge: self.charge,
+            isotope: self.isotope,
+            hydrogens: match self.hydrogens {
+                StoredHydrogens::Inferred {} => Hydrogens::Inferred,
+                StoredHydrogens::Unknown {} => Hydrogens::Unknown,
+                StoredHydrogens::Specified { count } => Hydrogens::Specified(count),
+            },
+            radical: match self.radical {
+                StoredRadical::None => Radical::None,
+                StoredRadical::Singlet => Radical::Singlet,
+                StoredRadical::Doublet => Radical::Doublet,
+                StoredRadical::Triplet => Radical::Triplet,
+                StoredRadical::Unknown => Radical::Unknown,
+            },
+            // The same rule as an edit's; the rest is checked by `Document::restore`.
+            attachment_points: AttachmentPoints::new(&self.attachment_points)
+                .map_err(|error| error.to_string())?,
+        })
+    }
+}
+
+impl BondRecord for BondState {
+    fn into_bond(self) -> Result<Bond, String> {
+        let order = match (self.order, self.query) {
+            (StoredOrder::Query, Some(query)) => BondOrder::Query(match query {
+                StoredBondQuery::Any {} => BondQuery::Any,
+                StoredBondQuery::List { orders } => BondQuery::OneOf(
+                    orders
+                        .into_iter()
+                        .map(|order| match order {
+                            StoredQueryOrder::Single => QueryBondOrder::Single,
+                            StoredQueryOrder::Double => QueryBondOrder::Double,
+                            StoredQueryOrder::Triple => QueryBondOrder::Triple,
+                            StoredQueryOrder::Aromatic => QueryBondOrder::Aromatic,
+                        })
+                        .collect(),
+                ),
+            }),
+            (StoredOrder::Query, None) => return Err("a query bond needs its query".to_owned()),
+            (_, Some(_)) => return Err("only a query bond has a query".to_owned()),
+            (StoredOrder::Single, None) => BondOrder::Single,
+            (StoredOrder::Double, None) => BondOrder::Double,
+            (StoredOrder::Triple, None) => BondOrder::Triple,
+            (StoredOrder::Aromatic, None) => BondOrder::Aromatic,
+            (StoredOrder::Dative, None) => BondOrder::Dative,
+            (StoredOrder::Unknown, None) => BondOrder::Unknown,
+        };
+        Ok(Bond {
+            begin: atom_id(&self.begin)?,
+            end: atom_id(&self.end)?,
+            order,
+        })
+    }
+}
+
+fn query_atom(query: StoredQuery) -> Result<QueryAtom, String> {
+    Ok(match query {
+        StoredQuery::Any {} => QueryAtom::Any,
+        StoredQuery::AnyHeavy {} => QueryAtom::AnyHeavy,
+        StoredQuery::Heteroatom {} => QueryAtom::Heteroatom,
+        StoredQuery::Halogen {} => QueryAtom::Halogen,
+        StoredQuery::List { elements, negated } => QueryAtom::List {
+            elements: elements
+                .iter()
+                .map(|symbol| element(symbol))
+                .collect::<Result<_, _>>()?,
+            negated,
+        },
+    })
+}
+
 fn atom_state(atom: &Atom) -> AtomState {
+    let (element, query) = match &atom.kind {
+        AtomKind::Element(element) => (Some(element.symbol().to_owned()), None),
+        AtomKind::Query(query) => (None, Some(stored_query(query))),
+    };
     AtomState {
-        element: atom.element.symbol().to_owned(),
+        element,
+        query,
         charge: atom.charge,
         isotope: atom.isotope,
+        hydrogens: match atom.hydrogens {
+            Hydrogens::Inferred => StoredHydrogens::Inferred {},
+            Hydrogens::Unknown => StoredHydrogens::Unknown {},
+            Hydrogens::Specified(count) => StoredHydrogens::Specified { count },
+        },
+        radical: match atom.radical {
+            Radical::None => StoredRadical::None,
+            Radical::Singlet => StoredRadical::Singlet,
+            Radical::Doublet => StoredRadical::Doublet,
+            Radical::Triplet => StoredRadical::Triplet,
+            Radical::Unknown => StoredRadical::Unknown,
+        },
+        attachment_points: atom.attachment_points.values().collect(),
+    }
+}
+
+fn stored_query(query: &QueryAtom) -> StoredQuery {
+    match query {
+        QueryAtom::Any => StoredQuery::Any {},
+        QueryAtom::AnyHeavy => StoredQuery::AnyHeavy {},
+        QueryAtom::Heteroatom => StoredQuery::Heteroatom {},
+        QueryAtom::Halogen => StoredQuery::Halogen {},
+        QueryAtom::List { elements, negated } => StoredQuery::List {
+            elements: elements
+                .iter()
+                .map(|element| element.symbol().to_owned())
+                .collect(),
+            negated: *negated,
+        },
     }
 }
 
 fn bond_state(bond: &Bond) -> BondState {
+    let (order, query) = match &bond.order {
+        BondOrder::Single => (StoredOrder::Single, None),
+        BondOrder::Double => (StoredOrder::Double, None),
+        BondOrder::Triple => (StoredOrder::Triple, None),
+        BondOrder::Aromatic => (StoredOrder::Aromatic, None),
+        BondOrder::Dative => (StoredOrder::Dative, None),
+        BondOrder::Unknown => (StoredOrder::Unknown, None),
+        BondOrder::Query(BondQuery::Any) => (StoredOrder::Query, Some(StoredBondQuery::Any {})),
+        BondOrder::Query(BondQuery::OneOf(orders)) => (
+            StoredOrder::Query,
+            Some(StoredBondQuery::List {
+                orders: orders
+                    .iter()
+                    .map(|order| match order {
+                        QueryBondOrder::Single => StoredQueryOrder::Single,
+                        QueryBondOrder::Double => StoredQueryOrder::Double,
+                        QueryBondOrder::Triple => StoredQueryOrder::Triple,
+                        QueryBondOrder::Aromatic => StoredQueryOrder::Aromatic,
+                    })
+                    .collect(),
+            }),
+        ),
+    };
     BondState {
         begin: bond.begin.to_string(),
         end: bond.end.to_string(),
-        order: match bond.order {
-            BondOrder::Single => StoredOrder::Single,
-            BondOrder::Double => StoredOrder::Double,
-            BondOrder::Triple => StoredOrder::Triple,
-        },
+        order,
+        query,
     }
 }
 
@@ -654,7 +948,7 @@ fn stored_point(point: &Point) -> StoredPoint {
     }
 }
 
-fn stored_change_set(set: &ChangeSet) -> StoredChangeSet {
+fn stored_change_set(set: &ChangeSet) -> StoredChangeSet<AtomState, BondState> {
     StoredChangeSet {
         title: set.title.as_ref().map(|change| StoredChange {
             before: change.before.clone(),
@@ -700,7 +994,9 @@ fn stored_change_set(set: &ChangeSet) -> StoredChangeSet {
     }
 }
 
-fn to_change_set(stored: StoredChangeSet) -> Result<ChangeSet, String> {
+fn to_change_set<A: AtomRecord, B: BondRecord>(
+    stored: StoredChangeSet<A, B>,
+) -> Result<ChangeSet, String> {
     let to_instance =
         |state: InstanceState| parents(&state.page, &state.molecule).map(|()| SceneInstance);
     let to_point = |stored: StoredPoint| point(stored.x, stored.y);
@@ -716,8 +1012,8 @@ fn to_change_set(stored: StoredChangeSet) -> Result<ChangeSet, String> {
                 Ok((
                     atom_id(&keyed.id)?,
                     Change {
-                        before: keyed.before.map(to_atom).transpose()?,
-                        after: keyed.after.map(to_atom).transpose()?,
+                        before: keyed.before.map(AtomRecord::into_atom).transpose()?,
+                        after: keyed.after.map(AtomRecord::into_atom).transpose()?,
                     },
                 ))
             })
@@ -729,8 +1025,8 @@ fn to_change_set(stored: StoredChangeSet) -> Result<ChangeSet, String> {
                 Ok((
                     bond_id(&keyed.id)?,
                     Change {
-                        before: keyed.before.map(to_bond).transpose()?,
-                        after: keyed.after.map(to_bond).transpose()?,
+                        before: keyed.before.map(BondRecord::into_bond).transpose()?,
+                        after: keyed.after.map(BondRecord::into_bond).transpose()?,
                     },
                 ))
             })
@@ -780,25 +1076,8 @@ fn parents(page: &str, molecule: &str) -> Result<(), String> {
     }
 }
 
-fn to_atom(state: AtomState) -> Result<Atom, String> {
-    Ok(Atom {
-        element: Element::from_symbol(&state.element)
-            .ok_or_else(|| format!("unknown element {:?}", state.element))?,
-        charge: state.charge,
-        isotope: state.isotope,
-    })
-}
-
-fn to_bond(state: BondState) -> Result<Bond, String> {
-    Ok(Bond {
-        begin: atom_id(&state.begin)?,
-        end: atom_id(&state.end)?,
-        order: match state.order {
-            StoredOrder::Single => BondOrder::Single,
-            StoredOrder::Double => BondOrder::Double,
-            StoredOrder::Triple => BondOrder::Triple,
-        },
-    })
+fn element(symbol: &str) -> Result<Element, String> {
+    Element::from_symbol(symbol).ok_or_else(|| format!("unknown element {symbol:?}"))
 }
 
 fn point(x: f64, y: f64) -> Result<Point, String> {

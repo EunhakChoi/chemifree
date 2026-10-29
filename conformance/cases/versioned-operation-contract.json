@@ -196,10 +196,12 @@
                     },
                     {
                       "id": "radical",
-                      "representation": "not_supported",
-                      "execution": "not_implemented",
-                      "followup": "P10",
-                      "commands": []
+                      "representation": "supported",
+                      "execution": "executable",
+                      "commands": [
+                        "add_atom",
+                        "update_atom"
+                      ]
                     },
                     {
                       "id": "scene_placement",

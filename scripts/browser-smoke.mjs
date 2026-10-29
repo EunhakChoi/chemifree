@@ -61,7 +61,13 @@ const buildLog = []
 /** Stops whatever has started. The temporary directory is removed unless `keepWork` is set. */
 async function cleanup({ keepWork = false } = {}) {
   await browser?.close().catch(() => {})
-  apiServer?.child.kill('SIGTERM')
+  // The API holds files in the temporary directory until it has exited.
+  const apiChild = apiServer?.child
+  const apiExited =
+    apiChild && apiChild.exitCode === null && apiChild.signalCode === null
+      ? new Promise((resolveExit) => apiChild.once('exit', resolveExit))
+      : Promise.resolve()
+  apiChild?.kill('SIGTERM')
   if (web) {
     try {
       process.kill(-web.child.pid, 'SIGTERM')
@@ -69,6 +75,7 @@ async function cleanup({ keepWork = false } = {}) {
       // Already stopped.
     }
   }
+  await apiExited
   if (!keepWork && !process.env.CHEMIFREE_SMOKE_OUT) rmSync(work, { recursive: true, force: true })
 }
 /** Writes the run's records; `error` is what failed it, if anything. */
@@ -187,7 +194,7 @@ const openDoc = () => api(`/api/v1/documents/${docId}`)
 /** Screen coordinates of a document point. */
 const screen = (point) =>
   page.evaluate(({ x, y }) => {
-    const svg = document.querySelector('svg[role="img"]')
+    const svg = document.querySelector('svg[data-structure-canvas]')
     const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM())
     return { x: p.x, y: p.y }
   }, point)
@@ -218,7 +225,7 @@ results.create = true
 step = 'after create'
 
 // Bond tool click on empty canvas: two carbons and one bond.
-const canvas = page.locator('svg[role="img"]')
+const canvas = page.locator('svg[data-structure-canvas]')
 const box = await canvas.boundingBox()
 await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.55)
 await waitIdle()
@@ -256,7 +263,7 @@ await page.mouse.click(a4s.x, a4s.y)
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.find((atom) => atom.id === 'a4').element, 'O')
-await page.locator('text[data-atom="a4"]').waitFor()
+await page.locator('[data-atom-label="a4"]').waitFor()
 
 // Select a4, set charge and isotope in the inspector.
 await tool('Select and move')
@@ -270,7 +277,7 @@ await waitIdle()
 doc = await openDoc()
 const oxygen = doc.document.atoms.find((atom) => atom.id === 'a4')
 assert.deepEqual([oxygen.charge, oxygen.isotope], [-1, 18])
-assert.equal((await page.locator('text[data-atom="a4"]').textContent()).replace(/\s/g, ''), '18O−')
+assert.equal((await page.locator('text[data-atom="a4"]').allTextContents()).join('').replace(/\s/g, ''), '18O−')
 results.edit_atom = true
 step = 'after edit_atom'
 
@@ -756,7 +763,7 @@ const clickFor = async (locator, path) => {
  */
 const drawPair = async () => {
   await tool('Bond')
-  const area = await page.locator('svg[role="img"]').boundingBox()
+  const area = await page.locator('svg[data-structure-canvas]').boundingBox()
   const response = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/transactions'))
   await page.mouse.click(area.x + area.width * 0.3, area.y + area.height * 0.7)
   const answered = await response
@@ -1077,7 +1084,7 @@ if (runningAsRoot) {
   await page.locator(`section[aria-labelledby="saved-documents"] li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   await failedBy('service')
-  const canvas = page.locator('svg[role="img"]')
+  const canvas = page.locator('svg[data-structure-canvas]')
   const drawn = await canvas.getAttribute('aria-label')
   // Reads of the document wait while the API is down, so none of them meets the proxy's 502.
   let apiBack
@@ -1451,12 +1458,17 @@ await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 ope
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19'], ['document.transaction/radical', 'P10']]) {
+for (const [id, followup] of [['chem.properties', 'P19'], ['chem.validate', 'P16']]) {
   const row = operationRow(id)
   assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
 }
-for (const id of ['document.transaction/scene_placement', 'document.transaction/add_instance']) {
+for (const id of [
+  'document.transaction/scene_placement',
+  'document.transaction/add_instance',
+  'document.transaction/hydrogen_state',
+  'document.transaction/radical',
+]) {
   assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'executable', `${id} runs`)
 }
 assert.equal(
@@ -1558,6 +1570,302 @@ step = 'after operation_catalog'
 }
 results.placements_move_independently = true
 step = 'after placements_move_independently'
+
+// Recorded states: stated hydrogens and a radical on a bonded carbon, an attachment point on
+// another, an aromatic bond, and an inferred atom that shows no count. They are drawn with one
+// box per label (bonds stop outside it, the view box holds it) and kept through save, a page
+// reload, and reopening from storage. Quick presses built from the latest document are never
+// refused, whichever request is held.
+{
+  const alpha = listed['Smoke list alpha']
+  const statesDoc = async () => (await api(`/api/v1/documents/${alpha}`)).document
+  const atomOf = async (id) => (await statesDoc()).atoms.find((atom) => atom.id === id)
+  const inspector = page.locator('aside[aria-label="Selection"]')
+  const press = (name) => inspector.getByRole('button', { name, exact: true }).click()
+  const select = async (id, kind = 'atom') => {
+    const document = await statesDoc()
+    let point
+    if (kind === 'atom') {
+      point = document.atoms.find((atom) => atom.id === id).position
+    } else {
+      const bond = document.bonds.find((item) => item.id === id)
+      const [begin, end] = [bond.begin, bond.end].map((atom) => document.atoms.find((item) => item.id === atom).position)
+      point = { x: (begin.x + end.x) / 2, y: (begin.y + end.y) / 2 }
+    }
+    // Pressing inspector buttons may have scrolled the canvas out of view.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const at = await screen(point)
+    await page.mouse.click(at.x, at.y)
+    await page.getByRole('heading', { name: `${kind === 'atom' ? 'Atom' : 'Bond'} ${id}` }).waitFor()
+  }
+  await tool('Select and move')
+  await select('a1')
+  await press('Hydrogens stated')
+  await press('Increase stated hydrogens')
+  await press('Increase stated hydrogens')
+  await press('Doublet radical')
+  await waitIdle()
+  await select('a2')
+  await press('Attachment point 1')
+  await waitIdle()
+  await select('b1', 'bond')
+  await press('Aromatic bond')
+  await waitIdle()
+  const a1 = await atomOf('a1')
+  assert.deepEqual([a1.hydrogens, a1.radical], [{ mode: 'specified', count: 3 }, 'doublet'], 'quick presses all count')
+
+  /**
+   * Runs `first`, holds the request it sends until `second` has been done too, then lets both
+   * run. No request may be refused: each is built from the latest document when it is sent.
+   */
+  const heldRace = async (name, first, second) => {
+    let release
+    const held = new Promise((resolveHeld) => {
+      release = resolveHeld
+    })
+    let seen = 0
+    const holdFirst = async (route) => {
+      seen += 1
+      if (seen === 1) await held
+      await route.continue()
+    }
+    const refused = []
+    const watch = (response) => {
+      if (response.url().endsWith('/transactions') && response.status() !== 200) refused.push(response.status())
+    }
+    page.on('response', watch)
+    await page.route('**/transactions', holdFirst)
+    await first()
+    await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+    await second()
+    release()
+    await waitIdle()
+    await page.unroute('**/transactions', holdFirst)
+    page.off('response', watch)
+    assert.deepEqual(refused, [], `${name}: no request is refused`)
+    assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0, name)
+  }
+
+  // Charge then query, and query then charge: the query atom carries no charge.
+  for (const [first, second] of [
+    ['Increase charge', 'Query: any atom'],
+    ['Query: any atom', 'Increase charge'],
+  ]) {
+    await select('a3')
+    await heldRace(`${first}, then ${second}`, () => press(first), () => press(second))
+    const a3 = await atomOf('a3')
+    assert.deepEqual([a3.kind, a3.element, a3.charge], ['query', '*', 0], `${first}, then ${second}`)
+    const elementField = page.getByLabel('Element', { exact: true })
+    await elementField.fill('N')
+    await elementField.press('Enter')
+    await waitIdle()
+    const nitrogen = await atomOf('a3')
+    assert.deepEqual([nitrogen.kind, nitrogen.element, nitrogen.charge], ['element', 'N', 0], 'back to nitrogen')
+    assert.equal(
+      await inspector.getByRole('button', { name: 'Query: any atom', exact: true }).getAttribute('aria-pressed'),
+      'false',
+      'no query is shown as chosen for an element atom',
+    )
+  }
+
+  // Atoms whose symbols are narrow and wide (I, Cl) and a long query list, placed left of a1
+  // in s1 (and with it in every placement), so the label checks below cover them; the chlorine
+  // gets a charge and the query stated hydrogens, so text follows a short and a long symbol.
+  const placeAt = async (symbol, offset) => {
+    const origin = (await atomOf('a1')).position
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.getByRole('button', { name: `Element ${symbol}`, exact: true }).click()
+    const at = await screen({ x: origin.x + offset.x, y: origin.y + offset.y })
+    const before = (await statesDoc()).atoms.length
+    await page.mouse.click(at.x, at.y)
+    await waitIdle()
+    const atoms = (await statesDoc()).atoms
+    assert.equal(atoms.length, before + 1, `${symbol} placed`)
+    return atoms.at(-1).id
+  }
+  const iodine = await placeAt('I', { x: -45, y: 0 })
+  const chlorine = await placeAt('Cl', { x: -45, y: 35 })
+  const queried = await placeAt('N', { x: -115, y: 18 })
+  await tool('Select and move')
+  await select(queried)
+  const listField = inspector.getByLabel('Query element list')
+  await listField.fill('N, O')
+  await listField.press('Enter')
+  await waitIdle()
+  // A typed list and the negation pressed while it is on its way: both are kept.
+  await heldRace(
+    'a typed list, then the negation',
+    async () => {
+      await listField.fill('N, O, S')
+      await listField.press('Enter')
+    },
+    () => press('Negate the list: any atom except these'),
+  )
+  assert.deepEqual((await atomOf(queried)).query, { kind: 'list', elements: ['N', 'O', 'S'], negated: true })
+  await listField.fill('N, O, S, P, Se')
+  await listField.press('Enter')
+  await waitIdle()
+  assert.equal((await atomOf(queried)).element, '![N,O,S,P,Se]')
+  await press('Hydrogens stated')
+  await press('Increase stated hydrogens')
+  await waitIdle()
+  await select(chlorine)
+  await press('Increase charge')
+  await waitIdle()
+
+  /** Problems with the drawing, measured on the rendered SVG. */
+  const drawingProblems = () =>
+    page.evaluate(async () => {
+      await document.fonts.ready
+      const svg = document.querySelector('svg[data-structure-canvas]')
+      const view = svg.viewBox.baseVal
+      const problems = []
+      const boxOf = (element) => {
+        const [x, y, width, height] = element.getAttribute('data-box').split(' ').map(Number)
+        return { x, y, width, height }
+      }
+      // Within, beyond rounding.
+      const within = (inner, outer) =>
+        inner.x >= outer.x - 0.05 &&
+        inner.y >= outer.y - 0.05 &&
+        inner.x + inner.width <= outer.x + outer.width + 0.05 &&
+        inner.y + inner.height <= outer.y + outer.height + 0.05
+      const inView = (box) => within(box, view)
+      if (svg.querySelector('[textLength], [lengthAdjust]')) problems.push('text is drawn at a forced length')
+      for (const part of svg.querySelectorAll('[data-frame], [data-frame-id]')) {
+        const name = part.getAttribute('data-frame') ?? `${part.getAttribute('data-frame-id')} ID`
+        if (!inView(part.getBBox())) problems.push(`frame ${name} outside the view box`)
+      }
+      // Strictly inside, beyond rounding.
+      const inside = (point, box) =>
+        point.x > box.x + 0.05 &&
+        point.x < box.x + box.width - 0.05 &&
+        point.y > box.y + 0.05 &&
+        point.y < box.y + box.height - 0.05
+      for (const placement of svg.querySelectorAll('g[data-instance]')) {
+        const where = placement.getAttribute('data-instance')
+        // The box the canvas reserves for each label, which bonds stop outside of.
+        const labels = [...placement.querySelectorAll('[data-atom-label]')].map((label) => ({
+          id: label.getAttribute('data-atom-label'),
+          box: boxOf(label),
+          drawn: label.getBBox(),
+          // Each text chunk against the box reserved for it; dots against the label's box.
+          parts: [...label.querySelectorAll('text, circle')].map((part) => ({
+            name: part.getAttribute('data-chunk') ?? part.getAttribute('data-mark'),
+            box: part.getBBox(),
+            reserved: part.hasAttribute('data-box') ? boxOf(part) : boxOf(label),
+          })),
+          // Where each run of the label's text (not its marks) is drawn, left and right, in
+          // reading order: from its first character's cell to its last's.
+          runs: [...label.querySelectorAll('text[data-chunk] tspan')].map((tspan) => {
+            const text = tspan.closest('text')
+            let offset = 0
+            for (const other of text.querySelectorAll('tspan')) {
+              if (other === tspan) break
+              offset += other.textContent.length
+            }
+            const first = text.getExtentOfChar(offset)
+            const last = text.getExtentOfChar(offset + tspan.textContent.length - 1)
+            return { part: tspan.getAttribute('data-part'), left: first.x, right: last.x + last.width }
+          }),
+        }))
+        for (const { id, box, drawn, parts, runs } of labels) {
+          // What precedes and follows the symbol is drawn against it, not apart from it.
+          const at = runs.findIndex((item) => item.part === 'symbol')
+          for (const [before, after] of [
+            [runs[at - 1], runs[at]],
+            [runs[at], runs[at + 1]],
+          ]) {
+            if (!before || !after) continue
+            const gap = after.left - before.right
+            if (gap > 2 || gap < -1) problems.push(`${where} ${id}: ${gap.toFixed(1)} pt between ${before.part} and ${after.part}`)
+          }
+          if (drawn.width === 0 || drawn.height === 0) problems.push(`${where} ${id}: empty label`)
+          if (!inView(box)) problems.push(`${where} ${id}: label outside the view box`)
+          for (const part of parts) {
+            if (!within(part.box, part.reserved) || !within(part.reserved, box)) {
+              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it`)
+            }
+          }
+        }
+        for (const stroke of placement.querySelectorAll('[data-bond]')) {
+          const bond = stroke.getAttribute('data-bond')
+          const ends =
+            stroke.tagName === 'line'
+              ? [
+                  { x: stroke.x1.baseVal.value, y: stroke.y1.baseVal.value },
+                  { x: stroke.x2.baseVal.value, y: stroke.y2.baseVal.value },
+                ]
+              : [...stroke.points]
+          for (const end of ends) {
+            for (const { id, box } of labels) {
+              if (inside(end, box)) problems.push(`${where} ${bond}: a stroke ends inside the label of ${id}`)
+            }
+          }
+          const [first, last] = [ends[0], ends[ends.length - 1]]
+          if (Math.hypot(last.x - first.x, last.y - first.y) < 1) problems.push(`${where} ${bond}: a stroke is not drawn`)
+        }
+      }
+      return problems
+    })
+  /** The states as drawn in the first placement and named for assistive technology. */
+  const drawnStates = async () => {
+    const first = page.locator('g[data-instance="s1"]')
+    await first.locator('[data-atom-label="a1"]').waitFor()
+    return {
+      a1: (await first.locator('text[data-atom="a1"]').allTextContents()).join('').replace(/\s/g, ''),
+      a1Radical: await first.locator('[data-atom-label="a1"] circle[data-mark="radical"]').count(),
+      a2: (await first.locator('text[data-atom="a2"]').allTextContents()).join('').replace(/\s/g, ''),
+      a2Attachment: await first.locator('[data-atom-label="a2"] [data-mark="attachment"]').textContent(),
+      a3: (await first.locator('text[data-atom="a3"]').allTextContents()).join('').replace(/\s/g, ''),
+      palette: await Promise.all(
+        [iodine, chlorine, queried].map(async (id) => (await first.locator(`text[data-atom="${id}"]`).allTextContents()).join('')),
+      ),
+      // Labels with text against their symbol, which the gap check above measures.
+      adjacent: await page.evaluate(() =>
+        [...document.querySelectorAll('g[data-instance="s1"] [data-atom-label]')]
+          .filter((label) => label.querySelectorAll('text[data-chunk] tspan').length > 1)
+          .map((label) => label.getAttribute('data-atom-label'))
+          .sort(),
+      ),
+      b1Dashed: await first.locator('g[data-bond-kind="aromatic"] line[data-pattern="dashed"][data-bond="b1"]').count(),
+      a1Name: await first.locator('[data-atom-label="a1"]').getAttribute('aria-label'),
+      b1Name: await first.locator('g[data-bond-kind="aromatic"]').getAttribute('aria-label'),
+    }
+  }
+  const expected = {
+    a1: 'H3C',
+    a1Radical: 1,
+    a2: 'C',
+    a2Attachment: 'ap1',
+    a3: 'N',
+    palette: ['I', 'Cl+', '![N,O,S,…]H2'],
+    adjacent: ['a1', chlorine, queried].sort(),
+    b1Dashed: 1,
+    a1Name: 'Atom a1 in s1: C; 3 stated hydrogens; doublet radical',
+    b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
+  }
+  assert.deepEqual(await drawnStates(), expected, 'drawn as recorded; the inferred nitrogen shows no count')
+  assert.deepEqual(await drawingProblems(), [])
+  await page.screenshot({ path: join(outDir, 'editor-states.png') })
+  const recorded = await statesDoc()
+
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await page.reload()
+  await alphaItem.getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  assert.deepEqual(await drawnStates(), expected, 'after a page reload')
+  assert.deepEqual(await drawingProblems(), [])
+  await closeShown()
+  await alphaItem.getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  assert.deepEqual(await drawnStates(), expected, 'reopened from storage')
+  assert.deepEqual(await drawingProblems(), [])
+  const reopened = await statesDoc()
+  assert.deepEqual([reopened.atoms, reopened.bonds], [recorded.atoms, recorded.bonds])
+}
+results.recorded_states_drawn_and_kept = true
+step = 'after recorded_states_drawn_and_kept'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
