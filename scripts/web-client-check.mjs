@@ -8,7 +8,8 @@ import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 const { DocumentClient, isDocumentResponse } = await import('../apps/web/src/lib/document-contract.ts')
-const { DUPLICATE_OFFSET, duplicatePlacement, newAtomPlacement, placeNewAtoms, placementAt } = await import(
+const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
+  await import(
   '../apps/web/src/editor/placement.ts'
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
@@ -621,5 +622,17 @@ test('duplicating a placement copies the last one, so repeated copies do not lan
   delete older.scene
   delete older.molecule
   assert.equal(duplicatePlacement(older), null, 'a service without scene instances cannot duplicate')
+})
+
+test('moving or deleting a placement is built from the document it applies to', () => {
+  const document = stretched()
+  assert.deepEqual(movePlacement(document, 's2', { x: 10, y: 0 }), { op: 'move_instance', instance: 's2', offset: { x: 10, y: 0 } })
+  assert.deepEqual(deletePlacement(document, 's2'), { op: 'delete_instance', instance: 's2' })
+  // After a queued delete of s2, a press that still names it sends nothing.
+  const deleted = stretched()
+  deleted.scene.instances = deleted.scene.instances.filter((item) => item.id !== 's2')
+  assert.equal(movePlacement(deleted, 's2', { x: 10, y: 0 }), null, 'a deleted placement is not moved')
+  assert.equal(deletePlacement(deleted, 's2'), null, 'a deleted placement is not deleted again')
+  assert.equal(deletePlacement(deleted, 's1'), null, 'the last placement is not deleted')
 })
 

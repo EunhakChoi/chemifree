@@ -92,3 +92,11 @@ CI(a41f34a): check·browser 성공(run 40780684248). 병합 ede7230, 병합 후 
 5. 문서: `document_revision`이 null인 경우, CLI의 빈 줄 처리, CLI는 복구 초안을 쓰지 않아 세션의 초안 필드가 API와 다를 수 있음, legacy-observed 문장의 모호함을 CONTRACT.md에 바로잡음
 
 CI(ebee17f): check·browser 성공(run 40784373555). 병합 85d4788, 병합 후 main CI 성공([run 40784845386](https://github.com/EunhakChoi/chemifree/actions/runs/40784845386), check·browser).
+
+## #30 P09 — 화학 그래프와 장면 배치 분리, 파일 형식 2와 마이그레이션
+
+main(85d4788) 위의 브랜치 `feat/graph-scene-split`. 구현은 새 컨텍스트의 에이전트가 명세(spec/ 아래만)와 설계 지시로 작성했다. PR 전에 독립 사전 검토(P1 없음, P2 2건·P3 5건: `positions` 중복 키의 실제 오류 코드, 다른 배치에서 새 결합이 비틀리는 UI 배치 규칙, 마이그레이션 뒤 이력 한도, 명령이 아닌 카탈로그 행의 executable 표시, 복제 배치 겹침, 같은 ID의 다른 v1 파일 보존, HTTP 본문 한도)를 반영했다(87966e6).
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-29 00:17:50 | 87966e6 | 00:23:12 | 지적 1건(P2): 배치 이동·삭제 버튼을 빠르게 두 번 누르면 두 번째 요청이 화면의 같은 revision으로 나가 `revision_conflict`로 거절되고 그 이동이 사라짐 → 수용: 첫 요청을 붙잡아 두는 브라우저 smoke 단계를 먼저 작성해 409를 재현한 뒤, 이동·삭제 명령을 적용될 때의 최신 문서로 만들도록 바꿈(삭제된 배치·마지막 배치는 보내지 않음). 단위 테스트 추가 | [review](https://github.com/EunhakChoi/chemifree/pull/30#pullrequestreview-5691389656) |

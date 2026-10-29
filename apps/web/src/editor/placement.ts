@@ -112,3 +112,22 @@ export function duplicatePlacement(document: DocumentView): Command | null {
   const last = document.scene?.instances.at(-1)
   return last ? { op: 'add_instance', source: last.id, offset: DUPLICATE_OFFSET } : null
 }
+
+/**
+ * The command that moves placement `instance` by `offset`, built from the document it will apply
+ * to, so presses queued behind one another each move it once more. Null when the placement is gone.
+ */
+export function movePlacement(document: DocumentView, instance: string, offset: Position): Command | null {
+  return document.scene?.instances.some((item) => item.id === instance)
+    ? { op: 'move_instance', instance, offset }
+    : null
+}
+
+/**
+ * The command that deletes placement `instance` from the document it will apply to. Null when the
+ * placement is gone or is the last one, which the service would refuse.
+ */
+export function deletePlacement(document: DocumentView, instance: string): Command | null {
+  const instances = document.scene?.instances ?? []
+  return instances.length > 1 && instances.some((item) => item.id === instance) ? { op: 'delete_instance', instance } : null
+}

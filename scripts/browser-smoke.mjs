@@ -1485,10 +1485,27 @@ step = 'after operation_catalog'
   await page.getByRole('button', { name: 'Duplicate placement' }).click()
   await waitIdle()
   await page.locator('li[data-placement="s2"]').waitFor()
-  for (let press = 0; press < 2; press += 1) {
-    await page.getByRole('button', { name: 'Move placement s2 right' }).click()
-    await waitIdle()
+  // Two presses while the first move is still in flight: the first request is held until the
+  // second press is in, and both moves count.
+  let releaseFirstMove
+  const firstMoveHeld = new Promise((resolveHeld) => {
+    releaseFirstMove = resolveHeld
+  })
+  let movesSeen = 0
+  const holdFirstMove = async (route) => {
+    movesSeen += 1
+    if (movesSeen === 1) await firstMoveHeld
+    await route.continue()
   }
+  await page.route('**/transactions', holdFirstMove)
+  const moveRight = page.getByRole('button', { name: 'Move placement s2 right' })
+  await moveRight.click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await moveRight.click()
+  releaseFirstMove()
+  await waitIdle()
+  await page.unroute('**/transactions', holdFirstMove)
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0, 'neither press is refused')
   const placed = await placedDoc()
   assert.deepEqual(placed.scene.instances.map((item) => item.id), ['s1', 's2'])
   assert.deepEqual(positionsOf(placed, 's1'), first, 'the first placement stays')
