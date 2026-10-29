@@ -18,13 +18,14 @@ use chemifree_domain::Capability;
 use serde::Serialize;
 
 pub use contract::{
-    AtomPositionView, AtomView, BondOrderDto, BondToDto, BondView, CloseRequest, CloseResponse,
-    CommandDto, CopyResponse, CopySource, CreateDocumentRequest, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
-    DraftFailureView, DraftRequest, InstanceView, ListQuery, ListSort, MoleculeView, PageView,
-    PointDto, PositionView, RecoverAsCopyRequest, RecoveryState, RecoveryView, RenameRequest,
-    RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SceneView, SessionView,
-    TransactionRequest, TrashListResponse, TrashedSummary, UnreadableDocument,
+    AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
+    CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource, CreateDocumentRequest,
+    DeleteResponse, DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView,
+    DraftDiscardResponse, DraftFailureView, DraftRequest, HydrogensDto, InstanceView, ListQuery,
+    ListSort, MoleculeView, PageView, PointDto, PositionView, QueryBondOrderDto, QueryDto,
+    RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView, RenameRequest, RestoreRequest,
+    RestoreResponse, RevisionRequest, SaveAsRequest, SceneView, SessionView, TransactionRequest,
+    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,

@@ -1822,8 +1822,13 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         EditError::RevisionLimit => ErrorCode::ResourceLimit,
         _ => ErrorCode::InvalidCommand,
     };
+    let invalid_state = match error.error {
+        EditError::InvalidState(state) => Some(state),
+        _ => None,
+    };
     ApplicationError {
         command_index: error.index,
+        invalid_state,
         ..ApplicationError::new(code, error.to_string())
     }
 }

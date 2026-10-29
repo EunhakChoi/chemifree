@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, ErrorCode, ListQuery, ListSort, OperationResponse,
-    RecoveryState, RestoreResponse, TrashListResponse,
+    Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
+    CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
+    ErrorCode, HydrogensDto, ListQuery, ListSort, OperationResponse, RadicalDto, RecoveryState,
+    RestoreResponse, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -498,25 +499,25 @@ fn print_copy(response: &CopyResponse) {
 }
 
 fn print_document(response: &DocumentResponse) {
+    print!("{}", document_text(response));
+}
+
+/// The text `print_document` prints: one line per atom and bond, with every recorded state
+/// that is stated. Inferred hydrogens print nothing, since nothing counts them.
+fn document_text(response: &DocumentResponse) -> String {
     let document = &response.document;
-    println!(
+    let mut lines = vec![format!(
         "{} · {} · revision {}",
         document.title, document.id, document.revision
-    );
+    )];
     for atom in &document.atoms {
-        let isotope = atom
-            .isotope
-            .map(|mass| mass.to_string())
-            .unwrap_or_default();
-        let charge = match atom.charge {
-            0 => String::new(),
-            charge if charge > 0 => format!(" {charge:+}"),
-            charge => format!(" {charge}"),
-        };
-        println!(
-            "  {}  {isotope}{}{charge}  ({}, {})",
-            atom.id, atom.element, atom.position.x, atom.position.y
-        );
+        lines.push(format!(
+            "  {}  {}  ({}, {})",
+            atom.id,
+            atom_text(atom),
+            atom.position.x,
+            atom.position.y
+        ));
     }
     let instances = &document.scene.instances;
     if let [first, _, ..] = instances.as_slice() {
@@ -524,24 +525,165 @@ fn print_document(response: &DocumentResponse) {
             .iter()
             .map(|instance| instance.id.as_str())
             .collect();
-        println!(
+        lines.push(format!(
             "  scene instances {} (positions above are {}'s)",
             ids.join(", "),
             first.id
-        );
+        ));
     }
     for bond in &document.bonds {
-        let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
-        println!(
+        lines.push(format!(
             "  {}  {}–{}  {}",
             bond.id,
             bond.begin,
             bond.end,
-            order.as_str().unwrap_or_default()
-        );
+            bond_text(bond)
+        ));
     }
-    println!(
+    lines.push(format!(
         "  undo {} · redo {}",
         response.session.undo_depth, response.session.redo_depth
-    );
+    ));
+    lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// `13C-1`, `query ![N,O]`, followed by the stated hydrogens, radical, and attachment points.
+fn atom_text(atom: &AtomView) -> String {
+    let isotope = atom
+        .isotope
+        .map(|mass| mass.to_string())
+        .unwrap_or_default();
+    let charge = match atom.charge {
+        0 => String::new(),
+        charge if charge > 0 => format!(" {charge:+}"),
+        charge => format!(" {charge}"),
+    };
+    let label = match atom.kind {
+        AtomKindView::Element => atom.element.clone(),
+        AtomKindView::Query => format!("query {}", atom.element),
+    };
+    let mut text = format!("{isotope}{label}{charge}");
+    match atom.hydrogens {
+        HydrogensDto::Inferred {} => {}
+        HydrogensDto::Unknown {} => text.push_str("  H unknown"),
+        HydrogensDto::Specified { count } => text.push_str(&format!("  H{count} stated")),
+    }
+    let radical = match atom.radical {
+        RadicalDto::None => None,
+        RadicalDto::Singlet => Some("singlet"),
+        RadicalDto::Doublet => Some("doublet"),
+        RadicalDto::Triplet => Some("triplet"),
+        RadicalDto::Unknown => Some("unknown"),
+    };
+    if let Some(radical) = radical {
+        text.push_str(&format!("  radical {radical}"));
+    }
+    if !atom.attachment_points.is_empty() {
+        let points: Vec<String> = atom.attachment_points.iter().map(u8::to_string).collect();
+        text.push_str(&format!("  attachment {}", points.join(",")));
+    }
+    text
+}
+
+/// The bond's order, and for a query bond what it stands for.
+fn bond_text(bond: &BondView) -> String {
+    let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
+    let order = order.as_str().unwrap_or_default();
+    match &bond.query {
+        None => order.to_owned(),
+        Some(BondQueryDto::Any {}) => format!("{order} any"),
+        Some(BondQueryDto::List { orders }) => {
+            let kinds: Vec<String> = orders
+                .iter()
+                .map(|kind| {
+                    serde_json::to_value(kind)
+                        .expect("bond kinds are serializable")
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned()
+                })
+                .collect();
+            format!("{order} {}", kinds.join("|"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chemifree_application::{Application, CommandDto};
+    use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+    use serde_json::json;
+
+    use super::*;
+
+    fn shown(commands: serde_json::Value) -> String {
+        let data = tempfile::tempdir().unwrap();
+        let application =
+            Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
+        let id = application
+            .create_document(None, Some("Text"))
+            .unwrap()
+            .document
+            .id;
+        let commands: Vec<CommandDto> = serde_json::from_value(commands).unwrap();
+        let response = application
+            .apply_transaction(&id, None, 0, commands)
+            .unwrap();
+        document_text(&response)
+    }
+
+    #[test]
+    fn stated_states_are_shown_and_inferred_hydrogens_are_not() {
+        let text = shown(json!([
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0},
+             "hydrogens": {"mode": "specified", "count": 3}, "radical": "doublet",
+             "attachment_points": [1, 2]},
+            {"op": "add_atom", "element": "N", "position": {"x": 30, "y": 0},
+             "hydrogens": {"mode": "unknown"}, "bond_to": {"atom": "$0", "order": "aromatic"}},
+            {"op": "add_atom", "element": "O", "position": {"x": 60, "y": 0}},
+            {"op": "add_bond", "begin": "$1", "end": "$2", "order": "dative"}
+        ]));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[1..=3],
+            [
+                "  a1  C  H3 stated  radical doublet  attachment 1,2  (0, 0)",
+                "  a2  N  H unknown  (30, 0)",
+                "  a3  O  (60, 0)",
+            ],
+            "{text}"
+        );
+        assert_eq!(
+            lines[4..=5],
+            ["  b1  a1–a2  aromatic", "  b2  a2–a3  dative"]
+        );
+    }
+
+    #[test]
+    fn query_atoms_and_bonds_show_their_expression() {
+        let text = shown(json!([
+            {"op": "add_atom", "query": {"kind": "list", "elements": ["Cl", "Br", "I"], "negated": true},
+             "position": {"x": 0, "y": 0}, "hydrogens": {"mode": "specified", "count": 0}},
+            {"op": "add_atom", "query": {"kind": "any"}, "position": {"x": 30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "query", "query": {"kind": "list", "orders": ["single", "aromatic"]}}},
+            {"op": "add_atom", "element": "C", "position": {"x": 60, "y": 0},
+             "bond_to": {"atom": "$1", "order": "query", "query": {"kind": "any"}}}
+        ]));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[1..=2],
+            [
+                "  a1  query ![Cl,Br,I]  H0 stated  (0, 0)",
+                "  a2  query *  (30, 0)",
+            ],
+            "{text}"
+        );
+        assert_eq!(
+            lines[4..=5],
+            [
+                "  b1  a1–a2  query single|aromatic",
+                "  b2  a2–a3  query any"
+            ]
+        );
+    }
 }

@@ -475,12 +475,22 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
         })
         .collect();
     assert!(parts.contains(&("add_bond", "supported", "executable")));
-    assert!(parts.contains(&("hydrogen_state", "not_supported", "not_implemented")));
-    assert!(parts.contains(&(
-        "aromatic_or_dative_bond",
-        "not_supported",
-        "not_implemented"
-    )));
+    assert!(parts.contains(&("hydrogen_state", "supported", "executable")));
+    assert!(parts.contains(&("aromatic_or_dative_bond", "supported", "executable")));
+    let validate = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "chem.validate")
+        .unwrap();
+    assert_eq!(
+        (
+            validate["representation"].clone(),
+            validate["execution"].clone()
+        ),
+        (json!("not_supported"), json!("not_implemented")),
+        "recorded states are not validated chemically"
+    );
     let prediction = catalog["operations"]
         .as_array()
         .unwrap()
@@ -579,6 +589,31 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
     assert_eq!(
         placement.1,
         ["add_instance", "move_instance", "delete_instance"]
+    );
+    let carried_out_by = |id: &str| -> Vec<String> {
+        capabilities
+            .iter()
+            .find(|(capability, _)| capability == id)
+            .unwrap_or_else(|| panic!("{id} is a capability row"))
+            .1
+            .clone()
+    };
+    assert_eq!(
+        carried_out_by("hydrogen_state"),
+        ["add_atom", "update_atom"]
+    );
+    assert_eq!(carried_out_by("radical"), ["add_atom", "update_atom"]);
+    assert_eq!(
+        carried_out_by("query_atom_or_bond"),
+        ["add_atom", "update_atom", "add_bond", "update_bond"]
+    );
+    assert_eq!(
+        carried_out_by("aromatic_or_dative_bond"),
+        ["add_atom", "add_bond", "update_bond"]
+    );
+    assert_eq!(
+        carried_out_by("attachment_point"),
+        ["add_atom", "update_atom"]
     );
     assert_eq!(capabilities.len(), 6, "{capabilities:?}");
     assert_eq!(document_count(&app), 1, "no part changed anything");

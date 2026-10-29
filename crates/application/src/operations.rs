@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 
 use crate::contract::{CommandDto, DocumentResponse, DocumentView, RecoveryView, SessionView};
 use crate::documents::validate_request_id;
-use crate::error::{ApplicationError, ErrorCode, StorageReason};
+use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 
@@ -279,11 +279,13 @@ impl Entry {
 const TRANSACTION_PARTS: [Entry; 17] = [
     runs(
         "add_atom",
-        "An element (1–118) with a position in every scene instance, optionally bonded to an atom.",
+        "An element (1–118) or query atom with a position in every scene instance and its \
+         recorded hydrogen, radical, and attachment states, optionally bonded to an atom.",
     ),
     runs(
         "update_atom",
-        "Element, formal charge (−8 to +8), and isotope mass number.",
+        "Element or query, formal charge (−8 to +8), isotope mass number, and the recorded \
+         hydrogen, radical, and attachment states.",
     ),
     runs(
         "move_atoms",
@@ -295,11 +297,12 @@ const TRANSACTION_PARTS: [Entry; 17] = [
     ),
     runs(
         "add_bond",
-        "Single, double, or triple bonds between two atoms.",
+        "A single, double, triple, aromatic, dative, query, or unknown bond between two atoms.",
     ),
     runs(
         "update_bond",
-        "Changes a bond's order among single, double, and triple.",
+        "Changes a bond's kind among single, double, triple, aromatic, dative, query, and \
+         unknown.",
     ),
     runs("delete_bonds", "Deletes bonds."),
     runs("rename", "Sets the document title."),
@@ -316,31 +319,35 @@ const TRANSACTION_PARTS: [Entry; 17] = [
         "delete_instance",
         "Deletes a scene instance with its positions; the last one stays.",
     ),
-    missing(
+    runs(
         "hydrogen_state",
-        "P10",
-        "Explicit, inferred, or unknown hydrogen counts are not represented.",
+        "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
+         default). Representation only: no hydrogen count is computed from valence.",
     )
-    .carried_out_by(&[]),
-    missing("radical", "P10", "Radicals are not represented.").carried_out_by(&[]),
-    missing(
+    .carried_out_by(&["add_atom", "update_atom"]),
+    runs(
+        "radical",
+        "Records none, singlet, doublet, triplet, or unknown. Representation only.",
+    )
+    .carried_out_by(&["add_atom", "update_atom"]),
+    runs(
         "query_atom_or_bond",
-        "P10",
-        "Query atoms and bonds are not represented.",
+        "Records query atoms (any, any heavy, heteroatom, halogen, or a possibly negated list of \
+         1–10 elements) and query bonds (any, or a list of kinds). Representation only: nothing \
+         matches a query.",
     )
-    .carried_out_by(&[]),
-    missing(
+    .carried_out_by(&["add_atom", "update_atom", "add_bond", "update_bond"]),
+    runs(
         "aromatic_or_dative_bond",
-        "P10",
-        "Aromatic and dative bond types are not represented.",
+        "Records aromatic, dative (from its begin atom, the donor), and unknown bonds. \
+         Representation only: aromaticity is not perceived and no Kekulé form is computed.",
     )
-    .carried_out_by(&[]),
-    missing(
+    .carried_out_by(&["add_atom", "add_bond", "update_bond"]),
+    runs(
         "attachment_point",
-        "P10",
-        "Attachment points are not represented.",
+        "Records an atom's attachment points 1–4. Representation only.",
     )
-    .carried_out_by(&[]),
+    .carried_out_by(&["add_atom", "update_atom"]),
     runs(
         "scene_placement",
         "One chemical graph per document, drawn by scene instances on one page, each with its \
@@ -531,8 +538,8 @@ fn failure(error: &ApplicationError) -> Diagnostic {
     if let Some(index) = error.command_index {
         details.insert("command_index".into(), index.into());
     }
-    if let Some(reason) = error.reason {
-        details.insert("reason".into(), StorageReason::as_str(reason).into());
+    if let Some(reason) = error.reason_code() {
+        details.insert("reason".into(), reason.into());
     }
     Diagnostic {
         code: error.code.as_str(),

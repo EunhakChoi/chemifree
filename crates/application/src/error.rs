@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use chemifree_domain::states::StateError;
 use serde::Serialize;
 
 use crate::API_VERSION;
@@ -10,7 +11,8 @@ use crate::API_VERSION;
 pub enum ErrorCode {
     /// A request field is malformed (identifier, title, request ID).
     InvalidRequest,
-    /// A command is malformed or violates a document rule; see `command_index`.
+    /// A command is malformed or violates a document rule; see `command_index`, and `reason`
+    /// for a refused combination of recorded states.
     InvalidCommand,
     DocumentNotFound,
     /// `expected_revision` differs from the session's current revision.
@@ -95,6 +97,9 @@ pub struct ApplicationError {
     pub command_index: Option<usize>,
     /// Set with `StorageFailed`.
     pub reason: Option<StorageReason>,
+    /// Set with `InvalidCommand` when a combination of recorded states was refused; sent as
+    /// `reason`, like a storage reason.
+    pub invalid_state: Option<StateError>,
 }
 
 impl ApplicationError {
@@ -105,6 +110,7 @@ impl ApplicationError {
             current_revision: None,
             command_index: None,
             reason: None,
+            invalid_state: None,
         }
     }
 
@@ -123,8 +129,15 @@ impl ApplicationError {
             message: self.message.clone(),
             current_revision: self.current_revision,
             command_index: self.command_index,
-            reason: self.reason.map(StorageReason::as_str),
+            reason: self.reason_code(),
         }
+    }
+
+    /// The envelope's `reason`: why storage failed, or which combination of states was refused.
+    pub fn reason_code(&self) -> Option<&'static str> {
+        self.reason
+            .map(StorageReason::as_str)
+            .or(self.invalid_state.map(StateError::code))
     }
 }
 
@@ -146,6 +159,8 @@ pub struct ErrorResponse {
     pub current_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_index: Option<usize>,
+    /// With `storage_failed`, a [`StorageReason`]; with `invalid_command`, a [`StateError`] code
+    /// when a combination of recorded states was refused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
 }
