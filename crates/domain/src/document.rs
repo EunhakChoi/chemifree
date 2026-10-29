@@ -703,7 +703,9 @@ impl ChangeSet {
 
     /// The shape `between` produces: non-empty, each entity at most once, and every entry
     /// an actual change. Only such a set replays identically backward and forward, so
-    /// restored history that passes the backward check can always be redone.
+    /// restored history that passes the backward check can always be redone. A scene object
+    /// that exists on both sides keeps its kind, and a graphic its shape: no command changes
+    /// either (a changed group has other children, a changed graphic other points).
     fn is_well_formed(&self) -> bool {
         fn entries_valid<K: Ord, V: PartialEq>(entries: &[(K, Change<Option<V>>)]) -> bool {
             let mut seen = BTreeSet::new();
@@ -724,6 +726,16 @@ impl ChangeSet {
             && entries_valid(&self.bonds)
             && entries_valid(&self.objects)
             && entries_valid(&self.positions)
+            && self
+                .objects
+                .iter()
+                .all(|(_, change)| match (&change.before, &change.after) {
+                    (Some(SceneObject::Graphic(before)), Some(SceneObject::Graphic(after))) => {
+                        before.shape == after.shape
+                    }
+                    (Some(before), Some(after)) => before.kind() == after.kind(),
+                    _ => true,
+                })
     }
 }
 
@@ -1759,7 +1771,8 @@ impl Document {
         }
         if history().any(|set| !set.is_well_formed()) {
             return Err(invalid(
-                "history contains an empty, repeated, or no-op change",
+                "history contains an empty, repeated, or no-op change, or changes a scene \
+                 object's kind or a graphic's shape",
             ));
         }
         let mut past = document.content.clone();

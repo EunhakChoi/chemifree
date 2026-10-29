@@ -963,3 +963,97 @@ fn trimming_every_undo_entry_on_restore_leaves_the_selection_at_the_nearest_redo
     );
     assert_eq!(Document::restore(restored.to_parts()).unwrap(), restored);
 }
+
+#[test]
+fn restore_refuses_a_history_entry_that_changes_an_object_s_kind_or_shape() {
+    use chemifree_domain::document::{Change, ChangeSet, DocumentParts};
+
+    let line = |graphic: Graphic| Graphic {
+        shape: Shape::Line,
+        ..graphic
+    };
+    // The stored document holds `after` for object `id`, and its newest undo entry changes it
+    // from `before` (and puts back `positions`, when it drew the molecule).
+    let stored = |id: u32, before: SceneObject, after: SceneObject| -> DocumentParts {
+        let mut parts = drawing().to_parts();
+        for (object, state) in &mut parts.objects {
+            if *object == s(id) {
+                *state = after.clone();
+            }
+        }
+        let mut entry = ChangeSet {
+            objects: vec![(
+                s(id),
+                Change {
+                    before: Some(before.clone()),
+                    after: Some(after.clone()),
+                },
+            )],
+            ..ChangeSet::default()
+        };
+        if before == SceneObject::Molecule {
+            let removed: Vec<_> = parts
+                .positions
+                .iter()
+                .filter(|(key, _)| key.instance == s(id))
+                .copied()
+                .collect();
+            parts.positions.retain(|(key, _)| key.instance != s(id));
+            entry.positions = removed
+                .into_iter()
+                .map(|(key, point)| {
+                    (
+                        key,
+                        Change {
+                            before: Some(point),
+                            after: None,
+                        },
+                    )
+                })
+                .collect();
+        }
+        parts.undo.push(entry);
+        parts
+    };
+    let rectangle = rectangle(0.0, 50.0);
+    let moved = Graphic {
+        points: [point(5.0, 50.0), point(45.0, 70.0)],
+        ..rectangle
+    };
+
+    // A graphic's points change (as a move makes them): accepted.
+    Document::restore(stored(
+        3,
+        SceneObject::Graphic(rectangle),
+        SceneObject::Graphic(moved),
+    ))
+    .unwrap();
+    for (parts, why) in [
+        (
+            stored(
+                2,
+                SceneObject::Molecule,
+                SceneObject::Graphic(line(rectangle)),
+            ),
+            "a molecule instance turned into a graphic, its positions removed",
+        ),
+        (
+            stored(
+                3,
+                SceneObject::Graphic(rectangle),
+                SceneObject::Group(Vec::new()),
+            ),
+            "a graphic turned into an empty group",
+        ),
+        (
+            stored(
+                3,
+                SceneObject::Graphic(rectangle),
+                SceneObject::Graphic(line(rectangle)),
+            ),
+            "a rectangle turned into a line",
+        ),
+    ] {
+        assert!(Document::restore(parts).is_err(), "{why} was accepted");
+    }
+}
