@@ -1573,8 +1573,9 @@ results.placements_move_independently = true
 step = 'after placements_move_independently'
 
 // Recorded states: in the open drawing (alpha: C a1 – C a2, N a3), a stated hydrogen count and
-// a radical on a3, an aromatic b1 and attachment point 1 on carbon a2 are set in the inspector,
-// saved, and still there after the page reloads. Carbon a1, whose hydrogens stay inferred, shows no hydrogen count.
+// a radical on a3, an aromatic b1, and attachment point 1 and a stated zero hydrogen count (label
+// CH0) on carbon a2 are set in the inspector, saved, and still there after the page reloads; no
+// bond stroke ends inside a label. Carbon a1, whose hydrogens stay inferred, shows no hydrogen count.
 {
   const alphaId = listed['Smoke list alpha']
   const statesDoc = () => api(`/api/v1/documents/${alphaId}`)
@@ -1610,6 +1611,9 @@ step = 'after placements_move_independently'
   await page.getByRole('heading', { name: 'Atom a2' }).waitFor()
   await page.getByRole('button', { name: 'Attachment point 1' }).click()
   await waitIdle()
+  // A stated count of zero gives bonded a2 the wide label CH0, which its bond must not cross.
+  await page.getByRole('button', { name: 'Hydrogens specified' }).click()
+  await waitIdle()
 
   const checkStates = async (when) => {
     const shown = await statesDoc()
@@ -1621,7 +1625,25 @@ step = 'after placements_move_independently'
     const nitrogenLabel = page.locator('text[data-atom="a3"]')
     assert.equal(await nitrogenLabel.count(), placementsShown, `${when}: a3 is labelled in every placement`)
     assert.equal((await nitrogenLabel.first().textContent()).replace(/\s/g, ''), 'NH2', `${when}: a3 label`)
-    assert.equal(await page.locator('[data-hydrogens]').count(), placementsShown, `${when}: only a3 shows hydrogens`)
+    assert.deepEqual(atomOf(shown, 'a2').hydrogens, { mode: 'specified', count: 0 }, `${when}: a2 hydrogens`)
+    assert.equal(await page.locator('[data-hydrogens]').count(), 2 * placementsShown, `${when}: a3 and a2 show hydrogens`)
+    assert.equal(await page.locator('text[data-atom="a1"]').count(), 0, `${when}: a1, inferred, stays a bare vertex`)
+    assert.equal((await page.locator('text[data-atom="a2"]').first().textContent()).replace(/\s/g, ''), 'CH0', `${when}: a2 label`)
+    // No bond stroke ends inside an atom label, wide labels included.
+    const crossings = await page.evaluate(() => {
+      const labels = [...document.querySelectorAll('text[data-atom]')].map((text) => ({ atom: text.dataset.atom, box: text.getBoundingClientRect() }))
+      const inside = (point, box) => point.x > box.left + 0.5 && point.x < box.right - 0.5 && point.y > box.top + 0.5 && point.y < box.bottom - 0.5
+      const found = []
+      for (const line of document.querySelectorAll('line[data-bond]')) {
+        const matrix = line.getScreenCTM()
+        for (const [x, y] of [[line.x1.baseVal.value, line.y1.baseVal.value], [line.x2.baseVal.value, line.y2.baseVal.value]]) {
+          const point = new DOMPoint(x, y).matrixTransform(matrix)
+          for (const { atom, box } of labels) if (inside(point, box)) found.push(`${line.dataset.bond} ends inside ${atom}`)
+        }
+      }
+      return found
+    })
+    assert.deepEqual(crossings, [], `${when}: bond ends inside a label`)
     assert.equal(await page.locator('g[data-radical="a3"] circle').count(), placementsShown, `${when}: one radical dot per placement`)
     assert.equal(await page.locator('g[data-bond-kind="aromatic"] line[stroke-dasharray]').count(), placementsShown, `${when}: dashed aromatic line`)
     assert.deepEqual(atomOf(shown, 'a2').attachment_points, [1], `${when}: a2 attachment points`)

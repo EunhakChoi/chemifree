@@ -26,7 +26,7 @@ const {
 } = await import(
   '../apps/web/src/editor/atom-states.ts'
 )
-const { bondSegments, showsLabel } = await import('../apps/web/src/editor/geometry.ts')
+const { bondSegments, labelBox, showsLabel } = await import('../apps/web/src/editor/geometry.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 
 const document = (id, revision = 0) => ({
@@ -769,17 +769,39 @@ test('bond kinds are drawn apart: a dashed second line, an arrowhead at the end,
   const bond = (order) => ({ id: 'b1', begin: 'a1', end: 'a2', order })
   const from = { x: 0, y: 0 }
   const to = { x: 30, y: 0 }
-  const aromatic = bondSegments(bond('aromatic'), from, to, false, false)
+  const aromatic = bondSegments(bond('aromatic'), from, to, null, null)
   assert.deepEqual(aromatic.map((segment) => segment.dash !== undefined), [false, true])
-  const dative = bondSegments(bond('dative'), from, to, false, false)
+  const dative = bondSegments(bond('dative'), from, to, null, null)
   assert.equal(dative.length, 3)
   for (const head of dative.slice(1)) {
     assert.deepEqual([head.x1, head.y1], [30, 0], 'the arrowhead points at the end atom')
     assert.ok(head.x2 < 30, 'and opens back toward the donor')
   }
-  assert.ok(bondSegments(bond('query'), from, to, false, false)[0].dash, 'a query bond is dotted')
-  assert.ok(bondSegments(bond('unknown'), from, to, false, false).length > 2, 'an unknown bond is a zigzag')
-  assert.deepEqual(bondSegments(bond('single'), from, to, false, false), [{ x1: 0, y1: 0, x2: 30, y2: 0 }])
+  assert.ok(bondSegments(bond('query'), from, to, null, null)[0].dash, 'a query bond is dotted')
+  assert.ok(bondSegments(bond('unknown'), from, to, null, null).length > 2, 'an unknown bond is a zigzag')
+  assert.deepEqual(bondSegments(bond('single'), from, to, null, null), [{ x1: 0, y1: 0, x2: 30, y2: 0 }])
+})
+
+test('a bond stops where it reaches its atom labels, however wide, and keeps a stroke when they leave no room', () => {
+  const single = { id: 'b1', begin: 'a1', end: 'a2', order: 'single' }
+  const atom = (states) => ({ id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 }, kind: 'element', hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], ...states })
+  const short = labelBox(atom({ element: 'N' }))
+  const wide = labelBox(atom({ hydrogens: { mode: 'specified', count: 16 } }))
+  const query = labelBox(atom({ kind: 'query', element: '![N,O]', query: { kind: 'list', elements: ['N', 'O'], negated: true } }))
+  assert.ok(wide.halfWidth > short.halfWidth && query.halfWidth > wide.halfWidth, 'CH16 and ![N,O] are wider than N')
+  // Horizontal 60 pt bonds: the stroke starts past the half width of the begin label.
+  for (const [name, box] of [['N', short], ['CH16', wide], ['![N,O]', query]]) {
+    const [segment] = bondSegments(single, { x: 0, y: 0 }, { x: 60, y: 0 }, box, null)
+    assert.ok(segment.x1 > box.halfWidth, `${name}: starts at ${segment.x1}, past ${box.halfWidth}`)
+    assert.equal(segment.x2, 60, `${name}: the bare end is not trimmed`)
+  }
+  // Straight down, the label's height decides, not its width.
+  const [down] = bondSegments(single, { x: 0, y: 0 }, { x: 0, y: 60 }, query, null)
+  assert.ok(down.y1 > query.halfHeight && down.y1 < query.halfWidth, `down: starts at ${down.y1}`)
+  // Two wide labels 30 pt apart: a short stroke stays midway instead of a reversed line.
+  const [squeezed] = bondSegments(single, { x: 0, y: 0 }, { x: 30, y: 0 }, query, query)
+  assert.ok(squeezed.x1 < squeezed.x2 && Math.abs(squeezed.x2 - squeezed.x1 - 3) < 1e-9, `squeezed: ${squeezed.x1}–${squeezed.x2}`)
+  assert.ok(Math.abs((squeezed.x1 + squeezed.x2) / 2 - 15) < 1e-9, 'midway')
 })
 
 test('a document reply whose atoms all come from before the states is accepted', () => {

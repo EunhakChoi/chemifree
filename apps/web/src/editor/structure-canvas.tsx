@@ -12,6 +12,7 @@ import {
   distance,
   freeNeighborPosition,
   hitTest,
+  labelBox,
   round,
   sameHit,
   showsLabel,
@@ -108,6 +109,11 @@ export function StructureCanvas({
     const counts = degrees(document)
     return new Map(document.atoms.map((atom) => [atom.id, showsLabel(atom, counts.get(atom.id) ?? 0)]))
   }, [document])
+  /** The box each labelled atom's text covers; bonds stop at it. */
+  const labelBoxes = useMemo(
+    () => new Map(document.atoms.filter((atom) => labeled.get(atom.id)).map((atom) => [atom.id, labelBox(atom)])),
+    [document, labeled],
+  )
   const box = viewBox(drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)))
   const states = useMemo(() => describeStates(document), [document])
 
@@ -378,8 +384,8 @@ export function StructureCanvas({
                   bond,
                   position(drawing, bond.begin),
                   position(drawing, bond.end),
-                  labeled.get(bond.begin)!,
-                  labeled.get(bond.end)!,
+                  labelBoxes.get(bond.begin) ?? null,
+                  labelBoxes.get(bond.end) ?? null,
                 ).map(({ dash, ...segment }, index) => (
                   <line key={index} {...segment} strokeDasharray={dash} data-bond={bond.id} />
                 ))}

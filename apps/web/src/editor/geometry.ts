@@ -2,6 +2,7 @@
  * Drawing geometry for the structure canvas. Coordinates are document points (pt) with y
  * growing downward, the same space the API stores. Nothing here perceives chemistry.
  */
+import { hydrogenText } from '@/editor/atom-states'
 import type { AtomView, BondView, DocumentView, Position } from '@/lib/document-contract'
 
 export const BOND_LENGTH = 30
@@ -164,20 +165,70 @@ const ARROW_LENGTH = 5
 const ARROW_HALF_ANGLE = Math.PI / 7
 const WAVES = 6
 
+/** Half the width and height of the box an atom's text label covers, centred on the atom. */
+export interface LabelBox {
+  halfWidth: number
+  halfHeight: number
+}
+
+// Widths are generous upper bounds for one glyph of the 12 pt label and of its 8 pt
+// sub- and superscripts, so a bond stops short of the text rather than crossing it.
+const LABEL_GLYPH = 9.2
+const SMALL_GLYPH = 5.2
+const LABEL_HALF_HEIGHT = 9
+/** The space left between a bond's end and the label it stops at. */
+const LABEL_GAP = 2
+/** A bond to a short label is never trimmed less than this. */
+const MIN_TRIM = 7
+/** What is left of a bond whose labels would otherwise cover it entirely. */
+const MIN_STROKE = 3
+
 /**
- * The strokes of a bond, trimmed where they meet a text label: parallel lines for single,
- * double, and triple bonds; a line and a dashed line for an aromatic bond; a line with an
- * arrowhead at `end` for a dative bond (from the donor, `begin`); a dotted line for a query
- * bond; and a zigzag for a bond of unknown kind.
+ * The box the label drawn for `atom` covers: its element symbol or query label, stated or
+ * unknown hydrogens (a count is a subscript), its charge, and its isotope.
  */
-export function bondSegments(bond: BondView, begin: Position, end: Position, trimBegin: boolean, trimEnd: boolean): BondSegment[] {
+export function labelBox(atom: AtomView): LabelBox {
+  const hydrogens = hydrogenText(atom)
+  const count = /^H(\d+)$/.exec(hydrogens)?.[1]
+  const glyphs = atom.element.length + (count === undefined ? hydrogens.length : 1)
+  const small = (count?.length ?? 0) + chargeText(atom.charge).length + (atom.isotope === null ? 0 : String(atom.isotope).length)
+  return { halfWidth: (glyphs * LABEL_GLYPH + small * SMALL_GLYPH) / 2, halfHeight: LABEL_HALF_HEIGHT }
+}
+
+/** How far along the unit direction (`ux`, `uy`) a bond leaving the centre of `label` first clears it. */
+function labelTrim(label: LabelBox, ux: number, uy: number) {
+  const across = Math.abs(ux) > 1e-9 ? (label.halfWidth + LABEL_GAP) / Math.abs(ux) : Infinity
+  const along = Math.abs(uy) > 1e-9 ? (label.halfHeight + LABEL_GAP) / Math.abs(uy) : Infinity
+  return Math.max(MIN_TRIM, Math.min(across, along))
+}
+
+/**
+ * The strokes of a bond, stopped where they reach the label of a labelled end atom (`null` for
+ * a bare vertex): parallel lines for single, double, and triple bonds; a line and a dashed line
+ * for an aromatic bond; a line with an arrowhead at `end` for a dative bond (from the donor,
+ * `begin`); a dotted line for a query bond; and a zigzag for a bond of unknown kind. When the
+ * labels leave no room, a short stroke stays midway so the bond is still seen.
+ */
+export function bondSegments(
+  bond: BondView,
+  begin: Position,
+  end: Position,
+  beginLabel: LabelBox | null,
+  endLabel: LabelBox | null,
+): BondSegment[] {
   const length = distance(begin, end)
   if (length === 0) return []
   const ux = (end.x - begin.x) / length
   const uy = (end.y - begin.y) / length
-  const trim = 7
-  const a = trimBegin ? { x: begin.x + ux * trim, y: begin.y + uy * trim } : begin
-  const b = trimEnd ? { x: end.x - ux * trim, y: end.y - uy * trim } : end
+  let trimBegin = beginLabel ? labelTrim(beginLabel, ux, uy) : 0
+  let trimEnd = endLabel ? labelTrim(endLabel, ux, uy) : 0
+  if (trimBegin + trimEnd > length - MIN_STROKE) {
+    const scale = Math.max(0, length - MIN_STROKE) / (trimBegin + trimEnd)
+    trimBegin *= scale
+    trimEnd *= scale
+  }
+  const a = { x: begin.x + ux * trimBegin, y: begin.y + uy * trimBegin }
+  const b = { x: end.x - ux * trimEnd, y: end.y - uy * trimEnd }
   const parallel = (offset: number, dash?: string): BondSegment => ({
     x1: a.x - uy * offset,
     y1: a.y + ux * offset,
