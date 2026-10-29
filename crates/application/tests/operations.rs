@@ -580,6 +580,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_instance",
             "move_instance",
             "delete_instance",
+            "add_graphic",
+            "group",
+            "ungroup",
+            "delete_objects",
+            "move_objects",
+            "reorder",
         ]
     );
     let placement = capabilities
@@ -615,6 +621,17 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         carried_out_by("attachment_point"),
         ["add_atom", "update_atom"]
     );
-    assert_eq!(capabilities.len(), 6, "{capabilities:?}");
+    assert_eq!(
+        carried_out_by("scene_containment"),
+        [
+            "add_graphic",
+            "group",
+            "ungroup",
+            "delete_objects",
+            "move_objects",
+            "reorder"
+        ]
+    );
+    assert_eq!(capabilities.len(), 7, "{capabilities:?}");
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

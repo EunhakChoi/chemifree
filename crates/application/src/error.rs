@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use chemifree_domain::states::StateError;
 use serde::Serialize;
 
 use crate::API_VERSION;
@@ -12,7 +11,8 @@ pub enum ErrorCode {
     /// A request field is malformed (identifier, title, request ID).
     InvalidRequest,
     /// A command is malformed or violates a document rule; see `command_index`, and `reason`
-    /// for a refused combination of recorded states.
+    /// for a refusal with a stable code (a combination of recorded states, a scene command, the
+    /// last instance, or the selection).
     InvalidCommand,
     DocumentNotFound,
     /// `expected_revision` differs from the session's current revision.
@@ -97,9 +97,10 @@ pub struct ApplicationError {
     pub command_index: Option<usize>,
     /// Set with `StorageFailed`.
     pub reason: Option<StorageReason>,
-    /// Set with `InvalidCommand` when a combination of recorded states was refused; sent as
-    /// `reason`, like a storage reason.
-    pub invalid_state: Option<StateError>,
+    /// Set with `InvalidCommand` when the refusal has a stable code (see
+    /// `chemifree_domain::document::EditError::reason`); sent as `reason`, like a storage
+    /// reason.
+    pub command_reason: Option<&'static str>,
 }
 
 impl ApplicationError {
@@ -110,7 +111,7 @@ impl ApplicationError {
             current_revision: None,
             command_index: None,
             reason: None,
-            invalid_state: None,
+            command_reason: None,
         }
     }
 
@@ -133,11 +134,11 @@ impl ApplicationError {
         }
     }
 
-    /// The envelope's `reason`: why storage failed, or which combination of states was refused.
+    /// The envelope's `reason`: why storage failed, or why a command was refused.
     pub fn reason_code(&self) -> Option<&'static str> {
         self.reason
             .map(StorageReason::as_str)
-            .or(self.invalid_state.map(StateError::code))
+            .or(self.command_reason)
     }
 }
 
@@ -159,8 +160,8 @@ pub struct ErrorResponse {
     pub current_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_index: Option<usize>,
-    /// With `storage_failed`, a [`StorageReason`]; with `invalid_command`, a [`StateError`] code
-    /// when a combination of recorded states was refused.
+    /// With `storage_failed`, a [`StorageReason`]; with `invalid_command`, the refusal's stable
+    /// code when it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
 }

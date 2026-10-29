@@ -1054,6 +1054,90 @@ try {
     assert.equal((await call(statesPath)).body.document.revision, 1, 'nothing changed')
   }
 
+  // ── Scene objects and the selection: the same tree, refusals, and reasons over HTTP and the CLI
+  {
+    const sceneDoc = (await write('/api/v1/documents', { request_id: 'scene-create', title: 'Scene' })).body.document.id
+    const scenePath = `/api/v1/documents/${sceneDoc}`
+    const drawn = await write(`${scenePath}/transactions`, {
+      request_id: 'scene-draw',
+      expected_revision: 0,
+      commands: [
+        { op: 'add_atom', element: 'C', position: { x: 0, y: 0 } },
+        { op: 'add_instance', offset: { x: 100, y: 0 } },
+        { op: 'add_graphic', shape: 'arrow', points: [{ x: 0, y: 40 }, { x: 30, y: 40 }] },
+        { op: 'group', objects: ['s2', 's3'] },
+      ],
+      selection: { objects: ['s4', 's3'], atoms: ['a1'], bonds: [] },
+    })
+    assert.equal(drawn.status, 200)
+    assert.deepEqual(drawn.body.document.scene.objects.map((object) => [object.id, object.parent]), [
+      ['s1', 'p1'],
+      ['s4', 'p1'],
+      ['s2', 's4'],
+      ['s3', 's4'],
+    ])
+    assert.deepEqual(drawn.body.document.selection, { objects: ['s3', 's4'], atoms: ['a1'], bonds: [] })
+    // Both the group and its child are named; the child's leaves move once.
+    const moved = await write(`${scenePath}/transactions`, {
+      request_id: 'scene-move',
+      expected_revision: 1,
+      commands: [{ op: 'move_objects', objects: ['s4', 's3'], offset: { x: 0, y: 10 } }],
+    })
+    assert.deepEqual(moved.body.document.scene.objects[3].points, [{ x: 0, y: 50 }, { x: 30, y: 50 }])
+    assert.deepEqual(moved.body.document.scene.instances[1].positions[0], { atom: 'a1', x: 100, y: 10 })
+    assert.deepEqual(moved.body.document.selection, drawn.body.document.selection, 'an omitted selection is kept')
+    assert.equal((await write(`${scenePath}/save`, { request_id: 'scene-save', expected_revision: 2 })).status, 200)
+    assert.deepEqual(cli('documents', 'show', sceneDoc, '--json').body.document, moved.body.document, 'HTTP = CLI view of the scene')
+    const text = spawnSync(cliPath, ['documents', 'show', sceneDoc], { env, encoding: 'utf8' }).stdout
+    assert.match(text, /\n {2}scene\n {4}s1 {2}molecule\n {4}s4 {2}group of 2\n {6}s2 {2}molecule\n {6}s3 {2}arrow \(0, 50\)–\(30, 50\)\n/)
+    assert.match(text, /\n  selected s3, s4, a1\n/, 'the text names the selection')
+    for (const [name, command, reason] of [
+      ['a delete without its mode', { op: 'delete_objects', objects: ['s3'] }, 'delete_mode_missing'],
+      ['an unknown object', { op: 'move_objects', objects: ['s9'], offset: { x: 1, y: 0 } }, 'object_unknown'],
+      ['ungrouping a graphic', { op: 'ungroup', group: 's3' }, 'object_kind_mismatch'],
+      ['a group across parents', { op: 'group', objects: ['s1', 's3'] }, 'group_mixed_parents'],
+      ['an index past the end', { op: 'reorder', object: 's1', index: 2 }, 'index_out_of_range'],
+      ['deleting every instance', { op: 'delete_objects', objects: ['s1', 's4'], mode: 'subtree' }, 'last_instance'],
+    ]) {
+      const commands = [{ op: 'rename', title: 'Renamed' }, command]
+      const http = await write(`${scenePath}/transactions`, { request_id: `scene-${reason}`, expected_revision: 2, commands })
+      assert.deepEqual(
+        [http.status, http.body.code, http.body.command_index, http.body.reason],
+        [422, 'invalid_command', 1, reason],
+        `${name} over HTTP`,
+      )
+      const viaCli = cli('documents', 'apply', sceneDoc, '--expected-revision', '2', '--json', '--commands', JSON.stringify(commands))
+      assert.deepEqual(
+        [viaCli.status, viaCli.body.code, viaCli.body.command_index, viaCli.body.reason, viaCli.body.message],
+        [1, 'invalid_command', 1, reason, http.body.message],
+        `${name} from the CLI`,
+      )
+    }
+    // A selection naming what the edit deletes is refused without a command index.
+    const stale = { objects: ['s3'], atoms: [], bonds: [] }
+    const staleCommands = [{ op: 'delete_objects', objects: ['s3'], mode: 'subtree' }]
+    const staleHttp = await write(`${scenePath}/transactions`, {
+      request_id: 'scene-stale',
+      expected_revision: 2,
+      commands: staleCommands,
+      selection: stale,
+    })
+    assert.deepEqual(
+      [staleHttp.status, staleHttp.body.code, 'command_index' in staleHttp.body, staleHttp.body.reason],
+      [422, 'invalid_command', false, 'selection_unknown'],
+    )
+    const staleCli = cli(
+      'documents', 'apply', sceneDoc, '--expected-revision', '2', '--json',
+      '--commands', JSON.stringify(staleCommands), '--selection', JSON.stringify(stale),
+    )
+    assert.deepEqual([staleCli.body.code, staleCli.body.reason, staleCli.body.message], ['invalid_command', 'selection_unknown', staleHttp.body.message])
+    assert.equal((await call(scenePath)).body.document.revision, 2, 'nothing changed')
+    // Undo over the CLI restores the selection the edit started from.
+    const undone = cli('documents', 'undo', sceneDoc, '--expected-revision', '2', '--json')
+    assert.deepEqual(undone.body.document.scene.objects[3].points, [{ x: 0, y: 40 }, { x: 30, y: 40 }])
+    assert.deepEqual(undone.body.document.selection, drawn.body.document.selection)
+  }
+
   // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
   // A version 1 file placed in the data directory opens over HTTP and from the CLI as one
   // scene instance with its history; reading writes nothing. The first save that replaces it,
@@ -1087,7 +1171,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 3)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 4)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1130,17 +1214,41 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 3)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 4)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 3')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 4')
 
-    const newer = placed('v4-document.json', 'doc-00000000000000a3')
+    // A version 3 file (before groups, graphics, and the selection) opens with its instances
+    // as page objects in creation order and nothing selected; its history keeps the order.
+    const keptV3 = (documentId) => join(dataDir, 'migrated', `${documentId}.v3.json`)
+    const v3 = placed('v3-document.json', 'doc-00000000000000c3')
+    const openedV3 = await call('/api/v1/documents/doc-00000000000000c3')
+    assert.equal(openedV3.status, 200)
+    assert.deepEqual(
+      [openedV3.body.document.revision, openedV3.body.session.undo_depth, openedV3.body.session.redo_depth],
+      [7, 5, 1],
+    )
+    const molecules = (ids) => ids.map((id) => ({ kind: 'molecule', id, parent: 'p1', molecule: 'm1' }))
+    assert.deepEqual(openedV3.body.document.scene.objects, molecules(['s1', 's2', 's3']))
+    assert.deepEqual(openedV3.body.document.selection, { objects: [], atoms: [], bonds: [] })
+    assert.deepEqual(cli('documents', 'show', 'doc-00000000000000c3', '--json').body, openedV3.body, 'HTTP GET = CLI show of a version 3 file')
+    assert.equal(readFileSync(v3.path, 'utf8'), v3.bytes, 'opening wrote nothing')
+    const redoneV3 = await write('/api/v1/documents/doc-00000000000000c3/redo', { request_id: 'v3-redo', expected_revision: 7 })
+    assert.deepEqual(redoneV3.body.document.scene.objects, molecules(['s1', 's3']), 'the migrated deletion redoes')
+    const savedV3 = await write('/api/v1/documents/doc-00000000000000c3/save', { request_id: 'v3-save', expected_revision: 8 })
+    assert.equal(savedV3.status, 200)
+    assert.equal(readFileSync(keptV3('doc-00000000000000c3'), 'utf8'), v3.bytes, 'the first save kept the exact version 3 bytes')
+    assert.equal(JSON.parse(readFileSync(v3.path, 'utf8')).format_version, 4)
+    const undoneV3 = cli('documents', 'undo', 'doc-00000000000000c3', '--expected-revision', '8', '--json')
+    assert.deepEqual(undoneV3.body.document.scene.objects, molecules(['s1', 's2', 's3']), 's2 returns to its place')
+
+    const newer = placed('v5-document.json', 'doc-00000000000000a3')
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 4/)
+    assert.match(refused.body.message, /version 5/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 4; this build reads versions 1, 2, and 3/)
+    assert.match(unreadable?.message ?? '', /version 5; this build reads versions 1, 2, 3, and 4/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)
@@ -1165,8 +1273,8 @@ try {
       'storage feedback (lock waits, queued requests, lost replies, read-only storage), the document list (search, ' +
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
       'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
-      'version 1 and 2 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused), ' +
-      'and refused combinations of recorded states (the same reason over HTTP and the CLI) verified.',
+      'version 1, 2, and 3 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused), ' +
+      'refused combinations of recorded states, and scene objects with the selection (the same tree, refusals, and reasons over HTTP and the CLI) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

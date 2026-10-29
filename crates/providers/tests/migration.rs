@@ -1,7 +1,8 @@
-//! Version 1 documents and drafts, written before graph and scene were separated, and version
-//! 2 ones, written before recorded atom and bond states, are migrated when read and keep their
-//! identifiers, revision, and undo/redo history; the first save that replaces one keeps its
-//! exact bytes. Version 3 keeps every recorded state.
+//! Version 1 documents and drafts, written before graph and scene were separated, version 2
+//! ones, written before recorded atom and bond states, and version 3 ones, written before
+//! groups, graphics, and the selection, are migrated when read and keep their identifiers,
+//! revision, and undo/redo history; the first save that replaces one keeps its exact bytes.
+//! Version 4 keeps every recorded state, the scene tree, and the selections history records.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,9 +10,10 @@ use std::path::{Path, PathBuf};
 use chemifree_application::{DocumentRepository, Draft, DraftStatus, StorageError};
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId,
-    InstanceId, NewAtomPositions, Point, Vector,
+    NewAtomPositions, ObjectId, Point, Vector,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::scene::{DeleteMode, Graphic, SceneObject, Selection, Shape};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
@@ -34,8 +36,8 @@ fn atom(serial: u32) -> AtomId {
     AtomId::from_serial(serial).unwrap()
 }
 
-fn s1() -> InstanceId {
-    InstanceId::from_serial(1).unwrap()
+fn s1() -> ObjectId {
+    ObjectId::from_serial(1).unwrap()
 }
 
 fn point(x: f64, y: f64) -> Point {
@@ -191,8 +193,8 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
-        saved.contains("\"format_version\":3"),
-        "the document is stored as version 3"
+        saved.contains("\"format_version\":4"),
+        "the document is stored as version 4"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
     assert_eq!(
@@ -201,7 +203,7 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
         "the kept copy is not a document"
     );
 
-    // A second save replaces version 2 and leaves the kept copy alone.
+    // A second save replaces version 4 and leaves the kept copy alone.
     let base = document.revision();
     document.undo().unwrap();
     repository.save(&document, Some(base)).unwrap();
@@ -300,7 +302,7 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 
 #[test]
 fn a_newer_format_version_is_refused_and_left_untouched() {
-    let newer = fixture("v4-document.json");
+    let newer = fixture("v5-document.json");
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
         Err(StorageError::Corrupt(message)) => message,
@@ -308,7 +310,7 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 4") && message.contains("versions 1, 2, and 3"),
+        message.contains("version 5") && message.contains("versions 1, 2, 3, and 4"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));
@@ -344,7 +346,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         "reading wrote nothing"
     );
 
-    // The recovered session's next draft is version 3.
+    // The recovered session's next draft is version 4.
     repository
         .write_draft(&Draft {
             saved_at_ms: 1_767_225_700_000,
@@ -352,11 +354,11 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         })
         .unwrap();
     let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
-    assert!(rewritten.contains("\"format_version\":3"), "{rewritten}");
+    assert!(rewritten.contains("\"format_version\":4"), "{rewritten}");
 }
 
 #[test]
-fn several_scene_instances_round_trip_in_version_3() {
+fn several_scene_instances_round_trip_in_version_4() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();
@@ -368,7 +370,7 @@ fn several_scene_instances_round_trip_in_version_3() {
         .unwrap();
     document
         .apply(&[Command::MoveInstance {
-            instance: InstanceId::from_serial(2).unwrap(),
+            instance: ObjectId::from_serial(2).unwrap(),
             offset: Vector { dx: 5.0, dy: 0.0 },
         }])
         .unwrap();
@@ -376,9 +378,9 @@ fn several_scene_instances_round_trip_in_version_3() {
     repository.save(&document, None).unwrap();
     let loaded = repository.load(&id()).unwrap().unwrap();
     assert_eq!(loaded, document);
-    assert_eq!(loaded.instances().len(), 2);
+    assert_eq!(loaded.instances().count(), 2);
     assert_eq!(
-        loaded.position(InstanceId::from_serial(2).unwrap(), atom(2)),
+        loaded.position(ObjectId::from_serial(2).unwrap(), atom(2)),
         Some(point(30.1, 90.5))
     );
     assert!(!repository.migrated_path(&id(), 1).exists());
@@ -461,7 +463,7 @@ fn drawn_in_version_2() -> Document {
         .apply(&[Command::MoveAtoms {
             atoms: vec![atom(1)],
             delta: Vector { dx: 5.0, dy: 0.0 },
-            instance: Some(InstanceId::from_serial(2).unwrap()),
+            instance: Some(ObjectId::from_serial(2).unwrap()),
         }])
         .unwrap();
     document.undo().unwrap();
@@ -493,7 +495,7 @@ fn a_version_2_file_migrates_with_default_states_and_its_history() {
         document.redo().unwrap();
     }
     assert_eq!(
-        document.position(InstanceId::from_serial(2).unwrap(), atom(1)),
+        document.position(ObjectId::from_serial(2).unwrap(), atom(1)),
         Some(point(5.1, 80.0))
     );
 }
@@ -536,7 +538,7 @@ fn the_first_save_over_a_version_2_file_keeps_its_exact_bytes_once() {
     assert_eq!(kept.file_name().unwrap(), format!("{ID}.v2.json").as_str());
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
-    assert!(saved.contains("\"format_version\":3"), "{saved}");
+    assert!(saved.contains("\"format_version\":4"), "{saved}");
 
     // The same version 2 bytes stored again are already kept; other bytes get the next name.
     fs::write(&path, &original).unwrap();
@@ -580,9 +582,9 @@ fn version_1_and_version_2_copies_of_one_document_are_kept_apart() {
     );
 }
 
-/// Every recorded state survives a save and a reopen in version 3, history included.
+/// Every recorded state survives a save and a reopen in version 4, history included.
 #[test]
-fn recorded_states_round_trip_in_version_3() {
+fn recorded_states_round_trip_in_version_4() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();
@@ -713,6 +715,297 @@ fn a_stored_state_combination_an_edit_would_refuse_is_unreadable() {
         assert!(
             matches!(repository.load(&id()), Err(StorageError::Corrupt(_))),
             "{name} was accepted"
+        );
+    }
+}
+
+/// The version 3 fixture's history made with today's commands: C–O, a second instance, a third
+/// copied from it, a radical on the carbon, a move of the third, and a deletion of the second
+/// that was undone. Every instance change also changes the page's roots.
+fn drawn_in_version_3() -> Document {
+    let mut document = Document::new(id(), "Fixture").unwrap();
+    document
+        .apply(&[
+            Command::AddAtom {
+                atom: Atom::from(Element::CARBON),
+                positions: NewAtomPositions::Single(point(0.0, 0.0)),
+                bond_to: None,
+            },
+            Command::AddAtom {
+                atom: Atom::from(Element::from_symbol("O").unwrap()),
+                positions: NewAtomPositions::Single(point(30.0, 0.0)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Id(atom(1)),
+                    order: BondOrder::Single,
+                }),
+            },
+        ])
+        .unwrap();
+    let edits = [
+        Command::AddInstance {
+            source: None,
+            offset: Vector { dx: 0.5, dy: 80.0 },
+        },
+        Command::AddInstance {
+            source: Some(object(2)),
+            offset: Vector { dx: 60.0, dy: 0.0 },
+        },
+        Command::UpdateAtom {
+            atom: atom(1),
+            edit: AtomEdit {
+                radical: Some(Radical::Doublet),
+                ..AtomEdit::default()
+            },
+        },
+        Command::MoveInstance {
+            instance: object(3),
+            offset: Vector { dx: 1.25, dy: -2.5 },
+        },
+        Command::DeleteInstance {
+            instance: object(2),
+        },
+    ];
+    for edit in edits {
+        document.apply(&[edit]).unwrap();
+    }
+    document.undo().unwrap();
+    document
+}
+
+fn object(serial: u32) -> ObjectId {
+    ObjectId::from_serial(serial).unwrap()
+}
+
+#[test]
+fn a_version_3_file_migrates_with_instances_as_roots_and_its_history() {
+    let (_root, repository, path) = stored(&fixture("v3-document.json"));
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(
+        document,
+        drawn_in_version_3(),
+        "the same graph, scene, counters, revision, and history, root order changes included"
+    );
+    assert_eq!(document.roots(), [object(1), object(2), object(3)]);
+    assert!(document.selection().is_empty());
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        fixture("v3-document.json"),
+        "reading wrote nothing"
+    );
+
+    // The undone deletion redoes; undo reaches back to the empty drawing.
+    document.redo().unwrap();
+    assert_eq!(document.roots(), [object(1), object(3)]);
+    for _ in 0..6 {
+        document.undo().unwrap();
+    }
+    assert_eq!(document.atoms().len(), 0);
+    assert_eq!(document.roots(), [object(1)]);
+    // Identifiers continue after the migrated counter.
+    document
+        .apply(&[Command::AddGraphic {
+            graphic: Graphic {
+                shape: Shape::Line,
+                points: [point(0.0, 0.0), point(1.0, 1.0)],
+            },
+            parent: None,
+        }])
+        .unwrap();
+    assert_eq!(document.roots(), [object(1), object(4)]);
+}
+
+#[test]
+fn a_version_3_draft_migrates_when_it_is_recovered() {
+    let (root, repository, _path) = stored(&fixture("v3-document.json"));
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    let original = fixture("v3-draft.json");
+    fs::write(&draft_path, &original).unwrap();
+
+    let DraftStatus::Abandoned(Ok(info)) = repository.draft_status(&id()).unwrap() else {
+        panic!("the version 3 draft is offered for recovery");
+    };
+    assert_eq!(
+        (info.revision, info.base_revision, info.saved_at_ms),
+        (7, 3, 1_767_225_600_000)
+    );
+    let Some(Ok(draft)) = repository.claim_draft(&id()).unwrap() else {
+        panic!("the version 3 draft is recovered");
+    };
+    assert_eq!(draft.document, drawn_in_version_3());
+    assert_eq!(
+        fs::read(&draft_path).unwrap(),
+        original,
+        "reading wrote nothing"
+    );
+}
+
+#[test]
+fn the_first_save_over_a_version_3_file_keeps_its_exact_bytes_once() {
+    let original = fixture("v3-document.json");
+    let (root, repository, path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document.redo().unwrap();
+    repository.save(&document, Some(7)).unwrap();
+
+    let kept = repository.migrated_path(&id(), 3);
+    assert_eq!(kept.file_name().unwrap(), format!("{ID}.v3.json").as_str());
+    assert_eq!(fs::read(&kept).unwrap(), original);
+    let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+    assert!(saved.contains("\"format_version\":4"), "{saved}");
+
+    // The same bytes stored again are already kept; other bytes get the next name.
+    fs::write(&path, &original).unwrap();
+    let mut again = repository.load(&id()).unwrap().unwrap();
+    again.redo().unwrap();
+    repository.save(&again, Some(7)).unwrap();
+    assert_eq!(migrated_names(root.path()), [format!("{ID}.v3.json")]);
+    let edited = String::from_utf8(original.clone())
+        .unwrap()
+        .replace("\"title\":\"Fixture\"", "\"title\":\"Fixture elsewhere\"");
+    assert_ne!(edited.as_bytes(), original.as_slice());
+    fs::write(&path, &edited).unwrap();
+    let mut other = repository.load(&id()).unwrap().unwrap();
+    other.redo().unwrap();
+    repository.save(&other, Some(7)).unwrap();
+    assert_eq!(
+        migrated_names(root.path()),
+        [format!("{ID}.v3.2.json"), format!("{ID}.v3.json")]
+    );
+    assert_eq!(fs::read(&kept).unwrap(), original, "never overwritten");
+}
+
+/// Groups, graphics, the selection, and the selections in history survive a save and a
+/// reopen, so undo after reopening restores the selection with the rest.
+#[test]
+fn the_scene_tree_and_selections_round_trip_in_version_4() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document = drawn_in_version_3();
+    document.redo().unwrap();
+    let selected = |objects: &[u32], atoms: &[u32]| Selection {
+        objects: objects.iter().map(|serial| object(*serial)).collect(),
+        atoms: atoms.iter().map(|serial| atom(*serial)).collect(),
+        bonds: [BondId::from_serial(1).unwrap()].into(),
+    };
+    document
+        .apply_with_selection(
+            &[
+                Command::AddGraphic {
+                    graphic: Graphic {
+                        shape: Shape::Arrow,
+                        points: [point(-1.5, 2.25), point(40.125, -0.1)],
+                    },
+                    parent: None,
+                },
+                Command::Group {
+                    objects: vec![object(3), object(4)],
+                },
+            ],
+            Some(selected(&[3, 4], &[2])),
+        )
+        .unwrap();
+    document
+        .apply_with_selection(
+            &[
+                Command::AddGraphic {
+                    graphic: Graphic {
+                        shape: Shape::Rectangle,
+                        points: [point(0.0, 0.0), point(10.0, 5.0)],
+                    },
+                    parent: Some(object(5)),
+                },
+                Command::MoveObjects {
+                    objects: vec![object(5), object(3)],
+                    offset: Vector { dx: 3.0, dy: 4.0 },
+                },
+            ],
+            Some(selected(&[5], &[])),
+        )
+        .unwrap();
+    document
+        .apply(&[Command::DeleteObjects {
+            objects: vec![object(6)],
+            mode: DeleteMode::Subtree,
+        }])
+        .unwrap();
+    document.undo().unwrap();
+    repository.save(&document, None).unwrap();
+    let saved = String::from_utf8(
+        fs::read(root.path().join("documents").join(format!("{ID}.json"))).unwrap(),
+    )
+    .unwrap();
+    assert!(saved.contains("\"format_version\":4"));
+
+    let mut reopened = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(reopened, document);
+    assert_eq!(*reopened.selection(), selected(&[5], &[]));
+    assert!(
+        matches!(reopened.object(object(5)), Some(SceneObject::Group(children)) if children.len() == 3)
+    );
+    reopened.undo().unwrap();
+    assert_eq!(
+        *reopened.selection(),
+        selected(&[3, 4], &[2]),
+        "undo after reopening restores the selection"
+    );
+    assert_eq!(reopened.roots(), [object(1), object(5)]);
+    reopened.undo().unwrap();
+    assert!(reopened.selection().is_empty());
+    assert_eq!(reopened.roots(), [object(1), object(3)]);
+}
+
+#[test]
+fn a_stored_scene_tree_that_commands_could_not_make_is_unreadable() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document = Document::new(id(), "Tree").unwrap();
+    document
+        .apply(&[
+            Command::AddInstance {
+                source: None,
+                offset: Vector { dx: 1.0, dy: 0.0 },
+            },
+            Command::Group {
+                objects: vec![object(2)],
+            },
+        ])
+        .unwrap();
+    repository.save(&document, None).unwrap();
+    let path = root.path().join("documents").join(format!("{ID}.json"));
+    let valid = String::from_utf8(fs::read(&path).unwrap()).unwrap();
+    for (corrupt, why) in [
+        (
+            valid.replace(
+                "\"roots\":[\"s1\",\"s3\"]",
+                "\"roots\":[\"s1\",\"s3\",\"s2\"]",
+            ),
+            "an object with two parents",
+        ),
+        (
+            valid.replace("\"children\":[\"s2\"]", "\"children\":[\"s2\",\"s3\"]"),
+            "a group inside itself",
+        ),
+        (
+            valid.replace(
+                "\"selection\":{\"objects\":[]",
+                "\"selection\":{\"objects\":[\"s9\"]",
+            ),
+            "a selection naming nothing",
+        ),
+        (
+            valid.replace(
+                "\"selection\":{\"objects\":[]",
+                "\"selection\":{\"objects\":[\"s2\",\"s2\"]",
+            ),
+            "a selection repeating an object",
+        ),
+    ] {
+        assert_ne!(corrupt, valid, "{why}: the variant changes the file");
+        fs::write(&path, &corrupt).unwrap();
+        assert!(
+            matches!(repository.load(&id()), Err(StorageError::Corrupt(_))),
+            "{why} was accepted"
         );
     }
 }

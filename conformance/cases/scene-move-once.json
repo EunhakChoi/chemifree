@@ -1,0 +1,333 @@
+{
+  "id": "scene-move-once",
+  "title": "Scene objects form one containment tree: grouping keeps tree order, and moving a group together with what it contains moves each leaf once",
+  "requirements": [
+    "MODEL-01",
+    "OPS-01",
+    "OPS-02"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 40
+            },
+            {
+              "x": 30,
+              "y": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "group",
+          "objects": [
+            "s3",
+            "s2"
+          ]
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s4"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "scene": {
+            "objects": [
+              {
+                "kind": "molecule",
+                "id": "s1",
+                "parent": "p1",
+                "molecule": "m1"
+              },
+              {
+                "kind": "group",
+                "id": "s5",
+                "parent": "p1",
+                "children": [
+                  "s4"
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": "s5",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "molecule",
+                "id": "s2",
+                "parent": "s4",
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 40
+                  },
+                  {
+                    "x": 30,
+                    "y": 40
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "move_objects",
+          "objects": [
+            "s5",
+            "s4",
+            "s2",
+            "s3"
+          ],
+          "offset": {
+            "x": 10,
+            "y": -5
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s2",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 110,
+                    "y": -5
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s1"
+              },
+              {
+                "id": "s5"
+              },
+              {
+                "id": "s4"
+              },
+              {
+                "id": "s2"
+              },
+              {
+                "id": "s3",
+                "points": [
+                  {
+                    "x": 10,
+                    "y": 35
+                  },
+                  {
+                    "x": 40,
+                    "y": 35
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "ungroup",
+          "group": "s5"
+        },
+        {
+          "op": "reorder",
+          "object": "s4",
+          "index": 0
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "scene": {
+            "objects": [
+              {
+                "id": "s4",
+                "parent": "p1"
+              },
+              {
+                "id": "s2",
+                "parent": "s4"
+              },
+              {
+                "id": "s3",
+                "parent": "s4"
+              },
+              {
+                "id": "s1",
+                "parent": "p1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "delete_objects",
+          "objects": [
+            "s4"
+          ],
+          "mode": "object_only"
+        },
+        {
+          "op": "delete_objects",
+          "objects": [
+            "s3"
+          ],
+          "mode": "subtree"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 5,
+          "scene": {
+            "objects": [
+              {
+                "id": "s2",
+                "parent": "p1"
+              },
+              {
+                "id": "s1",
+                "parent": "p1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 5,
+      "commands": [
+        {
+          "op": "add_graphic",
+          "shape": "arrow",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 9,
+              "y": 0
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 6,
+          "scene": {
+            "objects": [
+              {
+                "id": "s2"
+              },
+              {
+                "id": "s1"
+              },
+              {
+                "id": "s6",
+                "kind": "graphic",
+                "shape": "arrow",
+                "parent": "p1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

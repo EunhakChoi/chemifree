@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -6,8 +7,8 @@ use std::process::ExitCode;
 use chemifree_application::{
     Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
     CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
-    ErrorCode, HydrogensDto, ListQuery, ListSort, OperationResponse, RadicalDto, RecoveryState,
-    RestoreResponse, TrashListResponse,
+    ErrorCode, HydrogensDto, ListQuery, ListSort, ObjectView, OperationResponse, RadicalDto,
+    RecoveryState, RestoreResponse, SelectionDto, ShapeDto, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -88,6 +89,10 @@ enum DocumentCommand {
         /// Read the JSON command array from this file, or `-` for standard input.
         #[arg(long)]
         commands_file: Option<PathBuf>,
+        /// The selection after the edit, recorded with it in history, e.g.
+        /// '{"objects":["s2"],"atoms":[],"bonds":[]}'.
+        #[arg(long)]
+        selection: Option<String>,
     },
     /// Undo the latest saved transaction as a new revision, then save.
     Undo {
@@ -252,13 +257,16 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
             target,
             commands,
             commands_file,
+            selection,
         } => {
             let result = read_commands(commands, commands_file).and_then(|commands| {
-                let edited = application.apply_transaction(
+                let selection = selection.as_deref().map(read_selection).transpose()?;
+                let edited = application.apply_transaction_with_selection(
                     &target.id,
                     None,
                     target.expected_revision,
                     commands,
+                    selection,
                 )?;
                 save(application, &target.id, &edited)
             });
@@ -327,6 +335,15 @@ fn save(
     edited: &DocumentResponse,
 ) -> Result<DocumentResponse, ApplicationError> {
     application.save(id, None, edited.document.revision)
+}
+
+fn read_selection(text: &str) -> Result<SelectionDto, ApplicationError> {
+    serde_json::from_str(text).map_err(|error| {
+        ApplicationError::new(
+            ErrorCode::InvalidRequest,
+            format!("invalid selection: {error}"),
+        )
+    })
 }
 
 fn read_commands(
@@ -540,11 +557,65 @@ fn document_text(response: &DocumentResponse) -> String {
             bond_text(bond)
         ));
     }
+    lines.extend(scene_text(&document.scene.objects));
+    let selection = &document.selection;
+    let selected: Vec<&str> = selection
+        .objects
+        .iter()
+        .chain(&selection.atoms)
+        .chain(&selection.bonds)
+        .map(String::as_str)
+        .collect();
+    if !selected.is_empty() {
+        lines.push(format!("  selected {}", selected.join(", ")));
+    }
     lines.push(format!(
         "  undo {} · redo {}",
         response.session.undo_depth, response.session.redo_depth
     ));
     lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// The page's tree, one indented line per object, unless it holds nothing but the one
+/// instance every document has.
+fn scene_text(objects: &[ObjectView]) -> Vec<String> {
+    if let [ObjectView::Molecule { .. }] = objects {
+        return Vec::new();
+    }
+    let mut depth: HashMap<&str, usize> = HashMap::new();
+    let mut lines = vec!["  scene".to_owned()];
+    for object in objects {
+        let (id, parent, text) = match object {
+            ObjectView::Molecule { id, parent, .. } => (id, parent, "molecule".to_owned()),
+            ObjectView::Group {
+                id,
+                parent,
+                children,
+            } => (id, parent, format!("group of {}", children.len())),
+            ObjectView::Graphic {
+                id,
+                parent,
+                shape,
+                points: [first, second],
+            } => {
+                let shape = match shape {
+                    ShapeDto::Line => "line",
+                    ShapeDto::Rectangle => "rectangle",
+                    ShapeDto::Arrow => "arrow",
+                };
+                let text = format!(
+                    "{shape} ({}, {})–({}, {})",
+                    first.x, first.y, second.x, second.y
+                );
+                (id, parent, text)
+            }
+        };
+        // Objects come depth first, so a parent group's depth is known before its children.
+        let level = depth.get(parent.as_str()).map_or(0, |level| level + 1);
+        depth.insert(id, level);
+        lines.push(format!("    {}{id}  {text}", "  ".repeat(level)));
+    }
+    lines
 }
 
 /// `13C-1`, `query ![N,O]`, followed by the stated hydrogens, radical, and attachment points.
@@ -684,6 +755,34 @@ mod tests {
                 "  b1  a1–a2  query single|aromatic",
                 "  b2  a2–a3  query any"
             ]
+        );
+    }
+
+    #[test]
+    fn the_scene_tree_and_selection_are_shown_when_there_is_more_than_one_instance() {
+        let text = shown(json!([
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+            {"op": "add_instance", "offset": {"x": 50, "y": 0}},
+            {"op": "add_graphic", "shape": "arrow", "points": [{"x": 0, "y": 40}, {"x": 30.5, "y": 40}]},
+            {"op": "group", "objects": ["s2", "s3"]}
+        ]));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[3..=7],
+            [
+                "  scene",
+                "    s1  molecule",
+                "    s4  group of 2",
+                "      s2  molecule",
+                "      s3  arrow (0, 40)–(30.5, 40)",
+            ],
+            "{text}"
+        );
+        assert!(!text.contains("selected"), "{text}");
+        assert!(
+            !shown(json!([{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}]))
+                .contains("scene"),
+            "one instance alone shows no tree"
         );
     }
 }

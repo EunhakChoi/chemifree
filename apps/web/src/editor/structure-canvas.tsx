@@ -1,7 +1,15 @@
 import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
-import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
+import {
+  placements,
+  sceneObjects,
+  type AtomView,
+  type BondOrder,
+  type Command,
+  type DocumentView,
+  type Position,
+} from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
@@ -14,17 +22,23 @@ import {
   distance,
   drawingStrokes,
   freeNeighborPosition,
+  GRAPHIC_STROKE,
+  graphicName,
+  graphicShape,
   hitTest,
   leaningRight,
   placementFrame,
   round,
   sameHit,
+  sceneLayout,
+  SELECTION_STROKE,
   snappedEndpoint,
   viewBox,
+  type GraphicView,
   type Hit,
   type Stroke,
 } from '@/editor/geometry'
-import { DOT_SIZE, atomLabel, atomName, placed, type AtomLabel, type Box, type LabelChunk } from '@/editor/label'
+import { DOT_SIZE, atomLabel, atomName, placed, union, type AtomLabel, type Box, type LabelChunk } from '@/editor/label'
 
 export type { DrawnOrder } from '@/editor/bond-gestures'
 
@@ -87,7 +101,11 @@ interface StructureCanvasProps {
   tool: Tool
   element: string
   bondOrder: DrawnOrder
-  /** Selected atom (`a…`) and bond (`b…`) identifiers. */
+  /**
+   * Selected atom (`a…`), bond (`b…`), and scene object (`s…`) identifiers. Objects are selected
+   * in the scene panel; the canvas draws a selected graphic underlaid and a selected group's
+   * frame, but hit tests atoms and bonds only.
+   */
   selection: ReadonlySet<string>
   onSelectionChange: (selection: Set<string>) => void
   onCommands: (commands: Command[]) => void
@@ -147,17 +165,28 @@ export function StructureCanvas({
       return { id: placement.id, view, atoms: index, labels, sides, strokes: drawingStrokes(view, labels, index, sides), frame }
     })
   }, [document])
-  // The view box holds every atom, label box, and placement frame (with its ID).
+  // Graphics, and a frame for every group around what its subtree draws (shown while the
+  // group is selected), from each placement's frame or atoms and label boxes.
+  const scene = useMemo(() => {
+    const drawn = new Map(drawings.flatMap((drawing) => (drawing.id === null ? [] : [[drawing.id, drawnBox(drawing)] as const])))
+    return sceneLayout(sceneObjects(document), drawn)
+  }, [document, drawings])
+  // The view box holds every atom, label box, placement frame (with its ID), graphic, and group
+  // frame, whether or not that frame is shown, so selecting a group never rescales the canvas.
   const box = useMemo(
     () =>
       viewBox(
         drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
-        drawings.flatMap((drawing) => [
-          ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
-          ...(drawing.frame ? [drawing.frame.box] : []),
-        ]),
+        [
+          ...drawings.flatMap((drawing) => [
+            ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
+            ...(drawing.frame ? [drawing.frame.box] : []),
+          ]),
+          ...scene.graphics.map((graphic) => graphic.box),
+          ...[...scene.frames.values()].map((frame) => frame.box),
+        ],
       ),
-    [drawings],
+    [drawings, scene],
   )
 
   function drawingOf(instance: string | null) {
@@ -383,6 +412,16 @@ export function StructureCanvas({
       }}
       onPointerLeave={() => setHover(null)}
     >
+      <g data-graphics="">
+        {scene.graphics.map(({ graphic }) => (
+          <GraphicMark key={graphic.id} graphic={graphic} selected={selection.has(graphic.id)} />
+        ))}
+      </g>
+      {[...scene.frames]
+        .filter(([id]) => selection.has(id))
+        .map(([id, frame]) => (
+          <GroupFrame key={id} id={id} frame={frame} />
+        ))}
       {drawings.map((drawing) => (
         <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
           {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
@@ -436,6 +475,78 @@ export function StructureCanvas({
         />
       )}
     </svg>
+  )
+}
+
+/** What a placement draws: its frame, or its atoms and label boxes; nothing without atoms. */
+function drawnBox(drawing: Drawing): Box | null {
+  if (drawing.frame) return drawing.frame.box
+  if (drawing.view.atoms.length === 0) return null
+  return union(
+    drawing.view.atoms.flatMap((atom) => {
+      const vertex = { ...atom.position, width: 0, height: 0 }
+      const label = labelBox(drawing.labels, atom.id, atom.position)
+      return label ? [vertex, label] : [vertex]
+    }),
+  )
+}
+
+/** A graphic drawn with plain strokes, an arrow with a filled head, underlaid when selected. */
+function GraphicMark({ graphic, selected }: { graphic: GraphicView; selected: boolean }) {
+  const shape = graphicShape(graphic)
+  const paint = (className: string, strokeWidth: number) => {
+    switch (shape.kind) {
+      case 'rectangle':
+        return <rect x={shape.x} y={shape.y} width={shape.width} height={shape.height} className={className} strokeWidth={strokeWidth} />
+      case 'line':
+      case 'arrow':
+        return <line x1={shape.from.x} y1={shape.from.y} x2={shape.to.x} y2={shape.to.y} className={className} strokeWidth={strokeWidth} />
+      default: {
+        const unhandled: never = shape
+        return unhandled
+      }
+    }
+  }
+  return (
+    <g role="img" aria-label={`${graphicName(graphic)}${selected ? ', selected' : ''}`} data-graphic={graphic.id} strokeLinecap="round" strokeLinejoin="round">
+      {selected && paint('fill-none stroke-primary/40', SELECTION_STROKE)}
+      {paint('fill-none stroke-foreground', GRAPHIC_STROKE)}
+      {shape.kind === 'arrow' && (
+        <polygon
+          points={shape.head.map((point) => `${point.x},${point.y}`).join(' ')}
+          className="fill-foreground stroke-foreground"
+          strokeWidth={GRAPHIC_STROKE}
+        />
+      )}
+    </g>
+  )
+}
+
+/** A selected group's outline around everything its subtree draws, with the group's ID. */
+function GroupFrame({ id, frame }: { id: string; frame: ReturnType<typeof placementFrame> }) {
+  return (
+    <g role="img" aria-label={`Group ${id}, selected`} className="pointer-events-none" data-group-frame={id}>
+      <rect
+        x={frame.rect.x}
+        y={frame.rect.y}
+        width={frame.rect.width}
+        height={frame.rect.height}
+        rx={4}
+        className="fill-none stroke-primary/70"
+        strokeWidth={0.8}
+        strokeDasharray="2 2"
+      />
+      <text
+        x={frame.idAt.x}
+        y={frame.idAt.y}
+        fontSize={frame.idSize}
+        dominantBaseline="central"
+        className="fill-primary font-sans"
+        aria-hidden="true"
+      >
+        {id}
+      </text>
+    </g>
   )
 }
 

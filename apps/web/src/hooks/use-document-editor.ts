@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { selectionAfter, selectionSet } from '@/editor/scene'
 import { useAutosave } from '@/hooks/use-autosave'
 import {
   ApiError,
@@ -95,13 +96,24 @@ export function useDocumentEditor() {
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
+  // The live selection: atom (`a…`), bond (`b…`), and scene object (`s…`) identifiers. Changing
+  // it alone is not an edit; it is sent with the next edit, and undo and redo replace it.
+  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set())
+  const selectionRef = useRef<ReadonlySet<string>>(selection)
+
+  const select = useCallback((next: ReadonlySet<string>) => {
+    selectionRef.current = next
+    setSelection(next)
+  }, [])
 
   const setCurrent = useCallback((document: DocumentResponse | null) => {
+    // Another document starts with the selection it was left with (none from an older service).
+    if (document?.document.id !== currentRef.current?.document.id) select(selectionSet(document?.document.selection))
     currentRef.current = document
     setCurrentState(document)
     // Showing anything but the copy ends the notice; returning later would show a stale one.
     setCopyNotice((notice) => (notice?.copyId === document?.document.id ? notice : null))
-  }, [])
+  }, [select])
 
   // A restarted service no longer holds the session the notice describes.
   useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
@@ -176,6 +188,38 @@ export function useDocumentEditor() {
         if (currentRef.current?.document.id === next.document.id) setCurrent(next)
       }),
     [run, setCurrent],
+  )
+
+  /** Undo or redo: the reply's selection, the one before or after that change, replaces the live one. */
+  const step = useCallback(
+    (action: 'undo' | 'redo') =>
+      mutate((document, restartedFrom) => {
+        // Not retried after a restart: the restarted service's history can differ from the
+        // one this page saw even when the drawing matches.
+        if (restartedFrom) return null
+        return client.revisionAction(document.document.id, action, document.document.revision).then((reply) => {
+          if (reply.document.selection && currentRef.current?.document.id === reply.document.id) {
+            select(selectionSet(reply.document.selection))
+          }
+          return reply
+        })
+      }),
+    [mutate, select],
+  )
+
+  /**
+   * Sends `commands` with the live selection less what they delete, for a service that records
+   * selections in history.
+   */
+  const transact = useCallback(
+    (document: DocumentView, revision: number, commands: Command[]) =>
+      client.transact(
+        document.id,
+        revision,
+        commands,
+        document.selection ? selectionAfter(selectionRef.current, commands, document) : undefined,
+      ),
+    [],
   )
 
   const id = () => currentRef.current?.document.id ?? ''
@@ -364,29 +408,24 @@ export function useDocumentEditor() {
         return mutate((document, restartedFrom) => {
           if (typeof edit === 'function') {
             const commands = edit(document.document)
-            return commands?.length ? client.transact(id(), revision(document), commands) : null
+            return commands?.length ? transact(document.document, revision(document), commands) : null
           }
           if (!edit.length || shown?.id !== document.document.id) return null
           if (restartedFrom) {
             // Built on an older view than the one the restarted service matched: it lapses.
             if (restartedFrom.document.revision !== shown.revision) return null
-            return client.transact(shown.id, revision(document), edit)
+            return transact(document.document, revision(document), edit)
           }
-          return client.transact(shown.id, shown.revision, edit)
+          return transact(document.document, shown.revision, edit)
         })
       },
-      [mutate],
+      [mutate, transact],
     ),
-    // Undo and redo are not retried after a restart: the restarted service's history can
-    // differ from the one this page saw even when the drawing matches.
-    undo: useCallback(
-      () => mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'undo', revision(document)))),
-      [mutate],
-    ),
-    redo: useCallback(
-      () => mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'redo', revision(document)))),
-      [mutate],
-    ),
+    undo: useCallback(() => step('undo'), [step]),
+    redo: useCallback(() => step('redo'), [step]),
+    /** Selected atom, bond, and scene object identifiers; changing them is not an edit. */
+    selection,
+    select,
     save: useCallback(() => mutate((document) => client.save(id(), revision(document))), [mutate]),
     close: useCallback(
       (discardUnsaved: boolean) => {

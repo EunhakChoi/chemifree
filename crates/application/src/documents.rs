@@ -16,7 +16,7 @@ use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
-    TrashListResponse, TrashedSummary, UnreadableDocument,
+    SelectionDto, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
@@ -40,6 +40,7 @@ enum Mutation {
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
+        selection: Option<SelectionDto>,
     },
     Undo {
         expected_revision: u64,
@@ -625,16 +626,19 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
         expected_revision: u64,
         commands: Vec<CommandDto>,
+        selection: Option<SelectionDto>,
     ) -> Result<DocumentResponse, ApplicationError> {
         let domain_commands = contract::to_commands(&commands)?;
+        let domain_selection = selection.as_ref().map(contract::to_selection).transpose()?;
         let mutation = Mutation::Transaction {
             expected_revision,
             commands,
+            selection,
         };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
             session
                 .document
-                .apply(&domain_commands)
+                .apply_with_selection(&domain_commands, domain_selection)
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
         })
@@ -1110,7 +1114,7 @@ impl<R: DocumentRepository> Documents<R> {
         let counters = stored.numbering();
         if reached.next_atom > counters.next_atom
             || reached.next_bond > counters.next_bond
-            || reached.next_instance > counters.next_instance
+            || reached.next_object > counters.next_object
         {
             return Err(ApplicationError::new(
                 ErrorCode::DraftOutdated,
@@ -1822,13 +1826,9 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         EditError::RevisionLimit => ErrorCode::ResourceLimit,
         _ => ErrorCode::InvalidCommand,
     };
-    let invalid_state = match error.error {
-        EditError::InvalidState(state) => Some(state),
-        _ => None,
-    };
     ApplicationError {
         command_index: error.index,
-        invalid_state,
+        command_reason: error.error.reason(),
         ..ApplicationError::new(code, error.to_string())
     }
 }

@@ -705,7 +705,7 @@ fn parse_step(
     let (body_fields, writes, takes_document): (&[&str], bool, bool) = match call {
         "create" => (&["title"], true, false),
         "get" => (&[], false, true),
-        "transact" => (&["expected_revision", "commands"], true, true),
+        "transact" => (&["expected_revision", "commands", "selection"], true, true),
         "undo" | "redo" | "save" => (&["expected_revision"], true, true),
         "autosave" | "recover" => (&[], true, true),
         "close" => (&["discard_unsaved", "expected_revision"], true, true),

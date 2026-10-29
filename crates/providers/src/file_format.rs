@@ -1,26 +1,34 @@
-//! Chemifree document file format, version 3 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 4 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 3 stores the chemical graph (`molecule`), the page, and the molecule scene
-//! instances with their atom positions apart, and history entries record graph, instance,
-//! and position changes apart. An atom state records its kind (an element or a query),
-//! charge, isotope, hydrogen state, radical, and attachment points; a bond state its order and,
-//! for a query bond, its query. Files are compact JSON, so the largest document a save allows,
-//! full history included, stays within the read limit.
+//! Version 4 stores the chemical graph (`molecule`), the page with its ordered root objects, the
+//! scene objects (molecule scene instances with their atom positions, groups with their
+//! ordered children, and graphics with their two points), and the selection; history entries
+//! record graph, object, root order, and position changes apart, with the selection before and
+//! after. An atom state records its kind (an element or a query), charge, isotope, hydrogen
+//! state, radical, and attachment points; a bond state its order and, for a query bond, its
+//! query. Files are compact JSON, so the largest document a save allows, full history
+//! included, stays within the read limit.
 //!
-//! Older versions are still read and migrated in memory, history included: version 2 atoms and
-//! bonds get the defaults (an element atom, inferred hydrogens, no radical, no attachment
-//! points), and version 1 files, which kept one position on each atom, also move those
-//! positions into one page `p1` and one instance `s1`. Reading never writes; whatever is
-//! written next is version 3. Any other version is refused.
+//! Older versions are still read and migrated in memory, history included: version 3 instances
+//! become the page's root objects in order, with an empty selection, and history entries that
+//! created or deleted instances also change the root order; version 2 atoms and bonds also get
+//! the defaults (an element atom, inferred hydrogens, no radical, no attachment points); and
+//! version 1 files, which kept one position on each atom, also move those positions into one
+//! page `p1` and one instance `s1`. Reading never writes; whatever is written next is version
+//! 4. Any other version is refused.
 
 use chemifree_application::{Draft, DraftInfo};
+use std::collections::BTreeSet;
+use std::fmt::Display;
+
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, Change, ChangeSet, Document, DocumentId, DocumentParts,
-    InstanceId, MOLECULE_ID, PAGE_ID, Point, PositionKey, SceneInstance,
+    MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::scene::{Graphic, SceneObject, Selection, Shape};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
@@ -28,53 +36,139 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 3;
+const DRAFT_FORMAT_VERSION: u32 = 4;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
 /// migrated, never written.
 const VERSION_2: u32 = 2;
+/// The version before groups, graphics, and the selection; read and migrated, never written.
+const VERSION_3: u32 = 3;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// A document file whose atom and bond states are `A` and `B`; versions 2 and 3 differ only
-/// there.
+/// A version 4 document file.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct File<A, B> {
+struct File {
     format: String,
     format_version: u32,
-    document: StoredDocument<A, B>,
-    history: StoredHistory<A, B>,
+    document: StoredDocument,
+    history: StoredHistory,
 }
 
-/// A recovery draft: the working copy with the stored revision it started from.
+/// A version 4 recovery draft: the working copy with the stored revision it started from.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct DraftFile<A, B> {
+struct DraftFile {
     format: String,
     format_version: u32,
     base_revision: u64,
     saved_at_ms: u64,
-    document: StoredDocument<A, B>,
-    history: StoredHistory<A, B>,
+    document: StoredDocument,
+    history: StoredHistory,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredDocument<A, B> {
+struct StoredDocument {
     id: String,
     revision: u64,
     title: String,
-    molecule: StoredMolecule<A, B>,
+    molecule: StoredMolecule<AtomState, BondState>,
     pages: Vec<StoredPage>,
-    /// In order; the v1 view reports the first one's positions as `atoms[].position`.
-    instances: Vec<StoredInstance>,
+    /// Every scene object, in identifier order; containment is in `pages[].roots` and the
+    /// groups' `children`.
+    objects: Vec<StoredObject>,
+    selection: StoredSelection,
     next_atom: u32,
     next_bond: u32,
-    next_instance: u32,
+    next_object: u32,
+}
+
+/// The page and its root objects in order.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPage {
+    id: String,
+    roots: Vec<String>,
+}
+
+/// A scene object of the document.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredObject {
+    /// A molecule scene instance with one position per atom of its molecule.
+    Molecule {
+        id: String,
+        molecule: String,
+        positions: Vec<StoredPosition>,
+    },
+    Group {
+        id: String,
+        children: Vec<String>,
+    },
+    Graphic {
+        id: String,
+        shape: StoredShape,
+        points: [StoredPoint; 2],
+    },
+}
+
+/// A scene object's state in a history entry. An instance's positions change through
+/// `positions` entries.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ObjectState {
+    Molecule {
+        molecule: String,
+    },
+    Group {
+        children: Vec<String>,
+    },
+    Graphic {
+        shape: StoredShape,
+        points: [StoredPoint; 2],
+    },
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredShape {
+    Line,
+    Rectangle,
+    Arrow,
+}
+
+/// Selected scene objects, atoms, and bonds, each without repeats.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSelection {
+    objects: Vec<String>,
+    atoms: Vec<String>,
+    bonds: Vec<String>,
+}
+
+/// `undo` is oldest first; `redo` is a stack whose last entry is redone next.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredHistory {
+    undo: Vec<StoredChangeSet>,
+    redo: Vec<StoredChangeSet>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredChangeSet {
+    title: Option<StoredChange<String>>,
+    atoms: Vec<Keyed<AtomState>>,
+    bonds: Vec<Keyed<BondState>>,
+    objects: Vec<Keyed<ObjectState>>,
+    roots: Option<StoredChange<Vec<String>>>,
+    positions: Vec<PositionChange>,
+    selection: StoredChange<StoredSelection>,
 }
 
 /// The chemical graph: atoms and bonds without positions. Atoms and bonds are
@@ -142,22 +236,6 @@ enum StoredRadical {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct StoredPage {
-    id: String,
-}
-
-/// A molecule scene instance with one position per atom of its molecule.
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct StoredInstance {
-    id: String,
-    page: String,
-    molecule: String,
-    positions: Vec<StoredPosition>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct StoredPosition {
     atom: String,
     x: f64,
@@ -210,24 +288,6 @@ enum StoredQueryOrder {
     Aromatic,
 }
 
-/// `undo` is oldest first; `redo` is a stack whose last entry is redone next.
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct StoredHistory<A, B> {
-    undo: Vec<StoredChangeSet<A, B>>,
-    redo: Vec<StoredChangeSet<A, B>>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct StoredChangeSet<A, B> {
-    title: Option<StoredChange<String>>,
-    atoms: Vec<Keyed<A>>,
-    bonds: Vec<Keyed<B>>,
-    instances: Vec<Keyed<InstanceState>>,
-    positions: Vec<PositionChange>,
-}
-
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredChange<T> {
@@ -242,14 +302,6 @@ struct Keyed<T> {
     id: String,
     before: Option<T>,
     after: Option<T>,
-}
-
-/// An instance's parents. Its positions change through `positions` entries.
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct InstanceState {
-    page: String,
-    molecule: String,
 }
 
 /// One atom's position in one instance; `null` where it had none.
@@ -300,6 +352,95 @@ mod v2 {
         Single,
         Double,
         Triple,
+    }
+}
+
+/// The version 2 and 3 document layout, read for migration only (the header fields are checked
+/// by [`version`] before these are parsed): atoms and bonds with states
+/// `A` and `B` (the only difference between the two versions), and molecule scene instances as
+/// the page's only objects.
+mod v3 {
+    use serde::Deserialize;
+    use serde::de::IgnoredAny;
+
+    use super::{Keyed, PositionChange, StoredChange, StoredMolecule, StoredPosition};
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct File<A, B> {
+        #[serde(rename = "format")]
+        pub _format: IgnoredAny,
+        #[serde(rename = "format_version")]
+        pub _format_version: IgnoredAny,
+        pub document: Document<A, B>,
+        pub history: History<A, B>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct DraftFile<A, B> {
+        #[serde(rename = "format")]
+        pub _format: IgnoredAny,
+        #[serde(rename = "format_version")]
+        pub _format_version: IgnoredAny,
+        pub base_revision: u64,
+        pub saved_at_ms: u64,
+        pub document: Document<A, B>,
+        pub history: History<A, B>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Document<A, B> {
+        pub id: String,
+        pub revision: u64,
+        pub title: String,
+        pub molecule: StoredMolecule<A, B>,
+        pub pages: Vec<Page>,
+        pub instances: Vec<Instance>,
+        pub next_atom: u32,
+        pub next_bond: u32,
+        pub next_instance: u32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Page {
+        pub id: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Instance {
+        pub id: String,
+        pub page: String,
+        pub molecule: String,
+        pub positions: Vec<StoredPosition>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct History<A, B> {
+        pub undo: Vec<ChangeSet<A, B>>,
+        pub redo: Vec<ChangeSet<A, B>>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct ChangeSet<A, B> {
+        pub title: Option<StoredChange<String>>,
+        pub atoms: Vec<Keyed<A>>,
+        pub bonds: Vec<Keyed<B>>,
+        pub instances: Vec<Keyed<InstanceState>>,
+        pub positions: Vec<PositionChange>,
+    }
+
+    /// An instance's parents. Its positions change through `positions` entries.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct InstanceState {
+        pub page: String,
+        pub molecule: String,
     }
 }
 
@@ -391,6 +532,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Three,
     Two,
     One,
 }
@@ -405,11 +547,12 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        VERSION_3 => Ok(Version::Three),
         VERSION_2 => Ok(Version::Two),
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, and {current}"
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, and {current}"
         )),
     }
 }
@@ -448,28 +591,33 @@ fn to_bytes(value: &impl Serialize) -> Vec<u8> {
     bytes
 }
 
-type Current = (
-    StoredDocument<AtomState, BondState>,
-    StoredHistory<AtomState, BondState>,
-);
-
-fn stored(document: &Document) -> Current {
+fn stored(document: &Document) -> (StoredDocument, StoredHistory) {
     let parts = document.to_parts();
-    let instances = parts
-        .instances
+    let objects = parts
+        .objects
         .iter()
-        .map(|instance| StoredInstance {
-            id: instance.to_string(),
-            page: PAGE_ID.to_owned(),
-            molecule: MOLECULE_ID.to_owned(),
-            positions: document
-                .positions(*instance)
-                .map(|(atom, point)| StoredPosition {
-                    atom: atom.to_string(),
-                    x: point.x(),
-                    y: point.y(),
-                })
-                .collect(),
+        .map(|(id, object)| match object {
+            SceneObject::Molecule => StoredObject::Molecule {
+                id: id.to_string(),
+                molecule: MOLECULE_ID.to_owned(),
+                positions: document
+                    .positions(*id)
+                    .map(|(atom, point)| StoredPosition {
+                        atom: atom.to_string(),
+                        x: point.x(),
+                        y: point.y(),
+                    })
+                    .collect(),
+            },
+            SceneObject::Group(children) => StoredObject::Group {
+                id: id.to_string(),
+                children: names(children),
+            },
+            SceneObject::Graphic(graphic) => StoredObject::Graphic {
+                id: id.to_string(),
+                shape: stored_shape(graphic.shape),
+                points: graphic.points.map(|point| stored_point(&point)),
+            },
         })
         .collect();
     let stored = StoredDocument {
@@ -497,17 +645,29 @@ fn stored(document: &Document) -> Current {
         },
         pages: vec![StoredPage {
             id: PAGE_ID.to_owned(),
+            roots: names(&parts.roots),
         }],
-        instances,
+        objects,
+        selection: stored_selection(&parts.selection),
         next_atom: parts.next_atom,
         next_bond: parts.next_bond,
-        next_instance: parts.next_instance,
+        next_object: parts.next_object,
     };
     let history = StoredHistory {
         undo: parts.undo.iter().map(stored_change_set).collect(),
         redo: parts.redo.iter().map(stored_change_set).collect(),
     };
     (stored, history)
+}
+
+/// Entity changes of one history entry, as `ChangeSet` holds them.
+type Changes<K, V> = Vec<(K, Change<Option<V>>)>;
+
+/// A graph's atoms and bonds, as `DocumentParts` holds them.
+type Graph = (Vec<(AtomId, Atom)>, Vec<(BondId, Bond)>);
+
+fn names<T: Display>(ids: &[T]) -> Vec<String> {
+    ids.iter().map(ToString::to_string).collect()
 }
 
 #[derive(Deserialize)]
@@ -527,26 +687,31 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
 }
 
 /// The version of `bytes` when they are a document file of an earlier version this build reads
-/// (1 or 2), which a save replaces only after keeping a copy of them; `None` otherwise.
+/// (1, 2, or 3), which a save replaces only after keeping a copy of them; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     match version(bytes, FORMAT, FORMAT_VERSION, "document") {
         Ok(Version::One) => Some(VERSION_1),
         Ok(Version::Two) => Some(VERSION_2),
+        Ok(Version::Three) => Some(VERSION_3),
         Ok(Version::Current) | Err(_) => None,
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 or 2
+/// Parses and fully validates a stored document, including its history; a version 1, 2, or 3
 /// file is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let parts = match version(bytes, FORMAT, FORMAT_VERSION, "document")? {
         Version::Current => {
-            let file: File<AtomState, BondState> = parse(bytes, "document")?;
+            let file: File = parse(bytes, "document")?;
             parts(file.document, file.history)?
         }
+        Version::Three => {
+            let file: v3::File<AtomState, BondState> = parse(bytes, "document")?;
+            migrate_v3(file.document, file.history)?
+        }
         Version::Two => {
-            let file: File<v2::AtomState, v2::BondState> = parse(bytes, "document")?;
-            parts(file.document, file.history)?
+            let file: v3::File<v2::AtomState, v2::BondState> = parse(bytes, "document")?;
+            migrate_v3(file.document, file.history)?
         }
         Version::One => {
             let file: v1::File = parse(bytes, "document")?;
@@ -556,18 +721,23 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 or 2 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1, 2, or 3 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let (parts, base_revision, saved_at_ms) =
         match version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")? {
             Version::Current => {
-                let file: DraftFile<AtomState, BondState> = parse(bytes, "draft")?;
+                let file: DraftFile = parse(bytes, "draft")?;
                 let parts = parts(file.document, file.history)?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
+            Version::Three => {
+                let file: v3::DraftFile<AtomState, BondState> = parse(bytes, "draft")?;
+                let parts = migrate_v3(file.document, file.history)?;
+                (parts, file.base_revision, file.saved_at_ms)
+            }
             Version::Two => {
-                let file: DraftFile<v2::AtomState, v2::BondState> = parse(bytes, "draft")?;
-                let parts = parts(file.document, file.history)?;
+                let file: v3::DraftFile<v2::AtomState, v2::BondState> = parse(bytes, "draft")?;
+                let parts = migrate_v3(file.document, file.history)?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
             Version::One => {
@@ -600,54 +770,90 @@ pub(crate) fn decode_draft_info(bytes: &[u8]) -> Result<DraftInfo, String> {
     })
 }
 
-fn parts<A: AtomRecord, B: BondRecord>(
-    stored: StoredDocument<A, B>,
-    history: StoredHistory<A, B>,
-) -> Result<DocumentParts, String> {
-    if stored.molecule.id != MOLECULE_ID {
-        return Err(format!(
-            "molecule {:?} is not this document's molecule {MOLECULE_ID:?}",
-            stored.molecule.id
-        ));
+/// The one page every version holds.
+fn page(id: &str) -> Result<(), String> {
+    if id == PAGE_ID {
+        Ok(())
+    } else {
+        Err(format!("a document holds exactly one page, {PAGE_ID:?}"))
     }
-    if !matches!(stored.pages.as_slice(), [page] if page.id == PAGE_ID) {
-        return Err(format!("a document holds exactly one page, {PAGE_ID:?}"));
+}
+
+fn molecule(id: &str) -> Result<(), String> {
+    if id == MOLECULE_ID {
+        Ok(())
+    } else {
+        Err(format!(
+            "molecule {id:?} is not this document's molecule {MOLECULE_ID:?}"
+        ))
     }
-    let mut instances = Vec::with_capacity(stored.instances.len());
+}
+
+/// The graph of any version from 2 on, as parts' atoms and bonds.
+fn graph<A: AtomRecord, B: BondRecord>(stored: StoredMolecule<A, B>) -> Result<Graph, String> {
+    molecule(&stored.id)?;
+    let atoms = stored
+        .atoms
+        .into_iter()
+        .map(|atom| Ok((atom_id(&atom.id)?, atom.state.into_atom()?)))
+        .collect::<Result<_, String>>()?;
+    let bonds = stored
+        .bonds
+        .into_iter()
+        .map(|bond| Ok((bond_id(&bond.id)?, bond.state.into_bond()?)))
+        .collect::<Result<_, String>>()?;
+    Ok((atoms, bonds))
+}
+
+fn parts(stored: StoredDocument, history: StoredHistory) -> Result<DocumentParts, String> {
+    let [stored_page] = <[StoredPage; 1]>::try_from(stored.pages)
+        .map_err(|_| format!("a document holds exactly one page, {PAGE_ID:?}"))?;
+    page(&stored_page.id)?;
+    let mut objects = Vec::with_capacity(stored.objects.len());
     let mut positions = Vec::new();
-    for instance in stored.instances {
-        parents(&instance.page, &instance.molecule)?;
-        let id = instance_id(&instance.id)?;
-        instances.push(id);
-        for position in instance.positions {
-            let key = PositionKey {
-                instance: id,
-                atom: atom_id(&position.atom)?,
-            };
-            positions.push((key, point(position.x, position.y)?));
+    for object in stored.objects {
+        match object {
+            StoredObject::Molecule {
+                id,
+                molecule: name,
+                positions: points,
+            } => {
+                molecule(&name)?;
+                let id = object_id(&id)?;
+                objects.push((id, SceneObject::Molecule));
+                for position in points {
+                    let key = PositionKey {
+                        instance: id,
+                        atom: atom_id(&position.atom)?,
+                    };
+                    positions.push((key, point(position.x, position.y)?));
+                }
+            }
+            StoredObject::Group { id, children } => {
+                objects.push((object_id(&id)?, SceneObject::Group(object_ids(&children)?)));
+            }
+            StoredObject::Graphic { id, shape, points } => {
+                objects.push((
+                    object_id(&id)?,
+                    SceneObject::Graphic(graphic(shape, points)?),
+                ));
+            }
         }
     }
+    let (atoms, bonds) = graph(stored.molecule)?;
     Ok(DocumentParts {
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
-        atoms: stored
-            .molecule
-            .atoms
-            .into_iter()
-            .map(|atom| Ok((atom_id(&atom.id)?, atom.state.into_atom()?)))
-            .collect::<Result<_, String>>()?,
-        bonds: stored
-            .molecule
-            .bonds
-            .into_iter()
-            .map(|bond| Ok((bond_id(&bond.id)?, bond.state.into_bond()?)))
-            .collect::<Result<_, String>>()?,
-        instances,
+        atoms,
+        bonds,
+        objects,
+        roots: object_ids(&stored_page.roots)?,
         positions,
+        selection: selection(stored.selection)?,
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
-        next_instance: stored.next_instance,
+        next_object: stored.next_object,
         undo: history
             .undo
             .into_iter()
@@ -661,12 +867,148 @@ fn parts<A: AtomRecord, B: BondRecord>(
     })
 }
 
+/// A version 2 or 3 document as current parts: its instances become the page's root objects in
+/// the order stored (identifier order), nothing is selected, and each history entry that
+/// created or deleted instances also changes the root order, which is worked out by replaying
+/// the instance changes from the stored state. `Document::restore` then checks the result as it
+/// checks any stored document.
+fn migrate_v3<A: AtomRecord, B: BondRecord>(
+    stored: v3::Document<A, B>,
+    history: v3::History<A, B>,
+) -> Result<DocumentParts, String> {
+    let [stored_page] = <[v3::Page; 1]>::try_from(stored.pages)
+        .map_err(|_| format!("a document holds exactly one page, {PAGE_ID:?}"))?;
+    page(&stored_page.id)?;
+    let mut objects = Vec::with_capacity(stored.instances.len());
+    let mut positions = Vec::new();
+    for instance in stored.instances {
+        instance_parents(&instance.page, &instance.molecule)?;
+        let id = object_id(&instance.id)?;
+        objects.push((id, SceneObject::Molecule));
+        for position in instance.positions {
+            let key = PositionKey {
+                instance: id,
+                atom: atom_id(&position.atom)?,
+            };
+            positions.push((key, point(position.x, position.y)?));
+        }
+    }
+    let roots: Vec<ObjectId> = objects.iter().map(|(id, _)| *id).collect();
+    let mut undo = history
+        .undo
+        .into_iter()
+        .map(v3_change_set)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut redo = history
+        .redo
+        .into_iter()
+        .map(v3_change_set)
+        .collect::<Result<Vec<_>, _>>()?;
+    // Undo entries lead back from the stored roots, newest first; redo entries lead forward
+    // from them, the last one first.
+    let mut current: BTreeSet<ObjectId> = roots.iter().copied().collect();
+    for set in undo.iter_mut().rev() {
+        current = root_change(set, current, true);
+    }
+    let mut current: BTreeSet<ObjectId> = roots.iter().copied().collect();
+    for set in redo.iter_mut().rev() {
+        current = root_change(set, current, false);
+    }
+    let (atoms, bonds) = graph(stored.molecule)?;
+    Ok(DocumentParts {
+        id: document_id(&stored.id)?,
+        revision: stored.revision,
+        title: stored.title,
+        atoms,
+        bonds,
+        objects,
+        roots,
+        positions,
+        selection: Selection::default(),
+        next_atom: stored.next_atom,
+        next_bond: stored.next_bond,
+        next_object: stored.next_instance,
+        undo,
+        redo,
+    })
+}
+
+/// Records on `set` how a version 3 entry changed the page's roots, which were exactly its
+/// instances in identifier order, and returns the roots on the entry's other side. `current` is
+/// the side reached so far: after the entry when walking `backward` through undo entries,
+/// before it when walking forward through redo entries.
+fn root_change(
+    set: &mut ChangeSet,
+    current: BTreeSet<ObjectId>,
+    backward: bool,
+) -> BTreeSet<ObjectId> {
+    let mut other = current.clone();
+    for (id, change) in &set.objects {
+        let (from, to) = if backward {
+            (&change.after, &change.before)
+        } else {
+            (&change.before, &change.after)
+        };
+        match (from, to) {
+            (Some(_), None) => other.remove(id),
+            (None, Some(_)) => other.insert(*id),
+            _ => false,
+        };
+    }
+    if other != current {
+        let (before, after) = if backward {
+            (&other, &current)
+        } else {
+            (&current, &other)
+        };
+        set.roots = Some(Change {
+            before: before.iter().copied().collect(),
+            after: after.iter().copied().collect(),
+        });
+    }
+    other
+}
+
+/// A version 2 or 3 history entry: its instance changes become molecule object changes, and
+/// the selection stays empty on both sides. `migrate_v3` adds the root order changes.
+fn v3_change_set<A: AtomRecord, B: BondRecord>(
+    stored: v3::ChangeSet<A, B>,
+) -> Result<ChangeSet, String> {
+    let to_instance = |state: v3::InstanceState| {
+        instance_parents(&state.page, &state.molecule).map(|()| SceneObject::Molecule)
+    };
+    Ok(ChangeSet {
+        title: stored.title.map(|change| Change {
+            before: change.before,
+            after: change.after,
+        }),
+        atoms: atom_changes(stored.atoms)?,
+        bonds: bond_changes(stored.bonds)?,
+        objects: stored
+            .instances
+            .into_iter()
+            .map(|keyed| {
+                Ok((
+                    object_id(&keyed.id)?,
+                    Change {
+                        before: keyed.before.map(to_instance).transpose()?,
+                        after: keyed.after.map(to_instance).transpose()?,
+                    },
+                ))
+            })
+            .collect::<Result<_, String>>()?,
+        roots: None,
+        positions: position_changes(stored.positions)?,
+        selection: Change::default(),
+    })
+}
+
 /// A version 1 document as current parts: the atoms' positions move into instance `s1`, and
 /// each history entry's atom changes split into graph changes and `s1` position changes (an
 /// entry that only moved atoms becomes position changes only). `Document::restore` then
 /// checks the result as it checks any stored document.
 fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, String> {
-    let instance = InstanceId::from_serial(MIGRATED_INSTANCE).expect("serial 1 is an identifier");
+    let instance = ObjectId::from_serial(MIGRATED_INSTANCE).expect("serial 1 is an identifier");
     let mut atoms = Vec::with_capacity(stored.atoms.len());
     let mut positions = Vec::with_capacity(stored.atoms.len());
     for atom in stored.atoms {
@@ -690,17 +1032,19 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
             .into_iter()
             .map(|bond| Ok((bond_id(&bond.id)?, bond.state.into_bond()?)))
             .collect::<Result<_, String>>()?,
-        instances: vec![instance],
+        objects: vec![(instance, SceneObject::Molecule)],
+        roots: vec![instance],
         positions,
+        selection: Selection::default(),
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
-        next_instance: MIGRATED_INSTANCE + 1,
+        next_object: MIGRATED_INSTANCE + 1,
         undo: change_sets(history.undo)?,
         redo: change_sets(history.redo)?,
     })
 }
 
-fn migrate_change_set(set: v1::ChangeSet, instance: InstanceId) -> Result<ChangeSet, String> {
+fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSet, String> {
     let mut atoms = Vec::new();
     let mut positions = Vec::new();
     for keyed in set.atoms {
@@ -737,8 +1081,10 @@ fn migrate_change_set(set: v1::ChangeSet, instance: InstanceId) -> Result<Change
                 ))
             })
             .collect::<Result<_, String>>()?,
-        instances: Vec::new(),
+        objects: Vec::new(),
+        roots: None,
         positions,
+        selection: Change::default(),
     })
 }
 
@@ -933,14 +1279,6 @@ fn bond_state(bond: &Bond) -> BondState {
     }
 }
 
-/// Every instance is on the document's page and draws its molecule.
-fn instance_state(_: &SceneInstance) -> InstanceState {
-    InstanceState {
-        page: PAGE_ID.to_owned(),
-        molecule: MOLECULE_ID.to_owned(),
-    }
-}
-
 fn stored_point(point: &Point) -> StoredPoint {
     StoredPoint {
         x: point.x(),
@@ -948,7 +1286,38 @@ fn stored_point(point: &Point) -> StoredPoint {
     }
 }
 
-fn stored_change_set(set: &ChangeSet) -> StoredChangeSet<AtomState, BondState> {
+fn stored_shape(shape: Shape) -> StoredShape {
+    match shape {
+        Shape::Line => StoredShape::Line,
+        Shape::Rectangle => StoredShape::Rectangle,
+        Shape::Arrow => StoredShape::Arrow,
+    }
+}
+
+fn stored_selection(selection: &Selection) -> StoredSelection {
+    StoredSelection {
+        objects: selection.objects.iter().map(ToString::to_string).collect(),
+        atoms: selection.atoms.iter().map(ToString::to_string).collect(),
+        bonds: selection.bonds.iter().map(ToString::to_string).collect(),
+    }
+}
+
+fn object_state(object: &SceneObject) -> ObjectState {
+    match object {
+        SceneObject::Molecule => ObjectState::Molecule {
+            molecule: MOLECULE_ID.to_owned(),
+        },
+        SceneObject::Group(children) => ObjectState::Group {
+            children: names(children),
+        },
+        SceneObject::Graphic(graphic) => ObjectState::Graphic {
+            shape: stored_shape(graphic.shape),
+            points: graphic.points.map(|point| stored_point(&point)),
+        },
+    }
+}
+
+fn stored_change_set(set: &ChangeSet) -> StoredChangeSet {
     StoredChangeSet {
         title: set.title.as_ref().map(|change| StoredChange {
             before: change.before.clone(),
@@ -972,15 +1341,19 @@ fn stored_change_set(set: &ChangeSet) -> StoredChangeSet<AtomState, BondState> {
                 after: change.after.as_ref().map(bond_state),
             })
             .collect(),
-        instances: set
-            .instances
+        objects: set
+            .objects
             .iter()
             .map(|(id, change)| Keyed {
                 id: id.to_string(),
-                before: change.before.as_ref().map(instance_state),
-                after: change.after.as_ref().map(instance_state),
+                before: change.before.as_ref().map(object_state),
+                after: change.after.as_ref().map(object_state),
             })
             .collect(),
+        roots: set.roots.as_ref().map(|change| StoredChange {
+            before: names(&change.before),
+            after: names(&change.after),
+        }),
         positions: set
             .positions
             .iter()
@@ -991,81 +1364,149 @@ fn stored_change_set(set: &ChangeSet) -> StoredChangeSet<AtomState, BondState> {
                 after: change.after.as_ref().map(stored_point),
             })
             .collect(),
+        selection: StoredChange {
+            before: stored_selection(&set.selection.before),
+            after: stored_selection(&set.selection.after),
+        },
     }
 }
 
-fn to_change_set<A: AtomRecord, B: BondRecord>(
-    stored: StoredChangeSet<A, B>,
-) -> Result<ChangeSet, String> {
-    let to_instance =
-        |state: InstanceState| parents(&state.page, &state.molecule).map(|()| SceneInstance);
+fn atom_changes<A: AtomRecord>(stored: Vec<Keyed<A>>) -> Result<Changes<AtomId, Atom>, String> {
+    stored
+        .into_iter()
+        .map(|keyed| {
+            Ok((
+                atom_id(&keyed.id)?,
+                Change {
+                    before: keyed.before.map(AtomRecord::into_atom).transpose()?,
+                    after: keyed.after.map(AtomRecord::into_atom).transpose()?,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn bond_changes<B: BondRecord>(stored: Vec<Keyed<B>>) -> Result<Changes<BondId, Bond>, String> {
+    stored
+        .into_iter()
+        .map(|keyed| {
+            Ok((
+                bond_id(&keyed.id)?,
+                Change {
+                    before: keyed.before.map(BondRecord::into_bond).transpose()?,
+                    after: keyed.after.map(BondRecord::into_bond).transpose()?,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn position_changes(stored: Vec<PositionChange>) -> Result<Changes<PositionKey, Point>, String> {
     let to_point = |stored: StoredPoint| point(stored.x, stored.y);
+    stored
+        .into_iter()
+        .map(|change| {
+            let key = PositionKey {
+                instance: object_id(&change.instance)?,
+                atom: atom_id(&change.atom)?,
+            };
+            Ok((
+                key,
+                Change {
+                    before: change.before.map(to_point).transpose()?,
+                    after: change.after.map(to_point).transpose()?,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn to_object(state: ObjectState) -> Result<SceneObject, String> {
+    Ok(match state {
+        ObjectState::Molecule { molecule: name } => {
+            molecule(&name)?;
+            SceneObject::Molecule
+        }
+        ObjectState::Group { children } => SceneObject::Group(object_ids(&children)?),
+        ObjectState::Graphic { shape, points } => SceneObject::Graphic(graphic(shape, points)?),
+    })
+}
+
+fn to_change_set(stored: StoredChangeSet) -> Result<ChangeSet, String> {
     Ok(ChangeSet {
         title: stored.title.map(|change| Change {
             before: change.before,
             after: change.after,
         }),
-        atoms: stored
-            .atoms
+        atoms: atom_changes(stored.atoms)?,
+        bonds: bond_changes(stored.bonds)?,
+        objects: stored
+            .objects
             .into_iter()
             .map(|keyed| {
                 Ok((
-                    atom_id(&keyed.id)?,
+                    object_id(&keyed.id)?,
                     Change {
-                        before: keyed.before.map(AtomRecord::into_atom).transpose()?,
-                        after: keyed.after.map(AtomRecord::into_atom).transpose()?,
+                        before: keyed.before.map(to_object).transpose()?,
+                        after: keyed.after.map(to_object).transpose()?,
                     },
                 ))
             })
             .collect::<Result<_, String>>()?,
-        bonds: stored
-            .bonds
-            .into_iter()
-            .map(|keyed| {
-                Ok((
-                    bond_id(&keyed.id)?,
-                    Change {
-                        before: keyed.before.map(BondRecord::into_bond).transpose()?,
-                        after: keyed.after.map(BondRecord::into_bond).transpose()?,
-                    },
-                ))
-            })
-            .collect::<Result<_, String>>()?,
-        instances: stored
-            .instances
-            .into_iter()
-            .map(|keyed| {
-                Ok((
-                    instance_id(&keyed.id)?,
-                    Change {
-                        before: keyed.before.map(to_instance).transpose()?,
-                        after: keyed.after.map(to_instance).transpose()?,
-                    },
-                ))
-            })
-            .collect::<Result<_, String>>()?,
-        positions: stored
-            .positions
-            .into_iter()
+        roots: stored
+            .roots
             .map(|change| {
-                let key = PositionKey {
-                    instance: instance_id(&change.instance)?,
-                    atom: atom_id(&change.atom)?,
-                };
-                Ok((
-                    key,
-                    Change {
-                        before: change.before.map(to_point).transpose()?,
-                        after: change.after.map(to_point).transpose()?,
-                    },
-                ))
+                Ok::<_, String>(Change {
+                    before: object_ids(&change.before)?,
+                    after: object_ids(&change.after)?,
+                })
             })
-            .collect::<Result<_, String>>()?,
+            .transpose()?,
+        positions: position_changes(stored.positions)?,
+        selection: Change {
+            before: selection(stored.selection.before)?,
+            after: selection(stored.selection.after)?,
+        },
     })
 }
 
-/// Checks that an instance is on the document's page and draws its molecule.
-fn parents(page: &str, molecule: &str) -> Result<(), String> {
+fn graphic(shape: StoredShape, points: [StoredPoint; 2]) -> Result<Graphic, String> {
+    let [first, second] = points;
+    Ok(Graphic {
+        shape: match shape {
+            StoredShape::Line => Shape::Line,
+            StoredShape::Rectangle => Shape::Rectangle,
+            StoredShape::Arrow => Shape::Arrow,
+        },
+        points: [point(first.x, first.y)?, point(second.x, second.y)?],
+    })
+}
+
+/// A stored selection; an identifier listed twice is refused.
+fn selection(stored: StoredSelection) -> Result<Selection, String> {
+    fn distinct<T: Ord>(
+        values: &[String],
+        parse: impl Fn(&str) -> Result<T, String>,
+    ) -> Result<BTreeSet<T>, String> {
+        let set = values
+            .iter()
+            .map(|value| parse(value))
+            .collect::<Result<BTreeSet<T>, String>>()?;
+        if set.len() == values.len() {
+            Ok(set)
+        } else {
+            Err("a selection lists an identifier twice".to_owned())
+        }
+    }
+    Ok(Selection {
+        objects: distinct(&stored.objects, object_id)?,
+        atoms: distinct(&stored.atoms, atom_id)?,
+        bonds: distinct(&stored.bonds, bond_id)?,
+    })
+}
+
+/// Checks that a version 2 or 3 instance is on the document's page and draws its molecule.
+fn instance_parents(page: &str, molecule: &str) -> Result<(), String> {
     if page == PAGE_ID && molecule == MOLECULE_ID {
         Ok(())
     } else {
@@ -1096,6 +1537,10 @@ fn bond_id(value: &str) -> Result<BondId, String> {
     BondId::parse(value).ok_or_else(|| format!("invalid bond identifier {value:?}"))
 }
 
-fn instance_id(value: &str) -> Result<InstanceId, String> {
-    InstanceId::parse(value).ok_or_else(|| format!("invalid scene instance identifier {value:?}"))
+fn object_id(value: &str) -> Result<ObjectId, String> {
+    ObjectId::parse(value).ok_or_else(|| format!("invalid scene object identifier {value:?}"))
+}
+
+fn object_ids(values: &[String]) -> Result<Vec<ObjectId>, String> {
+    values.iter().map(|value| object_id(value)).collect()
 }

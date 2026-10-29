@@ -5,10 +5,11 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use chemifree_domain::document::{
-    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, InstanceId,
-    MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, PAGE_ID, Point, Vector,
+    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE,
+    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::scene::{DeleteMode, Graphic, Parent, SceneObject, Selection, Shape};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
     StateError,
@@ -33,6 +34,40 @@ pub struct TransactionRequest {
     pub request_id: String,
     pub expected_revision: u64,
     pub commands: Vec<CommandDto>,
+    /// The client's selection after the edit, recorded with it in history. Added within v1.
+    #[serde(default)]
+    pub selection: Option<SelectionDto>,
+}
+
+/// Selected scene objects, atoms, and bonds. In a transaction it is the client's selection
+/// after the edit and must name only what the edited document holds; in a document view it is
+/// what the latest edit, undo, or redo left selected. Repeats count once. Added within v1.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionDto {
+    pub objects: Vec<String>,
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
+}
+
+/// What a graphic draws between its two points.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeDto {
+    Line,
+    Rectangle,
+    /// An arrowhead at the second point.
+    Arrow,
+}
+
+/// What `delete_objects` removes besides the objects it names.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteModeDto {
+    /// Everything each object contains too.
+    Subtree,
+    /// The object alone; a group's children take its place.
+    ObjectOnly,
 }
 
 /// Body of undo, redo, and save requests.
@@ -303,7 +338,43 @@ pub enum CommandDto {
     DeleteInstance {
         instance: String,
     },
+    /// A line, rectangle, or arrow given by two points, added at the end of `parent` (a group)
+    /// or of the page's root objects. This and the commands below were added within v1.
+    AddGraphic {
+        shape: ShapeDto,
+        points: [PointDto; 2],
+        #[serde(default)]
+        parent: Option<String>,
+    },
+    /// Replaces objects that share a parent with a new group, where the first of them was.
+    Group {
+        objects: Vec<String>,
+    },
+    /// Puts the group's children in its place.
+    Ungroup {
+        group: String,
+    },
+    /// `mode` is required: the reply to a missing one is `invalid_command` with reason
+    /// `delete_mode_missing`.
+    DeleteObjects {
+        objects: Vec<String>,
+        #[serde(default)]
+        mode: Option<DeleteModeDto>,
+    },
+    /// Moves every instance and graphic in the union of the objects' subtrees once.
+    MoveObjects {
+        objects: Vec<String>,
+        offset: PointDto,
+    },
+    /// Moves an object to `index` among its parent's children.
+    Reorder {
+        object: String,
+        index: usize,
+    },
 }
+
+/// The reason code of a `delete_objects` command without `mode`.
+pub const DELETE_MODE_MISSING: &str = "delete_mode_missing";
 
 /// Reads an object into a map, refusing a repeated key instead of keeping the last value.
 fn distinct_keys<'de, D: Deserializer<'de>>(
@@ -455,18 +526,17 @@ pub fn query_label(query: &QueryAtom) -> String {
     }
 }
 
-/// Why a command could not be converted: a message, and the refused combination when there
-/// is one.
+/// Why a command could not be converted: a message, and its stable code when it has one.
 struct Refusal {
     message: String,
-    state: Option<StateError>,
+    reason: Option<&'static str>,
 }
 
 impl From<String> for Refusal {
     fn from(message: String) -> Self {
         Self {
             message,
-            state: None,
+            reason: None,
         }
     }
 }
@@ -475,7 +545,7 @@ impl From<StateError> for Refusal {
     fn from(state: StateError) -> Self {
         Self {
             message: state.to_string(),
-            state: Some(state),
+            reason: Some(state.code()),
         }
     }
 }
@@ -488,7 +558,7 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
         .map(|(index, command)| {
             to_command(command).map_err(|refusal| ApplicationError {
                 command_index: Some(index),
-                invalid_state: refusal.state,
+                command_reason: refusal.reason,
                 ..ApplicationError::new(
                     ErrorCode::InvalidCommand,
                     format!("command {index}: {}", refusal.message),
@@ -638,7 +708,85 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
             instance: instance_id(instance)?,
         },
+        CommandDto::AddGraphic {
+            shape,
+            points: [first, second],
+            parent,
+        } => Command::AddGraphic {
+            graphic: Graphic {
+                shape: match shape {
+                    ShapeDto::Line => Shape::Line,
+                    ShapeDto::Rectangle => Shape::Rectangle,
+                    ShapeDto::Arrow => Shape::Arrow,
+                },
+                points: [point(*first)?, point(*second)?],
+            },
+            parent: parent.as_deref().map(object_id).transpose()?,
+        },
+        CommandDto::Group { objects } => Command::Group {
+            objects: object_ids(objects)?,
+        },
+        CommandDto::Ungroup { group } => Command::Ungroup {
+            group: object_id(group)?,
+        },
+        CommandDto::DeleteObjects { objects, mode } => Command::DeleteObjects {
+            objects: object_ids(objects)?,
+            mode: match mode {
+                Some(DeleteModeDto::Subtree) => DeleteMode::Subtree,
+                Some(DeleteModeDto::ObjectOnly) => DeleteMode::ObjectOnly,
+                None => {
+                    return Err(Refusal {
+                        message: "delete_objects needs `mode`: \"subtree\" or \"object_only\""
+                            .to_owned(),
+                        reason: Some(DELETE_MODE_MISSING),
+                    });
+                }
+            },
+        },
+        CommandDto::MoveObjects { objects, offset } => Command::MoveObjects {
+            objects: object_ids(objects)?,
+            offset: vector(*offset),
+        },
+        CommandDto::Reorder { object, index } => Command::Reorder {
+            object: object_id(object)?,
+            index: *index,
+        },
     })
+}
+
+/// A transaction's selection. A malformed identifier makes the body malformed.
+pub(crate) fn to_selection(selection: &SelectionDto) -> Result<Selection, ApplicationError> {
+    let malformed = |message: String| {
+        ApplicationError::new(ErrorCode::InvalidRequest, format!("selection: {message}"))
+    };
+    Ok(Selection {
+        objects: selection
+            .objects
+            .iter()
+            .map(|id| object_id(id))
+            .collect::<Result<_, _>>()
+            .map_err(malformed)?,
+        atoms: selection
+            .atoms
+            .iter()
+            .map(|id| atom_id(id))
+            .collect::<Result<_, _>>()
+            .map_err(malformed)?,
+        bonds: selection
+            .bonds
+            .iter()
+            .map(|id| bond_id(id))
+            .collect::<Result<_, _>>()
+            .map_err(malformed)?,
+    })
+}
+
+fn selection_view(selection: &Selection) -> SelectionDto {
+    SelectionDto {
+        objects: selection.objects.iter().map(ToString::to_string).collect(),
+        atoms: selection.atoms.iter().map(ToString::to_string).collect(),
+        bonds: selection.bonds.iter().map(ToString::to_string).collect(),
+    }
 }
 
 /// The kind named by `element` or `query`, at most one of them; `None` when neither is given.
@@ -715,8 +863,16 @@ fn vector(delta: PointDto) -> Vector {
     }
 }
 
-fn instance_id(value: &str) -> Result<InstanceId, String> {
-    InstanceId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
+fn instance_id(value: &str) -> Result<ObjectId, String> {
+    ObjectId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
+}
+
+fn object_id(value: &str) -> Result<ObjectId, String> {
+    ObjectId::parse(value).ok_or_else(|| format!("{value:?} is not a scene object identifier"))
+}
+
+fn object_ids(values: &[String]) -> Result<Vec<ObjectId>, String> {
+    values.iter().map(|value| object_id(value)).collect()
 }
 
 fn element(symbol: &str) -> Result<Element, String> {
@@ -792,6 +948,8 @@ pub struct DocumentView {
     pub bonds: Vec<BondView>,
     pub molecule: MoleculeView,
     pub scene: SceneView,
+    /// What the latest edit, undo, or redo left selected. Added within v1.
+    pub selection: SelectionDto,
 }
 
 /// Positions are scene points; x grows right and y grows down.
@@ -831,8 +989,36 @@ pub struct MoleculeView {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SceneView {
     pub pages: Vec<PageView>,
-    /// In order; the first one's positions are `atoms[].position`.
+    /// The molecule scene instances in identifier (creation) order, wherever each is
+    /// contained; the first one's positions are `atoms[].position`.
     pub instances: Vec<InstanceView>,
+    /// Every scene object depth first from the page's roots, children in order, with its
+    /// parent. Each molecule object is the instance of the same ID in `instances`, which holds
+    /// its positions. Added within v1.
+    pub objects: Vec<ObjectView>,
+}
+
+/// A scene object and where it is contained: `parent` is the page's ID or a group's.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObjectView {
+    Molecule {
+        id: String,
+        parent: String,
+        molecule: &'static str,
+    },
+    Group {
+        id: String,
+        parent: String,
+        /// In order.
+        children: Vec<String>,
+    },
+    Graphic {
+        id: String,
+        parent: String,
+        shape: ShapeDto,
+        points: [PositionView; 2],
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -978,7 +1164,9 @@ impl DocumentResponse {
                                 .collect(),
                         })
                         .collect(),
+                    objects: object_views(document),
                 },
+                selection: selection_view(document.selection()),
             },
             session: SessionView {
                 saved_revision,
@@ -991,6 +1179,44 @@ impl DocumentResponse {
             recovery: None,
         }
     }
+}
+
+fn object_views(document: &Document) -> Vec<ObjectView> {
+    document
+        .objects_in_tree_order()
+        .into_iter()
+        .filter_map(|(id, parent)| {
+            let parent = match parent {
+                Parent::Page => PAGE_ID.to_owned(),
+                Parent::Group(group) => group.to_string(),
+            };
+            Some(match document.object(id)? {
+                SceneObject::Molecule => ObjectView::Molecule {
+                    id: id.to_string(),
+                    parent,
+                    molecule: MOLECULE_ID,
+                },
+                SceneObject::Group(children) => ObjectView::Group {
+                    id: id.to_string(),
+                    parent,
+                    children: children.iter().map(ToString::to_string).collect(),
+                },
+                SceneObject::Graphic(graphic) => ObjectView::Graphic {
+                    id: id.to_string(),
+                    parent,
+                    shape: match graphic.shape {
+                        Shape::Line => ShapeDto::Line,
+                        Shape::Rectangle => ShapeDto::Rectangle,
+                        Shape::Arrow => ShapeDto::Arrow,
+                    },
+                    points: graphic.points.map(|point| PositionView {
+                        x: point.x(),
+                        y: point.y(),
+                    }),
+                },
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

@@ -1,0 +1,257 @@
+{
+  "id": "selection-in-history",
+  "title": "A transaction's selection is checked against its result and recorded with the edit: undo restores the selection before it, redo the one after, and a selection-only request records nothing",
+  "requirements": [
+    "OPS-01",
+    "OPS-02"
+  ],
+  "axis": "history",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "expect": {
+        "document": {
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 40
+            },
+            {
+              "x": 30,
+              "y": 40
+            }
+          ]
+        }
+      ],
+      "selection": {
+        "objects": [
+          "s3"
+        ],
+        "atoms": [
+          "a1"
+        ],
+        "bonds": []
+      },
+      "expect": {
+        "document": {
+          "revision": 1,
+          "selection": {
+            "objects": [
+              "s3"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "group",
+          "objects": [
+            "s2",
+            "s3"
+          ]
+        }
+      ],
+      "selection": {
+        "objects": [
+          "s4"
+        ],
+        "atoms": [],
+        "bonds": []
+      },
+      "expect": {
+        "document": {
+          "revision": 2,
+          "selection": {
+            "objects": [
+              "s4"
+            ],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "move_objects",
+          "objects": [],
+          "offset": {
+            "x": 5,
+            "y": 5
+          }
+        }
+      ],
+      "selection": {
+        "objects": [
+          "s1"
+        ],
+        "atoms": [],
+        "bonds": []
+      },
+      "expect": {
+        "document": {
+          "revision": 2,
+          "selection": {
+            "objects": [
+              "s4"
+            ],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "selection": {
+            "objects": [
+              "s3"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          },
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "parent": "p1"
+              },
+              {
+                "id": "s2",
+                "parent": "p1"
+              },
+              {
+                "id": "s3",
+                "parent": "p1"
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "selection": {
+            "objects": [
+              "s4"
+            ],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "objects": [
+              {
+                "id": "s1"
+              },
+              {
+                "id": "s4"
+              },
+              {
+                "id": "s2"
+              },
+              {
+                "id": "s3"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 4
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "revision": 5,
+          "selection": {
+            "objects": [
+              "s3"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          }
+        }
+      }
+    }
+  ]
+}

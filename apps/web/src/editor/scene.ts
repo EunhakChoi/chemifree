@@ -1,0 +1,168 @@
+/**
+ * The scene panel's edits and the selection sent with every edit. Each builder takes the
+ * document the request will apply to (the latest, after everything queued before it) and
+ * returns null when the edit no longer applies, so quick presses are never refused.
+ */
+import {
+  sceneObjects,
+  type Command,
+  type DeleteMode,
+  type DocumentView,
+  type Position,
+  type SceneObjectView,
+  type SelectionView,
+  type Shape,
+} from '@/lib/document-contract'
+
+/** An object of the page's tree and how deep it is contained (0 for a root object). */
+export interface SceneRow {
+  object: SceneObjectView
+  depth: number
+}
+
+/** The page's objects in tree order with their depth. */
+export function sceneRows(document: DocumentView): SceneRow[] {
+  const depth = new Map<string, number>()
+  // Objects come depth first, so a group's depth is known before its children's.
+  return sceneObjects(document).map((object) => {
+    const level = depth.has(object.parent) ? (depth.get(object.parent) as number) + 1 : 0
+    depth.set(object.id, level)
+    return { object, depth: level }
+  })
+}
+
+/** The selected objects that `document` still holds, in tree order. */
+export function selectedObjects(document: DocumentView, selected: ReadonlySet<string>): SceneObjectView[] {
+  return sceneObjects(document).filter((object) => selected.has(object.id))
+}
+
+/** `id` and everything it contains. */
+function subtree(objects: ReadonlyMap<string, SceneObjectView>, id: string, into: Set<string>) {
+  const stack = [id]
+  while (stack.length > 0) {
+    const current = stack.pop() as string
+    if (into.has(current)) continue
+    into.add(current)
+    const object = objects.get(current)
+    if (object?.kind === 'group') stack.push(...object.children)
+  }
+}
+
+/** The group command for the selected objects, or null unless they share a parent. */
+export function groupCommand(document: DocumentView, selected: ReadonlySet<string>): Command | null {
+  const objects = selectedObjects(document, selected)
+  if (objects.length === 0 || new Set(objects.map((object) => object.parent)).size !== 1) return null
+  return { op: 'group', objects: objects.map((object) => object.id) }
+}
+
+/** One ungroup command per selected group, or null when no group is selected. */
+export function ungroupCommands(document: DocumentView, selected: ReadonlySet<string>): Command[] | null {
+  const groups = selectedObjects(document, selected).filter((object) => object.kind === 'group')
+  return groups.length > 0 ? groups.map((group) => ({ op: 'ungroup', group: group.id })) : null
+}
+
+/**
+ * The delete command for the selected objects, or null when nothing selected remains or it
+ * would delete every instance (the service keeps the last one).
+ */
+export function deleteObjectsCommand(document: DocumentView, selected: ReadonlySet<string>, mode: DeleteMode): Command | null {
+  const objects = selectedObjects(document, selected)
+  if (objects.length === 0) return null
+  const all = new Map(sceneObjects(document).map((object) => [object.id, object]))
+  const removed = new Set<string>()
+  for (const object of objects) {
+    if (mode === 'subtree') subtree(all, object.id, removed)
+    else removed.add(object.id)
+  }
+  const instances = document.scene?.instances ?? []
+  if (instances.every((instance) => removed.has(instance.id))) return null
+  return { op: 'delete_objects', objects: objects.map((object) => object.id), mode }
+}
+
+/**
+ * The move command for the selected objects, sent as selected: a group and its child may both
+ * be listed, and the service moves every leaf once. Null when nothing selected remains.
+ */
+export function moveObjectsCommand(document: DocumentView, selected: ReadonlySet<string>, offset: Position): Command | null {
+  const objects = selectedObjects(document, selected)
+  return objects.length > 0 ? { op: 'move_objects', objects: objects.map((object) => object.id), offset } : null
+}
+
+/** A new graphic's size, and how far below the drawing it goes. */
+export const GRAPHIC_SIZE = { width: 60, height: 30 }
+const GRAPHIC_GAP = 40
+const EMPTY_PAGE_AT: Position = { x: 40, y: 40 }
+
+/**
+ * A graphic of `shape` at a free spot: below everything drawn (every instance's atoms and every
+ * graphic), at the drawing's left edge, so repeated presses step down the page.
+ */
+export function addGraphicCommand(document: DocumentView, shape: Shape): Command {
+  const points: Position[] = [
+    ...(document.scene?.instances.flatMap((instance) => instance.positions) ?? document.atoms.map((atom) => atom.position)),
+    ...sceneObjects(document).flatMap((object) => (object.kind === 'graphic' ? object.points : [])),
+  ]
+  const at =
+    points.length === 0
+      ? EMPTY_PAGE_AT
+      : { x: Math.min(...points.map((point) => point.x)), y: Math.max(...points.map((point) => point.y)) + GRAPHIC_GAP }
+  const end = { x: at.x + GRAPHIC_SIZE.width, y: at.y + GRAPHIC_SIZE.height }
+  const middle = at.y + GRAPHIC_SIZE.height / 2
+  return {
+    op: 'add_graphic',
+    shape,
+    points: shape === 'rectangle' ? [at, end] : [{ x: at.x, y: middle }, { x: end.x, y: middle }],
+  }
+}
+
+/** Every identifier a selection names, as the editor keeps it. */
+export function selectionSet(selection: SelectionView | undefined): Set<string> {
+  return new Set(selection ? [...selection.objects, ...selection.atoms, ...selection.bonds] : [])
+}
+
+/**
+ * The selection sent with `commands`: what is selected and still in `document`, less what the
+ * commands delete (atoms with their bonds, bonds, instances, objects with their contents when
+ * deleted as a subtree, ungrouped groups), so it names only what the edited document holds.
+ */
+export function selectionAfter(selected: ReadonlySet<string>, commands: Command[], document: DocumentView): SelectionView {
+  const objects = new Map(sceneObjects(document).map((object) => [object.id, object]))
+  const removed = new Set<string>()
+  for (const command of commands) {
+    switch (command.op) {
+      case 'delete_atoms': {
+        const atoms = new Set(command.atoms)
+        command.atoms.forEach((id) => removed.add(id))
+        for (const bond of document.bonds) {
+          if (atoms.has(bond.begin) || atoms.has(bond.end)) removed.add(bond.id)
+        }
+        break
+      }
+      case 'delete_bonds':
+        command.bonds.forEach((id) => removed.add(id))
+        break
+      case 'delete_instance':
+        removed.add(command.instance)
+        break
+      case 'ungroup':
+        removed.add(command.group)
+        break
+      case 'delete_objects':
+        for (const id of command.objects) {
+          if (command.mode === 'subtree') subtree(objects, id, removed)
+          else removed.add(id)
+        }
+        break
+      default:
+        break
+    }
+  }
+  const atoms = new Set(document.atoms.map((atom) => atom.id))
+  const bonds = new Set(document.bonds.map((bond) => bond.id))
+  const kept = [...selected].filter((id) => !removed.has(id))
+  return {
+    objects: kept.filter((id) => objects.has(id)),
+    atoms: kept.filter((id) => atoms.has(id)),
+    bonds: kept.filter((id) => bonds.has(id)),
+  }
+}

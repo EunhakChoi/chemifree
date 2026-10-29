@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArchiveRestoreIcon,
   ArrowDownIcon,
@@ -11,8 +11,10 @@ import {
   EraserIcon,
   FilePlus2Icon,
   FolderOpenIcon,
+  GroupIcon,
   HexagonIcon,
   MinusIcon,
+  MoveRightIcon,
   MousePointer2Icon,
   PencilIcon,
   PlusIcon,
@@ -20,9 +22,11 @@ import {
   RotateCwIcon,
   SaveIcon,
   SlashIcon,
+  SquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
   Undo2Icon,
+  UngroupIcon,
   XIcon,
 } from 'lucide-react'
 
@@ -50,6 +54,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Card,
   CardAction,
@@ -73,6 +78,15 @@ import * as edits from '@/editor/atom-edits'
 import { stillApplicable } from '@/editor/commands'
 import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
+import {
+  addGraphicCommand,
+  deleteObjectsCommand,
+  groupCommand,
+  moveObjectsCommand,
+  sceneRows,
+  selectedObjects,
+  ungroupCommands,
+} from '@/editor/scene'
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
@@ -89,10 +103,14 @@ import {
   type ListSort,
   type Position,
   type RecoveryView,
+  type DeleteMode,
   type Hydrogens,
+  type SceneObjectView,
+  type Shape,
   type QueryAtom,
   type Radical,
   type StorageReason,
+  sceneObjects,
 } from '@/lib/document-contract'
 
 const ELEMENTS = ['C', 'H', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
@@ -478,10 +496,19 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondOrder, setBondOrder] = useState<DrawnOrder>('single')
-  const [selection, setSelection] = useState<Set<string>>(new Set())
-  const exists = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id)])
-  const selected = new Set([...selection].filter((id) => exists.has(id)))
-  const selectedIds = [...selected]
+  // Selection is kept by the editor: it goes with each edit, and undo and redo replace it.
+  const exists = useMemo(
+    () =>
+      new Set([
+        ...document.atoms.map((atom) => atom.id),
+        ...document.bonds.map((bond) => bond.id),
+        ...sceneObjects(document).map((object) => object.id),
+      ]),
+    [document],
+  )
+  const selected = new Set([...editor.selection].filter((id) => exists.has(id)))
+  // The inspector and the Delete key work on atoms and bonds; objects have the scene panel.
+  const selectedIds = [...selected].filter((id) => !id.startsWith('s'))
 
   function deleteSelection() {
     const atoms = selectedIds.filter((id) => id.startsWith('a'))
@@ -495,7 +522,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       ...(atoms.length ? [{ op: 'delete_atoms' as const, atoms }] : []),
       ...(remainingBonds.length ? [{ op: 'delete_bonds' as const, bonds: remainingBonds }] : []),
     ])
-    setSelection(new Set())
+    editor.select(new Set())
   }
 
   useEffect(() => {
@@ -520,8 +547,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       } else if (!mod && !event.altKey) {
         const shortcut = TOOLS.find((item) => item.key.toLowerCase() === key)
         if (shortcut) setTool(shortcut.value)
-        else if (key === 'escape') setSelection(new Set())
-        else if ((key === 'delete' || key === 'backspace') && selected.size > 0) {
+        else if (key === 'escape') editor.select(new Set())
+        else if ((key === 'delete' || key === 'backspace') && selectedIds.length > 0) {
           event.preventDefault()
           deleteSelection()
         }
@@ -643,7 +670,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             element={element}
             bondOrder={bondOrder}
             selection={selected}
-            onSelectionChange={setSelection}
+            onSelectionChange={editor.select}
             onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
             disabled={editor.busy}
           />
@@ -651,12 +678,14 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
+          {document.scene && <ScenePanel document={document} selected={selected} editor={editor} />}
         </div>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         Bond tool: click an atom to grow a chain, drag to bond, click a bond to cycle its order. Atom tool: click empty space
         to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select. Each
         placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
+        Placements, groups, and graphics are selected, grouped, moved, and deleted in the Scene panel, not on the canvas.
       </p>
     </div>
   )
@@ -1020,6 +1049,154 @@ function Placements({ instances, editor }: { instances: InstanceView[]; editor: 
       >
         <CopyIcon data-icon="inline-start" aria-hidden="true" />Duplicate placement
       </Button>
+    </section>
+  )
+}
+
+const SHAPES: { value: Shape; label: string; icon: ReactNode }[] = [
+  { value: 'line', label: 'Add line', icon: <MinusIcon /> },
+  { value: 'rectangle', label: 'Add rectangle', icon: <SquareIcon /> },
+  { value: 'arrow', label: 'Add arrow', icon: <MoveRightIcon /> },
+]
+
+/** What a row of the scene tree says about its object. */
+function objectText(object: SceneObjectView) {
+  switch (object.kind) {
+    case 'molecule':
+      return 'placement'
+    case 'group':
+      return `group of ${object.children.length}`
+    case 'graphic':
+      return object.shape
+    default: {
+      const unhandled: never = object
+      return unhandled
+    }
+  }
+}
+
+/**
+ * The page's scene tree: placements, groups, and graphics, selected with checkboxes. Grouping,
+ * ungrouping, moving, deleting, and adding graphics act on the selection; each edit is built
+ * from the latest document when its request runs, after everything queued before it, and is not
+ * sent when it no longer applies, so quick presses are never refused.
+ */
+function ScenePanel({ document, selected, editor }: { document: DocumentView; selected: ReadonlySet<string>; editor: DocumentEditor }) {
+  const rows = useMemo(() => sceneRows(document), [document])
+  const chosen = selectedObjects(document, selected)
+  const [deleting, setDeleting] = useState(false)
+  // Pressed actions use the selection as it is when pressed and the document as it is when sent.
+  const act = (build: (latest: DocumentView, objects: ReadonlySet<string>) => Command[] | null) => {
+    const objects = new Set(chosen.map((object) => object.id))
+    void editor.apply((latest) => build(latest, objects))
+  }
+  const toggle = (id: string, checked: boolean) => {
+    const next = new Set(editor.selection)
+    if (checked) next.add(id)
+    else next.delete(id)
+    editor.select(next)
+  }
+  const remove = (mode: DeleteMode) => {
+    setDeleting(false)
+    act((latest, objects) => commandList(deleteObjectsCommand(latest, objects, mode)))
+  }
+  const nothing = chosen.length === 0
+  return (
+    <section aria-labelledby="scene-heading" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+      <h3 id="scene-heading" className="text-sm font-medium">Scene</h3>
+      <ul aria-label="Scene objects" className="flex max-h-64 flex-col gap-1 overflow-auto">
+        {rows.map(({ object, depth }) => (
+          <li key={object.id} data-scene-object={object.id} style={{ paddingInlineStart: `${depth * 12}px` }}>
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox
+                aria-label={`Select ${object.id}, ${objectText(object)}`}
+                checked={selected.has(object.id)}
+                onCheckedChange={(checked) => toggle(object.id, checked)}
+              />
+              <span className="font-mono">{object.id}</span>
+              <span className="text-muted-foreground">{objectText(object)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={groupCommand(document, selected) === null}
+          onClick={() => act((latest, objects) => commandList(groupCommand(latest, objects)))}
+        >
+          <GroupIcon data-icon="inline-start" aria-hidden="true" />Group
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!chosen.some((object) => object.kind === 'group')}
+          onClick={() => act((latest, objects) => ungroupCommands(latest, objects))}
+        >
+          <UngroupIcon data-icon="inline-start" aria-hidden="true" />Ungroup
+        </Button>
+        <AlertDialog open={deleting} onOpenChange={setDeleting}>
+          <AlertDialogTrigger
+            render={
+              <Button size="sm" variant="outline" disabled={deleteObjectsCommand(document, selected, 'object_only') === null}>
+                <Trash2Icon data-icon="inline-start" aria-hidden="true" />Delete
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {chosen.length === 1 ? chosen[0].id : `${chosen.length} objects`}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Choose what goes with a group: everything it contains, or the group alone, its contents taking its place. Undo
+                brings it back.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction variant="outline" onClick={() => remove('object_only')}>
+                Delete object only
+              </AlertDialogAction>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={deleteObjectsCommand(document, selected, 'subtree') === null}
+                onClick={() => remove('subtree')}
+              >
+                Delete with contents
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-auto text-xs text-muted-foreground">Move</span>
+        {NUDGES.map((nudge) => (
+          <Button
+            key={nudge.label}
+            size="icon-xs"
+            variant="outline"
+            aria-label={`Move selected objects ${nudge.label}`}
+            disabled={nothing}
+            onClick={() => act((latest, objects) => commandList(moveObjectsCommand(latest, objects, nudge.offset)))}
+          >
+            {nudge.icon}
+          </Button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        {SHAPES.map((shape) => (
+          <Hint key={shape.value} label={shape.label}>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              aria-label={shape.label}
+              onClick={() => void editor.apply((latest) => [addGraphicCommand(latest, shape.value)])}
+            >
+              {shape.icon}
+            </Button>
+          </Hint>
+        ))}
+      </div>
     </section>
   )
 }

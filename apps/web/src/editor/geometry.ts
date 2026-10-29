@@ -2,7 +2,7 @@
  * Drawing geometry for the structure canvas. Coordinates are document points (pt) with y
  * growing downward, the same space the API stores. Nothing here perceives chemistry.
  */
-import type { AtomView, BondOrder, BondView, DocumentView, Position } from '@/lib/document-contract'
+import type { AtomView, BondOrder, BondView, DocumentView, Position, SceneObjectView } from '@/lib/document-contract'
 import { placed, textWidth, union, type AtomLabel, type Box } from '@/editor/label'
 
 export const BOND_LENGTH = 30
@@ -476,9 +476,106 @@ export function placementFrame(positions: Position[], labels: Box[], id: string)
   return { rect, idAt, idSize: FRAME_ID_SIZE, box: union([stroke, idBox]) }
 }
 
+export type GraphicView = Extract<SceneObjectView, { kind: 'graphic' }>
+
+/** How a graphic is drawn: a line, a rectangle, or a line with a filled head at its end. */
+export type GraphicShape =
+  | { kind: 'line'; from: Position; to: Position }
+  | { kind: 'rectangle'; x: number; y: number; width: number; height: number }
+  | { kind: 'arrow'; from: Position; to: Position; head: [Position, Position, Position] }
+
+export const GRAPHIC_STROKE = 1.2
+/** A selected graphic or bond is underlaid with a stroke this wide. */
+export const SELECTION_STROKE = 8
+const ARROW_HEAD_LENGTH = 8
+const ARROW_HEAD_HALF_WIDTH = 3.5
+
+export function graphicShape(graphic: GraphicView): GraphicShape {
+  const [from, to] = graphic.points
+  switch (graphic.shape) {
+    case 'line':
+      return { kind: 'line', from, to }
+    case 'rectangle':
+      return {
+        kind: 'rectangle',
+        x: Math.min(from.x, to.x),
+        y: Math.min(from.y, to.y),
+        width: Math.abs(to.x - from.x),
+        height: Math.abs(to.y - from.y),
+      }
+    case 'arrow': {
+      const length = distance(from, to)
+      // A zero-length arrow still points somewhere: right.
+      const [ux, uy] = length === 0 ? [1, 0] : [(to.x - from.x) / length, (to.y - from.y) / length]
+      const base = { x: to.x - ARROW_HEAD_LENGTH * ux, y: to.y - ARROW_HEAD_LENGTH * uy }
+      return {
+        kind: 'arrow',
+        from,
+        to,
+        head: [
+          to,
+          { x: round(base.x - ARROW_HEAD_HALF_WIDTH * uy), y: round(base.y + ARROW_HEAD_HALF_WIDTH * ux) },
+          { x: round(base.x + ARROW_HEAD_HALF_WIDTH * uy), y: round(base.y - ARROW_HEAD_HALF_WIDTH * ux) },
+        ],
+      }
+    }
+    default: {
+      const unhandled: never = graphic.shape
+      return unhandled
+    }
+  }
+}
+
+/**
+ * Everything a graphic may paint: its points (and an arrow's head), grown by half the selection
+ * underlay, which is wider than the stroke.
+ */
+export function graphicBox(graphic: GraphicView): Box {
+  const shape = graphicShape(graphic)
+  const corners = shape.kind === 'arrow' ? [shape.from, ...shape.head] : graphic.points
+  const extent = union(corners.map(({ x, y }) => ({ x, y, width: 0, height: 0 })))
+  return grown(extent, SELECTION_STROKE / 2)
+}
+
+/** A graphic's accessible name: its kind, ID, and points. */
+export function graphicName(graphic: GraphicView) {
+  const [from, to] = graphic.points
+  const kind = graphic.shape === 'line' ? 'Line' : graphic.shape === 'rectangle' ? 'Rectangle' : 'Arrow'
+  return `${kind} ${graphic.id} from (${from.x}, ${from.y}) to (${to.x}, ${to.y})`
+}
+
+/**
+ * The page's graphics with their boxes, and a frame (the placement frame's shape, around the
+ * group's subtree) for every group that contains something drawn. `instanceBoxes` holds what
+ * each instance draws: its placement frame, or its atoms and label boxes; an instance without
+ * atoms draws nothing. Each object is visited once, children before their group.
+ */
+export function sceneLayout(objects: SceneObjectView[], instanceBoxes: ReadonlyMap<string, Box | null>) {
+  const graphics: Array<{ graphic: GraphicView; box: Box }> = []
+  const frames = new Map<string, ReturnType<typeof placementFrame>>()
+  const extents = new Map<string, Box | null>()
+  // `objects` is depth first, so in reverse every child comes before its group.
+  for (const object of [...objects].reverse()) {
+    if (object.kind === 'graphic') {
+      const box = graphicBox(object)
+      graphics.push({ graphic: object, box })
+      extents.set(object.id, box)
+    } else if (object.kind === 'molecule') {
+      extents.set(object.id, instanceBoxes.get(object.id) ?? null)
+    } else {
+      const inside = object.children.flatMap((child) => extents.get(child) ?? [])
+      const frame = inside.length > 0 ? placementFrame([], inside, object.id) : null
+      if (frame) frames.set(object.id, frame)
+      extents.set(object.id, frame?.box ?? null)
+    }
+  }
+  graphics.reverse()
+  return { graphics, frames }
+}
+
 /**
  * The frame, grown to include every atom with a margin and every box (already placed) drawn
- * around them: label boxes and placement frames.
+ * around them: label boxes, placement frames, graphics, and group frames.
  */
 export function viewBox(positions: Position[], boxes: Box[] = []) {
   let minX = FRAME.x

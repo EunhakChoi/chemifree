@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 4,
+  "suite_version": 5,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -331,21 +331,65 @@
       "pending": null,
       "failure": null,
       "case_sha256": "758cd43f5cef83b23c0eb25b20c15f83a46a3e8390b9699491f4bed490156455"
+    },
+    {
+      "id": "scene-move-once",
+      "title": "Scene objects form one containment tree: grouping keeps tree order, and moving a group together with what it contains moves each leaf once",
+      "requirements": [
+        "MODEL-01",
+        "OPS-01",
+        "OPS-02"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "547e5b97a58e680da9c89deea2c5d3c5b45ceda6f6da5774db62b7be7479f9c5"
+    },
+    {
+      "id": "selection-in-history",
+      "title": "A transaction's selection is checked against its result and recorded with the edit: undo restores the selection before it, redo the one after, and a selection-only request records nothing",
+      "requirements": [
+        "OPS-01",
+        "OPS-02"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6639e3404a113ec544fe724898e1c6389fa25cdeab6bbd982b9c021793fb6590"
+    },
+    {
+      "id": "scene-commands-refused",
+      "title": "Refused scene commands and selections carry their reason code, a selection naming what the edit removes has no command index, and nothing changes",
+      "requirements": [
+        "MODEL-01",
+        "OPS-01",
+        "OPS-02"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a36d81dfdc5dc496a10064ecbac2c7db0e08750dcd0979bd71e18d9ae92c0a06"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 12,
+      "passed": 14,
       "failed": 0,
       "not_run": 2
     },
     "reject": {
-      "passed": 10,
+      "passed": 11,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 22,
+      "passed": 25,
       "failed": 0,
       "not_run": 2
     }

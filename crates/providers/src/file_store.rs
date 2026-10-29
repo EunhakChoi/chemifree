@@ -883,11 +883,12 @@ pub fn default_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use chemifree_domain::document::{
-        Atom, AtomEdit, AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, InstanceId,
-        MAX_ATOMS, MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MAX_REVISION, MIN_CHARGE,
-        NewAtomPositions, Point, Vector,
+        Atom, AtomEdit, AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, MAX_ATOMS,
+        MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MAX_REVISION, MIN_CHARGE, NewAtomPositions,
+        ObjectId, Point, Vector,
     };
     use chemifree_domain::element::Element;
+    use chemifree_domain::scene::{Graphic, MAX_OBJECTS, Selection, Shape};
     use chemifree_domain::states::{
         AtomKind, AttachmentPoints, BondQuery, Hydrogens, MAX_STATED_HYDROGENS, QueryAtom,
         QueryBondOrder, Radical,
@@ -1108,7 +1109,7 @@ mod tests {
     #[test]
     fn a_document_at_every_limit_encodes_within_the_read_limit() {
         let mut document = at_every_limit();
-        let last = InstanceId::from_serial(MAX_INSTANCES as u32).unwrap();
+        let last = ObjectId::from_serial(MAX_INSTANCES as u32).unwrap();
         let atoms: Vec<AtomId> = (1..=MAX_ATOMS)
             .map(|serial| AtomId::from_serial(serial as u32).unwrap())
             .collect();
@@ -1155,6 +1156,70 @@ mod tests {
             document.apply(&commands).unwrap();
         }
         assert_eq!(document.undo_depth(), HISTORY_LIMIT);
+        assert_within_read_limit(&document);
+    }
+
+    /// The same at the scene limits: 1000 objects (the 20 instances, 970 graphics with long
+    /// coordinates, and 10 groups holding them), everything selected, and a history of moves
+    /// of every graphic, each entry with every graphic's points before and after, followed by
+    /// one carrying the whole selection on both sides. The change limit counts the identifiers
+    /// a selection names, so the history stays within it however large the selection.
+    #[test]
+    fn a_document_at_the_scene_limits_encodes_within_the_read_limit() {
+        let mut document = at_every_limit();
+        let graphics = MAX_OBJECTS - MAX_INSTANCES - 10;
+        let commands: Vec<Command> = (0..graphics)
+            .map(|index| Command::AddGraphic {
+                graphic: Graphic {
+                    shape: Shape::Rectangle,
+                    points: [
+                        Point::new(-99_999.0 + index as f64 * 0.013, 99_999.0).unwrap(),
+                        Point::new(99_999.0, -99_999.0 + index as f64 * 0.017).unwrap(),
+                    ],
+                },
+                parent: None,
+            })
+            .collect();
+        for batch in commands.chunks(MAX_COMMANDS) {
+            document.apply(batch).unwrap();
+        }
+        let roots: Vec<ObjectId> = document.roots()[MAX_INSTANCES..].to_vec();
+        let groups: Vec<Command> = roots
+            .chunks(graphics / 10)
+            .map(|members| Command::Group {
+                objects: members.to_vec(),
+            })
+            .collect();
+        document.apply(&groups).unwrap();
+        assert_eq!(document.objects().len(), MAX_OBJECTS);
+        let groups: Vec<ObjectId> = document.roots()[MAX_INSTANCES..].to_vec();
+        let move_graphics = Command::MoveObjects {
+            objects: groups,
+            offset: Vector {
+                dx: 0.000_123_456_789,
+                dy: -0.000_987_654_321,
+            },
+        };
+        for _ in 0..HISTORY_LIMIT {
+            document
+                .apply(std::slice::from_ref(&move_graphics))
+                .unwrap();
+        }
+        let everything = Selection {
+            objects: document.objects().map(|(id, _)| id).collect(),
+            atoms: document.atoms().map(|(id, _)| id).collect(),
+            bonds: document.bonds().map(|(id, _)| id).collect(),
+        };
+        document
+            .apply_with_selection(
+                std::slice::from_ref(&move_graphics),
+                Some(everything.clone()),
+            )
+            .unwrap();
+        document
+            .apply_with_selection(&[move_graphics], Some(everything))
+            .unwrap();
+        assert!(document.undo_depth() > 2, "{}", document.undo_depth());
         assert_within_read_limit(&document);
     }
 
@@ -1244,7 +1309,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":3", "\"format_version\":99"),
+            valid.replace("\"format_version\":4", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {

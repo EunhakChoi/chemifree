@@ -18,7 +18,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-use crate::contract::{CommandDto, DocumentResponse, DocumentView, RecoveryView, SessionView};
+use crate::contract::{
+    CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
+};
 use crate::documents::validate_request_id;
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
@@ -276,7 +278,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 17] = [
+const TRANSACTION_PARTS: [Entry; 24] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -320,6 +322,31 @@ const TRANSACTION_PARTS: [Entry; 17] = [
         "Deletes a scene instance with its positions; the last one stays.",
     ),
     runs(
+        "add_graphic",
+        "Adds a line, rectangle, or arrow given by two points, on the page or in a group.",
+    ),
+    runs(
+        "group",
+        "Replaces scene objects that share a parent with a new group where the first was.",
+    ),
+    runs(
+        "ungroup",
+        "Puts a group's children in its place and deletes the group.",
+    ),
+    runs(
+        "delete_objects",
+        "Deletes scene objects with their subtrees or alone (a group's children take its \
+         place); the last scene instance stays.",
+    ),
+    runs(
+        "move_objects",
+        "Translates every instance and graphic in the union of the objects' subtrees once.",
+    ),
+    runs(
+        "reorder",
+        "Moves a scene object among its parent's children.",
+    ),
+    runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
          default). Representation only: no hydrogen count is computed from valence.",
@@ -351,9 +378,23 @@ const TRANSACTION_PARTS: [Entry; 17] = [
     runs(
         "scene_placement",
         "One chemical graph per document, drawn by scene instances on one page, each with its \
-         own atom positions. Groups and other scene objects are not represented.",
+         own atom positions.",
     )
     .carried_out_by(&["add_instance", "move_instance", "delete_instance"]),
+    runs(
+        "scene_containment",
+        "One page's containment tree of instances, groups, and graphics (line, rectangle, \
+         arrow): one parent each, at most 16 deep and 1000 objects, with the selection recorded \
+         in history. Several graphs, text, and other objects are not represented.",
+    )
+    .carried_out_by(&[
+        "add_graphic",
+        "group",
+        "ungroup",
+        "delete_objects",
+        "move_objects",
+        "reorder",
+    ]),
 ];
 
 const PROPERTY_PARTS: [Entry; 2] = [
@@ -510,6 +551,8 @@ struct TransactionParameters {
     document_id: String,
     expected_revision: u64,
     commands: Vec<CommandDto>,
+    #[serde(default)]
+    selection: Option<SelectionDto>,
 }
 
 #[derive(serde::Deserialize)]
@@ -861,11 +904,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {
-                    Ok(p) => known.document(self.apply_transaction(
+                    Ok(p) => known.document(self.apply_transaction_with_selection(
                         &p.document_id,
                         request_id,
                         p.expected_revision,
                         p.commands,
+                        p.selection,
                     )),
                     Err(invalid) => known.invalid(invalid),
                 }

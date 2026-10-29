@@ -1,0 +1,292 @@
+{
+  "id": "scene-commands-refused",
+  "title": "Refused scene commands and selections carry their reason code, a selection naming what the edit removes has no command index, and nothing changes",
+  "requirements": [
+    "MODEL-01",
+    "OPS-01",
+    "OPS-02"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 40
+            },
+            {
+              "x": 30,
+              "y": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "group",
+          "objects": [
+            "s3"
+          ]
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "delete_objects",
+          "objects": [
+            "s4"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "delete_mode_missing"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "move_objects",
+          "objects": [
+            "s9"
+          ],
+          "offset": {
+            "x": 1,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "object_unknown"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "ungroup",
+          "group": "s3"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "object_kind_mismatch"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s1",
+            "s3"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "group_mixed_parents"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "reorder",
+          "object": "s1",
+          "index": 3
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "index_out_of_range"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "delete_objects",
+          "objects": [
+            "s1",
+            "s2"
+          ],
+          "mode": "object_only"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "last_instance"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "parent": "s1"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "object_kind_mismatch"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "delete_objects",
+          "objects": [
+            "s4"
+          ],
+          "mode": "subtree"
+        }
+      ],
+      "selection": {
+        "objects": [
+          "s3"
+        ],
+        "atoms": [],
+        "bonds": []
+      },
+      "expect_error": {
+        "code": "invalid_command",
+        "reason": "selection_unknown"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "title": "Untitled",
+          "scene": {
+            "objects": [
+              {
+                "id": "s1"
+              },
+              {
+                "id": "s2"
+              },
+              {
+                "id": "s4"
+              },
+              {
+                "id": "s3"
+              }
+            ]
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    }
+  ]
+}

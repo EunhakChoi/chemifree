@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Change, ChangeSet, Command,
-    Document, DocumentId, EditError, HISTORY_LIMIT, HistoryError, InstanceId, MAX_ATOMS,
-    MAX_COMMANDS, MAX_EDIT_REVISION, MAX_INSTANCES, MAX_REVISION, NewAtomPositions, Outcome, Point,
+    Document, DocumentId, EditError, HISTORY_LIMIT, HistoryError, MAX_ATOMS, MAX_COMMANDS,
+    MAX_EDIT_REVISION, MAX_INSTANCES, MAX_REVISION, NewAtomPositions, ObjectId, Outcome, Point,
     PositionKey, RevisionsExhausted, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
@@ -25,8 +25,8 @@ fn bond(serial: u32) -> BondId {
     BondId::from_serial(serial).unwrap()
 }
 
-fn instance(serial: u32) -> InstanceId {
-    InstanceId::from_serial(serial).unwrap()
+fn instance(serial: u32) -> ObjectId {
+    ObjectId::from_serial(serial).unwrap()
 }
 
 fn here(x: f64, y: f64) -> NewAtomPositions {
@@ -42,7 +42,7 @@ fn move_atoms(atoms: Vec<AtomId>, dx: f64, dy: f64) -> Command {
 }
 
 /// Positions of `instance` as `(atom, x, y)`.
-fn positions(document: &Document, instance: InstanceId) -> Vec<(String, f64, f64)> {
+fn positions(document: &Document, instance: ObjectId) -> Vec<(String, f64, f64)> {
     document
         .positions(instance)
         .map(|(atom, point)| (atom.to_string(), point.x(), point.y()))
@@ -723,7 +723,7 @@ fn a_new_document_has_one_empty_scene_instance() {
     assert_eq!(document.instances().collect::<Vec<_>>(), [instance(1)]);
     assert_eq!(document.first_instance(), instance(1));
     assert_eq!(positions(&document, instance(1)), []);
-    assert_eq!(document.numbering().next_instance, 2);
+    assert_eq!(document.numbering().next_object, 2);
 }
 
 #[test]
@@ -998,7 +998,7 @@ fn instance_offsets_and_count_are_bounded() {
     );
     let more: Vec<_> = (1..MAX_INSTANCES).map(|_| add_instance(1.0, 1.0)).collect();
     document.apply(&more).unwrap();
-    assert_eq!(document.instances().len(), MAX_INSTANCES);
+    assert_eq!(document.instances().count(), MAX_INSTANCES);
     assert_eq!(
         command_error(&mut document, &[add_instance(1.0, 1.0)]).error,
         EditError::InstanceLimit
@@ -1032,19 +1032,20 @@ fn restore_rejects_scenes_commands_could_not_produce() {
     );
 
     let mut none = document.to_parts();
-    none.instances.clear();
+    none.objects.clear();
+    none.roots.clear();
     none.positions.clear();
     assert!(Document::restore(none).is_err(), "no instance at all");
 
     let mut reused = document.to_parts();
-    reused.next_instance = 2;
+    reused.next_object = 2;
     assert!(
         Document::restore(reused).is_err(),
         "s2 would be handed out again"
     );
 
     let mut zero = document.to_parts();
-    zero.next_instance = 0;
+    zero.next_object = 0;
     assert!(Document::restore(zero).is_err());
 
     let mut mismatched = document.to_parts();

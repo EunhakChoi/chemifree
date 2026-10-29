@@ -20,12 +20,13 @@ use serde::Serialize;
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
     CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource, CreateDocumentRequest,
-    DeleteResponse, DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView,
-    DraftDiscardResponse, DraftFailureView, DraftRequest, HydrogensDto, InstanceView, ListQuery,
-    ListSort, MoleculeView, PageView, PointDto, PositionView, QueryBondOrderDto, QueryDto,
-    RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView, RenameRequest, RestoreRequest,
-    RestoreResponse, RevisionRequest, SaveAsRequest, SceneView, SessionView, TransactionRequest,
-    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
+    DELETE_MODE_MISSING, DeleteModeDto, DeleteResponse, DocumentListResponse, DocumentResponse,
+    DocumentSummary, DocumentView, DraftDiscardResponse, DraftFailureView, DraftRequest,
+    HydrogensDto, InstanceView, ListQuery, ListSort, MoleculeView, ObjectView, PageView, PointDto,
+    PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
+    RecoveryView, RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
+    SceneView, SelectionDto, SessionView, ShapeDto, TransactionRequest, TrashListResponse,
+    TrashedSummary, UnreadableDocument, query_label,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
@@ -113,6 +114,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.documents.get(id)
     }
 
+    /// Applies `commands`, keeping the previous selection wherever it still exists.
     pub fn apply_transaction(
         &self,
         id: &str,
@@ -120,8 +122,22 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         expected_revision: u64,
         commands: Vec<CommandDto>,
     ) -> Result<DocumentResponse, ApplicationError> {
+        self.apply_transaction_with_selection(id, request_id, expected_revision, commands, None)
+    }
+
+    /// Applies `commands` and records `selection`, the client's selection after them, with the
+    /// change set; `None` keeps the previous selection wherever it still exists. Commands that
+    /// change nothing record nothing, the selection included.
+    pub fn apply_transaction_with_selection(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        commands: Vec<CommandDto>,
+        selection: Option<SelectionDto>,
+    ) -> Result<DocumentResponse, ApplicationError> {
         self.documents
-            .transact(id, request_id, expected_revision, commands)
+            .transact(id, request_id, expected_revision, commands, selection)
     }
 
     pub fn undo(

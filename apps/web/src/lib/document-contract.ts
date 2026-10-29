@@ -74,8 +74,33 @@ export interface InstanceView {
 
 export interface SceneView {
   pages: { id: string }[]
-  /** In order; the first one's positions are `atoms[].position`. */
+  /**
+   * In identifier (creation) order, wherever each is contained; the first one's positions are
+   * `atoms[].position`.
+   */
   instances: InstanceView[]
+  /**
+   * Every scene object depth first from the page's roots, children in order. Each molecule
+   * object is the instance of the same ID. Added within v1: a service from before groups and
+   * graphics leaves it out (see `sceneObjects`).
+   */
+  objects?: SceneObjectView[]
+}
+
+/** What a graphic draws between its two points. */
+export type Shape = 'line' | 'rectangle' | 'arrow'
+
+/** A scene object and where it is contained: `parent` is the page's ID or a group's. */
+export type SceneObjectView =
+  | { kind: 'molecule'; id: string; parent: string; molecule: string }
+  | { kind: 'group'; id: string; parent: string; children: string[] }
+  | { kind: 'graphic'; id: string; parent: string; shape: Shape; points: [Position, Position] }
+
+/** Selected scene objects, atoms, and bonds. */
+export interface SelectionView {
+  objects: string[]
+  atoms: string[]
+  bonds: string[]
 }
 
 export interface BondView {
@@ -100,6 +125,11 @@ export interface DocumentView {
    */
   molecule?: { id: string }
   scene?: SceneView
+  /**
+   * What the latest edit, undo, or redo left selected. Added within v1 together with
+   * `scene.objects`; a service from before them leaves both out and takes no selection.
+   */
+  selection?: SelectionView
 }
 
 export interface SessionView {
@@ -242,6 +272,19 @@ export type Command =
   | { op: 'add_instance'; source?: string; offset: Position }
   | { op: 'move_instance'; instance: string; offset: Position }
   | { op: 'delete_instance'; instance: string }
+  /** A line, rectangle, or arrow, at the end of `parent` (a group) or of the page's roots. */
+  | { op: 'add_graphic'; shape: Shape; points: [Position, Position]; parent?: string }
+  /** Objects sharing a parent become a new group where the first of them was. */
+  | { op: 'group'; objects: string[] }
+  | { op: 'ungroup'; group: string }
+  /** `mode` is required: everything each object contains too, or the object alone. */
+  | { op: 'delete_objects'; objects: string[]; mode: DeleteMode }
+  /** Every instance and graphic in the union of the objects' subtrees moves once. */
+  | { op: 'move_objects'; objects: string[]; offset: Position }
+  | { op: 'reorder'; object: string; index: number }
+
+/** What `delete_objects` removes besides the objects it names. */
+export type DeleteMode = 'subtree' | 'object_only'
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene
@@ -274,7 +317,10 @@ export interface ErrorDetails {
   currentRevision?: number
   commandIndex?: number
   reason?: StorageReason
-  /** With `invalid_command`, the code of a refused combination of recorded states. */
+  /**
+   * With `invalid_command`, the refusal's stable code: a combination of recorded states, a
+   * scene command (`object_unknown`, `delete_mode_missing`, …), or the selection.
+   */
   stateReason?: string
 }
 
@@ -520,6 +566,81 @@ function isScene(document: Record<string, unknown>, atoms: AtomView[]): boolean 
   })
 }
 
+const SHAPES: readonly unknown[] = ['line', 'rectangle', 'arrow']
+
+const isPoint = (value: unknown): value is Position => isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y)
+
+/**
+ * `scene.objects` and `selection`, which come together or not at all: every object once, of a
+ * known kind, contained by the page or by a group that lists it (so each has one parent and
+ * every one is reached from the page, which rules out cycles), every molecule object an
+ * instance and every instance a molecule object, and a selection naming only what the
+ * document holds.
+ */
+function isTreeAndSelection(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
+  const scene = isRecord(document.scene) ? document.scene : undefined
+  const objects = scene?.objects
+  const { selection } = document
+  if (objects === undefined && selection === undefined) return true
+  if (!scene || !Array.isArray(objects) || !isRecord(selection)) return false
+  const page = (scene.pages as { id: string }[])[0].id
+  const instances = new Set((scene.instances as InstanceView[]).map((instance) => instance.id))
+  const byId = new Map<string, SceneObjectView>()
+  for (const object of objects) {
+    if (!isRecord(object) || typeof object.id !== 'string' || typeof object.parent !== 'string' || byId.has(object.id)) return false
+    const shaped =
+      (object.kind === 'molecule' && object.molecule === (document.molecule as { id: string }).id && instances.has(object.id)) ||
+      (object.kind === 'group' && Array.isArray(object.children) && object.children.every((child) => typeof child === 'string')) ||
+      (object.kind === 'graphic' &&
+        SHAPES.includes(object.shape) &&
+        Array.isArray(object.points) &&
+        object.points.length === 2 &&
+        object.points.every(isPoint))
+    if (!shaped) return false
+    byId.set(object.id, object as unknown as SceneObjectView)
+  }
+  if ([...byId.values()].filter((object) => object.kind === 'molecule').length !== instances.size) return false
+  // Reach every object from the page: each child names its group as parent and is met once.
+  const reached = new Set<string>()
+  const stack = [...byId.values()].filter((object) => object.parent === page).map((object) => object.id)
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    if (reached.has(id)) return false
+    reached.add(id)
+    const object = byId.get(id)
+    if (object?.kind !== 'group') continue
+    for (const child of object.children) {
+      if (byId.get(child)?.parent !== id) return false
+      stack.push(child)
+    }
+  }
+  if (reached.size !== byId.size) return false
+  const names = (key: string, known: (id: string) => boolean) => {
+    const list = selection[key]
+    return Array.isArray(list) && list.every((id) => typeof id === 'string' && known(id))
+  }
+  const atomIds = new Set(atoms.map((atom) => atom.id))
+  const bondIds = new Set(bonds.map((bond) => bond.id))
+  return (
+    names('objects', (id) => byId.has(id)) &&
+    names('atoms', (id) => atomIds.has(id)) &&
+    names('bonds', (id) => bondIds.has(id))
+  )
+}
+
+/**
+ * The page's objects depth first. A service from before groups and graphics reports only its
+ * instances, all on the page; one from before scene instances reports none.
+ */
+export function sceneObjects(document: DocumentView): SceneObjectView[] {
+  const scene = document.scene
+  if (!scene) return []
+  return (
+    scene.objects ??
+    scene.instances.map((instance) => ({ kind: 'molecule', id: instance.id, parent: instance.page, molecule: instance.molecule }))
+  )
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -544,6 +665,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
     statesAgree(document.atoms, document.bonds) &&
     isScene(document, document.atoms) &&
+    isTreeAndSelection(document, document.atoms, document.bonds) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
@@ -1120,11 +1242,12 @@ export class DocumentClient {
     }
   }
 
-  async transact(id: string, expectedRevision: number, commands: Command[]) {
+  /** `selection`, the selection after the edit, is left out for a service that takes none. */
+  async transact(id: string, expectedRevision: number, commands: Command[], selection?: SelectionView) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/transactions`,
-        { request_id: requestId(), expected_revision: expectedRevision, commands },
+        { request_id: requestId(), expected_revision: expectedRevision, commands, ...(selection ? { selection } : {}) },
         'reload',
       ),
     )

@@ -212,8 +212,8 @@ fn refused_combinations_carry_their_reason_and_change_nothing() {
             )
             .unwrap_err();
         assert_eq!(
-            (error.code, error.command_index, error.invalid_state),
-            (ErrorCode::InvalidCommand, Some(1), Some(code)),
+            (error.code, error.command_index, error.command_reason),
+            (ErrorCode::InvalidCommand, Some(1), Some(code.code())),
             "{command}: {error}"
         );
         let envelope = serde_json::to_value(error.to_response()).unwrap();
@@ -235,7 +235,7 @@ fn other_invalid_commands_carry_no_reason() {
         )
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidCommand);
-    assert_eq!(error.invalid_state, None);
+    assert_eq!(error.command_reason, None);
     assert!(
         serde_json::to_value(error.to_response())
             .unwrap()

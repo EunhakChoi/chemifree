@@ -1323,3 +1323,222 @@ test('accessible names say which placement they are in when there are several', 
   assert.equal(bondName(bondWith('b1', 'a1', 'a2')), 'Bond b1: single bond between a1 and a2')
   assert.equal(bondName(bondWith('b1', 'a1', 'a2'), 's2'), 'Bond b1 in s2: single bond between a1 and a2')
 })
+
+const { addGraphicCommand, deleteObjectsCommand, groupCommand, moveObjectsCommand, sceneRows, selectionAfter, selectionSet, ungroupCommands } =
+  await import('../apps/web/src/editor/scene.ts')
+const { graphicBox, graphicShape, sceneLayout } = await import('../apps/web/src/editor/geometry.ts')
+const { sceneObjects } = await import('../apps/web/src/lib/document-contract.ts')
+
+/**
+ * C1–O2 drawn in s1 and in s2 (100 pt lower, 50 pt right), and group s4 holding s2 and the
+ * rectangle s3 from (0, 200) to (40, 220), with s3 and a1 selected.
+ */
+function grouped() {
+  const value = drawnTwice()
+  value.document.scene.objects = [
+    { kind: 'molecule', id: 's1', parent: 'p1', molecule: 'm1' },
+    { kind: 'group', id: 's4', parent: 'p1', children: ['s2', 's3'] },
+    { kind: 'molecule', id: 's2', parent: 's4', molecule: 'm1' },
+    { kind: 'graphic', id: 's3', parent: 's4', shape: 'rectangle', points: [{ x: 0, y: 200 }, { x: 40, y: 220 }] },
+  ]
+  value.document.selection = { objects: ['s3'], atoms: ['a1'], bonds: [] }
+  return value
+}
+
+test('a document reply with a scene tree and a selection is accepted', () => {
+  assert.equal(isDocumentResponse(grouped()), true)
+  const flat = drawnTwice()
+  flat.document.scene.objects = [
+    { kind: 'molecule', id: 's1', parent: 'p1', molecule: 'm1' },
+    { kind: 'molecule', id: 's2', parent: 'p1', molecule: 'm1' },
+  ]
+  flat.document.selection = { objects: [], atoms: [], bonds: [] }
+  assert.equal(isDocumentResponse(flat), true, 'every instance on the page, nothing selected')
+})
+
+for (const [name, change] of [
+  ['objects without a selection', (value) => delete value.document.selection],
+  ['a selection without objects', (value) => delete value.document.scene.objects],
+  ['a repeated object', (value) => value.document.scene.objects.push(value.document.scene.objects[3])],
+  ['a child that names another parent', (value) => (value.document.scene.objects[3].parent = 'p1')],
+  ['a listed child that names another object as its parent', (value) => (value.document.scene.objects[3].parent = 's1')],
+  ['a group that does not list its child', (value) => (value.document.scene.objects[1].children = ['s2'])],
+  ['a group naming an unknown child', (value) => value.document.scene.objects[1].children.push('s9')],
+  ['an object that the page does not reach', (value) => (value.document.scene.objects[1].parent = 's3')],
+  ['a group inside itself', (value) => (value.document.scene.objects[1].parent = 's4')],
+  ['a molecule object that is not an instance', (value) => (value.document.scene.objects[0].id = 's7')],
+  ['an instance without its object', (value) => value.document.scene.objects.splice(0, 1)],
+  ['an unknown shape', (value) => (value.document.scene.objects[3].shape = 'ellipse')],
+  ['a graphic with three points', (value) => value.document.scene.objects[3].points.push({ x: 1, y: 1 })],
+  ['a graphic with a non-numeric point', (value) => (value.document.scene.objects[3].points[0].x = '0')],
+  ['an unknown kind', (value) => (value.document.scene.objects[3].kind = 'text')],
+  ['a selected object the document lacks', (value) => (value.document.selection.objects = ['s9'])],
+  ['a selected atom the graph lacks', (value) => (value.document.selection.atoms = ['a9'])],
+  ['a selected bond the graph lacks', (value) => (value.document.selection.bonds = ['b9'])],
+  ['a selection without its bonds', (value) => delete value.document.selection.bonds],
+]) {
+  test(`a document reply with ${name} is refused`, () => {
+    const value = grouped()
+    change(value)
+    assert.equal(isDocumentResponse(value), false)
+  })
+}
+
+test('a service from before groups and graphics shows its instances as page objects', () => {
+  const { document } = drawnTwice()
+  assert.deepEqual(sceneObjects(document), [
+    { kind: 'molecule', id: 's1', parent: 'p1', molecule: 'm1' },
+    { kind: 'molecule', id: 's2', parent: 'p1', molecule: 'm1' },
+  ])
+  delete document.scene
+  assert.deepEqual(sceneObjects(document), [], 'and one from before scene instances shows none')
+})
+
+test('the scene rows are in tree order with their depth', () => {
+  assert.deepEqual(
+    sceneRows(grouped().document).map((row) => [row.object.id, row.depth]),
+    [['s1', 0], ['s4', 0], ['s2', 1], ['s3', 1]],
+  )
+})
+
+test('grouping is built from the latest document and only for objects that share a parent', () => {
+  const { document } = grouped()
+  assert.deepEqual(groupCommand(document, new Set(['s3', 's2'])), { op: 'group', objects: ['s2', 's3'] }, 'in tree order')
+  assert.equal(groupCommand(document, new Set(['s1', 's3'])), null, 'different parents')
+  assert.equal(groupCommand(document, new Set(['a1'])), null, 'an atom is not an object')
+  assert.equal(groupCommand(document, new Set(['s9'])), null, 'an object a queued edit removed')
+})
+
+test('ungrouping names each selected group that the latest document still holds', () => {
+  const { document } = grouped()
+  assert.deepEqual(ungroupCommands(document, new Set(['s4', 's3'])), [{ op: 'ungroup', group: 's4' }])
+  assert.equal(ungroupCommands(document, new Set(['s3'])), null, 'no group selected')
+  const ungrouped = grouped().document
+  ungrouped.scene.objects = ungrouped.scene.objects
+    .filter((object) => object.id !== 's4')
+    .map((object) => ({ ...object, parent: 'p1' }))
+  assert.equal(ungroupCommands(ungrouped, new Set(['s4'])), null, 'a group a queued ungroup removed')
+})
+
+test('deleting carries the chosen mode and never deletes the last instance', () => {
+  const { document } = grouped()
+  assert.deepEqual(deleteObjectsCommand(document, new Set(['s4']), 'subtree'), {
+    op: 'delete_objects',
+    objects: ['s4'],
+    mode: 'subtree',
+  })
+  assert.deepEqual(deleteObjectsCommand(document, new Set(['s4']), 'object_only'), {
+    op: 'delete_objects',
+    objects: ['s4'],
+    mode: 'object_only',
+  })
+  assert.equal(deleteObjectsCommand(document, new Set(['s1', 's4']), 'subtree'), null, 'it would delete both instances')
+  assert.deepEqual(
+    deleteObjectsCommand(document, new Set(['s1', 's4']), 'object_only'),
+    { op: 'delete_objects', objects: ['s1', 's4'], mode: 'object_only' },
+    's2 stays, moved to the page',
+  )
+  assert.equal(deleteObjectsCommand(document, new Set(['s9']), 'subtree'), null, 'nothing selected remains')
+})
+
+test('moving sends the selection as is: a group and its child both, for the service to move each leaf once', () => {
+  const { document } = grouped()
+  assert.deepEqual(moveObjectsCommand(document, new Set(['s3', 's4', 'a1']), { x: 0, y: -10 }), {
+    op: 'move_objects',
+    objects: ['s4', 's3'],
+    offset: { x: 0, y: -10 },
+  })
+  assert.equal(moveObjectsCommand(document, new Set(['a1']), { x: 10, y: 0 }), null)
+})
+
+test('a new graphic goes below everything drawn, at the left edge, and on an empty page at a fixed spot', () => {
+  const drawn = grouped().document
+  // The lowest point is the rectangle's (40, 220); the leftmost is a1 and the rectangle at x 0.
+  assert.deepEqual(addGraphicCommand(drawn, 'rectangle'), {
+    op: 'add_graphic',
+    shape: 'rectangle',
+    points: [{ x: 0, y: 260 }, { x: 60, y: 290 }],
+  })
+  assert.deepEqual(addGraphicCommand(drawn, 'arrow').points, [{ x: 0, y: 275 }, { x: 60, y: 275 }], 'a horizontal arrow')
+  const added = grouped().document
+  added.scene.objects.push({ kind: 'graphic', id: 's5', parent: 'p1', shape: 'line', points: [{ x: 0, y: 275 }, { x: 60, y: 275 }] })
+  assert.deepEqual(addGraphicCommand(added, 'line').points, [{ x: 0, y: 330 }, { x: 60, y: 330 }], 'the next press steps down')
+  const empty = document('doc-1').document
+  assert.deepEqual(addGraphicCommand(empty, 'line').points, [{ x: 40, y: 55 }, { x: 100, y: 55 }])
+})
+
+test('the selection sent with an edit drops what the edit deletes', () => {
+  const { document } = grouped()
+  const selected = new Set(['s3', 's4', 's2', 'a1', 'a2', 'b1', 's9'])
+  const send = (commands) => selectionAfter(selected, commands, document)
+  assert.deepEqual(send([]), { objects: ['s3', 's4', 's2'], atoms: ['a1', 'a2'], bonds: ['b1'] }, 'unknown ids are left out')
+  assert.deepEqual(send([{ op: 'delete_objects', objects: ['s4'], mode: 'subtree' }]).objects, [])
+  assert.deepEqual(send([{ op: 'delete_objects', objects: ['s4'], mode: 'object_only' }]).objects, ['s3', 's2'])
+  assert.deepEqual(send([{ op: 'ungroup', group: 's4' }]).objects, ['s3', 's2'])
+  assert.deepEqual(send([{ op: 'delete_instance', instance: 's2' }]).objects, ['s3', 's4'])
+  assert.deepEqual(send([{ op: 'delete_atoms', atoms: ['a2'] }]), { objects: ['s3', 's4', 's2'], atoms: ['a1'], bonds: [] })
+  assert.deepEqual(send([{ op: 'delete_bonds', bonds: ['b1'] }]).bonds, [])
+})
+
+test('the transaction body carries the selection only when one is given', async () => {
+  const bodies = []
+  globalThis.fetch = async (path, init = {}) => {
+    if (path === '/api/v1/session') return json(200, { header: 'x-chemifree-session', token: 'token-1' })
+    bodies.push(JSON.parse(init.body))
+    return json(200, grouped())
+  }
+  const client = new DocumentClient()
+  const selection = { objects: ['s4'], atoms: [], bonds: [] }
+  await client.transact('doc-1', 2, [{ op: 'group', objects: ['s4'] }], selection)
+  await client.transact('doc-1', 3, [])
+  assert.deepEqual(bodies[0].selection, selection)
+  assert.equal('selection' in bodies[1], false, 'a service from before selections gets no field')
+})
+
+test('undo and redo replies carry the selection the editor takes over', async () => {
+  const before = grouped()
+  before.document.selection = { objects: ['s4'], atoms: [], bonds: ['b1'] }
+  globalThis.fetch = async (path) => {
+    if (path === '/api/v1/session') return json(200, { header: 'x-chemifree-session', token: 'token-1' })
+    return json(200, before)
+  }
+  const reply = await new DocumentClient().revisionAction('doc-1', 'undo', 3)
+  assert.deepEqual([...selectionSet(reply.document.selection)], ['s4', 'b1'])
+  assert.deepEqual([...selectionSet(undefined)], [], 'a service from before selections clears it')
+})
+
+test('graphics are drawn from their points, and an arrow has a head at its end', () => {
+  const arrow = { id: 's3', shape: 'arrow', points: [{ x: 0, y: 0 }, { x: 30, y: 0 }] }
+  assert.deepEqual(graphicShape(arrow).head, [{ x: 30, y: 0 }, { x: 22, y: 3.5 }, { x: 22, y: -3.5 }])
+  assert.deepEqual(graphicShape({ id: 's3', shape: 'rectangle', points: [{ x: 40, y: 20 }, { x: 0, y: 0 }] }), {
+    kind: 'rectangle',
+    x: 0,
+    y: 0,
+    width: 40,
+    height: 20,
+  })
+  assert.deepEqual(graphicBox(arrow), { x: -4, y: -7.5, width: 38, height: 15 }, 'the head and half the underlay')
+})
+
+test('the view box holds every graphic and every group frame, however far it is drawn', () => {
+  const objects = [
+    { kind: 'molecule', id: 's1', parent: 'p1', molecule: 'm1' },
+    { kind: 'group', id: 's5', parent: 'p1', children: ['s4'] },
+    { kind: 'group', id: 's4', parent: 's5', children: ['s2', 's3'] },
+    { kind: 'molecule', id: 's2', parent: 's4', molecule: 'm1' },
+    { kind: 'graphic', id: 's3', parent: 's4', shape: 'line', points: [{ x: -500, y: 900 }, { x: 2000, y: -300 }] },
+    { kind: 'group', id: 's6', parent: 'p1', children: [] },
+  ]
+  const s1 = { x: -10, y: -10, width: 50, height: 20 }
+  const s2 = { x: 40, y: 90, width: 50, height: 20 }
+  const layout = sceneLayout(objects, new Map([['s1', s1], ['s2', s2]]))
+  assert.deepEqual(layout.graphics.map((item) => item.graphic.id), ['s3'])
+  assert.deepEqual([...layout.frames.keys()].sort(), ['s4', 's5'], 'an empty group draws no frame')
+  const s4 = layout.frames.get('s4')
+  assert.ok(within(layout.graphics[0].box, s4.rect) && within(s2, s4.rect), 'the frame holds its subtree')
+  assert.ok(within(s4.box, layout.frames.get('s5').rect), 'and a parent frame holds its child frame')
+  const box = viewBox([], [s1, s2, ...layout.graphics.map((item) => item.box), ...[...layout.frames.values()].map((frame) => frame.box)])
+  for (const inner of [layout.graphics[0].box, layout.frames.get('s5').box]) {
+    assert.ok(within(inner, box), JSON.stringify({ inner, box }))
+  }
+})

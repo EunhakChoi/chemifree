@@ -2,7 +2,7 @@
  * Gesture commands are built from the drawing on screen and sent when the request queue
  * reaches them. By then an earlier request (an undo, say) may have removed what they name.
  */
-import type { Command, DocumentView } from '@/lib/document-contract'
+import { sceneObjects, type Command, type DocumentView } from '@/lib/document-contract'
 
 function referencedIds(command: Command): string[] {
   switch (command.op) {
@@ -29,6 +29,16 @@ function referencedIds(command: Command): string[] {
     case 'move_instance':
     case 'delete_instance':
       return [command.instance]
+    case 'add_graphic':
+      return command.parent === undefined ? [] : [command.parent]
+    case 'group':
+    case 'delete_objects':
+    case 'move_objects':
+      return command.objects
+    case 'ungroup':
+      return [command.group]
+    case 'reorder':
+      return [command.object]
     default: {
       const unknown: never = command
       return unknown
@@ -42,7 +52,11 @@ function referencedIds(command: Command): string[] {
  */
 export function stillApplicable(commands: Command[], document: DocumentView): Command[] | null {
   const instances = document.scene?.instances.map((instance) => instance.id) ?? []
-  const existing = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id), ...instances])
+  const existing = new Set([
+    ...document.atoms.map((atom) => atom.id),
+    ...document.bonds.map((bond) => bond.id),
+    ...sceneObjects(document).map((object) => object.id),
+  ])
   const placedEverywhere = (command: Command) => {
     if (command.op !== 'add_atom') return true
     if ('positions' in command) {

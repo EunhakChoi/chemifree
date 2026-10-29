@@ -1867,6 +1867,176 @@ step = 'after placements_move_independently'
 results.recorded_states_drawn_and_kept = true
 step = 'after recorded_states_drawn_and_kept'
 
+// Scene objects: a rectangle grouped with a placement; the group and its child placement both
+// selected and moved, held behind an in-flight request, move once; undo restores positions and
+// the selection; ungroup and both delete modes; the tree is kept through save, a page reload,
+// and reopening; every graphic and group frame lies inside the view box.
+{
+  const alpha = listed['Smoke list alpha']
+  const sceneDoc = async () => (await api(`/api/v1/documents/${alpha}`)).document
+  const scenePanel = page.locator('section[aria-labelledby="scene-heading"]')
+  const box = (id) => scenePanel.locator(`li[data-scene-object="${id}"] [role="checkbox"]`)
+  const checked = async (id) => (await box(id).getAttribute('aria-checked')) === 'true'
+  const setChecked = async (id, value) => {
+    if ((await checked(id)) !== value) await box(id).click()
+    assert.equal(await checked(id), value, `${id} ${value ? 'selected' : 'not selected'}`)
+  }
+  const selectOnly = async (ids) => {
+    for (const row of await scenePanel.locator('li[data-scene-object]').all()) {
+      const id = await row.getAttribute('data-scene-object')
+      await setChecked(id, ids.includes(id))
+    }
+  }
+  const press = async (name) => {
+    await scenePanel.getByRole('button', { name, exact: true }).click()
+    await waitIdle()
+  }
+  const tree = (document) => document.scene.objects.map((object) => [object.id, object.parent])
+  const objectOf = (document, id) => document.scene.objects.find((object) => object.id === id)
+  const positionsOf = (document, id) => document.scene.instances.find((item) => item.id === id).positions
+  const nudged = (points, dx) => points.map((point) => ({ ...point, x: point.x + dx }))
+  /** Equal points, beyond floating-point rounding of repeated offsets. */
+  const samePoints = (actual, expected, message) =>
+    assert.ok(
+      actual.length === expected.length &&
+        actual.every((point, index) => point.atom === expected[index].atom && Math.abs(point.x - expected[index].x) < 1e-9 && Math.abs(point.y - expected[index].y) < 1e-9),
+      `${message}: ${JSON.stringify({ actual, expected })}`,
+    )
+  /** Graphics, group frames, and placement frames outside the SVG's view box (real DOM boxes). */
+  const outsideView = () =>
+    page.evaluate(() => {
+      const svg = document.querySelector('svg[data-structure-canvas]')
+      const view = svg.viewBox.baseVal
+      const within = (inner) =>
+        inner.x >= view.x - 0.05 &&
+        inner.y >= view.y - 0.05 &&
+        inner.x + inner.width <= view.x + view.width + 0.05 &&
+        inner.y + inner.height <= view.y + view.height + 0.05
+      return [...svg.querySelectorAll('[data-graphic], [data-group-frame], [data-frame], [data-frame-id], [data-atom-label]')]
+        .filter((element) => !within(element.getBBox()))
+        .map((element) => element.outerHTML.slice(0, 80))
+    })
+
+  const start = await sceneDoc()
+  assert.deepEqual(tree(start), [['s1', 'p1'], ['s2', 'p1'], ['s3', 'p1']], 'three placements on the page')
+  await scenePanel.getByRole('button', { name: 'Add rectangle' }).click()
+  await waitIdle()
+  await scenePanel.locator('li[data-scene-object="s4"]').waitFor()
+  assert.equal(objectOf(await sceneDoc(), 's4').shape, 'rectangle')
+  await page.locator('[data-graphic="s4"]').waitFor()
+
+  await selectOnly(['s3', 's4'])
+  await press('Group')
+  const grouped = await sceneDoc()
+  assert.deepEqual(tree(grouped), [['s1', 'p1'], ['s2', 'p1'], ['s5', 'p1'], ['s3', 's5'], ['s4', 's5']])
+  assert.deepEqual(grouped.selection.objects.sort(), ['s3', 's4'], 'the selection is sent with the edit')
+
+  // The group and its child placement are both selected; the first of two moves is held until
+  // the second press is in. Both count, and each leaf moves once per press.
+  await selectOnly(['s5', 's3'])
+  let release
+  const held = new Promise((resolveHeld) => {
+    release = resolveHeld
+  })
+  let seen = 0
+  const holdFirst = async (route) => {
+    seen += 1
+    if (seen === 1) await held
+    await route.continue()
+  }
+  const refused = []
+  const watch = (response) => {
+    if (response.url().endsWith('/transactions') && response.status() !== 200) refused.push(response.status())
+  }
+  page.on('response', watch)
+  await page.route('**/transactions', holdFirst)
+  const moveRight = scenePanel.getByRole('button', { name: 'Move selected objects right' })
+  await moveRight.click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await moveRight.click()
+  release()
+  await waitIdle()
+  await page.unroute('**/transactions', holdFirst)
+  page.off('response', watch)
+  assert.deepEqual(refused, [], 'no move is refused')
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
+  const moved = await sceneDoc()
+  assert.equal(moved.revision, grouped.revision + 2, 'both presses count')
+  samePoints(positionsOf(moved, 's3'), nudged(positionsOf(grouped, 's3'), 20), 's3 moved once per press')
+  samePoints(objectOf(moved, 's4').points, nudged(objectOf(grouped, 's4').points, 20), 's4 moved once per press')
+  assert.deepEqual(positionsOf(moved, 's1'), positionsOf(grouped, 's1'), 's1 stays')
+  assert.deepEqual(moved.selection.objects.sort(), ['s3', 's5'])
+  await page.locator('[data-group-frame="s5"]').waitFor()
+  assert.deepEqual(await outsideView(), [], 'after the moves')
+
+  // A selection change alone is not an edit; undo replaces it with the one before the move.
+  await setChecked('s3', false)
+  assert.equal((await sceneDoc()).revision, moved.revision, 'selecting records nothing')
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await waitIdle()
+  const undone = await sceneDoc()
+  samePoints(positionsOf(undone, 's3'), nudged(positionsOf(grouped, 's3'), 10), 'undo takes back one move')
+  assert.deepEqual([await checked('s3'), await checked('s5'), await checked('s4')], [true, true, false], 'and restores the selection')
+
+  await selectOnly(['s5'])
+  await press('Ungroup')
+  assert.deepEqual(tree(await sceneDoc()), [['s1', 'p1'], ['s2', 'p1'], ['s3', 'p1'], ['s4', 'p1']], 'ungrouped in place')
+  assert.equal(await page.locator('[data-group-frame]').count(), 0)
+
+  // Object only: the group goes and its contents take its place. With contents: all go.
+  await selectOnly(['s3', 's4'])
+  await press('Group')
+  await selectOnly(['s6'])
+  await scenePanel.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete object only' }).click()
+  await waitIdle()
+  assert.deepEqual(tree(await sceneDoc()), [['s1', 'p1'], ['s2', 'p1'], ['s3', 'p1'], ['s4', 'p1']], 'object only')
+  await selectOnly(['s3', 's4'])
+  await press('Group')
+  await selectOnly(['s7'])
+  await scenePanel.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete with contents' }).click()
+  await waitIdle()
+  assert.deepEqual(tree(await sceneDoc()), [['s1', 'p1'], ['s2', 'p1']], 'with contents')
+  assert.equal(await page.locator('[data-graphic]').count(), 0)
+
+  // An arrow grouped with a placement, the group selected, is kept through save and reopening.
+  await scenePanel.getByRole('button', { name: 'Add arrow' }).click()
+  await waitIdle()
+  await selectOnly(['s2', 's8'])
+  await press('Group')
+  await selectOnly(['s9'])
+  await page.locator('[data-group-frame="s9"]').waitFor()
+  const kept = await sceneDoc()
+  assert.deepEqual(tree(kept), [['s1', 'p1'], ['s9', 'p1'], ['s2', 's9'], ['s8', 's9']])
+  assert.deepEqual(await outsideView(), [], 'before saving')
+  await page.screenshot({ path: join(outDir, 'editor-scene.png'), fullPage: true })
+  // Selecting is recorded only with the next edit: two nudges that cancel out record s9.
+  await press('Move selected objects left')
+  await press('Move selected objects right')
+  const recorded = await sceneDoc()
+  assert.deepEqual(recorded.selection.objects, ['s9'])
+
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await page.reload()
+  await alphaItem.getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await page.locator('[data-group-frame="s9"]').waitFor()
+  assert.deepEqual(tree(await sceneDoc()), tree(recorded), 'after a page reload')
+  assert.equal(await checked('s9'), true, 'the recorded selection is shown')
+  assert.deepEqual(await outsideView(), [], 'after a page reload')
+  await closeShown()
+  await alphaItem.getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await page.locator('[data-group-frame="s9"]').waitFor()
+  const reopened = await sceneDoc()
+  assert.deepEqual([reopened.scene, reopened.selection], [recorded.scene, recorded.selection], 'reopened from storage')
+  assert.equal(await page.locator('[data-graphic="s8"] polygon').count(), 1, 'the arrow has its head')
+  assert.deepEqual(await outsideView(), [], 'reopened from storage')
+}
+results.scene_groups_and_selection = true
+step = 'after scene_groups_and_selection'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })
