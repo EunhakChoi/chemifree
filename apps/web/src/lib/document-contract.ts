@@ -218,7 +218,10 @@ export interface BondKind {
 }
 
 export type Command =
-  | ({ op: 'add_atom'; element: string; bond_to?: { atom: AtomRef } & BondKind } & NewAtomPlacement & AtomStates)
+  /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
+  | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
+      NewAtomPlacement &
+      AtomStates)
   | ({ op: 'add_bond'; begin: AtomRef; end: AtomRef } & BondKind)
   /** At most one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({

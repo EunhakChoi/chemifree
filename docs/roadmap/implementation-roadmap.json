@@ -508,7 +508,7 @@
    "acceptance": "기존 저장·초안·Undo 자료를 실제로 마이그레이션하고 재개방한다. 같은 그래프의 복수 장면을 독립 이동해도 화학과 다른 장면이 유지된다.",
    "kind": "core",
    "id": "P09",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -518,7 +518,14 @@
     "P04",
     "P08",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     30
+    ],
+    "merge_commit": "1a518cd",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40796524510"
+   }
   },
   {
    "phase": "foundation",
@@ -535,7 +542,7 @@
    "acceptance": "생성·편집·저장·재개방에서 의미를 보존하고 잘못된 조합은 구조화 진단을 낸다. 아직 계산하지 않는 상태를 정상 계산 결과로 표시하지 않는다.",
    "kind": "core",
    "id": "P10",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",
