@@ -56,6 +56,28 @@ export function setQuery(atom: string, query: QueryAtom): Edit {
   }
 }
 
+/**
+ * Makes the atom a query for one of `elements`, keeping whether the latest list is negated,
+ * so a list typed while a negation is on its way (or the reverse) keeps both.
+ */
+export function setQueryElements(atom: string, elements: string[]): Edit {
+  return (latest) => {
+    const current = atomIn(latest, atom)
+    if (!current) return null
+    const negated = current.query?.kind === 'list' ? current.query.negated : false
+    return setQuery(atom, { kind: 'list', elements, negated })(latest)
+  }
+}
+
+/** Negates the latest element list of a query atom, or not; nothing for any other atom. */
+export function setQueryNegated(atom: string, negated: boolean): Edit {
+  return (latest) => {
+    const current = atomIn(latest, atom)
+    if (current?.query?.kind !== 'list') return null
+    return setQuery(atom, { ...current.query, negated })(latest)
+  }
+}
+
 /** Steps an element atom's charge within −8..8. A query atom has none. */
 export function stepCharge(atom: string, step: number): Edit {
   return (latest) => {

@@ -263,7 +263,7 @@ await page.mouse.click(a4s.x, a4s.y)
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.find((atom) => atom.id === 'a4').element, 'O')
-await page.locator('text[data-atom="a4"]').waitFor()
+await page.locator('[data-atom-label="a4"]').waitFor()
 
 // Select a4, set charge and isotope in the inspector.
 await tool('Select and move')
@@ -277,7 +277,7 @@ await waitIdle()
 doc = await openDoc()
 const oxygen = doc.document.atoms.find((atom) => atom.id === 'a4')
 assert.deepEqual([oxygen.charge, oxygen.isotope], [-1, 18])
-assert.equal((await page.locator('text[data-atom="a4"]').textContent()).replace(/\s/g, ''), '18O−')
+assert.equal((await page.locator('text[data-atom="a4"]').allTextContents()).join('').replace(/\s/g, ''), '18O−')
 results.edit_atom = true
 step = 'after edit_atom'
 
@@ -1614,13 +1614,11 @@ step = 'after placements_move_independently'
   const a1 = await atomOf('a1')
   assert.deepEqual([a1.hydrogens, a1.radical], [{ mode: 'specified', count: 3 }, 'doublet'], 'quick presses all count')
 
-  // Charge then query, and query then charge, each with the first request held until the
-  // second press is in. Neither is refused, and the query atom carries no charge.
-  for (const [first, second] of [
-    ['Increase charge', 'Query: any atom'],
-    ['Query: any atom', 'Increase charge'],
-  ]) {
-    await select('a3')
+  /**
+   * Runs `first`, holds the request it sends until `second` has been done too, then lets both
+   * run. No request may be refused: each is built from the latest document when it is sent.
+   */
+  const heldRace = async (name, first, second) => {
     let release
     const held = new Promise((resolveHeld) => {
       release = resolveHeld
@@ -1637,15 +1635,24 @@ step = 'after placements_move_independently'
     }
     page.on('response', watch)
     await page.route('**/transactions', holdFirst)
-    await press(first)
+    await first()
     await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
-    await press(second)
+    await second()
     release()
     await waitIdle()
     await page.unroute('**/transactions', holdFirst)
     page.off('response', watch)
-    assert.deepEqual(refused, [], `${first}, then ${second}: no request is refused`)
-    assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
+    assert.deepEqual(refused, [], `${name}: no request is refused`)
+    assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0, name)
+  }
+
+  // Charge then query, and query then charge: the query atom carries no charge.
+  for (const [first, second] of [
+    ['Increase charge', 'Query: any atom'],
+    ['Query: any atom', 'Increase charge'],
+  ]) {
+    await select('a3')
+    await heldRace(`${first}, then ${second}`, () => press(first), () => press(second))
     const a3 = await atomOf('a3')
     assert.deepEqual([a3.kind, a3.element, a3.charge], ['query', '*', 0], `${first}, then ${second}`)
     const elementField = page.getByLabel('Element', { exact: true })
@@ -1661,12 +1668,67 @@ step = 'after placements_move_independently'
     )
   }
 
+  // Atoms whose symbols are narrow and wide (I, Cl) and a long query list, placed left of a1
+  // in s1 (and with it in every placement), so the label checks below cover them.
+  const placeAt = async (symbol, offset) => {
+    const origin = (await atomOf('a1')).position
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.getByRole('button', { name: `Element ${symbol}`, exact: true }).click()
+    const at = await screen({ x: origin.x + offset.x, y: origin.y + offset.y })
+    const before = (await statesDoc()).atoms.length
+    await page.mouse.click(at.x, at.y)
+    await waitIdle()
+    const atoms = (await statesDoc()).atoms
+    assert.equal(atoms.length, before + 1, `${symbol} placed`)
+    return atoms.at(-1).id
+  }
+  const iodine = await placeAt('I', { x: -45, y: 0 })
+  const chlorine = await placeAt('Cl', { x: -45, y: 35 })
+  const queried = await placeAt('N', { x: -85, y: 18 })
+  await tool('Select and move')
+  await select(queried)
+  const listField = inspector.getByLabel('Query element list')
+  await listField.fill('N, O')
+  await listField.press('Enter')
+  await waitIdle()
+  // A typed list and the negation pressed while it is on its way: both are kept.
+  await heldRace(
+    'a typed list, then the negation',
+    async () => {
+      await listField.fill('N, O, S')
+      await listField.press('Enter')
+    },
+    () => press('Negate the list: any atom except these'),
+  )
+  assert.deepEqual((await atomOf(queried)).query, { kind: 'list', elements: ['N', 'O', 'S'], negated: true })
+  await listField.fill('N, O, S, P, Se')
+  await listField.press('Enter')
+  await waitIdle()
+  assert.equal((await atomOf(queried)).element, '![N,O,S,P,Se]')
+
   /** Problems with the drawing, measured on the rendered SVG. */
   const drawingProblems = () =>
-    page.evaluate(() => {
+    page.evaluate(async () => {
+      await document.fonts.ready
       const svg = document.querySelector('svg[data-structure-canvas]')
       const view = svg.viewBox.baseVal
       const problems = []
+      const boxOf = (element) => {
+        const [x, y, width, height] = element.getAttribute('data-box').split(' ').map(Number)
+        return { x, y, width, height }
+      }
+      // Within, beyond rounding.
+      const within = (inner, outer) =>
+        inner.x >= outer.x - 0.05 &&
+        inner.y >= outer.y - 0.05 &&
+        inner.x + inner.width <= outer.x + outer.width + 0.05 &&
+        inner.y + inner.height <= outer.y + outer.height + 0.05
+      const inView = (box) => within(box, view)
+      if (svg.querySelector('[textLength], [lengthAdjust]')) problems.push('text is drawn at a forced length')
+      for (const part of svg.querySelectorAll('[data-frame], [data-frame-id]')) {
+        const name = part.getAttribute('data-frame') ?? `${part.getAttribute('data-frame-id')} ID`
+        if (!inView(part.getBBox())) problems.push(`frame ${name} outside the view box`)
+      }
       // Strictly inside, beyond rounding.
       const inside = (point, box) =>
         point.x > box.x + 0.05 &&
@@ -1675,15 +1737,26 @@ step = 'after placements_move_independently'
         point.y < box.y + box.height - 0.05
       for (const placement of svg.querySelectorAll('g[data-instance]')) {
         const where = placement.getAttribute('data-instance')
+        // The box the canvas reserves for each label, which bonds stop outside of.
         const labels = [...placement.querySelectorAll('[data-atom-label]')].map((label) => ({
           id: label.getAttribute('data-atom-label'),
-          box: label.getBBox(),
+          box: boxOf(label),
+          drawn: label.getBBox(),
+          // Each text chunk against the box reserved for it; dots against the label's box.
+          parts: [...label.querySelectorAll('text, circle')].map((part) => ({
+            name: part.getAttribute('data-chunk') ?? part.getAttribute('data-mark'),
+            box: part.getBBox(),
+            reserved: part.hasAttribute('data-box') ? boxOf(part) : boxOf(label),
+          })),
         }))
-        for (const { id, box } of labels) {
-          if (box.width === 0 || box.height === 0) problems.push(`${where} ${id}: empty label`)
-          const outside =
-            box.x < view.x || box.y < view.y || box.x + box.width > view.x + view.width || box.y + box.height > view.y + view.height
-          if (outside) problems.push(`${where} ${id}: label outside the view box`)
+        for (const { id, box, drawn, parts } of labels) {
+          if (drawn.width === 0 || drawn.height === 0) problems.push(`${where} ${id}: empty label`)
+          if (!inView(box)) problems.push(`${where} ${id}: label outside the view box`)
+          for (const part of parts) {
+            if (!within(part.box, part.reserved) || !within(part.reserved, box)) {
+              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it`)
+            }
+          }
         }
         for (const stroke of placement.querySelectorAll('[data-bond]')) {
           const bond = stroke.getAttribute('data-bond')
@@ -1710,11 +1783,14 @@ step = 'after placements_move_independently'
     const first = page.locator('g[data-instance="s1"]')
     await first.locator('[data-atom-label="a1"]').waitFor()
     return {
-      a1: (await first.locator('text[data-atom="a1"]').textContent()).replace(/\s/g, ''),
+      a1: (await first.locator('text[data-atom="a1"]').allTextContents()).join('').replace(/\s/g, ''),
       a1Radical: await first.locator('[data-atom-label="a1"] circle[data-mark="radical"]').count(),
-      a2: (await first.locator('text[data-atom="a2"]').textContent()).replace(/\s/g, ''),
+      a2: (await first.locator('text[data-atom="a2"]').allTextContents()).join('').replace(/\s/g, ''),
       a2Attachment: await first.locator('[data-atom-label="a2"] [data-mark="attachment"]').textContent(),
-      a3: (await first.locator('text[data-atom="a3"]').textContent()).replace(/\s/g, ''),
+      a3: (await first.locator('text[data-atom="a3"]').allTextContents()).join('').replace(/\s/g, ''),
+      palette: await Promise.all(
+        [iodine, chlorine, queried].map(async (id) => (await first.locator(`text[data-atom="${id}"]`).allTextContents()).join('')),
+      ),
       b1Dashed: await first.locator('g[data-bond-kind="aromatic"] line[data-pattern="dashed"][data-bond="b1"]').count(),
       a1Name: await first.locator('[data-atom-label="a1"]').getAttribute('aria-label'),
       b1Name: await first.locator('g[data-bond-kind="aromatic"]').getAttribute('aria-label'),
@@ -1726,9 +1802,10 @@ step = 'after placements_move_independently'
     a2: 'C',
     a2Attachment: 'ap1',
     a3: 'N',
+    palette: ['I', 'Cl', '![N,O,S,…]'],
     b1Dashed: 1,
-    a1Name: 'Atom a1: C; 3 stated hydrogens; doublet radical',
-    b1Name: 'Bond b1: aromatic bond between a1 and a2',
+    a1Name: 'Atom a1 in s1: C; 3 stated hydrogens; doublet radical',
+    b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
   }
   assert.deepEqual(await drawnStates(), expected, 'drawn as recorded; the inferred nitrogen shows no count')
   assert.deepEqual(await drawingProblems(), [])

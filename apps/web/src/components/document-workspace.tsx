@@ -108,7 +108,7 @@ const DRAWN_ORDERS: { value: DrawnOrder; label: string; glyph: string }[] = [
   { value: 'double', label: 'Double bond', glyph: '=' },
   { value: 'triple', label: 'Triple bond', glyph: '≡' },
   { value: 'aromatic', label: 'Aromatic bond', glyph: 'ar' },
-  { value: 'dative', label: 'Dative bond, from the first atom', glyph: '→' },
+  { value: 'dative', label: 'Dative bond, from where the drag starts (the donor)', glyph: '→' },
   { value: 'unknown', label: 'Bond of unknown kind', glyph: '~' },
 ]
 /** The kinds a bond can be given in the inspector: a query bond starts as "any kind". */
@@ -1209,7 +1209,11 @@ function AtomInspector({ atom, editor }: { atom: AtomView; editor: DocumentEdito
   )
 }
 
-/** A query atom's element list, typed as "N, O, S", with whether it is negated. */
+/**
+ * A query atom's element list, typed as "N, O, S", with whether it is negated. Each change is
+ * built from the latest list and negation, so a list typed while a negation is on its way (or
+ * the reverse) keeps both.
+ */
 function QueryListField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
   const list = atom.query?.kind === 'list' ? atom.query : null
   const [invalid, setInvalid] = useState(false)
@@ -1230,7 +1234,7 @@ function QueryListField({ atom, editor }: { atom: AtomView; editor: DocumentEdit
             if (text === (list?.elements.join(', ') ?? '')) return setInvalid(false)
             const elements = edits.parseQueryList(text)
             setInvalid(elements === null)
-            if (elements) void editor.apply(edits.setQuery(atom.id, { kind: 'list', elements, negated }))
+            if (elements) void editor.apply(edits.setQueryElements(atom.id, elements))
           }}
         />
         <Toggle
@@ -1239,9 +1243,7 @@ function QueryListField({ atom, editor }: { atom: AtomView; editor: DocumentEdit
           aria-label="Negate the list: any atom except these"
           disabled={!list}
           pressed={negated}
-          onPressedChange={(pressed) => {
-            if (list) void editor.apply(edits.setQuery(atom.id, { ...list, negated: pressed }))
-          }}
+          onPressedChange={(pressed) => void editor.apply(edits.setQueryNegated(atom.id, pressed))}
         >
           not
         </Toggle>
@@ -1282,6 +1284,11 @@ function BondInspector({ bond, editor }: { bond: BondView; editor: DocumentEdito
           ))}
         </ToggleGroup>
       </Choice>
+      {bond.order === 'dative' && (
+        <p className="text-xs text-muted-foreground" data-testid="dative-direction">
+          From {bond.begin} (the donor) to {bond.end}. To reverse it, draw it again from {bond.end}.
+        </p>
+      )}
       {bond.order === 'query' && (
         <Choice label="Query bond allows" id="bond-query">
           <div role="group" aria-labelledby="bond-query" className="flex flex-wrap gap-1">

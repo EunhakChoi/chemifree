@@ -3,8 +3,13 @@
  * hydrogens, charge, isotope), its state marks (radical dots, attachment points), where each
  * goes relative to the atom, and one box that encloses all of them. Bond trimming, the canvas
  * view box, and hit testing all use that box, so nothing is drawn outside the space they
- * reserve. Every width is fixed here and given to the SVG as `textLength`, so the drawn text
- * takes exactly the computed width whatever font renders it.
+ * reserve.
+ *
+ * Text is drawn at its natural width: glyphs are never stretched or squeezed. Each run of
+ * text is anchored where it meets the symbol (the symbol centred on the atom, what follows it
+ * starting at the symbol's reserved right edge, what precedes it ending at the reserved left
+ * edge), so runs cannot overlap or drift into each other whatever font renders them. The box
+ * reserves an upper bound of each glyph's advance (see ADVANCE), so the drawn text lies inside it.
  *
  * Nothing here computes chemistry: inferred hydrogens are not counted and add nothing.
  */
@@ -18,15 +23,29 @@ export interface Box {
   height: number
 }
 
-/** One run of label text, placed relative to the atom: `dx` is its left edge, `dy` its middle. */
-export interface LabelText {
+export type LabelPart = 'isotope' | 'symbol' | 'hydrogens' | 'hydrogen-count' | 'charge' | 'attachment' | 'radical'
+
+/** One run of text within a chunk; `shift` is its vertical middle relative to the chunk's line. */
+export interface LabelRun {
   text: string
-  dx: number
-  dy: number
   size: number
-  /** The width the text is drawn at. */
-  width: number
-  part: 'isotope' | 'symbol' | 'hydrogens' | 'hydrogen-count' | 'charge'
+  shift: number
+  part: LabelPart
+  weight: 400 | 500
+}
+
+/**
+ * Runs drawn as one text element that flows from its anchor: `start` begins at `x`, `middle`
+ * is centred on it, and `end` ends at it. `x`, `y` are relative to the atom; `box` is an upper
+ * bound of where the runs are drawn.
+ */
+export interface LabelChunk {
+  role: 'before' | 'symbol' | 'after' | 'attachment' | 'radical'
+  anchor: 'start' | 'middle' | 'end'
+  x: number
+  y: number
+  runs: LabelRun[]
+  box: Box
 }
 
 /** A dot of a radical mark, relative to the atom; a hollow one is drawn as a ring. */
@@ -37,39 +56,76 @@ export interface LabelDot {
 }
 
 export interface AtomLabel {
-  /** The label's text runs, left to right, drawn as one text element. */
-  texts: LabelText[]
+  /** Text chunks in reading order: what precedes the symbol, the symbol, what follows it. */
+  chunks: LabelChunk[]
   /** Small text marks: the attachment points, and a radical stated as unknown. */
-  marks: Array<LabelText & { mark: 'attachment' | 'radical' }>
+  marks: LabelChunk[]
   dots: LabelDot[]
-  /** Encloses every text and mark, relative to the atom. */
+  /** Encloses every chunk, mark, and dot, relative to the atom. */
   box: Box
-  /** The full description, with the full query expression, for the accessible name. */
-  name: string
 }
 
 export const LABEL_SIZE = 12
 const SMALL_SIZE = 8
 const MARK_SIZE = 7
-/** Half the height a run of text may take, as a share of its font size, measured generously. */
+/**
+ * Half the height a run of text may take around its middle, as a share of its font size. Text
+ * drawn with a central baseline measures at most 0.655 of its size either way in the bundled
+ * font and the generic sans-serif fallback (Chromium); this keeps a margin.
+ */
 const HALF_HEIGHT = 0.7
+/**
+ * How far a run's drawn box may reach past its advance at either end, as a share of its size
+ * (0.03 measured before the start and 0.02 past the end).
+ */
+const OVERHANG = 0.04
 const DOT_RADIUS = 1.4
 const PADDING = 1
 /** List queries name at most this many elements on the canvas. */
 export const SHOWN_QUERY_ELEMENTS = 3
 
-/** Advance of one character as a share of the font size; drawn text is fitted to it. */
-function advance(character: string) {
-  if (/[A-Z]/.test(character)) return 0.72
-  if (/[a-z]/.test(character)) return 0.56
-  if (/[0-9]/.test(character)) return 0.6
-  if (character === '…') return 0.9
-  if (character === '+' || character === '−' || character === '?') return 0.62
-  return 0.4
-}
+/**
+ * Upper bounds of each character's advance, as a share of the font size: the larger of the
+ * bundled font (Geist, weights 400 and 500) and the generic sans-serif fallback shown while it
+ * loads, measured in Chromium, plus 2%, rounded up. A character not listed counts as 1.1.
+ */
+const ADVANCE: ReadonlyMap<string, number> = new Map(
+  (
+    [
+      ['i', 0.27],
+      ['Ijl!,', 0.29],
+      ['[]', 0.37],
+      ['r', 0.4],
+      ['ft', 0.42],
+      ['*', 0.44],
+      ['s', 0.56],
+      ['yz17', 0.57],
+      ['cv', 0.58],
+      ['a?', 0.59],
+      ['Le+−', 0.6],
+      ['hnou', 0.61],
+      ['6', 0.62],
+      ['FJTZbdgkpqx9', 0.63],
+      ['8', 0.64],
+      ['234', 0.65],
+      ['5', 0.66],
+      ['EKPSXY0', 0.69],
+      ['ABV', 0.71],
+      ['CDHRU', 0.74],
+      ['N', 0.77],
+      ['GOQ', 0.8],
+      ['w', 0.85],
+      ['Mm', 0.91],
+      ['W', 0.99],
+      ['…', 1.02],
+    ] as const
+  ).flatMap(([characters, advance]) => [...characters].map((character): [string, number] => [character, advance])),
+)
+const UNKNOWN_ADVANCE = 1.1
 
+/** An upper bound of the advance of `text` drawn at `size`. */
 export function textWidth(text: string, size: number) {
-  return [...text].reduce((total, character) => total + advance(character) * size, 0)
+  return [...text].reduce((total, character) => total + (ADVANCE.get(character) ?? UNKNOWN_ADVANCE) * size, 0)
 }
 
 export function chargeText(charge: number) {
@@ -112,22 +168,22 @@ export function statesDescription(atom: AtomView) {
 }
 
 /**
+ * The atom's accessible name: what it is, with the full query expression, and its recorded
+ * states. `placement` names the drawing when the document is drawn more than once.
+ */
+export function atomName(atom: AtomView, placement: string | null = null) {
+  const what = atom.kind === 'query' && atom.query ? `query atom ${queryDescription(atom.query)}` : atom.element
+  const where = placement === null ? '' : ` in ${placement}`
+  return [`Atom ${atom.id}${where}: ${what}`, ...statesDescription(atom)].join('; ')
+}
+
+/**
  * A carbon is drawn as a bare vertex only while it is bonded and carries nothing recorded:
  * a charge, isotope, stated or unknown hydrogens, a radical, or attachment points label it.
  * Inferred hydrogens do not. Every other element and every query atom is labelled.
  */
 export function showsLabel(atom: AtomView, degree: number) {
-  return (
-    atom.kind === 'query' ||
-    atom.element !== 'C' ||
-    degree === 0 ||
-    statesDescription(atom).length > 0
-  )
-}
-
-function boxOf(item: { dx: number; dy: number; width: number; size: number }): Box {
-  const half = item.size * HALF_HEIGHT
-  return { x: item.dx, y: item.dy - half, width: item.width, height: 2 * half }
+  return atom.kind === 'query' || atom.element !== 'C' || degree === 0 || statesDescription(atom).length > 0
 }
 
 /** The smallest box enclosing all of `boxes`. */
@@ -139,57 +195,92 @@ export function union(boxes: Box[]): Box {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
+const run = (text: string, size: number, shift: number, part: LabelPart, weight: 400 | 500 = 400): LabelRun => ({
+  text,
+  size,
+  shift,
+  part,
+  weight,
+})
+
+/** A chunk of `runs` anchored at `x`, `y`, with the upper-bound box of what it draws. */
+function chunk(role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[]): LabelChunk {
+  const advance = runs.reduce((total, item) => total + textWidth(item.text, item.size), 0)
+  const overhang = OVERHANG * Math.max(...runs.map((item) => item.size))
+  const start = anchor === 'start' ? x : anchor === 'end' ? x - advance : x - advance / 2
+  const top = Math.min(...runs.map((item) => item.shift - HALF_HEIGHT * item.size))
+  const bottom = Math.max(...runs.map((item) => item.shift + HALF_HEIGHT * item.size))
+  return {
+    role,
+    anchor,
+    x,
+    y,
+    runs,
+    box: { x: start - overhang, y: y + top, width: advance + 2 * overhang, height: bottom - top },
+  }
+}
+
+/** Layouts already made, by everything that shapes one; bounded so it cannot grow without end. */
+const layouts = new Map<string, AtomLabel | null>()
+const MAX_LAYOUTS = 4096
+
 /**
  * The complete label of `atom` with `degree` bonds, or null for a bare carbon vertex. The
  * symbol is centred on the atom. Stated or unknown hydrogens go beside it with their count as
  * a subscript ("?" when unknown): after it, or before it ("H3C") when `hydrogensLeft` because
  * the atom's bonds lean right. The isotope is a superscript before the symbol and the charge
  * one after it. Radical dots sit above the symbol and attachment points below it.
+ *
+ * A layout depends only on the atom's recorded states, whether it is bonded, and the side, so
+ * atoms alike share one (frozen) layout object.
  */
 export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false): AtomLabel | null {
+  const key = JSON.stringify([
+    atom.kind,
+    atom.element,
+    atom.charge,
+    atom.isotope,
+    atom.hydrogens,
+    atom.radical,
+    atom.attachment_points,
+    degree === 0,
+    hydrogensLeft,
+  ])
+  const known = layouts.get(key)
+  if (known !== undefined) return known
+  const made = layout(atom, degree, hydrogensLeft)
+  if (layouts.size >= MAX_LAYOUTS) layouts.clear()
+  layouts.set(key, made)
+  return made
+}
+
+function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLabel | null {
   if (!showsLabel(atom, degree)) return null
-  const run = (text: string, size: number, dx: number, dy: number, part: LabelText['part']): LabelText => ({
-    text,
-    dx,
-    dy,
-    size,
-    width: textWidth(text, size),
-    part,
-  })
-  const symbol = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
-  const symbolWidth = textWidth(symbol, LABEL_SIZE)
-  // Runs left of the symbol are listed nearest first and placed leftward; runs right of it,
-  // rightward. `texts` keeps reading order.
-  const left: Array<[string, number, number, LabelText['part']]> = []
-  const right: Array<[string, number, number, LabelText['part']]> = []
-  if (atom.isotope !== null) left.push([String(atom.isotope), SMALL_SIZE, -5, 'isotope'])
+  const symbolText = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
+  const symbol = chunk('symbol', 'middle', 0, 0, [run(symbolText, LABEL_SIZE, 0, 'symbol', 500)])
+  const before: LabelRun[] = []
+  const after: LabelRun[] = []
+  const hydrogens: LabelRun[] = []
   if (atom.hydrogens.mode !== 'inferred') {
+    hydrogens.push(run('H', LABEL_SIZE, 0, 'hydrogens', 500))
     const count = atom.hydrogens.mode === 'unknown' ? '?' : atom.hydrogens.count === 1 ? '' : String(atom.hydrogens.count)
-    const hydrogens: Array<[string, number, number, LabelText['part']]> = [['H', LABEL_SIZE, 0, 'hydrogens']]
-    if (count) hydrogens.push([count, SMALL_SIZE, 4, 'hydrogen-count'])
-    if (hydrogensLeft) left.push(...hydrogens.reverse())
-    else right.push(...hydrogens)
+    if (count) hydrogens.push(run(count, SMALL_SIZE, 4, 'hydrogen-count'))
   }
+  if (hydrogensLeft) before.push(...hydrogens)
+  if (atom.isotope !== null) before.push(run(String(atom.isotope), SMALL_SIZE, -5, 'isotope'))
+  if (!hydrogensLeft) after.push(...hydrogens)
   const charge = chargeText(atom.charge)
-  if (charge) right.push([charge, SMALL_SIZE, -5, 'charge'])
+  if (charge) after.push(run(charge, SMALL_SIZE, -5, 'charge'))
 
-  const before: LabelText[] = []
-  let leftEdge = -symbolWidth / 2
-  for (const [text, size, dy, part] of left) {
-    leftEdge -= textWidth(text, size)
-    before.unshift(run(text, size, leftEdge, dy, part))
-  }
-  const texts: LabelText[] = [...before, run(symbol, LABEL_SIZE, -symbolWidth / 2, 0, 'symbol')]
-  let rightEdge = symbolWidth / 2
-  for (const [text, size, dy, part] of right) {
-    texts.push(run(text, size, rightEdge, dy, part))
-    rightEdge += textWidth(text, size)
-  }
+  // What precedes the symbol ends at its reserved left edge; what follows starts at its right.
+  const chunks: LabelChunk[] = []
+  if (before.length > 0) chunks.push(chunk('before', 'end', symbol.box.x, 0, before))
+  chunks.push(symbol)
+  if (after.length > 0) chunks.push(chunk('after', 'start', symbol.box.x + symbol.box.width, 0, after))
 
-  const top = -LABEL_SIZE * HALF_HEIGHT
-  const dotY = top - DOT_RADIUS - 1
+  const dotY = symbol.box.y - DOT_RADIUS - 1
   const dots: LabelDot[] = []
-  const marks: AtomLabel['marks'] = []
+  const marks: LabelChunk[] = []
   switch (atom.radical) {
     case 'none':
       break
@@ -204,7 +295,7 @@ export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false)
       break
     case 'unknown':
       dots.push({ dx: -2, dy: dotY, hollow: false })
-      marks.push({ ...run('?', MARK_SIZE, 0.5, dotY, 'symbol'), mark: 'radical' })
+      marks.push(chunk('radical', 'start', 0.5, dotY, [run('?', MARK_SIZE, 0, 'radical')]))
       break
     default: {
       const unhandled: never = atom.radical
@@ -212,10 +303,8 @@ export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false)
     }
   }
   if (atom.attachment_points.length > 0) {
-    const text = `ap${atom.attachment_points.join(',')}`
-    const width = textWidth(text, MARK_SIZE)
-    const below = LABEL_SIZE * HALF_HEIGHT + MARK_SIZE * HALF_HEIGHT
-    marks.push({ ...run(text, MARK_SIZE, -width / 2, below, 'symbol'), mark: 'attachment' })
+    const below = symbol.box.y + symbol.box.height + HALF_HEIGHT * MARK_SIZE
+    marks.push(chunk('attachment', 'middle', 0, below, [run(`ap${atom.attachment_points.join(',')}`, MARK_SIZE, 0, 'attachment')]))
   }
 
   const dotBoxes = dots.map((dot) => ({
@@ -224,16 +313,19 @@ export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false)
     width: 2 * DOT_RADIUS + 1,
     height: 2 * DOT_RADIUS + 1,
   }))
-  const content = union([...texts, ...marks].map(boxOf).concat(dotBoxes))
+  const content = union([...chunks, ...marks].map((item) => item.box).concat(dotBoxes))
   const box = {
     x: content.x - PADDING,
     y: content.y - PADDING,
     width: content.width + 2 * PADDING,
     height: content.height + 2 * PADDING,
   }
-  const what = atom.kind === 'query' && atom.query ? `query atom ${queryDescription(atom.query)}` : atom.element
-  const name = [`Atom ${atom.id}: ${what}`, ...statesDescription(atom)].join('; ')
-  return { texts, marks, dots, box, name }
+  return Object.freeze({ chunks, marks, dots, box })
+}
+
+/** The label's text in reading order, marks left out. */
+export function labelText(label: AtomLabel) {
+  return label.chunks.flatMap((item) => item.runs.map((part) => part.text))
 }
 
 export const DOT_SIZE = DOT_RADIUS
