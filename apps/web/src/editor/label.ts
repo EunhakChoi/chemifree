@@ -5,11 +5,11 @@
  * view box, and hit testing all use that box, so nothing is drawn outside the space they
  * reserve.
  *
- * Text is drawn at its natural width: glyphs are never stretched or squeezed. Each run of
- * text is anchored where it meets the symbol (the symbol centred on the atom, what follows it
- * starting at the symbol's reserved right edge, what precedes it ending at the reserved left
- * edge), so runs cannot overlap or drift into each other whatever font renders them. The box
- * reserves an upper bound of each glyph's advance (see ADVANCE), so the drawn text lies inside it.
+ * Text is drawn at its natural width: glyphs are never stretched or squeezed. The symbol and
+ * what precedes and follows it are one chunk of text, so they flow against each other and
+ * cannot overlap or drift apart whatever font renders them; the chunk is centred so that the
+ * symbol's reserved width is centred on the atom. The box reserves an upper bound of each
+ * glyph's advance (see ADVANCE), so the drawn text lies inside it.
  *
  * Nothing here computes chemistry: inferred hydrogens are not counted and add nothing.
  */
@@ -40,7 +40,7 @@ export interface LabelRun {
  * bound of where the runs are drawn.
  */
 export interface LabelChunk {
-  role: 'before' | 'symbol' | 'after' | 'attachment' | 'radical'
+  role: 'text' | 'attachment' | 'radical'
   anchor: 'start' | 'middle' | 'end'
   x: number
   y: number
@@ -257,7 +257,9 @@ export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false)
 function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLabel | null {
   if (!showsLabel(atom, degree)) return null
   const symbolText = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
-  const symbol = chunk('symbol', 'middle', 0, 0, [run(symbolText, LABEL_SIZE, 0, 'symbol', 500)])
+  const symbolRun = run(symbolText, LABEL_SIZE, 0, 'symbol', 500)
+  // The symbol's reserved box, centred on the atom: radical dots go above it, marks below.
+  const symbol = chunk('text', 'middle', 0, 0, [symbolRun])
   const before: LabelRun[] = []
   const after: LabelRun[] = []
   const hydrogens: LabelRun[] = []
@@ -272,11 +274,12 @@ function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLab
   const charge = chargeText(atom.charge)
   if (charge) after.push(run(charge, SMALL_SIZE, -5, 'charge'))
 
-  // What precedes the symbol ends at its reserved left edge; what follows starts at its right.
-  const chunks: LabelChunk[] = []
-  if (before.length > 0) chunks.push(chunk('before', 'end', symbol.box.x, 0, before))
-  chunks.push(symbol)
-  if (after.length > 0) chunks.push(chunk('after', 'start', symbol.box.x + symbol.box.width, 0, after))
+  // One chunk of text, so what precedes and follows the symbol is drawn against it at natural
+  // widths. Centred where the reserved widths centre the symbol's on the atom: the symbol is
+  // then off the atom by half the difference of the reserved and natural widths of what is
+  // beside it (a fraction of a point), and the text lies inside the reserved widths.
+  const width = (runs: LabelRun[]) => runs.reduce((total, item) => total + textWidth(item.text, item.size), 0)
+  const chunks = [chunk('text', 'middle', (width(after) - width(before)) / 2, 0, [...before, symbolRun, ...after])]
 
   const dotY = symbol.box.y - DOT_RADIUS - 1
   const dots: LabelDot[] = []

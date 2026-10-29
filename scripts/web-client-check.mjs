@@ -637,8 +637,26 @@ test('moving or deleting a placement is built from the document it applies to', 
 })
 
 
-const { atomLabel, atomName, labelText, placed, queryLabel, showsLabel } = await import('../apps/web/src/editor/label.ts')
-const { bondName, bondSides, bondStrokes, clipped, hitTest, leaningRight, placementFrame, viewBox } = await import(
+const { atomLabel, atomName, labelText, placed, queryLabel, showsLabel, textWidth } = await import(
+  '../apps/web/src/editor/label.ts'
+)
+
+/**
+ * The label's text is one chunk, so what precedes and follows the symbol is drawn against it
+ * at natural widths (not from the edges of its reserved width), placed so that the symbol's
+ * reserved width is centred on the atom.
+ */
+function assertFlows(label, name) {
+  assert.equal(label.chunks.length, 1, `${name}: one chunk of text`)
+  const [text] = label.chunks
+  assert.equal(text.anchor, 'middle', name)
+  const widths = text.runs.map((item) => textWidth(item.text, item.size))
+  const sum = (values) => values.reduce((total, value) => total + value, 0)
+  const at = text.runs.findIndex((item) => item.part === 'symbol')
+  const centre = text.x - sum(widths) / 2 + sum(widths.slice(0, at)) + widths[at] / 2
+  assert.ok(Math.abs(centre) < 1e-9, `${name}: the symbol's reserved width is centred on the atom (${centre})`)
+}
+const { bondName, bondRings, bondSides, bondStrokes, clipped, hitTest, leaningRight, placementFrame, viewBox } = await import(
   '../apps/web/src/editor/geometry.ts'
 )
 const { drawBond } = await import('../apps/web/src/editor/bond-gestures.ts')
@@ -802,10 +820,8 @@ test('stated hydrogens go left of the symbol when the bonds lean right, clear of
   const methyl = atomWith('a1', 'C', 0, 0, { hydrogens: { mode: 'specified', count: 3 }, isotope: 13 })
   const label = atomLabel(methyl, 1, true)
   assert.deepEqual(labelText(label), ['H', '3', '13', 'C'])
-  const [before, symbol] = label.chunks
-  assert.deepEqual([before.role, before.anchor, symbol.role, symbol.anchor], ['before', 'end', 'symbol', 'middle'])
-  assert.equal(before.x, symbol.box.x, 'what precedes the symbol ends at its reserved left edge')
-  assert.ok(before.box.x < symbol.box.x)
+  assertFlows(label, 'H3 13C')
+  assert.ok(label.chunks[0].box.x < -textWidth('C', 12) / 2 - textWidth('H', 12), 'the hydrogens are left of the symbol')
   const view = {
     id: 'doc-1',
     title: 'Lean',
@@ -1032,9 +1048,11 @@ test("a symbol's reserved width holds its natural width without being far wider"
     assert.ok(chunk.box.width >= natural && chunk.box.width <= natural + 2, `${symbol}: ${chunk.box.width} for ${natural}`)
     assert.deepEqual([chunk.anchor, chunk.x], ['middle', 0], `${symbol} is centred on the atom`)
   }
-  const label = atomLabel(atomWith('a1', 'Cl', 0, 0, { hydrogens: { mode: 'specified', count: 2 }, charge: -1 }), 1)
-  const [symbol, after] = label.chunks
-  assert.deepEqual([after.role, after.anchor, after.x], ['after', 'start', symbol.box.x + symbol.box.width])
+  assertFlows(atomLabel(atomWith('a1', 'Cl', 0, 0, { hydrogens: { mode: 'specified', count: 2 }, charge: -1 }), 1), 'ClH2−')
+  const list = { kind: 'query', element: '![N,O,S,P]', query: { kind: 'list', elements: ['N', 'O', 'S', 'P'], negated: true } }
+  const hydrogens = { mode: 'specified', count: 2 }
+  assertFlows(atomLabel(atomWith('a1', '![N,O,S,P]', 0, 0, { ...list, hydrogens }), 1), '![N,O,S,…]H2')
+  assertFlows(atomLabel(atomWith('a1', '![N,O,S,P]', 0, 0, { ...list, hydrogens }), 1, true), 'H2![N,O,S,…]')
 })
 
 for (const element of ['O', 'N']) {
@@ -1204,6 +1222,92 @@ test('aromatic dashed lines lie inside a ring drawn in mixed directions and do n
     const next = dashed[(index + 1) % dashed.length]
     assert.ok(!crosses(line[0], line[1], next[0], next[1]), `b${index + 1} and the next do not cross`)
   })
+})
+
+/** Whether `bond`'s dashed line, drawn on the side bondSides gives it, is nearer `centre` than the bond. */
+function dashedToward(view, bond, centre, sides = bondSides(view)) {
+  const at = (id) => view.atoms.find((atom) => atom.id === id).position
+  const [, line] = bondStrokes(bond, at(bond.begin), at(bond.end), null, null, sides.get(bond.id))
+  const middle = { x: (line.x1 + line.x2) / 2, y: (line.y1 + line.y2) / 2 }
+  const bondMiddle = { x: (at(bond.begin).x + at(bond.end).x) / 2, y: (at(bond.begin).y + at(bond.end).y) / 2 }
+  const toCentre = (point) => Math.hypot(point.x - centre.x, point.y - centre.y)
+  return toCentre(middle) < toCentre(bondMiddle)
+}
+
+/** Hexagon vertices around `centre`, the first at `start` degrees. */
+const hexagon = (centre, start) =>
+  Array.from({ length: 6 }, (_, index) => {
+    const angle = ((start + index * 60) * Math.PI) / 180
+    return { x: centre.x + 30 * Math.cos(angle), y: centre.y + 30 * Math.sin(angle) }
+  })
+
+const reversedBonds = (bonds) => bonds.map((bond) => ({ ...bond, begin: bond.end, end: bond.begin }))
+
+/** A benzene-like ring around (100, 100), substituted on r1 and r2, its ring bonds drawn either way. */
+function orthoRing(reversed) {
+  const centre = { x: 100, y: 100 }
+  const ring = hexagon(centre, 0).map((point, index) => atomWith(`r${index + 1}`, 'C', point.x, point.y))
+  // Substituents on r1 and r2, pointing away from the ring: their sides cancel out.
+  const outside = hexagon(centre, 0)
+    .slice(0, 2)
+    .map((point, index) => atomWith(`s${index + 1}`, 'C', 2 * point.x - centre.x, 2 * point.y - centre.y))
+  const ringBonds = ring.map((atom, index) => bondWith(`b${index + 1}`, atom.id, ring[(index + 1) % 6].id, 'aromatic'))
+  const bonds = [...(reversed ? reversedBonds(ringBonds) : ringBonds), bondWith('x1', 'r1', 's1'), bondWith('x2', 'r2', 's2')]
+  return { centre, view: { id: 'doc-1', title: 'Ortho', revision: 1, atoms: [...ring, ...outside], bonds } }
+}
+
+for (const reversed of [false, true]) {
+  const drawn = reversed ? 'drawn end to begin' : 'drawn begin to end'
+
+  test(`an aromatic ring bond between two substituted atoms has its dashed line inside the ring (${drawn})`, () => {
+    const { centre, view } = orthoRing(reversed)
+    for (const bond of view.bonds.filter((item) => item.order === 'aromatic')) {
+      assert.ok(dashedToward(view, bond, centre), `${bond.id}'s dashed line is inside the ring`)
+    }
+  })
+
+  test(`aromatic bonds of fused rings have their dashed lines inside a ring (${drawn})`, () => {
+    // Two hexagons sharing the edge a1–a2, like naphthalene.
+    const first = { x: 100, y: 100 }
+    const second = { x: 100 + 60 * Math.cos(Math.PI / 6), y: 100 }
+    const [a1, a2, a3, a4, a5, a6] = hexagon(first, -30)
+    const [, , b3, b4, b5, b6] = hexagon(second, 150)
+    const points = { a1, a2, a3, a4, a5, a6, a7: b6, a8: b5, a9: b4, a10: b3 }
+    const atoms = Object.entries(points).map(([id, point]) => atomWith(id, 'C', point.x, point.y))
+    const rings = {
+      first: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'],
+      second: ['a2', 'a1', 'a7', 'a8', 'a9', 'a10'],
+    }
+    const forward = [
+      ...rings.first.map((id, index) => [id, rings.first[(index + 1) % 6]]),
+      ...rings.second.slice(1).map((id, index) => [id, rings.second[(index + 2) % 6]]),
+    ].map(([begin, end], index) => bondWith(`b${index + 1}`, begin, end, 'aromatic'))
+    const bonds = reversed ? reversedBonds(forward) : forward
+    const view = { id: 'doc-1', title: 'Fused', revision: 1, atoms, bonds }
+    for (const bond of bonds) {
+      const inFirst = rings.first.includes(bond.begin) && rings.first.includes(bond.end)
+      const inSecond = rings.second.includes(bond.begin) && rings.second.includes(bond.end)
+      // The fused bond's dashed line may go into either ring.
+      const inside = (inFirst && dashedToward(view, bond, first)) || (inSecond && dashedToward(view, bond, second))
+      assert.ok(inside, `${bond.id} (${bond.begin}–${bond.end})'s dashed line is inside its ring`)
+    }
+  })
+}
+
+test('the rings bondSides follows are found once per graph and passed in, not searched for each placement', () => {
+  const { centre, view } = orthoRing(true)
+  const found = bondRings(view)
+  assert.deepEqual([...found.keys()].sort(), ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'], 'the substituent bonds are in no ring')
+  assert.deepEqual([...found.get('b1')].sort(), ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])
+  const b1 = view.bonds[0]
+  // Another placement moves the atoms but keeps the graph: the rings found once still apply.
+  const shift = (atom) => ({ ...atom, position: { x: atom.position.x + 300, y: atom.position.y } })
+  const moved = { ...view, atoms: view.atoms.map(shift) }
+  assert.ok(dashedToward(moved, b1, { x: centre.x + 300, y: centre.y }, bondSides(moved, undefined, found)))
+  // bondSides uses only the rings it is given: told of none, the reversed bond between the two
+  // substituted atoms follows its neighbours, whose sides cancel out, and its line goes outside.
+  assert.ok(!dashedToward(view, b1, centre, bondSides(view, undefined, new Map())))
+  assert.equal(bondRings({ ...view, bonds: view.bonds.slice(1) }).size, 0, 'a chain has no rings')
 })
 
 test('atoms alike share one label layout, whatever their identifiers and positions', () => {

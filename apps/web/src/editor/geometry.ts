@@ -231,16 +231,69 @@ const INNER_OFFSET = 3
 /** How much shorter the dashed line is at a bare vertex, so inner lines meeting there do not cross. */
 const INNER_INSET = 4
 
+/** The largest ring (in atoms) whose side an aromatic bond's inner line follows. */
+const RING_LIMIT = 8
+
+/**
+ * For each bond in a ring of at most [RING_LIMIT] atoms, the atoms of the smallest such ring
+ * through it (one of them when rings of that size are fused there). It depends only on the
+ * graph, so every placement of a document shares one result.
+ */
+export function bondRings(view: Pick<DocumentView, 'bonds'>): Map<string, string[]> {
+  const around = new Map<string, { atom: string; bond: string }[]>()
+  const add = (from: string, atom: string, bond: string) => {
+    const steps = around.get(from)
+    if (steps) steps.push({ atom, bond })
+    else around.set(from, [{ atom, bond }])
+  }
+  for (const { id, begin, end } of view.bonds) {
+    add(begin, end, id)
+    add(end, begin, id)
+  }
+  const rings = new Map<string, string[]>()
+  for (const bond of view.bonds) {
+    // Breadth first from begin to end without this bond, at most RING_LIMIT - 1 steps.
+    const previous = new Map<string, string | null>([[bond.begin, null]])
+    let frontier = [bond.begin]
+    for (let steps = 1; steps < RING_LIMIT && frontier.length > 0 && !previous.has(bond.end); steps += 1) {
+      const next: string[] = []
+      for (const atom of frontier) {
+        for (const step of around.get(atom) ?? []) {
+          if (step.bond === bond.id || previous.has(step.atom)) continue
+          previous.set(step.atom, atom)
+          next.push(step.atom)
+        }
+      }
+      frontier = next
+    }
+    if (!previous.has(bond.end)) continue
+    const ring: string[] = []
+    for (let atom: string | null | undefined = bond.end; atom; atom = previous.get(atom)) ring.push(atom)
+    rings.set(bond.id, ring)
+  }
+  return rings
+}
+
 /**
  * Which side of each bond (+1: left of begin → end, in document coordinates; -1: right) its
- * inner line goes: the side where more of the atoms bonded to either end lie, which is inside
- * a ring whichever way its bonds were drawn. A bond without such neighbours uses +1.
+ * inner line goes. A bond in a ring (see bondRings; pass the document's, found once) takes the
+ * side of that ring's centre, so the line is inside the ring however its bonds were drawn and
+ * whatever is bonded to it. Any other bond takes the side where more of the atoms bonded to
+ * either end lie, and +1 without such neighbours.
  */
-export function bondSides(view: DocumentView, atoms: ReadonlyMap<string, AtomView> = atomIndex(view)) {
+export function bondSides(
+  view: DocumentView,
+  atoms: ReadonlyMap<string, AtomView> = atomIndex(view),
+  rings: ReadonlyMap<string, readonly string[]> = bondRings(view),
+) {
   const around = new Map<string, string[]>()
-  for (const { begin, end } of view.bonds) {
-    around.set(begin, [...(around.get(begin) ?? []), end])
-    around.set(end, [...(around.get(end) ?? []), begin])
+  for (const [from, to] of view.bonds.flatMap(({ begin, end }) => [
+    [begin, end],
+    [end, begin],
+  ])) {
+    const neighbours = around.get(from)
+    if (neighbours) neighbours.push(to)
+    else around.set(from, [to])
   }
   const sides = new Map<string, 1 | -1>()
   for (const bond of view.bonds) {
@@ -250,6 +303,19 @@ export function bondSides(view: DocumentView, atoms: ReadonlyMap<string, AtomVie
     const length = distance(begin, end)
     if (length === 0) continue
     const normal = { x: -(end.y - begin.y) / length, y: (end.x - begin.x) / length }
+    const toward = (point: Position, from: Position) => (point.x - from.x) * normal.x + (point.y - from.y) * normal.y
+    const ring = rings.get(bond.id)?.flatMap((id) => atoms.get(id)?.position ?? [])
+    if (ring && ring.length > 0) {
+      const centre = {
+        x: ring.reduce((sum, point) => sum + point.x, 0) / ring.length,
+        y: ring.reduce((sum, point) => sum + point.y, 0) / ring.length,
+      }
+      const lean = toward(centre, begin)
+      if (lean !== 0) {
+        sides.set(bond.id, lean < 0 ? -1 : 1)
+        continue
+      }
+    }
     let lean = 0
     for (const [from, other, at] of [
       [bond.begin, bond.end, begin],
@@ -258,7 +324,7 @@ export function bondSides(view: DocumentView, atoms: ReadonlyMap<string, AtomVie
       for (const id of around.get(from) ?? []) {
         const neighbour = atoms.get(id)?.position
         if (id === other || !neighbour) continue
-        lean += Math.sign((neighbour.x - at.x) * normal.x + (neighbour.y - at.y) * normal.y)
+        lean += Math.sign(toward(neighbour, at))
       }
     }
     sides.set(bond.id, lean < 0 ? -1 : 1)

@@ -7,6 +7,7 @@ import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
   atomIndex,
   bondName,
+  bondRings,
   bondSides,
   bondStrokes,
   degrees,
@@ -120,6 +121,8 @@ export function StructureCanvas({
   const drawings = useMemo<Drawing[]>(() => {
     const counts = degrees(document)
     const all = placements(document)
+    // Rings depend on the graph alone: searched once for every placement.
+    const rings = bondRings(document)
     // A label depends on the atom and the side its hydrogens take, not on the placement.
     const layouts = new Map<string, AtomLabel | null>()
     const layoutOf = (atom: AtomView, left: boolean) => {
@@ -132,7 +135,7 @@ export function StructureCanvas({
       const index = atomIndex(view)
       const left = leaningRight(view)
       const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, layoutOf(atom, left.has(atom.id))]))
-      const sides = bondSides(view, index)
+      const sides = bondSides(view, index, rings)
       const frame =
         all.length > 1 && placement.id !== null && view.atoms.length > 0
           ? placementFrame(

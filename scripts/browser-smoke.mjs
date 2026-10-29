@@ -1669,7 +1669,8 @@ step = 'after placements_move_independently'
   }
 
   // Atoms whose symbols are narrow and wide (I, Cl) and a long query list, placed left of a1
-  // in s1 (and with it in every placement), so the label checks below cover them.
+  // in s1 (and with it in every placement), so the label checks below cover them; the chlorine
+  // gets a charge and the query stated hydrogens, so text follows a short and a long symbol.
   const placeAt = async (symbol, offset) => {
     const origin = (await atomOf('a1')).position
     await page.evaluate(() => window.scrollTo(0, 0))
@@ -1684,7 +1685,7 @@ step = 'after placements_move_independently'
   }
   const iodine = await placeAt('I', { x: -45, y: 0 })
   const chlorine = await placeAt('Cl', { x: -45, y: 35 })
-  const queried = await placeAt('N', { x: -85, y: 18 })
+  const queried = await placeAt('N', { x: -115, y: 18 })
   await tool('Select and move')
   await select(queried)
   const listField = inspector.getByLabel('Query element list')
@@ -1705,6 +1706,12 @@ step = 'after placements_move_independently'
   await listField.press('Enter')
   await waitIdle()
   assert.equal((await atomOf(queried)).element, '![N,O,S,P,Se]')
+  await press('Hydrogens stated')
+  await press('Increase stated hydrogens')
+  await waitIdle()
+  await select(chlorine)
+  await press('Increase charge')
+  await waitIdle()
 
   /** Problems with the drawing, measured on the rendered SVG. */
   const drawingProblems = () =>
@@ -1748,8 +1755,31 @@ step = 'after placements_move_independently'
             box: part.getBBox(),
             reserved: part.hasAttribute('data-box') ? boxOf(part) : boxOf(label),
           })),
+          // Where each run of the label's text (not its marks) is drawn, left and right, in
+          // reading order: from its first character's cell to its last's.
+          runs: [...label.querySelectorAll('text[data-chunk] tspan')].map((tspan) => {
+            const text = tspan.closest('text')
+            let offset = 0
+            for (const other of text.querySelectorAll('tspan')) {
+              if (other === tspan) break
+              offset += other.textContent.length
+            }
+            const first = text.getExtentOfChar(offset)
+            const last = text.getExtentOfChar(offset + tspan.textContent.length - 1)
+            return { part: tspan.getAttribute('data-part'), left: first.x, right: last.x + last.width }
+          }),
         }))
-        for (const { id, box, drawn, parts } of labels) {
+        for (const { id, box, drawn, parts, runs } of labels) {
+          // What precedes and follows the symbol is drawn against it, not apart from it.
+          const at = runs.findIndex((item) => item.part === 'symbol')
+          for (const [before, after] of [
+            [runs[at - 1], runs[at]],
+            [runs[at], runs[at + 1]],
+          ]) {
+            if (!before || !after) continue
+            const gap = after.left - before.right
+            if (gap > 2 || gap < -1) problems.push(`${where} ${id}: ${gap.toFixed(1)} pt between ${before.part} and ${after.part}`)
+          }
           if (drawn.width === 0 || drawn.height === 0) problems.push(`${where} ${id}: empty label`)
           if (!inView(box)) problems.push(`${where} ${id}: label outside the view box`)
           for (const part of parts) {
@@ -1791,6 +1821,13 @@ step = 'after placements_move_independently'
       palette: await Promise.all(
         [iodine, chlorine, queried].map(async (id) => (await first.locator(`text[data-atom="${id}"]`).allTextContents()).join('')),
       ),
+      // Labels with text against their symbol, which the gap check above measures.
+      adjacent: await page.evaluate(() =>
+        [...document.querySelectorAll('g[data-instance="s1"] [data-atom-label]')]
+          .filter((label) => label.querySelectorAll('text[data-chunk] tspan').length > 1)
+          .map((label) => label.getAttribute('data-atom-label'))
+          .sort(),
+      ),
       b1Dashed: await first.locator('g[data-bond-kind="aromatic"] line[data-pattern="dashed"][data-bond="b1"]').count(),
       a1Name: await first.locator('[data-atom-label="a1"]').getAttribute('aria-label'),
       b1Name: await first.locator('g[data-bond-kind="aromatic"]').getAttribute('aria-label'),
@@ -1802,7 +1839,8 @@ step = 'after placements_move_independently'
     a2: 'C',
     a2Attachment: 'ap1',
     a3: 'N',
-    palette: ['I', 'Cl', '![N,O,S,…]'],
+    palette: ['I', 'Cl+', '![N,O,S,…]H2'],
+    adjacent: ['a1', chlorine, queried].sort(),
     b1Dashed: 1,
     a1Name: 'Atom a1 in s1: C; 3 stated hydrogens; doublet radical',
     b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
