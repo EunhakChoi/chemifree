@@ -541,7 +541,7 @@
         },
         {
           "id": "OPS-02.6",
-          "summary": "Adding graphics, grouping, ungrouping, deleting, moving and reordering scene objects are change sets with the graph and position changes; a transaction may carry the client's selection, checked against its result and recorded before and after in history, so undo restores the selection before the edit and redo the one after, also after reopening; a selection alone adds no revision or history entry; refused commands and selections change nothing and carry a reason code.",
+          "summary": "Adding graphics, grouping, ungrouping, deleting, moving and reordering scene objects are change sets with the graph and position changes. A transaction may carry the client's selection before the edit (checked against the document before it) and after it (checked against its result); history records them, so undo restores the selection the client had before the edit (without one, the selection the previous edit, undo or redo left) and redo the one after, also after reopening. A selection alone adds no revision or history entry; a request_id replay compares both selections as sets. Refused commands and selections change nothing and carry a reason code.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
