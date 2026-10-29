@@ -1,0 +1,520 @@
+{
+  "id": "atom-and-bond-states-round-trip",
+  "title": "Radicals, query atoms and bonds, aromatic, dative and unknown bonds, and attachment points are recorded as given (none turned into a neutral atom or single bond) and survive save, crash, reopen and undo",
+  "requirements": [
+    "MODEL-02"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "radical": "doublet",
+          "attachment_points": [
+            2,
+            1
+          ]
+        },
+        {
+          "op": "add_atom",
+          "query": {
+            "kind": "list",
+            "elements": [
+              "N",
+              "O"
+            ],
+            "negated": true
+          },
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "aromatic"
+          }
+        },
+        {
+          "op": "add_atom",
+          "query": {
+            "kind": "any"
+          },
+          "position": {
+            "x": 60,
+            "y": 0
+          },
+          "radical": "unknown",
+          "bond_to": {
+            "atom": "$1",
+            "order": "query",
+            "query": {
+              "kind": "any"
+            }
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "B",
+          "position": {
+            "x": 90,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$3",
+          "order": "dative"
+        },
+        {
+          "op": "add_atom",
+          "query": {
+            "kind": "any_heavy"
+          },
+          "position": {
+            "x": 120,
+            "y": 0
+          },
+          "radical": "triplet",
+          "bond_to": {
+            "atom": "$3",
+            "order": "unknown"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                2
+              ],
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "![N,O]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O"
+                ],
+                "negated": true
+              },
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "*",
+              "kind": "query",
+              "query": {
+                "kind": "any"
+              },
+              "radical": "unknown"
+            },
+            {
+              "id": "a4",
+              "element": "B",
+              "kind": "element",
+              "radical": "none"
+            },
+            {
+              "id": "a5",
+              "element": "A",
+              "kind": "query",
+              "query": {
+                "kind": "any_heavy"
+              },
+              "radical": "triplet"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "aromatic"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "query",
+              "query": {
+                "kind": "any"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a2",
+              "end": "a4",
+              "order": "dative"
+            },
+            {
+              "id": "b4",
+              "begin": "a4",
+              "end": "a5",
+              "order": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_bond",
+          "bond": "b1",
+          "order": "query",
+          "query": {
+            "kind": "list",
+            "orders": [
+              "double",
+              "aromatic"
+            ]
+          }
+        },
+        {
+          "op": "update_bond",
+          "bond": "b2",
+          "order": "single"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                2
+              ],
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "![N,O]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O"
+                ],
+                "negated": true
+              },
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "*",
+              "kind": "query",
+              "query": {
+                "kind": "any"
+              },
+              "radical": "unknown"
+            },
+            {
+              "id": "a4",
+              "element": "B",
+              "kind": "element",
+              "radical": "none"
+            },
+            {
+              "id": "a5",
+              "element": "A",
+              "kind": "query",
+              "query": {
+                "kind": "any_heavy"
+              },
+              "radical": "triplet"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "query",
+              "query": {
+                "kind": "list",
+                "orders": [
+                  "double",
+                  "aromatic"
+                ]
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "begin": "a2",
+              "end": "a4",
+              "order": "dative"
+            },
+            {
+              "id": "b4",
+              "begin": "a4",
+              "end": "a5",
+              "order": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "session": {
+          "saved_revision": 2,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                2
+              ],
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "![N,O]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O"
+                ],
+                "negated": true
+              },
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "*",
+              "kind": "query",
+              "query": {
+                "kind": "any"
+              },
+              "radical": "unknown"
+            },
+            {
+              "id": "a4",
+              "element": "B",
+              "kind": "element",
+              "radical": "none"
+            },
+            {
+              "id": "a5",
+              "element": "A",
+              "kind": "query",
+              "query": {
+                "kind": "any_heavy"
+              },
+              "radical": "triplet"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "query",
+              "query": {
+                "kind": "list",
+                "orders": [
+                  "double",
+                  "aromatic"
+                ]
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "begin": "a2",
+              "end": "a4",
+              "order": "dative"
+            },
+            {
+              "id": "b4",
+              "begin": "a4",
+              "end": "a5",
+              "order": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                2
+              ],
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "![N,O]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O"
+                ],
+                "negated": true
+              },
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "*",
+              "kind": "query",
+              "query": {
+                "kind": "any"
+              },
+              "radical": "unknown"
+            },
+            {
+              "id": "a4",
+              "element": "B",
+              "kind": "element",
+              "radical": "none"
+            },
+            {
+              "id": "a5",
+              "element": "A",
+              "kind": "query",
+              "query": {
+                "kind": "any_heavy"
+              },
+              "radical": "triplet"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "aromatic"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "query",
+              "query": {
+                "kind": "any"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a2",
+              "end": "a4",
+              "order": "dative"
+            },
+            {
+              "id": "b4",
+              "begin": "a4",
+              "end": "a5",
+              "order": "unknown"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "atoms": [],
+          "bonds": []
+        }
+      }
+    }
+  ]
+}

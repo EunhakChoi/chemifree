@@ -273,6 +273,54 @@ try {
   assert.equal(cliEdit.status, 0)
   assert.equal(cliEdit.body.document.revision, 5)
   assert.equal(cliEdit.body.session.unsaved_changes, false)
+
+  // A refused combination of atom or bond states carries the same stable reason over HTTP and
+  // from the CLI, with its command index, and changes nothing.
+  for (const [commands, reason] of [
+    [[{ op: 'update_atom', atom: 'a1', query: { kind: 'any' }, isotope: 13 }], 'query_atom_isotope'],
+    [[{ op: 'update_atom', atom: 'a1', hydrogens: { mode: 'specified', count: 17 } }], 'hydrogen_count_out_of_range'],
+    [[{ op: 'update_bond', bond: 'b1', order: 'query' }], 'bond_query_missing'],
+    [[{ op: 'update_atom', atom: 'a1', attachment_points: [2, 2] }], 'attachment_point_repeated'],
+  ]) {
+    const body = [{ op: 'rename', title: 'Not applied' }, ...commands]
+    const overHttp = await write(`${doc}/transactions`, { request_id: `refused-${reason}`, expected_revision: 5, commands: body })
+    const fromCli = cli('documents', 'apply', id, '--expected-revision', '5', '--json', '--commands', JSON.stringify(body))
+    assert.deepEqual([overHttp.status, fromCli.status], [422, 1], reason)
+    assert.deepEqual(
+      [overHttp.body.code, overHttp.body.command_index, overHttp.body.reason],
+      ['invalid_command', 1, reason],
+      JSON.stringify(overHttp.body),
+    )
+    assert.deepEqual(overHttp.body, fromCli.body, `HTTP = CLI for ${reason}`)
+  }
+  assert.equal(cli('documents', 'show', id, '--json').body.document.revision, 5, 'nothing was committed')
+
+  // Recorded states round-trip through a CLI commit and read back the same over HTTP, in a
+  // document of their own.
+  {
+    const statesId = cli('documents', 'create', '--title', 'States', '--json').body.document.id
+    const committed = cli('documents', 'apply', statesId, '--expected-revision', '0', '--json', '--commands', JSON.stringify([
+      { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, hydrogens: { mode: 'specified', count: 2 }, radical: 'triplet',
+        attachment_points: [1] },
+      { op: 'add_atom', query: { kind: 'list', elements: ['N', 'O'] }, position: { x: 30, y: 0 },
+        bond_to: { atom: '$0', order: 'query', query: { kind: 'list', orders: ['single', 'aromatic'] } } },
+      { op: 'add_atom', element: 'B', position: { x: 60, y: 0 }, bond_to: { atom: '$1', order: 'dative' } },
+    ]))
+    assert.equal(committed.status, 0, JSON.stringify(committed.body))
+    const [carbon, query, boron] = committed.body.document.atoms
+    assert.deepEqual(
+      [carbon.kind, carbon.hydrogens, carbon.radical, carbon.attachment_points],
+      ['element', { mode: 'specified', count: 2 }, 'triplet', [1]],
+    )
+    assert.deepEqual([query.kind, query.element, query.query], ['query', '[N,O]', { kind: 'list', elements: ['N', 'O'], negated: false }])
+    assert.deepEqual(boron.hydrogens, { mode: 'inferred' }, 'inferred carries no count')
+    assert.deepEqual(committed.body.document.bonds.map((bond) => [bond.begin, bond.end, bond.order, bond.query]), [
+      ['a1', 'a2', 'query', { kind: 'list', orders: ['single', 'aromatic'] }],
+      ['a2', 'a3', 'dative', undefined],
+    ])
+    assert.deepEqual((await call(`/api/v1/documents/${statesId}`)).body.document, committed.body.document, 'HTTP reads what the CLI committed')
+    assert.equal(JSON.parse(readFileSync(join(dataDir, 'documents', `${statesId}.json`), 'utf8')).format_version, 3)
+  }
   const cliStale = cli('documents', 'undo', id, '--expected-revision', '4', '--json')
   assert.deepEqual([cliStale.status, cliStale.body.code], [1, 'revision_conflict'])
   const conflict = await write(`${doc}/save`, { request_id: 'save-2', expected_revision: 5 })
@@ -951,6 +999,18 @@ try {
     assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
+    const refusedState = await both((id) =>
+      request('op-refused', 'document.transaction', {
+        document_id: id,
+        expected_revision: 1,
+        commands: [{ op: 'update_atom', atom: 'a1', query: { kind: 'any' }, charge: 1 }],
+      }),
+    )
+    assert.deepEqual(
+      [refusedState.outcome, refusedState.diagnostics[0].code, refusedState.diagnostics[0].details],
+      ['error', 'invalid_command', { command_index: 0, reason: 'query_atom_charge' }],
+      'the reason reaches the operation diagnostic the same both ways',
+    )
     const unsupported = await both(() => request('op-props', 'chem.properties', {}))
     assert.deepEqual([unsupported.outcome, unsupported.result], ['unsupported', null])
     await both(() => request('op-x', 'chem.teleport', {}), 400)
@@ -1008,10 +1068,11 @@ try {
     assert.deepEqual([oversized.status, oversized.body.diagnostics[0].code], [413, 'resource_limit'])
   }
 
-  // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
+  // ── Version 1 and 2 files (before graph and scene were separated; before atom states) ────
   // A version 1 file placed in the data directory opens over HTTP and from the CLI as one
   // scene instance with its history; reading writes nothing. The first save that replaces it,
-  // from either adapter, keeps its exact bytes under migrated/. A newer version is refused.
+  // from either adapter, keeps its exact bytes under migrated/. So does a version 2 file. A
+  // newer version is refused.
   {
     const fixtures = resolve(import.meta.dirname, '../crates/providers/tests/data')
     const fixtureId = 'doc-00000000000000f1'
@@ -1041,7 +1102,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 2)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 3)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1055,12 +1116,29 @@ try {
     const listedIds = cli('documents', 'list', '--json').body.documents.map((item) => item.id)
     assert.ok(!listedIds.some((listedId) => listedId.includes('.v1')), 'kept copies are not documents')
 
-    const newer = placed('v3-document.json', 'doc-00000000000000a3')
+    // A version 2 file (before atom and bond states) opens with inferred hydrogens and no
+    // radicals over HTTP and from the CLI alike; the first save keeps its bytes as .v2.json.
+    const v2 = placed('v2-document.json', 'doc-00000000000000b2')
+    const openedV2 = await call('/api/v1/documents/doc-00000000000000b2')
+    assert.equal(openedV2.status, 200)
+    assert.deepEqual(
+      openedV2.body.document.atoms.map((atom) => [atom.element, atom.kind, atom.hydrogens, atom.radical, atom.attachment_points]),
+      [['C', 'element', { mode: 'inferred' }, 'none', []], ['O', 'element', { mode: 'inferred' }, 'none', []]],
+    )
+    assert.deepEqual(cli('documents', 'show', 'doc-00000000000000b2', '--json').body, openedV2.body, 'HTTP GET = CLI show of a version 2 file')
+    assert.equal(readFileSync(v2.path, 'utf8'), v2.bytes, 'opening wrote nothing')
+    const redoneV2 = cli('documents', 'redo', 'doc-00000000000000b2', '--expected-revision', '4', '--json')
+    assert.equal(redoneV2.status, 0)
+    const keptV2 = join(dataDir, 'migrated', 'doc-00000000000000b2.v2.json')
+    assert.equal(readFileSync(keptV2, 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 3)
+
+    const newer = placed('v4-document.json', 'doc-00000000000000a3')
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 3/)
+    assert.match(refused.body.message, /version 4/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 3; this build reads versions 1 and 2/)
+    assert.match(unreadable?.message ?? '', /version 4; this build reads versions 1, 2, and 3/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)
@@ -1084,8 +1162,10 @@ try {
       'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
       'storage feedback (lock waits, queued requests, lost replies, read-only storage), the document list (search, ' +
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
-      'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
-      'version 1 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused) verified.',
+      'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), ' +
+      'refused atom and bond states (the same reason over HTTP, the CLI, and the operation contract), recorded states ' +
+      'committed by the CLI and read over HTTP, and version 1 and 2 files (opened over HTTP and the CLI, migrated with ' +
+      'history, the first save keeping the exact bytes, a newer version refused) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

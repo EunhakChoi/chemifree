@@ -147,19 +147,17 @@ test('an implemented part needs evidence that executes', () => {
 
 test('a pending case is not executing evidence', () => {
   const inputs = base()
-  // A pending case cited by an implemented part of a requirement the case names.
-  const [pending, cited] =
-    inputs.cases
-      .map((entry) => entry.value)
-      .filter((value) => value.pending)
-      .flatMap((value) =>
-        inputs.requirements.value.requirements
-          .filter((item) => value.requirements.includes(item.id))
-          .flatMap((item) => item.parts.filter((each) => each.status === 'implemented'))
-          .map((each) => [value, each]),
-      )[0] ?? []
-  assert.ok(pending, 'a pending case names a requirement with an implemented part')
-  cited.evidence = [`case:${pending.id}`]
+  // A pending case cited as evidence by an implemented part of a requirement the case names.
+  // No real part does that, so one part of the case's requirement is made implemented here.
+  const pending = inputs.cases.map((entry) => entry.value).find((value) => value.pending)
+  assert.ok(pending, 'the suite has a pending case')
+  const cited = requirement(inputs, pending.requirements[0]).parts[0]
+  Object.assign(cited, {
+    status: 'implemented',
+    implementation: part(inputs, 'OPS-01.1').implementation,
+    evidence: [`case:${pending.id}`],
+    followups: [],
+  })
   expectProblem(inputs, new RegExp(`evidence case:${pending.id} did not pass in the recorded run`))
 })
 

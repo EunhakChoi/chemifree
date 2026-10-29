@@ -32,7 +32,7 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: DocumentEditing,
                 label: "Document editing",
                 status: Available,
-                description: "Create drawings and add, edit, move, or delete atoms (element, charge, isotope) and single/double/triple bonds, with atomic transactions and undo/redo. Drawing only: no valence, aromaticity, stereo, or layout perception.",
+                description: "Create drawings and add, edit, move, or delete atoms (element or query atom, charge, isotope, stated hydrogens, radical, attachment points) and bonds (single, double, triple, aromatic, dative, query, unknown), with atomic transactions and undo/redo. Drawing only: states are recorded as drawn; no valence, implicit hydrogen count, aromaticity, stereo, or layout perception, and no query matching.",
             },
             Capability {
                 id: StructureAnalysis,

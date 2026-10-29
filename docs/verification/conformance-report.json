@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 3,
+  "suite_version": 4,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -240,19 +240,43 @@
     },
     {
       "id": "hydrogen-states",
-      "title": "Explicit, implicit and unspecified hydrogens are told apart",
+      "title": "Inferred (not computed), unknown and specified hydrogen counts are recorded apart, a hydrogen drawn as an atom stays an atom, and each state survives save, crash and reopen, and undo after it",
       "requirements": [
         "MODEL-02"
       ],
       "axis": "graph",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P10",
-        "reason": "Atoms record no hydrogen state yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "e243d1be65f05d46d6db5f2037c1875ba8822521a9ff63f46dce0f5c3f188578"
+      "case_sha256": "8b51836249675e054aa0f394d0a85c494767d7b97c0f1e5ef33bb246a68897a8"
+    },
+    {
+      "id": "atom-and-bond-states-round-trip",
+      "title": "Radicals, query atoms and bonds, aromatic, dative and unknown bonds, and attachment points are recorded as given (none turned into a neutral atom or single bond) and survive save, crash, reopen and undo",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6dc5aeadcfdc2b0ea333190efb62733240a6ad205da3d1b66d259ba10a3d78c5"
+    },
+    {
+      "id": "atom-and-bond-states-refused",
+      "title": "Atom and bond states that do not hold together are refused with the failing command's index and a stable reason, and change nothing",
+      "requirements": [
+        "MODEL-02",
+        "API-01"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "80b0ecaf1c9c4596a838d75dbba45f7ee8b957632adbcd3db89110ed4614c1a3"
     },
     {
       "id": "versioned-operation-contract",
@@ -266,7 +290,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2a2d7f2d2b20bd442ffe45f26a7e90c551707e2937f7282a7532536191bb46a7"
+      "case_sha256": "3c726eec15d45f02ed4b5929f582f8df3ee6858ad10d86660abd3229514acc10"
     },
     {
       "id": "operation-errors-match-v1",
@@ -312,19 +336,19 @@
   ],
   "counts": {
     "accept": {
-      "passed": 10,
+      "passed": 12,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     },
     "reject": {
-      "passed": 9,
+      "passed": 10,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 19,
+      "passed": 22,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     }
   }
 }

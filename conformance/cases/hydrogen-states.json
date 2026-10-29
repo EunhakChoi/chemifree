@@ -1,13 +1,281 @@
 {
   "id": "hydrogen-states",
-  "title": "Explicit, implicit and unspecified hydrogens are told apart",
+  "title": "Inferred (not computed), unknown and specified hydrogen counts are recorded apart, a hydrogen drawn as an atom stays an atom, and each state survives save, crash and reopen, and undo after it",
   "requirements": [
     "MODEL-02"
   ],
   "axis": "graph",
   "kind": "accept",
-  "pending": {
-    "followup": "P10",
-    "reason": "Atoms record no hydrogen state yet."
-  }
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "hydrogens": {
+            "mode": "specified",
+            "count": 3
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 60,
+            "y": 0
+          },
+          "hydrogens": {
+            "mode": "unknown"
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "H",
+          "position": {
+            "x": 90,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "N",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 3
+              }
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "element": "H",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "hydrogens": {
+            "mode": "specified",
+            "count": 0
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "hydrogens": {
+            "mode": "inferred"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "N",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 0
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "element": "H",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "session": {
+          "saved_revision": 2,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "N",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 0
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "element": "H",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "N",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "specified",
+                "count": 3
+              }
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "unknown"
+              }
+            },
+            {
+              "id": "a4",
+              "element": "H",
+              "kind": "element",
+              "hydrogens": {
+                "mode": "inferred"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
