@@ -1,0 +1,80 @@
+{
+  "format": "chemifree.document",
+  "format_version": 1,
+  "document": {
+    "id": "doc-00000000000000f1",
+    "revision": 4,
+    "title": "Fixture",
+    "atoms": [
+      {
+        "id": "a1",
+        "state": { "element": "C", "charge": 0, "isotope": null, "position": { "x": 0.0, "y": 0.0 } }
+      },
+      {
+        "id": "a2",
+        "state": { "element": "O", "charge": -1, "isotope": 18, "position": { "x": 30.0, "y": 10.5 } }
+      }
+    ],
+    "bonds": [
+      { "id": "b1", "state": { "begin": "a1", "end": "a2", "order": "single" } }
+    ],
+    "next_atom": 3,
+    "next_bond": 2
+  },
+  "history": {
+    "undo": [
+      {
+        "title": null,
+        "atoms": [
+          {
+            "id": "a1",
+            "before": null,
+            "after": { "element": "C", "charge": 0, "isotope": null, "position": { "x": 0.0, "y": 0.0 } }
+          },
+          {
+            "id": "a2",
+            "before": null,
+            "after": { "element": "O", "charge": -1, "isotope": 18, "position": { "x": 30.0, "y": 0.0 } }
+          }
+        ],
+        "bonds": [
+          {
+            "id": "b1",
+            "before": null,
+            "after": { "begin": "a1", "end": "a2", "order": "single" }
+          }
+        ]
+      },
+      {
+        "title": null,
+        "atoms": [
+          {
+            "id": "a2",
+            "before": { "element": "O", "charge": -1, "isotope": 18, "position": { "x": 30.0, "y": 0.0 } },
+            "after": { "element": "O", "charge": -1, "isotope": 18, "position": { "x": 30.0, "y": 10.5 } }
+          }
+        ],
+        "bonds": []
+      }
+    ],
+    "redo": [
+      {
+        "title": { "before": "Fixture", "after": "Fixture edited" },
+        "atoms": [
+          {
+            "id": "a1",
+            "before": { "element": "C", "charge": 0, "isotope": null, "position": { "x": 0.0, "y": 0.0 } },
+            "after": { "element": "N", "charge": 0, "isotope": null, "position": { "x": 0.0, "y": 0.0 } }
+          }
+        ],
+        "bonds": [
+          {
+            "id": "b1",
+            "before": { "begin": "a1", "end": "a2", "order": "single" },
+            "after": { "begin": "a1", "end": "a2", "order": "double" }
+          }
+        ]
+      }
+    ]
+  }
+}

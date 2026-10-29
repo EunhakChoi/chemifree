@@ -1,9 +1,17 @@
-//! A chemical drawing document: a titled graph of atoms and bonds with one set of
-//! scene positions, stable identifiers, atomic transactions, and change-set history.
+//! A chemical drawing document: a titled chemical graph of atoms and bonds kept apart from
+//! its scene, stable identifiers, atomic transactions, and change-set history.
+//!
+//! The graph (molecule [`MOLECULE_ID`]) holds atoms and bonds without positions. The scene
+//! holds one page ([`PAGE_ID`]) and an ordered list of molecule scene instances, each drawing
+//! the graph on that page with exactly one position per atom. Documents, molecules, atoms,
+//! bonds, scene instances, and pages are separate identifier namespaces. A document has one
+//! graph and one page; groups, containment beyond page → instance, and other scene objects
+//! are not represented yet.
 //!
 //! This is a drawing model. It records what the user drew and enforces structural
-//! invariants (no dangling or duplicate bonds, bounded values). It does not perceive
-//! valence, aromaticity, stereochemistry, or implicit hydrogens.
+//! invariants (no dangling or duplicate bonds, a position per atom in every instance,
+//! bounded values). It does not perceive valence, aromaticity, stereochemistry, or implicit
+//! hydrogens.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
@@ -12,6 +20,12 @@ use crate::element::Element;
 
 pub const MAX_ATOMS: usize = 2_000;
 pub const MAX_BONDS: usize = 4_000;
+/// Scene instances per document. With [`MAX_ATOMS`] this bounds the positions a document holds.
+pub const MAX_INSTANCES: usize = 20;
+/// The identifier of a document's one chemical graph.
+pub const MOLECULE_ID: &str = "m1";
+/// The identifier of a document's one page.
+pub const PAGE_ID: &str = "p1";
 pub const MAX_COMMANDS: usize = 500;
 pub const MAX_TITLE_CHARS: usize = 200;
 /// Scene coordinates are points (1/72 inch); x grows right and y grows down.
@@ -97,6 +111,7 @@ macro_rules! serial_id {
 
 serial_id!(AtomId, "a");
 serial_id!(BondId, "b");
+serial_id!(InstanceId, "s");
 
 /// A finite scene position in points, within ±[`MAX_COORDINATE`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,13 +150,26 @@ pub struct Vector {
     pub dy: f64,
 }
 
+/// An atom of the chemical graph. Its positions belong to the scene instances.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Atom {
     pub element: Element,
     pub charge: i8,
     /// Explicit isotope mass number; `None` means natural abundance.
     pub isotope: Option<u16>,
-    pub position: Point,
+}
+
+/// A molecule scene instance: one drawing of the document's molecule on its page. Its atom
+/// positions are kept under [`PositionKey`]s. With one molecule and one page, the instance
+/// itself carries nothing else yet.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SceneInstance;
+
+/// Where an atom's position lives: in one scene instance. Orders by instance, then atom.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PositionKey {
+    pub instance: InstanceId,
+    pub atom: AtomId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,13 +207,22 @@ pub struct BondTo {
     pub order: BondOrder,
 }
 
+/// Where a new atom is drawn. Creating an atom states its position in every scene instance.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NewAtomPositions {
+    /// One position, accepted while the document has exactly one scene instance.
+    Single(Point),
+    /// A position for each scene instance; it must name exactly the current instances.
+    PerInstance(BTreeMap<InstanceId, Point>),
+}
+
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// Adds a neutral, natural-abundance atom, optionally bonded to another atom.
     AddAtom {
         element: Element,
-        position: Point,
+        positions: NewAtomPositions,
         bond_to: Option<BondTo>,
     },
     AddBond {
@@ -200,10 +237,12 @@ pub enum Command {
         charge: Option<i8>,
         isotope: Option<Option<u16>>,
     },
-    /// Translates each listed atom once, even if it is listed repeatedly.
+    /// Translates each listed atom once, even if it is listed repeatedly, in one scene
+    /// instance. `instance` may be left out only while the document has exactly one.
     MoveAtoms {
         atoms: Vec<AtomId>,
         delta: Vector,
+        instance: Option<InstanceId>,
     },
     UpdateBond {
         bond: BondId,
@@ -218,6 +257,21 @@ pub enum Command {
     },
     Rename {
         title: String,
+    },
+    /// Adds a scene instance of the molecule on the page with the positions of `source` (the
+    /// first instance when `None`) translated by `offset`.
+    AddInstance {
+        source: Option<InstanceId>,
+        offset: Vector,
+    },
+    /// Translates every position of one scene instance once.
+    MoveInstance {
+        instance: InstanceId,
+        offset: Vector,
+    },
+    /// Deletes a scene instance and its positions; the last one is kept.
+    DeleteInstance {
+        instance: InstanceId,
     },
 }
 
@@ -242,6 +296,20 @@ pub enum EditError {
     IsotopeOutOfRange(u16),
     IdentifierSpaceExhausted,
     RevisionLimit,
+    UnknownInstance(InstanceId),
+    /// A single `position` was given while the document has several scene instances.
+    PositionsRequired {
+        instances: usize,
+    },
+    /// The positions of a new atom leave out this scene instance.
+    MissingPosition(InstanceId),
+    /// `move_atoms` did not name an instance while the document has several.
+    InstanceRequired {
+        instances: usize,
+    },
+    /// A document keeps at least one scene instance of its molecule.
+    LastInstance,
+    InstanceLimit,
 }
 
 impl fmt::Display for EditError {
@@ -290,6 +358,25 @@ impl fmt::Display for EditError {
                 write!(formatter, "this document has no identifiers left")
             }
             Self::RevisionLimit => write!(formatter, "{REVISION_LIMIT_MESSAGE}"),
+            Self::UnknownInstance(id) => write!(formatter, "scene instance {id} does not exist"),
+            Self::PositionsRequired { instances } => write!(
+                formatter,
+                "the molecule has {instances} scene instances; give `positions` with a point \
+                 for each of them"
+            ),
+            Self::MissingPosition(id) => {
+                write!(formatter, "no position is given for scene instance {id}")
+            }
+            Self::InstanceRequired { instances } => write!(
+                formatter,
+                "the molecule has {instances} scene instances; name the `instance` whose atoms \
+                 move"
+            ),
+            Self::LastInstance => write!(formatter, "a molecule keeps at least one scene instance"),
+            Self::InstanceLimit => write!(
+                formatter,
+                "a document holds at most {MAX_INSTANCES} scene instances"
+            ),
         }
     }
 }
@@ -361,11 +448,15 @@ pub struct Change<T> {
 }
 
 /// The exact difference made by one transaction; applied backward to undo and forward to redo.
+/// Graph changes (atoms, bonds), scene changes (instances, positions), and the title are
+/// recorded apart, and undo or redo replays all of them as one step.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChangeSet {
     pub title: Option<Change<String>>,
     pub atoms: Vec<(AtomId, Change<Option<Atom>>)>,
     pub bonds: Vec<(BondId, Change<Option<Bond>>)>,
+    pub instances: Vec<(InstanceId, Change<Option<SceneInstance>>)>,
+    pub positions: Vec<(PositionKey, Change<Option<Point>>)>,
 }
 
 impl ChangeSet {
@@ -377,11 +468,26 @@ impl ChangeSet {
             }),
             atoms: diff_maps(&before.atoms, &after.atoms),
             bonds: diff_maps(&before.bonds, &after.bonds),
+            instances: diff_maps(&before.instances, &after.instances),
+            positions: diff_maps(&before.positions, &after.positions),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.title.is_none() && self.atoms.is_empty() && self.bonds.is_empty()
+        self.title.is_none()
+            && self.atoms.is_empty()
+            && self.bonds.is_empty()
+            && self.instances.is_empty()
+            && self.positions.is_empty()
+    }
+
+    /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
+    fn size(&self) -> usize {
+        usize::from(self.title.is_some())
+            + self.atoms.len()
+            + self.bonds.len()
+            + self.instances.len()
+            + self.positions.len()
     }
 
     /// The shape `between` produces: non-empty, each entity at most once, and every entry
@@ -401,6 +507,8 @@ impl ChangeSet {
                 .is_none_or(|change| change.before != change.after)
             && entries_valid(&self.atoms)
             && entries_valid(&self.bonds)
+            && entries_valid(&self.instances)
+            && entries_valid(&self.positions)
     }
 }
 
@@ -457,6 +565,9 @@ struct Content {
     title: String,
     atoms: BTreeMap<AtomId, Atom>,
     bonds: BTreeMap<BondId, Bond>,
+    /// In identifier order, which is creation order: identifiers are never reused.
+    instances: BTreeMap<InstanceId, SceneInstance>,
+    positions: BTreeMap<PositionKey, Point>,
 }
 
 impl Content {
@@ -473,6 +584,51 @@ impl Content {
         } else {
             Err(EditError::UnknownAtom(id))
         }
+    }
+
+    fn require_instance(&self, id: InstanceId) -> Result<InstanceId, EditError> {
+        if self.instances.contains_key(&id) {
+            Ok(id)
+        } else {
+            Err(EditError::UnknownInstance(id))
+        }
+    }
+
+    fn first_instance(&self) -> InstanceId {
+        *self
+            .instances
+            .keys()
+            .next()
+            .expect("validated content keeps at least one scene instance")
+    }
+
+    /// The instance a command acts in: the named one, or the only one.
+    fn target_instance(&self, named: Option<InstanceId>) -> Result<InstanceId, EditError> {
+        match named {
+            Some(id) => self.require_instance(id),
+            None if self.instances.len() == 1 => Ok(self.first_instance()),
+            None => Err(EditError::InstanceRequired {
+                instances: self.instances.len(),
+            }),
+        }
+    }
+
+    /// The positions of one instance, by atom.
+    fn instance_positions(
+        &self,
+        instance: InstanceId,
+    ) -> impl Iterator<Item = (AtomId, Point)> + '_ {
+        let first = PositionKey {
+            instance,
+            atom: AtomId(0),
+        };
+        let last = PositionKey {
+            instance,
+            atom: AtomId(u32::MAX),
+        };
+        self.positions
+            .range(first..=last)
+            .map(|(key, point)| (key.atom, *point))
     }
 
     /// Checks every structural invariant; used for restored and replayed states.
@@ -498,6 +654,31 @@ impl Content {
             let pair = (bond.begin.min(bond.end), bond.begin.max(bond.end));
             if !pairs.insert(pair) {
                 return Err(EditError::DuplicateBond { existing: *id });
+            }
+        }
+        if self.instances.is_empty() {
+            return Err(EditError::LastInstance);
+        }
+        if self.instances.len() > MAX_INSTANCES {
+            return Err(EditError::InstanceLimit);
+        }
+        for key in self.positions.keys() {
+            self.require_instance(key.instance)?;
+            self.require_atom(key.atom)?;
+        }
+        // Keys are unique and each names an existing instance and atom, so the count is
+        // right exactly when every atom has one position in every instance.
+        if self.positions.len() != self.instances.len() * self.atoms.len() {
+            for instance in self.instances.keys() {
+                for atom in self.atoms.keys() {
+                    let key = PositionKey {
+                        instance: *instance,
+                        atom: *atom,
+                    };
+                    if !self.positions.contains_key(&key) {
+                        return Err(EditError::MissingPosition(*instance));
+                    }
+                }
             }
         }
         Ok(())
@@ -539,6 +720,7 @@ struct Draft {
     content: Content,
     next_atom: u32,
     next_bond: u32,
+    next_instance: u32,
     /// The atom each earlier command added, by command index.
     created: Vec<Option<AtomId>>,
 }
@@ -582,6 +764,66 @@ impl Draft {
         Ok(())
     }
 
+    fn allocate_instance(&mut self) -> Result<InstanceId, EditError> {
+        if self.content.instances.len() >= MAX_INSTANCES {
+            return Err(EditError::InstanceLimit);
+        }
+        let id = InstanceId(self.next_instance);
+        self.next_instance = self
+            .next_instance
+            .checked_add(1)
+            .ok_or(EditError::IdentifierSpaceExhausted)?;
+        Ok(id)
+    }
+
+    /// A new atom's position in each current scene instance.
+    fn new_atom_positions(
+        &self,
+        positions: &NewAtomPositions,
+    ) -> Result<Vec<(InstanceId, Point)>, EditError> {
+        let instances = &self.content.instances;
+        match positions {
+            NewAtomPositions::Single(point) if instances.len() == 1 => {
+                Ok(vec![(self.content.first_instance(), *point)])
+            }
+            NewAtomPositions::Single(_) => Err(EditError::PositionsRequired {
+                instances: instances.len(),
+            }),
+            NewAtomPositions::PerInstance(points) => {
+                if let Some(extra) = points.keys().find(|id| !instances.contains_key(id)) {
+                    return Err(EditError::UnknownInstance(*extra));
+                }
+                instances
+                    .keys()
+                    .map(|id| {
+                        points
+                            .get(id)
+                            .map(|point| (*id, *point))
+                            .ok_or(EditError::MissingPosition(*id))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Translates every listed atom's position in `instance` once.
+    fn translate(
+        &mut self,
+        instance: InstanceId,
+        atoms: impl IntoIterator<Item = AtomId>,
+        delta: Vector,
+    ) -> Result<(), EditError> {
+        for atom in atoms {
+            let point = self
+                .content
+                .positions
+                .get_mut(&PositionKey { instance, atom })
+                .ok_or(EditError::UnknownAtom(atom))?;
+            *point = point.translated(delta)?;
+        }
+        Ok(())
+    }
+
     fn resolve(&self, atom: AtomRef) -> Result<AtomId, EditError> {
         match atom {
             AtomRef::Id(id) => Ok(id),
@@ -600,7 +842,7 @@ impl Draft {
         match command {
             Command::AddAtom {
                 element,
-                position,
+                positions,
                 bond_to,
             } => {
                 let target = bond_to
@@ -609,6 +851,7 @@ impl Draft {
                 if let Some((atom, _)) = target {
                     self.content.require_atom(atom)?;
                 }
+                let points = self.new_atom_positions(positions)?;
                 let id = self.allocate_atom()?;
                 created = Some(id);
                 self.content.atoms.insert(
@@ -617,9 +860,13 @@ impl Draft {
                         element: *element,
                         charge: 0,
                         isotope: None,
-                        position: *position,
                     },
                 );
+                for (instance, point) in points {
+                    self.content
+                        .positions
+                        .insert(PositionKey { instance, atom: id }, point);
+                }
                 if let Some((atom, order)) = target {
                     self.insert_bond(atom, id, order)?;
                 }
@@ -655,15 +902,14 @@ impl Draft {
                     target.isotope = *isotope;
                 }
             }
-            Command::MoveAtoms { atoms, delta } => {
-                for id in unique(atoms)? {
-                    let atom = self
-                        .content
-                        .atoms
-                        .get_mut(&id)
-                        .ok_or(EditError::UnknownAtom(id))?;
-                    atom.position = atom.position.translated(*delta)?;
-                }
+            Command::MoveAtoms {
+                atoms,
+                delta,
+                instance,
+            } => {
+                let atoms = unique(atoms)?;
+                let instance = self.content.target_instance(*instance)?;
+                self.translate(instance, atoms, *delta)?;
             }
             Command::UpdateBond { bond, order } => {
                 self.content
@@ -683,6 +929,9 @@ impl Draft {
                 self.content.bonds.retain(|_, bond| {
                     !targets.contains(&bond.begin) && !targets.contains(&bond.end)
                 });
+                self.content
+                    .positions
+                    .retain(|key, _| !targets.contains(&key.atom));
             }
             Command::DeleteBonds { bonds } => {
                 for id in unique(bonds)? {
@@ -696,6 +945,39 @@ impl Draft {
                 let title = title.trim();
                 validate_title(title)?;
                 title.clone_into(&mut self.content.title);
+            }
+            Command::AddInstance { source, offset } => {
+                let source = match source {
+                    Some(id) => self.content.require_instance(*id)?,
+                    None => self.content.first_instance(),
+                };
+                let copied = self
+                    .content
+                    .instance_positions(source)
+                    .map(|(atom, point)| Ok((atom, point.translated(*offset)?)))
+                    .collect::<Result<Vec<_>, EditError>>()?;
+                let id = self.allocate_instance()?;
+                self.content.instances.insert(id, SceneInstance);
+                for (atom, point) in copied {
+                    self.content
+                        .positions
+                        .insert(PositionKey { instance: id, atom }, point);
+                }
+            }
+            Command::MoveInstance { instance, offset } => {
+                let instance = self.content.require_instance(*instance)?;
+                let atoms: Vec<AtomId> = self.content.atoms.keys().copied().collect();
+                self.translate(instance, atoms, *offset)?;
+            }
+            Command::DeleteInstance { instance } => {
+                let instance = self.content.require_instance(*instance)?;
+                if self.content.instances.len() == 1 {
+                    return Err(EditError::LastInstance);
+                }
+                self.content.instances.remove(&instance);
+                self.content
+                    .positions
+                    .retain(|key, _| key.instance != instance);
             }
         }
         self.created.push(created);
@@ -717,6 +999,7 @@ pub struct Numbering {
     pub revision: u64,
     pub next_atom: u32,
     pub next_bond: u32,
+    pub next_instance: u32,
 }
 
 impl Numbering {
@@ -727,6 +1010,7 @@ impl Numbering {
             revision: self.revision.max(other.revision),
             next_atom: self.next_atom.max(other.next_atom),
             next_bond: self.next_bond.max(other.next_bond),
+            next_instance: self.next_instance.max(other.next_instance),
         }
     }
 }
@@ -740,8 +1024,12 @@ pub struct DocumentParts {
     pub title: String,
     pub atoms: Vec<(AtomId, Atom)>,
     pub bonds: Vec<(BondId, Bond)>,
+    /// Scene instances in order; each is on page [`PAGE_ID`] and draws molecule [`MOLECULE_ID`].
+    pub instances: Vec<InstanceId>,
+    pub positions: Vec<(PositionKey, Point)>,
     pub next_atom: u32,
     pub next_bond: u32,
+    pub next_instance: u32,
     pub undo: Vec<ChangeSet>,
     pub redo: Vec<ChangeSet>,
 }
@@ -764,12 +1052,14 @@ pub struct Document {
     content: Content,
     next_atom: u32,
     next_bond: u32,
+    next_instance: u32,
     undo: VecDeque<ChangeSet>,
     redo: Vec<ChangeSet>,
 }
 
 impl Document {
-    /// Creates an empty document at revision 0. Surrounding whitespace is trimmed from the title.
+    /// Creates an empty document at revision 0 with one scene instance, `s1`. Surrounding
+    /// whitespace is trimmed from the title.
     pub fn new(id: DocumentId, title: &str) -> Result<Self, EditError> {
         let title = title.trim();
         validate_title(title)?;
@@ -780,17 +1070,20 @@ impl Document {
                 title: title.to_owned(),
                 atoms: BTreeMap::new(),
                 bonds: BTreeMap::new(),
+                instances: BTreeMap::from([(InstanceId(1), SceneInstance)]),
+                positions: BTreeMap::new(),
             },
             next_atom: 1,
             next_bond: 1,
+            next_instance: 2,
             undo: VecDeque::new(),
             redo: Vec::new(),
         })
     }
 
-    /// An independent document with this one's atoms, bonds, and identifier counters under a
-    /// new identifier and title, at revision 0 with no history. Atom and bond identifiers are
-    /// kept, so commands that name them mean the same entities in the copy.
+    /// An independent document with this one's graph, scene, and identifier counters under a
+    /// new identifier and title, at revision 0 with no history. Atom, bond, and instance
+    /// identifiers are kept, so commands that name them mean the same entities in the copy.
     pub fn copy_as(&self, id: DocumentId, title: &str) -> Result<Self, EditError> {
         let title = title.trim();
         validate_title(title)?;
@@ -803,6 +1096,7 @@ impl Document {
             },
             next_atom: self.next_atom,
             next_bond: self.next_bond,
+            next_instance: self.next_instance,
             undo: VecDeque::new(),
             redo: Vec::new(),
         })
@@ -815,15 +1109,34 @@ impl Document {
         if parts.revision > MAX_REVISION {
             return Err(invalid("revision exceeds the largest revision"));
         }
-        let atom_count = parts.atoms.len();
-        let bond_count = parts.bonds.len();
+        let counts = (
+            parts.atoms.len(),
+            parts.bonds.len(),
+            parts.instances.len(),
+            parts.positions.len(),
+        );
         let content = Content {
             title: parts.title,
             atoms: parts.atoms.into_iter().collect(),
             bonds: parts.bonds.into_iter().collect(),
+            instances: parts
+                .instances
+                .into_iter()
+                .map(|id| (id, SceneInstance))
+                .collect(),
+            positions: parts.positions.into_iter().collect(),
         };
-        if content.atoms.len() != atom_count || content.bonds.len() != bond_count {
-            return Err(invalid("duplicate atom or bond identifier"));
+        if counts
+            != (
+                content.atoms.len(),
+                content.bonds.len(),
+                content.instances.len(),
+                content.positions.len(),
+            )
+        {
+            return Err(invalid(
+                "duplicate atom, bond, or scene instance identifier, or a repeated position",
+            ));
         }
         content
             .validate()
@@ -846,6 +1159,7 @@ impl Document {
             content,
             next_atom: parts.next_atom,
             next_bond: parts.next_bond,
+            next_instance: parts.next_instance,
             undo,
             redo,
         };
@@ -863,15 +1177,28 @@ impl Document {
                 .chain(&document.redo)
                 .flat_map(|set| set.bonds.iter().map(|(id, _)| *id)),
         );
+        // Positions in history name instances too, and must not name a future one.
+        let instance_ids = document.content.instances.keys().copied().chain(
+            document.undo.iter().chain(&document.redo).flat_map(|set| {
+                set.instances
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .chain(set.positions.iter().map(|(key, _)| key.instance))
+            }),
+        );
         // Serial 0 is not an identifier, so a counter of 0 would allocate an invalid one.
         if document.next_atom == 0
             || document.next_bond == 0
+            || document.next_instance == 0
             || atom_ids
                 .map(AtomId::serial)
                 .any(|serial| serial >= document.next_atom)
             || bond_ids
                 .map(BondId::serial)
                 .any(|serial| serial >= document.next_bond)
+            || instance_ids
+                .map(InstanceId::serial)
+                .any(|serial| serial >= document.next_instance)
         {
             return Err(invalid(
                 "identifier counter would reuse an existing identifier",
@@ -907,8 +1234,16 @@ impl Document {
             title: self.content.title.clone(),
             atoms: self.atoms().map(|(id, atom)| (id, atom.clone())).collect(),
             bonds: self.bonds().map(|(id, bond)| (id, bond.clone())).collect(),
+            instances: self.instances().collect(),
+            positions: self
+                .content
+                .positions
+                .iter()
+                .map(|(key, point)| (*key, *point))
+                .collect(),
             next_atom: self.next_atom,
             next_bond: self.next_bond,
+            next_instance: self.next_instance,
             undo: self.undo.iter().cloned().collect(),
             redo: self.redo.clone(),
         }
@@ -935,12 +1270,35 @@ impl Document {
         self.content.bonds.iter().map(|(id, bond)| (*id, bond))
     }
 
+    /// The molecule's scene instances in order; there is always at least one.
+    pub fn instances(&self) -> impl ExactSizeIterator<Item = InstanceId> + '_ {
+        self.content.instances.keys().copied()
+    }
+
+    /// The first scene instance, whose positions the v1 view reports as `atoms[].position`.
+    pub fn first_instance(&self) -> InstanceId {
+        self.content.first_instance()
+    }
+
+    /// Every atom's position in `instance`, by atom; empty for an unknown instance.
+    pub fn positions(&self, instance: InstanceId) -> impl Iterator<Item = (AtomId, Point)> + '_ {
+        self.content.instance_positions(instance)
+    }
+
+    pub fn position(&self, instance: InstanceId, atom: AtomId) -> Option<Point> {
+        self.content
+            .positions
+            .get(&PositionKey { instance, atom })
+            .copied()
+    }
+
     /// The revision and identifier counters this document has reached.
     pub const fn numbering(&self) -> Numbering {
         Numbering {
             revision: self.revision,
             next_atom: self.next_atom,
             next_bond: self.next_bond,
+            next_instance: self.next_instance,
         }
     }
 
@@ -958,6 +1316,7 @@ impl Document {
         }
         self.next_atom = self.next_atom.max(reached.next_atom);
         self.next_bond = self.next_bond.max(reached.next_bond);
+        self.next_instance = self.next_instance.max(reached.next_instance);
         Ok(())
     }
 
@@ -983,6 +1342,7 @@ impl Document {
             content: self.content.clone(),
             next_atom: self.next_atom,
             next_bond: self.next_bond,
+            next_instance: self.next_instance,
             created: Vec::with_capacity(commands.len()),
         };
         for (index, command) in commands.iter().enumerate() {
@@ -1004,6 +1364,7 @@ impl Document {
         self.content = draft.content;
         self.next_atom = draft.next_atom;
         self.next_bond = draft.next_bond;
+        self.next_instance = draft.next_instance;
         self.revision += 1;
         self.undo.push_back(changes);
         self.redo.clear();
@@ -1041,9 +1402,7 @@ impl Document {
 }
 
 fn history_size<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
-    sets.into_iter()
-        .map(|set| usize::from(set.title.is_some()) + set.atoms.len() + set.bonds.len())
-        .sum()
+    sets.into_iter().map(ChangeSet::size).sum()
 }
 
 /// Replays one change set on a copy and commits it only if it matches and stays valid.
@@ -1061,6 +1420,8 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
     }
     replay(&mut next.atoms, &set.atoms, direction)?;
     replay(&mut next.bonds, &set.bonds, direction)?;
+    replay(&mut next.instances, &set.instances, direction)?;
+    replay(&mut next.positions, &set.positions, direction)?;
     next.validate().map_err(|_| ())?;
     *content = next;
     Ok(())

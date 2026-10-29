@@ -820,6 +820,201 @@ fn unknown_command_fields_are_rejected_at_the_contract_boundary() {
     ));
 }
 
+/// One atom's position in a reply, as `(atom, x, y)`.
+type Placed = (String, f64, f64);
+
+/// The positions of each scene instance in a reply, as `(instance, positions)`.
+fn scene_of(response: &DocumentResponse) -> Vec<(String, Vec<Placed>)> {
+    response
+        .document
+        .scene
+        .instances
+        .iter()
+        .map(|instance| {
+            (
+                instance.id.clone(),
+                instance
+                    .positions
+                    .iter()
+                    .map(|position| (position.atom.clone(), position.x, position.y))
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn the_reply_shows_graph_and_scene_apart_and_instances_move_independently() {
+    let (app, _) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    let drawn = app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    let reply = json_of(&drawn);
+    assert_eq!(reply["document"]["molecule"], json!({"id": "m1"}));
+    assert_eq!(reply["document"]["scene"]["pages"], json!([{"id": "p1"}]));
+    assert_eq!(
+        reply["document"]["scene"]["instances"],
+        json!([{"id": "s1", "page": "p1", "molecule": "m1", "positions": [
+            {"atom": "a1", "x": 0.0, "y": 0.0},
+            {"atom": "a2", "x": 26.0, "y": 15.0},
+            {"atom": "a3", "x": 52.0, "y": 0.0}
+        ]}])
+    );
+
+    let twice = app
+        .apply_transaction(
+            &id,
+            Some("instance-1"),
+            1,
+            commands(json!([{"op": "add_instance", "offset": {"x": 0, "y": 100}}])),
+        )
+        .unwrap();
+    assert_eq!(twice.document.revision, 2);
+    let moved = app
+        .apply_transaction(
+            &id,
+            None,
+            2,
+            commands(json!([
+                {"op": "move_instance", "instance": "s2", "offset": {"x": 40, "y": 0}},
+                {"op": "move_atoms", "atoms": ["a1"], "delta": {"x": 0, "y": -5}, "instance": "s2"}
+            ])),
+        )
+        .unwrap();
+    assert_eq!(
+        moved.document.atoms, drawn.document.atoms,
+        "chemistry and s1 kept"
+    );
+    assert_eq!(moved.document.bonds, drawn.document.bonds);
+    assert_eq!(scene_of(&moved)[0], scene_of(&drawn)[0]);
+    assert_eq!(
+        scene_of(&moved)[1],
+        (
+            "s2".to_owned(),
+            vec![
+                ("a1".to_owned(), 40.0, 95.0),
+                ("a2".to_owned(), 66.0, 115.0),
+                ("a3".to_owned(), 92.0, 100.0)
+            ]
+        )
+    );
+    assert_eq!(
+        app.apply_transaction(
+            &id,
+            Some("instance-1"),
+            1,
+            commands(json!([{"op": "add_instance", "offset": {"x": 0, "y": 100}}])),
+        )
+        .unwrap(),
+        twice,
+        "a scene command is replayed like any transaction"
+    );
+
+    // `atoms[].position` follows the first instance, whichever that is.
+    let without_first = app
+        .apply_transaction(
+            &id,
+            None,
+            3,
+            commands(json!([{"op": "delete_instance", "instance": "s1"}])),
+        )
+        .unwrap();
+    assert_eq!(scene_of(&without_first).len(), 1);
+    assert_eq!(
+        (
+            without_first.document.atoms[0].position.x,
+            without_first.document.atoms[0].position.y
+        ),
+        (40.0, 95.0)
+    );
+    let undone = app.undo(&id, None, 4).unwrap();
+    assert_eq!(scene_of(&undone), scene_of(&moved));
+    assert_eq!(undone.document.atoms, drawn.document.atoms);
+}
+
+#[test]
+fn several_instances_need_every_position_and_a_named_instance() {
+    let (app, _) = application();
+    let id = app.create_document(None, None).unwrap().document.id;
+    app.apply_transaction(&id, None, 0, draw_ethanol()).unwrap();
+    // Even with one instance, a new atom's place is given one way only.
+    let both = json!({"op": "add_atom", "element": "N", "position": {"x": 0, "y": 0},
+        "positions": {"s1": {"x": 0, "y": 0}}});
+    let error = app
+        .apply_transaction(&id, None, 1, commands(json!([both])))
+        .unwrap_err();
+    assert_eq!(
+        (error.code, error.command_index),
+        (ErrorCode::InvalidCommand, Some(0))
+    );
+    app.apply_transaction(
+        &id,
+        None,
+        1,
+        commands(json!([{"op": "add_instance", "offset": {"x": 0, "y": 100}}])),
+    )
+    .unwrap();
+    let before = app.document(&id).unwrap();
+    for bad in [
+        json!({"op": "add_atom", "element": "N", "position": {"x": 0, "y": 0}}),
+        json!({"op": "add_atom", "element": "N", "positions": {"s1": {"x": 0, "y": 0}}}),
+        json!({"op": "add_atom", "element": "N", "positions": {
+            "s1": {"x": 0, "y": 0}, "s2": {"x": 0, "y": 100}, "s3": {"x": 0, "y": 0}}}),
+        json!({"op": "add_atom", "element": "N", "positions": {
+            "s1": {"x": 0, "y": 0}, "s02": {"x": 0, "y": 100}}}),
+        json!({"op": "add_atom", "element": "N", "position": {"x": 0, "y": 0},
+            "positions": {"s1": {"x": 0, "y": 0}, "s2": {"x": 0, "y": 100}}}),
+        json!({"op": "add_atom", "element": "N"}),
+        json!({"op": "move_atoms", "atoms": ["a1"], "delta": {"x": 1, "y": 1}}),
+        json!({"op": "move_atoms", "atoms": ["a1"], "delta": {"x": 1, "y": 1}, "instance": "s9"}),
+        json!({"op": "move_instance", "instance": "s9", "offset": {"x": 1, "y": 1}}),
+        json!({"op": "add_instance", "source": "a1", "offset": {"x": 1, "y": 1}}),
+    ] {
+        let batch = commands(json!([{"op": "rename", "title": "Renamed"}, bad]));
+        let error = app.apply_transaction(&id, None, 2, batch).unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidCommand, "{bad}: {error}");
+        assert_eq!(error.command_index, Some(1), "{bad}: {error}");
+    }
+    let last = app
+        .apply_transaction(
+            &id,
+            None,
+            2,
+            commands(json!([
+                {"op": "delete_instance", "instance": "s1"},
+                {"op": "delete_instance", "instance": "s2"}
+            ])),
+        )
+        .unwrap_err();
+    assert_eq!(
+        (last.code, last.command_index),
+        (ErrorCode::InvalidCommand, Some(1))
+    );
+    assert_eq!(app.document(&id).unwrap(), before, "nothing changed");
+
+    let placed = app
+        .apply_transaction(
+            &id,
+            None,
+            2,
+            commands(json!([{"op": "add_atom", "element": "N", "positions": {
+                "s2": {"x": 5, "y": 105}, "s1": {"x": 5, "y": 5}}}])),
+        )
+        .unwrap();
+    assert_eq!(placed.document.atoms[3].position.y, 5.0);
+    assert_eq!(scene_of(&placed)[1].1[3], ("a4".to_owned(), 5.0, 105.0));
+}
+
+#[test]
+fn a_repeated_instance_in_positions_is_refused_not_resolved() {
+    let repeated = r#"[{"op": "add_atom", "element": "C",
+        "positions": {"s1": {"x": 0, "y": 0}, "s1": {"x": 9, "y": 9}}}]"#;
+    let error = serde_json::from_str::<Vec<CommandDto>>(repeated).unwrap_err();
+    assert!(
+        error.to_string().contains("duplicate key \"s1\""),
+        "{error}"
+    );
+}
+
 /// An application in process 1 with an ethanol drawing at revision 3 (drawn, renamed, the
 /// rename undone), unsaved and autosaved.
 fn autosaved_drawing() -> (MemoryStore, String, DocumentResponse) {

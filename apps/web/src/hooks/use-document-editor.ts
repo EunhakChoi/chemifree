@@ -59,13 +59,14 @@ export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
 const client = new DocumentClient()
 
-/** Same title and drawing, whatever revision number names them. */
+/** Same title, graph, and scene, whatever revision number names them. */
 function sameContent(a: DocumentView, b: DocumentView) {
   return (
     a.id === b.id &&
     a.title === b.title &&
     JSON.stringify(a.atoms) === JSON.stringify(b.atoms) &&
-    JSON.stringify(a.bonds) === JSON.stringify(b.bonds)
+    JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
+    JSON.stringify(a.scene) === JSON.stringify(b.scene)
   )
 }
 

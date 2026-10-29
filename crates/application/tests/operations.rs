@@ -493,3 +493,93 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
     );
     assert_eq!(catalog["contracts"], json!([1]));
 }
+
+/// A transaction accepts exactly the commands its catalog entry lists as executable: each one
+/// is a command the parser knows, and each part that does not run is not one. Scene placement
+/// is the group the instance commands belong to, not a command.
+#[test]
+fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
+    let (app, _data) = application();
+    let id = created(&app);
+    let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
+    let transaction = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "document.transaction")
+        .unwrap();
+    let mut commands = Vec::new();
+    let mut capabilities: Vec<(String, Vec<String>)> = Vec::new();
+    for (index, part) in transaction["sub_operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let op = part["id"].as_str().unwrap();
+        let reply = send(
+            &app,
+            &request(
+                &format!("part-{index}"),
+                "document.transaction",
+                json!({"document_id": id, "expected_revision": 0, "commands": [{"op": op}]}),
+            ),
+        );
+        let message = reply["diagnostics"][0]["message"].as_str().unwrap();
+        let unknown = message.contains("unknown variant");
+        let executable = part["execution"] == "executable";
+        // A row with `commands` is a capability carried out by those commands; one without
+        // is itself a command, which parses exactly when it is executable.
+        match part.get("commands") {
+            Some(listed) => {
+                assert!(unknown, "the capability {op} is not a command: {message}");
+                let listed: Vec<String> = serde_json::from_value(listed.clone())
+                    .unwrap_or_else(|error| panic!("{op}: commands is a list of names: {error}"));
+                assert_eq!(
+                    !listed.is_empty(),
+                    executable,
+                    "{op}: an executable capability names its commands, another names none"
+                );
+                capabilities.push((op.to_owned(), listed));
+            }
+            None => {
+                assert_eq!(!unknown, executable, "{op}: {message}");
+                commands.push(op);
+            }
+        }
+    }
+    for (capability, listed) in &capabilities {
+        for command in listed {
+            assert!(
+                commands.contains(&command.as_str()),
+                "{capability} names {command}, which is not an executable command row"
+            );
+        }
+    }
+    assert_eq!(
+        commands,
+        [
+            "add_atom",
+            "update_atom",
+            "move_atoms",
+            "delete_atoms",
+            "add_bond",
+            "update_bond",
+            "delete_bonds",
+            "rename",
+            "add_instance",
+            "move_instance",
+            "delete_instance",
+        ]
+    );
+    let placement = capabilities
+        .iter()
+        .find(|(id, _)| id == "scene_placement")
+        .expect("scene_placement is a capability row");
+    assert_eq!(
+        placement.1,
+        ["add_instance", "move_instance", "delete_instance"]
+    );
+    assert_eq!(capabilities.len(), 6, "{capabilities:?}");
+    assert_eq!(document_count(&app), 1, "no part changed anything");
+}

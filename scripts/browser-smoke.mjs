@@ -861,7 +861,7 @@ await page.reload()
 await page.locator(`li[data-document-id="${docId}"]`).getByRole('button', { name: 'Open' }).click()
 await page.getByTestId('recovery-notice').waitFor()
 assert.equal(await page.getByTestId('recovery-notice').getAttribute('data-state'), 'outdated')
-const outdatedDraftAtoms = JSON.parse(readFileSync(draftFile(), 'utf8')).document.atoms.length
+const outdatedDraftAtoms = JSON.parse(readFileSync(draftFile(), 'utf8')).document.molecule.atoms.length
 const recoveredCopyResponse = page.waitForResponse((r) => r.url().endsWith('/recover-as-copy'))
 await page.getByRole('button', { name: 'Recover as copy' }).click()
 const recoveredCopy = await (await recoveredCopyResponse).json()
@@ -1451,10 +1451,13 @@ await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 ope
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19'], ['document.transaction/radical', 'P10'], ['document.transaction/scene_placement', 'P09']]) {
+for (const [id, followup] of [['chem.properties', 'P19'], ['document.transaction/radical', 'P10']]) {
   const row = operationRow(id)
   assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
+}
+for (const id of ['document.transaction/scene_placement', 'document.transaction/add_instance']) {
+  assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'executable', `${id} runs`)
 }
 assert.equal(
   await operations.locator('[data-profile="legacy-observed"] [data-execution]').getAttribute('data-execution'),
@@ -1463,6 +1466,98 @@ assert.equal(
 )
 results.operation_catalog = true
 step = 'after operation_catalog'
+
+// Placements: the open document (alpha, empty) is drawn, its drawing is placed a second time,
+// and that placement moves on its own; the chemistry and the first placement stay. A new atom
+// is placed in both, and an atom dragged in the second placement moves only there.
+{
+  const placedDoc = async () => (await api(`/api/v1/documents/${listed['Smoke list alpha']}`)).document
+  const positionsOf = (document, instance) =>
+    Object.fromEntries(document.scene.instances.find((item) => item.id === instance).positions.map(({ atom, x, y }) => [atom, { x, y }]))
+  await tool('Bond')
+  const frame = await canvas.boundingBox()
+  await page.mouse.click(frame.x + frame.width * 0.25, frame.y + frame.height * 0.3)
+  await waitIdle()
+  const drawn = await placedDoc()
+  assert.deepEqual([drawn.atoms.length, drawn.bonds.length, drawn.scene.instances.length], [2, 1, 1])
+  const first = positionsOf(drawn, 's1')
+
+  await page.getByRole('button', { name: 'Duplicate placement' }).click()
+  await waitIdle()
+  await page.locator('li[data-placement="s2"]').waitFor()
+  // Two presses while the first move is still in flight: the first request is held until the
+  // second press is in, and both moves count.
+  let releaseFirstMove
+  const firstMoveHeld = new Promise((resolveHeld) => {
+    releaseFirstMove = resolveHeld
+  })
+  let movesSeen = 0
+  const holdFirstMove = async (route) => {
+    movesSeen += 1
+    if (movesSeen === 1) await firstMoveHeld
+    await route.continue()
+  }
+  await page.route('**/transactions', holdFirstMove)
+  const moveRight = page.getByRole('button', { name: 'Move placement s2 right' })
+  await moveRight.click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await moveRight.click()
+  releaseFirstMove()
+  await waitIdle()
+  await page.unroute('**/transactions', holdFirstMove)
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0, 'neither press is refused')
+  const placed = await placedDoc()
+  assert.deepEqual(placed.scene.instances.map((item) => item.id), ['s1', 's2'])
+  assert.deepEqual(positionsOf(placed, 's1'), first, 'the first placement stays')
+  for (const atom of ['a1', 'a2']) {
+    assert.deepEqual(positionsOf(placed, 's2')[atom], { x: first[atom].x + 60, y: first[atom].y + 80 }, `${atom} in s2`)
+  }
+  assert.deepEqual([placed.atoms, placed.bonds], [drawn.atoms, drawn.bonds], 'chemistry is shared and unchanged')
+  assert.equal(await page.locator('g[data-instance] line[data-bond="b1"]').count(), 2, 'the bond is drawn in both placements')
+
+  // A new atom clicked beside a1 in s2 lands beside a1 in s1 too.
+  await page.getByRole('button', { name: 'Element N' }).click()
+  const besideA1 = { x: positionsOf(placed, 's2').a1.x - 20, y: positionsOf(placed, 's2').a1.y + 20 }
+  const besideA1Screen = await screen(besideA1)
+  await page.mouse.click(besideA1Screen.x, besideA1Screen.y)
+  await waitIdle()
+  const grown = await placedDoc()
+  assert.equal(grown.atoms.length, 3)
+  const [inFirst, inSecond] = [positionsOf(grown, 's1').a3, positionsOf(grown, 's2').a3]
+  assert.ok(Math.abs(inSecond.x - besideA1.x) < 1 && Math.abs(inSecond.y - besideA1.y) < 1, 'placed where clicked')
+  assert.ok(
+    Math.abs(inFirst.x - (inSecond.x - 60)) < 0.02 && Math.abs(inFirst.y - (inSecond.y - 80)) < 0.02,
+    'placed at the same spot relative to a1 in s1',
+  )
+
+  // Dragging a1 in s2 moves it there only.
+  await tool('Select and move')
+  const a1InSecond = await screen(positionsOf(grown, 's2').a1)
+  await page.mouse.move(a1InSecond.x, a1InSecond.y)
+  await page.mouse.down()
+  await page.mouse.move(a1InSecond.x + 15, a1InSecond.y + 15, { steps: 6 })
+  await page.mouse.up()
+  await waitIdle()
+  const dragged = await placedDoc()
+  assert.deepEqual(positionsOf(dragged, 's1'), positionsOf(grown, 's1'), 'the first placement stays')
+  assert.ok(positionsOf(dragged, 's2').a1.x > positionsOf(grown, 's2').a1.x, 'a1 moved in s2')
+  assert.deepEqual(dragged.atoms.map((atom) => atom.position), grown.atoms.map((atom) => atom.position))
+  await page.screenshot({ path: join(outDir, 'editor-placements.png') })
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await waitIdle()
+  assert.deepEqual(positionsOf(await placedDoc(), 's2'), positionsOf(grown, 's2'), 'undo puts it back')
+
+  // Another copy is made from the last placement, the moved s2, so it does not land on it.
+  await page.getByRole('button', { name: 'Duplicate placement' }).click()
+  await waitIdle()
+  await page.locator('li[data-placement="s3"]').waitFor()
+  const copied = await placedDoc()
+  for (const [atom, position] of Object.entries(positionsOf(copied, 's2'))) {
+    assert.deepEqual(positionsOf(copied, 's3')[atom], { x: position.x + 40, y: position.y + 80 }, `${atom} in s3`)
+  }
+}
+results.placements_move_independently = true
+step = 'after placements_move_independently'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

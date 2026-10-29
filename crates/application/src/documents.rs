@@ -179,8 +179,9 @@ enum Hold {
 enum DraftTask {
     /// Nothing is unsaved: remove the draft, if the session has one.
     Remove(DocumentId),
-    /// Write the working copy as it was when the task was taken.
-    Write(Draft),
+    /// Write the working copy as it was when the task was taken. Boxed: a document is much
+    /// larger than an identifier.
+    Write(Box<Draft>),
 }
 
 impl DraftTask {
@@ -191,11 +192,11 @@ impl DraftTask {
         } else if session.is_drafted() {
             None
         } else {
-            Some(Self::Write(Draft {
+            Some(Self::Write(Box::new(Draft {
                 document: session.document.clone(),
                 base_revision: session.stored_revision,
                 saved_at_ms: now_ms(),
-            }))
+            })))
         }
     }
 
@@ -1107,11 +1108,14 @@ impl<R: DocumentRepository> Documents<R> {
             }
         };
         let counters = stored.numbering();
-        if reached.next_atom > counters.next_atom || reached.next_bond > counters.next_bond {
+        if reached.next_atom > counters.next_atom
+            || reached.next_bond > counters.next_bond
+            || reached.next_instance > counters.next_instance
+        {
             return Err(ApplicationError::new(
                 ErrorCode::DraftOutdated,
-                "this process already used atom or bond identifiers the draft may reuse; \
-                 recover the draft as a copy",
+                "this process already used atom, bond, or scene instance identifiers the draft \
+                 may reuse; recover the draft as a copy",
             ));
         }
         let mut document = draft.document;

@@ -108,7 +108,8 @@ try {
     const response = await fetch(`${api.baseUrl}${path}`, {
       method,
       headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      // A string body is sent as written, for JSON that JSON.stringify cannot produce.
+      body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),
     })
     assert.match(response.headers.get('content-type'), /application\/json/)
@@ -202,6 +203,14 @@ try {
     commands: [{ op: 'add_bond', begin: 'a1', end: 'a2', order: 'double' }],
   })
   assert.deepEqual([invalid.status, invalid.body.code, invalid.body.command_index], [422, 'invalid_command', 0])
+  // A key given twice in `positions` makes the body malformed: `invalid_request` without a
+  // command index, like any other malformed body, and nothing changes. The CLI agrees below.
+  const repeatedKey = '[{"op":"add_atom","element":"N","positions":{"s1":{"x":0,"y":0},"s1":{"x":5,"y":5}}}]'
+  const twice = await write(`${doc}/transactions`,
+    `{"request_id":"edit-twice","expected_revision":1,"commands":${repeatedKey}}`)
+  assert.deepEqual([twice.status, twice.body.code, 'command_index' in twice.body], [422, 'invalid_request', false])
+  assert.match(twice.body.message, /duplicate key "s1"/)
+  assert.equal((await call(doc)).body.document.revision, 1, 'nothing changed')
 
   const changed = await write(`${doc}/transactions`, {
     request_id: 'edit-2',
@@ -256,6 +265,9 @@ try {
     expected_revision: 4,
     commands: [{ op: 'rename', title: 'HTTP title' }],
   })
+  const cliTwice = cli('documents', 'apply', id, '--expected-revision', '4', '--json', '--commands', repeatedKey)
+  assert.deepEqual([cliTwice.status, cliTwice.body.code, 'command_index' in cliTwice.body], [1, 'invalid_request', false])
+  assert.match(cliTwice.body.message, /duplicate key "s1"/)
   const cliEdit = cli('documents', 'apply', id, '--expected-revision', '4', '--json', '--commands',
     JSON.stringify([{ op: 'move_atoms', atoms: ['a1'], delta: { x: 5, y: 5 } }]))
   assert.equal(cliEdit.status, 0)
@@ -996,6 +1008,64 @@ try {
     assert.deepEqual([oversized.status, oversized.body.diagnostics[0].code], [413, 'resource_limit'])
   }
 
+  // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
+  // A version 1 file placed in the data directory opens over HTTP and from the CLI as one
+  // scene instance with its history; reading writes nothing. The first save that replaces it,
+  // from either adapter, keeps its exact bytes under migrated/. A newer version is refused.
+  {
+    const fixtures = resolve(import.meta.dirname, '../crates/providers/tests/data')
+    const fixtureId = 'doc-00000000000000f1'
+    const placed = (name, documentId) => {
+      const bytes = readFileSync(join(fixtures, name), 'utf8').replaceAll(fixtureId, documentId)
+      const path = join(dataDir, 'documents', `${documentId}.json`)
+      writeFileSync(path, bytes)
+      return { path, bytes }
+    }
+    const kept = (documentId) => join(dataDir, 'migrated', `${documentId}.v1.json`)
+
+    const viaHttp = placed('v1-document.json', 'doc-00000000000000a1')
+    const opened = await call('/api/v1/documents/doc-00000000000000a1')
+    assert.equal(opened.status, 200)
+    assert.equal(opened.body.document.revision, 4)
+    assert.deepEqual(opened.body.document.scene.instances, [
+      { id: 's1', page: 'p1', molecule: 'm1', positions: [{ atom: 'a1', x: 0, y: 0 }, { atom: 'a2', x: 30, y: 10.5 }] },
+    ])
+    assert.deepEqual(opened.body.document.atoms.map((atom) => atom.position), [{ x: 0, y: 0 }, { x: 30, y: 10.5 }])
+    assert.deepEqual([opened.body.session.undo_depth, opened.body.session.redo_depth], [2, 1])
+    assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body, opened.body, 'HTTP GET = CLI show of a version 1 file')
+    assert.equal(readFileSync(viaHttp.path, 'utf8'), viaHttp.bytes, 'opening wrote nothing')
+    assert.equal(existsSync(join(dataDir, 'migrated')), false)
+
+    const undone = await write('/api/v1/documents/doc-00000000000000a1/undo', { request_id: 'v1-undo', expected_revision: 4 })
+    assert.deepEqual(undone.body.document.scene.instances[0].positions[1], { atom: 'a2', x: 30, y: 0 }, 'migrated history undoes')
+    const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
+    assert.equal(savedV1.status, 200)
+    assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 2)
+    assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
+
+    const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
+    const redone = cli('documents', 'redo', 'doc-00000000000000a2', '--expected-revision', '4', '--json')
+    assert.equal(redone.status, 0)
+    assert.equal(redone.body.document.title, 'Fixture edited')
+    assert.equal(readFileSync(kept('doc-00000000000000a2'), 'utf8'), viaCli.bytes, 'a CLI commit keeps it too')
+    const again = cli('documents', 'undo', 'doc-00000000000000a2', '--expected-revision', '5', '--json')
+    assert.equal(again.status, 0)
+    assert.equal(readFileSync(kept('doc-00000000000000a2'), 'utf8'), viaCli.bytes, 'a later save leaves the kept copy')
+    const listedIds = cli('documents', 'list', '--json').body.documents.map((item) => item.id)
+    assert.ok(!listedIds.some((listedId) => listedId.includes('.v1')), 'kept copies are not documents')
+
+    const newer = placed('v3-document.json', 'doc-00000000000000a3')
+    const refused = await call('/api/v1/documents/doc-00000000000000a3')
+    assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
+    assert.match(refused.body.message, /version 3/)
+    const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
+    assert.match(unreadable?.message ?? '', /version 3; this build reads versions 1 and 2/)
+    assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
+    assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
+    assert.equal(existsSync(kept('doc-00000000000000a3')), false)
+  }
+
   for (const [path, method, status, code] of [
     ['/api/v1/capabilities', 'POST', 405, 'method_not_allowed'],
     ['/api/v1/unknown', 'GET', 404, 'not_found'],
@@ -1014,7 +1084,8 @@ try {
       'unreadable, autosave failure, copy at the session limit), save as copy (including a source draft that cannot be removed), ' +
       'storage feedback (lock waits, queued requests, lost replies, read-only storage), the document list (search, ' +
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
-      'client (crash, stop, maximum wait, retry), and operation contract 1 (HTTP = CLI, guards, protocol errors) verified.',
+      'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
+      'version 1 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

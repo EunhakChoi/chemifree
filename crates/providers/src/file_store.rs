@@ -17,6 +17,13 @@
 //! - `drafts/<id>.committing`: an owned draft set aside during a save. If the saving process
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
+//! - `migrated/<id>.v1.json`: the exact bytes of a version 1 document file, kept by the first
+//!   save that replaces it with version 2 (reading and migrating a file never writes). Under
+//!   the save lock, the copy is written to a temporary file, flushed to disk, and renamed into
+//!   place before the document is replaced. A copy is never overwritten: a later version 1
+//!   file with other bytes under the same ID is kept as `migrated/<id>.v1.2.json`, then
+//!   `.v1.3.json`, and so on, while one whose bytes are already kept is not copied again. These
+//!   copies are not documents: they are not listed, opened, trashed, restored, or removed.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -36,6 +43,7 @@ use crate::file_format;
 const DOCUMENTS_DIR: &str = "documents";
 const DRAFTS_DIR: &str = "drafts";
 const LOCKS_DIR: &str = "locks";
+const MIGRATED_DIR: &str = "migrated";
 const TRASH_DIR: &str = "trash";
 const EXTENSION: &str = "json";
 const TEMPORARY_SUFFIX: &str = ".tmp";
@@ -58,6 +66,7 @@ pub struct FileDocumentRepository {
     drafts: PathBuf,
     locks: PathBuf,
     trash: PathBuf,
+    migrated: PathBuf,
     /// Revisions read by `stored_revision`, keyed by a stamp of the file, so polling an
     /// unchanged file does not re-read it.
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
@@ -114,7 +123,8 @@ impl FileStamp {
 }
 
 impl FileDocumentRepository {
-    /// Uses `<root>/documents`, `<root>/drafts`, and `<root>/locks`. Nothing is touched until
+    /// Uses `<root>/documents`, `<root>/drafts`, `<root>/locks`, `<root>/trash`, and
+    /// `<root>/migrated` (see the module notes). Nothing is touched until
     /// the first write, which creates the directories (owner-only on Unix).
     pub fn new(root: &Path) -> Self {
         Self {
@@ -122,6 +132,7 @@ impl FileDocumentRepository {
             drafts: root.join(DRAFTS_DIR),
             locks: root.join(LOCKS_DIR),
             trash: root.join(TRASH_DIR),
+            migrated: root.join(MIGRATED_DIR),
             probes: Arc::default(),
             owned: Arc::default(),
             taking_ownership: Arc::default(),
@@ -154,11 +165,49 @@ impl FileDocumentRepository {
         self.drafts.join(format!("{id}.committing"))
     }
 
+    /// Where the first save over a version 1 file keeps that file's bytes. Later version 1
+    /// files with other bytes under the same ID are kept as `<id>.v1.2.json`, `.v1.3.json`, ….
+    pub fn migrated_path(&self, id: &DocumentId) -> PathBuf {
+        self.migrated_copy_path(id, 1)
+    }
+
+    fn migrated_copy_path(&self, id: &DocumentId, number: u32) -> PathBuf {
+        if number == 1 {
+            self.migrated.join(format!("{id}.v1.{EXTENSION}"))
+        } else {
+            self.migrated.join(format!("{id}.v1.{number}.{EXTENSION}"))
+        }
+    }
+
+    /// Keeps `stored`, the version 1 file a save is about to replace, unless a copy with the
+    /// same bytes is already kept. Copies are numbered in order and never overwritten: the
+    /// bytes go to the first free name. Called with the save lock held, so no other save
+    /// checks or writes these copies meanwhile.
+    fn keep_version_1(&self, id: &DocumentId, stored: &[u8]) -> Result<(), StorageError> {
+        for number in 1..=u32::MAX {
+            let kept = self.migrated_copy_path(id, number);
+            match fs::read(&kept) {
+                Ok(bytes) if bytes == stored => return Ok(()),
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return self.write_atomically(&kept, stored).map_err(|error| {
+                        write_failed("keep the version 1 file as", &kept, &error)
+                    });
+                }
+                Err(error) => return Err(unavailable("read", &kept, &error)),
+            }
+        }
+        Err(StorageError::Unavailable(format!(
+            "no free name to keep the version 1 file of {id} in {}",
+            self.migrated.display()
+        )))
+    }
+
     /// Removes temporary files that interrupted writes abandoned more than an hour ago.
     /// Younger ones may belong to a write in progress in another process.
     pub fn prune_stale_temporaries(&self) {
         let now = SystemTime::now();
-        for directory in [&self.directory, &self.drafts, &self.trash] {
+        for directory in [&self.directory, &self.drafts, &self.trash, &self.migrated] {
             let Ok(entries) = fs::read_dir(directory) else {
                 continue;
             };
@@ -441,7 +490,11 @@ impl DocumentRepository for FileDocumentRepository {
         let _lock = self.lock_document(id)?;
         self.settle_interrupted_save(id)?;
         // The revision probe settles the common case without restoring the stored document.
-        let stored_revision = self.read_revision(&target)?;
+        let stored_bytes = self.read_bytes(&target)?;
+        let stored_revision = stored_bytes
+            .as_deref()
+            .map(|bytes| file_format::decode_revision(bytes).map_err(StorageError::Corrupt))
+            .transpose()?;
         let base_matches = match (stored_revision, base_revision) {
             (None, None) => true,
             (Some(stored), Some(base)) if stored == base => true,
@@ -459,6 +512,11 @@ impl DocumentRepository for FileDocumentRepository {
                 "the document encodes to {} bytes, over the {MAX_DOCUMENT_BYTES}-byte limit",
                 bytes.len()
             )));
+        }
+        if let Some(stored) = stored_bytes.as_deref()
+            && file_format::is_version_1(stored)
+        {
+            self.keep_version_1(id, stored)?;
         }
         // The owned draft is set aside before the commit and removed after it, so a draft
         // left behind by a crash in between is recognized as superseded.
@@ -813,8 +871,8 @@ pub fn default_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use chemifree_domain::document::{
-        AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, MAX_ATOMS, MAX_BONDS,
-        MAX_COMMANDS, MIN_CHARGE, Point, Vector,
+        AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, InstanceId, MAX_ATOMS,
+        MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MIN_CHARGE, NewAtomPositions, Point, Vector,
     };
     use chemifree_domain::element::Element;
 
@@ -874,12 +932,14 @@ mod tests {
                 Command::AddAtom {
                     element: Element::CARBON,
                     // Needs the full round-trip float parser to reload bit-exactly.
-                    position: Point::new(150.8, 226.399_999_999_999_98).unwrap(),
+                    positions: NewAtomPositions::Single(
+                        Point::new(150.8, 226.399_999_999_999_98).unwrap(),
+                    ),
                     bond_to: None,
                 },
                 Command::AddAtom {
                     element: Element::from_symbol("Cl").unwrap(),
-                    position: Point::new(30.0, 0.1).unwrap(),
+                    positions: NewAtomPositions::Single(Point::new(30.0, 0.1).unwrap()),
                     bond_to: Some(BondTo {
                         atom: AtomRef::Id(AtomId::from_serial(1).unwrap()),
                         order: BondOrder::Triple,
@@ -930,11 +990,13 @@ mod tests {
                 .map(|&index| Command::AddAtom {
                     element: Element::CARBON,
                     // Long shortest-round-trip decimals, near the coordinate bound.
-                    position: Point::new(
-                        -99_999.0 + index as f64 * 0.013,
-                        99_999.0 - index as f64 * 0.017,
-                    )
-                    .unwrap(),
+                    positions: NewAtomPositions::Single(
+                        Point::new(
+                            -99_999.0 + index as f64 * 0.013,
+                            99_999.0 - index as f64 * 0.017,
+                        )
+                        .unwrap(),
+                    ),
                     bond_to: None,
                 })
                 .collect();
@@ -968,6 +1030,18 @@ mod tests {
                 .collect();
             document.apply(&commands).unwrap();
         }
+        // Every scene instance holds a position for every atom.
+        let instances: Vec<_> = (1..MAX_INSTANCES)
+            .map(|_| Command::AddInstance {
+                source: None,
+                offset: Vector {
+                    dx: 0.000_111_111_111,
+                    dy: -0.000_222_222_222,
+                },
+            })
+            .collect();
+        document.apply(&instances).unwrap();
+        let last = InstanceId::from_serial(MAX_INSTANCES as u32).unwrap();
         // Moving every atom repeatedly fills the history with the largest entries.
         for _ in 0..HISTORY_LIMIT {
             document
@@ -977,6 +1051,7 @@ mod tests {
                         dx: 0.000_123_456_789,
                         dy: -0.000_987_654_321,
                     },
+                    instance: Some(last),
                 }])
                 .unwrap();
         }
@@ -1075,10 +1150,11 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\": 1", "\"format_version\": 99"),
+            valid.replace("\"format_version\": 2", "\"format_version\": 99"),
             valid.replacen("\"begin\": \"a1\"", "\"begin\": \"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {
+            assert_ne!(corrupt, valid, "each variant changes the file");
             fs::write(&path, corrupt).unwrap();
             assert!(
                 matches!(
@@ -1480,10 +1556,16 @@ mod tests {
         let other = Document::new(store.allocate_id().unwrap(), "Other").unwrap();
         let path = store.draft_path(document.id());
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let header_only = r#"{"format":"chemifree.draft","format_version":1,"base_revision":0,
-            "saved_at_ms":0,"document":{"revision":3},"history":{}}"#;
+        let header_only = |version: u32| {
+            format!(
+                r#"{{"format":"chemifree.draft","format_version":{version},"base_revision":0,
+                "saved_at_ms":0,"document":{{"revision":3}},"history":{{}}}}"#
+            )
+            .into_bytes()
+        };
         for bytes in [
-            header_only.as_bytes().to_vec(),
+            header_only(1),
+            header_only(2),
             file_format::encode_draft(&draft_of(&other, 0)),
         ] {
             fs::write(&path, bytes).unwrap();

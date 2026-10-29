@@ -153,8 +153,9 @@ pub enum OperationResult {
     /// `capabilities.inspect`.
     Catalog(OperationCatalog),
     /// `document.create`, `document.snapshot`, `document.transaction`, `history.undo`,
-    /// `history.redo`, and `document.save`: the document and its session afterwards.
-    Document(DocumentResult),
+    /// `history.redo`, and `document.save`: the document and its session afterwards. Boxed:
+    /// a document view is much larger than the other results.
+    Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
 }
@@ -212,6 +213,10 @@ pub struct Support {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
     pub note: &'static str,
+    /// Present on a sub-operation that is a capability rather than a command: the commands
+    /// that carry it out (none while it is not implemented). Added within operation contract 1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<&'static [&'static str]>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sub_operations: Vec<Support>,
 }
@@ -223,6 +228,7 @@ struct Entry {
     execution: Execution,
     followup: Option<&'static str>,
     note: &'static str,
+    commands: Option<&'static [&'static str]>,
 }
 
 const fn runs(id: &'static str, note: &'static str) -> Entry {
@@ -232,6 +238,7 @@ const fn runs(id: &'static str, note: &'static str) -> Entry {
         execution: Execution::Executable,
         followup: None,
         note,
+        commands: None,
     }
 }
 
@@ -242,10 +249,19 @@ const fn missing(id: &'static str, followup: &'static str, note: &'static str) -
         execution: Execution::NotImplemented,
         followup: Some(followup),
         note,
+        commands: None,
     }
 }
 
 impl Entry {
+    /// Marks a transaction part as a capability carried out by `commands`, not a command.
+    const fn carried_out_by(self, commands: &'static [&'static str]) -> Self {
+        Self {
+            commands: Some(commands),
+            ..self
+        }
+    }
+
     fn view(&self, sub_operations: &[Entry]) -> Support {
         Support {
             id: self.id,
@@ -253,23 +269,30 @@ impl Entry {
             execution: self.execution.as_str(),
             followup: self.followup,
             note: self.note,
+            commands: self.commands,
             sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
         }
     }
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 14] = [
+const TRANSACTION_PARTS: [Entry; 17] = [
     runs(
         "add_atom",
-        "An element (1–118) at a position, optionally bonded to an atom.",
+        "An element (1–118) with a position in every scene instance, optionally bonded to an atom.",
     ),
     runs(
         "update_atom",
         "Element, formal charge (−8 to +8), and isotope mass number.",
     ),
-    runs("move_atoms", "Translates atoms by a delta."),
-    runs("delete_atoms", "Deletes atoms and their bonds."),
+    runs(
+        "move_atoms",
+        "Translates atoms by a delta in one scene instance.",
+    ),
+    runs(
+        "delete_atoms",
+        "Deletes atoms, their bonds, and their positions in every scene instance.",
+    ),
     runs(
         "add_bond",
         "Single, double, or triple bonds between two atoms.",
@@ -280,32 +303,50 @@ const TRANSACTION_PARTS: [Entry; 14] = [
     ),
     runs("delete_bonds", "Deletes bonds."),
     runs("rename", "Sets the document title."),
+    runs(
+        "add_instance",
+        "Draws the molecule again on the page: a scene instance copying another's positions \
+         with an offset.",
+    ),
+    runs(
+        "move_instance",
+        "Translates every position of one scene instance.",
+    ),
+    runs(
+        "delete_instance",
+        "Deletes a scene instance with its positions; the last one stays.",
+    ),
     missing(
         "hydrogen_state",
         "P10",
         "Explicit, inferred, or unknown hydrogen counts are not represented.",
-    ),
-    missing("radical", "P10", "Radicals are not represented."),
+    )
+    .carried_out_by(&[]),
+    missing("radical", "P10", "Radicals are not represented.").carried_out_by(&[]),
     missing(
         "query_atom_or_bond",
         "P10",
         "Query atoms and bonds are not represented.",
-    ),
+    )
+    .carried_out_by(&[]),
     missing(
         "aromatic_or_dative_bond",
         "P10",
         "Aromatic and dative bond types are not represented.",
-    ),
+    )
+    .carried_out_by(&[]),
     missing(
         "attachment_point",
         "P10",
         "Attachment points are not represented.",
-    ),
-    missing(
+    )
+    .carried_out_by(&[]),
+    runs(
         "scene_placement",
-        "P09",
-        "A document holds one position per atom; graph and scene are not separated.",
-    ),
+        "One chemical graph per document, drawn by scene instances on one page, each with its \
+         own atom positions. Groups and other scene objects are not represented.",
+    )
+    .carried_out_by(&["add_instance", "move_instance", "delete_instance"]),
 ];
 
 const PROPERTY_PARTS: [Entry; 2] = [
@@ -583,7 +624,7 @@ impl Known {
                 self.reply(
                     Outcome::Ok,
                     Some(revision),
-                    Some(OperationResult::Document(response.into())),
+                    Some(OperationResult::Document(Box::new(response.into()))),
                     Vec::new(),
                 )
             }

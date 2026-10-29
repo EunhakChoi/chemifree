@@ -1,5 +1,5 @@
 {
-  "suite_version": 2,
+  "suite_version": 3,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -17,6 +17,7 @@
     "cases/formula-and-mass.json",
     "cases/molfile-round-trip.json",
     "cases/graph-scene-separation.json",
+    "cases/scene-positions-required.json",
     "cases/hydrogen-states.json",
     "cases/versioned-operation-contract.json",
     "cases/operation-errors-match-v1.json",

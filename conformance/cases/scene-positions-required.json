@@ -1,0 +1,281 @@
+{
+  "id": "scene-positions-required",
+  "title": "With two scene instances, an atom added with one position, positions that leave out an instance, an atom move that names no instance, and deleting the last instance are refused with the command index and change nothing",
+  "requirements": [
+    "MODEL-01",
+    "OPS-02"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 0,
+            "y": 80
+          }
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 30,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Changed"
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "positions": {
+            "s1": {
+              "x": 30,
+              "y": 0
+            }
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "positions": {
+            "s1": {
+              "x": 30,
+              "y": 0
+            },
+            "s2": {
+              "x": 30,
+              "y": 80
+            },
+            "s3": {
+              "x": 30,
+              "y": 160
+            }
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a1"
+          ],
+          "delta": {
+            "x": 5,
+            "y": 5
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "delete_instance",
+          "instance": "s1"
+        },
+        {
+          "op": "delete_instance",
+          "instance": "s2"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s2",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 80
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "N",
+          "positions": {
+            "s1": {
+              "x": 30,
+              "y": 0
+            },
+            "s2": {
+              "x": 40,
+              "y": 80
+            }
+          },
+          "bond_to": {
+            "atom": "a1",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1"
+            },
+            {
+              "id": "a2",
+              "element": "N",
+              "position": {
+                "x": 30,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s2",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 80
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 40,
+                    "y": 80
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
