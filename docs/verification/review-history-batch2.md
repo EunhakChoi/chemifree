@@ -116,3 +116,13 @@ main(1a518cd) 위의 브랜치 `feat/atom-bond-states`. 구현은 새 컨텍스�
 | 3 (요청) | 02:28:58 | 65ade75 | 02:32:55 | 지적 2건(P2): ① 라디칼 점·부착점 표시가 결합을 자르는 상자에 들어가지 않아 그쪽으로 나가는 결합선과 겹침 ② 캔버스 view box가 원자 중심만 보고 라벨 폭을 무시해 캔버스 가장자리의 넓은 질의 라벨이 잘림. 3회차까지 통과하지 못함 | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692176139) |
 
 CI(65ade75): check·browser 성공(run 40806609015). 그러나 3회 안에 통과하지 못해 규칙대로 PR을 닫았다(병합 없음, [닫은 이유](https://github.com/EunhakChoi/chemifree/pull/31#issuecomment-6486292409)). 세 회차의 지적이 모두 "캔버스가 라벨·상태 표시·결합 끝·view box를 따로, 일부는 추정한 기하로 배치한다"는 같은 약점이었다. 최신 main(1a518cd)에서 새 브랜치 `feat/recorded-atom-states`로 다시 구현한다(#31 코드 재사용·이름 변경·cherry-pick 없음). 다시 구현할 때는 원자마다 라벨 배치(글자와 상태 표시를 함께) 하나를 두고 결합 자르기와 view box가 모두 그것을 쓰게 한다. 후속 PR은 아래에 기록한다.
+
+## #32 P10 재구현 — 수소·라디칼·질의·결합 종류 상태 기록
+
+#31을 닫은 뒤 최신 main(1a518cd)에서 새 브랜치 `feat/recorded-atom-states`로 다시 구현했다. 새 컨텍스트의 에이전트가 #31의 코드를 읽거나 재사용하지 않고 작성했고, #31의 모든 지적을 설계 요건으로 넣었다(원자마다 라벨 배치 하나: 글자와 상태 표시를 감싸는 상자를 결합 자르기·view box·hit test가 함께 씀). PR 전에 독립 사전 검토를 두 번 반영했다. 1차(P1 없음, P2 2건·P3 8건: 글자 강제 늘이기, 원자 클릭 범위 축소, 배치 틀 잘림, 배위 결합 방향, 질의 목록 경쟁, 방향족 점선 위치, 성능, 접근성 이름, 문서 과장 2건)는 eac265b·5d40880, 2차(새 P1·P2 없음, P3 2건: 양쪽 치환 고리의 방향족 점선, 긴 질의 라벨 뒤 간격)는 b1f94d5에서 고쳤다.
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-29 04:50:59 | b1f94d5 | 04:54:28 | 통과: 이 head의 코드 리뷰 완료, 지적 없음(review state `completed`, `has_any_findings: false`, PR에 👍 반응) | [summary](https://github.com/EunhakChoi/chemifree/pull/32#issuecomment-6488262099) |
+
+CI(b1f94d5): check·browser 성공(run 40820040161). 병합 b1ccdfb, 병합 후 main CI 성공([run 40820386893](https://github.com/EunhakChoi/chemifree/actions/runs/40820386893), check·browser).
