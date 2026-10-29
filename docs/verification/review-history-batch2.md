@@ -100,3 +100,7 @@ main(85d4788) 위의 브랜치 `feat/graph-scene-split`. 구현은 새 컨텍스
 | 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
 |---|---|---|---|---|---|
 | 1 (자동) | 2026-10-29 00:17:50 | 87966e6 | 00:23:12 | 지적 1건(P2): 배치 이동·삭제 버튼을 빠르게 두 번 누르면 두 번째 요청이 화면의 같은 revision으로 나가 `revision_conflict`로 거절되고 그 이동이 사라짐 → 수용: 첫 요청을 붙잡아 두는 브라우저 smoke 단계를 먼저 작성해 409를 재현한 뒤, 이동·삭제 명령을 적용될 때의 최신 문서로 만들도록 바꿈(삭제된 배치·마지막 배치는 보내지 않음). 단위 테스트 추가 | [review](https://github.com/EunhakChoi/chemifree/pull/30#pullrequestreview-5691389656) |
+| 2 (요청) | 00:31:12 | 438f766 | 00:46:33 시간 초과 | 통과 아님: 15분 안에 시작 반응(👀)만 있었고 review state는 `running` | [request](https://github.com/EunhakChoi/chemifree/pull/30) |
+| 3 (요청) | 00:46:53 | 438f766 | 00:48:58 | 통과: 이 head의 코드 리뷰 완료, 지적 없음(review state `completed`, `has_any_findings: false`, 영수 댓글 "Didn't find any major issues") | [receipt](https://github.com/EunhakChoi/chemifree/pull/30#issuecomment-6484742580) |
+
+CI(438f766): check·browser 성공(run 40794594222). 병합 1a518cd, 병합 후 main CI 성공([run 40796524510](https://github.com/EunhakChoi/chemifree/actions/runs/40796524510), check·browser).
