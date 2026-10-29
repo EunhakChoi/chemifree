@@ -1,6 +1,6 @@
 {
   "id": "hydrogen-states",
-  "title": "Stated, unknown and inferred hydrogens are told apart through edits, undo, a save and a restart; inferred hydrogens carry no count",
+  "title": "Stated, unknown and inferred hydrogens are told apart through edits, undo, a save and a restart (that an inferred state has no count field is checked in crates/application/tests/states.rs)",
   "requirements": [
     "MODEL-02"
   ],
