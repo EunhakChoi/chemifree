@@ -13,6 +13,10 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
   '../apps/web/src/editor/placement.ts'
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
+const { changeHydrogenCount, describeStates, hydrogenText, radicalMark, toggleAttachmentPoint } = await import(
+  '../apps/web/src/editor/atom-states.ts'
+)
+const { bondSegments, showsLabel } = await import('../apps/web/src/editor/geometry.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 
 const document = (id, revision = 0) => ({
@@ -636,3 +640,144 @@ test('moving or deleting a placement is built from the document it applies to', 
   assert.equal(deletePlacement(deleted, 's1'), null, 'the last placement is not deleted')
 })
 
+
+/** A reply with every recorded atom and bond state, as a service with them sends it. */
+function withStates() {
+  const value = drawnTwice()
+  const [carbon, oxygen] = value.document.atoms
+  Object.assign(carbon, {
+    kind: 'element',
+    hydrogens: { mode: 'specified', count: 2 },
+    radical: 'doublet',
+    attachment_points: [1, 3],
+  })
+  Object.assign(oxygen, {
+    element: '![N,O]',
+    kind: 'query',
+    query: { kind: 'list', elements: ['N', 'O'], negated: true },
+    hydrogens: { mode: 'inferred' },
+    radical: 'none',
+    attachment_points: [],
+  })
+  Object.assign(value.document.bonds[0], { order: 'query', query: { kind: 'list', orders: ['single', 'aromatic'] } })
+  return value
+}
+
+test('a document reply with recorded atom and bond states is accepted, and one from before them too', () => {
+  assert.equal(isDocumentResponse(withStates()), true)
+  for (const order of ['aromatic', 'dative', 'unknown']) {
+    const value = withStates()
+    value.document.bonds[0] = { id: 'b1', begin: 'a1', end: 'a2', order }
+    assert.equal(isDocumentResponse(value), true, order)
+  }
+  const anyQuery = withStates()
+  anyQuery.document.atoms[1].query = { kind: 'halogen' }
+  anyQuery.document.bonds[0].query = { kind: 'any' }
+  assert.equal(isDocumentResponse(anyQuery), true)
+  assert.equal(isDocumentResponse(drawnTwice()), true, 'a service from before the states')
+})
+
+for (const [name, change] of [
+  ['an unknown bond order', (value) => (value.document.bonds[0] = { id: 'b1', begin: 'a1', end: 'a2', order: 'quadruple' })],
+  ['a query bond without its query', (value) => delete value.document.bonds[0].query],
+  ['a query on a bond that is not a query', (value) => (value.document.bonds[0].order = 'single')],
+  ['a query bond listing an order twice', (value) => (value.document.bonds[0].query.orders = ['single', 'single'])],
+  ['a query bond listing no order', (value) => (value.document.bonds[0].query.orders = [])],
+  ['a query bond of an unknown kind', (value) => (value.document.bonds[0].query = { kind: 'some' })],
+  ['an atom with only some of the states', (value) => delete value.document.atoms[0].radical],
+  ['an unknown hydrogen mode', (value) => (value.document.atoms[0].hydrogens = { mode: 'implicit', count: 2 })],
+  ['inferred hydrogens with a count', (value) => (value.document.atoms[1].hydrogens = { mode: 'inferred', count: 0 })],
+  ['specified hydrogens without a count', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified' })],
+  ['a stated count above 16', (value) => (value.document.atoms[0].hydrogens.count = 17)],
+  ['a fractional hydrogen count', (value) => (value.document.atoms[0].hydrogens.count = 1.5)],
+  ['an unknown radical', (value) => (value.document.atoms[0].radical = 'quartet')],
+  ['attachment points out of order', (value) => (value.document.atoms[0].attachment_points = [3, 1])],
+  ['an attachment point outside 1 to 4', (value) => (value.document.atoms[0].attachment_points = [5])],
+  ['a repeated attachment point', (value) => (value.document.atoms[0].attachment_points = [1, 1])],
+  ['a query atom without its query', (value) => delete value.document.atoms[1].query],
+  ['an element atom with a query', (value) => (value.document.atoms[0].query = { kind: 'any' })],
+  ['an unknown atom kind', (value) => (value.document.atoms[0].kind = 'nickname')],
+  ['a query element list without elements', (value) => (value.document.atoms[1].query.elements = [])],
+  ['a query element list naming one twice', (value) => (value.document.atoms[1].query.elements = ['N', 'N'])],
+  ['a query element list without negated', (value) => delete value.document.atoms[1].query.negated],
+  ['a generic query with elements', (value) => (value.document.atoms[1].query = { kind: 'any', elements: ['N'] })],
+]) {
+  test(`a document reply with ${name} is refused`, () => {
+    const value = withStates()
+    change(value)
+    assert.equal(isDocumentResponse(value), false)
+  })
+}
+
+test('an atom shows a stated or unknown hydrogen count, and none when hydrogens are inferred', () => {
+  const atom = (hydrogens) => ({ id: 'a1', element: 'N', charge: 0, isotope: null, position: { x: 0, y: 0 }, hydrogens })
+  assert.equal(hydrogenText(atom({ mode: 'inferred' })), '', 'inferred is not computed, so no count is shown')
+  assert.equal(hydrogenText(atom(undefined)), '', 'a service from before the states')
+  assert.equal(hydrogenText(atom({ mode: 'unknown' })), 'H?')
+  assert.equal(hydrogenText(atom({ mode: 'specified', count: 1 })), 'H')
+  assert.equal(hydrogenText(atom({ mode: 'specified', count: 3 })), 'H3')
+  assert.equal(hydrogenText(atom({ mode: 'specified', count: 0 })), 'H0', 'a stated zero reads apart from inferred')
+})
+
+test('a carbon vertex is labelled when it carries a stated hydrogen count or a radical, not for inferred hydrogens', () => {
+  const carbon = (states) => ({ id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 }, kind: 'element', hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], ...states })
+  assert.equal(showsLabel(carbon({}), 2), false)
+  assert.equal(showsLabel(carbon({ hydrogens: { mode: 'specified', count: 2 } }), 2), true)
+  assert.equal(showsLabel(carbon({ hydrogens: { mode: 'unknown' } }), 2), true)
+  assert.equal(showsLabel(carbon({ radical: 'doublet' }), 2), true)
+  assert.equal(showsLabel(carbon({ kind: 'query', element: 'A', query: { kind: 'any_heavy' } }), 2), true)
+  assert.deepEqual(radicalMark('none'), null)
+  assert.deepEqual(radicalMark('doublet'), { dots: 1, uncertain: false })
+  assert.deepEqual(radicalMark('triplet'), { dots: 2, uncertain: false })
+  assert.deepEqual(radicalMark('unknown'), { dots: 1, uncertain: true })
+})
+
+test('the drawing describes recorded states in words and says nothing of inferred hydrogens', () => {
+  const value = withStates()
+  value.document.bonds.push({ id: 'b2', begin: 'a2', end: 'a1', order: 'dative' })
+  assert.deepEqual(describeStates(value.document), [
+    'a1: 2 H stated, doublet radical, attachment points 1, 3',
+    'a2: query atom ![N,O]',
+    'query (single or aromatic) bond b1',
+    'dative bond b2 from a2 to a1',
+  ])
+  assert.deepEqual(describeStates(drawnTwice().document), [])
+})
+
+test('bond kinds are drawn apart: a dashed second line, an arrowhead at the end, dots, a zigzag', () => {
+  const bond = (order) => ({ id: 'b1', begin: 'a1', end: 'a2', order })
+  const from = { x: 0, y: 0 }
+  const to = { x: 30, y: 0 }
+  const aromatic = bondSegments(bond('aromatic'), from, to, false, false)
+  assert.deepEqual(aromatic.map((segment) => segment.dash !== undefined), [false, true])
+  const dative = bondSegments(bond('dative'), from, to, false, false)
+  assert.equal(dative.length, 3)
+  for (const head of dative.slice(1)) {
+    assert.deepEqual([head.x1, head.y1], [30, 0], 'the arrowhead points at the end atom')
+    assert.ok(head.x2 < 30, 'and opens back toward the donor')
+  }
+  assert.ok(bondSegments(bond('query'), from, to, false, false)[0].dash, 'a query bond is dotted')
+  assert.ok(bondSegments(bond('unknown'), from, to, false, false).length > 2, 'an unknown bond is a zigzag')
+  assert.deepEqual(bondSegments(bond('single'), from, to, false, false), [{ x1: 0, y1: 0, x2: 30, y2: 0 }])
+})
+
+test('hydrogen steps and attachment point presses are built from the document they apply to', () => {
+  const value = withStates()
+  const step = changeHydrogenCount('a1', 1)
+  assert.deepEqual(step(value.document), [{ op: 'update_atom', atom: 'a1', hydrogens: { mode: 'specified', count: 3 } }])
+  value.document.atoms[0].hydrogens = { mode: 'specified', count: 3 }
+  assert.deepEqual(step(value.document), [{ op: 'update_atom', atom: 'a1', hydrogens: { mode: 'specified', count: 4 } }], 'a second quick press counts')
+  value.document.atoms[0].hydrogens = { mode: 'specified', count: 16 }
+  assert.equal(step(value.document), null, 'not past 16')
+  assert.equal(changeHydrogenCount('a2', 1)(value.document), null, 'no count is made up for inferred hydrogens')
+
+  const first = toggleAttachmentPoint('a1', 2)
+  assert.deepEqual(first(value.document), [{ op: 'update_atom', atom: 'a1', attachment_points: [1, 2, 3] }])
+  // The second press, queued behind the first, sees what the first did.
+  value.document.atoms[0].attachment_points = [1, 2, 3]
+  assert.deepEqual(toggleAttachmentPoint('a1', 4)(value.document), [
+    { op: 'update_atom', atom: 'a1', attachment_points: [1, 2, 3, 4] },
+  ])
+  assert.deepEqual(toggleAttachmentPoint('a1', 1)(value.document), [{ op: 'update_atom', atom: 'a1', attachment_points: [2, 3] }])
+  assert.equal(toggleAttachmentPoint('a9', 1)(value.document), null, 'a deleted atom is not changed')
+})

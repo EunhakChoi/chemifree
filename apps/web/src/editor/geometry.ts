@@ -127,9 +127,21 @@ export function sameHit(a: Hit, b: Hit) {
   return a === b || (a !== null && b !== null && a.kind === b.kind && a.id === b.id)
 }
 
-/** Carbon is drawn as a bare vertex unless it is isolated, charged, or isotope-labeled. */
+/**
+ * Carbon is drawn as a bare vertex unless it is isolated, charged, isotope-labeled, or carries
+ * a recorded mark: stated or unknown hydrogens, or a radical. A query atom always shows its
+ * label.
+ */
 export function showsLabel(atom: AtomView, atomDegree: number) {
-  return atom.element !== 'C' || atom.charge !== 0 || atom.isotope !== null || atomDegree === 0
+  return (
+    atom.element !== 'C' ||
+    atom.kind === 'query' ||
+    atom.charge !== 0 ||
+    atom.isotope !== null ||
+    atomDegree === 0 ||
+    (atom.hydrogens !== undefined && atom.hydrogens.mode !== 'inferred') ||
+    (atom.radical !== undefined && atom.radical !== 'none')
+  )
 }
 
 export function chargeText(charge: number) {
@@ -138,8 +150,26 @@ export function chargeText(charge: number) {
   return Math.abs(charge) === 1 ? sign : `${Math.abs(charge)}${sign}`
 }
 
-/** Parallel segments for a bond, trimmed where they meet a text label. */
-export function bondSegments(bond: BondView, begin: Position, end: Position, trimBegin: boolean, trimEnd: boolean) {
+/** One stroke of a drawn bond; `dash` is an SVG dash pattern for a dashed stroke. */
+export interface BondSegment {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  dash?: string
+}
+
+const ARROW_LENGTH = 5
+const ARROW_HALF_ANGLE = Math.PI / 7
+const WAVES = 6
+
+/**
+ * The strokes of a bond, trimmed where they meet a text label: parallel lines for single,
+ * double, and triple bonds; a line and a dashed line for an aromatic bond; a line with an
+ * arrowhead at `end` for a dative bond (from the donor, `begin`); a dotted line for a query
+ * bond; and a zigzag for a bond of unknown kind.
+ */
+export function bondSegments(bond: BondView, begin: Position, end: Position, trimBegin: boolean, trimEnd: boolean): BondSegment[] {
   const length = distance(begin, end)
   if (length === 0) return []
   const ux = (end.x - begin.x) / length
@@ -147,13 +177,45 @@ export function bondSegments(bond: BondView, begin: Position, end: Position, tri
   const trim = 7
   const a = trimBegin ? { x: begin.x + ux * trim, y: begin.y + uy * trim } : begin
   const b = trimEnd ? { x: end.x - ux * trim, y: end.y - uy * trim } : end
-  const offsets = bond.order === 'single' ? [0] : bond.order === 'double' ? [-2.2, 2.2] : [-3.4, 0, 3.4]
-  return offsets.map((offset) => ({
+  const parallel = (offset: number, dash?: string): BondSegment => ({
     x1: a.x - uy * offset,
     y1: a.y + ux * offset,
     x2: b.x - uy * offset,
     y2: b.y + ux * offset,
-  }))
+    ...(dash === undefined ? {} : { dash }),
+  })
+  switch (bond.order) {
+    case 'single':
+      return [parallel(0)]
+    case 'double':
+      return [parallel(-2.2), parallel(2.2)]
+    case 'triple':
+      return [parallel(-3.4), parallel(0), parallel(3.4)]
+    case 'aromatic':
+      return [parallel(-1.8), parallel(1.8, '2 1.6')]
+    case 'query':
+      return [parallel(0, '0.8 1.8')]
+    case 'dative': {
+      const head = (side: number): BondSegment => {
+        const angle = Math.atan2(-uy, -ux) + side * ARROW_HALF_ANGLE
+        return { x1: b.x, y1: b.y, x2: b.x + ARROW_LENGTH * Math.cos(angle), y2: b.y + ARROW_LENGTH * Math.sin(angle) }
+      }
+      return [parallel(0), head(1), head(-1)]
+    }
+    case 'unknown': {
+      // A zigzag along the bond, alternating 2 pt either side.
+      const points = Array.from({ length: WAVES + 1 }, (_, index) => {
+        const t = index / WAVES
+        const side = index === 0 || index === WAVES ? 0 : index % 2 === 0 ? -2 : 2
+        return { x: a.x + (b.x - a.x) * t - uy * side, y: a.y + (b.y - a.y) * t + ux * side }
+      })
+      return points.slice(1).map((point, index) => ({ x1: points[index].x, y1: points[index].y, x2: point.x, y2: point.y }))
+    }
+    default: {
+      const unknown: never = bond.order
+      return unknown
+    }
+  }
 }
 
 /** The frame, grown to include every atom with a margin. */

@@ -1451,12 +1451,17 @@ await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 ope
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19'], ['document.transaction/radical', 'P10']]) {
+for (const [id, followup] of [['chem.properties', 'P19'], ['chem.validate', 'P16']]) {
   const row = operationRow(id)
   assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
 }
-for (const id of ['document.transaction/scene_placement', 'document.transaction/add_instance']) {
+for (const id of [
+  'document.transaction/scene_placement',
+  'document.transaction/add_instance',
+  'document.transaction/radical',
+  'document.transaction/hydrogen_state',
+]) {
   assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'executable', `${id} runs`)
 }
 assert.equal(
@@ -1558,6 +1563,71 @@ step = 'after operation_catalog'
 }
 results.placements_move_independently = true
 step = 'after placements_move_independently'
+
+// Recorded states: in the open drawing (alpha: C a1 – C a2, N a3), a stated hydrogen count and
+// a radical on a3 and an aromatic b1 are set in the inspector, saved, and still there after the
+// page reloads. Carbon a1, whose hydrogens stay inferred, shows no hydrogen count.
+{
+  const alphaId = listed['Smoke list alpha']
+  const statesDoc = () => api(`/api/v1/documents/${alphaId}`)
+  const atomOf = (document, id) => document.document.atoms.find((atom) => atom.id === id)
+  await tool('Select and move')
+  let current = await statesDoc()
+  const nitrogen = await atomScreen(current, 'a3')
+  await page.mouse.click(nitrogen.x, nitrogen.y)
+  await page.getByRole('heading', { name: 'Atom a3' }).waitFor()
+  await page.getByText('Not computed: no hydrogen count is derived or shown.').waitFor()
+  assert.equal(await page.locator('[data-hydrogens]').count(), 0, 'inferred hydrogens show no count')
+  await page.getByRole('button', { name: 'Hydrogens specified' }).click()
+  await waitIdle()
+  // Two quick presses both count: each step is built from the document it applies to.
+  const more = page.getByRole('button', { name: 'More hydrogens' })
+  await more.click()
+  await more.click()
+  await waitIdle()
+  await page.getByTestId('hydrogen-count').filter({ hasText: '2' }).waitFor()
+  await page.getByRole('button', { name: 'Radical doublet' }).click()
+  await waitIdle()
+
+  current = await statesDoc()
+  const [b1Begin, b1End] = ['a1', 'a2'].map((id) => atomOf(current, id).position)
+  const b1Middle = await screen({ x: (b1Begin.x + b1End.x) / 2, y: (b1Begin.y + b1End.y) / 2 })
+  await page.mouse.click(b1Middle.x, b1Middle.y)
+  await page.getByRole('heading', { name: 'Bond b1' }).waitFor()
+  await page.getByRole('button', { name: 'Aromatic bond' }).click()
+  await waitIdle()
+
+  const checkStates = async (when) => {
+    const shown = await statesDoc()
+    assert.deepEqual(atomOf(shown, 'a3').hydrogens, { mode: 'specified', count: 2 }, `${when}: a3 hydrogens`)
+    assert.equal(atomOf(shown, 'a3').radical, 'doublet', `${when}: a3 radical`)
+    assert.deepEqual(atomOf(shown, 'a1').hydrogens, { mode: 'inferred' }, `${when}: a1 hydrogens stay inferred`)
+    assert.equal(shown.document.bonds.find((bond) => bond.id === 'b1').order, 'aromatic', `${when}: b1`)
+    const placementsShown = shown.document.scene.instances.length
+    const nitrogenLabel = page.locator('text[data-atom="a3"]')
+    assert.equal(await nitrogenLabel.count(), placementsShown, `${when}: a3 is labelled in every placement`)
+    assert.equal((await nitrogenLabel.first().textContent()).replace(/\s/g, ''), 'NH2', `${when}: a3 label`)
+    assert.equal(await page.locator('[data-hydrogens]').count(), placementsShown, `${when}: only a3 shows hydrogens`)
+    assert.equal(await page.locator('g[data-radical="a3"] circle').count(), placementsShown, `${when}: one radical dot per placement`)
+    assert.equal(await page.locator('g[data-bond-kind="aromatic"] line[stroke-dasharray]').count(), placementsShown, `${when}: dashed aromatic line`)
+    const label = await canvas.getAttribute('aria-label')
+    assert.ok(label.includes('a3: 2 H stated, doublet radical') && label.includes('aromatic bond b1'), `${when}: ${label}`)
+  }
+  await checkStates('edited')
+  await page.keyboard.press('Control+s')
+  await waitIdle()
+  assert.equal(await saveState(), 'Saved')
+  const stored = JSON.parse(readFileSync(join(dataDir, 'documents', `${alphaId}.json`), 'utf8'))
+  assert.equal(stored.format_version, 3)
+
+  await page.reload()
+  await page.locator(`li[data-document-id="${alphaId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await checkStates('reopened')
+  await page.screenshot({ path: join(outDir, 'editor-states.png') })
+}
+results.recorded_states_survive_save_and_reload = true
+step = 'after recorded_states_survive_save_and_reload'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

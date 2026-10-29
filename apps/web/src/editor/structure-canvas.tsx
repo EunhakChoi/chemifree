@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
+import { bondName, describeStates, hydrogenText, radicalMark } from '@/editor/atom-states'
 import { placeNewAtoms, placedView, placementAt, type NewAtom } from '@/editor/placement'
 import {
   atomIndex,
@@ -23,7 +24,11 @@ export type Tool = 'select' | 'atom' | 'bond' | 'erase'
 
 /** Below this pointer travel (pt) a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
-const NEXT_ORDER: Record<BondOrder, BondOrder> = { single: 'double', double: 'triple', triple: 'single' }
+/**
+ * A click with the bond tool cycles these orders. Other kinds (aromatic, dative, query,
+ * unknown) are changed in the inspector, so a stray click never turns one into a plain bond.
+ */
+const NEXT_ORDER: Partial<Record<BondOrder, BondOrder>> = { single: 'double', double: 'triple', triple: 'single' }
 
 /**
  * Gestures act in the scene instance (placement) where they start; `instance` is null for a
@@ -104,6 +109,7 @@ export function StructureCanvas({
     return new Map(document.atoms.map((atom) => [atom.id, showsLabel(atom, counts.get(atom.id) ?? 0)]))
   }, [document])
   const box = viewBox(drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)))
+  const states = useMemo(() => describeStates(document), [document])
 
   function drawingOf(instance: string | null) {
     return drawings.find((drawing) => drawing.id === instance) ?? drawings[0]
@@ -303,7 +309,8 @@ export function StructureCanvas({
     }
     if (tool === 'bond' && hit?.kind === 'bond') {
       const bond = document.bonds.find((candidate) => candidate.id === hit.id)
-      return bond ? [{ op: 'update_bond', bond: bond.id, order: NEXT_ORDER[bond.order] }] : []
+      const next = bond && NEXT_ORDER[bond.order]
+      return bond && next ? [{ op: 'update_bond', bond: bond.id, order: next }] : []
     }
     if (tool === 'atom') {
       if (hit?.kind === 'atom') {
@@ -329,7 +336,7 @@ export function StructureCanvas({
     <svg
       ref={svgRef}
       role="img"
-      aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
+      aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds${states.length ? `; ${states.join('; ')}` : ''}`}
       viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
       className={cn(
         'block h-full w-full touch-none select-none rounded-lg border bg-card',
@@ -364,15 +371,20 @@ export function StructureCanvas({
               })}
           </g>
           <g className="stroke-foreground" strokeWidth={1.2} strokeLinecap="round">
-            {document.bonds.map((bond) =>
-              bondSegments(
-                bond,
-                position(drawing, bond.begin),
-                position(drawing, bond.end),
-                labeled.get(bond.begin)!,
-                labeled.get(bond.end)!,
-              ).map((segment, index) => <line key={`${bond.id}-${index}`} {...segment} data-bond={bond.id} />),
-            )}
+            {document.bonds.map((bond) => (
+              <g key={bond.id} data-bond-kind={bond.order}>
+                <title>{bondName(bond)}</title>
+                {bondSegments(
+                  bond,
+                  position(drawing, bond.begin),
+                  position(drawing, bond.end),
+                  labeled.get(bond.begin)!,
+                  labeled.get(bond.end)!,
+                ).map(({ dash, ...segment }, index) => (
+                  <line key={index} {...segment} strokeDasharray={dash} data-bond={bond.id} />
+                ))}
+              </g>
+            ))}
           </g>
           <g className="fill-foreground font-sans" fontSize={12} fontWeight={500}>
             {document.atoms
@@ -380,6 +392,9 @@ export function StructureCanvas({
               .map((atom) => {
                 const p = position(drawing, atom.id)
                 const charge = chargeText(atom.charge)
+                const hydrogens = hydrogenText(atom)
+                // A stated count is a subscript after the H; `H?` stays on the line.
+                const count = /^H(\d+)$/.exec(hydrogens)?.[1]
                 return (
                   <text key={atom.id} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central" data-atom={atom.id}>
                     {atom.isotope !== null && (
@@ -388,14 +403,45 @@ export function StructureCanvas({
                       </tspan>
                     )}
                     <tspan dy={atom.isotope !== null ? 5 : 0}>{atom.element}</tspan>
+                    {hydrogens && (
+                      <tspan data-hydrogens={hydrogens}>
+                        {count === undefined ? hydrogens : 'H'}
+                        {count !== undefined && (
+                          <tspan dy={3} fontSize={8}>
+                            {count}
+                          </tspan>
+                        )}
+                      </tspan>
+                    )}
                     {charge && (
-                      <tspan dy={-5} fontSize={8}>
+                      <tspan dy={count !== undefined ? -8 : -5} fontSize={8}>
                         {charge}
                       </tspan>
                     )}
                   </text>
                 )
               })}
+          </g>
+          <g className="fill-foreground">
+            {document.atoms.map((atom) => {
+              const mark = radicalMark(atom.radical)
+              if (!mark) return null
+              const p = position(drawing, atom.id)
+              const xs = mark.dots === 1 ? [p.x] : [p.x - 2.2, p.x + 2.2]
+              return (
+                <g key={atom.id} data-radical={atom.id}>
+                  <title>{`${atom.radical} radical on ${atom.id}`}</title>
+                  {xs.map((x) => (
+                    <circle key={x} cx={x} cy={p.y - 10} r={1.3} />
+                  ))}
+                  {mark.uncertain && (
+                    <text x={p.x + 3} y={p.y - 10} fontSize={7} dominantBaseline="central" className="font-sans">
+                      ?
+                    </text>
+                  )}
+                </g>
+              )
+            })}
           </g>
         </g>
       ))}
