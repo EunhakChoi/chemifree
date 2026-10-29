@@ -1,0 +1,469 @@
+{
+  "id": "recorded-states-round-trip",
+  "title": "Radicals, query atoms and bonds, aromatic, dative and unknown bonds, and attachment points survive edits, element-query conversion, undo, redo, a save and a restart",
+  "requirements": [
+    "MODEL-02"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "radical": "doublet",
+          "attachment_points": [
+            1,
+            3
+          ]
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "aromatic"
+          }
+        },
+        {
+          "op": "add_atom",
+          "query": {
+            "kind": "halogen"
+          },
+          "position": {
+            "x": 60,
+            "y": 0
+          },
+          "radical": "triplet",
+          "bond_to": {
+            "atom": "$1",
+            "order": "query",
+            "query": {
+              "kind": "list",
+              "orders": [
+                "single",
+                "aromatic"
+              ]
+            }
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Fe",
+          "position": {
+            "x": 30,
+            "y": 40
+          },
+          "radical": "unknown",
+          "attachment_points": [
+            2
+          ],
+          "bond_to": {
+            "atom": "$0",
+            "order": "dative"
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$2",
+          "end": "$3",
+          "order": "unknown"
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "charge": 1,
+          "isotope": 17
+        }
+      ]
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "query": {
+            "kind": "list",
+            "elements": [
+              "N",
+              "O",
+              "S"
+            ],
+            "negated": true
+          },
+          "charge": 0,
+          "isotope": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "query": null,
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                3
+              ]
+            },
+            {
+              "id": "a2",
+              "element": "![N,O,S]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O",
+                  "S"
+                ],
+                "negated": true
+              },
+              "charge": 0,
+              "isotope": null,
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "X",
+              "kind": "query",
+              "query": {
+                "kind": "halogen"
+              },
+              "radical": "triplet",
+              "attachment_points": []
+            },
+            {
+              "id": "a4",
+              "element": "Fe",
+              "kind": "element",
+              "radical": "unknown",
+              "attachment_points": [
+                2
+              ]
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "aromatic",
+              "query": null
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "query",
+              "query": {
+                "kind": "list",
+                "orders": [
+                  "single",
+                  "aromatic"
+                ]
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "order": "dative",
+              "query": null
+            },
+            {
+              "id": "b4",
+              "begin": "a3",
+              "end": "a4",
+              "order": "unknown",
+              "query": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1"
+            },
+            {
+              "id": "a2",
+              "element": "O",
+              "kind": "element",
+              "query": null,
+              "charge": 1,
+              "isotope": 17
+            },
+            {
+              "id": "a3"
+            },
+            {
+              "id": "a4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "query": null,
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                3
+              ]
+            },
+            {
+              "id": "a2",
+              "element": "![N,O,S]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O",
+                  "S"
+                ],
+                "negated": true
+              },
+              "charge": 0,
+              "isotope": null,
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "X",
+              "kind": "query",
+              "query": {
+                "kind": "halogen"
+              },
+              "radical": "triplet",
+              "attachment_points": []
+            },
+            {
+              "id": "a4",
+              "element": "Fe",
+              "kind": "element",
+              "radical": "unknown",
+              "attachment_points": [
+                2
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 5,
+      "expect": {
+        "session": {
+          "saved_revision": 5
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 5,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "kind": "element",
+              "query": null,
+              "radical": "doublet",
+              "attachment_points": [
+                1,
+                3
+              ]
+            },
+            {
+              "id": "a2",
+              "element": "![N,O,S]",
+              "kind": "query",
+              "query": {
+                "kind": "list",
+                "elements": [
+                  "N",
+                  "O",
+                  "S"
+                ],
+                "negated": true
+              },
+              "charge": 0,
+              "isotope": null,
+              "radical": "none",
+              "attachment_points": []
+            },
+            {
+              "id": "a3",
+              "element": "X",
+              "kind": "query",
+              "query": {
+                "kind": "halogen"
+              },
+              "radical": "triplet",
+              "attachment_points": []
+            },
+            {
+              "id": "a4",
+              "element": "Fe",
+              "kind": "element",
+              "radical": "unknown",
+              "attachment_points": [
+                2
+              ]
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "aromatic",
+              "query": null
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "query",
+              "query": {
+                "kind": "list",
+                "orders": [
+                  "single",
+                  "aromatic"
+                ]
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "order": "dative",
+              "query": null
+            },
+            {
+              "id": "b4",
+              "begin": "a3",
+              "end": "a4",
+              "order": "unknown",
+              "query": null
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 3,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 5,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "element": "S"
+        },
+        {
+          "op": "update_bond",
+          "bond": "b2",
+          "order": "double"
+        }
+      ],
+      "expect": {
+        "document": {
+          "atoms": [
+            {
+              "id": "a1"
+            },
+            {
+              "id": "a2",
+              "element": "S",
+              "kind": "element",
+              "query": null
+            },
+            {
+              "id": "a3"
+            },
+            {
+              "id": "a4"
+            }
+          ],
+          "bonds": [
+            {
+              "id": "b1"
+            },
+            {
+              "id": "b2",
+              "order": "double",
+              "query": null
+            },
+            {
+              "id": "b3"
+            },
+            {
+              "id": "b4"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
