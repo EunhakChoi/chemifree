@@ -542,7 +542,7 @@
    "acceptance": "생성·편집·저장·재개방에서 의미를 보존하고 잘못된 조합은 구조화 진단을 낸다. 아직 계산하지 않는 상태를 정상 계산 결과로 표시하지 않는다.",
    "kind": "core",
    "id": "P10",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -550,7 +550,16 @@
    ],
    "depends_on": [
     "P09"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     31,
+     32
+    ],
+    "merge_commit": "b1ccdfb",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40820386893",
+    "note": "#31 did not pass Codex review in 3 rounds and was closed unmerged; #32 reimplemented it from main and was merged."
+   }
   },
   {
    "phase": "foundation",
@@ -569,7 +578,7 @@
    "acceptance": "실패 시 상태가 바뀌지 않고 Undo/Redo가 그래프·장면·참조·선택을 함께 복원한다. ID와 revision을 재사용하지 않는다.",
    "kind": "core",
    "id": "P11",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",

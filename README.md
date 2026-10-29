@@ -2,7 +2,7 @@
 
 An independently authored, open-source chemical drawing workspace for humans and agents.
 
-**Early stage.** The first vertical slice works end to end in the browser, over HTTP, and in the CLI: **create a document → add and edit atoms and bonds → undo/redo → save → reopen**, with saves serialized across processes, autosaved recovery drafts that survive a crash, and save as copy. Documents are drawings: Chemifree records one chemical graph per document, apart from its scene, where one or more placements (scene instances) each hold their own atom positions. Atoms record an element or a query (`*`, `A`, `Q`, `X`, or an element list), charge, isotope, stated or unknown hydrogens, a radical, and attachment points; bonds are single, double, triple, aromatic, dative, query, or unknown. These states are **recorded as drawn, not computed**: Chemifree does **not** compute valence, implicit (inferred) hydrogen counts, aromaticity or Kekulé forms, stereochemistry, layout, names, or properties, and does not match queries. Chemical calculations, import/export (MOL, SMILES, CDXML…), model loading, user authentication, and Windows integration are **not implemented**. There are no simulated chemical results, vendor engines, or proprietary datasets in this repository.
+**Early stage.** The first vertical slice works end to end in the browser, over HTTP, and in the CLI: **create a document → add and edit atoms and bonds → undo/redo → save → reopen**, with saves serialized across processes, autosaved recovery drafts that survive a crash, and save as copy. Documents are drawings: Chemifree records one chemical graph per document, apart from its scene, where one or more placements (scene instances) each hold their own atom positions, and placements, groups, and line, rectangle, and arrow graphics form one containment tree on the page; edits to it are transactions with undo/redo, and each history entry records the selection before and after (grouping, moving, and deleting objects happen in the Scene panel; graphics and groups are not selected on the canvas). Atoms record an element or a query (`*`, `A`, `Q`, `X`, or an element list), charge, isotope, stated or unknown hydrogens, a radical, and attachment points; bonds are single, double, triple, aromatic, dative, query, or unknown. These states are **recorded as drawn, not computed**: Chemifree does **not** compute valence, implicit (inferred) hydrogen counts, aromaticity or Kekulé forms, stereochemistry, layout, names, or properties, and does not match queries. Chemical calculations, import/export (MOL, SMILES, CDXML…), model loading, user authentication, and Windows integration are **not implemented**. There are no simulated chemical results, vendor engines, or proprietary datasets in this repository.
 
 Continuing in a new session? Start with [the handoff](docs/HANDOFF.ko.md) and [project instructions](AGENTS.md). They record the completed baseline, current limits, and the proposed next implementation slice.
 
@@ -155,7 +155,7 @@ The API binds IPv4 loopback and sets no CORS permissions. Writes require an allo
 
 ## UI components and lint
 
-The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Dialog, Empty, Field (with Label and Separator), Input, Kbd, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Checkbox, Dialog, Empty, Field (with Label and Separator), Input, Kbd, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Initialization used **shadcn CLI 4.22.1**:
 
@@ -169,6 +169,8 @@ npx shadcn@latest add @shadcn/button @shadcn/card @shadcn/badge @shadcn/empty @s
 npx shadcn add @shadcn/toggle-group @shadcn/input @shadcn/field @shadcn/separator @shadcn/tooltip @shadcn/kbd @shadcn/alert-dialog @shadcn/spinner
 # Save-as form (answered "no" to overwriting button.tsx)
 npx shadcn@4.22.1 add @shadcn/dialog
+# Scene panel selection (resolved to shadcn CLI 4.23.0)
+npx shadcn@latest add checkbox
 ```
 
 Use the CLI's current help when adding components; `components.json` resolves this configuration to `base-nova`. The installed CLI and dependencies are pinned by `package-lock.json`. Review generated changes before committing them.

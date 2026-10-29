@@ -42,8 +42,27 @@
           "followups": []
         },
         {
+          "id": "MODEL-01.2",
+          "summary": "One page holds a containment tree of molecule instances, groups with ordered children, and line, rectangle and arrow graphics: each object has one parent, there are no cycles, depth is at most 16 and the page holds at most 1000 objects; group children are containment, kept apart from an instance's molecule reference. The tree is checked on every edit and when a file or its history is loaded.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/scene.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:scene-move-once",
+            "case:scene-commands-refused",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-01.rest",
-          "summary": "Several chemical graphs per document, containment trees beyond page and molecule instance, groups, other scene objects, and external references.",
+          "summary": "Several chemical graphs per document, several pages, text and other scene objects or payloads (reactions, brackets, tables, …), and external references between objects.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -400,8 +419,25 @@
           "followups": []
         },
         {
+          "id": "OPS-01.2",
+          "summary": "A move of scene objects translates the union of their subtrees, each instance's positions and each graphic's points once, even when a group and what it contains are both named; a delete states its mode (the subtree, or the object alone with its children taking its place) and is refused without one; deleting the last molecule instance is refused.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/domain/src/scene.rs",
+            "apps/web/src/editor/scene.ts"
+          ],
+          "evidence": [
+            "case:scene-move-once",
+            "case:scene-commands-refused",
+            "check:check:rust",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "OPS-01.rest",
-          "summary": "Selection scope, groups and children, moves and clean-up of selections, containment.",
+          "summary": "Selection scope for clean-up and other operations, moves and clean-up of selections on the canvas (graphics and groups are not hit-tested), and the policy for external references when objects are deleted.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -504,8 +540,26 @@
           "followups": []
         },
         {
+          "id": "OPS-02.6",
+          "summary": "Adding graphics, grouping, ungrouping, deleting, moving and reordering scene objects are change sets with the graph and position changes; a transaction may carry the client's selection, checked against its result and recorded before and after in history, so undo restores the selection before the edit and redo the one after, also after reopening; a selection alone adds no revision or history entry; refused commands and selections change nothing and carry a reason code.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:selection-in-history",
+            "case:scene-commands-refused",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "OPS-02.rest",
-          "summary": "Change sets, references and history for groups, containment and other scene objects than molecule instances.",
+          "summary": "Change sets, references and history for external references and for scene objects other than molecule instances, groups and line, rectangle and arrow graphics.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

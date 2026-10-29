@@ -2,7 +2,7 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-현재 집계: 요구사항 33개(partial 7, not_implemented 26) · 부분 51개(implemented 15, partial 1, unverified 2, not_implemented 33) · conformance 사례 24개(passed 22: accept 12·reject 10, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 7, not_implemented 26) · 부분 54개(implemented 18, partial 1, unverified 2, not_implemented 33) · conformance 사례 27개(passed 25: accept 14·reject 11, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
