@@ -1474,16 +1474,20 @@ test('a group sends the new group as $N, the group command\'s index, in the sele
   assert.deepEqual(selectionAfter(new Set(['s1', 's2', 's3']), [move, { ...group }], document).objects, ['s1', '$1'])
 })
 
-test('after a group reply the group the service selected is what is selected', () => {
+test('after a group reply the new group takes the place of the grouped objects in the live selection', () => {
   const before = flat().document
   const after = grouped().document
   after.selection = { objects: ['s4'], atoms: ['a1'], bonds: [] }
-  const sent = { objects: ['$0'], atoms: ['a1'], bonds: [] }
-  // a2 was picked on the canvas while the request ran: live atoms and bonds stay.
-  assert.deepEqual([...selectionAfterReply(new Set(['s2', 's3', 'a1', 'a2']), sent, before, after)], ['s4', 'a1', 'a2'])
-  const moved = { objects: ['s2'], atoms: [], bonds: [] }
-  assert.equal(selectionAfterReply(new Set(['s2']), moved, before, after), null, 'nothing created is named')
-  assert.equal(selectionAfterReply(new Set(['s2']), undefined, before, after), null, 'no selection was sent')
+  const commands = [{ op: 'group', objects: ['s2', 's3'] }]
+  const reply = (live) => [...selectionAfterReply(new Set(live), commands, before, after)].sort()
+  assert.deepEqual(reply(['s2', 's3', 'a1']), ['a1', 's4'])
+  // While the request ran, s1 and a2 were selected and a1 deselected: they stay as they are.
+  assert.deepEqual(reply(['s2', 's3', 's1', 'a2']), ['a2', 's1', 's4'], 'changes made during the request are kept')
+  assert.deepEqual(reply(['s2', 's3', 's9', 'b9']), ['s4'], 'what the reply does not hold is dropped')
+  const move = [{ op: 'move_objects', objects: ['s2'], offset: { x: 1, y: 0 } }]
+  assert.equal(selectionAfterReply(new Set(['s2']), move, before, after), null, 'no group, the live selection stays')
+  delete after.selection
+  assert.equal(selectionAfterReply(new Set(['s2']), commands, before, after), null, 'a service without selections')
 })
 
 test('an edit carries the selection before it and after it', () => {

@@ -77,20 +77,28 @@ export function groupCommand(latest: DocumentView, pressed: readonly PressedObje
 }
 
 /**
- * The live selection after the reply to an edit whose selection after (`sent`) named an object
- * the edit creates (`$N`, as a group does): the objects the reply selects, with their
- * identifiers, take the place of the live objects, and the live atoms and bonds stay; otherwise
- * null, keeping the live selection.
+ * The live selection after the reply to `commands` when they grouped objects: the groups the
+ * reply selects that `before` did not hold take the place of the grouped objects, and the rest
+ * of the live selection, which may have changed while the request ran, stays wherever `after`
+ * still holds it. Otherwise null, keeping the live selection.
  */
 export function selectionAfterReply(
   live: ReadonlySet<string>,
-  sent: SelectionView | undefined,
+  commands: Command[],
   before: DocumentView,
   after: DocumentView,
 ): ReadonlySet<string> | null {
-  if (!after.selection || !sent?.objects.some((id) => id.startsWith('$'))) return null
-  const objects = new Set([...sceneObjects(before), ...sceneObjects(after)].map((object) => object.id))
-  return new Set([...after.selection.objects, ...[...live].filter((id) => !objects.has(id))])
+  if (!after.selection) return null
+  const grouped = new Set(commands.flatMap((command) => (command.op === 'group' ? command.objects : [])))
+  if (grouped.size === 0) return null
+  const known = new Set(sceneObjects(before).map((object) => object.id))
+  const groups = after.selection.objects.filter((id) => !known.has(id))
+  const held = new Set([
+    ...sceneObjects(after).map((object) => object.id),
+    ...after.atoms.map((atom) => atom.id),
+    ...after.bonds.map((bond) => bond.id),
+  ])
+  return new Set([...groups, ...[...live].filter((id) => !grouped.has(id) && held.has(id))])
 }
 
 /** One ungroup command per selected group, or null when no group is selected. */

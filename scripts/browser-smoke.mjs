@@ -1956,6 +1956,25 @@ step = 'after recorded_states_drawn_and_kept'
     return refused
   }
 
+  /** Presses `button`, runs `during` while its /transactions request is held, then lets it go. */
+  const pressedWhileHeld = async (button, during) => {
+    let release
+    const held = new Promise((resolveHeld) => {
+      release = resolveHeld
+    })
+    const hold = async (route) => {
+      await held
+      await route.continue()
+    }
+    await page.route('**/transactions', hold)
+    await button.click()
+    await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+    await during()
+    release()
+    await waitIdle()
+    await page.unroute('**/transactions', hold)
+  }
+
   // Group pressed twice, the first request held: one group, nothing refused, and the new group
   // is what is selected, so a later press does not nest the same objects again.
   await selectOnly(['s3', 's4'])
@@ -2053,8 +2072,16 @@ step = 'after recorded_states_drawn_and_kept'
   // An arrow grouped with a placement, the group selected, is kept through save and reopening.
   await scenePanel.getByRole('button', { name: 'Add arrow' }).click()
   await waitIdle()
+  // The rectangle s8 is selected while the group request is held: the new group takes the place
+  // of the grouped objects only, and s8 stays selected.
   await selectOnly(['s2', 's9'])
-  await press('Group')
+  await pressedWhileHeld(scenePanel.getByRole('button', { name: 'Group', exact: true }), () => setChecked('s8', true))
+  await scenePanel.locator('li[data-scene-object="s10"]').waitFor()
+  assert.deepEqual(
+    [await checked('s10'), await checked('s8'), await checked('s2'), await checked('s9')],
+    [true, true, false, false],
+    'an object selected during the group request stays selected',
+  )
   await selectOnly(['s10'])
   await page.locator('[data-group-frame="s10"]').waitFor()
   const kept = await sceneDoc()

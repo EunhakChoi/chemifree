@@ -213,14 +213,15 @@ export function useDocumentEditor() {
 
   /**
    * Sends `commands` with the live selection before them and less what they delete after them,
-   * for a service that records selections in history. A group's reply selects the new group,
-   * which the selection after names by its command's index, so history records it too.
+   * for a service that records selections in history. A group's reply selects the new group in
+   * place of the grouped objects (the selection after names it by its command's index, so
+   * history records it too), keeping whatever else is selected, also since the request was sent.
    */
   const transact = useCallback(
     async (document: DocumentView, revision: number, commands: Command[]) => {
       const sent = document.selection ? selections(selectionRef.current, commands, document) : undefined
       const reply = await client.transact(document.id, revision, commands, sent)
-      const grouped = selectionAfterReply(selectionRef.current, sent?.after, document, reply.document)
+      const grouped = selectionAfterReply(selectionRef.current, commands, document, reply.document)
       if (grouped && currentRef.current?.document.id === reply.document.id) select(grouped)
       return reply
     },
