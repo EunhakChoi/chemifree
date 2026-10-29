@@ -636,3 +636,385 @@ test('moving or deleting a placement is built from the document it applies to', 
   assert.equal(deletePlacement(deleted, 's1'), null, 'the last placement is not deleted')
 })
 
+
+const { atomLabel, queryLabel, showsLabel } = await import('../apps/web/src/editor/label.ts')
+const { bondName, bondStrokes, clipped, hitTest, leaningRight, viewBox } = await import('../apps/web/src/editor/geometry.ts')
+const edits = await import('../apps/web/src/editor/atom-edits.ts')
+
+/** An atom as a service with recorded states reports it; `states` overrides the defaults. */
+const atomWith = (id, element, x, y, states = {}) => ({
+  id,
+  element,
+  charge: 0,
+  isotope: null,
+  position: { x, y },
+  kind: 'element',
+  query: null,
+  hydrogens: { mode: 'inferred' },
+  radical: 'none',
+  attachment_points: [],
+  ...states,
+})
+const bondWith = (id, begin, end, order = 'single', query = null) => ({ id, begin, end, order, query })
+
+/** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
+function recorded() {
+  return {
+    api_version: 'v1',
+    document: {
+      id: 'doc-1',
+      title: 'States',
+      revision: 3,
+      atoms: [
+        atomWith('a1', 'C', 0, 0, { hydrogens: { mode: 'specified', count: 3 }, radical: 'doublet', attachment_points: [1, 3] }),
+        atomWith('a2', '![N,O]', 30, 0, {
+          kind: 'query',
+          query: { kind: 'list', elements: ['N', 'O'], negated: true },
+          hydrogens: { mode: 'unknown' },
+        }),
+      ],
+      bonds: [bondWith('b1', 'a1', 'a2', 'query', { kind: 'list', orders: ['single', 'aromatic'] })],
+    },
+    session: { saved_revision: 0, unsaved_changes: true, undo_depth: 3, redo_depth: 0, draft_revision: null },
+    recovery: null,
+  }
+}
+
+test('a document reply with recorded states is accepted, and older replies have the defaults filled in', async () => {
+  assert.equal(isDocumentResponse(recorded()), true)
+  const older = {
+    ...document('doc-1', 1),
+    document: {
+      id: 'doc-1',
+      title: 'Older',
+      revision: 1,
+      atoms: [{ id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 } }],
+      bonds: [],
+    },
+  }
+  service({ '/transactions': [() => json(200, older)] })
+  const reply = await new DocumentClient().transact('doc-1', 0, [])
+  assert.deepEqual(reply.document.atoms[0], atomWith('a1', 'C', 0, 0))
+})
+
+test('a bond from before recorded states gets a null query', async () => {
+  const older = {
+    ...document('doc-1', 1),
+    document: {
+      id: 'doc-1',
+      title: 'Older',
+      revision: 1,
+      atoms: [
+        { id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 } },
+        { id: 'a2', element: 'C', charge: 0, isotope: null, position: { x: 30, y: 0 } },
+      ],
+      bonds: [{ id: 'b1', begin: 'a1', end: 'a2', order: 'double' }],
+    },
+  }
+  service({ '/transactions': [() => json(200, older)] })
+  const reply = await new DocumentClient().transact('doc-1', 0, [])
+  assert.deepEqual(reply.document.bonds[0], bondWith('b1', 'a1', 'a2', 'double'))
+})
+
+for (const [name, change] of [
+  ['an atom without some of the state fields', (value) => delete value.document.atoms[0].radical],
+  ['one atom with the state fields and one without', (value) => {
+    for (const field of ['kind', 'query', 'hydrogens', 'radical', 'attachment_points']) delete value.document.atoms[1][field]
+  }],
+  ['atoms with state fields and a bond without its query', (value) => delete value.document.bonds[0].query],
+  ['atoms without state fields and a bond with its query', (value) => {
+    for (const atom of value.document.atoms) {
+      for (const field of ['kind', 'query', 'hydrogens', 'radical', 'attachment_points']) delete atom[field]
+    }
+  }],
+  ['a stated hydrogen count above 16', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified', count: 17 })],
+  ['an inferred hydrogen state with a count', (value) => (value.document.atoms[0].hydrogens = { mode: 'inferred', count: 2 })],
+  ['a stated hydrogen state without a count', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified' })],
+  ['an unknown radical', (value) => (value.document.atoms[0].radical = 'quartet')],
+  ['attachment points out of order', (value) => (value.document.atoms[0].attachment_points = [3, 1])],
+  ['an attachment point above 4', (value) => (value.document.atoms[0].attachment_points = [5])],
+  ['a charged query atom', (value) => (value.document.atoms[1].charge = 1)],
+  ['a query atom with an isotope', (value) => (value.document.atoms[1].isotope = 13)],
+  ['a query atom without its query', (value) => (value.document.atoms[1].query = null)],
+  ['an element atom with a query', (value) => (value.document.atoms[0].query = { kind: 'any' })],
+  ['an empty query list', (value) => (value.document.atoms[1].query.elements = [])],
+  ['a query list that repeats an element', (value) => (value.document.atoms[1].query.elements = ['N', 'N'])],
+  ['a query bond without its query', (value) => (value.document.bonds[0].query = null)],
+  ['a single bond with a query', (value) => (value.document.bonds[0].order = 'single')],
+  ['a query bond list naming a dative bond', (value) => (value.document.bonds[0].query.orders = ['dative'])],
+  ['a bond kind added with recorded states, without its query field', (value) => {
+    for (const atom of value.document.atoms) {
+      for (const field of ['kind', 'query', 'hydrogens', 'radical', 'attachment_points']) delete atom[field]
+    }
+    value.document.atoms[1].element = 'N'
+    value.document.atoms[1].charge = 0
+    value.document.bonds[0] = { id: 'b1', begin: 'a1', end: 'a2', order: 'aromatic' }
+  }],
+]) {
+  test(`a document reply with ${name} is refused`, () => {
+    const value = recorded()
+    change(value)
+    assert.equal(isDocumentResponse(value), false)
+  })
+}
+
+test("a refused combination's reason is read from the error envelope", async () => {
+  service({
+    '/transactions': [
+      () =>
+        json(422, { api_version: 'v1', code: 'invalid_command', message: 'a query atom carries no charge', command_index: 1, reason: 'query_atom_charge' }),
+    ],
+  })
+  await assert.rejects(new DocumentClient().transact('doc-1', 0, []), {
+    code: 'invalid_command',
+    commandIndex: 1,
+    stateReason: 'query_atom_charge',
+  })
+})
+
+test('a bonded carbon is labelled when it records a state, and inferred hydrogens add nothing', () => {
+  assert.equal(showsLabel(atomWith('a1', 'C', 0, 0), 2), false, 'a bare vertex')
+  assert.equal(atomLabel(atomWith('a1', 'C', 0, 0), 2), null)
+  for (const states of [
+    { hydrogens: { mode: 'specified', count: 0 } },
+    { hydrogens: { mode: 'unknown' } },
+    { radical: 'triplet' },
+    { attachment_points: [2] },
+  ]) {
+    assert.equal(showsLabel(atomWith('a1', 'C', 0, 0, states), 2), true, JSON.stringify(states))
+  }
+  const nitrogen = atomLabel(atomWith('a1', 'N', 0, 0), 1)
+  assert.deepEqual(nitrogen.texts.map((run) => run.text), ['N'], 'no hydrogen count is shown for inferred hydrogens')
+})
+
+test('stated and unknown hydrogens follow the symbol with their count', () => {
+  const texts = (hydrogens) => atomLabel(atomWith('a1', 'N', 0, 0, { hydrogens }), 1).texts.map((run) => run.text)
+  assert.deepEqual(texts({ mode: 'specified', count: 3 }), ['N', 'H', '3'])
+  assert.deepEqual(texts({ mode: 'specified', count: 1 }), ['N', 'H'])
+  assert.deepEqual(texts({ mode: 'specified', count: 0 }), ['N', 'H', '0'])
+  assert.deepEqual(texts({ mode: 'unknown' }), ['N', 'H', '?'])
+})
+
+test('stated hydrogens go left of the symbol when the bonds lean right, clear of the bond', () => {
+  const methyl = atomWith('a1', 'C', 0, 0, { hydrogens: { mode: 'specified', count: 3 }, isotope: 13 })
+  const label = atomLabel(methyl, 1, true)
+  assert.deepEqual(label.texts.map((run) => run.text), ['H', '3', '13', 'C'])
+  const symbol = label.texts.find((run) => run.part === 'symbol')
+  for (const run of label.texts.filter((item) => item.part !== 'symbol')) {
+    assert.ok(run.dx + run.width <= symbol.dx + 1e-9, `"${run.text}" is left of the symbol`)
+  }
+  const view = {
+    id: 'doc-1',
+    title: 'Lean',
+    revision: 1,
+    atoms: [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 26, -15), atomWith('a3', 'C', 26, 15), atomWith('a4', 'C', 26, 45)],
+    bonds: [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3'), bondWith('b3', 'a3', 'a4')],
+  }
+  assert.deepEqual([...leaningRight(view)].sort(), ['a1'], 'a2 leans left, a3 is between, a4 bonds straight up')
+  // Drawn as the canvas does, the bond from a1 leaves its label with room to spare.
+  const [from, to] = clipped({ x: 0, y: 0 }, { x: 26, y: -15 }, label.box, null)
+  assert.ok(to.x - from.x > 10, `${from.x} → ${to.x}`)
+})
+
+/** Whether `inner` lies within `outer`. */
+const within = (inner, outer) =>
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width &&
+  inner.y + inner.height <= outer.y + outer.height
+
+test("an atom's label box encloses its text, radical dots, and attachment points", () => {
+  const plain = atomLabel(atomWith('a1', 'O', 0, 0, { isotope: 18, charge: -1, hydrogens: { mode: 'specified', count: 2 } }), 1)
+  for (const radical of ['singlet', 'doublet', 'triplet', 'unknown']) {
+    const label = atomLabel(
+      atomWith('a1', 'O', 0, 0, { isotope: 18, charge: -1, hydrogens: { mode: 'specified', count: 2 }, radical, attachment_points: [1, 2, 3, 4] }),
+      1,
+    )
+    for (const dot of label.dots) {
+      assert.ok(within({ x: dot.dx - 1.4, y: dot.dy - 1.4, width: 2.8, height: 2.8 }, label.box), `${radical} dot inside`)
+    }
+    for (const run of [...label.texts, ...label.marks]) {
+      // Text is drawn at `width`, between its middle ± 0.6 of its size at most.
+      const box = { x: run.dx, y: run.dy - 0.6 * run.size, width: run.width, height: 1.2 * run.size }
+      assert.ok(within(box, label.box), `${radical}: "${run.text}" inside`)
+    }
+    assert.ok(label.box.y < plain.box.y, `${radical}: the dots raise the top`)
+    assert.ok(label.box.y + label.box.height > plain.box.y + plain.box.height, 'the attachment mark lowers the bottom')
+  }
+})
+
+test('a long query list is shortened on the canvas and named in full', () => {
+  const query = { kind: 'list', elements: ['N', 'O', 'S', 'P', 'Se'], negated: true }
+  assert.equal(queryLabel(query), '![N,O,S,…]')
+  assert.equal(queryLabel({ kind: 'list', elements: ['N', 'O', 'S'], negated: false }), '[N,O,S]')
+  const label = atomLabel(atomWith('a1', '![N,O,S,P,Se]', 0, 0, { kind: 'query', query }), 0)
+  assert.deepEqual(label.texts.map((run) => run.text), ['![N,O,S,…]'])
+  assert.match(label.name, /any atom except N, O, S, P, Se/)
+})
+
+test('a bond stops 2 pt outside both label boxes', () => {
+  const begin = atomLabel(atomWith('a1', 'N', 0, 0, { hydrogens: { mode: 'specified', count: 2 } }), 1).box
+  const end = atomLabel(atomWith('a2', 'O', 40, 0), 1).box
+  const placedEnd = { ...end, x: end.x + 40 }
+  const [from, to] = clipped({ x: 0, y: 0 }, { x: 40, y: 0 }, begin, placedEnd)
+  assert.equal(from.x, begin.x + begin.width + 2)
+  assert.equal(to.x, placedEnd.x - 2)
+})
+
+test('a bond squeezed between two labels keeps a short stroke in the middle, never reversed', () => {
+  const box = atomLabel(atomWith('a1', 'Cl', 0, 0, { hydrogens: { mode: 'specified', count: 2 } }), 1).box
+  const [from, to] = clipped({ x: 0, y: 0 }, { x: 12, y: 0 }, box, { ...box, x: box.x + 12 })
+  assert.ok(to.x > from.x, `drawn forward: ${from.x} → ${to.x}`)
+  assert.equal(Math.round((to.x - from.x) * 100) / 100, 3)
+  assert.equal(Math.round((from.x + to.x) * 50) / 100, 6, 'centred between the atoms')
+})
+
+test('every bond kind is drawn differently and named', () => {
+  const at = (x) => ({ x, y: 0 })
+  const shapes = (order, query = null) =>
+    bondStrokes(bondWith('b1', 'a1', 'a2', order, query), at(0), at(30), null, null).map((stroke) =>
+      stroke.shape === 'line' ? `line:${stroke.pattern}` : 'polyline',
+    )
+  assert.deepEqual(shapes('single'), ['line:solid'])
+  assert.deepEqual(shapes('double'), ['line:solid', 'line:solid'])
+  assert.deepEqual(shapes('aromatic'), ['line:solid', 'line:dashed'])
+  assert.deepEqual(shapes('dative'), ['line:solid', 'polyline'])
+  assert.deepEqual(shapes('query', { kind: 'any' }), ['line:dotted'])
+  assert.deepEqual(shapes('unknown'), ['polyline'])
+  const [, head] = bondStrokes(bondWith('b1', 'a1', 'a2', 'dative'), at(0), at(30), null, null)
+  assert.deepEqual(head.points[1], at(30), 'the arrow points at the end atom')
+  assert.ok(head.points[0].x < 30 && head.points[2].x < 30)
+  assert.equal(bondName(bondWith('b1', 'a1', 'a2', 'dative')), 'Bond b1: dative bond from a1 to a2')
+  assert.equal(
+    bondName(bondWith('b1', 'a1', 'a2', 'query', { kind: 'list', orders: ['single', 'aromatic'] })),
+    'Bond b1: query bond, single or aromatic, between a1 and a2',
+  )
+})
+
+test('the view box grows by each label box', () => {
+  const query = { kind: 'list', elements: ['N', 'O', 'S', 'P'], negated: true }
+  const label = atomLabel(atomWith('a1', '![N,O,S,P]', 30, 100, { kind: 'query', query, radical: 'doublet' }), 0)
+  const placedBox = { ...label.box, x: label.box.x + 30, y: label.box.y + 100 }
+  assert.ok(placedBox.x < 0, 'the label reaches past the frame')
+  const box = viewBox([{ x: 30, y: 100 }], [placedBox])
+  assert.ok(within(placedBox, box), JSON.stringify({ placedBox, box }))
+  assert.equal(viewBox([{ x: 30, y: 100 }]).x, 0, 'without labels the frame starts at 0')
+})
+
+test('a labelled atom is hit anywhere in its label box', () => {
+  const nitrogen = atomWith('a1', 'N', 100, 100, { hydrogens: { mode: 'specified', count: 3 } })
+  const view = { id: 'doc-1', title: 'Hit', revision: 1, atoms: [nitrogen], bonds: [] }
+  const labels = new Map([['a1', atomLabel(nitrogen, 0)]])
+  const onTheCount = { x: 115, y: 102 }
+  assert.deepEqual(hitTest(view, onTheCount, new Set(), undefined, labels), { kind: 'atom', id: 'a1' })
+  assert.equal(hitTest(view, onTheCount), null, 'beyond the vertex radius without the label')
+  assert.equal(hitTest(view, { x: 125, y: 100 }, new Set(), undefined, labels), null, 'outside the box')
+})
+
+/** A document with one atom (and one bond to a second) for the inspector's edits. */
+const editable = (states = {}, bond = bondWith('b1', 'a1', 'a2')) => ({
+  id: 'doc-1',
+  title: 'Edits',
+  revision: 1,
+  atoms: [atomWith('a1', 'C', 0, 0, states), atomWith('a2', 'C', 30, 0)],
+  bonds: [bond],
+})
+
+test('setting a query clears the charge and isotope the latest document holds', () => {
+  assert.deepEqual(edits.setQuery('a1', { kind: 'halogen' })(editable({ charge: 1, isotope: 13 })), [
+    { op: 'update_atom', atom: 'a1', query: { kind: 'halogen' }, charge: 0, isotope: null },
+  ])
+  assert.deepEqual(edits.setQuery('a1', { kind: 'halogen' })(editable()), [
+    { op: 'update_atom', atom: 'a1', query: { kind: 'halogen' } },
+  ])
+  const halogen = { kind: 'query', element: 'X', query: { kind: 'halogen' } }
+  assert.equal(edits.setQuery('a1', { kind: 'halogen' })(editable(halogen)), null, 'already set')
+  assert.equal(edits.setQuery('a9', { kind: 'any' })(editable()), null, 'gone')
+})
+
+test('a charge or isotope is never sent for a query atom, nor a charge past ±8', () => {
+  const query = { kind: 'query', element: '*', query: { kind: 'any' } }
+  assert.equal(edits.stepCharge('a1', 1)(editable(query)), null)
+  assert.equal(edits.setIsotope('a1', 13)(editable(query)), null)
+  assert.equal(edits.stepCharge('a1', 1)(editable({ charge: 8 })), null)
+  assert.equal(edits.stepCharge('a1', -1)(editable({ charge: -8 })), null)
+  assert.deepEqual(edits.stepCharge('a1', 1)(editable({ charge: 2 })), [{ op: 'update_atom', atom: 'a1', charge: 3 }])
+  assert.deepEqual(edits.setIsotope('a1', null)(editable({ isotope: 13 })), [{ op: 'update_atom', atom: 'a1', isotope: null }])
+})
+
+/** Applies an inspector edit's update_atom commands to a document, as the service would. */
+function applied(document, commands) {
+  if (commands === null) return document
+  const atoms = document.atoms.map((atom) => {
+    const command = commands.find((candidate) => candidate.atom === atom.id)
+    if (!command) return atom
+    const { op: _op, atom: _id, element, query, ...rest } = command
+    const kind = query ? { kind: 'query', query, element: queryLabel(query) } : element ? { kind: 'element', query: null, element } : {}
+    return { ...atom, ...rest, ...kind }
+  })
+  return { ...document, atoms }
+}
+
+for (const [name, order] of [
+  ['a charge press then a query press', [edits.stepCharge('a1', 1), edits.setQuery('a1', { kind: 'any' })]],
+  ['a query press then a charge press', [edits.setQuery('a1', { kind: 'any' }), edits.stepCharge('a1', 1)]],
+  ['an isotope then a query', [edits.setIsotope('a1', 13), edits.setQuery('a1', { kind: 'any' })]],
+]) {
+  test(`${name}, each built from the latest document, leave a query atom without charge or isotope`, () => {
+    let latest = editable()
+    for (const edit of order) latest = applied(latest, edit(latest))
+    const [atom] = latest.atoms
+    assert.deepEqual([atom.kind, atom.charge, atom.isotope], ['query', 0, null])
+  })
+}
+
+test('hydrogen edits state a count and step it within 0 to 16', () => {
+  assert.deepEqual(edits.setHydrogenMode('a1', 'specified')(editable()), [
+    { op: 'update_atom', atom: 'a1', hydrogens: { mode: 'specified', count: 1 } },
+  ])
+  assert.deepEqual(edits.setHydrogenMode('a1', 'unknown')(editable()), [
+    { op: 'update_atom', atom: 'a1', hydrogens: { mode: 'unknown' } },
+  ])
+  assert.equal(edits.setHydrogenMode('a1', 'inferred')(editable()), null, 'already inferred')
+  assert.equal(edits.stepHydrogens('a1', 1)(editable()), null, 'no count to step')
+  assert.equal(edits.stepHydrogens('a1', 1)(editable({ hydrogens: { mode: 'specified', count: 16 } })), null)
+  assert.equal(edits.stepHydrogens('a1', -1)(editable({ hydrogens: { mode: 'specified', count: 0 } })), null)
+  assert.deepEqual(edits.stepHydrogens('a1', 1)(editable({ hydrogens: { mode: 'specified', count: 15 } })), [
+    { op: 'update_atom', atom: 'a1', hydrogens: { mode: 'specified', count: 16 } },
+  ])
+})
+
+test('radical and attachment point edits keep the points ascending', () => {
+  assert.deepEqual(edits.setRadical('a1', 'doublet')(editable()), [{ op: 'update_atom', atom: 'a1', radical: 'doublet' }])
+  assert.equal(edits.setRadical('a1', 'none')(editable()), null)
+  assert.deepEqual(edits.toggleAttachmentPoint('a1', 2)(editable({ attachment_points: [1, 3] })), [
+    { op: 'update_atom', atom: 'a1', attachment_points: [1, 2, 3] },
+  ])
+  assert.deepEqual(edits.toggleAttachmentPoint('a1', 3)(editable({ attachment_points: [1, 3] })), [
+    { op: 'update_atom', atom: 'a1', attachment_points: [1] },
+  ])
+  assert.equal(edits.toggleAttachmentPoint('a1', 5)(editable()), null)
+})
+
+test('bond kind edits send a query only with order query', () => {
+  assert.deepEqual(edits.setBondKind('b1', { order: 'aromatic' })(editable()), [{ op: 'update_bond', bond: 'b1', order: 'aromatic' }])
+  assert.equal(edits.setBondKind('b1', { order: 'single' })(editable()), null, 'already single')
+  assert.deepEqual(edits.toggleQueryBondOrder('b1', 'aromatic')(editable()), [
+    { op: 'update_bond', bond: 'b1', order: 'query', query: { kind: 'list', orders: ['aromatic'] } },
+  ])
+  const listed = bondWith('b1', 'a1', 'a2', 'query', { kind: 'list', orders: ['aromatic'] })
+  assert.deepEqual(edits.toggleQueryBondOrder('b1', 'single')(editable({}, listed)), [
+    { op: 'update_bond', bond: 'b1', order: 'query', query: { kind: 'list', orders: ['single', 'aromatic'] } },
+  ])
+  assert.deepEqual(edits.toggleQueryBondOrder('b1', 'aromatic')(editable({}, listed)), [
+    { op: 'update_bond', bond: 'b1', order: 'query', query: { kind: 'any' } },
+  ])
+})
+
+test('a typed query list names 1 to 10 distinct symbols', () => {
+  assert.deepEqual(edits.parseQueryList('N, O,S'), ['N', 'O', 'S'])
+  assert.equal(edits.parseQueryList(''), null)
+  assert.equal(edits.parseQueryList('N, N'), null)
+  assert.equal(edits.parseQueryList('n'), null)
+  assert.equal(edits.parseQueryList('H He Li Be B C N O F Ne Na'), null)
+})
