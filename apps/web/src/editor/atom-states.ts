@@ -6,6 +6,7 @@
 import {
   MAX_ATTACHMENT_POINT,
   MAX_HYDROGEN_COUNT,
+  type AtomQuery,
   type AtomView,
   type BondView,
   type Command,
@@ -117,5 +118,48 @@ export function toggleAttachmentPoint(atom: string, point: number) {
     if (!current || point < 1 || point > MAX_ATTACHMENT_POINT) return null
     const next = current.includes(point) ? current.filter((value) => value !== point) : [...current, point].sort((a, b) => a - b)
     return [{ op: 'update_atom', atom, attachment_points: next }]
+  }
+}
+
+/** What the inspector can make an atom: an element atom, or a query atom of a kind without a list. */
+export type AtomKindChoice = 'element' | Exclude<AtomQuery['kind'], 'list'>
+
+/**
+ * Makes an atom an element atom (carbon) or a query atom, built from the document it applies to.
+ * A query atom has no charge or isotope, so nothing is sent when the atom has either by then
+ * (say, a charge step pressed just before), nor when the atom already is what was chosen.
+ */
+export function changeAtomKind(atom: string, choice: AtomKindChoice) {
+  return (document: DocumentView): Command[] | null => {
+    const current = atomIn(document, atom)
+    if (!current) return null
+    if (choice === 'element') {
+      return current.kind === 'query' ? [{ op: 'update_atom', atom, element: 'C' }] : null
+    }
+    if (current.charge !== 0 || current.isotope !== null) return null
+    if (current.kind === 'query' && current.query?.kind === choice) return null
+    return [{ op: 'update_atom', atom, query: { kind: choice } }]
+  }
+}
+
+/**
+ * Steps an atom's charge, built from the document it applies to, so quick repeated presses all
+ * count. Nothing is sent for a query atom (it has no charge), which the atom may have become
+ * after the press.
+ */
+export function changeCharge(atom: string, step: number) {
+  return (document: DocumentView): Command[] | null => {
+    const current = atomIn(document, atom)
+    if (!current || current.kind === 'query') return null
+    return [{ op: 'update_atom', atom, charge: current.charge + step }]
+  }
+}
+
+/** Sets an atom's isotope (`null` for natural abundance) unless it is already that or the atom is a query atom by then. */
+export function changeIsotope(atom: string, isotope: number | null) {
+  return (document: DocumentView): Command[] | null => {
+    const current = atomIn(document, atom)
+    if (!current || current.kind === 'query' || current.isotope === isotope) return null
+    return [{ op: 'update_atom', atom, isotope }]
   }
 }

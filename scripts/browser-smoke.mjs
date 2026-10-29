@@ -1629,6 +1629,62 @@ step = 'after placements_move_independently'
 results.recorded_states_survive_save_and_reload = true
 step = 'after recorded_states_survive_save_and_reload'
 
+// Quick presses that would combine into a refused state: a charge step then a query atom press,
+// and a query atom press then a charge step, each with the first request held until the second
+// press is in. The second press is built from the document the first left: it is not sent, and
+// nothing is refused (a query atom has no charge).
+{
+  const alphaId = listed['Smoke list alpha']
+  const carbonOf = async () => (await api(`/api/v1/documents/${alphaId}`)).document.atoms.find((atom) => atom.id === 'a1')
+  const pressWhileHeld = async (first, second) => {
+    let release
+    const held = new Promise((resolveHeld) => (release = resolveHeld))
+    let seen = 0
+    const holdFirst = async (route) => {
+      seen += 1
+      if (seen === 1) await held
+      await route.continue()
+    }
+    const refused = []
+    const noteRefusal = (response) => {
+      if (response.url().endsWith('/transactions') && response.status() !== 200) refused.push(response.status())
+    }
+    page.on('response', noteRefusal)
+    await page.route('**/transactions', holdFirst)
+    await first.click()
+    await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+    await second.click()
+    release()
+    await waitIdle()
+    await page.unroute('**/transactions', holdFirst)
+    page.off('response', noteRefusal)
+    return { seen, refused }
+  }
+  await tool('Select and move')
+  const carbon = await atomScreen(await api(`/api/v1/documents/${alphaId}`), 'a1')
+  await page.mouse.click(carbon.x, carbon.y)
+  await page.getByRole('heading', { name: 'Atom a1' }).waitFor()
+  const heteroatom = page.getByRole('button', { name: 'Query: any atom but carbon or hydrogen' })
+  const anyAtom = page.getByRole('button', { name: 'Query: any atom', exact: true })
+
+  const afterCharge = await pressWhileHeld(page.getByRole('button', { name: 'Increase charge' }), heteroatom)
+  assert.deepEqual(afterCharge.refused, [], 'the query press after a charge step is not refused')
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
+  assert.equal(afterCharge.seen, 1, 'the query press is not sent for a charged atom')
+  assert.deepEqual([(await carbonOf()).kind, (await carbonOf()).charge], ['element', 1])
+  assert.equal(await heteroatom.isDisabled(), true, 'query kinds wait for the charge to be cleared')
+
+  await page.getByRole('button', { name: 'Decrease charge' }).click()
+  await waitIdle()
+  const afterQuery = await pressWhileHeld(anyAtom, page.getByRole('button', { name: 'Increase charge' }))
+  assert.deepEqual(afterQuery.refused, [], 'the charge step after a query press is not refused')
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
+  assert.equal(afterQuery.seen, 1, 'the charge step is not sent for a query atom')
+  assert.deepEqual([(await carbonOf()).kind, (await carbonOf()).charge], ['query', 0])
+}
+results.quick_kind_and_charge_presses_are_not_refused = true
+step = 'after quick_kind_and_charge_presses_are_not_refused'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

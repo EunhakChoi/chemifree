@@ -302,7 +302,7 @@ try {
     const committed = cli('documents', 'apply', statesId, '--expected-revision', '0', '--json', '--commands', JSON.stringify([
       { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, hydrogens: { mode: 'specified', count: 2 }, radical: 'triplet',
         attachment_points: [1] },
-      { op: 'add_atom', query: { kind: 'list', elements: ['N', 'O'] }, position: { x: 30, y: 0 },
+      { op: 'add_atom', query: { kind: 'list', elements: ['N', 'O'] }, position: { x: 30, y: 0 }, hydrogens: { mode: 'unknown' },
         bond_to: { atom: '$0', order: 'query', query: { kind: 'list', orders: ['single', 'aromatic'] } } },
       { op: 'add_atom', element: 'B', position: { x: 60, y: 0 }, bond_to: { atom: '$1', order: 'dative' } },
     ]))
@@ -320,6 +320,17 @@ try {
     ])
     assert.deepEqual((await call(`/api/v1/documents/${statesId}`)).body.document, committed.body.document, 'HTTP reads what the CLI committed')
     assert.equal(JSON.parse(readFileSync(join(dataDir, 'documents', `${statesId}.json`), 'utf8')).format_version, 3)
+
+    // The CLI's text output names the same states; inferred hydrogens print nothing.
+    const text = spawnSync(cliPath, ['documents', 'show', statesId], { env, encoding: 'utf8' })
+    assert.equal(text.status, 0, text.stderr)
+    assert.deepEqual(text.stdout.split('\n').filter((line) => /^ {2}[ab]\d/.test(line)), [
+      '  a1  C  (0, 0)  H2 · radical triplet · attachment points 1',
+      '  a2  query [N,O]  (30, 0)  H unknown',
+      '  a3  B  (60, 0)',
+      '  b1  a1–a2  query (single or aromatic)',
+      '  b2  a2–a3  dative',
+    ])
   }
   const cliStale = cli('documents', 'undo', id, '--expected-revision', '4', '--json')
   assert.deepEqual([cliStale.status, cliStale.body.code], [1, 'revision_conflict'])

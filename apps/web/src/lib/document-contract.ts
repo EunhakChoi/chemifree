@@ -359,7 +359,8 @@ function isAttachmentPoints(value: unknown): value is number[] {
 
 /**
  * The recorded states, which come together or not at all (a service from before them). A query
- * atom has its query; an element atom has none.
+ * atom has its query; an element atom has none. Whether every atom of a reply has them is
+ * checked by {@link hasStatesOnAllOrNone}.
  */
 function hasAtomStates(atom: Record<string, unknown>): boolean {
   const { kind, query, hydrogens, radical, attachment_points: points } = atom
@@ -374,6 +375,12 @@ function hasAtomStates(atom: Record<string, unknown>): boolean {
     RADICALS.includes(radical) &&
     isAttachmentPoints(points)
   )
+}
+
+/** A service either reports the states on every atom or comes from before them and on none. */
+function hasStatesOnAllOrNone(atoms: AtomView[]): boolean {
+  const stated = atoms.filter((atom) => atom.kind !== undefined).length
+  return stated === 0 || stated === atoms.length
 }
 
 function isAtom(value: unknown): value is AtomView {
@@ -495,6 +502,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
   return (
     atomIds.size === document.atoms.length &&
     bondIds.size === document.bonds.length &&
+    hasStatesOnAllOrNone(document.atoms) &&
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
     isScene(document, document.atoms) &&
     isRecord(session) &&

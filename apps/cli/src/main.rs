@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, ErrorCode, ListQuery, ListSort, OperationResponse,
+    Application, ApplicationError, AtomKindName, AtomQueryKind, AtomView, BondView, CommandDto,
+    CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
+    ErrorCode, HydrogenMode, ListQuery, ListSort, OperationResponse, QueryListKind, RadicalDto,
     RecoveryState, RestoreResponse, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
@@ -497,6 +498,72 @@ fn print_copy(response: &CopyResponse) {
     println!("  copied from {}", response.source.id);
 }
 
+/// The name a value has on the wire, such as `any_heavy` or `aromatic`.
+fn wire_name(value: impl Serialize) -> String {
+    let value = serde_json::to_value(value).expect("wire enums are serializable");
+    value.as_str().unwrap_or_default().to_owned()
+}
+
+/// One atom as text: label, position, then the states stated for it. Inferred hydrogens print
+/// nothing, since no count is computed for them.
+fn atom_line(atom: &AtomView) -> String {
+    let label = match (&atom.kind, &atom.query) {
+        (AtomKindName::Query, Some(query)) if query.kind != AtomQueryKind::List => {
+            format!("query {} ({})", wire_name(query.kind), atom.element)
+        }
+        (AtomKindName::Query, _) => format!("query {}", atom.element),
+        (AtomKindName::Element, _) => {
+            let isotope = atom
+                .isotope
+                .map(|mass| mass.to_string())
+                .unwrap_or_default();
+            let charge = match atom.charge {
+                0 => String::new(),
+                charge if charge > 0 => format!(" {charge:+}"),
+                charge => format!(" {charge}"),
+            };
+            format!("{isotope}{}{charge}", atom.element)
+        }
+    };
+    let mut states = Vec::new();
+    match (atom.hydrogens.mode, atom.hydrogens.count) {
+        (HydrogenMode::Specified, Some(count)) => states.push(format!("H{count}")),
+        (HydrogenMode::Unknown, _) => states.push("H unknown".to_owned()),
+        (HydrogenMode::Inferred | HydrogenMode::Specified, _) => {}
+    }
+    if atom.radical != RadicalDto::None {
+        states.push(format!("radical {}", wire_name(atom.radical)));
+    }
+    if !atom.attachment_points.is_empty() {
+        let points: Vec<String> = atom.attachment_points.iter().map(u8::to_string).collect();
+        states.push(format!("attachment points {}", points.join(", ")));
+    }
+    let mut line = format!(
+        "  {}  {label}  ({}, {})",
+        atom.id, atom.position.x, atom.position.y
+    );
+    if !states.is_empty() {
+        line.push_str(&format!("  {}", states.join(" · ")));
+    }
+    line
+}
+
+/// One bond as text; a query bond shows the orders it allows.
+fn bond_line(bond: &BondView) -> String {
+    let mut order = wire_name(bond.order);
+    if let Some(query) = &bond.query {
+        let allowed = match (query.kind, &query.orders) {
+            (QueryListKind::List, Some(orders)) => {
+                let names: Vec<String> = orders.iter().map(|&order| wire_name(order)).collect();
+                names.join(" or ")
+            }
+            _ => wire_name(query.kind),
+        };
+        order.push_str(&format!(" ({allowed})"));
+    }
+    format!("  {}  {}–{}  {order}", bond.id, bond.begin, bond.end)
+}
+
 fn print_document(response: &DocumentResponse) {
     let document = &response.document;
     println!(
@@ -504,19 +571,7 @@ fn print_document(response: &DocumentResponse) {
         document.title, document.id, document.revision
     );
     for atom in &document.atoms {
-        let isotope = atom
-            .isotope
-            .map(|mass| mass.to_string())
-            .unwrap_or_default();
-        let charge = match atom.charge {
-            0 => String::new(),
-            charge if charge > 0 => format!(" {charge:+}"),
-            charge => format!(" {charge}"),
-        };
-        println!(
-            "  {}  {isotope}{}{charge}  ({}, {})",
-            atom.id, atom.element, atom.position.x, atom.position.y
-        );
+        println!("{}", atom_line(atom));
     }
     let instances = &document.scene.instances;
     if let [first, _, ..] = instances.as_slice() {
@@ -531,17 +586,133 @@ fn print_document(response: &DocumentResponse) {
         );
     }
     for bond in &document.bonds {
-        let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
-        println!(
-            "  {}  {}–{}  {}",
-            bond.id,
-            bond.begin,
-            bond.end,
-            order.as_str().unwrap_or_default()
-        );
+        println!("{}", bond_line(bond));
     }
     println!(
         "  undo {} · redo {}",
         response.session.undo_depth, response.session.redo_depth
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use chemifree_application::{
+        AtomQueryDto, BondOrderDto, BondQueryDto, HydrogensDto, PositionView, QueryOrderDto,
+    };
+
+    use super::*;
+
+    fn atom() -> AtomView {
+        AtomView {
+            id: "a1".to_owned(),
+            element: "C".to_owned(),
+            charge: 0,
+            isotope: None,
+            position: PositionView { x: 0.0, y: 12.5 },
+            kind: AtomKindName::Element,
+            query: None,
+            hydrogens: HydrogensDto {
+                mode: HydrogenMode::Inferred,
+                count: None,
+            },
+            radical: RadicalDto::None,
+            attachment_points: Vec::new(),
+        }
+    }
+
+    fn bond(order: BondOrderDto, query: Option<BondQueryDto>) -> BondView {
+        BondView {
+            id: "b1".to_owned(),
+            begin: "a1".to_owned(),
+            end: "a2".to_owned(),
+            order,
+            query,
+        }
+    }
+
+    #[test]
+    fn an_atom_with_inferred_hydrogens_and_no_states_prints_only_its_label() {
+        assert_eq!(atom_line(&atom()), "  a1  C  (0, 12.5)");
+        let charged = AtomView {
+            charge: -1,
+            isotope: Some(13),
+            ..atom()
+        };
+        assert_eq!(atom_line(&charged), "  a1  13C -1  (0, 12.5)");
+    }
+
+    #[test]
+    fn stated_hydrogens_radicals_and_attachment_points_are_printed() {
+        let stated = AtomView {
+            hydrogens: HydrogensDto {
+                mode: HydrogenMode::Specified,
+                count: Some(0),
+            },
+            radical: RadicalDto::Unknown,
+            attachment_points: vec![2, 4],
+            ..atom()
+        };
+        assert_eq!(
+            atom_line(&stated),
+            "  a1  C  (0, 12.5)  H0 · radical unknown · attachment points 2, 4"
+        );
+        let unknown = AtomView {
+            hydrogens: HydrogensDto {
+                mode: HydrogenMode::Unknown,
+                count: None,
+            },
+            ..atom()
+        };
+        assert_eq!(atom_line(&unknown), "  a1  C  (0, 12.5)  H unknown");
+    }
+
+    #[test]
+    fn a_query_atom_is_marked_with_its_expression() {
+        let heavy = AtomView {
+            element: "A".to_owned(),
+            kind: AtomKindName::Query,
+            query: Some(AtomQueryDto {
+                kind: AtomQueryKind::AnyHeavy,
+                elements: None,
+                negated: None,
+            }),
+            ..atom()
+        };
+        assert_eq!(atom_line(&heavy), "  a1  query any_heavy (A)  (0, 12.5)");
+        let list = AtomView {
+            element: "![N,O]".to_owned(),
+            kind: AtomKindName::Query,
+            query: Some(AtomQueryDto {
+                kind: AtomQueryKind::List,
+                elements: Some(vec!["N".to_owned(), "O".to_owned()]),
+                negated: Some(true),
+            }),
+            ..atom()
+        };
+        assert_eq!(atom_line(&list), "  a1  query ![N,O]  (0, 12.5)");
+    }
+
+    #[test]
+    fn a_query_bond_prints_the_orders_it_allows() {
+        assert_eq!(
+            bond_line(&bond(BondOrderDto::Aromatic, None)),
+            "  b1  a1–a2  aromatic"
+        );
+        let list = BondQueryDto {
+            kind: QueryListKind::List,
+            orders: Some(vec![QueryOrderDto::Double, QueryOrderDto::Aromatic]),
+        };
+        assert_eq!(
+            bond_line(&bond(BondOrderDto::Query, Some(list))),
+            "  b1  a1–a2  query (double or aromatic)"
+        );
+        let any = BondQueryDto {
+            kind: QueryListKind::Any,
+            orders: None,
+        };
+        assert_eq!(
+            bond_line(&bond(BondOrderDto::Query, Some(any))),
+            "  b1  a1–a2  query (any)"
+        );
+    }
 }

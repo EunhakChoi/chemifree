@@ -13,7 +13,16 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
   '../apps/web/src/editor/placement.ts'
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
-const { changeHydrogenCount, describeStates, hydrogenText, radicalMark, toggleAttachmentPoint } = await import(
+const {
+  changeAtomKind,
+  changeCharge,
+  changeHydrogenCount,
+  changeIsotope,
+  describeStates,
+  hydrogenText,
+  radicalMark,
+  toggleAttachmentPoint,
+} = await import(
   '../apps/web/src/editor/atom-states.ts'
 )
 const { bondSegments, showsLabel } = await import('../apps/web/src/editor/geometry.ts')
@@ -701,6 +710,13 @@ for (const [name, change] of [
   ['a query element list naming one twice', (value) => (value.document.atoms[1].query.elements = ['N', 'N'])],
   ['a query element list without negated', (value) => delete value.document.atoms[1].query.negated],
   ['a generic query with elements', (value) => (value.document.atoms[1].query = { kind: 'any', elements: ['N'] })],
+  [
+    'atoms of which some carry the states and others none',
+    (value) => {
+      for (const field of ['kind', 'query', 'hydrogens', 'radical', 'attachment_points']) delete value.document.atoms[1][field]
+      value.document.atoms[1].element = 'O'
+    },
+  ],
 ]) {
   test(`a document reply with ${name} is refused`, () => {
     const value = withStates()
@@ -759,6 +775,47 @@ test('bond kinds are drawn apart: a dashed second line, an arrowhead at the end,
   assert.ok(bondSegments(bond('query'), from, to, false, false)[0].dash, 'a query bond is dotted')
   assert.ok(bondSegments(bond('unknown'), from, to, false, false).length > 2, 'an unknown bond is a zigzag')
   assert.deepEqual(bondSegments(bond('single'), from, to, false, false), [{ x1: 0, y1: 0, x2: 30, y2: 0 }])
+})
+
+test('a document reply whose atoms all come from before the states is accepted', () => {
+  const value = withStates()
+  for (const atom of value.document.atoms) {
+    for (const field of ['kind', 'query', 'hydrogens', 'radical', 'attachment_points']) delete atom[field]
+  }
+  value.document.atoms[1].element = 'O'
+  value.document.bonds[0] = { id: 'b1', begin: 'a1', end: 'a2', order: 'single' }
+  assert.equal(isDocumentResponse(value), true)
+})
+
+test('atom kind, charge, and isotope presses are built from the document they apply to', () => {
+  const value = withStates()
+  const [carbon] = value.document.atoms
+  // A query press queued behind a charge step sees the charge, and is not sent.
+  assert.deepEqual(changeAtomKind('a1', 'any')(value.document), [{ op: 'update_atom', atom: 'a1', query: { kind: 'any' } }])
+  carbon.charge = 1
+  assert.equal(changeAtomKind('a1', 'any')(value.document), null, 'a charged atom does not become a query atom')
+  carbon.charge = 0
+  carbon.isotope = 13
+  assert.equal(changeAtomKind('a1', 'halogen')(value.document), null, 'nor does an isotopic one')
+  carbon.isotope = null
+  assert.equal(changeAtomKind('a1', 'element')(value.document), null, 'an element atom stays as it is')
+  assert.deepEqual(changeAtomKind('a2', 'element')(value.document), [{ op: 'update_atom', atom: 'a2', element: 'C' }])
+  assert.deepEqual(changeAtomKind('a2', 'halogen')(value.document), [{ op: 'update_atom', atom: 'a2', query: { kind: 'halogen' } }])
+  assert.equal(changeAtomKind('a9', 'any')(value.document), null, 'a deleted atom is not changed')
+
+  // A charge step or isotope entry queued behind a query press sees the query atom, and is not sent.
+  assert.deepEqual(changeCharge('a1', 1)(value.document), [{ op: 'update_atom', atom: 'a1', charge: 1 }])
+  carbon.charge = 1
+  assert.deepEqual(changeCharge('a1', 1)(value.document), [{ op: 'update_atom', atom: 'a1', charge: 2 }], 'a second quick press counts')
+  assert.equal(changeCharge('a2', 1)(value.document), null, 'a query atom gets no charge')
+  assert.deepEqual(changeIsotope('a1', 13)(value.document), [{ op: 'update_atom', atom: 'a1', isotope: 13 }])
+  assert.equal(changeIsotope('a1', null)(value.document), null, 'an unchanged isotope is not sent')
+  assert.equal(changeIsotope('a2', 13)(value.document), null, 'a query atom gets no isotope')
+  carbon.kind = 'query'
+  carbon.query = { kind: 'any' }
+  carbon.charge = 0
+  assert.equal(changeCharge('a1', 1)(value.document), null, 'not after the atom became a query atom')
+  assert.equal(changeIsotope('a9', 13)(value.document), null, 'a deleted atom is not changed')
 })
 
 test('hydrogen steps and attachment point presses are built from the document they apply to', () => {

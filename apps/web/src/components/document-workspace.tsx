@@ -68,7 +68,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { changeHydrogenCount, toggleAttachmentPoint } from '@/editor/atom-states'
+import {
+  changeAtomKind,
+  changeCharge,
+  changeHydrogenCount,
+  changeIsotope,
+  toggleAttachmentPoint,
+  type AtomKindChoice,
+} from '@/editor/atom-states'
 import { stillApplicable } from '@/editor/commands'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { StructureCanvas, type Tool } from '@/editor/structure-canvas'
@@ -77,7 +84,6 @@ import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEdito
 import {
   MAX_ATTACHMENT_POINT,
   MAX_HYDROGEN_COUNT,
-  type AtomQuery,
   type AtomView,
   type BondOrder,
   type BondView,
@@ -114,7 +120,6 @@ const BOND_KINDS: { value: BondOrder; label: string; glyph: string }[] = [
   { value: 'query', label: 'Query bond, any order', glyph: 'Any' },
   { value: 'unknown', label: 'Unknown bond', glyph: '?' },
 ]
-type AtomKindChoice = 'element' | Exclude<AtomQuery['kind'], 'list'>
 const ATOM_KINDS: { value: AtomKindChoice; label: string; glyph: string }[] = [
   { value: 'element', label: 'Element atom', glyph: 'El' },
   { value: 'any', label: 'Query: any atom', glyph: '*' },
@@ -887,14 +892,6 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
   )
 }
 
-/** Charge steps are applied to the latest document, so quick repeated clicks all count. */
-function changeCharge(atom: string, step: number) {
-  return (document: DocumentView): Command[] | null => {
-    const current = document.atoms.find((item) => item.id === atom)
-    return current ? [{ op: 'update_atom', atom, charge: current.charge + step }] : null
-  }
-}
-
 /** Shows the atom's element again after an empty entry or a rejected symbol. */
 function ElementField({ atom, editor }: { atom: AtomView; editor: DocumentEditor }) {
   const [attempt, setAttempt] = useState(0)
@@ -943,9 +940,8 @@ function IsotopeField({ atom, editor }: { atom: AtomView; editor: DocumentEditor
         onBlur={(event) => {
           const isotope = parseIsotope(event.currentTarget.value.trim())
           setInvalid(isotope === undefined)
-          if (isotope !== undefined && isotope !== atom.isotope) {
-            void editor.apply([{ op: 'update_atom', atom: atom.id, isotope }])
-          }
+          // Built from the latest document: the atom may have become a query atom meanwhile.
+          if (isotope !== undefined && isotope !== atom.isotope) void editor.apply(changeIsotope(atom.id, isotope))
         }}
       />
       {invalid ? (
@@ -1035,11 +1031,8 @@ function AtomKindField({ atom, editor }: { atom: AtomView; editor: DocumentEdito
         onValueChange={(values) => {
           const choice = values[0] as AtomKindChoice | undefined
           if (!choice || current.includes(choice)) return
-          void editor.apply([
-            choice === 'element'
-              ? { op: 'update_atom', atom: atom.id, element: 'C' }
-              : { op: 'update_atom', atom: atom.id, query: { kind: choice } },
-          ])
+          // Built from the latest document, which may hold a charge or isotope set just before.
+          void editor.apply(changeAtomKind(atom.id, choice))
         }}
       >
         {ATOM_KINDS.map((kind) => (
