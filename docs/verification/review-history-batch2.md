@@ -104,3 +104,11 @@ main(85d4788) 위의 브랜치 `feat/graph-scene-split`. 구현은 새 컨텍스
 | 3 (요청) | 00:46:53 | 438f766 | 00:48:58 | 통과: 이 head의 코드 리뷰 완료, 지적 없음(review state `completed`, `has_any_findings: false`, 영수 댓글 "Didn't find any major issues") | [receipt](https://github.com/EunhakChoi/chemifree/pull/30#issuecomment-6484742580) |
 
 CI(438f766): check·browser 성공(run 40794594222). 병합 1a518cd, 병합 후 main CI 성공([run 40796524510](https://github.com/EunhakChoi/chemifree/actions/runs/40796524510), check·browser).
+
+## #31 P10 — 수소·라디칼·질의·결합 종류 상태 기록
+
+main(1a518cd) 위의 브랜치 `feat/atom-bond-states`. 구현은 새 컨텍스트의 에이전트가 명세(spec/ 아래만)와 설계 지시로 작성했다. PR 전에 독립 사전 검토(P1·P2 없음, P3 3건: 원자 상태 필드가 일부 원자에만 있는 응답을 웹이 받아들임, 원자 종류·전하·동위원소 빠른 연속 입력이 거절될 조합을 보냄, CLI 텍스트 출력에 상태가 빠짐)를 반영했다(f0e4320).
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-29 02:03:15 | f0e4320 | 02:06:18 | 지적 1건(P2): 부착점을 저장하지만 캔버스에 그리지 않아, 결합된 탄소에 부착점을 붙여도 맨 꼭짓점 그대로 보임 → 수용: 웹 단위 테스트와 브라우저 smoke 단계(결합된 탄소 a2에 부착점 1)를 먼저 작성해 실패를 확인한 뒤, 부착점이 있는 탄소에 라벨을 붙이고 `*1,3` 형태의 표시를 모든 배치에 그림. 같은 수정에서 smoke 정리 단계가 API 종료(초안 쓰기)를 기다리지 않고 임시 디렉터리를 지워 한 번 ENOTEMPTY로 실패한 경쟁을 고침(API 종료를 기다린 뒤 삭제) | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692017219) |

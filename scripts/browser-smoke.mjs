@@ -61,7 +61,15 @@ const buildLog = []
 /** Stops whatever has started. The temporary directory is removed unless `keepWork` is set. */
 async function cleanup({ keepWork = false } = {}) {
   await browser?.close().catch(() => {})
-  apiServer?.child.kill('SIGTERM')
+  // The API writes its recovery drafts when it stops, so the directory is removed only after
+  // it has exited.
+  const apiProcess = apiServer?.child
+  const apiStopped =
+    apiProcess && apiProcess.exitCode === null && apiProcess.signalCode === null
+      ? new Promise((resolveExit) => apiProcess.once('exit', resolveExit))
+      : Promise.resolve()
+  apiProcess?.kill('SIGTERM')
+  await apiStopped
   if (web) {
     try {
       process.kill(-web.child.pid, 'SIGTERM')
@@ -1565,8 +1573,8 @@ results.placements_move_independently = true
 step = 'after placements_move_independently'
 
 // Recorded states: in the open drawing (alpha: C a1 – C a2, N a3), a stated hydrogen count and
-// a radical on a3 and an aromatic b1 are set in the inspector, saved, and still there after the
-// page reloads. Carbon a1, whose hydrogens stay inferred, shows no hydrogen count.
+// a radical on a3, an aromatic b1 and attachment point 1 on carbon a2 are set in the inspector,
+// saved, and still there after the page reloads. Carbon a1, whose hydrogens stay inferred, shows no hydrogen count.
 {
   const alphaId = listed['Smoke list alpha']
   const statesDoc = () => api(`/api/v1/documents/${alphaId}`)
@@ -1596,6 +1604,12 @@ step = 'after placements_move_independently'
   await page.getByRole('heading', { name: 'Bond b1' }).waitFor()
   await page.getByRole('button', { name: 'Aromatic bond' }).click()
   await waitIdle()
+  // Attachment point 1 on carbon a2, a bonded vertex that would otherwise be drawn bare.
+  const a2Screen = await atomScreen(await statesDoc(), 'a2')
+  await page.mouse.click(a2Screen.x, a2Screen.y)
+  await page.getByRole('heading', { name: 'Atom a2' }).waitFor()
+  await page.getByRole('button', { name: 'Attachment point 1' }).click()
+  await waitIdle()
 
   const checkStates = async (when) => {
     const shown = await statesDoc()
@@ -1610,6 +1624,9 @@ step = 'after placements_move_independently'
     assert.equal(await page.locator('[data-hydrogens]').count(), placementsShown, `${when}: only a3 shows hydrogens`)
     assert.equal(await page.locator('g[data-radical="a3"] circle').count(), placementsShown, `${when}: one radical dot per placement`)
     assert.equal(await page.locator('g[data-bond-kind="aromatic"] line[stroke-dasharray]').count(), placementsShown, `${when}: dashed aromatic line`)
+    assert.deepEqual(atomOf(shown, 'a2').attachment_points, [1], `${when}: a2 attachment points`)
+    assert.equal(await page.locator('text[data-atom="a2"]').count(), placementsShown, `${when}: a2 is labelled, not a bare vertex`)
+    assert.equal(await page.locator('[data-attachments="a2"]').count(), placementsShown, `${when}: a2 shows its attachment point`)
     const label = await canvas.getAttribute('aria-label')
     assert.ok(label.includes('a3: 2 H stated, doublet radical') && label.includes('aromatic bond b1'), `${when}: ${label}`)
   }

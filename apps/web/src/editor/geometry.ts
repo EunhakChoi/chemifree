@@ -129,8 +129,8 @@ export function sameHit(a: Hit, b: Hit) {
 
 /**
  * Carbon is drawn as a bare vertex unless it is isolated, charged, isotope-labeled, or carries
- * a recorded mark: stated or unknown hydrogens, or a radical. A query atom always shows its
- * label.
+ * a recorded mark: stated or unknown hydrogens, a radical, or attachment points. A query atom
+ * always shows its label.
  */
 export function showsLabel(atom: AtomView, atomDegree: number) {
   return (
@@ -140,7 +140,8 @@ export function showsLabel(atom: AtomView, atomDegree: number) {
     atom.isotope !== null ||
     atomDegree === 0 ||
     (atom.hydrogens !== undefined && atom.hydrogens.mode !== 'inferred') ||
-    (atom.radical !== undefined && atom.radical !== 'none')
+    (atom.radical !== undefined && atom.radical !== 'none') ||
+    (atom.attachment_points?.length ?? 0) > 0
   )
 }
 

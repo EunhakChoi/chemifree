@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
 import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
-import { bondName, describeStates, hydrogenText, radicalMark } from '@/editor/atom-states'
+import { attachmentText, bondName, describeStates, hydrogenText, radicalMark } from '@/editor/atom-states'
 import { placeNewAtoms, placedView, placementAt, type NewAtom } from '@/editor/placement'
 import {
   atomIndex,
@@ -440,6 +440,19 @@ export function StructureCanvas({
                     </text>
                   )}
                 </g>
+              )
+            })}
+          </g>
+          <g className="fill-muted-foreground font-sans" fontSize={8}>
+            {document.atoms.map((atom) => {
+              const mark = attachmentText(atom.attachment_points)
+              if (!mark) return null
+              const p = position(drawing, atom.id)
+              return (
+                <text key={atom.id} x={p.x + 7} y={p.y + 9} dominantBaseline="central" data-attachments={atom.id}>
+                  <title>{`attachment points ${atom.attachment_points?.join(', ')} on ${atom.id}`}</title>
+                  {mark}
+                </text>
               )
             })}
           </g>

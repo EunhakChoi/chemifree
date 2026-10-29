@@ -18,6 +18,7 @@ const {
   changeCharge,
   changeHydrogenCount,
   changeIsotope,
+  attachmentText,
   describeStates,
   hydrogenText,
   radicalMark,
@@ -735,13 +736,17 @@ test('an atom shows a stated or unknown hydrogen count, and none when hydrogens 
   assert.equal(hydrogenText(atom({ mode: 'specified', count: 0 })), 'H0', 'a stated zero reads apart from inferred')
 })
 
-test('a carbon vertex is labelled when it carries a stated hydrogen count or a radical, not for inferred hydrogens', () => {
+test('a carbon vertex is labelled when it carries a stated hydrogen count, a radical or an attachment point, not for inferred hydrogens', () => {
   const carbon = (states) => ({ id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 }, kind: 'element', hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], ...states })
   assert.equal(showsLabel(carbon({}), 2), false)
   assert.equal(showsLabel(carbon({ hydrogens: { mode: 'specified', count: 2 } }), 2), true)
   assert.equal(showsLabel(carbon({ hydrogens: { mode: 'unknown' } }), 2), true)
   assert.equal(showsLabel(carbon({ radical: 'doublet' }), 2), true)
   assert.equal(showsLabel(carbon({ kind: 'query', element: 'A', query: { kind: 'any_heavy' } }), 2), true)
+  assert.equal(showsLabel(carbon({ attachment_points: [1] }), 2), true, 'an attachment point keeps a carbon from being bare')
+  assert.equal(attachmentText([]), '')
+  assert.equal(attachmentText(undefined), '', 'a reply from before the states')
+  assert.equal(attachmentText([1, 3]), '*1,3')
   assert.deepEqual(radicalMark('none'), null)
   assert.deepEqual(radicalMark('doublet'), { dots: 1, uncertain: false })
   assert.deepEqual(radicalMark('triplet'), { dots: 2, uncertain: false })

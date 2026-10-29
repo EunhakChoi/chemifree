@@ -56,6 +56,11 @@ export function radicalMark(radical: Radical | undefined): { dots: number; uncer
   }
 }
 
+/** The mark drawn for an atom's attachment points, e.g. `*1,3`; empty when it has none. */
+export function attachmentText(points: number[] | undefined): string {
+  return points?.length ? `*${points.join(',')}` : ''
+}
+
 /** A bond's accessible name, e.g. `dative bond b2 from a1 to a3`. */
 export function bondName(bond: BondView): string {
   const kind = bond.order === 'query' && bond.query?.kind === 'list' ? `query (${bond.query.orders.join(' or ')})` : bond.order
