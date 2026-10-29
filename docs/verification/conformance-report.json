@@ -349,7 +349,7 @@
     },
     {
       "id": "selection-in-history",
-      "title": "A transaction's selections are checked and recorded with the edit: undo restores the client's selection from before the edit (which the client chose without an edit, so nothing recorded it), redo the one after, also after a restart, and a selection-only request records nothing",
+      "title": "A transaction's selections are checked and recorded with the edit: undo restores the client's selection from before the edit (which the client chose without an edit, so nothing recorded it), redo the one after (naming the group the edit creates as $0, recorded as its identifier), also after a restart, and a selection-only request records nothing",
       "requirements": [
         "OPS-01",
         "OPS-02"
@@ -359,11 +359,11 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "c50482fc7bb05bdb7f8189d2930ce4f398c7b447395c4ad5a0358c0127c39e17"
+      "case_sha256": "cd28e0ae6ce5e198215d0cb5f4ac635055b6cf8885bb3b09c79af33b9c8cfe69"
     },
     {
       "id": "scene-commands-refused",
-      "title": "Refused scene commands and a selection naming what the edit removes carry their reason code and change nothing (that the selection refusal has no command index is checked in crates/application/tests/scene.rs and the contract smoke, not here)",
+      "title": "Refused scene commands, a selection naming what the edit removes, and a selection naming as $N a command that creates no scene object carry their reason code and change nothing (that the selection refusals have no command index is checked in crates/application/tests/scene.rs and the contract smoke, not here)",
       "requirements": [
         "MODEL-01",
         "OPS-01",
@@ -374,7 +374,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f643d5c20418d991a0e87309d067f6f777ce176b4aa4dd174ab8e0474262cd67"
+      "case_sha256": "d39ab350e61e6c16b3862d31dadad41970f82fbecd9e45361055ef9aa2b1950a"
     }
   ],
   "counts": {

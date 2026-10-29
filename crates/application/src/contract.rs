@@ -1,12 +1,13 @@
 //! v1 document request and response shapes shared by HTTP and the CLI.
 //! The browser mirror lives in `apps/web/src/lib/document-contract.ts`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE,
-    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, SelectionUpdate, Vector,
+    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, ObjectRef, PAGE_ID, Point, SelectionAfter,
+    SelectionUpdate, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{DeleteMode, Graphic, Parent, SceneObject, Selection, Shape};
@@ -778,49 +779,59 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
     })
 }
 
-/// A transaction's selection. A malformed identifier makes the body malformed.
-/// The selections as sets of identifiers; `field` names the request field in errors.
+/// A transaction's selections as sets of identifiers. A malformed identifier makes the body
+/// malformed, and the error names the request field.
 pub(crate) fn to_selection_update(
     selections: &TransactionSelections,
 ) -> Result<SelectionUpdate, ApplicationError> {
+    fn malformed(field: &'static str) -> impl Fn(String) -> ApplicationError {
+        move |message| {
+            ApplicationError::new(ErrorCode::InvalidRequest, format!("{field}: {message}"))
+        }
+    }
     Ok(SelectionUpdate {
         before: selections
             .before
             .as_ref()
-            .map(|selection| to_selection(selection, "selection_before"))
+            .map(|selection| selection_before(selection).map_err(malformed("selection_before")))
             .transpose()?,
         after: selections
             .after
             .as_ref()
-            .map(|selection| to_selection(selection, "selection"))
+            .map(|selection| selection_after(selection).map_err(malformed("selection")))
             .transpose()?,
     })
 }
 
-fn to_selection(selection: &SelectionDto, field: &str) -> Result<Selection, ApplicationError> {
-    let malformed = |message: String| {
-        ApplicationError::new(ErrorCode::InvalidRequest, format!("{field}: {message}"))
-    };
+/// Nothing is created before the edit, so the selection before it names objects by identifier.
+fn selection_before(selection: &SelectionDto) -> Result<Selection, String> {
     Ok(Selection {
-        objects: selection
-            .objects
-            .iter()
-            .map(|id| object_id(id))
-            .collect::<Result<_, _>>()
-            .map_err(malformed)?,
-        atoms: selection
-            .atoms
-            .iter()
-            .map(|id| atom_id(id))
-            .collect::<Result<_, _>>()
-            .map_err(malformed)?,
-        bonds: selection
-            .bonds
-            .iter()
-            .map(|id| bond_id(id))
-            .collect::<Result<_, _>>()
-            .map_err(malformed)?,
+        objects: ids(&selection.objects, |id| match command_reference(id) {
+            Some(_) => Err(format!(
+                "{id:?} names an object the edit creates, which does not exist before it"
+            )),
+            None => object_id(id),
+        })?,
+        atoms: ids(&selection.atoms, atom_id)?,
+        bonds: ids(&selection.bonds, bond_id)?,
     })
+}
+
+/// The selection after the edit may name an object by the index of the command that creates
+/// it (`$N`).
+fn selection_after(selection: &SelectionDto) -> Result<SelectionAfter, String> {
+    Ok(SelectionAfter {
+        objects: ids(&selection.objects, object_ref)?,
+        atoms: ids(&selection.atoms, atom_id)?,
+        bonds: ids(&selection.bonds, bond_id)?,
+    })
+}
+
+fn ids<T: Ord>(
+    values: &[String],
+    parse: impl Fn(&str) -> Result<T, String>,
+) -> Result<BTreeSet<T>, String> {
+    values.iter().map(|value| parse(value)).collect()
 }
 
 fn selection_view(selection: &Selection) -> SelectionDto {
@@ -929,14 +940,30 @@ fn atom_id(value: &str) -> Result<AtomId, String> {
     AtomId::parse(value).ok_or_else(|| format!("{value:?} is not an atom identifier"))
 }
 
+/// The command index `$N` names, or `None` when `value` does not start with `$`.
+fn command_reference(value: &str) -> Option<Result<usize, String>> {
+    let index = value.strip_prefix('$')?;
+    let malformed = || format!("{value:?} is not a command reference");
+    Some(
+        if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) {
+            index.parse().map_err(|_| malformed())
+        } else {
+            Err(malformed())
+        },
+    )
+}
+
 fn atom_ref(value: &str) -> Result<AtomRef, String> {
-    match value.strip_prefix('$') {
-        Some(index) if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) => index
-            .parse()
-            .map(AtomRef::Created)
-            .map_err(|_| format!("{value:?} is not a command reference")),
-        Some(_) => Err(format!("{value:?} is not a command reference")),
+    match command_reference(value) {
+        Some(index) => index.map(AtomRef::Created),
         None => atom_id(value).map(AtomRef::Id),
+    }
+}
+
+fn object_ref(value: &str) -> Result<ObjectRef, String> {
+    match command_reference(value) {
+        Some(index) => index.map(ObjectRef::Created),
+        None => object_id(value).map(ObjectRef::Id),
     }
 }
 

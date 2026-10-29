@@ -1964,10 +1964,31 @@ step = 'after recorded_states_drawn_and_kept'
   assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
   const grouped = await sceneDoc()
   assert.deepEqual(tree(grouped), [['s1', 'p1'], ['s2', 'p1'], ['s5', 'p1'], ['s3', 's5'], ['s4', 's5']], 'exactly one new group')
-  assert.deepEqual(grouped.selection.objects.sort(), ['s3', 's4'], 'the selection is sent with the edit')
+  assert.deepEqual(grouped.selection.objects, ['s5'], 'the selection sent with the edit names the new group')
   assert.deepEqual([await checked('s5'), await checked('s3'), await checked('s4')], [true, false, false], 'the new group is selected')
   assert.equal(await scenePanel.getByRole('button', { name: 'Group', exact: true }).isDisabled(), true)
   assert.equal(await scenePanel.getByRole('checkbox', { name: 'Select s3, placement, in group s5' }).count(), 1, 'names say the group')
+
+  // Undo brings back the objects selected before the group; redo the group itself, as history
+  // recorded it, so Ungroup applies to it again.
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await waitIdle()
+  await scenePanel.locator('li[data-scene-object="s5"]').waitFor({ state: 'detached' })
+  assert.deepEqual([await checked('s3'), await checked('s4')], [true, true], 'undo selects the objects again')
+  await page.getByRole('button', { name: 'Redo' }).click()
+  await waitIdle()
+  await scenePanel.locator('li[data-scene-object="s5"]').waitFor()
+  const regrouped = await sceneDoc()
+  assert.deepEqual([tree(regrouped), regrouped.selection.objects], [tree(grouped), ['s5']], 'redo restores the group')
+  assert.deepEqual([await checked('s5'), await checked('s3'), await checked('s4')], [true, false, false], 'redo selects the group')
+  assert.deepEqual(
+    [
+      await scenePanel.getByRole('button', { name: 'Group', exact: true }).isDisabled(),
+      await scenePanel.getByRole('button', { name: 'Ungroup', exact: true }).isDisabled(),
+    ],
+    [true, false],
+    'the group can be ungrouped after redo',
+  )
 
   // The group and its child placement are both selected; the first of two moves is held until
   // the second press is in. Both count, and each leaf moves once per press.
@@ -1976,10 +1997,10 @@ step = 'after recorded_states_drawn_and_kept'
   assert.deepEqual(await pressedTwiceWhileHeld(moveRight), [], 'no move is refused')
   assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
   const moved = await sceneDoc()
-  assert.equal(moved.revision, grouped.revision + 2, 'both presses count')
-  samePoints(positionsOf(moved, 's3'), nudged(positionsOf(grouped, 's3'), 20), 's3 moved once per press')
-  samePoints(objectOf(moved, 's4').points, nudged(objectOf(grouped, 's4').points, 20), 's4 moved once per press')
-  assert.deepEqual(positionsOf(moved, 's1'), positionsOf(grouped, 's1'), 's1 stays')
+  assert.equal(moved.revision, regrouped.revision + 2, 'both presses count')
+  samePoints(positionsOf(moved, 's3'), nudged(positionsOf(regrouped, 's3'), 20), 's3 moved once per press')
+  samePoints(objectOf(moved, 's4').points, nudged(objectOf(regrouped, 's4').points, 20), 's4 moved once per press')
+  assert.deepEqual(positionsOf(moved, 's1'), positionsOf(regrouped, 's1'), 's1 stays')
   assert.deepEqual(moved.selection.objects.sort(), ['s3', 's5'])
   await page.locator('[data-group-frame="s5"]').waitFor()
   assert.deepEqual(await outsideView(), [], 'after the moves')
@@ -1990,7 +2011,7 @@ step = 'after recorded_states_drawn_and_kept'
   await page.getByRole('button', { name: 'Undo' }).click()
   await waitIdle()
   const undone = await sceneDoc()
-  samePoints(positionsOf(undone, 's3'), nudged(positionsOf(grouped, 's3'), 10), 'undo takes back one move')
+  samePoints(positionsOf(undone, 's3'), nudged(positionsOf(regrouped, 's3'), 10), 'undo takes back one move')
   assert.deepEqual([await checked('s3'), await checked('s5'), await checked('s4')], [true, true, false], 'and restores the selection')
 
   await selectOnly(['s5'])

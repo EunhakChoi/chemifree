@@ -91,7 +91,8 @@ enum DocumentCommand {
         #[arg(long)]
         commands_file: Option<PathBuf>,
         /// The selection after the edit, recorded with it in history, e.g.
-        /// '{"objects":["s2"],"atoms":[],"bonds":[]}'.
+        /// '{"objects":["s2"],"atoms":[],"bonds":[]}'. "$N" in `objects` names the object
+        /// created by command N of this edit.
         #[arg(long)]
         selection: Option<String>,
         /// The selection before the edit, which undo restores; it may name only what the

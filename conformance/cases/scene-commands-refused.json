@@ -1,6 +1,6 @@
 {
   "id": "scene-commands-refused",
-  "title": "Refused scene commands and a selection naming what the edit removes carry their reason code and change nothing (that the selection refusal has no command index is checked in crates/application/tests/scene.rs and the contract smoke, not here)",
+  "title": "Refused scene commands, a selection naming what the edit removes, and a selection naming as $N a command that creates no scene object carry their reason code and change nothing (that the selection refusals have no command index is checked in crates/application/tests/scene.rs and the contract smoke, not here)",
   "requirements": [
     "MODEL-01",
     "OPS-01",
@@ -245,6 +245,28 @@
       "selection": {
         "objects": [
           "s3"
+        ],
+        "atoms": [],
+        "bonds": []
+      },
+      "expect_error": {
+        "code": "invalid_command",
+        "reason": "selection_unknown"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        }
+      ],
+      "selection": {
+        "objects": [
+          "$0"
         ],
         "atoms": [],
         "bonds": []

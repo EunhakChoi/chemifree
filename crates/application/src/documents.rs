@@ -40,8 +40,9 @@ enum Mutation {
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
-        /// Compared as sets: order and repeats do not matter, an omitted selection differs
-        /// from an empty one.
+        /// Compared as sent and as sets: order and repeats do not matter, an omitted
+        /// selection differs from an empty one, and a `$N` reference differs from the
+        /// identifier it resolved to, as the commands are compared as sent.
         selections: SelectionUpdate,
     },
     Undo {

@@ -77,21 +77,20 @@ export function groupCommand(latest: DocumentView, pressed: readonly PressedObje
 }
 
 /**
- * The live selection after the reply to `commands`: when they grouped objects, the groups the
- * reply holds that `before` did not take the place of the selected objects (atoms and bonds
- * stay selected); otherwise null, keeping the live selection.
+ * The live selection after the reply to an edit whose selection after (`sent`) named an object
+ * the edit creates (`$N`, as a group does): the objects the reply selects, with their
+ * identifiers, take the place of the live objects, and the live atoms and bonds stay; otherwise
+ * null, keeping the live selection.
  */
 export function selectionAfterReply(
-  selected: ReadonlySet<string>,
-  commands: Command[],
+  live: ReadonlySet<string>,
+  sent: SelectionView | undefined,
   before: DocumentView,
   after: DocumentView,
 ): ReadonlySet<string> | null {
-  if (!commands.some((command) => command.op === 'group')) return null
-  const known = new Set(sceneObjects(before).map((object) => object.id))
-  const groups = sceneObjects(after).flatMap((object) => (object.kind === 'group' && !known.has(object.id) ? [object.id] : []))
-  const objects = new Set(sceneObjects(after).map((object) => object.id))
-  return new Set([...groups, ...[...selected].filter((id) => !objects.has(id) && !known.has(id))])
+  if (!after.selection || !sent?.objects.some((id) => id.startsWith('$'))) return null
+  const objects = new Set([...sceneObjects(before), ...sceneObjects(after)].map((object) => object.id))
+  return new Set([...after.selection.objects, ...[...live].filter((id) => !objects.has(id))])
 }
 
 /** One ungroup command per selected group, or null when no group is selected. */
@@ -222,12 +221,15 @@ export function selectionSet(selection: SelectionView | undefined): Set<string> 
 /**
  * The selection sent with `commands`: what is selected and still in `document`, less what the
  * commands delete (atoms with their bonds, bonds, instances, objects with their contents when
- * deleted as a subtree, ungrouped groups), so it names only what the edited document holds.
+ * deleted as a subtree, ungrouped groups), so it names only what the edited document holds. A
+ * group takes the place of the objects it contains, named `$N` by its command's index, since
+ * its identifier is not known until the reply.
  */
 export function selectionAfter(selected: ReadonlySet<string>, commands: Command[], document: DocumentView): SelectionView {
   const objects = new Map(sceneObjects(document).map((object) => [object.id, object]))
   const removed = new Set<string>()
-  for (const command of commands) {
+  const created: string[] = []
+  for (const [index, command] of commands.entries()) {
     switch (command.op) {
       case 'delete_atoms': {
         const atoms = new Set(command.atoms)
@@ -246,6 +248,10 @@ export function selectionAfter(selected: ReadonlySet<string>, commands: Command[
       case 'ungroup':
         removed.add(command.group)
         break
+      case 'group':
+        command.objects.forEach((id) => removed.add(id))
+        created.push(`$${index}`)
+        break
       case 'delete_objects':
         for (const id of command.objects) {
           if (command.mode === 'subtree') subtree(objects, id, removed)
@@ -260,7 +266,7 @@ export function selectionAfter(selected: ReadonlySet<string>, commands: Command[
   const bonds = new Set(document.bonds.map((bond) => bond.id))
   const kept = [...selected].filter((id) => !removed.has(id))
   return {
-    objects: kept.filter((id) => objects.has(id)),
+    objects: [...kept.filter((id) => objects.has(id)), ...created],
     atoms: kept.filter((id) => atoms.has(id)),
     bonds: kept.filter((id) => bonds.has(id)),
   }

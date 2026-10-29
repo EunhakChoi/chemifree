@@ -280,6 +280,16 @@ pub enum AtomRef {
     Created(usize),
 }
 
+/// A scene object named in a transaction's selection after the edit: an existing object, or
+/// the one created by an `AddInstance`, `AddGraphic`, or `Group` command of the same
+/// transaction, so a client can select what its edit makes before the identifier is known.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ObjectRef {
+    Id(ObjectId),
+    /// The object created by the command at this index in the transaction.
+    Created(usize),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BondTo {
     pub atom: AtomRef,
@@ -545,15 +555,35 @@ impl fmt::Display for TransactionError {
 
 impl std::error::Error for TransactionError {}
 
+/// The client's selection after an edit as it sends it: its objects may name ones the same
+/// transaction creates. The change set records it with every reference resolved.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectionAfter {
+    pub objects: BTreeSet<ObjectRef>,
+    pub atoms: BTreeSet<AtomId>,
+    pub bonds: BTreeSet<BondId>,
+}
+
+impl From<Selection> for SelectionAfter {
+    fn from(selection: Selection) -> Self {
+        Self {
+            objects: selection.objects.into_iter().map(ObjectRef::Id).collect(),
+            atoms: selection.atoms,
+            bonds: selection.bonds,
+        }
+    }
+}
+
 /// The selections a transaction records with its change set. `None` keeps the default: the
 /// selection before is what the previous edit, undo, or redo left, and the selection after is
-/// the previous selection wherever it still exists.
+/// the previous selection wherever it still exists. Only the selection after may name objects
+/// the transaction creates: nothing is created before the edit.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SelectionUpdate {
     /// The client's selection before the edit; undo restores it.
     pub before: Option<Selection>,
     /// The client's selection after the edit; redo restores it.
-    pub after: Option<Selection>,
+    pub after: Option<SelectionAfter>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -977,14 +1007,22 @@ fn validate_isotope(isotope: Option<u16>) -> Result<(), EditError> {
     }
 }
 
+/// What one command of a transaction created, which later commands and the selection after
+/// the transaction may name by the command's index.
+#[derive(Clone, Copy)]
+enum Created {
+    Atom(AtomId),
+    Object(ObjectId),
+}
+
 /// Mutable working state for one transaction; discarded unless every command succeeds.
 struct Draft {
     content: Content,
     next_atom: u32,
     next_bond: u32,
     next_object: u32,
-    /// The atom each earlier command added, by command index.
-    created: Vec<Option<AtomId>>,
+    /// The atom or scene object each earlier command created, by command index.
+    created: Vec<Option<Created>>,
 }
 
 impl Draft {
@@ -1098,13 +1136,31 @@ impl Draft {
     fn resolve(&self, atom: AtomRef) -> Result<AtomId, EditError> {
         match atom {
             AtomRef::Id(id) => Ok(id),
-            AtomRef::Created(index) => self
-                .created
-                .get(index)
-                .copied()
-                .flatten()
-                .ok_or(EditError::UnresolvedReference(index)),
+            AtomRef::Created(index) => match self.created.get(index) {
+                Some(Some(Created::Atom(id))) => Ok(*id),
+                _ => Err(EditError::UnresolvedReference(index)),
+            },
         }
+    }
+
+    /// `selection` with each object a command created named by its identifier.
+    fn resolve_selection(&self, selection: SelectionAfter) -> Result<Selection, EditError> {
+        let objects = selection
+            .objects
+            .into_iter()
+            .map(|object| match object {
+                ObjectRef::Id(id) => Ok(id),
+                ObjectRef::Created(index) => match self.created.get(index) {
+                    Some(Some(Created::Object(id))) => Ok(*id),
+                    _ => Err(SceneError::UnresolvedSelection(index).into()),
+                },
+            })
+            .collect::<Result<_, EditError>>()?;
+        Ok(Selection {
+            objects,
+            atoms: selection.atoms,
+            bonds: selection.bonds,
+        })
     }
 
     /// Each listed object, refusing one that does not exist; repeats count once.
@@ -1124,7 +1180,7 @@ impl Draft {
         }
     }
 
-    /// Applies one command and records which atom, if any, it added.
+    /// Applies one command and records which atom or scene object, if any, it created.
     fn apply(&mut self, command: &Command) -> Result<(), EditError> {
         let mut created = None;
         match command {
@@ -1145,7 +1201,7 @@ impl Draft {
                 }
                 let points = self.new_atom_positions(positions)?;
                 let id = self.allocate_atom()?;
-                created = Some(id);
+                created = Some(Created::Atom(id));
                 self.content.atoms.insert(id, atom.clone());
                 for (instance, point) in points {
                     self.content
@@ -1252,6 +1308,7 @@ impl Draft {
                     return Err(EditError::InstanceLimit);
                 }
                 let id = self.allocate_object()?;
+                created = Some(Created::Object(id));
                 self.content.tree.objects.insert(id, SceneObject::Molecule);
                 self.content.tree.roots.push(id);
                 for (atom, point) in copied {
@@ -1294,6 +1351,7 @@ impl Draft {
                     }
                 };
                 let id = self.allocate_object()?;
+                created = Some(Created::Object(id));
                 let tree = &mut self.content.tree;
                 tree.objects.insert(id, SceneObject::Graphic(*graphic));
                 tree.children_mut(parent).push(id);
@@ -1332,6 +1390,7 @@ impl Draft {
                     .copied()
                     .collect();
                 let id = self.allocate_object()?;
+                created = Some(Created::Object(id));
                 let tree = &mut self.content.tree;
                 let siblings = tree.children_mut(parent);
                 siblings.retain(|sibling| !members.contains(sibling));
@@ -1854,7 +1913,7 @@ impl Document {
             commands,
             SelectionUpdate {
                 before: None,
-                after: selection,
+                after: selection.map(SelectionAfter::from),
             },
         )
     }
@@ -1863,10 +1922,12 @@ impl Document {
     /// client's selection before the edit, which must name only what the document holds
     /// before it (without one, the selection the previous edit, undo, or redo left), and its
     /// selection after the edit, which must name only what the edited document holds (without
-    /// one, the previous selection is kept wherever it still exists). Undo restores the first
-    /// and redo the second. A transaction whose commands change nothing is not an edit: it
-    /// leaves the revision, identifier counters, selection, and history untouched, so
-    /// changing only the selection records nothing.
+    /// one, the previous selection is kept wherever it still exists). The selection after may
+    /// name an object by the index of the command that creates it ([`ObjectRef::Created`]);
+    /// the change set records its identifier. Undo restores the first and redo the second. A
+    /// transaction whose commands change nothing is not an edit: it leaves the revision,
+    /// identifier counters, selection, and history untouched, so changing only the selection
+    /// records nothing.
     pub fn apply_with_selections(
         &mut self,
         commands: &[Command],
@@ -1912,6 +1973,7 @@ impl Document {
         }
         let selection = match selection {
             Some(selection) => {
+                let selection = draft.resolve_selection(selection).map_err(whole)?;
                 draft.content.check_selection(&selection).map_err(whole)?;
                 selection
             }

@@ -1462,12 +1462,28 @@ test('a group press needs two objects and is not sent again once they are groupe
   assert.deepEqual(groupCommand(nested, pressedObjects(nested, new Set(['s4', 's1']))), { op: 'group', objects: ['s1', 's4'] })
 })
 
-test('after a group reply the new group is what is selected', () => {
+test('a group sends the new group as $N, the group command\'s index, in the selection after it', () => {
+  const { document } = flat()
+  const live = new Set(['s2', 's3', 'a1'])
+  const group = { op: 'group', objects: ['s2', 's3'] }
+  assert.deepEqual(selections(live, [group], document), {
+    before: { objects: ['s2', 's3'], atoms: ['a1'], bonds: [] },
+    after: { objects: ['$0'], atoms: ['a1'], bonds: [] },
+  }, 'the group takes the place of the objects it contains')
+  const move = { op: 'move_objects', objects: ['s2'], offset: { x: 1, y: 0 } }
+  assert.deepEqual(selectionAfter(new Set(['s1', 's2', 's3']), [move, { ...group }], document).objects, ['s1', '$1'])
+})
+
+test('after a group reply the group the service selected is what is selected', () => {
   const before = flat().document
   const after = grouped().document
-  const commands = [{ op: 'group', objects: ['s2', 's3'] }]
-  assert.deepEqual([...selectionAfterReply(new Set(['s2', 's3', 'a1']), commands, before, after)], ['s4', 'a1'])
-  assert.equal(selectionAfterReply(new Set(['s2']), [{ op: 'move_objects', objects: ['s2'], offset: { x: 1, y: 0 } }], before, after), null)
+  after.selection = { objects: ['s4'], atoms: ['a1'], bonds: [] }
+  const sent = { objects: ['$0'], atoms: ['a1'], bonds: [] }
+  // a2 was picked on the canvas while the request ran: live atoms and bonds stay.
+  assert.deepEqual([...selectionAfterReply(new Set(['s2', 's3', 'a1', 'a2']), sent, before, after)], ['s4', 'a1', 'a2'])
+  const moved = { objects: ['s2'], atoms: [], bonds: [] }
+  assert.equal(selectionAfterReply(new Set(['s2']), moved, before, after), null, 'nothing created is named')
+  assert.equal(selectionAfterReply(new Set(['s2']), undefined, before, after), null, 'no selection was sent')
 })
 
 test('an edit carries the selection before it and after it', () => {
@@ -1592,7 +1608,7 @@ test('the transaction body carries the selection only when one is given', async 
     return json(200, grouped())
   }
   const client = new DocumentClient()
-  const selection = { objects: ['s4'], atoms: [], bonds: [] }
+  const selection = { objects: ['$0'], atoms: [], bonds: [] }
   const before = { objects: ['s2', 's3'], atoms: [], bonds: [] }
   await client.transact('doc-1', 2, [{ op: 'group', objects: ['s2', 's3'] }], { before, after: selection })
   await client.transact('doc-1', 3, [])

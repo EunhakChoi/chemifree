@@ -4,8 +4,8 @@
 use std::collections::BTreeSet;
 
 use chemifree_domain::document::{
-    Atom, AtomId, Command, Document, DocumentId, EditError, NewAtomPositions, ObjectId, Outcome,
-    Point, SelectionUpdate, TransactionError, Vector,
+    Atom, AtomId, Command, Document, DocumentId, EditError, NewAtomPositions, ObjectId, ObjectRef,
+    Outcome, Point, SelectionAfter, SelectionUpdate, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -69,6 +69,16 @@ fn selection(objects: &[u32], atoms: &[u32]) -> Selection {
         atoms: atoms.iter().map(|serial| atom(*serial)).collect(),
         bonds: BTreeSet::new(),
     }
+}
+
+/// A selection after an edit naming the objects created by the commands at `created`, besides
+/// `objects` and `atoms`.
+fn selection_after(created: &[usize], objects: &[u32], atoms: &[u32]) -> SelectionAfter {
+    let mut after = SelectionAfter::from(selection(objects, atoms));
+    after
+        .objects
+        .extend(created.iter().map(|index| ObjectRef::Created(*index)));
+    after
 }
 
 /// One carbon at (0, 0) drawn twice: `s1` and `s2` (moved by 100, 0), then a rectangle `s3`
@@ -526,6 +536,101 @@ fn a_selection_naming_what_the_edit_leaves_out_is_refused() {
 }
 
 #[test]
+fn the_selection_after_names_what_its_transaction_creates_by_command_index() {
+    let mut document = drawing();
+    document
+        .apply_with_selections(
+            &[
+                move_objects(&[3], 1.0, 0.0),
+                add_graphic(rectangle(0.0, 90.0), None),
+                Command::AddInstance {
+                    source: None,
+                    offset: offset(0.0, 200.0),
+                },
+                group(&[2, 3]),
+            ],
+            SelectionUpdate {
+                before: Some(selection(&[3], &[])),
+                after: Some(selection_after(&[1, 2, 3], &[1], &[1])),
+            },
+        )
+        .unwrap();
+    // The rectangle is s4, the instance s5, and the group s6.
+    assert_eq!(document.roots(), [s(1), s(6), s(4), s(5)]);
+    let created = selection(&[1, 4, 5, 6], &[1]);
+    assert_eq!(*document.selection(), created, "recorded with identifiers");
+
+    document.undo().unwrap();
+    assert_eq!(*document.selection(), selection(&[3], &[]));
+    document.redo().unwrap();
+    assert_eq!(*document.selection(), created);
+    let restored = Document::restore(document.to_parts()).unwrap();
+    assert_eq!(*restored.selection(), created);
+}
+
+#[test]
+fn redo_selects_the_group_its_transaction_created() {
+    let mut document = drawing();
+    document
+        .apply_with_selections(
+            &[group(&[2, 3])],
+            SelectionUpdate {
+                before: Some(selection(&[2, 3], &[1])),
+                after: Some(selection_after(&[0], &[], &[1])),
+            },
+        )
+        .unwrap();
+    assert_eq!(*document.selection(), selection(&[4], &[1]));
+    document.undo().unwrap();
+    assert_eq!(*document.selection(), selection(&[2, 3], &[1]));
+    document.redo().unwrap();
+    assert_eq!(*document.selection(), selection(&[4], &[1]), "the group");
+}
+
+#[test]
+fn a_selection_naming_a_command_that_creates_no_object_is_refused() {
+    let mut document = drawing();
+    let commands = [
+        Command::AddAtom {
+            atom: Atom::from(Element::CARBON),
+            positions: NewAtomPositions::PerInstance(
+                [(s(1), point(0.0, 30.0)), (s(2), point(100.0, 30.0))].into(),
+            ),
+            bond_to: None,
+        },
+        move_objects(&[3], 1.0, 0.0),
+        add_graphic(rectangle(0.0, 90.0), None),
+    ];
+    // An atom, a move, and an index past the last command.
+    for index in [0, 1, 3] {
+        let before = document.clone();
+        let error = document
+            .apply_with_selections(
+                &commands,
+                SelectionUpdate {
+                    before: None,
+                    after: Some(selection_after(&[2, index], &[], &[])),
+                },
+            )
+            .expect_err("refused");
+        assert_eq!(document, before, "a refused transaction changes nothing");
+        assert_eq!(
+            error,
+            TransactionError {
+                index: None,
+                error: EditError::Scene(SceneError::UnresolvedSelection(index)),
+            }
+        );
+        assert_eq!(error.error.reason(), Some("selection_unknown"));
+        assert!(
+            error.error.to_string().contains(&format!("${index}")),
+            "{}",
+            error.error
+        );
+    }
+}
+
+#[test]
 fn the_selection_before_an_edit_is_what_undo_restores() {
     // The rectangle is added with nothing selected, then selected (not an edit) and moved.
     let mut document = drawing();
@@ -535,7 +640,7 @@ fn the_selection_before_an_edit_is_what_undo_restores() {
             &[move_objects(&[3], 5.0, 0.0)],
             SelectionUpdate {
                 before: Some(selection(&[3], &[])),
-                after: Some(selection(&[3], &[])),
+                after: Some(selection(&[3], &[]).into()),
             },
         )
         .unwrap();
@@ -566,7 +671,7 @@ fn a_selection_before_naming_what_the_document_does_not_hold_yet_is_refused() {
             &[group(&[2, 3])],
             SelectionUpdate {
                 before: Some(selection(&[4], &[])),
-                after: Some(selection(&[4], &[])),
+                after: Some(selection(&[4], &[]).into()),
             },
         )
         .expect_err("refused");
@@ -589,7 +694,7 @@ fn a_selection_before_alone_records_nothing() {
             &[move_objects(&[3], 0.0, 0.0)],
             SelectionUpdate {
                 before: Some(selection(&[3], &[1])),
-                after: Some(selection(&[2], &[])),
+                after: Some(selection(&[2], &[]).into()),
             },
         )
         .unwrap();

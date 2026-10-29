@@ -1186,6 +1186,56 @@ try {
       [1, 'invalid_command', false, 'selection_unknown', refusedHttp.body.message],
       'the same refusal from the CLI',
     )
+
+    // The selection after an edit names an object the edit creates as `$N`, the index of the
+    // command creating it, over HTTP and from the CLI. History records the identifier, so redo
+    // selects the new group; a reference to no created object is refused alike by both.
+    const group = { objects: ['s3'], atoms: [], bonds: [] }
+    const grouped = await write(`${beforePath}/transactions`, {
+      request_id: 'before-group',
+      expected_revision: 5,
+      commands: [{ op: 'group', objects: ['s1', 's2'] }],
+      selection: { objects: ['$0'], atoms: [], bonds: [] },
+      selection_before: { objects: ['s1', 's2'], atoms: [], bonds: [] },
+    })
+    assert.equal(grouped.status, 200, JSON.stringify(grouped.body))
+    assert.deepEqual(grouped.body.document.selection, group)
+    await write(`${beforePath}/undo`, { request_id: 'before-group-undo', expected_revision: 6 })
+    const regrouped = await write(`${beforePath}/redo`, { request_id: 'before-group-redo', expected_revision: 7 })
+    assert.deepEqual(regrouped.body.document.selection, group, 'redo over HTTP selects the group')
+    assert.equal((await write(`${beforePath}/save`, { request_id: 'before-group-save', expected_revision: 8 })).status, 200)
+    const line = [{ op: 'add_graphic', shape: 'line', points: [{ x: 0, y: 60 }, { x: 40, y: 60 }] }]
+    const created = { objects: ['$0'], atoms: [], bonds: [] }
+    const lineCli = cli(
+      'documents', 'apply', beforeDoc, '--expected-revision', '8', '--json',
+      '--commands', JSON.stringify(line), '--selection', JSON.stringify(created),
+    )
+    assert.equal(lineCli.status, 0, JSON.stringify(lineCli.body))
+    assert.deepEqual(lineCli.body.document.selection, { objects: ['s4'], atoms: [], bonds: [] })
+    assert.equal((await call(beforePath)).body.document.revision, 9)
+    for (const [name, selections, code, reason] of [
+      ['$1 after a single command', { selection: { objects: ['$1'], atoms: [], bonds: [] } }, 'invalid_command', 'selection_unknown'],
+      ['$0 before the edit', { selection_before: created }, 'invalid_request', undefined],
+    ]) {
+      const http = await write(`${beforePath}/transactions`, {
+        request_id: `before-${code}`,
+        expected_revision: 9,
+        commands: line,
+        ...selections,
+      })
+      assert.deepEqual(
+        [http.status, http.body.code, 'command_index' in http.body, http.body.reason],
+        [422, code, false, reason],
+        `${name} over HTTP`,
+      )
+      const flags = Object.entries(selections).flatMap(([field, value]) => [`--${field.replace('_', '-')}`, JSON.stringify(value)])
+      const viaCli = cli('documents', 'apply', beforeDoc, '--expected-revision', '9', '--json', '--commands', JSON.stringify(line), ...flags)
+      assert.deepEqual(
+        [viaCli.status, viaCli.body.code, 'command_index' in viaCli.body, viaCli.body.reason, viaCli.body.message],
+        [1, code, false, reason, http.body.message],
+        `${name} from the CLI`,
+      )
+    }
   }
 
   // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
@@ -1324,7 +1374,7 @@ try {
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
       'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
       'version 1, 2, and 3 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused), ' +
-      'refused combinations of recorded states, and scene objects with the selections before and after an edit (the same tree, undo, refusals, and reasons over HTTP and the CLI) verified.',
+      'refused combinations of recorded states, and scene objects with the selections before and after an edit (the same tree, undo, refusals, and reasons over HTTP and the CLI; `$N` naming an object the edit creates) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

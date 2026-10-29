@@ -344,6 +344,109 @@ fn the_operation_diagnostic_carries_the_scene_reason_and_selection_runs_through_
         done["result"]["document"]["selection"],
         json!({"objects": ["s4"], "atoms": [], "bonds": []})
     );
+    let grouped = send(json!({
+        "contract": 1, "request_id": "op-3", "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {
+            "document_id": id, "expected_revision": 3,
+            "commands": [{"op": "group", "objects": ["s2", "s3"]}],
+            "selection": {"objects": ["$0"], "atoms": [], "bonds": []}
+        }
+    }));
+    assert_eq!(grouped["outcome"], "ok", "{grouped}");
+    assert_eq!(
+        grouped["result"]["document"]["selection"],
+        json!({"objects": ["s5"], "atoms": [], "bonds": []}),
+        "$0 names the group"
+    );
+}
+
+#[test]
+fn a_selection_names_what_its_transaction_creates_and_redo_restores_it() {
+    let (app, _data) = application();
+    let id = drawing(&app);
+    let body = || commands(json!([{"op": "group", "objects": ["s2", "s3"]}]));
+    let chosen = |objects: Value| TransactionSelections {
+        before: Some(selection(
+            json!({"objects": ["s2", "s3"], "atoms": ["a1"], "bonds": []}),
+        )),
+        after: Some(selection(
+            json!({"objects": objects, "atoms": ["a1"], "bonds": []}),
+        )),
+    };
+    let grouped = app
+        .apply_transaction_with_selection(&id, Some("group-1"), 2, body(), chosen(json!(["$0"])))
+        .unwrap();
+    let group = json!({"objects": ["s4"], "atoms": ["a1"], "bonds": []});
+    assert_eq!(json_of(&grouped)["document"]["selection"], group);
+
+    // A replay is compared as sent: `$0` again, not the identifier it named.
+    let again = app
+        .apply_transaction_with_selection(&id, Some("group-1"), 2, body(), chosen(json!(["$0"])))
+        .unwrap();
+    assert_eq!(again, grouped);
+    let reused = app
+        .apply_transaction_with_selection(&id, Some("group-1"), 2, body(), chosen(json!(["s4"])))
+        .unwrap_err();
+    assert_eq!(reused.code, ErrorCode::RequestIdReused);
+
+    app.undo(&id, None, 3).unwrap();
+    let redone = app.redo(&id, None, 4).unwrap();
+    assert_eq!(
+        json_of(&redone)["document"]["selection"],
+        group,
+        "the group"
+    );
+}
+
+#[test]
+fn a_selection_reference_that_names_no_created_object_is_refused() {
+    let (app, _data) = application();
+    let id = drawing(&app);
+    let group = json!([{"op": "group", "objects": ["s2", "s3"]}]);
+    for (reference, code, reason) in [
+        ("$1", ErrorCode::InvalidCommand, Some("selection_unknown")),
+        ("$", ErrorCode::InvalidRequest, None),
+        ("$x", ErrorCode::InvalidRequest, None),
+    ] {
+        let error = refused(
+            &app,
+            &id,
+            2,
+            group.clone(),
+            Some(json!({"objects": [reference], "atoms": [], "bonds": []})),
+        );
+        assert_eq!(
+            (error.code, error.command_index, error.reason_code()),
+            (code, None, reason),
+            "{reference}: {}",
+            error.message
+        );
+    }
+
+    // Nothing is created before the edit, so the selection before cannot name `$0`.
+    let before = json_of(&app.document(&id).unwrap());
+    let error = app
+        .apply_transaction_with_selection(
+            &id,
+            None,
+            2,
+            commands(group),
+            TransactionSelections {
+                before: Some(selection(
+                    json!({"objects": ["$0"], "atoms": [], "bonds": []}),
+                )),
+                after: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert!(
+        error.message.starts_with("selection_before:") && error.message.contains("$0"),
+        "{}",
+        error.message
+    );
+    assert_eq!(json_of(&app.document(&id).unwrap()), before);
 }
 
 #[test]

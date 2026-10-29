@@ -1249,10 +1249,11 @@ export class DocumentClient {
     }
   }
 
-  /** `selection`, the selection after the edit, is left out for a service that takes none. */
   /**
    * Applies `commands`. With `selections`, for a service that records selections in history,
-   * sends the selection before the edit (undo restores it) and after it (redo restores it).
+   * sends the selection before the edit (undo restores it) and after it (redo restores it); the
+   * one after may name an object the edit creates as `$N`, the index of the command creating it.
+   * Both are left out for a service that takes none.
    */
   async transact(
     id: string,

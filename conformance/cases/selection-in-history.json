@@ -1,6 +1,6 @@
 {
   "id": "selection-in-history",
-  "title": "A transaction's selections are checked and recorded with the edit: undo restores the client's selection from before the edit (which the client chose without an edit, so nothing recorded it), redo the one after, also after a restart, and a selection-only request records nothing",
+  "title": "A transaction's selections are checked and recorded with the edit: undo restores the client's selection from before the edit (which the client chose without an edit, so nothing recorded it), redo the one after (naming the group the edit creates as $0, recorded as its identifier), also after a restart, and a selection-only request records nothing",
   "requirements": [
     "OPS-01",
     "OPS-02"
@@ -103,7 +103,7 @@
       },
       "selection": {
         "objects": [
-          "s4"
+          "$0"
         ],
         "atoms": [],
         "bonds": []
@@ -252,6 +252,23 @@
             "objects": [
               "s2",
               "s3"
+            ],
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 5,
+      "expect": {
+        "document": {
+          "revision": 6,
+          "selection": {
+            "objects": [
+              "s4"
             ],
             "atoms": [],
             "bonds": []

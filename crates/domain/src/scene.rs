@@ -165,6 +165,9 @@ pub enum SceneError {
     /// The selection before the edit names an object, atom, or bond the document did not
     /// have before it.
     UnknownSelectionBefore(String),
+    /// The selection names `$index`, but the command at that index of the transaction (if
+    /// any) creates no scene object.
+    UnresolvedSelection(usize),
 }
 
 impl SceneError {
@@ -188,7 +191,9 @@ impl SceneError {
             Self::DepthLimit => "scene_depth_limit",
             Self::ObjectLimit => "scene_object_limit",
             Self::IndexOutOfRange { .. } => "index_out_of_range",
-            Self::UnknownSelection(_) | Self::UnknownSelectionBefore(_) => "selection_unknown",
+            Self::UnknownSelection(_)
+            | Self::UnknownSelectionBefore(_)
+            | Self::UnresolvedSelection(_) => "selection_unknown",
         }
     }
 }
@@ -225,6 +230,11 @@ impl fmt::Display for SceneError {
             Self::UnknownSelectionBefore(id) => write!(
                 formatter,
                 "the selection before the edit names {id}, which did not exist before it"
+            ),
+            Self::UnresolvedSelection(index) => write!(
+                formatter,
+                "the selection names ${index}, which does not name an add_instance, \
+                 add_graphic, or group command in this transaction"
             ),
         }
     }
