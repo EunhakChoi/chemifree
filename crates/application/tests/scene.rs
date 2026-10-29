@@ -4,6 +4,7 @@
 
 use chemifree_application::{
     Application, ApplicationError, CommandDto, DocumentResponse, ErrorCode, SelectionDto,
+    TransactionSelections,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
@@ -23,6 +24,14 @@ fn commands(value: Value) -> Vec<CommandDto> {
 
 fn selection(value: Value) -> SelectionDto {
     serde_json::from_value(value).unwrap()
+}
+
+/// The selection after the edit only.
+fn after(selection: Option<SelectionDto>) -> TransactionSelections {
+    TransactionSelections {
+        before: None,
+        after: selection,
+    }
 }
 
 fn json_of(response: &DocumentResponse) -> Value {
@@ -70,7 +79,7 @@ fn refused(
             None,
             revision,
             commands(value),
-            chosen.map(selection),
+            after(chosen.map(selection)),
         )
         .unwrap_err();
     assert_eq!(
@@ -91,9 +100,9 @@ fn the_view_lists_the_scene_tree_and_the_selection() {
             Some("group-1"),
             2,
             commands(json!([{"op": "group", "objects": ["s2", "s3"]}])),
-            Some(selection(
+            after(Some(selection(
                 json!({"objects": ["s2", "s3"], "atoms": ["a1"], "bonds": []}),
-            )),
+            ))),
         )
         .unwrap();
     let document = json_of(&response)["document"].clone();
@@ -129,9 +138,9 @@ fn undo_and_redo_reply_with_the_selection_before_and_after() {
         None,
         2,
         commands(json!([{"op": "group", "objects": ["s2", "s3"]}])),
-        Some(selection(
+        after(Some(selection(
             json!({"objects": ["s3"], "atoms": [], "bonds": []}),
-        )),
+        ))),
     )
     .unwrap();
     // Both the group and its child are listed: the child's positions move once.
@@ -141,7 +150,7 @@ fn undo_and_redo_reply_with_the_selection_before_and_after() {
             None,
             3,
             commands(json!([{"op": "move_objects", "objects": ["s4", "s2"], "offset": {"x": 5, "y": 0}}])),
-            Some(selection(json!({"objects": ["s4", "s2"], "atoms": [], "bonds": []}))),
+            after(Some(selection(json!({"objects": ["s4", "s2"], "atoms": [], "bonds": []})))),
         )
         .unwrap();
     assert_eq!(moved.document.scene.instances[1].positions[0].x, 105.0);
@@ -169,9 +178,9 @@ fn a_selection_only_change_records_nothing() {
             Some("select-only"),
             2,
             commands(json!([{"op": "move_objects", "objects": [], "offset": {"x": 3, "y": 3}}])),
-            Some(selection(
+            after(Some(selection(
                 json!({"objects": ["s3"], "atoms": [], "bonds": []}),
-            )),
+            ))),
         )
         .unwrap();
     assert_eq!(
@@ -188,9 +197,9 @@ fn a_replayed_transaction_returns_its_reply_and_a_changed_selection_reuses_the_i
     let body =
         || commands(json!([{"op": "move_objects", "objects": ["s3"], "offset": {"x": 1, "y": 0}}]));
     let chosen = || {
-        Some(selection(
+        after(Some(selection(
             json!({"objects": ["s3"], "atoms": [], "bonds": []}),
-        ))
+        )))
     };
     let first = app
         .apply_transaction_with_selection(&id, Some("move-1"), 2, body(), chosen())
@@ -201,7 +210,7 @@ fn a_replayed_transaction_returns_its_reply_and_a_changed_selection_reuses_the_i
     assert_eq!(first, again);
     assert_eq!(again.document.revision, 3, "applied once");
     let reused = app
-        .apply_transaction_with_selection(&id, Some("move-1"), 2, body(), None)
+        .apply_transaction_with_selection(&id, Some("move-1"), 2, body(), after(None))
         .unwrap_err();
     assert_eq!(reused.code, ErrorCode::RequestIdReused);
 }
@@ -334,5 +343,127 @@ fn the_operation_diagnostic_carries_the_scene_reason_and_selection_runs_through_
     assert_eq!(
         done["result"]["document"]["selection"],
         json!({"objects": ["s4"], "atoms": [], "bonds": []})
+    );
+}
+
+#[test]
+fn undo_restores_the_selection_the_client_had_before_the_edit() {
+    let (app, _data) = application();
+    let id = drawing(&app);
+    // The rectangle was added with nothing selected, then selected (not an edit) and moved.
+    let chosen = json!({"objects": ["s3"], "atoms": [], "bonds": []});
+    app.apply_transaction_with_selection(
+        &id,
+        None,
+        2,
+        commands(json!([{"op": "move_objects", "objects": ["s3"], "offset": {"x": 5, "y": 0}}])),
+        TransactionSelections {
+            before: Some(selection(chosen.clone())),
+            after: Some(selection(chosen.clone())),
+        },
+    )
+    .unwrap();
+    let undone = app.undo(&id, None, 3).unwrap();
+    assert_eq!(json_of(&undone)["document"]["selection"], chosen);
+}
+
+#[test]
+fn a_selection_before_naming_what_the_edit_creates_is_refused_without_a_command_index() {
+    let (app, _data) = application();
+    let id = drawing(&app);
+    let before = json_of(&app.document(&id).unwrap());
+    let error = app
+        .apply_transaction_with_selection(
+            &id,
+            None,
+            2,
+            commands(json!([{"op": "group", "objects": ["s2", "s3"]}])),
+            TransactionSelections {
+                before: Some(selection(
+                    json!({"objects": ["s4"], "atoms": [], "bonds": []}),
+                )),
+                after: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        (error.code, error.command_index, error.reason_code()),
+        (ErrorCode::InvalidCommand, None, Some("selection_unknown"))
+    );
+    assert_eq!(json_of(&app.document(&id).unwrap()), before);
+    let malformed = app
+        .apply_transaction_with_selection(
+            &id,
+            None,
+            2,
+            commands(json!([{"op": "rename", "title": "Renamed"}])),
+            TransactionSelections {
+                before: Some(selection(
+                    json!({"objects": ["x4"], "atoms": [], "bonds": []}),
+                )),
+                after: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(malformed.code, ErrorCode::InvalidRequest);
+    assert!(
+        malformed.message.starts_with("selection_before:"),
+        "{}",
+        malformed.message
+    );
+}
+
+#[test]
+fn a_replay_compares_selections_as_sets_and_an_omitted_one_differs_from_an_empty_one() {
+    let (app, _data) = application();
+    let id = drawing(&app);
+    let body =
+        || commands(json!([{"op": "move_objects", "objects": ["s3"], "offset": {"x": 1, "y": 0}}]));
+    let both = |objects: Value, before: Option<Value>| TransactionSelections {
+        before: before
+            .map(|objects| selection(json!({"objects": objects, "atoms": [], "bonds": []}))),
+        after: Some(selection(
+            json!({"objects": objects, "atoms": ["a1"], "bonds": []}),
+        )),
+    };
+    let first = app
+        .apply_transaction_with_selection(
+            &id,
+            Some("move-1"),
+            2,
+            body(),
+            both(json!(["s3", "s2"]), Some(json!(["s1"]))),
+        )
+        .unwrap();
+    let again = app
+        .apply_transaction_with_selection(
+            &id,
+            Some("move-1"),
+            2,
+            body(),
+            both(json!(["s2", "s3", "s2"]), Some(json!(["s1", "s1"]))),
+        )
+        .unwrap();
+    assert_eq!(first, again, "the same sets in another order, with repeats");
+    for (name, changed) in [
+        (
+            "another selection",
+            both(json!(["s2"]), Some(json!(["s1"]))),
+        ),
+        ("no selection before", both(json!(["s2", "s3"]), None)),
+        (
+            "an empty selection before",
+            both(json!(["s2", "s3"]), Some(json!([]))),
+        ),
+    ] {
+        let reused = app
+            .apply_transaction_with_selection(&id, Some("move-1"), 2, body(), changed)
+            .unwrap_err();
+        assert_eq!(reused.code, ErrorCode::RequestIdReused, "{name}");
+    }
+    assert_eq!(
+        app.document(&id).unwrap().document.revision,
+        3,
+        "applied once"
     );
 }

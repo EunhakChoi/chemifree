@@ -215,7 +215,7 @@ fn call(
             Some(&body.request_id),
             body.expected_revision,
             body.commands.clone(),
-            body.selection.clone(),
+            body.selections(),
         )),
         Call::Undo { document, body } => json(application.undo(
             id(document)?,

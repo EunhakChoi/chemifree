@@ -545,6 +545,17 @@ impl fmt::Display for TransactionError {
 
 impl std::error::Error for TransactionError {}
 
+/// The selections a transaction records with its change set. `None` keeps the default: the
+/// selection before is what the previous edit, undo, or redo left, and the selection after is
+/// the previous selection wherever it still exists.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectionUpdate {
+    /// The client's selection before the edit; undo restores it.
+    pub before: Option<Selection>,
+    /// The client's selection after the edit; redo restores it.
+    pub after: Option<Selection>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Outcome {
     Changed,
@@ -1832,17 +1843,39 @@ impl Document {
         self.apply_with_selection(commands, None)
     }
 
-    /// Applies every command or none, then records `selection` (the client's selection after
-    /// the edit, which must name only what the edited document holds) with the change set.
-    /// Without one, the previous selection is kept wherever it still exists. A transaction
-    /// whose commands change nothing is not an edit: it leaves the revision, identifier
-    /// counters, selection, and history untouched, so changing only the selection records
-    /// nothing.
+    /// Applies every command or none and records `selection` as the selection after it; see
+    /// [`Document::apply_with_selections`].
     pub fn apply_with_selection(
         &mut self,
         commands: &[Command],
         selection: Option<Selection>,
     ) -> Result<Outcome, TransactionError> {
+        self.apply_with_selections(
+            commands,
+            SelectionUpdate {
+                before: None,
+                after: selection,
+            },
+        )
+    }
+
+    /// Applies every command or none, then records the selections with the change set: the
+    /// client's selection before the edit, which must name only what the document holds
+    /// before it (without one, the selection the previous edit, undo, or redo left), and its
+    /// selection after the edit, which must name only what the edited document holds (without
+    /// one, the previous selection is kept wherever it still exists). Undo restores the first
+    /// and redo the second. A transaction whose commands change nothing is not an edit: it
+    /// leaves the revision, identifier counters, selection, and history untouched, so
+    /// changing only the selection records nothing.
+    pub fn apply_with_selections(
+        &mut self,
+        commands: &[Command],
+        selections: SelectionUpdate,
+    ) -> Result<Outcome, TransactionError> {
+        let SelectionUpdate {
+            before: selection_before,
+            after: selection,
+        } = selections;
         let whole = |error| TransactionError { index: None, error };
         if commands.is_empty() {
             return Err(whole(EditError::EmptyTransaction));
@@ -1850,6 +1883,20 @@ impl Document {
         if commands.len() > MAX_COMMANDS {
             return Err(whole(EditError::TooManyCommands));
         }
+        let selection_before = match selection_before {
+            Some(selection) => {
+                self.content
+                    .check_selection(&selection)
+                    .map_err(|error| match error {
+                        EditError::Scene(SceneError::UnknownSelection(id)) => {
+                            whole(SceneError::UnknownSelectionBefore(id).into())
+                        }
+                        other => whole(other),
+                    })?;
+                selection
+            }
+            None => self.selection.clone(),
+        };
         let mut draft = Draft {
             content: self.content.clone(),
             next_atom: self.next_atom,
@@ -1874,7 +1921,7 @@ impl Document {
             &self.content,
             &draft.content,
             Change {
-                before: self.selection.clone(),
+                before: selection_before,
                 after: selection,
             },
         );

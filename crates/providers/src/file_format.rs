@@ -893,6 +893,9 @@ fn migrate_v3<A: AtomRecord, B: BondRecord>(
             positions.push((key, point(position.x, position.y)?));
         }
     }
+    // Version 3 kept instances by identifier, whatever order a file lists them in, and its
+    // history replays in that order: the instances become page roots in identifier order.
+    objects.sort_by_key(|(id, _)| *id);
     let roots: Vec<ObjectId> = objects.iter().map(|(id, _)| *id).collect();
     let mut undo = history
         .undo

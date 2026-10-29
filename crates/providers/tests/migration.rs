@@ -777,6 +777,18 @@ fn object(serial: u32) -> ObjectId {
 }
 
 #[test]
+fn a_version_3_file_listing_its_instances_in_another_order_migrates_in_identifier_order() {
+    // Version 3 kept instances by identifier; the order a file lists them in carried no
+    // meaning, so the roots follow identifiers, as the migrated history does.
+    let (_root, repository, _path) = stored(&fixture("v3-reversed-document.json"));
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(document, drawn_in_version_3());
+    assert_eq!(document.roots(), [object(1), object(2), object(3)]);
+    document.redo().unwrap();
+    assert_eq!(document.roots(), [object(1), object(3)]);
+}
+
+#[test]
 fn a_version_3_file_migrates_with_instances_as_roots_and_its_history() {
     let (_root, repository, path) = stored(&fixture("v3-document.json"));
     let mut document = repository.load(&id()).unwrap().unwrap();

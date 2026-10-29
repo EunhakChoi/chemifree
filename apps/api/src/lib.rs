@@ -515,8 +515,8 @@ async fn apply_transaction(
             &id,
             Some(&body.request_id),
             body.expected_revision,
-            body.commands,
-            body.selection,
+            body.commands.clone(),
+            body.selections(),
         )
     })
     .await

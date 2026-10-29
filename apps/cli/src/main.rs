@@ -8,7 +8,8 @@ use chemifree_application::{
     Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
     CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
     ErrorCode, HydrogensDto, ListQuery, ListSort, ObjectView, OperationResponse, RadicalDto,
-    RecoveryState, RestoreResponse, SelectionDto, ShapeDto, TrashListResponse,
+    RecoveryState, RestoreResponse, SelectionDto, ShapeDto, TransactionSelections,
+    TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -93,6 +94,10 @@ enum DocumentCommand {
         /// '{"objects":["s2"],"atoms":[],"bonds":[]}'.
         #[arg(long)]
         selection: Option<String>,
+        /// The selection before the edit, which undo restores; it may name only what the
+        /// document holds before the edit.
+        #[arg(long)]
+        selection_before: Option<String>,
     },
     /// Undo the latest saved transaction as a new revision, then save.
     Undo {
@@ -258,15 +263,25 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
             commands,
             commands_file,
             selection,
+            selection_before,
         } => {
             let result = read_commands(commands, commands_file).and_then(|commands| {
-                let selection = selection.as_deref().map(read_selection).transpose()?;
+                let selections = TransactionSelections {
+                    before: selection_before
+                        .as_deref()
+                        .map(|text| read_selection(text, "selection-before"))
+                        .transpose()?,
+                    after: selection
+                        .as_deref()
+                        .map(|text| read_selection(text, "selection"))
+                        .transpose()?,
+                };
                 let edited = application.apply_transaction_with_selection(
                     &target.id,
                     None,
                     target.expected_revision,
                     commands,
-                    selection,
+                    selections,
                 )?;
                 save(application, &target.id, &edited)
             });
@@ -337,11 +352,12 @@ fn save(
     application.save(id, None, edited.document.revision)
 }
 
-fn read_selection(text: &str) -> Result<SelectionDto, ApplicationError> {
+/// Parses the JSON of `--<flag>`.
+fn read_selection(text: &str, flag: &str) -> Result<SelectionDto, ApplicationError> {
     serde_json::from_str(text).map_err(|error| {
         ApplicationError::new(
             ErrorCode::InvalidRequest,
-            format!("invalid selection: {error}"),
+            format!("invalid {flag}: {error}"),
         )
     })
 }

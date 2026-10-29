@@ -8,7 +8,7 @@ use std::{panic, thread};
 
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted, TransactionError,
+    RevisionsExhausted, SelectionUpdate, TransactionError,
 };
 
 use crate::API_VERSION;
@@ -16,7 +16,7 @@ use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
-    SelectionDto, TrashListResponse, TrashedSummary, UnreadableDocument,
+    TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
@@ -40,7 +40,9 @@ enum Mutation {
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
-        selection: Option<SelectionDto>,
+        /// Compared as sets: order and repeats do not matter, an omitted selection differs
+        /// from an empty one.
+        selections: SelectionUpdate,
     },
     Undo {
         expected_revision: u64,
@@ -626,19 +628,19 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
         expected_revision: u64,
         commands: Vec<CommandDto>,
-        selection: Option<SelectionDto>,
+        selections: TransactionSelections,
     ) -> Result<DocumentResponse, ApplicationError> {
         let domain_commands = contract::to_commands(&commands)?;
-        let domain_selection = selection.as_ref().map(contract::to_selection).transpose()?;
+        let selections = contract::to_selection_update(&selections)?;
         let mutation = Mutation::Transaction {
             expected_revision,
             commands,
-            selection,
+            selections: selections.clone(),
         };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
             session
                 .document
-                .apply_with_selection(&domain_commands, domain_selection)
+                .apply_with_selections(&domain_commands, selections.clone())
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
         })

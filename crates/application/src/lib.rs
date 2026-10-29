@@ -25,8 +25,8 @@ pub use contract::{
     HydrogensDto, InstanceView, ListQuery, ListSort, MoleculeView, ObjectView, PageView, PointDto,
     PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
     RecoveryView, RenameRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
-    SceneView, SelectionDto, SessionView, ShapeDto, TransactionRequest, TrashListResponse,
-    TrashedSummary, UnreadableDocument, query_label,
+    SceneView, SelectionDto, SessionView, ShapeDto, TransactionRequest, TransactionSelections,
+    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
@@ -122,22 +122,28 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         expected_revision: u64,
         commands: Vec<CommandDto>,
     ) -> Result<DocumentResponse, ApplicationError> {
-        self.apply_transaction_with_selection(id, request_id, expected_revision, commands, None)
+        self.apply_transaction_with_selection(
+            id,
+            request_id,
+            expected_revision,
+            commands,
+            TransactionSelections::default(),
+        )
     }
 
-    /// Applies `commands` and records `selection`, the client's selection after them, with the
-    /// change set; `None` keeps the previous selection wherever it still exists. Commands that
-    /// change nothing record nothing, the selection included.
+    /// Applies `commands` and records the client's selections before and after them with the
+    /// change set (see [`TransactionSelections`]). Commands that change nothing record
+    /// nothing, the selections included.
     pub fn apply_transaction_with_selection(
         &self,
         id: &str,
         request_id: Option<&str>,
         expected_revision: u64,
         commands: Vec<CommandDto>,
-        selection: Option<SelectionDto>,
+        selections: TransactionSelections,
     ) -> Result<DocumentResponse, ApplicationError> {
         self.documents
-            .transact(id, request_id, expected_revision, commands, selection)
+            .transact(id, request_id, expected_revision, commands, selections)
     }
 
     pub fn undo(

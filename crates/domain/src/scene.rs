@@ -162,6 +162,9 @@ pub enum SceneError {
     IndexOutOfRange { index: usize, len: usize },
     /// The selection names an object, atom, or bond the edited document does not have.
     UnknownSelection(String),
+    /// The selection before the edit names an object, atom, or bond the document did not
+    /// have before it.
+    UnknownSelectionBefore(String),
 }
 
 impl SceneError {
@@ -185,7 +188,7 @@ impl SceneError {
             Self::DepthLimit => "scene_depth_limit",
             Self::ObjectLimit => "scene_object_limit",
             Self::IndexOutOfRange { .. } => "index_out_of_range",
-            Self::UnknownSelection(_) => "selection_unknown",
+            Self::UnknownSelection(_) | Self::UnknownSelectionBefore(_) => "selection_unknown",
         }
     }
 }
@@ -219,6 +222,10 @@ impl fmt::Display for SceneError {
             Self::UnknownSelection(id) => {
                 write!(formatter, "the selection names {id}, which does not exist")
             }
+            Self::UnknownSelectionBefore(id) => write!(
+                formatter,
+                "the selection before the edit names {id}, which did not exist before it"
+            ),
         }
     }
 }

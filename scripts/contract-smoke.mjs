@@ -1136,6 +1136,56 @@ try {
     const undone = cli('documents', 'undo', sceneDoc, '--expected-revision', '2', '--json')
     assert.deepEqual(undone.body.document.scene.objects[3].points, [{ x: 0, y: 40 }, { x: 30, y: 40 }])
     assert.deepEqual(undone.body.document.selection, drawn.body.document.selection)
+
+    // The selection before an edit (selected without an edit, so never recorded) is what undo
+    // restores, over HTTP and from the CLI; one naming what the document lacks is refused alike.
+    const beforeDoc = (await write('/api/v1/documents', { request_id: 'before-create', title: 'Before' })).body.document.id
+    const beforePath = `/api/v1/documents/${beforeDoc}`
+    const rectangle = { op: 'add_graphic', shape: 'rectangle', points: [{ x: 0, y: 0 }, { x: 40, y: 20 }] }
+    const added = await write(`${beforePath}/transactions`, { request_id: 'before-add', expected_revision: 0, commands: [rectangle] })
+    assert.deepEqual(added.body.document.selection, { objects: [], atoms: [], bonds: [] })
+    const chosen = { objects: ['s2'], atoms: [], bonds: [] }
+    const nudge = [{ op: 'move_objects', objects: ['s2'], offset: { x: 10, y: 0 } }]
+    const nudged = await write(`${beforePath}/transactions`, {
+      request_id: 'before-nudge',
+      expected_revision: 1,
+      commands: nudge,
+      selection: chosen,
+      selection_before: chosen,
+    })
+    assert.equal(nudged.status, 200)
+    const undoneHttp = await write(`${beforePath}/undo`, { request_id: 'before-undo', expected_revision: 2 })
+    assert.deepEqual(undoneHttp.body.document.selection, chosen, 'undo over HTTP keeps the rectangle selected')
+    assert.equal((await write(`${beforePath}/save`, { request_id: 'before-save', expected_revision: 3 })).status, 200)
+    const viaCliBefore = cli(
+      'documents', 'apply', beforeDoc, '--expected-revision', '3', '--json',
+      '--commands', JSON.stringify(nudge), '--selection', JSON.stringify(chosen), '--selection-before', JSON.stringify(chosen),
+    )
+    assert.equal(viaCliBefore.status, 0)
+    const undoneCli = cli('documents', 'undo', beforeDoc, '--expected-revision', '4', '--json')
+    assert.deepEqual(undoneCli.body.document.selection, chosen, 'undo from the CLI keeps it too')
+    const unknown = { objects: ['s3'], atoms: [], bonds: [] }
+    const refusedBefore = cli(
+      'documents', 'apply', beforeDoc, '--expected-revision', '5', '--json',
+      '--commands', JSON.stringify(nudge), '--selection-before', JSON.stringify(unknown),
+    )
+    // The clean HTTP session follows the CLI's commits.
+    assert.equal((await call(beforePath)).body.document.revision, 5)
+    const refusedHttp = await write(`${beforePath}/transactions`, {
+      request_id: 'before-unknown',
+      expected_revision: 5,
+      commands: nudge,
+      selection_before: unknown,
+    })
+    assert.deepEqual(
+      [refusedHttp.status, refusedHttp.body.code, 'command_index' in refusedHttp.body, refusedHttp.body.reason],
+      [422, 'invalid_command', false, 'selection_unknown'],
+    )
+    assert.deepEqual(
+      [refusedBefore.status, refusedBefore.body.code, 'command_index' in refusedBefore.body, refusedBefore.body.reason, refusedBefore.body.message],
+      [1, 'invalid_command', false, 'selection_unknown', refusedHttp.body.message],
+      'the same refusal from the CLI',
+    )
   }
 
   // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
@@ -1274,7 +1324,7 @@ try {
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
       'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
       'version 1, 2, and 3 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused), ' +
-      'refused combinations of recorded states, and scene objects with the selection (the same tree, refusals, and reasons over HTTP and the CLI) verified.',
+      'refused combinations of recorded states, and scene objects with the selections before and after an edit (the same tree, undo, refusals, and reasons over HTTP and the CLI) verified.',
   )
 } finally {
   for (const child of running) await stop(child)

@@ -20,6 +20,7 @@ use serde_json::{Map, Value};
 
 use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
+    TransactionSelections,
 };
 use crate::documents::validate_request_id;
 use crate::error::{ApplicationError, ErrorCode};
@@ -553,6 +554,8 @@ struct TransactionParameters {
     commands: Vec<CommandDto>,
     #[serde(default)]
     selection: Option<SelectionDto>,
+    #[serde(default)]
+    selection_before: Option<SelectionDto>,
 }
 
 #[derive(serde::Deserialize)]
@@ -909,7 +912,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         request_id,
                         p.expected_revision,
                         p.commands,
-                        p.selection,
+                        TransactionSelections {
+                            before: p.selection_before,
+                            after: p.selection,
+                        },
                     )),
                     Err(invalid) => known.invalid(invalid),
                 }

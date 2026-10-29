@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use chemifree_domain::document::{
     Atom, AtomId, Command, Document, DocumentId, EditError, NewAtomPositions, ObjectId, Outcome,
-    Point, TransactionError, Vector,
+    Point, SelectionUpdate, TransactionError, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -523,6 +523,78 @@ fn a_selection_naming_what_the_edit_leaves_out_is_refused() {
         Some(selection(&[], &[9])),
     );
     assert_eq!(error.error.reason(), Some("selection_unknown"));
+}
+
+#[test]
+fn the_selection_before_an_edit_is_what_undo_restores() {
+    // The rectangle is added with nothing selected, then selected (not an edit) and moved.
+    let mut document = drawing();
+    assert!(document.selection().is_empty());
+    document
+        .apply_with_selections(
+            &[move_objects(&[3], 5.0, 0.0)],
+            SelectionUpdate {
+                before: Some(selection(&[3], &[])),
+                after: Some(selection(&[3], &[])),
+            },
+        )
+        .unwrap();
+    document.undo().unwrap();
+    assert_eq!(
+        *document.selection(),
+        selection(&[3], &[]),
+        "the rectangle the user moved stays selected"
+    );
+    document.redo().unwrap();
+    assert_eq!(*document.selection(), selection(&[3], &[]));
+
+    // Without it, the entry's before is the selection the previous edit recorded.
+    document
+        .apply_with_selection(&[move_objects(&[3], 5.0, 0.0)], Some(selection(&[2], &[])))
+        .unwrap();
+    document.undo().unwrap();
+    assert_eq!(*document.selection(), selection(&[3], &[]));
+}
+
+#[test]
+fn a_selection_before_naming_what_the_document_does_not_hold_yet_is_refused() {
+    let mut document = drawing();
+    let before = document.clone();
+    // s4 is the group this edit creates: it is not in the document before the edit.
+    let error = document
+        .apply_with_selections(
+            &[group(&[2, 3])],
+            SelectionUpdate {
+                before: Some(selection(&[4], &[])),
+                after: Some(selection(&[4], &[])),
+            },
+        )
+        .expect_err("refused");
+    assert_eq!(document, before, "a refused transaction changes nothing");
+    assert_eq!(error.index, None);
+    assert_eq!(error.error.reason(), Some("selection_unknown"));
+    assert!(
+        error.error.to_string().contains("before"),
+        "{}",
+        error.error
+    );
+}
+
+#[test]
+fn a_selection_before_alone_records_nothing() {
+    let mut document = drawing();
+    let before = document.clone();
+    let outcome = document
+        .apply_with_selections(
+            &[move_objects(&[3], 0.0, 0.0)],
+            SelectionUpdate {
+                before: Some(selection(&[3], &[1])),
+                after: Some(selection(&[2], &[])),
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome, Outcome::Unchanged);
+    assert_eq!(document, before);
 }
 
 #[test]

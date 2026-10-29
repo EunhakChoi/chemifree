@@ -6,7 +6,7 @@ use std::fmt;
 
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE,
-    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
+    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, SelectionUpdate, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{DeleteMode, Graphic, Parent, SceneObject, Selection, Shape};
@@ -37,6 +37,30 @@ pub struct TransactionRequest {
     /// The client's selection after the edit, recorded with it in history. Added within v1.
     #[serde(default)]
     pub selection: Option<SelectionDto>,
+    /// The client's selection before the edit, which undo restores; it must name only what
+    /// the document holds before the edit. Added within v1.
+    #[serde(default)]
+    pub selection_before: Option<SelectionDto>,
+}
+
+impl TransactionRequest {
+    /// The selections the request carries.
+    pub fn selections(&self) -> TransactionSelections {
+        TransactionSelections {
+            before: self.selection_before.clone(),
+            after: self.selection.clone(),
+        }
+    }
+}
+
+/// The selections a transaction may carry: the client's selection before the edit (undo
+/// restores it) and after it (redo restores it). An omitted one keeps the default (the
+/// selection the document holds before; the previous selection wherever it still exists
+/// after), which differs from an empty one. Added within v1.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TransactionSelections {
+    pub before: Option<SelectionDto>,
+    pub after: Option<SelectionDto>,
 }
 
 /// Selected scene objects, atoms, and bonds. In a transaction it is the client's selection
@@ -755,9 +779,27 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
 }
 
 /// A transaction's selection. A malformed identifier makes the body malformed.
-pub(crate) fn to_selection(selection: &SelectionDto) -> Result<Selection, ApplicationError> {
+/// The selections as sets of identifiers; `field` names the request field in errors.
+pub(crate) fn to_selection_update(
+    selections: &TransactionSelections,
+) -> Result<SelectionUpdate, ApplicationError> {
+    Ok(SelectionUpdate {
+        before: selections
+            .before
+            .as_ref()
+            .map(|selection| to_selection(selection, "selection_before"))
+            .transpose()?,
+        after: selections
+            .after
+            .as_ref()
+            .map(|selection| to_selection(selection, "selection"))
+            .transpose()?,
+    })
+}
+
+fn to_selection(selection: &SelectionDto, field: &str) -> Result<Selection, ApplicationError> {
     let malformed = |message: String| {
-        ApplicationError::new(ErrorCode::InvalidRequest, format!("selection: {message}"))
+        ApplicationError::new(ErrorCode::InvalidRequest, format!("{field}: {message}"))
     };
     Ok(Selection {
         objects: selection

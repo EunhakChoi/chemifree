@@ -1,6 +1,6 @@
 {
   "id": "scene-commands-refused",
-  "title": "Refused scene commands and selections carry their reason code, a selection naming what the edit removes has no command index, and nothing changes",
+  "title": "Refused scene commands and a selection naming what the edit removes carry their reason code and change nothing (that the selection refusal has no command index is checked in crates/application/tests/scene.rs and the contract smoke, not here)",
   "requirements": [
     "MODEL-01",
     "OPS-01",
