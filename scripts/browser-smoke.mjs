@@ -1925,40 +1925,55 @@ step = 'after recorded_states_drawn_and_kept'
   assert.equal(objectOf(await sceneDoc(), 's4').shape, 'rectangle')
   await page.locator('[data-graphic="s4"]').waitFor()
 
+  /**
+   * Presses `button` twice, holding the first /transactions request until the second press is
+   * in; returns the statuses of refused transactions.
+   */
+  const pressedTwiceWhileHeld = async (button) => {
+    let release
+    const held = new Promise((resolveHeld) => {
+      release = resolveHeld
+    })
+    let seen = 0
+    const holdFirst = async (route) => {
+      seen += 1
+      if (seen === 1) await held
+      await route.continue()
+    }
+    const refused = []
+    const watch = (response) => {
+      if (response.url().endsWith('/transactions') && response.status() !== 200) refused.push(response.status())
+    }
+    page.on('response', watch)
+    await page.route('**/transactions', holdFirst)
+    await button.click()
+    await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+    await button.click()
+    release()
+    await waitIdle()
+    await page.unroute('**/transactions', holdFirst)
+    page.off('response', watch)
+    return refused
+  }
+
+  // Group pressed twice, the first request held: one group, nothing refused, and the new group
+  // is what is selected, so a later press does not nest the same objects again.
   await selectOnly(['s3', 's4'])
-  await press('Group')
+  const groupRefused = await pressedTwiceWhileHeld(scenePanel.getByRole('button', { name: 'Group', exact: true }))
+  assert.deepEqual(groupRefused, [], 'no group is refused')
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
   const grouped = await sceneDoc()
-  assert.deepEqual(tree(grouped), [['s1', 'p1'], ['s2', 'p1'], ['s5', 'p1'], ['s3', 's5'], ['s4', 's5']])
+  assert.deepEqual(tree(grouped), [['s1', 'p1'], ['s2', 'p1'], ['s5', 'p1'], ['s3', 's5'], ['s4', 's5']], 'exactly one new group')
   assert.deepEqual(grouped.selection.objects.sort(), ['s3', 's4'], 'the selection is sent with the edit')
+  assert.deepEqual([await checked('s5'), await checked('s3'), await checked('s4')], [true, false, false], 'the new group is selected')
+  assert.equal(await scenePanel.getByRole('button', { name: 'Group', exact: true }).isDisabled(), true)
+  assert.equal(await scenePanel.getByRole('checkbox', { name: 'Select s3, placement, in group s5' }).count(), 1, 'names say the group')
 
   // The group and its child placement are both selected; the first of two moves is held until
   // the second press is in. Both count, and each leaf moves once per press.
   await selectOnly(['s5', 's3'])
-  let release
-  const held = new Promise((resolveHeld) => {
-    release = resolveHeld
-  })
-  let seen = 0
-  const holdFirst = async (route) => {
-    seen += 1
-    if (seen === 1) await held
-    await route.continue()
-  }
-  const refused = []
-  const watch = (response) => {
-    if (response.url().endsWith('/transactions') && response.status() !== 200) refused.push(response.status())
-  }
-  page.on('response', watch)
-  await page.route('**/transactions', holdFirst)
   const moveRight = scenePanel.getByRole('button', { name: 'Move selected objects right' })
-  await moveRight.click()
-  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
-  await moveRight.click()
-  release()
-  await waitIdle()
-  await page.unroute('**/transactions', holdFirst)
-  page.off('response', watch)
-  assert.deepEqual(refused, [], 'no move is refused')
+  assert.deepEqual(await pressedTwiceWhileHeld(moveRight), [], 'no move is refused')
   assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0)
   const moved = await sceneDoc()
   assert.equal(moved.revision, grouped.revision + 2, 'both presses count')
@@ -2000,39 +2015,60 @@ step = 'after recorded_states_drawn_and_kept'
   assert.deepEqual(tree(await sceneDoc()), [['s1', 'p1'], ['s2', 'p1']], 'with contents')
   assert.equal(await page.locator('[data-graphic]').count(), 0)
 
+  // A rectangle added with nothing selected, then selected (not an edit) and nudged: undo puts
+  // it back and keeps it selected, the selection the page had before the nudge.
+  await scenePanel.getByRole('button', { name: 'Add rectangle' }).click()
+  await waitIdle()
+  await selectOnly(['s8'])
+  const placedRectangle = objectOf(await sceneDoc(), 's8').points
+  await press('Move selected objects down')
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await waitIdle()
+  const undoneNudge = await sceneDoc()
+  assert.deepEqual(objectOf(undoneNudge, 's8').points, placedRectangle, 'undo puts the rectangle back')
+  assert.deepEqual(undoneNudge.selection.objects, ['s8'], 'and the selection before the nudge')
+  assert.equal(await checked('s8'), true, 'the rectangle stays selected')
+
   // An arrow grouped with a placement, the group selected, is kept through save and reopening.
   await scenePanel.getByRole('button', { name: 'Add arrow' }).click()
   await waitIdle()
-  await selectOnly(['s2', 's8'])
+  await selectOnly(['s2', 's9'])
   await press('Group')
-  await selectOnly(['s9'])
-  await page.locator('[data-group-frame="s9"]').waitFor()
+  await selectOnly(['s10'])
+  await page.locator('[data-group-frame="s10"]').waitFor()
   const kept = await sceneDoc()
-  assert.deepEqual(tree(kept), [['s1', 'p1'], ['s9', 'p1'], ['s2', 's9'], ['s8', 's9']])
+  assert.deepEqual(tree(kept), [['s1', 'p1'], ['s10', 'p1'], ['s2', 's10'], ['s9', 's10'], ['s8', 'p1']])
   assert.deepEqual(await outsideView(), [], 'before saving')
   await page.screenshot({ path: join(outDir, 'editor-scene.png'), fullPage: true })
-  // Selecting is recorded only with the next edit: two nudges that cancel out record s9.
+  // Selecting is recorded only with the next edit: two nudges that cancel out record s10.
   await press('Move selected objects left')
   await press('Move selected objects right')
   const recorded = await sceneDoc()
-  assert.deepEqual(recorded.selection.objects, ['s9'])
+  assert.deepEqual(recorded.selection.objects, ['s10'])
 
   await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
   await page.reload()
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
-  await page.locator('[data-group-frame="s9"]').waitFor()
+  await page.locator('[data-group-frame="s10"]').waitFor()
   assert.deepEqual(tree(await sceneDoc()), tree(recorded), 'after a page reload')
-  assert.equal(await checked('s9'), true, 'the recorded selection is shown')
+  assert.equal(await checked('s10'), true, 'the recorded selection is shown')
   assert.deepEqual(await outsideView(), [], 'after a page reload')
   await closeShown()
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
-  await page.locator('[data-group-frame="s9"]').waitFor()
+  await page.locator('[data-group-frame="s10"]').waitFor()
   const reopened = await sceneDoc()
   assert.deepEqual([reopened.scene, reopened.selection], [recorded.scene, recorded.selection], 'reopened from storage')
-  assert.equal(await page.locator('[data-graphic="s8"] polygon').count(), 1, 'the arrow has its head')
+  assert.equal(await page.locator('[data-graphic="s9"] polygon').count(), 1, 'the arrow has its head')
   assert.deepEqual(await outsideView(), [], 'reopened from storage')
+  // A placement selected in the panel is highlighted on the canvas, inside the view box.
+  await selectOnly(['s1'])
+  await page.getByRole('img', { name: 'Placement s1, selected' }).waitFor()
+  assert.equal(await page.locator('[data-frame="s1"][data-selected]').count(), 1)
+  assert.equal(await page.locator('[data-frame][data-selected]').count(), 1, 'only the selected placement')
+  assert.deepEqual(await outsideView(), [], 'with a placement selected')
+  assert.match(await canvas.getAttribute('aria-label'), /: \d+ atoms, \d+ bonds?, 2 graphics, 1 group$/, 'the canvas names its graphics and groups')
 }
 results.scene_groups_and_selection = true
 step = 'after scene_groups_and_selection'

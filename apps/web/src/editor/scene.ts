@@ -48,11 +48,50 @@ function subtree(objects: ReadonlyMap<string, SceneObjectView>, id: string, into
   }
 }
 
-/** The group command for the selected objects, or null unless they share a parent. */
-export function groupCommand(document: DocumentView, selected: ReadonlySet<string>): Command | null {
-  const objects = selectedObjects(document, selected)
-  if (objects.length === 0 || new Set(objects.map((object) => object.parent)).size !== 1) return null
-  return { op: 'group', objects: objects.map((object) => object.id) }
+/** A selected object and its parent when a button was pressed. */
+export interface PressedObject {
+  id: string
+  parent: string
+}
+
+/** The selected objects of `document` with their parents, in tree order, as a press saw them. */
+export function pressedObjects(document: DocumentView, selected: ReadonlySet<string>): PressedObject[] {
+  return selectedObjects(document, selected).map((object) => ({ id: object.id, parent: object.parent }))
+}
+
+/**
+ * The group command for objects pressed together, built from the latest document: null unless
+ * there are at least two, each still has the parent it had when pressed, they share it, and
+ * they are not already exactly all the children of a group. So a press queued behind another
+ * Group, or made again after it, does not nest the same objects once more.
+ */
+export function groupCommand(latest: DocumentView, pressed: readonly PressedObject[]): Command | null {
+  if (pressed.length < 2) return null
+  const objects = new Map(sceneObjects(latest).map((object) => [object.id, object]))
+  const parent = pressed[0].parent
+  if (pressed.some((item) => item.parent !== parent || objects.get(item.id)?.parent !== parent)) return null
+  const container = objects.get(parent)
+  if (container?.kind === 'group' && container.children.length === pressed.length) return null
+  const ids = new Set(pressed.map((item) => item.id))
+  return { op: 'group', objects: sceneObjects(latest).flatMap((object) => (ids.has(object.id) ? [object.id] : [])) }
+}
+
+/**
+ * The live selection after the reply to `commands`: when they grouped objects, the groups the
+ * reply holds that `before` did not take the place of the selected objects (atoms and bonds
+ * stay selected); otherwise null, keeping the live selection.
+ */
+export function selectionAfterReply(
+  selected: ReadonlySet<string>,
+  commands: Command[],
+  before: DocumentView,
+  after: DocumentView,
+): ReadonlySet<string> | null {
+  if (!commands.some((command) => command.op === 'group')) return null
+  const known = new Set(sceneObjects(before).map((object) => object.id))
+  const groups = sceneObjects(after).flatMap((object) => (object.kind === 'group' && !known.has(object.id) ? [object.id] : []))
+  const objects = new Set(sceneObjects(after).map((object) => object.id))
+  return new Set([...groups, ...[...selected].filter((id) => !objects.has(id) && !known.has(id))])
 }
 
 /** One ungroup command per selected group, or null when no group is selected. */
@@ -113,6 +152,66 @@ export function addGraphicCommand(document: DocumentView, shape: Shape): Command
     shape,
     points: shape === 'rectangle' ? [at, end] : [{ x: at.x, y: middle }, { x: end.x, y: middle }],
   }
+}
+
+/**
+ * The selections sent with `commands`: the live one before the edit, less what `document` (the
+ * document the edit applies to) no longer holds, and after it (see selectionAfter).
+ */
+export function selections(selected: ReadonlySet<string>, commands: Command[], document: DocumentView) {
+  return { before: selectionAfter(selected, [], document), after: selectionAfter(selected, commands, document) }
+}
+
+/** Why a document is shown: an edit's reply, or a reply that replaces what was shown. */
+export type ShownBy = 'edit' | 'open' | 'undo' | 'redo' | 'recover' | 'discard' | 'reload'
+
+/**
+ * The live selection once `next` is shown in place of the document `shownId`: an edit's reply
+ * for the same document keeps the live selection; anything else (another document, undo, redo,
+ * a recovered draft, a discarded one, a reload) brings the selection the reply holds.
+ */
+export function selectionOnShow(
+  live: ReadonlySet<string>,
+  shownId: string | undefined,
+  next: DocumentView | null,
+  by: ShownBy,
+): ReadonlySet<string> {
+  if (next && next.id === shownId && by === 'edit') return live
+  return selectionSet(next?.selection)
+}
+
+/** What a row of the scene tree says about its object. */
+export function objectText(object: SceneObjectView) {
+  switch (object.kind) {
+    case 'molecule':
+      return 'placement'
+    case 'group':
+      return `group of ${object.children.length}`
+    case 'graphic':
+      return object.shape
+    default: {
+      const unhandled: never = object
+      return unhandled
+    }
+  }
+}
+
+/** An object's accessible name: its ID, its kind, and the group containing it, if any. */
+export function objectName(object: SceneObjectView) {
+  const inGroup = object.parent.startsWith('s') ? `, in group ${object.parent}` : ''
+  return `${object.id}, ${objectText(object)}${inGroup}`
+}
+
+/** The canvas's accessible name: the title and how many atoms, bonds, graphics, and groups. */
+export function canvasName(document: DocumentView) {
+  const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+  const objects = sceneObjects(document)
+  const graphics = objects.filter((object) => object.kind === 'graphic').length
+  const groups = objects.filter((object) => object.kind === 'group').length
+  const parts = [count(document.atoms.length, 'atom'), count(document.bonds.length, 'bond')]
+  if (graphics > 0) parts.push(count(graphics, 'graphic'))
+  if (groups > 0) parts.push(count(groups, 'group'))
+  return `${document.title}: ${parts.join(', ')}`
 }
 
 /** Every identifier a selection names, as the editor keeps it. */

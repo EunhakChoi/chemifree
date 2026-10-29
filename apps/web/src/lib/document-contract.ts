@@ -600,21 +600,28 @@ function isTreeAndSelection(document: Record<string, unknown>, atoms: AtomView[]
     byId.set(object.id, object as unknown as SceneObjectView)
   }
   if ([...byId.values()].filter((object) => object.kind === 'molecule').length !== instances.size) return false
-  // Reach every object from the page: each child names its group as parent and is met once.
+  // The objects are listed depth first: each root object of the page (in the order listed)
+  // followed by its subtree, a group's children in its order. Every child names its group as
+  // parent and is met once, so the walk lists every object exactly where the reply does.
+  const walked: string[] = []
   const reached = new Set<string>()
-  const stack = [...byId.values()].filter((object) => object.parent === page).map((object) => object.id)
+  const stack = [...byId.values()]
+    .filter((object) => object.parent === page)
+    .map((object) => object.id)
+    .reverse()
   while (stack.length > 0) {
     const id = stack.pop() as string
     if (reached.has(id)) return false
     reached.add(id)
+    walked.push(id)
     const object = byId.get(id)
     if (object?.kind !== 'group') continue
     for (const child of object.children) {
       if (byId.get(child)?.parent !== id) return false
-      stack.push(child)
     }
+    stack.push(...[...object.children].reverse())
   }
-  if (reached.size !== byId.size) return false
+  if (walked.length !== objects.length || walked.some((id, index) => (objects[index] as { id: string }).id !== id)) return false
   const names = (key: string, known: (id: string) => boolean) => {
     const list = selection[key]
     return Array.isArray(list) && list.every((id) => typeof id === 'string' && known(id))
@@ -1243,11 +1250,25 @@ export class DocumentClient {
   }
 
   /** `selection`, the selection after the edit, is left out for a service that takes none. */
-  async transact(id: string, expectedRevision: number, commands: Command[], selection?: SelectionView) {
+  /**
+   * Applies `commands`. With `selections`, for a service that records selections in history,
+   * sends the selection before the edit (undo restores it) and after it (redo restores it).
+   */
+  async transact(
+    id: string,
+    expectedRevision: number,
+    commands: Command[],
+    selections?: { before: SelectionView; after: SelectionView },
+  ) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/transactions`,
-        { request_id: requestId(), expected_revision: expectedRevision, commands, ...(selection ? { selection } : {}) },
+        {
+          request_id: requestId(),
+          expected_revision: expectedRevision,
+          commands,
+          ...(selections ? { selection: selections.after, selection_before: selections.before } : {}),
+        },
         'reload',
       ),
     )

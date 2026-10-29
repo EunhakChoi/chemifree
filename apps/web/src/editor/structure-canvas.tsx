@@ -11,6 +11,7 @@ import {
   type Position,
 } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
+import { canvasName } from '@/editor/scene'
 import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
   atomIndex,
@@ -139,6 +140,9 @@ export function StructureCanvas({
   const drawings = useMemo<Drawing[]>(() => {
     const counts = degrees(document)
     const all = placements(document)
+    // Placements are framed when there are several, or anything else on the page to tell them
+    // from: one placement's frame is then shown while it is selected.
+    const framed = all.length > 1 || sceneObjects(document).length > 1
     // Rings depend on the graph alone: searched once for every placement.
     const rings = bondRings(document)
     // A label depends on the atom and the side its hydrogens take, not on the placement.
@@ -155,7 +159,7 @@ export function StructureCanvas({
       const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, layoutOf(atom, left.has(atom.id))]))
       const sides = bondSides(view, index, rings)
       const frame =
-        all.length > 1 && placement.id !== null && view.atoms.length > 0
+        framed && placement.id !== null && view.atoms.length > 0
           ? placementFrame(
               view.atoms.map((atom) => atom.position),
               view.atoms.flatMap((atom) => labelBox(labels, atom.id, atom.position) ?? []),
@@ -396,7 +400,7 @@ export function StructureCanvas({
       ref={svgRef}
       role="group"
       data-structure-canvas=""
-      aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
+      aria-label={canvasName(document)}
       viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
       className={cn(
         'block h-full w-full touch-none select-none rounded-lg border bg-card',
@@ -424,7 +428,9 @@ export function StructureCanvas({
         ))}
       {drawings.map((drawing) => (
         <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
-          {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
+          {drawing.frame && drawing.id !== null && (drawings.length > 1 || selection.has(drawing.id)) && (
+            <PlacementFrame id={drawing.id} frame={drawing.frame} selected={selection.has(drawing.id)} />
+          )}
           <g className="fill-primary/15 stroke-primary/40">
             {document.bonds
               .filter((bond) => selection.has(bond.id) || hovered(drawing, 'bond', bond.id))
@@ -491,8 +497,11 @@ function drawnBox(drawing: Drawing): Box | null {
   )
 }
 
-/** A graphic drawn with plain strokes, an arrow with a filled head, underlaid when selected. */
-function GraphicMark({ graphic, selected }: { graphic: GraphicView; selected: boolean }) {
+/**
+ * A graphic drawn with plain strokes, an arrow with a filled head, underlaid when selected.
+ * Memoized: hovering and other selections re-render the canvas but not its graphics.
+ */
+const GraphicMark = memo(function GraphicMark({ graphic, selected }: { graphic: GraphicView; selected: boolean }) {
   const shape = graphicShape(graphic)
   const paint = (className: string, strokeWidth: number) => {
     switch (shape.kind) {
@@ -520,7 +529,7 @@ function GraphicMark({ graphic, selected }: { graphic: GraphicView; selected: bo
       )}
     </g>
   )
-}
+})
 
 /** A selected group's outline around everything its subtree draws, with the group's ID. */
 function GroupFrame({ id, frame }: { id: string; frame: ReturnType<typeof placementFrame> }) {
@@ -697,26 +706,30 @@ function AtomMark({ id, name, label, at }: { id: string; name: string; label: At
  * A dashed outline and the instance ID around one of several placements, so each reads as its
  * own drawing. It encloses every atom and label box; the view box holds all of it.
  */
-function PlacementFrame({ id, frame }: { id: string; frame: ReturnType<typeof placementFrame> }) {
+function PlacementFrame({ id, frame, selected }: { id: string; frame: ReturnType<typeof placementFrame>; selected: boolean }) {
   return (
-    <g className="pointer-events-none" aria-hidden="true">
+    <g
+      className="pointer-events-none"
+      {...(selected ? { role: 'img', 'aria-label': `Placement ${id}, selected` } : { 'aria-hidden': true })}
+    >
       <rect
         x={frame.rect.x}
         y={frame.rect.y}
         width={frame.rect.width}
         height={frame.rect.height}
         rx={4}
-        className="fill-none stroke-muted-foreground/40"
+        className={cn('fill-none', selected ? 'stroke-primary/70' : 'stroke-muted-foreground/40')}
         strokeWidth={0.8}
-        strokeDasharray="4 3"
+        strokeDasharray={selected ? undefined : '4 3'}
         data-frame={id}
+        data-selected={selected ? '' : undefined}
       />
       <text
         x={frame.idAt.x}
         y={frame.idAt.y}
         fontSize={frame.idSize}
         dominantBaseline="central"
-        className="fill-muted-foreground font-sans"
+        className={cn('font-sans', selected ? 'fill-primary' : 'fill-muted-foreground')}
         data-frame-id={id}
       >
         {id}

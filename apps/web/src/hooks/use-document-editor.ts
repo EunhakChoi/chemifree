@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { selectionAfter, selectionSet } from '@/editor/scene'
+import { selectionAfterReply, selectionOnShow, selections, type ShownBy } from '@/editor/scene'
 import { useAutosave } from '@/hooks/use-autosave'
 import {
   ApiError,
@@ -106,9 +106,13 @@ export function useDocumentEditor() {
     setSelection(next)
   }, [])
 
-  const setCurrent = useCallback((document: DocumentResponse | null) => {
-    // Another document starts with the selection it was left with (none from an older service).
-    if (document?.document.id !== currentRef.current?.document.id) select(selectionSet(document?.document.selection))
+  /**
+   * Shows `document`. An edit's reply keeps the live selection; another document, and a reply
+   * that replaces the shown one (`by`), bring the selection they hold (none from an older service).
+   */
+  const setCurrent = useCallback((document: DocumentResponse | null, by: ShownBy = 'edit') => {
+    const next = selectionOnShow(selectionRef.current, currentRef.current?.document.id, document?.document ?? null, by)
+    if (next !== selectionRef.current) select(next)
     currentRef.current = document
     setCurrentState(document)
     // Showing anything but the copy ends the notice; returning later would show a stale one.
@@ -198,8 +202,8 @@ export function useDocumentEditor() {
         // one this page saw even when the drawing matches.
         if (restartedFrom) return null
         return client.revisionAction(document.document.id, action, document.document.revision).then((reply) => {
-          if (reply.document.selection && currentRef.current?.document.id === reply.document.id) {
-            select(selectionSet(reply.document.selection))
+          if (currentRef.current?.document.id === reply.document.id) {
+            select(selectionOnShow(selectionRef.current, reply.document.id, reply.document, action))
           }
           return reply
         })
@@ -208,18 +212,22 @@ export function useDocumentEditor() {
   )
 
   /**
-   * Sends `commands` with the live selection less what they delete, for a service that records
-   * selections in history.
+   * Sends `commands` with the live selection before them and less what they delete after them,
+   * for a service that records selections in history. A group's reply selects the new group.
    */
   const transact = useCallback(
-    (document: DocumentView, revision: number, commands: Command[]) =>
-      client.transact(
+    async (document: DocumentView, revision: number, commands: Command[]) => {
+      const reply = await client.transact(
         document.id,
         revision,
         commands,
-        document.selection ? selectionAfter(selectionRef.current, commands, document) : undefined,
-      ),
-    [],
+        document.selection ? selections(selectionRef.current, commands, document) : undefined,
+      )
+      const grouped = selectionAfterReply(selectionRef.current, commands, document, reply.document)
+      if (grouped && currentRef.current?.document.id === reply.document.id) select(grouped)
+      return reply
+    },
+    [select],
   )
 
   const id = () => currentRef.current?.document.id ?? ''
@@ -269,7 +277,7 @@ export function useDocumentEditor() {
     async (next: () => Promise<DocumentResponse>) => {
       const left = currentRef.current?.document.title
       const unwritten = await flush()
-      setCurrent(await next())
+      setCurrent(await next(), 'open')
       if (unwritten !== null) {
         throw new ApiError(
           'draft_not_written',
@@ -342,14 +350,14 @@ export function useDocumentEditor() {
       [copy],
     ),
     /** Makes the abandoned draft the working copy, unsaved, with its undo history. */
-    recover: useCallback(() => run(async () => setCurrent(await client.recover(id()))), [run, setCurrent]),
+    recover: useCallback(() => run(async () => setCurrent(await client.recover(id()), 'recover')), [run, setCurrent]),
     recoverAsCopy: useCallback(() => copy((shown) => client.recoverAsCopy(shown.document.id), true), [copy]),
     discardDraft: useCallback(
       () =>
         run(async () => {
           const shownId = id()
           await client.discardDraft(shownId)
-          if (currentRef.current?.document.id === shownId) setCurrent(await client.get(shownId))
+          if (currentRef.current?.document.id === shownId) setCurrent(await client.get(shownId), 'discard')
           refreshList()
         }),
       [run, setCurrent, refreshList],
@@ -398,7 +406,7 @@ export function useDocumentEditor() {
         run(async () => {
           refreshList()
           const shown = currentRef.current
-          if (shown) setCurrent(await client.get(shown.document.id))
+          if (shown) setCurrent(await client.get(shown.document.id), 'reload')
         }),
       [run, setCurrent, refreshList],
     ),

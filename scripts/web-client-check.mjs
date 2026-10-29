@@ -3,6 +3,7 @@
 // restart noticed by another request while one is being asked about) run every time. Also
 // checks which runtime replies the client accepts.
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { register } from 'node:module'
 import { test } from 'node:test'
 
@@ -1324,8 +1325,22 @@ test('accessible names say which placement they are in when there are several', 
   assert.equal(bondName(bondWith('b1', 'a1', 'a2'), 's2'), 'Bond b1 in s2: single bond between a1 and a2')
 })
 
-const { addGraphicCommand, deleteObjectsCommand, groupCommand, moveObjectsCommand, sceneRows, selectionAfter, selectionSet, ungroupCommands } =
-  await import('../apps/web/src/editor/scene.ts')
+const {
+  addGraphicCommand,
+  canvasName,
+  deleteObjectsCommand,
+  groupCommand,
+  moveObjectsCommand,
+  objectName,
+  pressedObjects,
+  sceneRows,
+  selectionAfter,
+  selectionAfterReply,
+  selectionOnShow,
+  selections,
+  selectionSet,
+  ungroupCommands,
+} = await import('../apps/web/src/editor/scene.ts')
 const { graphicBox, graphicShape, sceneLayout } = await import('../apps/web/src/editor/geometry.ts')
 const { sceneObjects } = await import('../apps/web/src/lib/document-contract.ts')
 
@@ -1369,6 +1384,9 @@ for (const [name, change] of [
   ['a molecule object that is not an instance', (value) => (value.document.scene.objects[0].id = 's7')],
   ['an instance without its object', (value) => value.document.scene.objects.splice(0, 1)],
   ['an unknown shape', (value) => (value.document.scene.objects[3].shape = 'ellipse')],
+  ['children listed before their group', (value) => (value.document.scene.objects = [value.document.scene.objects[2], value.document.scene.objects[3], value.document.scene.objects[1], value.document.scene.objects[0]])],
+  ["a group's children listed in another order than its own", (value) => (value.document.scene.objects = [value.document.scene.objects[0], value.document.scene.objects[1], value.document.scene.objects[3], value.document.scene.objects[2]])],
+  ['a root object listed among the children of a group', (value) => (value.document.scene.objects = [value.document.scene.objects[1], value.document.scene.objects[2], value.document.scene.objects[0], value.document.scene.objects[3]])],
   ['a graphic with three points', (value) => value.document.scene.objects[3].points.push({ x: 1, y: 1 })],
   ['a graphic with a non-numeric point', (value) => (value.document.scene.objects[3].points[0].x = '0')],
   ['an unknown kind', (value) => (value.document.scene.objects[3].kind = 'text')],
@@ -1383,6 +1401,13 @@ for (const [name, change] of [
     assert.equal(isDocumentResponse(value), false)
   })
 }
+
+test('the scene objects may list the page roots in any order, each followed by its subtree', () => {
+  const value = grouped()
+  const [s1, s4, s2, s3] = value.document.scene.objects
+  value.document.scene.objects = [s4, s2, s3, s1]
+  assert.equal(isDocumentResponse(value), true)
+})
 
 test('a service from before groups and graphics shows its instances as page objects', () => {
   const { document } = drawnTwice()
@@ -1401,12 +1426,91 @@ test('the scene rows are in tree order with their depth', () => {
   )
 })
 
+/** grouped() before s4: s1, s2, and the rectangle s3 on the page. */
+function flat() {
+  const value = grouped()
+  value.document.scene.objects = value.document.scene.objects
+    .filter((object) => object.id !== 's4')
+    .map((object) => ({ ...object, parent: 'p1' }))
+  value.document.selection = { objects: [], atoms: [], bonds: [] }
+  return value
+}
+
 test('grouping is built from the latest document and only for objects that share a parent', () => {
+  const { document } = flat()
+  const group = (ids, latest = document) => groupCommand(latest, pressedObjects(document, new Set(ids)))
+  assert.deepEqual(group(['s3', 's2']), { op: 'group', objects: ['s2', 's3'] }, 'in tree order')
+  assert.deepEqual(pressedObjects(document, new Set(['s3', 'a1', 's2'])), [
+    { id: 's2', parent: 'p1' },
+    { id: 's3', parent: 'p1' },
+  ], 'an atom is not an object')
+  assert.equal(group(['s1', 's9']), null, 'an object a queued edit removed is not grouped')
+  const nested = grouped().document
+  assert.equal(groupCommand(nested, pressedObjects(nested, new Set(['s1', 's3']))), null, 'different parents')
+})
+
+test('a group press needs two objects and is not sent again once they are grouped', () => {
+  const { document } = flat()
+  const pressed = pressedObjects(document, new Set(['s2', 's3']))
+  assert.equal(groupCommand(document, pressedObjects(document, new Set(['s3']))), null, 'one object is not grouped')
+  // A second press queued behind the first: the objects now have the new group as parent.
+  assert.equal(groupCommand(grouped().document, pressed), null, 'their parent changed since the press')
+  // A press after the reply: they are all the children of their group already.
+  const nested = grouped().document
+  assert.equal(groupCommand(nested, pressedObjects(nested, new Set(['s2', 's3']))), null, 'already exactly one group')
+  // Every root object of the page may still be grouped: the page is not a group.
+  assert.deepEqual(groupCommand(nested, pressedObjects(nested, new Set(['s4', 's1']))), { op: 'group', objects: ['s1', 's4'] })
+})
+
+test('after a group reply the new group is what is selected', () => {
+  const before = flat().document
+  const after = grouped().document
+  const commands = [{ op: 'group', objects: ['s2', 's3'] }]
+  assert.deepEqual([...selectionAfterReply(new Set(['s2', 's3', 'a1']), commands, before, after)], ['s4', 'a1'])
+  assert.equal(selectionAfterReply(new Set(['s2']), [{ op: 'move_objects', objects: ['s2'], offset: { x: 1, y: 0 } }], before, after), null)
+})
+
+test('an edit carries the selection before it and after it', () => {
   const { document } = grouped()
-  assert.deepEqual(groupCommand(document, new Set(['s3', 's2'])), { op: 'group', objects: ['s2', 's3'] }, 'in tree order')
-  assert.equal(groupCommand(document, new Set(['s1', 's3'])), null, 'different parents')
-  assert.equal(groupCommand(document, new Set(['a1'])), null, 'an atom is not an object')
-  assert.equal(groupCommand(document, new Set(['s9'])), null, 'an object a queued edit removed')
+  const live = new Set(['s4', 's3', 'a1', 's9'])
+  assert.deepEqual(selections(live, [{ op: 'delete_objects', objects: ['s4'], mode: 'subtree' }], document), {
+    before: { objects: ['s4', 's3'], atoms: ['a1'], bonds: [] },
+    after: { objects: [], atoms: ['a1'], bonds: [] },
+  }, 'the selection before names only what the document holds before the edit')
+})
+
+test('a reply that replaces the shown document brings its selection; an edit reply keeps the live one', () => {
+  const reply = grouped().document
+  const live = new Set(['s1'])
+  for (const how of ['open', 'undo', 'redo', 'recover', 'discard', 'reload']) {
+    assert.deepEqual([...selectionOnShow(live, 'doc-1', reply, how)], ['s3', 'a1'], how)
+  }
+  assert.equal(selectionOnShow(live, 'doc-1', reply, 'edit'), live, 'an edit reply keeps it')
+  assert.deepEqual([...selectionOnShow(live, 'doc-2', reply, 'edit')], ['s3', 'a1'], 'another document brings its own')
+  assert.deepEqual([...selectionOnShow(live, 'doc-1', null, 'edit')], [], 'nothing shown, nothing selected')
+  const older = drawnTwice().document
+  assert.deepEqual([...selectionOnShow(live, 'doc-1', older, 'reload')], [], 'a service from before selections')
+})
+
+test('each scene object is named with its kind and the group that contains it', () => {
+  const objects = grouped().document.scene.objects
+  assert.deepEqual(objects.map(objectName), ['s1, placement', 's4, group of 2', 's2, placement, in group s4', 's3, rectangle, in group s4'])
+})
+
+test('the canvas is named with what it draws', () => {
+  const { document } = grouped()
+  assert.equal(canvasName(document), 'Placed: 2 atoms, 1 bond, 1 graphic, 1 group')
+  assert.equal(canvasName(drawnTwice().document), 'Placed: 2 atoms, 1 bond')
+  const empty = flat().document
+  empty.atoms = []
+  empty.bonds = []
+  empty.scene.objects.push({ kind: 'graphic', id: 's5', parent: 'p1', shape: 'line', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] })
+  assert.equal(canvasName(empty), 'Placed: 0 atoms, 0 bonds, 2 graphics')
+})
+
+test('the graphics layer is memoized, so hovering does not redraw it', () => {
+  const source = readFileSync(new URL('../apps/web/src/editor/structure-canvas.tsx', import.meta.url), 'utf8')
+  assert.match(source, /const GraphicMark = memo\(function GraphicMark\(/)
 })
 
 test('ungrouping names each selected group that the latest document still holds', () => {
@@ -1489,10 +1593,11 @@ test('the transaction body carries the selection only when one is given', async 
   }
   const client = new DocumentClient()
   const selection = { objects: ['s4'], atoms: [], bonds: [] }
-  await client.transact('doc-1', 2, [{ op: 'group', objects: ['s4'] }], selection)
+  const before = { objects: ['s2', 's3'], atoms: [], bonds: [] }
+  await client.transact('doc-1', 2, [{ op: 'group', objects: ['s2', 's3'] }], { before, after: selection })
   await client.transact('doc-1', 3, [])
-  assert.deepEqual(bodies[0].selection, selection)
-  assert.equal('selection' in bodies[1], false, 'a service from before selections gets no field')
+  assert.deepEqual([bodies[0].selection, bodies[0].selection_before], [selection, before])
+  assert.equal('selection' in bodies[1] || 'selection_before' in bodies[1], false, 'a service from before selections gets no field')
 })
 
 test('undo and redo replies carry the selection the editor takes over', async () => {

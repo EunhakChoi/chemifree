@@ -83,9 +83,13 @@ import {
   deleteObjectsCommand,
   groupCommand,
   moveObjectsCommand,
+  objectName,
+  objectText,
+  pressedObjects,
   sceneRows,
   selectedObjects,
   ungroupCommands,
+  type PressedObject,
 } from '@/editor/scene'
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import type { AutosaveState } from '@/hooks/use-autosave'
@@ -105,7 +109,6 @@ import {
   type RecoveryView,
   type DeleteMode,
   type Hydrogens,
-  type SceneObjectView,
   type Shape,
   type QueryAtom,
   type Radical,
@@ -1059,22 +1062,6 @@ const SHAPES: { value: Shape; label: string; icon: ReactNode }[] = [
   { value: 'arrow', label: 'Add arrow', icon: <MoveRightIcon /> },
 ]
 
-/** What a row of the scene tree says about its object. */
-function objectText(object: SceneObjectView) {
-  switch (object.kind) {
-    case 'molecule':
-      return 'placement'
-    case 'group':
-      return `group of ${object.children.length}`
-    case 'graphic':
-      return object.shape
-    default: {
-      const unhandled: never = object
-      return unhandled
-    }
-  }
-}
-
 /**
  * The page's scene tree: placements, groups, and graphics, selected with checkboxes. Grouping,
  * ungrouping, moving, deleting, and adding graphics act on the selection; each edit is built
@@ -1085,10 +1072,12 @@ function ScenePanel({ document, selected, editor }: { document: DocumentView; se
   const rows = useMemo(() => sceneRows(document), [document])
   const chosen = selectedObjects(document, selected)
   const [deleting, setDeleting] = useState(false)
-  // Pressed actions use the selection as it is when pressed and the document as it is when sent.
-  const act = (build: (latest: DocumentView, objects: ReadonlySet<string>) => Command[] | null) => {
-    const objects = new Set(chosen.map((object) => object.id))
-    void editor.apply((latest) => build(latest, objects))
+  // Pressed actions use the selection (and each object's parent) as it is when pressed and the
+  // document as it is when sent.
+  const act = (build: (latest: DocumentView, objects: ReadonlySet<string>, pressed: PressedObject[]) => Command[] | null) => {
+    const pressed = pressedObjects(document, selected)
+    const objects = new Set(pressed.map((object) => object.id))
+    void editor.apply((latest) => build(latest, objects, pressed))
   }
   const toggle = (id: string, checked: boolean) => {
     const next = new Set(editor.selection)
@@ -1109,7 +1098,7 @@ function ScenePanel({ document, selected, editor }: { document: DocumentView; se
           <li key={object.id} data-scene-object={object.id} style={{ paddingInlineStart: `${depth * 12}px` }}>
             <label className="flex items-center gap-2 text-xs">
               <Checkbox
-                aria-label={`Select ${object.id}, ${objectText(object)}`}
+                aria-label={`Select ${objectName(object)}`}
                 checked={selected.has(object.id)}
                 onCheckedChange={(checked) => toggle(object.id, checked)}
               />
@@ -1123,8 +1112,8 @@ function ScenePanel({ document, selected, editor }: { document: DocumentView; se
         <Button
           size="sm"
           variant="outline"
-          disabled={groupCommand(document, selected) === null}
-          onClick={() => act((latest, objects) => commandList(groupCommand(latest, objects)))}
+          disabled={groupCommand(document, pressedObjects(document, selected)) === null}
+          onClick={() => act((latest, _objects, pressed) => commandList(groupCommand(latest, pressed)))}
         >
           <GroupIcon data-icon="inline-start" aria-hidden="true" />Group
         </Button>
