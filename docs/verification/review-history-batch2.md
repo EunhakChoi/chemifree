@@ -100,3 +100,19 @@ main(85d4788) 위의 브랜치 `feat/graph-scene-split`. 구현은 새 컨텍스
 | 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
 |---|---|---|---|---|---|
 | 1 (자동) | 2026-10-29 00:17:50 | 87966e6 | 00:23:12 | 지적 1건(P2): 배치 이동·삭제 버튼을 빠르게 두 번 누르면 두 번째 요청이 화면의 같은 revision으로 나가 `revision_conflict`로 거절되고 그 이동이 사라짐 → 수용: 첫 요청을 붙잡아 두는 브라우저 smoke 단계를 먼저 작성해 409를 재현한 뒤, 이동·삭제 명령을 적용될 때의 최신 문서로 만들도록 바꿈(삭제된 배치·마지막 배치는 보내지 않음). 단위 테스트 추가 | [review](https://github.com/EunhakChoi/chemifree/pull/30#pullrequestreview-5691389656) |
+| 2 (요청) | 00:31:12 | 438f766 | 00:46:33 시간 초과 | 통과 아님: 15분 안에 시작 반응(👀)만 있었고 review state는 `running` | [PR](https://github.com/EunhakChoi/chemifree/pull/30) |
+| 3 (요청) | 00:46:53 | 438f766 | 00:48:58 | 통과: 이 head의 코드 리뷰 완료, 지적 없음(review state `completed`, `has_any_findings: false`, 영수 댓글 "Didn't find any major issues") | [receipt](https://github.com/EunhakChoi/chemifree/pull/30#issuecomment-6484742580) |
+
+CI(438f766): check·browser 성공(run 40794594222). 병합 1a518cd, 병합 후 main CI 성공([run 40796524510](https://github.com/EunhakChoi/chemifree/actions/runs/40796524510), check·browser).
+
+## #31 P10 — 수소·라디칼·질의·결합 종류 상태 기록(닫음)
+
+main(1a518cd) 위의 브랜치 `feat/atom-bond-states`. 구현은 새 컨텍스트의 에이전트가 명세(spec/ 아래만)와 설계 지시로 작성했다. PR 전에 독립 사전 검토(P1·P2 없음, P3 3건: 원자 상태 필드가 일부 원자에만 있는 응답을 웹이 받아들임, 원자 종류·전하·동위원소를 빠르게 연달아 누르면 거절될 조합을 보냄, CLI 텍스트 출력에 상태가 빠짐)를 반영했다(f0e4320).
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-29 02:03:15 | f0e4320 | 02:06:18 | 지적 1건(P2): 부착점을 저장하지만 캔버스에 그리지 않아, 결합된 탄소에 부착점을 붙여도 꼭짓점만 보임 → 수용: 웹 단위 테스트와 브라우저 smoke 단계를 먼저 작성해 실패를 확인한 뒤 부착점 표시를 그림. 같은 수정에서 smoke 정리 단계가 API 종료(종료 시 초안 쓰기)를 기다리지 않고 임시 디렉터리를 지워 한 번 ENOTEMPTY로 실패한 경쟁을 고침 | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692017219) |
+| 2 (요청) | 02:16:19 | 02efcb2 | 02:19:27 | 지적 1건(P2): 결합선이 라벨 유무만 보고 7 pt 고정으로 잘려 `CH16`·`H?`·`![N,O]` 같은 넓은 라벨 위를 지나감 → 수용: "결합선 끝이 렌더된 라벨 상자 안에 있지 않다"는 브라우저 검사를 먼저 넣어 실패를 확인한 뒤 라벨 상자 기준으로 자름 | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692097642) |
+| 3 (요청) | 02:28:58 | 65ade75 | 02:32:55 | 지적 2건(P2): ① 라디칼 점·부착점 표시가 결합을 자르는 상자에 들어가지 않아 그쪽으로 나가는 결합선과 겹침 ② 캔버스 view box가 원자 중심만 보고 라벨 폭을 무시해 캔버스 가장자리의 넓은 질의 라벨이 잘림. 3회차까지 통과하지 못함 | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692176139) |
+
+CI(65ade75): check·browser 성공(run 40806609015). 그러나 3회 안에 통과하지 못해 규칙대로 PR을 닫았다(병합 없음, [닫은 이유](https://github.com/EunhakChoi/chemifree/pull/31#issuecomment-6486292409)). 세 회차의 지적이 모두 "캔버스가 라벨·상태 표시·결합 끝·view box를 따로, 일부는 추정한 기하로 배치한다"는 같은 약점이었다. 최신 main(1a518cd)에서 새 브랜치 `feat/recorded-atom-states`로 다시 구현한다(#31 코드 재사용·이름 변경·cherry-pick 없음). 다시 구현할 때는 원자마다 라벨 배치(글자와 상태 표시를 함께) 하나를 두고 결합 자르기와 view box가 모두 그것을 쓰게 한다. 후속 PR은 아래에 기록한다.
