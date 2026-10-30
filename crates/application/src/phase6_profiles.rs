@@ -194,6 +194,7 @@ pub fn decode_dataset(
 }
 
 /// Exact finite binary64 operand; the raw bits retain signed zero.
+#[derive(PartialEq, Eq)]
 pub struct F64Operand {
     pub bits: u64,
 }
@@ -340,7 +341,10 @@ pub fn decode_f64_literal(bytes: &[u8]) -> Result<F64Operand, DecodeError> {
     decode_f64_pair(&wire.value, &wire.bits_le)
 }
 
-fn decode_f64_pair(value: &serde_json::Number, bits_le: &str) -> Result<F64Operand, DecodeError> {
+pub(crate) fn decode_f64_pair(
+    value: &serde_json::Number,
+    bits_le: &str,
+) -> Result<F64Operand, DecodeError> {
     let number = value
         .as_f64()
         .filter(|number| number.is_finite())

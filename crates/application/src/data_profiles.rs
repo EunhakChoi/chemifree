@@ -65,6 +65,8 @@ pub enum ProfileRecords {
     ElementEndpoint(u32),
     Contours(Vec<Contour>),
     Phase6(crate::phase6_profiles::DatasetRecords),
+    /// Verified NMR input operands; no prediction engine is implied.
+    Nmr(Box<crate::nmr_profile::NmrData>),
 }
 
 #[derive(PartialEq)]
