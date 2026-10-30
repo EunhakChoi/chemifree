@@ -173,6 +173,16 @@ fn binary64_with_unit_retains_the_declared_unit_without_conversion() {
 }
 
 #[test]
+fn source_decimal_zero_sign_must_match_its_binary_witness() {
+    let positive_bits_for_negative_zero =
+        br#"{"source_decimal":"-0","reference_f64":0,"reference_f64_bits_le":"0000000000000000"}"#;
+    let negative_bits_for_positive_zero =
+        br#"{"source_decimal":"+0","reference_f64":0,"reference_f64_bits_le":"0000000000000080"}"#;
+    assert!(decode_decimal_reference(positive_bits_for_negative_zero).is_err());
+    assert!(decode_decimal_reference(negative_bits_for_positive_zero).is_err());
+}
+
+#[test]
 fn full_u64_and_binary64_witnesses_keep_their_exact_bits() {
     assert_eq!(
         decode_u64(b"-0"),

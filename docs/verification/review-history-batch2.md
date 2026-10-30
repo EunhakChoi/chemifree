@@ -200,3 +200,25 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 요청 | 18:55:36 | `76146338990022af5d21efb88503829867fc1b8a` | 18:57:34 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6531055174), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111008631)는 check·browser 모두 성공했다. 19:03:03에 `78c02535c496a5e2ed1bcdca2c187887ebb07d5c`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111972478)도 check·browser 모두 성공했다.
+
+## #40 P14 후속 — 명명 label 프로필
+
+시간은 UTC다. [#40](https://github.com/EunhakChoi/chemifree/pull/40)은 명명 label의 원문 순서·코드·바이트를 보존하는 기반이며 명명 엔진은 구현하지 않았다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 19:16:02 | `d0313432ce3320ab018222a12bc3fb4304eb3421` | 19:18:46 | 완료, 지적 및 미해결 스레드 없음. | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/40#issuecomment-6531503481) |
+
+[PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41113839046)는 성공했다. 19:29:50에 `560aa08485e5629fe7b22b156c21ef8d439a5d71`로 병합했으며, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41115719039)도 성공했다.
+
+## #41 P14 질량 프로필 — 세 회차 실패 후 종료
+
+시간은 UTC다. [#41](https://github.com/EunhakChoi/chemifree/pull/41)은 세 차례 안에 통과하지 못해 병합하지 않았다. 후속 작업은 최신 main의 별도 브랜치에서 계약을 다시 설계하고 새로 작성한다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 설계 결정 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 19:43:36 | `6e6f5599c20574ecaea71d80c77deb7c2d1dae55` | 19:46:03 | P2: 출처 행의 종류와 대상 범위가 검증되지 않았다. 후속 reader는 명시적으로 지원하는 종류의 행 존재와 중복을 검사하고, 원문 줄과 정규화 값의 의미상 동등성은 별도 검증 없이 주장하지 않는다. | [지적](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427842366) |
+| 2 요청 | 19:49:53 | `c36ff329aadee1cb598891bbeddb190a6cdacbb5` | 19:52:26 | P2: 명시된 음수 풍부도를 허용했다. 후속 reader는 binary64로 언더플로해도 원문 십진수의 음수를 거절하고 부호 있는 0은 구분해 보존한다. | [요청](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532129583), [지적](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427895302) |
+| 3 요청 | 19:59:59 | `1eb782aec26dc4cdd8fc53fcb5548880155612fe` | 20:03:17 | P2 두 건: 비양수 자연 원자량과 100을 초과하는 개별 풍부도를 허용했다. 공개 스키마 자체에는 수치 범위가 없어 후속 reader의 지원 범위를 명시적으로 양수 원자량·개별 0..100 퍼센트로 정한다. 개별 값의 합은 정규화하거나 100으로 제한하지 않는다. 실제 개인 DATA 호환은 확인하지 않았다. | [요청](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532306946), [원자량](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979268), [풍부도](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979274) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41119760648)는 성공했으나 리뷰가 통과하지 않아 20:04:03에 종료했다. 임시 실패 브랜치와 worktree는 보존한다.

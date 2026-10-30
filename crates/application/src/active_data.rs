@@ -8,7 +8,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, naming_labels, nmr_profile, phase6_profiles};
+use crate::{json, mass_data, naming_labels, nmr_profile, phase6_profiles};
+
+#[cfg(test)]
+#[path = "active_data/mass_registry_tests.rs"]
+mod mass_registry_tests;
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,7 +240,8 @@ pub fn validate_model_binding(
             || dataset.generation != registration.generation
             || dataset.manifest_sha256 != registration.manifest_sha256
             || dataset.engine_contract_id != binding.independent_engine_contract_id
-            || registration.feature_schema_sha256.is_some()
+            || dataset.feature_schema_sha256.as_ref() != registration.feature_schema_sha256.as_ref()
+            || dataset.feature_schema_sha256.is_some()
         {
             return Err(ActiveDataError::ModelUnavailable);
         }
@@ -364,6 +369,7 @@ enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
+    Mass,
     Nmr,
 }
 
@@ -399,6 +405,34 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::ProfileUnsupported);
             }
             return Ok(SelectedProfile::NamingLabels);
+        }
+        "personal-local-atomic-isotope-mass-profile-v1" => {
+            let files = &manifest.files;
+            if !(files.len() == mass_data::FILES.len() || files.len() == mass_data::FILES.len() + 1)
+                || mass_data::FILES.iter().any(|path| {
+                    !files
+                        .iter()
+                        .any(|file| file.required && file.relative_path == *path)
+                })
+                || files.iter().any(|file| {
+                    let path = file.relative_path.as_str();
+                    (!mass_data::FILES.contains(&path) && path != mass_data::RAW)
+                        || !matches!(
+                            file.declared_content_class.as_str(),
+                            "declarative_data" | "model_parameters"
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            let feature = files
+                .iter()
+                .find(|file| file.relative_path == mass_data::FEATURES)
+                .ok_or(ActiveDataError::ProfileUnsupported)?;
+            if manifest.feature_schema_sha256.as_deref() != Some(feature.sha256.as_str()) {
+                return Err(ActiveDataError::DataIdentityMismatch);
+            }
+            return Ok(SelectedProfile::Mass);
         }
         "personal-local-nmr-coupling-parameters-v1" => {
             if manifest.files.len() != nmr_profile::REQUIRED_FILES.len()
@@ -572,6 +606,15 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Mass => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::Mass(Box::new(
+                mass_data::decode_set(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Nmr => {
             let files: Vec<_> = payloads
                 .iter()
@@ -609,6 +652,14 @@ fn verify_catalog(
             )
             .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Mass => mass_data::verify_catalog(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -1638,6 +1689,14 @@ mod tests {
         })).unwrap();
         assert!(matches!(
             validate_model_binding(&binding, &hash(&binding), &[&loaded]),
+            Err(ActiveDataError::ModelUnavailable)
+        ));
+
+        let mut without_schema: Value = serde_json::from_slice(&binding).unwrap();
+        without_schema["data_registrations"][0]["feature_schema_sha256"] = Value::Null;
+        let without_schema = serde_json::to_vec(&without_schema).unwrap();
+        assert!(matches!(
+            validate_model_binding(&without_schema, &hash(&without_schema), &[&loaded]),
             Err(ActiveDataError::ModelUnavailable)
         ));
 

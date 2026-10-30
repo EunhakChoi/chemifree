@@ -67,6 +67,8 @@ pub enum ProfileRecords {
     Phase6(crate::phase6_profiles::DatasetRecords),
     /// Verified naming label inputs; labels are not executable dispatch rules.
     NamingLabels(Box<crate::naming_labels::NamingLabels>),
+    /// Validated mass operands and lineage, without a mass computation engine.
+    Mass(Box<crate::mass_data::MassData>),
     /// Verified NMR input operands; no prediction engine is implied.
     Nmr(Box<crate::nmr_profile::NmrData>),
 }
