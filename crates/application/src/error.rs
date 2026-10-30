@@ -3,6 +3,7 @@
 use std::fmt;
 
 use chemifree_domain::scene::SceneError;
+use chemifree_domain::settings::SettingsError;
 use chemifree_domain::states::StateError;
 use serde::Serialize;
 
@@ -41,6 +42,10 @@ pub enum ErrorCode {
     DraftNotFound,
     /// A request with this `request_id` is still running; ask again for its outcome.
     RequestInProgress,
+    /// The request sets a preference whose feature is not implemented, so it is not stored.
+    SettingNotImplemented,
+    /// The stored preferences cannot be read; nothing that needs them is done.
+    PreferencesUnreadable,
 }
 
 impl ErrorCode {
@@ -63,6 +68,8 @@ impl ErrorCode {
             Self::DraftOutdated => "draft_outdated",
             Self::DraftNotFound => "draft_not_found",
             Self::RequestInProgress => "request_in_progress",
+            Self::SettingNotImplemented => "setting_not_implemented",
+            Self::PreferencesUnreadable => "preferences_unreadable",
         }
     }
 }
@@ -103,6 +110,8 @@ pub struct ApplicationError {
     pub invalid_state: Option<StateError>,
     /// Set with `InvalidCommand` when a scene rule was refused.
     pub invalid_scene: Option<SceneError>,
+    /// The invalid document or new-document style value, when one was refused.
+    pub invalid_settings: Option<SettingsError>,
 }
 
 impl ApplicationError {
@@ -115,6 +124,7 @@ impl ApplicationError {
             reason: None,
             invalid_state: None,
             invalid_scene: None,
+            invalid_settings: None,
         }
     }
 
@@ -143,6 +153,7 @@ impl ApplicationError {
             .map(StorageReason::as_str)
             .or(self.invalid_state.map(StateError::code))
             .or(self.invalid_scene.map(SceneError::code))
+            .or(self.invalid_settings.map(SettingsError::code))
     }
 }
 

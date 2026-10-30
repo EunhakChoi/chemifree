@@ -4,7 +4,7 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use chemifree_api::{ApiState, LocalApplication, MAX_BODY_BYTES, SESSION_HEADER, router};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -22,7 +22,8 @@ struct Api {
 fn api() -> Api {
     let data = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(data.path());
-    let application = LocalApplication::new(LocalCapabilities, repository);
+    let application = LocalApplication::new(LocalCapabilities, repository)
+        .with_preferences(FilePreferenceStore::new(data.path()));
     let state = ApiState::new(application, TOKEN.into(), PORT, &[WEB.into()]).unwrap();
     Api {
         router: router(Arc::new(state)),
@@ -64,6 +65,16 @@ impl Api {
     async fn post(&self, uri: &str, body: Value) -> (StatusCode, Value) {
         self.send(write(uri).body(Body::from(body.to_string())).unwrap())
             .await
+    }
+
+    async fn put(&self, uri: &str, body: Value) -> (StatusCode, Value) {
+        self.send(
+            write(uri)
+                .method("PUT")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
     }
 }
 
@@ -527,4 +538,282 @@ async fn autosave_save_as_and_draft_routes_map_to_v1_statuses() {
         (status, body["code"].as_str()),
         (StatusCode::UNPROCESSABLE_ENTITY, Some("invalid_request"))
     );
+}
+
+#[tokio::test]
+async fn preferences_are_read_and_written_with_a_revision_and_guarded_like_writes() {
+    let api = api();
+    let (status, body) = api.get("/api/v1/preferences").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 0);
+    assert_eq!(body["ui"], json!({"theme": "system"}));
+    assert_eq!(body["new_documents"], json!({}));
+    assert_eq!(body["new_document_settings"]["bond_length_pt"], 30.0);
+    assert_eq!(body["computation"]["nmr"]["status"], "not_implemented");
+    assert_eq!(
+        body["computation"]["numeric_precision"]["owner"],
+        "preferences"
+    );
+
+    let change = json!({"request_id": "p1", "expected_revision": 0,
+        "ui": {"theme": "dark"}, "new_documents": {"bond_length_pt": 40}});
+    let unguarded = api
+        .send(
+            Request::put("/api/v1/preferences")
+                .header("host", HOST)
+                .header("content-type", "application/json")
+                .body(Body::from(change.to_string()))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(unguarded.0, StatusCode::UNAUTHORIZED);
+    assert!(
+        !api.data.path().join("preferences.json").exists(),
+        "a refused write stores nothing"
+    );
+
+    let (status, body) = api.put("/api/v1/preferences", change.clone()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (body["revision"].clone(), body["ui"]["theme"].clone()),
+        (json!(1), json!("dark"))
+    );
+    assert!(api.data.path().join("preferences.json").exists());
+    let (status, replayed) = api.put("/api/v1/preferences", change).await;
+    assert_eq!((status, replayed), (StatusCode::OK, body));
+
+    let (status, body) = api
+        .put(
+            "/api/v1/preferences",
+            json!({"request_id": "p2", "expected_revision": 0,
+                "ui": {"theme": "light"}, "new_documents": {}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(
+        (body["code"].as_str(), body["current_revision"].as_u64()),
+        (Some("revision_conflict"), Some(1))
+    );
+
+    let (status, body) = api
+        .put(
+            "/api/v1/preferences",
+            json!({"request_id": "p3", "expected_revision": 1,
+                "ui": {"theme": "light"}, "new_documents": {},
+                "computation": {"nmr": {"solvent": "CDCl3"}}}),
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::NOT_IMPLEMENTED, Some("setting_not_implemented"))
+    );
+
+    let (status, body) = api
+        .put(
+            "/api/v1/preferences",
+            json!({"request_id": "p4", "expected_revision": 1,
+                "ui": {"theme": "light"}, "new_documents": {"label_size_pt": 100}}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        (body["code"].as_str(), body["reason"].as_str()),
+        (Some("invalid_request"), Some("label_size_out_of_range"))
+    );
+
+    let (status, body) = api
+        .post(
+            "/api/v1/preferences/reset",
+            json!({"request_id": "p5", "expected_revision": 1}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (body["revision"].clone(), body["new_documents"].clone()),
+        (json!(2), json!({}))
+    );
+    let (status, _) = api.post("/api/v1/preferences", json!({})).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn document_settings_are_edited_reset_and_imported_over_http() {
+    let api = api();
+    let (_, preferences) = api
+        .put(
+            "/api/v1/preferences",
+            json!({"request_id": "p1", "expected_revision": 0,
+                "ui": {"theme": "system"}, "new_documents": {"label_font": "serif"}}),
+        )
+        .await;
+    assert_eq!(preferences["revision"], 1);
+    let (_, created) = api
+        .post("/api/v1/documents", json!({"request_id": "c1"}))
+        .await;
+    let id = created["document"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(created["document"]["settings"]["label_font"], "serif");
+    assert_eq!(created["document"]["settings"]["bond_length_pt"], 30.0);
+
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{id}/transactions"),
+            json!({"request_id": "t1", "expected_revision": 0, "commands": [
+                {"op": "update_settings", "line_width_pt": 0}
+            ]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        (
+            body["code"].as_str(),
+            body["command_index"].as_u64(),
+            body["reason"].as_str()
+        ),
+        (
+            Some("invalid_command"),
+            Some(0),
+            Some("line_width_out_of_range")
+        )
+    );
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{id}/transactions"),
+            json!({"request_id": "t2", "expected_revision": 0, "commands": [
+                {"op": "update_settings", "bond_length_pt": 45, "display_unit": "mm"}
+            ]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["document"]["settings"]["bond_length_pt"], 45.0);
+    assert_eq!(body["document"]["settings"]["display_unit"], "mm");
+
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{id}/settings/reset"),
+            json!({"request_id": "r1", "expected_revision": 1, "to": "defaults"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["document"]["settings"],
+        json!({"bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif",
+            "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"})
+    );
+    assert_eq!(body["session"]["undo_depth"], 2);
+
+    let (_, other) = api
+        .post("/api/v1/documents", json!({"request_id": "c2"}))
+        .await;
+    let other = other["document"]["id"].as_str().unwrap().to_owned();
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{other}/settings/import"),
+            json!({"request_id": "i1", "expected_revision": 0, "source": id}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["document"]["settings"]["label_font"], "sans-serif");
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{other}/settings/import"),
+            json!({"request_id": "i2", "expected_revision": 1, "source": "doc-missing"}),
+        )
+        .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("document_not_found"))
+    );
+    let (status, body) = api
+        .post(
+            &format!("/api/v1/documents/{other}/settings/reset"),
+            json!({"request_id": "r2", "expected_revision": 1, "to": "preferences"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["document"]["settings"]["label_font"], "serif");
+
+    let (status, body) = api
+        .post(
+            "/api/v1/preferences/import",
+            json!({"request_id": "p2", "expected_revision": 1, "document": id}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["revision"], 2);
+    assert_eq!(body["new_documents"]["label_font"], "sans-serif");
+    assert_eq!(body["new_documents"]["display_unit"], "pt");
+}
+
+#[tokio::test]
+async fn settings_replacements_record_the_command_time_selection_and_replay_it() {
+    let api = api();
+    let (_, created) = api
+        .post("/api/v1/documents", json!({"request_id": "create"}))
+        .await;
+    let id = created["document"]["id"].as_str().unwrap().to_owned();
+    let base = format!("/api/v1/documents/{id}");
+    let a1 = json!({"objects": [], "atoms": ["a1"], "bonds": []});
+    let a2 = json!({"objects": [], "atoms": ["a2"], "bonds": []});
+    let (status, _) = api
+        .post(
+            &format!("{base}/transactions"),
+            json!({
+                "request_id": "edit", "expected_revision": 0,
+                "commands": [
+                    {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+                    {"op": "add_atom", "element": "O", "position": {"x": 30, "y": 0}},
+                    {"op": "update_settings", "line_width_pt": 2}
+                ],
+                "selection_after": a1
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let reset = json!({"request_id": "reset", "expected_revision": 1, "to": "defaults",
+        "selection_before": a2, "selection_after": a2});
+    let (status, reset_reply) = api
+        .post(&format!("{base}/settings/reset"), reset.clone())
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reset_reply["document"]["selection"], a2);
+    let (status, replay) = api
+        .post(&format!("{base}/settings/reset"), reset.clone())
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay, reset_reply);
+    let mut different = reset;
+    different["selection_before"] = a1.clone();
+    let (status, _) = api.post(&format!("{base}/settings/reset"), different).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, undo) = api
+        .post(
+            &format!("{base}/undo"),
+            json!({"request_id":"undo-reset", "expected_revision": 2}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(undo["document"]["selection"], a2);
+    let (_, source) = api
+        .post("/api/v1/documents", json!({"request_id":"source"}))
+        .await;
+    let source = source["document"]["id"].as_str().unwrap();
+    let (status, imported) = api
+        .post(
+            &format!("{base}/settings/import"),
+            json!({
+                "request_id": "import", "expected_revision": 3, "source": source,
+                "selection_before": a1, "selection_after": a1
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(imported["document"]["selection"], a1);
+    let (status, undo) = api
+        .post(
+            &format!("{base}/undo"),
+            json!({"request_id":"undo-import", "expected_revision": 4}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(undo["document"]["selection"], a1);
 }

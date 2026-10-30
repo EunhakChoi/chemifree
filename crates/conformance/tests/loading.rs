@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use chemifree_conformance::case::{Problem, StepProblem, parse_case, parse_case_bytes};
+use chemifree_conformance::case::{Body, Problem, StepProblem, parse_case, parse_case_bytes};
 use chemifree_conformance::expect::ExpectationError;
 use chemifree_conformance::{check_case_path, load_suite};
 use serde_json::{Value, json};
@@ -168,6 +168,52 @@ fn refuses_a_missing_or_untaken_document() {
     assert_eq!(step_problem(&missing), StepProblem::MissingDocument);
     let untaken = with_steps(json!([{"call": "capabilities", "document": "d"}, get_expect()]));
     assert_eq!(step_problem(&untaken), StepProblem::DocumentNotTaken);
+}
+
+#[test]
+fn preference_and_settings_calls_take_their_own_fields() {
+    let case = with_steps(json!([
+        {"call": "set_preferences", "expected_revision": 0, "ui": {"theme": "dark"},
+         "new_documents": {"bond_length_pt": 40}},
+        {"call": "preferences", "expect": {"revision": 1}},
+        {"call": "reset_settings", "document": "d", "expected_revision": 0, "to": "preferences"},
+        get_expect()
+    ]));
+    let names: Vec<&str> = match parse_case(&case).unwrap().body {
+        Body::Steps(steps) => steps.iter().map(|step| step.call.name()).collect(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        names,
+        [
+            "create",
+            "set_preferences",
+            "preferences",
+            "reset_settings",
+            "get"
+        ]
+    );
+    let with_document = with_steps(json!([
+        {"call": "set_preferences", "document": "d", "expected_revision": 0,
+         "ui": {"theme": "dark"}, "new_documents": {}},
+        get_expect()
+    ]));
+    assert_eq!(step_problem(&with_document), StepProblem::DocumentNotTaken);
+    let unknown_source = with_steps(json!([
+        {"call": "reset_settings", "document": "d", "expected_revision": 0, "to": "elsewhere"},
+        get_expect()
+    ]));
+    assert!(
+        matches!(step_problem(&unknown_source), StepProblem::Body(message) if message.contains("elsewhere"))
+    );
+    let preferences_request_id = with_steps(json!([
+        {"call": "preferences", "request_id": "r1"},
+        get_expect()
+    ]));
+    assert_eq!(
+        step_problem(&preferences_request_id),
+        StepProblem::RequestIdNotTaken
+    );
 }
 
 #[test]

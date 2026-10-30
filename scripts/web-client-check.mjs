@@ -934,12 +934,13 @@ test('a bond stops 2 pt outside both label boxes', () => {
   assert.equal(to.x, placedEnd.x - 2)
 })
 
-test('a bond squeezed between two labels keeps a short stroke in the middle, never reversed', () => {
+test('a squeezed bond draws only in the room between labels, never reversed or across them', () => {
   const box = atomLabel(atomWith('a1', 'Cl', 0, 0, { hydrogens: { mode: 'specified', count: 2 } }), 1).box
-  const [from, to] = clipped({ x: 0, y: 0 }, { x: 12, y: 0 }, box, { ...box, x: box.x + 12 })
-  assert.ok(to.x > from.x, `drawn forward: ${from.x} → ${to.x}`)
-  assert.equal(Math.round((to.x - from.x) * 100) / 100, 3)
-  assert.equal(Math.round((from.x + to.x) * 50) / 100, 6, 'centred between the atoms')
+  assert.equal(clipped({ x: 0, y: 0 }, { x: 12, y: 0 }, box, { ...box, x: box.x + 12 }), null)
+  const first = { x: -1, y: -1, width: 4, height: 2 }
+  const second = { x: 9, y: -1, width: 4, height: 2 }
+  const [from, to] = clipped({ x: 0, y: 0 }, { x: 12, y: 0 }, first, second)
+  assert.deepEqual([from, to], [{ x: 5, y: 0 }, { x: 7, y: 0 }], 'a narrow gap keeps its available stroke')
 })
 
 test('every bond kind is drawn differently and named', () => {
@@ -1378,4 +1379,292 @@ test('accessible names say which placement they are in when there are several', 
   assert.equal(atomName(oxygen, 's2'), 'Atom a1 in s2: O')
   assert.equal(bondName(bondWith('b1', 'a1', 'a2')), 'Bond b1: single bond between a1 and a2')
   assert.equal(bondName(bondWith('b1', 'a1', 'a2'), 's2'), 'Bond b1 in s2: single bond between a1 and a2')
+})
+
+test('a short bond can be hit between both its bare or labelled atoms', () => {
+  for (const elements of [['C', 'C'], ['N', 'O']]) {
+    const atoms = [atomWith('a1', elements[0], 0, 0), atomWith('a2', elements[1], 5, 0)]
+    const view = { id: 'doc-short', title: 'Short', revision: 1, atoms, bonds: [bondWith('b1', 'a1', 'a2')] }
+    const labels = new Map(atoms.map((atom) => [atom.id, atomLabel(atom, 1)]))
+    assert.deepEqual(hitTest(view, { x: 2.5, y: 0 }, new Set(), undefined, labels), { kind: 'bond', id: 'b1' }, elements.join('–'))
+    assert.deepEqual(hitTest(view, { x: 0, y: 0 }, new Set(), undefined, labels), { kind: 'atom', id: 'a1' })
+    assert.deepEqual(hitTest(view, { x: 5, y: 0 }, new Set(), undefined, labels), { kind: 'atom', id: 'a2' })
+  }
+})
+
+test('a wide bond leaves room for its round caps outside both label boxes', () => {
+  const begin = { x: 0, y: 0 }
+  const end = { x: 100, y: 0 }
+  const left = { x: -4, y: -4, width: 8, height: 8 }
+  const right = { x: 96, y: -4, width: 8, height: 8 }
+  const [stroke] = bondStrokes(bondWith('b1', 'a1', 'a2'), begin, end, left, right, 1, 1, 10)
+  assert.equal(stroke.shape, 'line')
+  assert.ok(stroke.x1 - (left.x + left.width) >= 6.4 - 0.01, 'the left round cap clears its label')
+  assert.ok(right.x - stroke.x2 >= 6.4 - 0.01, 'the right round cap clears its label')
+})
+
+test('a wide short bond cannot draw ink across labels when no room remains', () => {
+  const begin = atomLabel(atomWith('a1', 'N', 0, 0), 1).box
+  const end = atomLabel(atomWith('a2', 'O', 5, 0), 1).box
+  const placedEnd = { ...end, x: end.x + 5 }
+  for (const order of ['single', 'double', 'aromatic', 'dative', 'query', 'unknown']) {
+    const query = order === 'query' ? { kind: 'any' } : null
+    const strokes = bondStrokes(bondWith('b1', 'a1', 'a2', order, query), { x: 0, y: 0 }, { x: 5, y: 0 }, begin, placedEnd, 1, 1, 10)
+    assert.deepEqual(strokes, [], `${order} leaves overlapping labels clear`)
+  }
+})
+
+test('wide bond ink and its selection highlight stay inside the view and placement frame', async () => {
+  const { bondSpacing, strokeReach } = await import('../apps/web/src/editor/geometry.ts')
+  const positions = [{ x: -100, y: 0 }, { x: -95, y: 0 }]
+  const reach = strokeReach(10, bondSpacing(10)) + 3
+  const view = viewBox(positions, [], reach)
+  const frame = placementFrame(positions, [], 's1', reach)
+  assert.ok(view.x <= positions[0].x - reach, 'the view holds the leftmost highlight')
+  assert.ok(view.y <= -reach, 'the view holds the upper highlight')
+  assert.ok(frame.rect.x <= positions[0].x - reach, 'the placement frame holds the highlight')
+  assert.ok(frame.rect.y <= -reach, 'the placement frame holds the upper highlight')
+})
+
+const { DEFAULT_SETTINGS, isPreferencesResponse, settingsOf } = await import('../apps/web/src/lib/document-contract.ts')
+const settingsEdits = await import('../apps/web/src/editor/settings.ts')
+const { DEFAULT_LABEL_STYLE, labelStyleOf } = await import('../apps/web/src/editor/label.ts')
+const { bondSpacing, freeNeighborPosition, snappedEndpoint } = await import('../apps/web/src/editor/geometry.ts')
+
+/** A document reply carrying `settings` (left out when undefined, as an older service does). */
+function styled(settings) {
+  const reply = document('doc-1')
+  if (settings !== undefined) reply.document.settings = settings
+  return reply
+}
+
+test('document settings are checked at the boundary and an older reply has none', () => {
+  assert.ok(isDocumentResponse(styled(DEFAULT_SETTINGS)))
+  assert.ok(isDocumentResponse(styled(undefined)), 'a service from before settings')
+  assert.equal(settingsOf(styled(undefined).document), DEFAULT_SETTINGS, 'and draws with the defaults')
+  const custom = { ...DEFAULT_SETTINGS, bond_length_pt: 42.5, label_font: 'monospace', display_unit: 'mm' }
+  assert.deepEqual(settingsOf(styled(custom).document), custom)
+  for (const bad of [
+    { ...DEFAULT_SETTINGS, bond_length_pt: 4.9 },
+    { ...DEFAULT_SETTINGS, line_width_pt: 10.5 },
+    { ...DEFAULT_SETTINGS, label_size_pt: Number.NaN },
+    { ...DEFAULT_SETTINGS, label_font: 'cursive' },
+    { ...DEFAULT_SETTINGS, carbon_labels: 'none' },
+    { ...DEFAULT_SETTINGS, display_unit: 'px' },
+    { ...DEFAULT_SETTINGS, extra: 1 },
+    (({ display_unit: _, ...rest }) => rest)(DEFAULT_SETTINGS),
+    null,
+  ]) {
+    assert.equal(isDocumentResponse(styled(bad)), false, JSON.stringify(bad))
+  }
+})
+
+/** Preferences as the service reports them; `overrides` replaces top-level fields. */
+function preferences(overrides = {}) {
+  const computation = (followup) => ({ status: 'not_implemented', owner: 'preferences', followup, note: 'Not yet.' })
+  return {
+    api_version: 'v1',
+    revision: 2,
+    ui: { theme: 'dark' },
+    new_documents: { bond_length_pt: 40 },
+    new_document_settings: { ...DEFAULT_SETTINGS, bond_length_pt: 40 },
+    computation: { nmr: computation('P66'), numeric_precision: computation('P15') },
+    ...overrides,
+  }
+}
+
+test('a preferences reply is checked whole, computation included', () => {
+  assert.ok(isPreferencesResponse(preferences()))
+  for (const [name, bad] of [
+    ['an unknown theme', preferences({ ui: { theme: 'sepia' } })],
+    ['a negative revision', preferences({ revision: -1 })],
+    ['a stored value out of range', preferences({ new_documents: { label_size_pt: 100 } })],
+    ['an unknown stored field', preferences({ new_documents: { color: 'red' } })],
+    ['partial new-document settings', preferences({ new_document_settings: { bond_length_pt: 40 } })],
+    ['computation claimed to run', preferences({ computation: { ...preferences().computation, nmr: { ...preferences().computation.nmr, status: 'implemented' } } })],
+    ['computation left out', preferences({ computation: undefined })],
+    ['another API version', preferences({ api_version: 'v2' })],
+  ]) {
+    assert.equal(isPreferencesResponse(bad), false, name)
+  }
+})
+
+test('the client sends preference writes with their revision and refuses an incompatible reply', async () => {
+  const sent = []
+  const scripted = service({
+    'GET /api/v1/preferences': [() => json(200, preferences())],
+    '/api/v1/preferences': [() => json(200, preferences({ revision: 3 })), () => json(200, { api_version: 'v1' })],
+    '/api/v1/preferences/reset': [() => json(200, preferences({ revision: 4, new_documents: {} }))],
+    '/api/v1/preferences/import': [() => json(200, preferences({ revision: 5 }))],
+    '/settings/reset': [() => json(200, styled(DEFAULT_SETTINGS))],
+    '/settings/import': [() => json(200, styled(DEFAULT_SETTINGS))],
+  })
+  const fetchScripted = globalThis.fetch
+  globalThis.fetch = (path, init = {}) => {
+    if (init.body) sent.push({ path, method: init.method, body: JSON.parse(init.body) })
+    return fetchScripted(path, init)
+  }
+  const client = new DocumentClient()
+  assert.equal((await client.preferences()).revision, 2)
+  const change = { ui: { theme: 'light' }, new_documents: { label_font: 'serif' } }
+  assert.equal((await client.setPreferences(2, change)).revision, 3)
+  await assert.rejects(client.setPreferences(3, change), (failure) => failure.code === 'incompatible_response')
+  await client.resetPreferences(3)
+  await client.preferencesFromDocument(4, 'doc-2')
+  await client.resetSettings('doc-1', 7, 'preferences')
+  await client.importSettings('doc-1', 8, 'doc-2')
+  assert.deepEqual(
+    sent.map(({ path, method, body: { request_id: _, ...body } }) => [method, path, body]),
+    [
+      ['PUT', '/api/v1/preferences', { expected_revision: 2, ...change }],
+      ['PUT', '/api/v1/preferences', { expected_revision: 3, ...change }],
+      ['POST', '/api/v1/preferences/reset', { expected_revision: 3 }],
+      ['POST', '/api/v1/preferences/import', { expected_revision: 4, document: 'doc-2' }],
+      ['POST', '/api/v1/documents/doc-1/settings/reset', { expected_revision: 7, to: 'preferences' }],
+      ['POST', '/api/v1/documents/doc-1/settings/import', { expected_revision: 8, source: 'doc-2' }],
+    ],
+  )
+  assert.equal(scripted.writes.length, 6)
+})
+
+test('a refused setting carries its reason whether it was a command or a preference', async () => {
+  service({
+    '/transactions': [
+      () => json(422, { api_version: 'v1', code: 'invalid_command', message: 'm', command_index: 0, reason: 'bond_length_out_of_range' }),
+    ],
+    '/api/v1/preferences': [() => json(422, { api_version: 'v1', code: 'invalid_request', message: 'm', reason: 'label_size_out_of_range' })],
+  })
+  const client = new DocumentClient()
+  await assert.rejects(client.transact('doc-1', 0, [{ op: 'update_settings', bond_length_pt: 1 }]), (failure) =>
+    failure.stateReason === 'bond_length_out_of_range',
+  )
+  await assert.rejects(client.setPreferences(0, { ui: { theme: 'system' }, new_documents: { label_size_pt: 100 } }), (failure) =>
+    failure.code === 'invalid_request' && failure.stateReason === 'label_size_out_of_range',
+  )
+})
+
+test('lengths are stored in pt and shown in the display unit', () => {
+  const { formatLength, fromDisplay, toDisplay } = settingsEdits
+  assert.equal(toDisplay(72, 'in'), 1)
+  assert.equal(toDisplay(72, 'mm'), 25.4)
+  assert.equal(toDisplay(72, 'cm'), 2.54)
+  assert.equal(toDisplay(30, 'pt'), 30)
+  assert.equal(formatLength(30, 'mm'), '10.58 mm')
+  assert.equal(formatLength(1.2, 'in'), '0.017 in')
+  // Exact halves in the unit round up, whatever error the conversion leaves: 45 pt is 15.875 mm,
+  // 9 pt is 0.125 in.
+  assert.equal(toDisplay(45, 'mm'), 15.88)
+  assert.equal(toDisplay(9, 'in'), 0.125)
+  assert.equal(toDisplay(36.9, 'pt'), 36.9)
+  assert.equal(fromDisplay(25.4, 'mm'), 72)
+  assert.equal(fromDisplay(1, 'cm'), 28.3465)
+  // A shown value is rounded to the unit's decimals, so it converts back within half of its last
+  // digit: 0.0005 cm is 0.0142 pt.
+  const back = fromDisplay(toDisplay(42.5, 'cm'), 'cm')
+  assert.ok(Math.abs(back - 42.5) <= 0.0142, `${back}`)
+})
+
+test('a typed length is read in the display unit, its shown bounds are accepted, and the shown value sends nothing', () => {
+  const { typedSetting } = settingsEdits
+  const set = (pt) => ({ kind: 'set', pt })
+  // The bounds as shown in each unit are the bounds.
+  assert.deepEqual(typedSetting('bond_length_pt', '1.76', 30, 'mm'), set(5))
+  assert.deepEqual(typedSetting('bond_length_pt', '70.56', 30, 'mm'), set(200))
+  assert.deepEqual(typedSetting('line_width_pt', '3.53', 1.2, 'mm'), set(10))
+  assert.deepEqual(typedSetting('line_width_pt', '0.001', 1.2, 'in'), set(0.1))
+  assert.deepEqual(typedSetting('line_width_pt', '0.139', 1.2, 'in'), set(10))
+  assert.deepEqual(typedSetting('label_size_pt', '72', 12, 'pt'), set(72))
+  // Beyond the rounding of a bound, a value is out of range.
+  assert.deepEqual(typedSetting('bond_length_pt', '1.75', 30, 'mm'), { kind: 'invalid' })
+  assert.deepEqual(typedSetting('bond_length_pt', '70.57', 30, 'mm'), { kind: 'invalid' })
+  for (const text of ['', ' ', 'abc', '1e999', 'NaN']) {
+    assert.deepEqual(typedSetting('bond_length_pt', text, 30, 'mm'), { kind: 'invalid' }, JSON.stringify(text))
+  }
+  // The value shown, however it is written, is no change: 30 pt is shown as 10.58 mm.
+  for (const text of ['10.58', '10.580', ' 10.58 ', '1.058e1']) {
+    assert.deepEqual(typedSetting('bond_length_pt', text, 30, 'mm'), { kind: 'unchanged' }, text)
+  }
+  assert.deepEqual(typedSetting('bond_length_pt', '20', 30, 'mm'), set(56.6929))
+  assert.deepEqual(typedSetting('bond_length_pt', '45', 30, 'pt'), set(45))
+})
+
+/** The document `settings` applies to, as the editor builds edits from the latest one. */
+const withSettings = (settings) => ({ ...styled(settings).document, settings })
+
+test('settings edits are built from the latest document and skip what no longer applies', () => {
+  const { setSettings, stepSetting } = settingsEdits
+  const latest = withSettings({ ...DEFAULT_SETTINGS, bond_length_pt: 40 })
+  assert.deepEqual(stepSetting('bond_length_pt', 1)(latest), [{ op: 'update_settings', bond_length_pt: 41 }])
+  assert.deepEqual(stepSetting('line_width_pt', -1)(latest), [{ op: 'update_settings', line_width_pt: 1.1 }])
+  assert.deepEqual(
+    stepSetting('line_width_pt', 1)(withSettings({ ...DEFAULT_SETTINGS, line_width_pt: 0.3 })),
+    [{ op: 'update_settings', line_width_pt: 0.4 }],
+    'steps do not accumulate floating-point error',
+  )
+  assert.equal(stepSetting('label_size_pt', 1)(withSettings({ ...DEFAULT_SETTINGS, label_size_pt: 72 })), null, 'at the limit')
+  assert.equal(stepSetting('bond_length_pt', -1)(withSettings({ ...DEFAULT_SETTINGS, bond_length_pt: 5.5 })), null)
+  assert.deepEqual(setSettings({ bond_length_pt: 40, label_font: 'serif' })(latest), [{ op: 'update_settings', label_font: 'serif' }])
+  assert.equal(setSettings({ bond_length_pt: 40 })(latest), null, 'already so')
+  assert.equal(setSettings({ bond_length_pt: 300 })(latest), null, 'out of range')
+  assert.equal(setSettings({ label_font: 'serif' })(styled(undefined).document), null, 'a service without settings')
+})
+
+test('labels scale with the label size and take the label font', () => {
+  const atom = atomWith('a1', 'O', 0, 0, { isotope: 18, charge: -1, hydrogens: { mode: 'specified', count: 2 }, radical: 'doublet', attachment_points: [1] })
+  const base = atomLabel(atom, 1)
+  assert.equal(atomLabel(atom, 1, false, DEFAULT_LABEL_STYLE), base, 'the default style is the built-in layout')
+  const twice = atomLabel(atom, 1, false, { ...DEFAULT_LABEL_STYLE, size: 24 })
+  const scaled = (box) => ({ x: box.x * 2, y: box.y * 2, width: box.width * 2, height: box.height * 2 })
+  const close = (a, b) => Object.keys(a).every((key) => Math.abs(a[key] - b[key]) < 1e-9)
+  assert.ok(close(twice.box, scaled(base.box)), JSON.stringify({ twice: twice.box, base: base.box }))
+  assert.deepEqual(twice.chunks[0].runs.map((run) => run.size), base.chunks[0].runs.map((run) => run.size * 2))
+  assert.deepEqual(twice.dots.map((dot) => dot.radius), base.dots.map((dot) => dot.radius * 2))
+  const mono = atomLabel(atomWith('a1', 'W', 0, 0), 0, false, { ...DEFAULT_LABEL_STYLE, font: 'monospace' })
+  assert.equal(mono.font, 'monospace')
+  assert.ok(mono.box.width < atomLabel(atomWith('a1', 'W', 0, 0), 0).box.width, 'a monospace W is narrower than Geist’s')
+  const serif = atomLabel(atomWith('a1', 'W', 0, 0), 0, false, { ...DEFAULT_LABEL_STYLE, font: 'serif' })
+  assert.ok(serif.box.width > mono.box.width, 'each font reserves its own widths')
+  assert.deepEqual(
+    labelStyleOf({ ...DEFAULT_SETTINGS, label_font: 'serif', label_size_pt: 9, carbon_labels: 'all' }),
+    { font: 'serif', size: 9, carbons: 'all' },
+  )
+})
+
+test('carbon labels follow the document setting', () => {
+  const vertex = atomWith('a1', 'C', 0, 0)
+  assert.equal(showsLabel(vertex, 2), false)
+  assert.equal(showsLabel(vertex, 2, 'all'), true)
+  assert.equal(atomLabel(vertex, 2), null)
+  assert.deepEqual(labelText(atomLabel(vertex, 2, false, { ...DEFAULT_LABEL_STYLE, carbons: 'all' })), ['C'])
+})
+
+test('new bonds take the document bond length, and wider lines spread multiple bonds', () => {
+  assert.deepEqual(snappedEndpoint({ x: 0, y: 0 }, { x: 10, y: 0.5 }, 45), { x: 45, y: 0 })
+  assert.deepEqual(snappedEndpoint({ x: 0, y: 0 }, { x: 10, y: 0.5 }), { x: 30, y: 0 }, 'the built-in default')
+  const view = { id: 'doc-1', title: 'B', revision: 0, atoms: [atomWith('a1', 'C', 0, 0)], bonds: [] }
+  const free = freeNeighborPosition(view, 'a1', 50)
+  assert.ok(Math.abs(Math.hypot(free.x, free.y) - 50) < 0.01, JSON.stringify(free))
+  assert.equal(bondSpacing(1.2), 1)
+  assert.equal(bondSpacing(0.5), 1, 'thin lines keep the built-in spacing')
+  assert.equal(bondSpacing(3.6), 3)
+  const at = (x) => ({ x, y: 0 })
+  const offsets = (spacing) =>
+    bondStrokes(bondWith('b1', 'a1', 'a2', 'double'), at(0), at(30), null, null, 1, spacing).map((stroke) => stroke.y1)
+  assert.deepEqual(offsets(1), [-2.2, 2.2])
+  assert.deepEqual(offsets(3), [-6.6, 6.6])
+})
+
+test('new-document preferences are built from the latest preferences and store what differs from the defaults', () => {
+  const { preferenceChange, preferenceStep } = settingsEdits
+  const latest = preferences()
+  assert.deepEqual(preferenceChange(latest, { label_font: 'serif' }), {
+    ui: { theme: 'dark' },
+    new_documents: { bond_length_pt: 40, label_font: 'serif' },
+  })
+  assert.deepEqual(preferenceChange(latest, { bond_length_pt: 30 }), { ui: { theme: 'dark' }, new_documents: {} }, 'back to the default')
+  assert.equal(preferenceChange(latest, { bond_length_pt: 40 }), null, 'already so')
+  assert.equal(preferenceChange(latest, { line_width_pt: 0 }), null, 'out of range')
+  assert.deepEqual(preferenceStep(latest, 'bond_length_pt', 1), { ui: { theme: 'dark' }, new_documents: { bond_length_pt: 41 } })
+  const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
+  assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
 })

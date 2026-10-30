@@ -245,7 +245,7 @@ impl FileDocumentRepository {
                 Ok(bytes) if bytes == stored => return Ok(()),
                 Ok(_) => continue,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    return self.write_atomically(&kept, stored).map_err(|error| {
+                    return write_atomically(&kept, stored).map_err(|error| {
                         write_failed(
                             &format!("keep the version {version} file as"),
                             &kept,
@@ -265,26 +265,8 @@ impl FileDocumentRepository {
     /// Removes temporary files that interrupted writes abandoned more than an hour ago.
     /// Younger ones may belong to a write in progress in another process.
     pub fn prune_stale_temporaries(&self) {
-        let now = SystemTime::now();
         for directory in [&self.directory, &self.drafts, &self.trash, &self.migrated] {
-            let Ok(entries) = fs::read_dir(directory) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let is_temporary = name
-                    .to_str()
-                    .is_some_and(|name| name.starts_with('.') && name.ends_with(TEMPORARY_SUFFIX));
-                let stale = entry
-                    .metadata()
-                    .and_then(|metadata| metadata.modified())
-                    .ok()
-                    .and_then(|modified| now.duration_since(modified).ok())
-                    .is_some_and(|age| age > STALE_TEMPORARY_AGE);
-                if is_temporary && stale {
-                    let _ = fs::remove_file(entry.path());
-                }
-            }
+            prune_stale_temporaries_in(directory, ".");
         }
     }
 
@@ -337,58 +319,11 @@ impl FileDocumentRepository {
         Ok(Some(bytes))
     }
 
-    /// Writes beside `target` and renames over it; see the module notes.
-    fn write_atomically(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
-        let directory = target.parent().unwrap_or(Path::new("."));
-        create_private_dir(directory)?;
-        let temporary = directory.join(format!(
-            ".{}.{}.{}{TEMPORARY_SUFFIX}",
-            target
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("document"),
-            std::process::id(),
-            TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed),
-        ));
-        let result = (|| {
-            let mut file = create_private_file(&temporary)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            drop(file);
-            fs::rename(&temporary, target)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-            return result;
-        }
-        // The rename is the commit point: the new file is in place and is what the next read
-        // returns, so the write must not be reported as failed after it. Syncing the
-        // directory makes the rename survive power loss where the platform supports it; if it
-        // cannot, the write stays committed with that weaker guarantee.
-        let _ = sync_directory(directory);
-        Ok(())
-    }
-
     /// Waits for the document's save lock. The returned file holds it until dropped.
     fn lock_document(&self, id: &DocumentId) -> Result<File, StorageError> {
-        let path = self.locks.join(format!("{id}.lock"));
-        let file = open_lock_file(&path).map_err(|error| write_failed("lock", &path, &error))?;
-        let deadline = Instant::now() + SAVE_LOCK_WAIT;
-        loop {
-            match file.try_lock() {
-                Ok(()) => return Ok(file),
-                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(LOCK_POLL);
-                }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(StorageError::Locked(format!(
-                        "another process has been saving document {id} for over {} seconds",
-                        SAVE_LOCK_WAIT.as_secs()
-                    )));
-                }
-                Err(TryLockError::Error(error)) => return Err(write_failed("lock", &path, &error)),
-            }
-        }
+        wait_for_lock(&self.locks.join(format!("{id}.lock")), || {
+            format!("document {id}")
+        })
     }
 
     fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, OwnedDraft>> {
@@ -591,7 +526,7 @@ impl DocumentRepository for FileDocumentRepository {
                 Err(error) => return Err(write_failed("set aside", &set_aside, &error)),
             };
         pause_for_tests();
-        if let Err(error) = self.write_atomically(&target, &bytes) {
+        if let Err(error) = write_atomically(&target, &bytes) {
             if draft_set_aside {
                 let _ = fs::rename(&set_aside, self.draft_path(id));
             }
@@ -672,8 +607,7 @@ impl DocumentRepository for FileDocumentRepository {
                 bytes.len()
             )));
         }
-        self.write_atomically(&path, &bytes)
-            .map_err(|error| write_failed("write draft", &path, &error))
+        write_atomically(&path, &bytes).map_err(|error| write_failed("write draft", &path, &error))
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
@@ -792,7 +726,7 @@ impl DocumentRepository for FileDocumentRepository {
         }
         let stamp = self.trash_stamp_path(id);
         let deleted_at = milliseconds_since_epoch(SystemTime::now()).unwrap_or(0);
-        self.write_atomically(&stamp, deleted_at.to_string().as_bytes())
+        write_atomically(&stamp, deleted_at.to_string().as_bytes())
             .map_err(|error| write_failed("trash", &stamp, &error))?;
         pause_for_tests();
         // The rename is the delete: the document is stored or trashed, never both.
@@ -872,14 +806,93 @@ impl DocumentRepository for FileDocumentRepository {
     }
 }
 
-fn unavailable(action: &str, path: &Path, error: &io::Error) -> StorageError {
+/// Writes beside `target` and renames over it; see the module notes.
+pub(crate) fn write_atomically(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    let directory = target.parent().unwrap_or(Path::new("."));
+    create_private_dir(directory)?;
+    let temporary = directory.join(format!(
+        ".{}.{}.{}{TEMPORARY_SUFFIX}",
+        target
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("document"),
+        std::process::id(),
+        TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed),
+    ));
+    let result = (|| {
+        let mut file = create_private_file(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, target)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        return result;
+    }
+    // The rename is the commit point: the new file is in place and is what the next read
+    // returns, so the write must not be reported as failed after it. Syncing the
+    // directory makes the rename survive power loss where the platform supports it; if it
+    // cannot, the write stays committed with that weaker guarantee.
+    let _ = sync_directory(directory);
+    Ok(())
+}
+
+/// Waits up to [`SAVE_LOCK_WAIT`] for the advisory lock on `path`; `what` names what its
+/// holder is saving. The returned file holds the lock until dropped.
+pub(crate) fn wait_for_lock(path: &Path, what: impl Fn() -> String) -> Result<File, StorageError> {
+    let file = open_lock_file(path).map_err(|error| write_failed("lock", path, &error))?;
+    let deadline = Instant::now() + SAVE_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(LOCK_POLL);
+            }
+            Err(TryLockError::WouldBlock) => {
+                return Err(StorageError::Locked(format!(
+                    "another process has been saving {} for over {} seconds",
+                    what(),
+                    SAVE_LOCK_WAIT.as_secs()
+                )));
+            }
+            Err(TryLockError::Error(error)) => return Err(write_failed("lock", path, &error)),
+        }
+    }
+}
+
+/// Removes temporary files in `directory` whose names start with `prefix` that interrupted
+/// writes abandoned more than an hour ago.
+pub(crate) fn prune_stale_temporaries_in(directory: &Path, prefix: &str) {
+    let now = SystemTime::now();
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let is_temporary = name
+            .to_str()
+            .is_some_and(|name| name.starts_with(prefix) && name.ends_with(TEMPORARY_SUFFIX));
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > STALE_TEMPORARY_AGE);
+        if is_temporary && stale {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+pub(crate) fn unavailable(action: &str, path: &Path, error: &io::Error) -> StorageError {
     StorageError::Unavailable(format!("could not {action} {}: {error}", path.display()))
 }
 
 /// A failed write (or lock, which creates a file): `Denied` when storage refused it
 /// (permissions or a read-only file system), `Unavailable` otherwise. Reads use `unavailable`,
 /// so an unreadable file is not reported as read-only storage.
-fn write_failed(action: &str, path: &Path, error: &io::Error) -> StorageError {
+pub(crate) fn write_failed(action: &str, path: &Path, error: &io::Error) -> StorageError {
     match error.kind() {
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
             StorageError::Denied(format!("could not {action} {}: {error}", path.display()))
@@ -1301,7 +1314,7 @@ mod tests {
         // Replacing a directory with a file fails on every platform, even for root.
         let blocked = repository.directory().join("blocked.json");
         fs::create_dir(&blocked).unwrap();
-        let result = repository.write_atomically(&blocked, b"{}");
+        let result = write_atomically(&blocked, b"{}");
         assert!(result.is_err());
 
         document.redo().unwrap();
@@ -1340,7 +1353,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":4", "\"format_version\":99"),
+            valid.replace("\"format_version\":5", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {
@@ -1393,9 +1406,7 @@ mod tests {
         let waiting = std::thread::spawn(move || second.save(&theirs, Some(base)));
         std::thread::sleep(Duration::from_millis(200));
         assert!(!waiting.is_finished(), "the second save waits for the lock");
-        first
-            .write_atomically(&first.path(document.id()), &file_format::encode(&document))
-            .unwrap();
+        write_atomically(&first.path(document.id()), &file_format::encode(&document)).unwrap();
         drop(lock);
         assert_eq!(
             waiting.join().unwrap(),
@@ -1700,8 +1711,7 @@ mod tests {
             .unwrap();
             if committed {
                 document.redo().unwrap();
-                owner
-                    .write_atomically(&owner.path(document.id()), &file_format::encode(&document))
+                write_atomically(&owner.path(document.id()), &file_format::encode(&document))
                     .unwrap();
             }
             drop(owner);
@@ -1756,6 +1766,7 @@ mod tests {
         for bytes in [
             header_only(1),
             header_only(2),
+            header_only(4),
             file_format::encode_draft(&draft_of(&other, 0)),
         ] {
             fs::write(&path, bytes).unwrap();

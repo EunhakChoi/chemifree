@@ -23,6 +23,7 @@ use crate::scene::{
     ReferenceTarget, SceneError, SceneObject, SceneReference, SceneTree, Selection,
     SelectionRequest, TransactionSelection,
 };
+use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, MAX_STATED_HYDROGENS, Radical, StateError,
 };
@@ -398,6 +399,8 @@ pub enum Command {
     RemoveReference {
         reference: SceneReference,
     },
+    /// Changes the named style settings as part of this transaction.
+    UpdateSettings(SettingsEdit),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -463,6 +466,7 @@ pub enum EditError {
     ReferenceLimit,
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
+    Settings(SettingsError),
 }
 
 impl EditError {
@@ -488,6 +492,7 @@ impl EditError {
     pub fn reason(&self) -> Option<&'static str> {
         match self {
             Self::InvalidState(state) => Some(state.code()),
+            Self::Settings(error) => Some(error.code()),
             _ => self.scene_error().map(SceneError::code),
         }
     }
@@ -496,6 +501,12 @@ impl EditError {
 impl From<StateError> for EditError {
     fn from(error: StateError) -> Self {
         Self::InvalidState(error)
+    }
+}
+
+impl From<SettingsError> for EditError {
+    fn from(error: SettingsError) -> Self {
+        Self::Settings(error)
     }
 }
 
@@ -598,6 +609,7 @@ impl fmt::Display for EditError {
             ),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
+            Self::Settings(error) => error.fmt(formatter),
         }
     }
 }
@@ -670,11 +682,12 @@ pub struct Change<T> {
 
 /// The exact difference made by one transaction; applied backward to undo and forward to redo.
 /// Graph changes (atoms, bonds), scene changes (the page's root order, scene objects, and
-/// positions), the title, and the selection are recorded apart, and undo or redo replays all of
-/// them as one step.
+/// positions), the title, style settings, and selection are recorded apart, and undo or redo
+/// replays all of them as one step.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChangeSet {
     pub title: Option<Change<String>>,
+    pub settings: Option<Change<Settings>>,
     pub atoms: Vec<(AtomId, Change<Option<Atom>>)>,
     pub bonds: Vec<(BondId, Change<Option<Bond>>)>,
     /// The page's root objects in order, when that changed.
@@ -695,6 +708,10 @@ impl ChangeSet {
                 before: before.title.clone(),
                 after: after.title.clone(),
             }),
+            settings: (before.settings != after.settings).then(|| Change {
+                before: before.settings.clone(),
+                after: after.settings.clone(),
+            }),
             atoms: diff_maps(&before.atoms, &after.atoms),
             bonds: diff_maps(&before.bonds, &after.bonds),
             roots: (before.scene.roots != after.scene.roots).then(|| Change {
@@ -711,6 +728,7 @@ impl ChangeSet {
     /// Whether the content is unchanged; the selection does not count.
     pub fn is_empty(&self) -> bool {
         self.title.is_none()
+            && self.settings.is_none()
             && self.atoms.is_empty()
             && self.bonds.is_empty()
             && self.roots.is_none()
@@ -722,6 +740,7 @@ impl ChangeSet {
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
     fn size(&self) -> usize {
         usize::from(self.title.is_some())
+            + usize::from(self.settings.is_some())
             + self.atoms.len()
             + self.bonds.len()
             + usize::from(self.roots.is_some())
@@ -755,6 +774,10 @@ impl ChangeSet {
         !self.is_empty()
             && self
                 .title
+                .as_ref()
+                .is_none_or(|change| change.before != change.after)
+            && self
+                .settings
                 .as_ref()
                 .is_none_or(|change| change.before != change.after)
             && self
@@ -843,6 +866,7 @@ fn replay<K: Copy + Ord, V: Clone + PartialEq>(
 #[derive(Clone, Debug, PartialEq)]
 struct Content {
     title: String,
+    settings: Settings,
     atoms: BTreeMap<AtomId, Atom>,
     bonds: BTreeMap<BondId, Bond>,
     scene: SceneTree,
@@ -984,6 +1008,7 @@ impl Content {
     /// Checks every structural invariant; used for restored and replayed states.
     fn validate(&self) -> Result<(), EditError> {
         validate_title(&self.title)?;
+        self.settings.validate()?;
         if self.atoms.len() > MAX_ATOMS {
             return Err(EditError::AtomLimit);
         }
@@ -1454,6 +1479,9 @@ impl Draft {
                     return Err(EditError::ReferenceUnknown(*reference));
                 }
             }
+            Command::UpdateSettings(edit) => {
+                self.content.settings = self.content.settings.edited(edit)?;
+            }
         }
         self.created.push(created);
         Ok(())
@@ -1513,6 +1541,7 @@ pub struct DocumentParts {
     pub id: DocumentId,
     pub revision: u64,
     pub title: String,
+    pub settings: Settings,
     pub atoms: Vec<(AtomId, Atom)>,
     pub bonds: Vec<(BondId, Bond)>,
     /// The page's root objects in order. Every scene object is on page [`PAGE_ID`], and every
@@ -1558,12 +1587,23 @@ impl Document {
     /// Creates an empty document at revision 0 with one scene instance, `s1`, and nothing
     /// selected. Surrounding whitespace is trimmed from the title.
     pub fn new(id: DocumentId, title: &str) -> Result<Self, EditError> {
+        Self::new_with_settings(id, title, Settings::default())
+    }
+
+    /// Creates a document with its own initial settings, without adding a history entry.
+    pub fn new_with_settings(
+        id: DocumentId,
+        title: &str,
+        settings: Settings,
+    ) -> Result<Self, EditError> {
         let title = validated_title(title)?;
+        settings.validate()?;
         Ok(Self {
             id,
             revision: 0,
             content: Content {
                 title: title.to_owned(),
+                settings,
                 atoms: BTreeMap::new(),
                 bonds: BTreeMap::new(),
                 scene: SceneTree::with_instance(ObjectId(1)),
@@ -1620,6 +1660,7 @@ impl Document {
         );
         let content = Content {
             title: parts.title,
+            settings: parts.settings,
             atoms: parts.atoms.into_iter().collect(),
             bonds: parts.bonds.into_iter().collect(),
             scene: SceneTree {
@@ -1777,6 +1818,7 @@ impl Document {
             id: self.id.clone(),
             revision: self.revision,
             title: self.content.title.clone(),
+            settings: self.content.settings.clone(),
             atoms: self.atoms().map(|(id, atom)| (id, atom.clone())).collect(),
             bonds: self.bonds().map(|(id, bond)| (id, bond.clone())).collect(),
             roots: self.content.scene.roots.clone(),
@@ -1814,6 +1856,11 @@ impl Document {
 
     pub fn title(&self) -> &str {
         &self.content.title
+    }
+
+    /// The document's own settings.
+    pub fn settings(&self) -> &Settings {
+        &self.content.settings
     }
 
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
@@ -2055,6 +2102,13 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
             return Err(());
         }
         next.title.clone_from(to);
+    }
+    if let Some(change) = &set.settings {
+        let (from, to) = change.sides(direction);
+        if next.settings != *from {
+            return Err(());
+        }
+        next.settings.clone_from(to);
     }
     if let Some(change) = &set.roots {
         let (from, to) = change.sides(direction);

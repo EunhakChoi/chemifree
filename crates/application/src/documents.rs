@@ -10,13 +10,14 @@ use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
     RevisionsExhausted, TransactionError, validated_title,
 };
+use chemifree_domain::settings::Settings;
 
 use crate::API_VERSION;
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
-    TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
+    SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
@@ -42,6 +43,16 @@ enum Mutation {
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
+        selection: TransactionSelections,
+    },
+    ResetSettings {
+        expected_revision: u64,
+        to: SettingsSource,
+        selection: TransactionSelections,
+    },
+    ImportSettings {
+        expected_revision: u64,
+        source: String,
         selection: TransactionSelections,
     },
     Undo {
@@ -85,6 +96,13 @@ enum Mutation {
     Restore {
         document: DocumentId,
     },
+}
+
+/// Where replaced settings come from, as a request names it.
+pub(crate) enum SettingsMutation {
+    Reset(SettingsSource),
+    /// The identifier of the document whose settings are imported, as sent.
+    Import(String),
 }
 
 struct ReplayLog<T>(VecDeque<(String, Mutation, T)>);
@@ -581,26 +599,36 @@ impl<R: DocumentRepository> Documents<R> {
         })
     }
 
-    /// Creates an empty document and commits it to storage before acknowledging.
+    /// Creates an empty document starting from the settings `settings` reads and commits it to
+    /// storage before acknowledging. A replayed create returns the document as it was created
+    /// without calling `settings`.
     pub(crate) fn create(
         &self,
         request_id: Option<&str>,
         title: Option<&str>,
+        settings: impl FnOnce() -> Result<Settings, ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let mutation = Mutation::Create {
             title: title.map(str::to_owned),
         };
         let _running = self.start(None, request_id)?;
-        let mut sessions = self.lock();
-        if let Some(response) = sessions.created.find(request_id, &mutation)? {
-            return Ok(response);
+        {
+            let sessions = self.lock();
+            if let Some(response) = sessions.created.find(request_id, &mutation)? {
+                return Ok(response);
+            }
         }
+        // The running-request guard prevents another create with this ID while preferences
+        // are read. Slow preference storage must not hold the shared session table.
+        let settings = settings()?;
+        let mut sessions = self.lock();
         let id = self.repository.allocate_id().map_err(storage_error)?;
         let document =
-            Document::new(id.clone(), title.unwrap_or(DEFAULT_TITLE)).map_err(|error| {
-                ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
-            })?;
+            Document::new_with_settings(id.clone(), title.unwrap_or(DEFAULT_TITLE), settings)
+                .map_err(|error| {
+                    ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
+                })?;
         let eviction = sessions.eviction(None)?;
         self.repository
             .save(&document, None)
@@ -641,6 +669,64 @@ impl<R: DocumentRepository> Documents<R> {
             session
                 .document
                 .apply_selecting(&domain_commands, &domain_selection)
+                .map(|_: Outcome| ())
+                .map_err(rejected_edit)
+        })
+    }
+
+    /// The settings of the document as this process shows it: its working copy, opened from
+    /// storage if needed.
+    pub(crate) fn settings(&self, id: &str) -> Result<Settings, ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok(session.document.settings().clone())
+    }
+
+    /// Replaces the document's settings with what `target` reads, as one `update_settings`
+    /// edit: one revision and history entry, or nothing when they are the same. A completed
+    /// request with the same `request_id` is replayed before `target` is read, so a replay does
+    /// not depend on where the settings came from.
+    pub(crate) fn replace_settings(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        mutation: SettingsMutation,
+        selection: TransactionSelections,
+        target: impl FnOnce() -> Result<Settings, ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let domain_selection = contract::to_selection(&selection)?;
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let _running = self.start(Some(&document_id), request_id)?;
+        let mutation = match mutation {
+            SettingsMutation::Reset(to) => Mutation::ResetSettings {
+                expected_revision,
+                to,
+                selection,
+            },
+            SettingsMutation::Import(source) => Mutation::ImportSettings {
+                expected_revision,
+                source,
+                selection,
+            },
+        };
+        {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+            if let Some(hold) = session.hold {
+                return Err(held(id, hold));
+            }
+            session.expect_revision(expected_revision)?;
+        }
+        let command = Command::UpdateSettings(target()?.to_edit());
+        self.mutate_running(id, request_id, expected_revision, mutation, |session| {
+            session
+                .document
+                .apply_selecting(&[command], &domain_selection)
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
         })
@@ -1743,6 +1829,20 @@ impl<R: DocumentRepository> Documents<R> {
         change: impl FnOnce(&mut Session) -> Result<(), ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let _running = self.start(Some(&document_id), request_id)?;
+        self.mutate_running(id, request_id, expected_revision, mutation, change)
+    }
+
+    /// The request is already marked as running; recheck replay and revision after any I/O.
+    fn mutate_running(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        mutation: Mutation,
+        change: impl FnOnce(&mut Session) -> Result<(), ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &mutation)? {
@@ -1927,9 +2027,14 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         EditError::InvalidState(state) => Some(state),
         _ => None,
     };
+    let invalid_settings = match error.error {
+        EditError::Settings(settings) => Some(settings),
+        _ => None,
+    };
     ApplicationError {
         command_index: error.index,
         invalid_state,
+        invalid_settings,
         invalid_scene: error.error.scene_error(),
         ..ApplicationError::new(code, error.to_string())
     }

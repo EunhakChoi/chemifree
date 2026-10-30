@@ -154,5 +154,16 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 15:43:29 | `34ba7370c31e9eb4d925bc5dc8f9e8d7dd12af2e` | 15:43:33 | 실제 코드 리뷰 서비스 오류로 완료되지 않아 실패로 센다. | [상태](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6526872497) |
 | 2 요청 | 15:43:42 | `34ba7370c31e9eb4d925bc5dc8f9e8d7dd12af2e` | 15:46:09 | P2 한 건: 초안을 가져오거나 보관하는 동안 다른 프로세스가 저장하면 오래된 기준의 복구가 성공할 수 있다. 수용: 두 지점에 제어 가능한 대기를 둔 회귀 검사가 수정 전 실패함을 확인하고, provider가 저장과 같은 잠금 안에서 기준 리비전을 검사하게 했다. 실제 파일 provider 검사와 이 검사가 누락된 변이의 실패도 확인했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6526874577), [지적](https://github.com/EunhakChoi/chemifree/pull/35#discussion_r4425520660) |
+| 3 요청 | 15:57:01 | `4e321e04bfa0141aef6c439771668d488a24808f` | 15:59:38 | 통과: 이 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 지적이 없다. 2회차 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6527157823), [완료](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6527213685) |
 
-첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)는 check·browser 모두 성공했다. 이 기록 시점에 마지막 리뷰는 아직 요청하지 않았다.
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)와 마지막 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085389940)는 check·browser 모두 성공했다. 16:00:35에 `9688928b16999f0d4de5c072890e1371054872c5`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085936364)도 check·browser 모두 성공했다.
+
+## #36 P12 — 문서 스타일과 환경 설정(진행 중)
+
+시간은 UTC다. [#36](https://github.com/EunhakChoi/chemifree/pull/36)은 #34·#35가 병합된 main `9688928`에서 시작했으며, 종료된 #33의 구현은 가져오지 않고 기존 P12 변경만 새 장면 계약에 맞게 옮겼다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 16:50:48 | `0c3a4cfa37b3225f2939fd41630986f30bd4cbf8` | 16:53:55 | P2 한 건: 첫 환경 설정 읽기가 실패하면 서비스가 나중에 준비돼도 다시 읽을 수 없음. 수용: 최초 읽기를 제어해 실패시킨 브라우저 검사에서 재시도 버튼이 없음을 먼저 재현한 뒤, 재시도와 저장된 테마 적용을 연결했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/36#pullrequestreview-5715691437), [지적](https://github.com/EunhakChoi/chemifree/pull/36#discussion_r4426195414) |
+
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)는 check·browser 모두 성공했다. 다음 리뷰와 병합 결과는 완료 후 이어서 기록한다.

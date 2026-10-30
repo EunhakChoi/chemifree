@@ -119,6 +119,48 @@ export interface BondView {
   query: BondQuery | null
 }
 
+/** The generic font family atom labels are drawn in. */
+export type LabelFont = 'sans-serif' | 'serif' | 'monospace'
+/** `default`: a bonded carbon recording nothing is a bare vertex; `all`: every carbon is labelled. */
+export type CarbonLabels = 'default' | 'all'
+/** The unit lengths are shown in; lengths are always stored in pt (1 in = 72 pt = 25.4 mm). */
+export type DisplayUnit = 'pt' | 'mm' | 'cm' | 'in'
+
+/** A document's style settings, saved and undone with it. Added within v1. */
+export interface DocumentSettings {
+  bond_length_pt: number
+  line_width_pt: number
+  label_font: LabelFont
+  label_size_pt: number
+  carbon_labels: CarbonLabels
+  display_unit: DisplayUnit
+}
+
+/** Settings fields to change; the rest keep their values. */
+export type SettingsEdit = Partial<DocumentSettings>
+
+/** The built-in defaults: what a document starts from unless preferences name other values. */
+export const DEFAULT_SETTINGS: Readonly<DocumentSettings> = Object.freeze({
+  bond_length_pt: 30,
+  line_width_pt: 1.2,
+  label_font: 'sans-serif',
+  label_size_pt: 12,
+  carbon_labels: 'default',
+  display_unit: 'pt',
+})
+
+/** The settings stored as a number, each with the range (in pt) the service accepts. */
+export const SETTING_RANGES = Object.freeze({
+  bond_length_pt: [5, 200],
+  line_width_pt: [0.1, 10],
+  label_size_pt: [4, 72],
+} as const)
+export type NumericSetting = keyof typeof SETTING_RANGES
+
+export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monospace']
+export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
+export const DISPLAY_UNITS: readonly DisplayUnit[] = ['pt', 'mm', 'cm', 'in']
+
 export interface DocumentView {
   id: string
   title: string
@@ -133,6 +175,13 @@ export interface DocumentView {
   molecule?: { id: string }
   scene?: SceneView
   selection?: SelectionView
+  /** Omitted by services predating document style settings. */
+  settings?: DocumentSettings
+}
+
+/** The document's own style, or built-in defaults for an older service. */
+export function settingsOf(document: DocumentView): Readonly<DocumentSettings> {
+  return document.settings ?? DEFAULT_SETTINGS
 }
 
 export interface SessionView {
@@ -282,6 +331,7 @@ export type Command =
   | { op: 'delete_objects'; objects: string[]; mode: 'subtree' | 'object_only' }
   | { op: 'move_objects'; objects: string[]; delta: Position }
   | { op: 'add_reference' | 'remove_reference'; source: string; target: ReferenceTarget }
+  | ({ op: 'update_settings' } & SettingsEdit)
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene
@@ -314,7 +364,7 @@ export interface ErrorDetails {
   currentRevision?: number
   commandIndex?: number
   reason?: StorageReason
-  /** With `invalid_command`, the code of a refused combination of recorded states. */
+  /** The code of a refused state, scene rule, or document/new-document setting. */
   stateReason?: string
 }
 
@@ -489,6 +539,35 @@ function withStates(response: DocumentResponse): DocumentResponse {
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
 
+const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_size_pt', 'carbon_labels', 'display_unit']
+
+/** Whether `value` is a valid value of the setting `field`. */
+function isSettingValue(field: string, value: unknown): boolean {
+  const range = Object.entries(SETTING_RANGES).find(([name]) => name === field)?.[1]
+  if (range) return isFiniteNumber(value) && value >= range[0] && value <= range[1]
+  switch (field) {
+    case 'label_font':
+      return (LABEL_FONTS as readonly unknown[]).includes(value)
+    case 'carbon_labels':
+      return (CARBON_LABELS as readonly unknown[]).includes(value)
+    case 'display_unit':
+      return (DISPLAY_UNITS as readonly unknown[]).includes(value)
+    default:
+      return false
+  }
+}
+
+/** Settings fields, each valid; `complete` requires every field. */
+function isSettings(value: unknown, complete: true): value is DocumentSettings
+function isSettings(value: unknown, complete: false): value is SettingsEdit
+function isSettings(value: unknown, complete: boolean) {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(([field, item]) => isSettingValue(field, item)) &&
+    (!complete || SETTING_FIELDS.every((field) => field in value))
+  )
+}
+
 function isRecovery(value: unknown): value is RecoveryView | null {
   return (
     value === null ||
@@ -661,6 +740,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     statesAgree(document.atoms, document.bonds) &&
     isScene(document, document.atoms) &&
     isSceneTree(document, document.atoms, document.bonds) &&
+    (document.settings === undefined || isSettings(document.settings, true)) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
@@ -763,6 +843,67 @@ const OUTCOME_CHECK_INTERVAL_MS = 1000
 const OUTCOME_CHECKS = 12
 const GATEWAY_STATUSES = new Set([502, 503, 504])
 
+/** The colour theme of the user interface. */
+export type Theme = 'system' | 'light' | 'dark'
+export const THEMES: readonly Theme[] = ['system', 'light', 'dark']
+
+/** A computation preference: where it will belong, and that nothing stores or applies it yet. */
+export interface ComputationSetting {
+  status: 'not_implemented'
+  owner: string
+  followup: string
+  note: string
+}
+
+/**
+ * The preferences of the service's data directory. They choose the settings a new document
+ * starts from (copied once, when it is created) and the theme; they never change an existing
+ * document. Added within v1.
+ */
+export interface PreferencesResponse {
+  revision: number
+  ui: { theme: Theme }
+  /** The fields new documents start from, as stored; the rest are the built-in defaults. */
+  new_documents: SettingsEdit
+  /** The settings a document created now starts from. */
+  new_document_settings: DocumentSettings
+  computation: { nmr: ComputationSetting; numeric_precision: ComputationSetting }
+}
+
+/** The preferences a write sets: all of them, replacing what is stored. */
+export interface PreferencesChange {
+  ui: { theme: Theme }
+  new_documents: SettingsEdit
+}
+
+/** Where a reset takes a document's settings from. */
+export type SettingsSource = 'defaults' | 'preferences'
+
+function isComputationSetting(value: unknown): value is ComputationSetting {
+  return (
+    isRecord(value) &&
+    value.status === 'not_implemented' &&
+    typeof value.owner === 'string' &&
+    typeof value.followup === 'string' &&
+    typeof value.note === 'string'
+  )
+}
+
+export function isPreferencesResponse(value: unknown): value is PreferencesResponse {
+  return (
+    isRecord(value) &&
+    value.api_version === API_VERSION &&
+    isCount(value.revision) &&
+    isRecord(value.ui) &&
+    (THEMES as readonly unknown[]).includes(value.ui.theme) &&
+    isSettings(value.new_documents, false) &&
+    isSettings(value.new_document_settings, true) &&
+    isRecord(value.computation) &&
+    isComputationSetting(value.computation.nmr) &&
+    isComputationSetting(value.computation.numeric_precision)
+  )
+}
+
 function pause(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
@@ -840,7 +981,7 @@ export class DocumentClient {
     }
   }
 
-  private async request(method: 'GET' | 'POST', path: string, body?: unknown, headers: Record<string, string> = {}) {
+  private async request(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers: Record<string, string> = {}) {
     let response: Response
     try {
       response = await fetch(path, {
@@ -868,7 +1009,10 @@ export class DocumentClient {
           currentRevision: isCount(value.current_revision) ? value.current_revision : undefined,
           commandIndex: isCount(value.command_index) ? value.command_index : undefined,
           reason: isStorageReason(value.reason) ? value.reason : undefined,
-          stateReason: value.code === 'invalid_command' && typeof value.reason === 'string' ? value.reason : undefined,
+          stateReason:
+            (value.code === 'invalid_command' || value.code === 'invalid_request') && typeof value.reason === 'string'
+              ? value.reason
+              : undefined,
         })
       }
       // A gateway status without a v1 body comes from the proxy in front of the service (Vite's
@@ -893,12 +1037,13 @@ export class DocumentClient {
     body: Record<string, unknown>,
     onRestart: 'retry' | 'reload',
     sending?: (token: string) => void,
+    method: 'POST' | 'PUT' = 'POST',
   ) {
     for (let attempt = 0; ; attempt += 1) {
       const { header, token } = await this.session()
       sending?.(token)
       try {
-        return await this.request('POST', path, body, { [header]: token })
+        return await this.request(method, path, body, { [header]: token })
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
@@ -965,7 +1110,12 @@ export class DocumentClient {
    * repeat needs no record: the precondition refuses it. As for saves, an attempt that may
    * have run is asked about only in the service process it was sent to.
    */
-  private async guarded(path: string, body: Record<string, unknown>, onRestart: 'retry' | 'reload') {
+  private async guarded(
+    path: string,
+    body: Record<string, unknown>,
+    onRestart: 'retry' | 'reload',
+    method: 'POST' | 'PUT' = 'POST',
+  ) {
     const request = { ...body, request_id: requestId() }
     let sentTo: string | undefined
     let token: string | undefined
@@ -976,7 +1126,7 @@ export class DocumentClient {
     let askedAgain = false
     for (let checks = 0; ; ) {
       try {
-        return await this.write(path, request, onRestart, sending)
+        return await this.write(path, request, onRestart, sending, method)
       } catch (error) {
         if (!(error instanceof ApiError)) throw error
         if (outcomeOpen(error) && token !== undefined) sentTo ??= token
@@ -1263,6 +1413,65 @@ export class DocumentClient {
     )
   }
 
+  /**
+   * Replaces the document's settings with the built-in defaults or the preferred new-document
+   * settings, as one undoable edit.
+   */
+  async resetSettings(id: string, expectedRevision: number, to: SettingsSource, selection?: SelectionSnapshots) {
+    return DocumentClient.document(
+      await this.write(
+        `${documentPath(id)}/settings/reset`,
+        { request_id: requestId(), expected_revision: expectedRevision, to, selection_before: selection?.before, selection_after: selection?.after },
+        'reload',
+      ),
+    )
+  }
+
+  /** Applies the settings of document `source` to document `id`, as one undoable edit. */
+  async importSettings(id: string, expectedRevision: number, source: string, selection?: SelectionSnapshots) {
+    return DocumentClient.document(
+      await this.write(
+        `${documentPath(id)}/settings/import`,
+        { request_id: requestId(), expected_revision: expectedRevision, source, selection_before: selection?.before, selection_after: selection?.after },
+        'reload',
+      ),
+    )
+  }
+
+  private static preferencesOf(value: unknown): PreferencesResponse {
+    if (!isPreferencesResponse(value)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible preferences.', 200)
+    }
+    return value
+  }
+
+  async preferences() {
+    return DocumentClient.preferencesOf(await this.request('GET', PREFERENCES_PATH))
+  }
+
+  /**
+   * Preference writes are stored at once and guarded by their revision, so a lost reply is
+   * asked about and a restart retried, as for a rename.
+   */
+  async setPreferences(expectedRevision: number, change: PreferencesChange) {
+    return DocumentClient.preferencesOf(
+      await this.guarded(PREFERENCES_PATH, { expected_revision: expectedRevision, ...change }, 'retry', 'PUT'),
+    )
+  }
+
+  async resetPreferences(expectedRevision: number) {
+    return DocumentClient.preferencesOf(
+      await this.guarded(`${PREFERENCES_PATH}/reset`, { expected_revision: expectedRevision }, 'retry'),
+    )
+  }
+
+  /** Makes new documents start from every setting of `document` (as the service holds it now). */
+  async preferencesFromDocument(expectedRevision: number, document: string) {
+    return DocumentClient.preferencesOf(
+      await this.guarded(`${PREFERENCES_PATH}/import`, { expected_revision: expectedRevision, document }, 'retry'),
+    )
+  }
+
   async close(id: string, discardUnsaved: boolean, expectedRevision?: number) {
     // A refused token is retried: the revision check still guards what a close may discard.
     const value = await this.write(
@@ -1276,6 +1485,8 @@ export class DocumentClient {
     return value
   }
 }
+
+const PREFERENCES_PATH = '/api/v1/preferences'
 
 function documentPath(id: string) {
   return `/api/v1/documents/${encodeURIComponent(id)}`

@@ -1,13 +1,16 @@
 //! Infrastructure implementations of application-owned ports.
-//! No chemistry engines or model files are loaded. User documents are local JSON files.
+//! No chemistry engines or model files are loaded. User documents and the preferences of a data
+//! directory are local JSON files.
 
 mod file_format;
 mod file_store;
+mod preference_store;
 
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
+pub use preference_store::FilePreferenceStore;
 
 /// Actual implementation status. Change an entry only together with its real operation.
 #[derive(Clone, Copy, Default)]

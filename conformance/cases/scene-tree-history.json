@@ -1,7 +1,7 @@
 {
   "id": "scene-tree-history",
   "title": "Group sibling graphics, move a group and child once, and restore selection through undo, redo, save and reopen",
-  "requirements": ["MODEL-01", "OPS-02"],
+  "requirements": ["MODEL-01", "OPS-01", "OPS-02"],
   "axis": "scene",
   "kind": "accept",
   "steps": [

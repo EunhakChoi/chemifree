@@ -19,14 +19,16 @@ use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
     CopyResponse, CreateDocumentRequest, DeleteResponse, DocumentListResponse, DocumentResponse,
-    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse, ListQuery,
-    OperationResponse, RecoverAsCopyRequest, RenameRequest, RestoreRequest, RestoreResponse,
-    RevisionRequest, SaveAsRequest, TransactionRequest, TrashListResponse,
+    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
+    ImportPreferencesRequest, ImportSettingsRequest, ListQuery, OperationResponse,
+    PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest, RenameRequest,
+    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
+    TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
@@ -166,6 +168,17 @@ pub fn router(state: Shared) -> Router {
         )
         .route("/api/v1/documents/{id}/discard-draft", post(discard_draft))
         .route("/api/v1/documents/{id}/rename", post(rename))
+        .route(
+            "/api/v1/documents/{id}/settings/reset",
+            post(reset_settings),
+        )
+        .route(
+            "/api/v1/documents/{id}/settings/import",
+            post(import_settings),
+        )
+        .route("/api/v1/preferences", put(set_preferences))
+        .route("/api/v1/preferences/reset", post(reset_preferences))
+        .route("/api/v1/preferences/import", post(import_preferences))
         .route("/api/v1/documents/{id}/delete", post(delete))
         .route("/api/v1/trash/{id}/restore", post(restore))
         .route("/api/v1/operations", post(operations))
@@ -185,6 +198,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/documents", get(list_documents))
         .route("/api/v1/trash", get(list_trash))
+        .route("/api/v1/preferences", get(preferences))
         .route("/api/v1/documents/{id}", get(document))
         .merge(writes)
         .merge(session)
@@ -232,7 +246,10 @@ impl From<ApplicationError> for ApiError {
             | ErrorCode::DraftOutdated
             | ErrorCode::RequestInProgress => StatusCode::CONFLICT,
             ErrorCode::StorageFailed | ErrorCode::ResourceLimit => StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::DocumentUnreadable => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::SettingNotImplemented => StatusCode::NOT_IMPLEMENTED,
+            ErrorCode::DocumentUnreadable | ErrorCode::PreferencesUnreadable => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
         Self(status, error.to_response())
     }
@@ -455,6 +472,93 @@ async fn rename(
             Some(&body.request_id),
             body.expected_revision,
             &body.title,
+        )
+    })
+    .await
+    .map(Json)
+}
+
+async fn reset_settings(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<ResetSettingsRequest>,
+) -> Result<Json<DocumentResponse>, ApiError> {
+    run(state, move |app| {
+        app.reset_settings_selecting(
+            &id,
+            Some(&body.request_id),
+            body.expected_revision,
+            body.to,
+            chemifree_application::TransactionSelections {
+                before: body.selection_before,
+                after: body.selection_after,
+            },
+        )
+    })
+    .await
+    .map(Json)
+}
+
+async fn import_settings(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    JsonBody(body): JsonBody<ImportSettingsRequest>,
+) -> Result<Json<DocumentResponse>, ApiError> {
+    run(state, move |app| {
+        app.import_settings_selecting(
+            &id,
+            Some(&body.request_id),
+            body.expected_revision,
+            &body.source,
+            chemifree_application::TransactionSelections {
+                before: body.selection_before,
+                after: body.selection_after,
+            },
+        )
+    })
+    .await
+    .map(Json)
+}
+
+async fn preferences(State(state): State<Shared>) -> Result<Json<PreferencesResponse>, ApiError> {
+    run(state, |app| app.preferences()).await.map(Json)
+}
+
+async fn set_preferences(
+    State(state): State<Shared>,
+    JsonBody(body): JsonBody<PreferencesRequest>,
+) -> Result<Json<PreferencesResponse>, ApiError> {
+    run(state, move |app| {
+        app.set_preferences(
+            Some(&body.request_id),
+            body.expected_revision,
+            body.change(),
+        )
+    })
+    .await
+    .map(Json)
+}
+
+async fn reset_preferences(
+    State(state): State<Shared>,
+    JsonBody(body): JsonBody<RevisionRequest>,
+) -> Result<Json<PreferencesResponse>, ApiError> {
+    run(state, move |app| {
+        app.reset_preferences(Some(&body.request_id), body.expected_revision)
+    })
+    .await
+    .map(Json)
+}
+
+async fn import_preferences(
+    State(state): State<Shared>,
+    JsonBody(body): JsonBody<ImportPreferencesRequest>,
+) -> Result<Json<PreferencesResponse>, ApiError> {
+    run(state, move |app| {
+        app.preferences_from_document(
+            Some(&body.request_id),
+            body.expected_revision,
+            &body.document,
         )
     })
     .await

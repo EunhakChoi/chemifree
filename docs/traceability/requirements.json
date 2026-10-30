@@ -417,14 +417,27 @@
           "followups": []
         },
         {
+          "id": "OPS-01.2",
+          "summary": "Sibling graphics can be grouped; moving a selected group and child applies once and undo/redo restores selection.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/document.rs",
+            "crates/domain/src/scene.rs"
+          ],
+          "evidence": [
+            "case:scene-tree-history",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "OPS-01.rest",
-          "summary": "Selection scope, groups and children, moves and clean-up of selections, containment.",
+          "summary": "Further selection scope, specialized objects, grouping and containment beyond the current scene tree.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P11",
             "P31",
             "P32",
             "P33",
@@ -981,17 +994,57 @@
         "document.snapshot",
         "document.transaction"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "STYLE-01.1",
+          "summary": "Each document holds its own style settings (bond length 5-200 pt, line width 0.1-10 pt, label font among sans-serif, serif and monospace, label size 4-72 pt, which carbons are labelled, and the unit lengths are shown in; lengths are stored in pt). They change only through an edit that is undone and redone as one step, refuses out-of-range values with a stable reason and changes nothing, and are saved, reopened, reset to the defaults or the preferences, and taken from another document as one edit; files from before them open with the defaults.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/settings.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_format.rs",
+            "apps/web/src/editor/settings.ts"
+          ],
+          "evidence": [
+            "case:settings-persist-across-reopen",
+            "case:settings-and-preferences-refused",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
+          "id": "STYLE-01.2",
+          "summary": "Application preferences (the interface theme and the settings new documents start from) are kept per data directory, apart from every document, and written atomically with a revision checked across processes. A new document copies the preferred settings once when it is created; later preference changes never alter an existing document, its file or its history. Computation preferences (NMR, numeric precision) are reported as owned by preferences and not implemented, and setting one is refused without storing it.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/preferences.rs",
+            "crates/application/src/lib.rs",
+            "crates/providers/src/preference_store.rs",
+            "apps/web/src/hooks/use-preferences.ts"
+          ],
+          "evidence": [
+            "case:preferences-do-not-leak",
+            "case:settings-and-preferences-refused",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "STYLE-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Computation preferences themselves (NMR solvent and corrections, numeric precision and decimals), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P12",
+            "P15",
             "P35",
             "P40",
             "P66",

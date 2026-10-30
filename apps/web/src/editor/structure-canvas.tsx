@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
-import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position, type SceneObject } from '@/lib/document-contract'
+import { placements, settingsOf, type AtomView, type BondOrder, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
@@ -9,22 +9,26 @@ import {
   bondName,
   bondRings,
   bondSides,
+  bondSpacing,
   bondStrokes,
+  bondUnderlay,
   degrees,
   distance,
   drawingStrokes,
   freeNeighborPosition,
+  graphicUnderlay,
   hitTest,
   leaningRight,
   placementFrame,
   round,
   sameHit,
   snappedEndpoint,
+  strokeReach,
   viewBox,
   type Hit,
   type Stroke,
 } from '@/editor/geometry'
-import { DOT_SIZE, atomLabel, atomName, placed, type AtomLabel, type Box, type LabelChunk } from '@/editor/label'
+import { atomLabel, atomName, labelStyleOf, placed, type AtomLabel, type Box, type LabelChunk } from '@/editor/label'
 
 export type { DrawnOrder } from '@/editor/bond-gestures'
 
@@ -67,7 +71,8 @@ interface Located {
  * One placement of the document, drawn with its own atom positions, and everything derived
  * from it once per document rather than per render: label layouts (relative to each atom;
  * which side stated hydrogens take depends on the placement's bonds), the side of each bond's
- * inner line, every bond's strokes, and its frame when there are several placements.
+ * inner line, every bond's strokes, and its frame when there are several placements. The
+ * document's settings give the label style, the stroke width, and the spacing of bond lines.
  */
 interface Drawing {
   id: string | null
@@ -77,6 +82,10 @@ interface Drawing {
   sides: ReadonlyMap<string, 1 | -1>
   strokes: ReadonlyMap<string, Stroke[]>
   frame: ReturnType<typeof placementFrame> | null
+  lineWidth: number
+  spacing: number
+  reach: number
+  font: LabelFont
 }
 
 const sameLocated = (a: Located | null, b: Located | null) =>
@@ -116,9 +125,15 @@ export function StructureCanvas({
 
   // Derived per document, not per render: pointer moves re-render the canvas.
   const atoms = useMemo(() => atomIndex(document), [document])
+  const bondLength = settingsOf(document).bond_length_pt
   // One label layout per atom and placement: what is drawn, and the box that bond trimming,
   // the view box, and hit testing all use.
   const drawings = useMemo<Drawing[]>(() => {
+    const settings = settingsOf(document)
+    const style = labelStyleOf(settings)
+    const lineWidth = settings.line_width_pt
+    const spacing = bondSpacing(lineWidth)
+    const reach = strokeReach(lineWidth, spacing) + 3
     const counts = degrees(document)
     const all = placements(document)
     const order = document.scene?.objects?.filter((object) => object.kind === 'instance').map((object) => object.id)
@@ -129,7 +144,7 @@ export function StructureCanvas({
     const layouts = new Map<string, AtomLabel | null>()
     const layoutOf = (atom: AtomView, left: boolean) => {
       const key = `${atom.id}:${left}`
-      if (!layouts.has(key)) layouts.set(key, atomLabel(atom, counts.get(atom.id) ?? 0, left))
+      if (!layouts.has(key)) layouts.set(key, atomLabel(atom, counts.get(atom.id) ?? 0, left, style))
       return layouts.get(key) ?? null
     }
     return all.map((placement) => {
@@ -144,9 +159,10 @@ export function StructureCanvas({
               view.atoms.map((atom) => atom.position),
               view.atoms.flatMap((atom) => labelBox(labels, atom.id, atom.position) ?? []),
               placement.id,
+              reach,
             )
           : null
-      return { id: placement.id, view, atoms: index, labels, sides, strokes: drawingStrokes(view, labels, index, sides), frame }
+      return { id: placement.id, view, atoms: index, labels, sides, strokes: drawingStrokes(view, labels, index, sides, spacing, lineWidth), frame, lineWidth, spacing, reach, font: style.font }
     })
   }, [document])
   // The view box holds every atom, label box, and placement frame (with its ID).
@@ -161,6 +177,7 @@ export function StructureCanvas({
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
           ...(drawing.frame ? [drawing.frame.box] : []),
         ]),
+        drawings[0]?.reach ?? 0,
       ),
     [document.scene, drawings],
   )
@@ -244,7 +261,7 @@ export function StructureCanvas({
     const { hit: target } = locate(point, new Set(gesture.fromAtom ? [gesture.fromAtom] : []), gesture.instance)
     const targetAtom = target?.kind === 'atom' ? drawing.atoms.get(target.id) : undefined
     if (targetAtom) return { origin, atom: targetAtom.id, position: targetAtom.position }
-    return { origin, atom: null, position: snappedEndpoint(origin, point) }
+    return { origin, atom: null, position: snappedEndpoint(origin, point, bondLength) }
   }
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
@@ -324,8 +341,8 @@ export function StructureCanvas({
     let to: BondEnd
     if (!dragged) {
       const end = gesture.fromAtom
-        ? freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom)
-        : snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 })
+        ? freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom, bondLength)
+        : snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 }, bondLength)
       if (!end) return []
       to = { point: end }
     } else {
@@ -386,7 +403,7 @@ export function StructureCanvas({
           .map((bond) => {
             const a = position(drawing, bond.begin)
             const b = position(drawing, bond.end)
-            return <line key={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={8} strokeLinecap="round" />
+            return <line key={bond.id} data-underlay={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={bondUnderlay(bond.order, drawing.lineWidth, drawing.spacing)} strokeLinecap="round" />
           })}
         {document.atoms
           .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
@@ -432,7 +449,7 @@ export function StructureCanvas({
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'graphic') return (
-          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} onPointerDown={(event) => {
+          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} onPointerDown={(event) => {
             if (tool !== 'select' || disabled) return
             event.stopPropagation()
             const next = event.shiftKey ? new Set(selection) : new Set<string>()
@@ -451,7 +468,7 @@ export function StructureCanvas({
           x2={preview.to.x}
           y2={preview.to.y}
           className="stroke-primary"
-          strokeWidth={1.2}
+          strokeWidth={settingsOf(document).line_width_pt}
           strokeDasharray="3 2"
         />
       )}
@@ -470,9 +487,10 @@ export function StructureCanvas({
   )
 }
 
-function SceneGraphic({ object, selected, onPointerDown }: {
+function SceneGraphic({ object, selected, lineWidth, onPointerDown }: {
   object: Extract<SceneObject, { kind: 'graphic' }>
   selected: boolean
+  lineWidth: number
   onPointerDown: (event: PointerEvent<SVGGElement>) => void
 }) {
   const [a, b] = object.points
@@ -481,18 +499,22 @@ function SceneGraphic({ object, selected, onPointerDown }: {
   const uy = length > 0 ? (b.y - a.y) / length : 0
   const head = `${b.x},${b.y} ${b.x - ux * 6 - uy * 3},${b.y - uy * 6 + ux * 3} ${b.x - ux * 6 + uy * 3},${b.y - uy * 6 - ux * 3}`
   const rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
+  const underlay = graphicUnderlay(lineWidth)
   return (
-    <g data-scene-object={object.id} onPointerDown={onPointerDown}>
+    <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
       {object.shape === 'rectangle' ? (
         <>
-          <rect {...rect} fill="none" stroke="transparent" strokeWidth={10} />
-          <rect {...rect} fill="none" className={selected ? 'stroke-primary' : 'stroke-foreground'} strokeWidth={selected ? 2 : 1.2} />
+          <rect {...rect} fill="none" stroke="transparent" strokeWidth={Math.max(10, underlay)} />
+          {selected && <rect {...rect} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+          <rect {...rect} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
         </>
       ) : (
         <>
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={10} />
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={selected ? 'stroke-primary' : 'stroke-foreground'} strokeWidth={selected ? 2 : 1.2} />
-          {object.shape === 'arrow' && length > 0 && <polygon points={head} className={selected ? 'fill-primary' : 'fill-foreground'} />}
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={Math.max(10, underlay)} />
+          {selected && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-primary/40" strokeWidth={underlay} />}
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-foreground" strokeWidth={lineWidth} />
+          {object.shape === 'arrow' && length > 0 && selected && <polygon points={head} className="fill-primary/40 stroke-primary/40" strokeWidth={underlay} />}
+          {object.shape === 'arrow' && length > 0 && <polygon points={head} className="fill-foreground stroke-foreground" strokeWidth={lineWidth} />}
         </>
       )}
     </g>
@@ -541,11 +563,20 @@ const DrawingLayer = memo(function DrawingLayer({
       labelBox(drawing.labels, bond.begin, begin),
       labelBox(drawing.labels, bond.end, end),
       drawing.sides.get(bond.id),
+      drawing.spacing,
+      drawing.lineWidth,
     )
   }
+  const { font } = drawing
   return (
     <>
-      <g className="fill-none stroke-foreground" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round">
+      <g
+        className="fill-none stroke-foreground"
+        strokeWidth={drawing.lineWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        data-bonds=""
+      >
         {drawing.view.bonds.map((bond) => (
           <g key={bond.id} role="img" aria-label={bondName(bond, placement)} data-bond-kind={bond.order}>
             {strokesOf(bond).map((stroke, index) =>
@@ -567,7 +598,12 @@ const DrawingLayer = memo(function DrawingLayer({
           </g>
         ))}
       </g>
-      <g className="fill-foreground font-sans">
+      {/* The bundled font for sans-serif; the generic family the label boxes were measured in otherwise. */}
+      <g
+        className={cn('fill-foreground', font === 'sans-serif' && 'font-sans')}
+        fontFamily={font === 'sans-serif' ? undefined : font}
+        data-labels={font}
+      >
         {drawing.view.atoms.map((atom) => {
           const label = drawing.labels.get(atom.id)
           return label ? (
@@ -631,9 +667,10 @@ function AtomMark({ id, name, label, at }: { id: string; name: string; label: At
           key={index}
           cx={round(at.x + dot.dx)}
           cy={round(at.y + dot.dy)}
-          r={DOT_SIZE}
+          r={round(dot.radius)}
           className={dot.hollow ? 'fill-none stroke-foreground' : undefined}
-          strokeWidth={dot.hollow ? 0.6 : undefined}
+          // A ring 0.6 wide at the built-in radius of 1.4, scaled with the label.
+          strokeWidth={dot.hollow ? round((dot.radius * 3) / 7) : undefined}
           data-mark="radical"
           aria-hidden="true"
         />

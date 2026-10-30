@@ -6,11 +6,14 @@ use std::process::ExitCode;
 use chemifree_application::{
     Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
     CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
-    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, OperationResponse, RadicalDto,
-    RecoveryState, ReferenceTargetDto, RestoreResponse, SceneObjectView, SelectionDto,
+    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, OperationResponse,
+    PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
+    RestoreResponse, SceneObjectView, SelectionDto, SettingsDto, SettingsSource,
     TransactionSelections, TrashListResponse,
 };
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
+use chemifree_providers::{
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, default_data_dir,
+};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
@@ -44,6 +47,10 @@ enum Command {
     /// Create, inspect, and edit saved documents. Every edit is saved before exit.
     #[command(subcommand)]
     Documents(DocumentCommand),
+    /// Show and change the preferences of the data directory: the theme, and the settings new
+    /// documents start from. Existing documents never change with them.
+    #[command(subcommand)]
+    Preferences(PreferenceCommand),
     /// Run operation contract requests: one JSON request per line on standard input, one JSON
     /// reply per line on standard output. Sessions last for this process only: edits are kept
     /// only once a document.save request commits them.
@@ -158,6 +165,90 @@ enum DocumentCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show, reset, or import a document's style settings. Edit them with `apply` and
+    /// `update_settings`.
+    #[command(subcommand)]
+    Settings(SettingsCommand),
+}
+
+#[derive(Subcommand)]
+enum SettingsCommand {
+    /// Show a saved document's settings.
+    Show {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replace the settings with the built-in defaults or the preferred new-document settings,
+    /// as one undoable edit, then save.
+    Reset {
+        #[command(flatten)]
+        target: Target,
+        #[arg(long, value_enum)]
+        to: ResetTo,
+    },
+    /// Apply another document's settings as one undoable edit, then save.
+    Import {
+        #[command(flatten)]
+        target: Target,
+        /// The document whose settings are applied.
+        #[arg(long)]
+        source: String,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ResetTo {
+    /// The built-in defaults.
+    Defaults,
+    /// The settings a new document would start from now.
+    Preferences,
+}
+
+impl From<ResetTo> for SettingsSource {
+    fn from(to: ResetTo) -> Self {
+        match to {
+            ResetTo::Defaults => Self::Defaults,
+            ResetTo::Preferences => Self::Preferences,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum PreferenceCommand {
+    /// Show the preferences.
+    Show {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Replace the preferences, e.g. '{"ui":{"theme":"dark"},"new_documents":{"bond_length_pt":40}}'
+    /// (the body of PUT /api/v1/preferences without request_id and expected_revision).
+    Set {
+        #[arg(long)]
+        preferences: String,
+        #[command(flatten)]
+        revision: PreferenceRevision,
+    },
+    /// Reset the preferences to the built-in defaults.
+    Reset {
+        #[command(flatten)]
+        revision: PreferenceRevision,
+    },
+    /// Make new documents start from every setting of a saved document.
+    Import {
+        document: String,
+        #[command(flatten)]
+        revision: PreferenceRevision,
+    },
+}
+
+#[derive(ClapArgs)]
+struct PreferenceRevision {
+    /// The preferences revision the change is based on; a different one is a conflict.
+    #[arg(long)]
+    expected_revision: u64,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -190,13 +281,17 @@ struct Target {
 fn main() -> ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.or_else(default_data_dir);
-    let documents_need_data = matches!(args.command, Command::Documents(_) | Command::Operations);
+    let documents_need_data = matches!(
+        args.command,
+        Command::Documents(_) | Command::Preferences(_) | Command::Operations
+    );
     let Some(data_dir) = data_dir.or_else(|| (!documents_need_data).then(PathBuf::new)) else {
         eprintln!("error: no user data directory found; pass --data-dir or set CHEMIFREE_DATA_DIR");
         return ExitCode::FAILURE;
     };
     // Construction performs no I/O; status and capabilities never touch storage.
-    let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir));
+    let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
+        .with_preferences(FilePreferenceStore::new(&data_dir));
 
     match args.command {
         Command::Status { json } => {
@@ -233,6 +328,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Command::Documents(command) => run_document_command(&application, command),
+        Command::Preferences(command) => run_preference_command(&application, command),
         Command::Operations => run_operations(&application),
     }
 }
@@ -330,6 +426,58 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
             application.restore(&id, None),
             json,
             |response: &RestoreResponse| println!("Restored {} ({})", response.title, response.id),
+        ),
+        DocumentCommand::Settings(SettingsCommand::Show { id, json }) => report(
+            application
+                .document(&id)
+                .map(|response| response.document.settings),
+            json,
+            |settings: &SettingsDto| println!("{}", settings_text(settings)),
+        ),
+        DocumentCommand::Settings(SettingsCommand::Reset { target, to }) => {
+            let result = application
+                .reset_settings(&target.id, None, target.expected_revision, to.into())
+                .and_then(|reset| save(application, &target.id, &reset));
+            report(result, target.json, print_document)
+        }
+        DocumentCommand::Settings(SettingsCommand::Import { target, source }) => {
+            let result = application
+                .import_settings(&target.id, None, target.expected_revision, &source)
+                .and_then(|imported| save(application, &target.id, &imported));
+            report(result, target.json, print_document)
+        }
+    }
+}
+
+fn run_preference_command(application: &LocalApplication, command: PreferenceCommand) -> ExitCode {
+    let print = |response: &PreferencesResponse| print!("{}", preferences_text(response));
+    match command {
+        PreferenceCommand::Show { json } => report(application.preferences(), json, print),
+        PreferenceCommand::Set {
+            preferences,
+            revision,
+        } => {
+            let result = serde_json::from_str::<PreferencesChange>(&preferences)
+                .map_err(|error| {
+                    ApplicationError::new(
+                        ErrorCode::InvalidRequest,
+                        format!("invalid preferences: {error}"),
+                    )
+                })
+                .and_then(|change| {
+                    application.set_preferences(None, revision.expected_revision, change)
+                });
+            report(result, revision.json, print)
+        }
+        PreferenceCommand::Reset { revision } => report(
+            application.reset_preferences(None, revision.expected_revision),
+            revision.json,
+            print,
+        ),
+        PreferenceCommand::Import { document, revision } => report(
+            application.preferences_from_document(None, revision.expected_revision, &document),
+            revision.json,
+            print,
         ),
     }
 }
@@ -631,11 +779,67 @@ fn document_text(response: &DocumentResponse) -> String {
             document.selection.bonds.join(", ")
         ));
     }
+    lines.push(format!("  settings  {}", settings_text(&document.settings)));
     lines.push(format!(
         "  undo {} · redo {}",
         response.session.undo_depth, response.session.redo_depth
     ));
     lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// Every setting on one line; lengths in pt whatever the display unit.
+fn settings_text(settings: &SettingsDto) -> String {
+    format!(
+        "bond length {} pt · line width {} pt · labels {} {} pt · carbon labels {} · display \
+         unit {}",
+        settings.bond_length_pt,
+        settings.line_width_pt,
+        name(&settings.label_font),
+        settings.label_size_pt,
+        name(&settings.carbon_labels),
+        name(&settings.display_unit)
+    )
+}
+
+/// The theme, the settings new documents start from (and which of them preferences set), and
+/// the computation preferences, which are not implemented.
+fn preferences_text(response: &PreferencesResponse) -> String {
+    let mut lines = vec![
+        format!("Preferences · revision {}", response.revision),
+        format!("  theme {}", name(&response.ui.theme)),
+        format!(
+            "  new documents  {}",
+            settings_text(&response.new_document_settings)
+        ),
+    ];
+    let set = serde_json::to_value(&response.new_documents).expect("settings are serializable");
+    let set: Vec<&String> = set
+        .as_object()
+        .map(|set| set.keys().collect())
+        .unwrap_or_default();
+    if !set.is_empty() {
+        let set: Vec<&str> = set.into_iter().map(String::as_str).collect();
+        lines.push(format!("    set: {}", set.join(", ")));
+    }
+    for (id, setting) in [
+        ("nmr", &response.computation.nmr),
+        ("numeric_precision", &response.computation.numeric_precision),
+    ] {
+        lines.push(format!(
+            "  computation.{id}  not implemented ({})",
+            setting.followup
+        ));
+    }
+    lines.iter().map(|line| format!("{line}\n")).collect()
+}
+
+/// A unit enum's name as the JSON contract spells it.
+fn name<T: Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .expect("names are serializable")
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// `13C-1`, `query ![N,O]`, followed by the stated hydrogens, radical, and attachment points.
@@ -775,6 +979,45 @@ mod tests {
                 "  b1  a1–a2  query single|aromatic",
                 "  b2  a2–a3  query any"
             ]
+        );
+    }
+    #[test]
+    fn the_settings_are_shown_with_every_document() {
+        let text = shown(json!([
+            {"op": "update_settings", "bond_length_pt": 42.5, "label_font": "serif",
+             "carbon_labels": "all", "display_unit": "mm"}
+        ]));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[lines.len() - 2..],
+            [
+                "  settings  bond length 42.5 pt · line width 1.2 pt · labels serif 12 pt · \
+                 carbon labels all · display unit mm",
+                "  undo 1 · redo 0"
+            ],
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn preferences_show_new_document_settings_and_unimplemented_computation() {
+        let data = tempfile::tempdir().unwrap();
+        let application =
+            Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
+        let change: PreferencesChange = serde_json::from_value(json!({
+            "ui": {"theme": "dark"}, "new_documents": {"line_width_pt": 2}
+        }))
+        .unwrap();
+        let response = application.set_preferences(None, 0, change).unwrap();
+        assert_eq!(
+            preferences_text(&response),
+            "Preferences · revision 1\n\
+             \x20 theme dark\n\
+             \x20 new documents  bond length 30 pt · line width 2 pt · labels sans-serif 12 pt · \
+             carbon labels default · display unit pt\n\
+             \x20   set: line_width_pt\n\
+             \x20 computation.nmr  not implemented (P66)\n\
+             \x20 computation.numeric_precision  not implemented (P15)\n"
         );
     }
 }

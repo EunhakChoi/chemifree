@@ -279,7 +279,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 26] = [
+const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -343,6 +343,10 @@ const TRANSACTION_PARTS: [Entry; 26] = [
     ),
     runs("remove_reference", "Removes a recorded directed reference."),
     runs(
+        "update_settings",
+        "Changes the document's style settings as an undoable edit.",
+    ),
+    runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
          default). Representation only: no hydrogen count is computed from valence.",
@@ -391,6 +395,11 @@ const TRANSACTION_PARTS: [Entry; 26] = [
         "add_reference",
         "remove_reference",
     ]),
+    runs(
+        "document_settings",
+        "Each document stores and undoes its own style; preferences set new-document defaults.",
+    )
+    .carried_out_by(&["update_settings"]),
 ];
 
 const PROPERTY_PARTS: [Entry; 2] = [

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use chemifree_application::{Application, ApplicationError};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -188,7 +188,9 @@ fn run_steps(steps: &[Step]) -> Result<(), String> {
 fn start(directory: &Path) -> LocalApplication {
     let repository = FileDocumentRepository::new(directory);
     repository.prune_stale_temporaries();
-    Application::new(LocalCapabilities, repository)
+    let preferences = FilePreferenceStore::new(directory);
+    preferences.prune_stale_temporaries();
+    Application::new(LocalCapabilities, repository).with_preferences(preferences)
 }
 
 /// The response, or the v1 error envelope, as JSON.
@@ -247,7 +249,19 @@ fn call(
             body.discard_unsaved,
             body.expected_revision,
         )),
+        Call::ResetSettings { document, body } => json(application.reset_settings(
+            id(document)?,
+            Some(&body.request_id),
+            body.expected_revision,
+            body.to,
+        )),
         Call::Capabilities => json(Ok(application.capabilities())),
+        Call::Preferences => json(application.preferences()),
+        Call::SetPreferences { body } => json(application.set_preferences(
+            Some(&body.request_id),
+            body.expected_revision,
+            body.change(),
+        )),
         Call::Restart => return Err("restart is not a call".to_owned()),
         Call::Operation {
             request, document, ..

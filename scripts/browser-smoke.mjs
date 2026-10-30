@@ -211,8 +211,43 @@ const revision = async () => (await openDoc()).document.revision
 const saveState = () => page.getByTestId('save-state').textContent()
 const tool = (label) => page.getByRole('button', { name: label, exact: true }).first().click()
 
+// The service may not be ready for the first preference read. Once it is reachable, the
+// dialog can retry without reloading the page and applies the already-stored theme.
+execFileSync(cliPath, [
+  'preferences', 'set', '--expected-revision', '0', '--preferences',
+  JSON.stringify({ ui: { theme: 'dark' }, new_documents: {} }),
+], { env })
+await page.emulateMedia({ colorScheme: 'light' })
+let preferencesAvailable = false
+const unavailablePreferences = (route) =>
+  !preferencesAvailable && route.request().method() === 'GET'
+    ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ api_version: 'v1', code: 'storage_failed', message: 'temporarily unavailable' }) })
+    : route.continue()
+await page.route('**/api/v1/preferences', unavailablePreferences)
 await page.goto(BASE)
 await page.getByText('No document open').waitFor()
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+const unavailableDialog = page.getByRole('dialog', { name: 'Preferences' })
+await unavailableDialog.getByText(/Preferences could not be read/).waitFor()
+const failedRetry = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences') && response.request().method() === 'GET' && response.status() === 503)
+await unavailableDialog.getByRole('button', { name: 'Retry preferences' }).click()
+assert.equal((await failedRetry).status(), 503)
+await unavailableDialog.getByText(/Preferences could not be read/).waitFor()
+preferencesAvailable = true
+const retryPreferences = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences') && response.request().method() === 'GET' && response.status() === 200)
+await unavailableDialog.getByRole('button', { name: 'Retry preferences' }).click()
+await retryPreferences
+await unavailableDialog.getByLabel('Theme').waitFor()
+assert.match(await unavailableDialog.getByLabel('Theme').textContent(), /^Dark/)
+await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
+const resetInitialPreferences = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences/reset'))
+await unavailableDialog.getByRole('button', { name: 'Reset preferences' }).click()
+assert.equal((await resetInitialPreferences).status(), 200)
+await page.waitForFunction(() => !document.documentElement.classList.contains('dark'))
+await unavailableDialog.getByRole('button', { name: 'Done' }).click()
+await unavailableDialog.waitFor({ state: 'hidden' })
+await page.unroute('**/api/v1/preferences', unavailablePreferences)
+results.preferences_read_can_be_retried = true
 
 // Create.
 const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
@@ -1970,6 +2005,433 @@ step = 'after recorded_states_drawn_and_kept'
   results.scene_reference_owner_and_target_delete = true
 }
 step = 'after scene_group_and_queued_delete_selection'
+
+// Document style and preferences: a document's style is changed in its Document style dialog (two quick
+// presses while the first request is held both count), the canvas follows it (measured from the
+// DOM: font size and family, carbon labels, stroke width, label boxes holding the drawn text, the
+// bond length of a new bond), and it is saved and reopened. New-document preferences reach a
+// document created afterwards, not the first one, and the first document's own edits do not
+// reach the second.
+{
+  const styledCreated = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+  await closeShown()
+  await page.getByRole('button', { name: 'New document' }).click()
+  const styledId = (await (await styledCreated).json()).document.id
+  await page.getByLabel('Document title').waitFor()
+  const styledDoc = async (id = styledId) => (await api(`/api/v1/documents/${id}`)).document
+  await tool('Bond')
+  const frame = await canvas.boundingBox()
+  await page.mouse.click(frame.x + frame.width * 0.35, frame.y + frame.height * 0.55)
+  await waitIdle()
+  await page.getByRole('button', { name: 'Element N' }).click()
+  const drawn = await styledDoc()
+  const a2At = await screen(drawn.atoms.find((atom) => atom.id === 'a2').position)
+  await page.mouse.click(a2At.x, a2At.y)
+  await waitIdle()
+  await page.locator('[data-atom-label="a2"]').waitFor()
+  /** What the canvas draws, read from the DOM. */
+  const drawnStyle = () =>
+    page.evaluate(() => {
+      const svg = document.querySelector('svg[data-structure-canvas]')
+      const labels = svg.querySelector('g[data-labels]')
+      const symbol = svg.querySelector('[data-atom-label="a2"] tspan[data-part="symbol"]')
+      const box = (element) => element.getAttribute('data-box').split(' ').map(Number)
+      // Every label's drawn text lies inside the box the canvas reserves for it.
+      const overflowing = [...svg.querySelectorAll('[data-atom-label] text[data-box]')].filter((text) => {
+        const [x, y, width, height] = box(text)
+        const drawnBox = text.getBBox()
+        return drawnBox.x < x - 0.05 || drawnBox.y < y - 0.05 || drawnBox.x + drawnBox.width > x + width + 0.05 || drawnBox.y + drawnBox.height > y + height + 0.05
+      })
+      return {
+        family: labels.getAttribute('data-labels'),
+        computedFamily: getComputedStyle(symbol).fontFamily,
+        size: Number(symbol.getAttribute('font-size')),
+        stroke: Number(svg.querySelector('g[data-bonds]').getAttribute('stroke-width')),
+        labelled: [...svg.querySelectorAll('[data-atom-label]')].map((element) => element.getAttribute('data-atom-label')).sort(),
+        a2Box: box(svg.querySelector('[data-atom-label="a2"]')),
+        overflowing: overflowing.map((text) => text.outerHTML.slice(0, 80)),
+      }
+    })
+  const plain = await drawnStyle()
+  assert.deepEqual(
+    [plain.family, plain.size, plain.stroke, plain.labelled],
+    ['sans-serif', 12, 1.2, ['a2']],
+    'the built-in style: a bonded carbon is a bare vertex',
+  )
+
+  await page.getByRole('button', { name: 'Document style', exact: true }).click()
+  const style = page.getByRole('dialog', { name: 'Document style' })
+  await style.waitFor()
+  // Re-entering a displayed value is a no-op, and displayed limits are accepted after conversion.
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Millimetres (mm)', exact: true }).click()
+  await waitIdle()
+  const beforeSameValue = (await styledDoc()).revision
+  const bondLengthInput = style.getByRole('textbox', { name: 'Bond length', exact: true })
+  await bondLengthInput.fill('10.580')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  assert.equal((await styledDoc()).revision, beforeSameValue, 'equivalent displayed values make no edit')
+  await bondLengthInput.fill('1.76')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  assert.equal((await styledDoc()).settings.bond_length_pt, 5, 'the lower bound as displayed is accepted')
+
+  // A later choice of the currently displayed value must survive an earlier pending choice.
+  let releaseUnit
+  const unitHeld = new Promise((resolveHeld) => { releaseUnit = resolveHeld })
+  const holdUnit = async (route) => { await unitHeld; await route.continue() }
+  await page.route('**/transactions', holdUnit)
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Centimetres (cm)', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Millimetres (mm)', exact: true }).click()
+  releaseUnit()
+  await waitIdle()
+  await page.unroute('**/transactions', holdUnit)
+  assert.equal((await styledDoc()).settings.display_unit, 'mm', 'the last choice wins')
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Points (pt)', exact: true }).click()
+  await waitIdle()
+  await bondLengthInput.fill('30')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  assert.equal((await styledDoc()).settings.bond_length_pt, 30)
+  // The displayed value may be chosen again while a different typed value is in flight.
+  let releaseTyped
+  let typedReceived
+  const typedGate = new Promise((resolve) => { releaseTyped = resolve })
+  const typedStarted = new Promise((resolve) => { typedReceived = resolve })
+  let firstTyped = true
+  const holdTyped = async (route) => {
+    if (firstTyped) { firstTyped = false; typedReceived(); await typedGate }
+    await route.continue()
+  }
+  await page.route('**/transactions', holdTyped)
+  await bondLengthInput.fill('40')
+  await bondLengthInput.press('Enter')
+  await typedStarted
+  await bondLengthInput.fill('30')
+  await bondLengthInput.press('Enter')
+  releaseTyped()
+  await waitIdle()
+  await page.unroute('**/transactions', holdTyped)
+  assert.equal((await styledDoc()).settings.bond_length_pt, 30, 'the last typed value wins')
+  // Merely focusing and leaving an unchanged field is not an edit and cannot undo a step
+  // already waiting in the queue.
+  let releaseFocus
+  let focusReceived
+  const focusGate = new Promise((resolve) => { releaseFocus = resolve })
+  const focusStarted = new Promise((resolve) => { focusReceived = resolve })
+  let firstFocus = true
+  const holdFocus = async (route) => {
+    if (firstFocus) { firstFocus = false; focusReceived(); await focusGate }
+    await route.continue()
+  }
+  await page.route('**/transactions', holdFocus)
+  await bondLengthInput.focus()
+  await style.getByRole('button', { name: 'Increase bond length' }).click()
+  await focusStarted
+  await bondLengthInput.focus()
+  await style.getByRole('textbox', { name: 'Line width', exact: true }).focus()
+  releaseFocus()
+  await waitIdle()
+  await page.unroute('**/transactions', holdFocus)
+  assert.equal((await styledDoc()).settings.bond_length_pt, 31, 'an unchanged field does not undo a pending step')
+  await style.getByRole('button', { name: 'Decrease bond length' }).click()
+  await waitIdle()
+  // A response arriving while the next number is being typed must not replace that draft.
+  let releaseDraft
+  let draftReceived
+  const draftGate = new Promise((resolve) => { releaseDraft = resolve })
+  const draftStarted = new Promise((resolve) => { draftReceived = resolve })
+  let firstDraft = true
+  const holdDraft = async (route) => {
+    if (firstDraft) { firstDraft = false; draftReceived(); await draftGate }
+    await route.continue()
+  }
+  await page.route('**/transactions', holdDraft)
+  await bondLengthInput.fill('40')
+  await bondLengthInput.press('Enter')
+  await draftStarted
+  await bondLengthInput.fill('45')
+  releaseDraft()
+  await waitIdle()
+  assert.equal(await bondLengthInput.inputValue(), '45', 'the uncommitted input survives the earlier reply')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  await page.unroute('**/transactions', holdDraft)
+  assert.equal((await styledDoc()).settings.bond_length_pt, 45)
+  await bondLengthInput.fill('30')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  // The unit in force when typing began remains attached to that draft if a queued unit
+  // choice completes while the user is still typing.
+  let releaseDraftUnit
+  let draftUnitReceived
+  const draftUnitGate = new Promise((resolve) => { releaseDraftUnit = resolve })
+  const draftUnitStarted = new Promise((resolve) => { draftUnitReceived = resolve })
+  let firstDraftUnit = true
+  const holdDraftUnit = async (route) => {
+    if (firstDraftUnit) { firstDraftUnit = false; draftUnitReceived(); await draftUnitGate }
+    await route.continue()
+  }
+  await page.route('**/transactions', holdDraftUnit)
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Millimetres (mm)', exact: true }).click()
+  await draftUnitStarted
+  await bondLengthInput.fill('45')
+  releaseDraftUnit()
+  await waitIdle()
+  assert.equal(await bondLengthInput.inputValue(), '45')
+  assert.match(await bondLengthInput.locator('..').textContent(), /pt/, 'the draft is still shown in the unit it was typed in')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  await page.unroute('**/transactions', holdDraftUnit)
+  assert.deepEqual([(await styledDoc()).settings.bond_length_pt, (await styledDoc()).settings.display_unit], [45, 'mm'])
+  await style.getByLabel('Display unit').click()
+  await page.getByRole('option', { name: 'Points (pt)', exact: true }).click()
+  await waitIdle()
+  await bondLengthInput.fill('30')
+  await bondLengthInput.press('Enter')
+  await waitIdle()
+  // Two presses while the first request is held: each is built from the latest document.
+  let releaseFirst
+  const firstHeld = new Promise((resolveHeld) => {
+    releaseFirst = resolveHeld
+  })
+  let seen = 0
+  const holdFirst = async (route) => {
+    seen += 1
+    if (seen === 1) await firstHeld
+    await route.continue()
+  }
+  await page.route('**/transactions', holdFirst)
+  const larger = style.getByRole('button', { name: 'Increase label size' })
+  await larger.click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await larger.click()
+  releaseFirst()
+  await waitIdle()
+  await page.unroute('**/transactions', holdFirst)
+  assert.equal(await page.getByText('Edit rejected', { exact: true }).count(), 0, 'neither press is refused')
+  assert.equal((await styledDoc()).settings.label_size_pt, 14, 'both presses count')
+
+  const choose = async (label, option) => {
+    await style.getByLabel(label).click()
+    await page.getByRole('option', { name: option, exact: true }).click()
+    await waitIdle()
+  }
+  await choose('Label font', 'Serif')
+  await choose('Carbon labels', 'Every carbon')
+  await style.getByRole('textbox', { name: 'Line width', exact: true }).fill('2.4')
+  await style.getByRole('textbox', { name: 'Line width', exact: true }).press('Enter')
+  await waitIdle()
+  await style.getByRole('textbox', { name: 'Bond length', exact: true }).fill('45')
+  await style.getByRole('textbox', { name: 'Bond length', exact: true }).press('Enter')
+  await waitIdle()
+  await choose('Display unit', 'Millimetres (mm)')
+  assert.equal(await style.getByRole('textbox', { name: 'Bond length', exact: true }).inputValue(), '15.88', '45 pt shown in mm')
+  let edited = { bond_length_pt: 45, line_width_pt: 2.4, label_font: 'serif', label_size_pt: 14, carbon_labels: 'all', display_unit: 'mm' }
+  assert.deepEqual((await styledDoc()).settings, edited)
+  await style.getByRole('button', { name: 'Done' }).click()
+  await style.waitFor({ state: 'hidden' })
+
+  const restyled = await drawnStyle()
+  assert.deepEqual(
+    [restyled.family, restyled.size, restyled.stroke, restyled.labelled],
+    ['serif', 14, 2.4, ['a1', 'a2']],
+    'the canvas draws the document style',
+  )
+  assert.match(restyled.computedFamily, /serif/)
+  assert.ok(restyled.a2Box[3] > plain.a2Box[3] * 1.1, `the label box grows with the label size: ${restyled.a2Box} vs ${plain.a2Box}`)
+  assert.deepEqual(restyled.overflowing, [], 'every label lies inside its box')
+  // A new bond from a1 is drawn at the document's bond length.
+  await tool('Bond')
+  const a1At = await screen(drawn.atoms.find((atom) => atom.id === 'a1').position)
+  await page.mouse.click(a1At.x, a1At.y)
+  await waitIdle()
+  const grown = await styledDoc()
+  const [from, to] = ['a1', 'a3'].map((id) => grown.atoms.find((atom) => atom.id === id).position)
+  assert.ok(Math.abs(Math.hypot(to.x - from.x, to.y - from.y) - 45) < 0.05, 'the new bond is 45 pt long')
+
+  // A style reset records the selection at its button press, including a selection made since
+  // the last server edit. Undo restores that snapshot with the previous style.
+  await tool('Select and move')
+  const firstAtom = await screen(grown.atoms.find((atom) => atom.id === 'a1').position)
+  await page.mouse.click(firstAtom.x, firstAtom.y)
+  await page.getByRole('heading', { name: 'Atom a1' }).waitFor()
+  await page.getByRole('button', { name: 'Document style', exact: true }).click()
+  await style.waitFor()
+  const resetting = page.waitForRequest((request) => request.url().endsWith('/settings/reset'))
+  await style.getByRole('button', { name: 'Built-in defaults' }).click()
+  assert.deepEqual((await resetting).postDataJSON().selection_before.atoms, ['a1'])
+  await waitIdle()
+  assert.deepEqual((await styledDoc()).selection.atoms, ['a1'])
+  await style.getByRole('button', { name: 'Done' }).click()
+  await style.waitFor({ state: 'hidden' })
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  assert.deepEqual((await styledDoc()).selection.atoms, ['a1'])
+  assert.deepEqual((await styledDoc()).settings, edited)
+
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await page.reload()
+  await page.locator(`li[data-document-id="${styledId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  assert.deepEqual((await styledDoc()).settings, edited, 'saved and reopened')
+  const reopened = await drawnStyle()
+  assert.deepEqual([reopened.family, reopened.size, reopened.stroke], ['serif', 14, 2.4], 'drawn the same after reopening')
+
+  // A preference import is ordered after earlier document edits, and later preference writes
+  // cannot overtake it. Instrument fetch calls synchronously while the edit route is held.
+  await page.evaluate(() => {
+    window.__p12OriginalFetch = window.fetch
+    window.__p12PreferenceWrites = []
+    window.fetch = (...args) => {
+      const path = String(args[0])
+      const method = args[1]?.method ?? 'GET'
+      if (path.includes('/api/v1/preferences') && method !== 'GET') window.__p12PreferenceWrites.push(path)
+      return window.__p12OriginalFetch(...args)
+    }
+  })
+  await page.getByRole('button', { name: 'Document style', exact: true }).click()
+  await style.waitFor()
+  let releaseStyle
+  const styleHeld = new Promise((resolveHeld) => { releaseStyle = resolveHeld })
+  const holdStyle = async (route) => { await styleHeld; await route.continue() }
+  await page.route('**/transactions', holdStyle)
+  await style.getByRole('button', { name: 'Increase label size' }).click()
+  await page.waitForFunction(() => document.querySelector('[data-slot="spinner"]'))
+  await style.getByRole('button', { name: 'Done' }).click()
+  await style.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+  const adopting = page.getByRole('dialog', { name: 'Preferences' })
+  await adopting.waitFor()
+  // Establish the preference client's session while the document edit is still held. This
+  // makes any incorrectly ordered import observable without a network-dependent delay.
+  const warmed = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/reset'))
+  await adopting.getByRole('button', { name: 'Reset preferences' }).click()
+  assert.equal((await warmed).status(), 200)
+  await page.evaluate(() => { window.__p12PreferenceWrites = [] })
+  const adopted = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/import'))
+  await adopting.getByRole('button', { name: /^Use the style of/ }).click()
+  const themeChanged = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/preferences' && r.request().method() === 'PUT')
+  await adopting.getByLabel('Theme').click()
+  await page.getByRole('option', { name: 'Dark', exact: true }).click()
+  const beforeRelease = await page.evaluate(() => [...window.__p12PreferenceWrites])
+  releaseStyle()
+  assert.equal((await adopted).status(), 200)
+  assert.equal((await themeChanged).status(), 200)
+  await waitIdle()
+  await page.unroute('**/transactions', holdStyle)
+  assert.deepEqual(beforeRelease, [], 'both preference writes wait for the earlier document edit')
+  assert.deepEqual(await page.evaluate(() => window.__p12PreferenceWrites), ['/api/v1/preferences/import', '/api/v1/preferences'], 'later preferences follow the import')
+  edited = { ...edited, label_size_pt: 15 }
+  assert.deepEqual((await api('/api/v1/preferences')).new_document_settings, edited, 'the imported style includes the held edit')
+  const cleared = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/reset'))
+  await adopting.getByRole('button', { name: 'Reset preferences' }).click()
+  assert.equal((await cleared).status(), 200)
+  await adopting.getByRole('button', { name: 'Done' }).click()
+  await adopting.waitFor({ state: 'hidden' })
+  await page.evaluate(() => { window.fetch = window.__p12OriginalFetch })
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+
+  // Preferences: new documents start in monospace; the open document keeps its own style.
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+  const prefs = page.getByRole('dialog', { name: 'Preferences' })
+  await prefs.waitFor()
+  assert.equal(await prefs.getByLabel('NMR prediction').isDisabled(), true, 'computation preferences cannot be set')
+  assert.equal(await prefs.getByLabel('Numeric precision').inputValue(), 'Not implemented')
+  const preferenceWrite = () => page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/preferences' && r.request().method() === 'PUT')
+  let written = preferenceWrite()
+  await prefs.getByLabel('Label font').click()
+  await page.getByRole('option', { name: 'Monospace', exact: true }).click()
+  assert.equal((await written).status(), 200)
+  written = preferenceWrite()
+  await prefs.getByLabel('Theme').click()
+  await page.getByRole('option', { name: 'Dark', exact: true }).click()
+  assert.equal((await written).status(), 200)
+  await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
+  const stored = await api('/api/v1/preferences')
+  assert.deepEqual([stored.ui.theme, stored.new_documents], ['dark', { label_font: 'monospace' }])
+  await prefs.getByRole('button', { name: 'Done' }).click()
+  await prefs.waitFor({ state: 'hidden' })
+  assert.deepEqual((await styledDoc()).settings, edited, 'preferences never change an open document')
+
+  const secondCreated = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+  await closeShown()
+  await page.getByRole('button', { name: 'New document' }).click()
+  const secondId = (await (await secondCreated).json()).document.id
+  await page.getByLabel('Document title').waitFor()
+  assert.deepEqual(
+    (await styledDoc(secondId)).settings,
+    { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'monospace', label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' },
+    'the preferred font and nothing of the first document',
+  )
+  await closeShown()
+  assert.deepEqual((await styledDoc()).settings, edited, 'the first document is unchanged')
+
+  // Back to the built-in preferences, so later steps see the system theme.
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+  await prefs.waitFor()
+  const reset = page.waitForResponse((r) => r.url().endsWith('/api/v1/preferences/reset'))
+  await prefs.getByRole('button', { name: 'Reset preferences' }).click()
+  assert.equal((await reset).status(), 200)
+  await page.waitForFunction(() => !document.documentElement.classList.contains('dark'))
+  await page.screenshot({ path: join(outDir, 'editor-preferences.png') })
+  await prefs.getByRole('button', { name: 'Done' }).click()
+  await prefs.waitFor({ state: 'hidden' })
+  assert.deepEqual((await api('/api/v1/preferences')).new_documents, {})
+}
+results.document_style_and_preferences = true
+step = 'after document_style_and_preferences'
+
+// Even when the two labels leave no room to draw a 10 pt line, a 5 pt bond is still
+// hoverable and selectable. Its selection underlay must fit inside the canvas view box.
+{
+  const createdShort = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: 'New document' }).click()
+  const shortId = (await (await createdShort).json()).document.id
+  await page.getByLabel('Document title').waitFor()
+  const status = await page.evaluate(async (id) => {
+    const session = await (await fetch('/api/v1/session')).json()
+    const response = await fetch(`/api/v1/documents/${id}/transactions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [session.header]: session.token },
+      body: JSON.stringify({ request_id: 'short-wide-fixture', expected_revision: 0, commands: [
+        { op: 'add_atom', element: 'N', position: { x: -30, y: 0 } },
+        { op: 'add_atom', element: 'O', position: { x: -25, y: 0 }, bond_to: { atom: 'a1', order: 'single' } },
+        { op: 'update_settings', bond_length_pt: 5, line_width_pt: 10 },
+      ] }),
+    })
+    return response.status
+  }, shortId)
+  assert.equal(status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${shortId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await tool('Select and move')
+  const middle = await screen({ x: -27.5, y: 0 })
+  await page.mouse.move(middle.x, middle.y)
+  await page.locator('[data-underlay="b1"]').waitFor({ state: 'attached' })
+  await page.mouse.click(middle.x, middle.y)
+  await page.getByRole('heading', { name: 'Bond b1' }).waitFor()
+  assert.equal(await page.locator('[data-bond="b1"]').count(), 0, 'no bond ink crosses the overlapping label boxes')
+  const highlightFits = await page.evaluate(() => {
+    const svg = document.querySelector('svg[data-structure-canvas]')
+    const line = svg.querySelector('[data-underlay="b1"]')
+    const [x, y, width, height] = svg.getAttribute('viewBox').split(/\s+/).map(Number)
+    const radius = Number(line.getAttribute('stroke-width')) / 2
+    const xs = [Number(line.getAttribute('x1')), Number(line.getAttribute('x2'))]
+    const ys = [Number(line.getAttribute('y1')), Number(line.getAttribute('y2'))]
+    return Math.min(...xs) - radius >= x && Math.max(...xs) + radius <= x + width &&
+      Math.min(...ys) - radius >= y && Math.max(...ys) + radius <= y + height
+  })
+  assert.equal(highlightFits, true, 'the selected bond and its round caps fit the view box')
+}
+results.short_wide_bond_is_selectable = true
+step = 'after short_wide_bond_is_selectable'
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {

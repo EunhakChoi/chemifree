@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 5,
+  "suite_version": 6,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -229,6 +229,7 @@
       "title": "Group sibling graphics, move a group and child once, and restore selection through undo, redo, save and reopen",
       "requirements": [
         "MODEL-01",
+        "OPS-01",
         "OPS-02"
       ],
       "axis": "scene",
@@ -236,7 +237,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "34c574162358e3a62c3faa9d6d09dec94bb1c6afd180a7d296e05fa23e08fa62"
+      "case_sha256": "0f15d61225155559c98c8cbe03d03ce9e6806c377da3d71bac607618c667e4a5"
     },
     {
       "id": "scene-references",
@@ -359,21 +360,60 @@
       "pending": null,
       "failure": null,
       "case_sha256": "758cd43f5cef83b23c0eb25b20c15f83a46a3e8390b9699491f4bed490156455"
+    },
+    {
+      "id": "settings-persist-across-reopen",
+      "title": "Document settings are saved with the document, reopened after a crash, and undone as an edit",
+      "requirements": [
+        "STYLE-01"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "001d9e94d08b00051731edded0467ea5a688409d6b56a03b32ac87fc3324c3ad"
+    },
+    {
+      "id": "preferences-do-not-leak",
+      "title": "Preferences set the settings new documents start from and never change an existing document",
+      "requirements": [
+        "STYLE-01"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "0d52d41dde9535ae69b5a32167bf783cbbc8cf86d10041835ea7aebc4249f401"
+    },
+    {
+      "id": "settings-and-preferences-refused",
+      "title": "Out-of-range settings, stale preference writes, and computation preferences are refused and change nothing",
+      "requirements": [
+        "STYLE-01"
+      ],
+      "axis": "numeric",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "64cb75a82d36e32031386dc89aee87fecce81226255d4775a22fb41b17d95daf"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 13,
+      "passed": 15,
       "failed": 0,
       "not_run": 2
     },
     "reject": {
-      "passed": 11,
+      "passed": 12,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 24,
+      "passed": 27,
       "failed": 0,
       "not_run": 2
     }
