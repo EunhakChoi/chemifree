@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, naming_labels, nmr_profile, phase6_profiles};
+use crate::{json, mass_input, naming_labels, nmr_profile, phase6_profiles};
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -237,6 +237,7 @@ pub fn validate_model_binding(
             || dataset.manifest_sha256 != registration.manifest_sha256
             || dataset.engine_contract_id != binding.independent_engine_contract_id
             || registration.feature_schema_sha256.is_some()
+            || dataset.feature_schema_sha256.is_some()
         {
             return Err(ActiveDataError::ModelUnavailable);
         }
@@ -364,6 +365,7 @@ enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
+    MassInput,
     Nmr,
 }
 
@@ -399,6 +401,38 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::ProfileUnsupported);
             }
             return Ok(SelectedProfile::NamingLabels);
+        }
+        "personal-local-atomic-isotope-mass-profile-v1" => {
+            let has_required = mass_input::NORMALIZED_PATHS.iter().all(|path| {
+                manifest
+                    .files
+                    .iter()
+                    .any(|file| file.relative_path == *path && file.required)
+            });
+            let recognized = manifest.files.iter().all(|file| {
+                let path = file.relative_path.as_str();
+                (mass_input::NORMALIZED_PATHS.contains(&path) || path == mass_input::RAW_TEXT_PATH)
+                    && matches!(
+                        file.declared_content_class.as_str(),
+                        "declarative_data" | "model_parameters"
+                    )
+            });
+            if !has_required
+                || !recognized
+                || !(manifest.files.len() == mass_input::NORMALIZED_PATHS.len()
+                    || manifest.files.len() == mass_input::NORMALIZED_PATHS.len() + 1)
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            let feature = manifest
+                .files
+                .iter()
+                .find(|file| file.relative_path == mass_input::FEATURE_PATH)
+                .ok_or(ActiveDataError::ProfileUnsupported)?;
+            if manifest.feature_schema_sha256.as_deref() != Some(feature.sha256.as_str()) {
+                return Err(ActiveDataError::DataIdentityMismatch);
+            }
+            return Ok(SelectedProfile::MassInput);
         }
         "personal-local-nmr-coupling-parameters-v1" => {
             if manifest.files.len() != nmr_profile::REQUIRED_FILES.len()
@@ -572,6 +606,15 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::MassInput => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::MassInput(Box::new(
+                mass_input::decode(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Nmr => {
             let files: Vec<_> = payloads
                 .iter()
@@ -609,6 +652,14 @@ fn verify_catalog(
             )
             .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::MassInput => mass_input::verify_catalog(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -1641,6 +1692,15 @@ mod tests {
             Err(ActiveDataError::ModelUnavailable)
         ));
 
+        // A descriptor cannot opt out of a feature schema owned by its dataset.
+        let mut without_schema: serde_json::Value = serde_json::from_slice(&binding).unwrap();
+        without_schema["data_registrations"][0]["feature_schema_sha256"] = Value::Null;
+        let without_schema = serde_json::to_vec(&without_schema).unwrap();
+        assert!(matches!(
+            validate_model_binding(&without_schema, &hash(&without_schema), &[&loaded]),
+            Err(ActiveDataError::ModelUnavailable)
+        ));
+
         source.0.get_mut(nmr_profile::BOUNDS_PATH).unwrap()[0] ^= 1;
         assert!(matches!(
             load_personal_impl_with_metadata(
@@ -1876,3 +1936,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "active_data/mass_v3_tests.rs"]
+mod mass_v3_tests;

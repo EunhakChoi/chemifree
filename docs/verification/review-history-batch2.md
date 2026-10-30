@@ -200,3 +200,27 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 요청 | 18:55:36 | `76146338990022af5d21efb88503829867fc1b8a` | 18:57:34 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6531055174), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111008631)는 check·browser 모두 성공했다. 19:03:03에 `78c02535c496a5e2ed1bcdca2c187887ebb07d5c`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111972478)도 check·browser 모두 성공했다.
+
+## #40 P14 명명 레이블 프로필
+
+시간은 UTC다. [#40](https://github.com/EunhakChoi/chemifree/pull/40)의 자동 리뷰는 2026-10-30 19:16:02에 `d0313432ce3320ab018222a12bc3fb4304eb3421`을 대상으로 시작해 19:18:46에 완료됐으며 지적과 미해결 항목이 없었다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/40#issuecomment-6531503481), [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41113839046), 병합 커밋 `560aa08485e5629fe7b22b156c21ef8d439a5d71`, [병합 후 main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41115719039)를 확인했다. 병합 시각은 19:29:50이다.
+
+## #41 질량 입력 첫 시도 — 세 회차 후 미병합 종료
+
+시간은 UTC다. [#41](https://github.com/EunhakChoi/chemifree/pull/41)의 세 리뷰 모두 해당 시점 head를 대상으로 실제 완료됐으며, 마지막 리뷰의 지적이 남아 2026-10-30 20:04:03에 병합하지 않고 종료했다. 실패 브랜치는 보존한다.
+
+| 회차 | 요청 시각 | 대상 SHA | 완료 시각 | 결과와 처리 근거 |
+|---|---|---|---|---|
+| 1 자동 | 19:43:36 | `6e6f5599c20574ecaea71d80c77deb7c2d1dae55` | 19:46:03 | [P2](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427842366): 존재하지 않거나 알 수 없는 출처 행을 수락했다. 재작성에서는 지원 종류와 대상 행의 존재·유일성을 검사한다. |
+| 2 요청 | 19:49:53 | `c36ff329aadee1cb598891bbeddb190a6cdacbb5` | 19:52:26 | [P2](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427895302): 명시된 음수 풍부도가 binary64에서 0이 돼 통과할 수 있다. 재작성에서는 원문 십진수를 정확히 비교한다. [요청](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532129583). |
+| 3 요청 | 19:59:59 | `1eb782aec26dc4cdd8fc53fcb5548880155612fe` | 20:03:17 | P2 두 건: [비양수 자연 원자량](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979268)과 [100 초과 풍부도](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979274)를 허용했다. 재작성의 지원 범위는 양수 자연 원자량과 개별 0..100%며, 합계는 정규화하지 않는다. [요청](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532306946). |
+
+## #42 질량 입력 독립 재작성 — 세 회차 후 미병합 종료
+
+시간은 UTC다. [#42](https://github.com/EunhakChoi/chemifree/pull/42)는 #41을 복사하지 않고 최신 main에서 새로 작성했지만 마지막 리뷰에서 결함이 남아 2026-10-30 20:38:10에 병합하지 않고 종료했다. 후속 구현은 #41·#42의 코드나 패치를 옮기지 않고 공개 계약과 아래 요건으로 다시 작성한다.
+
+| 회차 | 요청 시각 | 대상 SHA | 완료 시각 | 결과와 처리 근거 |
+|---|---|---|---|---|
+| 1 자동 | 20:18:53 | `380458a4cf60265f438abc06f938b5cd6997950c` | 20:21:28 | [P2](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428122647): 한 원소의 동위원소 질량 번호가 중복될 수 있었다. 재작성은 원소별 유일성을 요구하되 서로 다른 원소의 같은 번호는 허용한다. |
+| 2 요청 | 20:26:22 | `7fb0d0ae07bf72dcc163239bb7585906bc10e029` | 20:28:44 | P2 두 건: [키·순서 metadata 불일치](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428179321)와 [빈 원소·별칭 기호](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428179334). 재작성에서 선언과 표현을 대조하고 빈 기호를 거절한다. [요청](https://github.com/EunhakChoi/chemifree/pull/42#issuecomment-6532770365). |
+| 3 요청 | 20:35:35 | `cc698edf40541661e67f99725bce23666bed8139` | 20:37:54 | [P2](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428253672): 계수 출처 범위의 길이 0을 허용했다. 재작성은 줄과 계수에 공통으로 비영 길이·오버플로·부모 범위 검증을 적용한다. [요청](https://github.com/EunhakChoi/chemifree/pull/42#issuecomment-6532932959). |
