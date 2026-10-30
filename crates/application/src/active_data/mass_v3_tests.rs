@@ -135,7 +135,7 @@ impl MassFixture {
             &self.review,
             CONTEXT,
             Some(&proof),
-            ReviewTrust::SyntheticPhase6((&identity).into()),
+            ReviewTrust::SyntheticCatalog((&identity).into()),
         )
     }
 }

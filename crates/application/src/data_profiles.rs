@@ -65,6 +65,10 @@ pub enum ProfileRecords {
     ElementEndpoint(u32),
     Contours(Vec<Contour>),
     Phase6(crate::phase6_profiles::DatasetRecords),
+    /// Validated, inert pattern declarations; named predicates are not implemented.
+    NamingPatterns(Box<crate::naming_patterns::PatternRows>),
+    /// Exact paired numeric inputs without an XLogP prediction engine.
+    PreparedXlogp(Box<crate::prepared_xlogp::Weights>),
     /// Verified naming label inputs; labels are not executable dispatch rules.
     NamingLabels(Box<crate::naming_labels::NamingLabels>),
     /// Verified mass operands; loading them does not implement a mass engine.

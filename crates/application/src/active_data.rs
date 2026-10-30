@@ -8,7 +8,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, mass_input, naming_labels, nmr_profile, phase6_profiles};
+use crate::{
+    json, mass_input, naming_labels, naming_patterns, nmr_profile, phase6_profiles, prepared_xlogp,
+};
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,7 +66,7 @@ enum ReviewTrust {
     #[cfg(test)]
     SyntheticFixture,
     #[cfg(test)]
-    SyntheticPhase6(FixtureCatalogIdentity),
+    SyntheticCatalog(FixtureCatalogIdentity),
 }
 
 impl ReviewTrust {
@@ -72,7 +74,7 @@ impl ReviewTrust {
         match self {
             Self::Production => false,
             #[cfg(test)]
-            Self::SyntheticFixture | Self::SyntheticPhase6(_) => true,
+            Self::SyntheticFixture | Self::SyntheticCatalog(_) => true,
         }
     }
 }
@@ -238,6 +240,10 @@ pub fn validate_model_binding(
             || dataset.engine_contract_id != binding.independent_engine_contract_id
             || registration.feature_schema_sha256.is_some()
             || dataset.feature_schema_sha256.is_some()
+            || matches!(
+                &dataset.records,
+                ProfileRecords::PreparedXlogp(_) | ProfileRecords::NamingPatterns(_)
+            )
         {
             return Err(ActiveDataError::ModelUnavailable);
         }
@@ -365,6 +371,8 @@ enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
+    NamingPatterns(naming_patterns::Profile),
+    PreparedXlogp,
     MassInput,
     Nmr,
 }
@@ -386,6 +394,49 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             "naming-element-rank-endpoint-operands",
             "normalized/element-order-a-hydrogen.jsonl",
         ),
+        "private-data-molnet-xlogp-100-f64-data-v1" => {
+            let expected = [
+                prepared_xlogp::RAW_FILE_ID,
+                prepared_xlogp::NORMALIZED_FILE_ID,
+            ];
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != expected.len()
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !expected.contains(&file.file_id.as_str())
+                        || file.role != "weights"
+                        || file.declared_content_class != "model_parameters"
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::PreparedXlogp);
+        }
+        "private-naming-query-patterns-v1" | "private-naming-retained-patterns-v1" => {
+            let (profile, path) =
+                if manifest.format_profile_id == "private-naming-query-patterns-v1" {
+                    (naming_patterns::Profile::Query, naming_patterns::QUERY_PATH)
+                } else {
+                    (
+                        naming_patterns::Profile::Retained,
+                        naming_patterns::RETAINED_PATH,
+                    )
+                };
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 1
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || file.relative_path != path
+                        || !matches!(
+                            file.declared_content_class.as_str(),
+                            "declarative_data" | "model_parameters"
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::NamingPatterns(profile));
+        }
         "private-naming-enum-labels-v1" => {
             if manifest.feature_schema_sha256.is_some()
                 || manifest.files.len() != naming_labels::REQUIRED_FILES.len()
@@ -541,7 +592,7 @@ fn load_personal_impl_with_metadata(
         let proof = metadata.ok_or(ActiveDataError::ProfileUnsupported)?;
         #[cfg(test)]
         let verify = match &review_trust {
-            ReviewTrust::SyntheticPhase6(fixture) => {
+            ReviewTrust::SyntheticCatalog(fixture) => {
                 let expected = phase6_profiles::CatalogIdentity {
                     dataset_id: &fixture.dataset_id,
                     dataset_version: &fixture.dataset_version,
@@ -595,6 +646,28 @@ fn load_personal_impl_with_metadata(
                 phase6_profiles::decode_dataset(profile, &files)
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             )
+        }
+        SelectedProfile::PreparedXlogp => {
+            let files: Vec<_> = manifest
+                .files
+                .iter()
+                .zip(&payloads)
+                .map(|(file, (_, bytes))| (file.file_id.as_str(), bytes.as_slice()))
+                .collect();
+            ProfileRecords::PreparedXlogp(Box::new(
+                prepared_xlogp::decode_dataset(&files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
+        SelectedProfile::NamingPatterns(profile) => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::NamingPatterns(Box::new(
+                naming_patterns::decode_dataset(profile, &files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
         }
         SelectedProfile::NamingLabels => {
             let files: Vec<_> = payloads
@@ -651,6 +724,23 @@ fn verify_catalog(
                 proof.profile,
             )
             .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::PreparedXlogp => prepared_xlogp::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::NamingPatterns(profile) => naming_patterns::verify_catalog_files(
+            profile,
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
@@ -1489,7 +1579,7 @@ mod tests {
             profile_sha256: &profile_hash,
             manifest_file_sha256: &trust.manifest_file_sha256,
         };
-        let fixture_trust = ReviewTrust::SyntheticPhase6((&identity).into());
+        let fixture_trust = ReviewTrust::SyntheticCatalog((&identity).into());
         let proof = ProfileIdentityFiles { registry, profile };
         let bad_proof = ProfileIdentityFiles {
             registry: b"changed",
@@ -1656,7 +1746,7 @@ mod tests {
             registry_sha256: &registry_hash,
             profile_sha256: &profile_hash,
         };
-        let test_trust = ReviewTrust::SyntheticPhase6((&fixture_identity).into());
+        let test_trust = ReviewTrust::SyntheticCatalog((&fixture_identity).into());
         let proof = ProfileIdentityFiles { registry, profile };
         let mut source = Files(
             entries
@@ -1830,7 +1920,7 @@ mod tests {
             profile_sha256: &profile_hash,
             manifest_file_sha256: &trust.manifest_file_sha256,
         };
-        let fixture_trust = ReviewTrust::SyntheticPhase6((&identity).into());
+        let fixture_trust = ReviewTrust::SyntheticCatalog((&identity).into());
         let proof = ProfileIdentityFiles { registry, profile };
         let wrong_proof = ProfileIdentityFiles {
             registry: b"wrong",
@@ -1930,7 +2020,7 @@ mod tests {
                 &modified_review,
                 CONTEXT,
                 Some(&proof),
-                ReviewTrust::SyntheticPhase6((&identity).into())
+                ReviewTrust::SyntheticCatalog((&identity).into())
             ),
             Err(ActiveDataError::ContentInvalid)
         ));
@@ -1940,3 +2030,7 @@ mod tests {
 #[cfg(test)]
 #[path = "active_data/mass_v3_tests.rs"]
 mod mass_v3_tests;
+
+#[cfg(test)]
+#[path = "active_data/prepared_tests.rs"]
+mod prepared_tests;
