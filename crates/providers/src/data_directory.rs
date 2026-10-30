@@ -220,7 +220,8 @@ fn open_beneath(root: &File, path: &str) -> Result<File, SourceError> {
     )
     .map_err(|error| match error {
         Errno::XDEV | Errno::LOOP => SourceError::Escapes,
-        Errno::NOENT | Errno::NOTDIR => SourceError::Missing,
+        Errno::NOENT => SourceError::Missing,
+        Errno::NOTDIR => SourceError::NotAFile,
         _ => io_error(&io::Error::from_raw_os_error(error.raw_os_error())),
     })?;
     Ok(fd.into())

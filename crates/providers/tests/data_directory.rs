@@ -18,6 +18,22 @@ const TABLE: &str = "tables/example-rows.jsonl";
 
 #[cfg(target_os = "linux")]
 #[test]
+fn a_non_directory_parent_is_distinct_from_a_missing_path() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("raw"), b"not a directory").unwrap();
+    let source = DirectoryDataSource::new(root.path());
+    assert_eq!(
+        source.read("missing/optional.txt", 100).unwrap_err(),
+        chemifree_application::SourceError::Missing
+    );
+    assert_eq!(
+        source.read("raw/optional.txt", 100).unwrap_err(),
+        chemifree_application::SourceError::NotAFile
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn selected_root_remains_the_same_directory_across_reads() {
     let parent = tempfile::tempdir().unwrap();
     let selected = parent.path().join("selected");

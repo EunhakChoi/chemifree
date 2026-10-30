@@ -35,6 +35,12 @@ struct MassFixture {
     profile: Vec<u8>,
 }
 
+enum RawFile {
+    OptionalMissing,
+    OptionalPresent,
+    RequiredMissing,
+}
+
 impl MassFixture {
     fn new(invalid_coefficient_span: bool) -> Self {
         let content: [&[u8]; 7] = [
@@ -114,7 +120,48 @@ impl MassFixture {
         }
     }
 
+    fn with_raw_file(mut self, raw_file: RawFile) -> Self {
+        // This independently invented text is the source of the test fixture's line hashes.
+        const RAW: &[u8] = b"fictional element a\r\nfictional isotope a\r\nfictional isotope b\r\nfictional element b\r\n";
+        let required = matches!(raw_file, RawFile::RequiredMissing);
+        let present = matches!(raw_file, RawFile::OptionalPresent);
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        manifest["files"].as_array_mut().unwrap().push(json!({
+            "file_id": "synthetic-raw", "relative_path": mass_input::RAW_TEXT_PATH,
+            "sha256": hash(RAW), "bytes": RAW.len(), "role": "auxiliary_data",
+            "required": required, "declared_content_class": "declarative_data"
+        }));
+        let mut review: Value = serde_json::from_slice(&self.review).unwrap();
+        review["file_identities"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "file_id": "synthetic-raw", "asset_id": "fixture", "sha256": hash(RAW),
+                "bytes": RAW.len(), "content_classification": "declarative_data",
+                "classification_basis_id": "fixture"
+            }));
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        self.review = serde_json::to_vec(&review).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+        self.trust.review_sha256 = hash(&self.review);
+        if present {
+            self.source
+                .files
+                .insert(mass_input::RAW_TEXT_PATH.into(), RAW.to_vec());
+        }
+        self
+    }
+
     fn load_test_authorized(&self) -> Result<PersonalDataset, ActiveDataError> {
+        self.load_test_authorized_from(&self.source)
+    }
+
+    fn load_test_authorized_from(
+        &self,
+        source: &dyn DataSource,
+    ) -> Result<PersonalDataset, ActiveDataError> {
         let registry_hash = hash(&self.registry);
         let profile_hash = hash(&self.profile);
         let identity = phase6_profiles::CatalogIdentity {
@@ -129,7 +176,7 @@ impl MassFixture {
             profile: &self.profile,
         };
         load_personal_impl_with_metadata(
-            &self.source,
+            source,
             &self.trust,
             &self.manifest,
             &self.review,
@@ -137,6 +184,71 @@ impl MassFixture {
             Some(&proof),
             ReviewTrust::SyntheticCatalog((&identity).into()),
         )
+    }
+}
+
+struct UnreadableRaw<'a> {
+    source: &'a FixtureSource,
+    error: crate::SourceError,
+}
+
+impl DataSource for UnreadableRaw<'_> {
+    fn root_binding_id(&self) -> Option<&str> {
+        self.source.root_binding_id()
+    }
+
+    fn read(&self, path: &str, limit: u64) -> Result<Vec<u8>, crate::SourceError> {
+        if path == mass_input::RAW_TEXT_PATH {
+            return Err(self.error.clone());
+        }
+        self.source.read(path, limit)
+    }
+}
+
+#[test]
+fn absent_optional_raw_file_does_not_prevent_complete_normalized_generation() {
+    let fixture = MassFixture::new(false).with_raw_file(RawFile::OptionalMissing);
+    if let Err(error) = fixture.load_test_authorized() {
+        panic!("an absent optional raw file was rejected: {}", error.code());
+    }
+    assert_eq!(fixture.source.reads.get(), 8);
+}
+
+#[test]
+fn supplied_optional_raw_is_verified_and_other_read_failures_remain_errors() {
+    let mut present = MassFixture::new(false).with_raw_file(RawFile::OptionalPresent);
+    assert!(present.load_test_authorized().is_ok());
+    present
+        .source
+        .files
+        .get_mut(mass_input::RAW_TEXT_PATH)
+        .unwrap()[0] ^= 1;
+    assert!(matches!(
+        present.load_test_authorized(),
+        Err(ActiveDataError::DataIdentityMismatch)
+    ));
+
+    let missing_required = MassFixture::new(false).with_raw_file(RawFile::RequiredMissing);
+    assert!(matches!(
+        missing_required.load_test_authorized(),
+        Err(ActiveDataError::DataUnavailable)
+    ));
+
+    let fixture = MassFixture::new(false).with_raw_file(RawFile::OptionalPresent);
+    for error in [
+        crate::SourceError::NotAFile,
+        crate::SourceError::Escapes,
+        crate::SourceError::TooLarge,
+        crate::SourceError::Io("redacted".into()),
+    ] {
+        let source = UnreadableRaw {
+            source: &fixture.source,
+            error,
+        };
+        assert!(matches!(
+            fixture.load_test_authorized_from(&source),
+            Err(ActiveDataError::DataUnavailable)
+        ));
     }
 }
 
