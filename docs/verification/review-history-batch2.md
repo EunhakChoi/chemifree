@@ -179,3 +179,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 요청 | 17:54:37 | `63f8b0d7496f4d31b8daa19a31ba69c10e01fd05` | 17:56:57 | 통과: 최신 head의 코드 리뷰 완료, 새 지적과 미해결 스레드 없음. 첫 회차는 명세 근거와 회귀 검사 기록 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/37#issuecomment-6529743812), [완료](https://github.com/EunhakChoi/chemifree/pull/37#issuecomment-6529792374) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41102322129)는 check·browser 모두 성공했다. 18:05:15에 `87df03ed09ea04d63ff37ca1351a3d8cf4166ec8`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41103819742)도 check·browser 모두 성공했다. 로더 전체와 화학 엔진의 완료를 뜻하지 않는다.
+
+## #38 P14 후속 — catalog로 고정한 DATA 프로필과 하위 디렉터리
+
+시간은 UTC다. [#38](https://github.com/EunhakChoi/chemifree/pull/38)은 #37 병합 main에서 시작했으며, 세 phase 6 프로필과 데이터셋별 원자적 파일 검증을 추가했다. 전체 활성 DATA reader와 화학 엔진은 계속 미완성이다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 18:28:47 | `a8996fa1b6b95006c127ef254aac542de7da68e6` | 18:30:32 | 통과: 해당 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 스레드가 없다. 별도 review 객체가 없어 완료 상태와 SHA가 있는 요약을 근거로 삼는다. | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/38#issuecomment-6530489201) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41107286805)는 check·browser 모두 성공했다. 18:33:03에 `ec3e4058c04233968f7547eb3aeed22d3b679985`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41107893838)도 check·browser 모두 성공했다.

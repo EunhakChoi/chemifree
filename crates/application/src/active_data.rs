@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, phase6_profiles};
+use crate::{json, nmr_profile, phase6_profiles};
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +135,7 @@ pub struct PersonalDataset {
     registration_id: String,
     generation: u64,
     manifest_sha256: String,
+    feature_schema_sha256: Option<String>,
     engine_contract_id: String,
     records: ProfileRecords,
 }
@@ -283,6 +284,11 @@ impl PersonalDataset {
     pub fn manifest_sha256(&self) -> &str {
         &self.manifest_sha256
     }
+    /// The verified exact feature-schema file digest, if this profile has one.
+    #[must_use]
+    pub fn feature_schema_sha256(&self) -> Option<&str> {
+        self.feature_schema_sha256.as_deref()
+    }
     #[must_use]
     pub fn records(&self) -> &ProfileRecords {
         &self.records
@@ -357,6 +363,7 @@ fn load_personal_impl(
 enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
+    Nmr,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -376,6 +383,29 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             "naming-element-rank-endpoint-operands",
             "normalized/element-order-a-hydrogen.jsonl",
         ),
+        "personal-local-nmr-coupling-parameters-v1" => {
+            if manifest.files.len() != nmr_profile::REQUIRED_FILES.len()
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !nmr_profile::REQUIRED_FILES.contains(&file.relative_path.as_str())
+                        || !matches!(
+                            file.declared_content_class.as_str(),
+                            "declarative_data" | "model_parameters"
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            let feature = manifest
+                .files
+                .iter()
+                .find(|file| file.relative_path == nmr_profile::FEATURES_PATH)
+                .ok_or(ActiveDataError::ProfileUnsupported)?;
+            if manifest.feature_schema_sha256.as_deref() != Some(feature.sha256.as_str()) {
+                return Err(ActiveDataError::DataIdentityMismatch);
+            }
+            return Ok(SelectedProfile::Nmr);
+        }
         other => {
             let profile = phase6_profiles::Profile::parse(other)
                 .ok_or(ActiveDataError::ProfileUnsupported)?;
@@ -456,7 +486,7 @@ fn load_personal_impl_with_metadata(
         return Err(ActiveDataError::RightsUnverified);
     }
 
-    if let SelectedProfile::Phase6(profile) = selected {
+    if !matches!(selected, SelectedProfile::Phase7(_)) {
         let proof = metadata.ok_or(ActiveDataError::ProfileUnsupported)?;
         #[cfg(test)]
         let verify = match &review_trust {
@@ -471,28 +501,18 @@ fn load_personal_impl_with_metadata(
                 if manifest.dataset_id != expected.dataset_id
                     || manifest.dataset_version != expected.dataset_version
                 {
-                    Err(phase6_profiles::DecodeError::CatalogMismatch)
+                    Err(ActiveDataError::RegistrationMismatch)
                 } else {
-                    expected.check_file_bytes(manifest_bytes, proof.registry, proof.profile)
+                    expected
+                        .check_file_bytes(manifest_bytes, proof.registry, proof.profile)
+                        .map_err(|_| ActiveDataError::RegistrationMismatch)
                 }
             }
-            _ => profile.verify_files(
-                &manifest.dataset_id,
-                &manifest.dataset_version,
-                manifest_bytes,
-                proof.registry,
-                proof.profile,
-            ),
+            _ => verify_catalog(selected, &manifest, manifest_bytes, proof),
         };
         #[cfg(not(test))]
-        let verify = profile.verify_files(
-            &manifest.dataset_id,
-            &manifest.dataset_version,
-            manifest_bytes,
-            proof.registry,
-            proof.profile,
-        );
-        verify.map_err(|_| ActiveDataError::RegistrationMismatch)?;
+        let verify = verify_catalog(selected, &manifest, manifest_bytes, proof);
+        verify?;
     }
 
     // Read once after authorization, then hash and decode the same immutable bytes.
@@ -525,14 +545,52 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             )
         }
+        SelectedProfile::Nmr => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::Nmr(Box::new(
+                nmr_profile::decode_nmr(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
     };
     Ok(PersonalDataset {
         registration_id: trust.registration_id.clone(),
         generation: trust.generation,
         manifest_sha256: identity.canonical_sha256,
+        feature_schema_sha256: manifest.feature_schema_sha256,
         engine_contract_id: manifest.independent_engine_contract_id,
         records,
     })
+}
+
+fn verify_catalog(
+    selected: SelectedProfile,
+    manifest: &Manifest,
+    manifest_bytes: &[u8],
+    proof: &ProfileIdentityFiles<'_>,
+) -> Result<(), ActiveDataError> {
+    match selected {
+        SelectedProfile::Phase6(profile) => profile
+            .verify_files(
+                &manifest.dataset_id,
+                &manifest.dataset_version,
+                manifest_bytes,
+                proof.registry,
+                proof.profile,
+            )
+            .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Nmr => nmr_profile::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase7(_) => Err(ActiveDataError::ProfileUnsupported),
+    }
 }
 
 #[derive(Deserialize)]
@@ -1408,6 +1466,158 @@ mod tests {
                 &source, &trust, &manifest, &review, CONTEXT, &proof
             ),
             Err(ActiveDataError::RightsUnverified)
+        ));
+    }
+
+    #[test]
+    fn a_complete_nmr_dataset_keeps_feature_identity_without_enabling_a_model() {
+        use std::collections::HashMap;
+
+        struct Files(HashMap<String, Vec<u8>>);
+        impl DataSource for Files {
+            fn root_binding_id(&self) -> Option<&str> {
+                Some("fixture-root")
+            }
+            fn read(&self, path: &str, limit: u64) -> Result<Vec<u8>, crate::SourceError> {
+                let bytes = self.0.get(path).ok_or(crate::SourceError::Missing)?;
+                if bytes.len() as u64 > limit {
+                    return Err(crate::SourceError::TooLarge);
+                }
+                Ok(bytes.clone())
+            }
+        }
+        let entries: [(&str, &str, &[u8], &str); 5] = [
+            (
+                "lookup",
+                nmr_profile::LOOKUP_PATH,
+                include_bytes!("../tests/data/nmr-synthetic/lookup.json"),
+                "auxiliary_data",
+            ),
+            (
+                "amplitudes",
+                nmr_profile::AMPLITUDES_PATH,
+                include_bytes!("../tests/data/nmr-synthetic/amplitudes.json"),
+                "weights",
+            ),
+            (
+                "widths",
+                nmr_profile::WIDTHS_PATH,
+                include_bytes!("../tests/data/nmr-synthetic/widths.json"),
+                "auxiliary_data",
+            ),
+            (
+                "features",
+                nmr_profile::FEATURES_PATH,
+                include_bytes!("../tests/data/nmr-synthetic/feature-schema.json"),
+                "feature_schema",
+            ),
+            (
+                "bounds",
+                nmr_profile::BOUNDS_PATH,
+                include_bytes!("../tests/data/nmr-synthetic/source-bounds.json"),
+                "auxiliary_data",
+            ),
+        ];
+        let files: Vec<Value> = entries.iter().map(|(id, path, bytes, role)| json!({
+            "file_id": id, "relative_path": path, "sha256": hash(bytes), "bytes": bytes.len(),
+            "role": role, "required": true, "declared_content_class": "declarative_data"
+        })).collect();
+        let feature_hash = hash(entries[3].2);
+        let manifest = serde_json::to_vec(&json!({
+            "manifest_version": 1, "dataset_id": "independent-nmr-shape", "dataset_version": "1",
+            "family_id": "independent-fixture", "format_profile_id": "personal-local-nmr-coupling-parameters-v1",
+            "independent_engine_contract_id": "fixture-contract", "source_category": "independent_synthetic",
+            "files": files, "feature_schema_sha256": feature_hash, "rights_review_id": "fixture-review",
+            "unknown_field_policy": "reject", "metadata": {"provider_label": "Independent fixture", "version_evidence_id": "fixture", "description": "No chemistry."}
+        })).unwrap();
+        let reviewed: Vec<_> = files.iter().map(|entry| json!({
+            "file_id": entry["file_id"], "asset_id": "fixture", "sha256": entry["sha256"], "bytes": entry["bytes"],
+            "content_classification": "declarative_data", "classification_basis_id": "fixture"
+        })).collect();
+        let review = serde_json::to_vec(&json!({
+            "review_version": 2, "review_id": "fixture-review", "dataset_id": "independent-nmr-shape", "dataset_version": "1",
+            "context_id": "personal-local-user-attested-v1", "context_sha256": hash(CONTEXT),
+            "approval_basis": "user_attested_personal_permission", "attestation_reference_id": "fixture-only",
+            "authorization_status": "approved_personal_local", "source_registry_binding_id": "fixture-registry",
+            "private_root_binding_id": "fixture-root", "file_identities": reviewed,
+            "allowed_operations": ["local_load", "decode"], "prohibited_operations": ["redistribution", "remote_processing", "original_module_execution", "secret_lookup", "public_vendor_payload_copy"],
+            "approved_by": "fixture-author", "additional_licensor_written_document_required": false,
+            "documentary_verification_claimed": false, "technical_availability_claimed": false, "fixture_only": true
+        })).unwrap();
+        let identity = validate_active_manifest(&manifest).unwrap();
+        let trust = TrustedPersonalRegistration {
+            registration_id: "fixture-registration".into(),
+            generation: 1,
+            dataset_id: "independent-nmr-shape".into(),
+            dataset_version: "1".into(),
+            family_id: "independent-fixture".into(),
+            profile_id: "personal-local-nmr-coupling-parameters-v1".into(),
+            engine_contract_id: "fixture-contract".into(),
+            manifest_sha256: identity.canonical_sha256,
+            manifest_file_sha256: identity.exact_sha256,
+            review_sha256: hash(&review),
+            source_registry_binding_id: "fixture-registry".into(),
+            private_root_binding_id: "fixture-root".into(),
+        };
+        let registry = b"fixture-registry";
+        let profile = b"fixture-profile";
+        let registry_hash = hash(registry);
+        let profile_hash = hash(profile);
+        let fixture_identity = phase6_profiles::CatalogIdentity {
+            dataset_id: &trust.dataset_id,
+            dataset_version: &trust.dataset_version,
+            manifest_file_sha256: &trust.manifest_file_sha256,
+            registry_sha256: &registry_hash,
+            profile_sha256: &profile_hash,
+        };
+        let test_trust = ReviewTrust::SyntheticPhase6((&fixture_identity).into());
+        let proof = ProfileIdentityFiles { registry, profile };
+        let mut source = Files(
+            entries
+                .iter()
+                .map(|(_, path, bytes, _)| ((*path).into(), bytes.to_vec()))
+                .collect(),
+        );
+        let loaded = load_personal_impl_with_metadata(
+            &source,
+            &trust,
+            &manifest,
+            &review,
+            CONTEXT,
+            Some(&proof),
+            test_trust.clone(),
+        )
+        .unwrap();
+        assert_eq!(loaded.feature_schema_sha256(), Some(feature_hash.as_str()));
+        let ProfileRecords::Nmr(data) = loaded.records() else {
+            panic!("wrong dataset type")
+        };
+        assert_eq!(data.lookup.rows[0].parameter.bits, (-0.0_f64).to_bits());
+        assert_eq!(data.widths.parameters[0].unit, "fixture-w");
+
+        let binding = serde_json::to_vec(&json!({
+            "binding_version": 1, "model_id": "fixture-model", "independent_engine_contract_id": "fixture-contract",
+            "independent_engine_version": "1", "data_registrations": [{"registration_id": "fixture-registration", "generation": 1, "manifest_sha256": trust.manifest_sha256, "feature_schema_sha256": feature_hash}],
+            "method_ids": ["fixture-method"], "convention_profile_id": "fixture", "dependency_model_ids": [],
+            "availability": "available_for_declared_profile", "validation_profile_ids": [], "limitations": []
+        })).unwrap();
+        assert!(matches!(
+            validate_model_binding(&binding, &hash(&binding), &[&loaded]),
+            Err(ActiveDataError::ModelUnavailable)
+        ));
+
+        source.0.get_mut(nmr_profile::BOUNDS_PATH).unwrap()[0] ^= 1;
+        assert!(matches!(
+            load_personal_impl_with_metadata(
+                &source,
+                &trust,
+                &manifest,
+                &review,
+                CONTEXT,
+                Some(&proof),
+                test_trust
+            ),
+            Err(ActiveDataError::DataIdentityMismatch)
         ));
     }
 }
