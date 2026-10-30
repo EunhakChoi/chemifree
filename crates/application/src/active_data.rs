@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
-    phase6_profiles, prediction_input, prepared_xlogp,
+    phase4_literals, phase6_profiles, prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -248,6 +248,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::NamingLexicon(_)
                     | ProfileRecords::NicknameData(_)
                     | ProfileRecords::PredictionInputs(_)
+                    | ProfileRecords::Phase4Literals(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -383,6 +384,7 @@ enum SelectedProfile {
     MassInput,
     Nmr,
     PredictionInputs,
+    Phase4Literals(phase4_literals::Profile),
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -586,6 +588,31 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::DataIdentityMismatch);
             }
             return Ok(SelectedProfile::PredictionInputs);
+        }
+        "private-data-molnet-metadata-v1"
+        | "private-data-molnet-supporting-numeric-literals-v1"
+        | "private-data-chemprop-typed-parameter-tables-v1" => {
+            let profile = match manifest.format_profile_id.as_str() {
+                "private-data-molnet-metadata-v1" => phase4_literals::Profile::Metadata,
+                "private-data-molnet-supporting-numeric-literals-v1" => {
+                    phase4_literals::Profile::Numeric
+                }
+                _ => phase4_literals::Profile::ChempropTables,
+            };
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != profile.file_count()
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !profile.accepts_file(
+                            &file.file_id,
+                            &file.role,
+                            &file.declared_content_class,
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Literals(profile));
         }
         other => {
             let profile = phase6_profiles::Profile::parse(other)
@@ -792,6 +819,18 @@ fn load_personal_impl_with_metadata(
                 prediction_input::decode(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Phase4Literals(profile) => {
+            let files: Vec<_> = manifest
+                .files
+                .iter()
+                .zip(&payloads)
+                .map(|(file, (_, bytes))| (file.file_id.as_str(), bytes.as_slice()))
+                .collect();
+            ProfileRecords::Phase4Literals(Box::new(
+                phase4_literals::decode_dataset(profile, &files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::MassInput => {
             let files: Vec<_> = payloads
                 .iter()
@@ -879,6 +918,15 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::PredictionInputs => prediction_input::verify_catalog(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Literals(profile) => phase4_literals::verify_catalog_files(
+            profile,
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2183,3 +2231,7 @@ mod nickname_tests;
 #[cfg(test)]
 #[path = "active_data/prediction_tests.rs"]
 mod prediction_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_literal_tests.rs"]
+mod phase4_literal_tests;

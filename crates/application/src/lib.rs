@@ -20,6 +20,7 @@ pub mod naming_patterns;
 pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
+pub mod phase4_literals;
 pub mod phase6_profiles;
 pub mod prediction_input;
 pub mod prediction_wire;
