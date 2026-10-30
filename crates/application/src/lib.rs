@@ -40,7 +40,10 @@ pub use operations::{
     OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
     Severity, Support,
 };
-pub use repository::{DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry};
+pub use repository::{
+    DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
+    TrashEntry,
+};
 pub use turns::TURN_WAIT;
 
 use documents::Documents;

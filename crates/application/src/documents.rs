@@ -8,7 +8,7 @@ use std::{panic, thread};
 
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted, TransactionError,
+    RevisionsExhausted, TransactionError, validated_title,
 };
 
 use crate::API_VERSION;
@@ -20,7 +20,9 @@ use crate::contract::{
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
-use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
+use crate::repository::{
+    DocumentRepository, Draft, DraftRecoveryTarget, DraftStatus, StorageError,
+};
 use crate::turns::{Refusal, Running, TURN_WAIT, Turn, Turns};
 
 pub const DEFAULT_TITLE: &str = "Untitled";
@@ -1026,25 +1028,67 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let _turn = self.turn(&document_id)?;
-        let mut sessions = self.lock();
-        if let Some(response) = sessions.recovered.find(request_id, &mutation)? {
-            return Ok(response);
-        }
-        if sessions
-            .open
-            .get(&document_id)
-            .is_some_and(Session::is_dirty)
+        let mut turn = self.turn(&document_id)?;
+        let draft_io = turn.draft_io();
+        let check_clean = |sessions: &Sessions| {
+            if sessions
+                .open
+                .get(&document_id)
+                .is_some_and(Session::is_dirty)
+            {
+                Err(ApplicationError::new(
+                    ErrorCode::UnsavedChanges,
+                    "the open session has unsaved changes; save or discard them before recovering",
+                ))
+            } else {
+                Ok(())
+            }
+        };
         {
-            return Err(ApplicationError::new(
-                ErrorCode::UnsavedChanges,
-                "the open session has unsaved changes; save or discard them before recovering",
-            ));
+            let sessions = self.lock();
+            if let Some(response) = sessions.recovered.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+            check_clean(&sessions)?;
         }
         let stored = self
             .load(&document_id)?
             .ok_or_else(|| not_found(&document_id))?;
+        // Claiming and preserving a draft may wait on storage; no session lock is held.
         let draft = self.claim_abandoned(&document_id)?;
+        if stored.revision() != draft.base_revision {
+            self.repository.release_draft(&document_id);
+            return Err(outdated_draft(stored.revision(), draft.base_revision));
+        }
+        {
+            let sessions = self.lock();
+            let ready = check_clean(&sessions)
+                .and_then(|()| self.recovery_numbering(&sessions, &stored).map(|_| ()))
+                .and_then(|()| {
+                    if sessions.open.contains_key(&document_id) {
+                        Ok(())
+                    } else {
+                        sessions.eviction(None).map(|_| ())
+                    }
+                });
+            if let Err(error) = ready {
+                self.repository.release_draft(&document_id);
+                return Err(error);
+            }
+        }
+        self.prepare_claimed_draft(
+            &document_id,
+            DraftRecoveryTarget::Original {
+                base_revision: draft.base_revision,
+            },
+        )?;
+        drop(draft_io);
+        let mut sessions = self.lock();
+        // Edits can proceed while storage is busy. Never replace work made in that interval.
+        if let Err(error) = check_clean(&sessions) {
+            self.repository.release_draft(&document_id);
+            return Err(error);
+        }
         let recovered = self.recovered_session(&sessions, &stored, draft);
         // An open session is replaced in its own slot.
         let eviction = recovered.and_then(|session| {
@@ -1080,28 +1124,38 @@ impl<R: DocumentRepository> Documents<R> {
         Ok(response)
     }
 
-    /// The working copy a draft becomes, if storage still holds its base and this process has
-    /// not handed out identifiers the draft may also use.
+    /// The working copy a draft becomes after its base was checked, if this process has not
+    /// handed out identifiers the draft may also use.
     fn recovered_session(
         &self,
         sessions: &Sessions,
         stored: &Document,
         draft: Draft,
     ) -> Result<Session, ApplicationError> {
-        if stored.revision() != draft.base_revision {
-            return Err(ApplicationError {
-                current_revision: Some(stored.revision()),
-                ..ApplicationError::new(
-                    ErrorCode::DraftOutdated,
-                    format!(
-                        "the document was saved at revision {} after this draft's base {}; \
-                         recover the draft as a copy",
-                        stored.revision(),
-                        draft.base_revision
-                    ),
-                )
-            });
-        }
+        let (reached, saved_revision) = self.recovery_numbering(sessions, stored)?;
+        let mut document = draft.document;
+        document
+            .continue_after(reached)
+            .map_err(revisions_exhausted)?;
+        Ok(Session {
+            draft_revision: Some(document.revision()),
+            document,
+            stored_revision: draft.base_revision,
+            saved_revision,
+            hold: None,
+            drafting: DraftSchedule::default(),
+            recovery_at_write: None,
+            replays: ReplayLog::default(),
+        })
+    }
+
+    /// Numbering the restored session must continue after, provided it cannot reuse IDs this
+    /// process handed out since the stored commit.
+    fn recovery_numbering(
+        &self,
+        sessions: &Sessions,
+        stored: &Document,
+    ) -> Result<(Numbering, u64), ApplicationError> {
         let id = stored.id();
         // How this process names the stored commit, and what it has handed out.
         let (reached, saved_revision) = match sessions.open.get(id) {
@@ -1122,20 +1176,7 @@ impl<R: DocumentRepository> Documents<R> {
                  may reuse; recover the draft as a copy",
             ));
         }
-        let mut document = draft.document;
-        document
-            .continue_after(reached)
-            .map_err(revisions_exhausted)?;
-        Ok(Session {
-            draft_revision: Some(document.revision()),
-            document,
-            stored_revision: draft.base_revision,
-            saved_revision,
-            hold: None,
-            drafting: DraftSchedule::default(),
-            recovery_at_write: None,
-            replays: ReplayLog::default(),
-        })
+        Ok((reached, saved_revision))
     }
 
     /// Saves an abandoned draft as a new document, then removes the draft.
@@ -1157,16 +1198,32 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let _turn = self.turn(&document_id)?;
-        let mut sessions = self.lock();
-        if let Some(response) = sessions.copied.find(request_id, &mutation)? {
+        let mut turn = self.turn(&document_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.copied.find(request_id, &mutation)
+        })? {
             return Ok(response);
         }
+        let draft_io = turn.draft_io();
+        // The abandoned draft and its original bytes are read without holding the session table.
         let draft = self.claim_abandoned(&document_id)?;
         let title = title.map_or_else(
             || suffixed(draft.document.title(), " (recovered)"),
             str::to_owned,
         );
+        if let Err(error) = validated_title(&title) {
+            self.repository.release_draft(&document_id);
+            return Err(ApplicationError::new(
+                ErrorCode::InvalidRequest,
+                format!("title: {error}"),
+            ));
+        }
+        if let Err(error) = self.lock().eviction(Some(&document_id)) {
+            self.repository.release_draft(&document_id);
+            return Err(error);
+        }
+        self.prepare_claimed_draft(&document_id, DraftRecoveryTarget::Copy)?;
+        let mut sessions = self.lock();
         let source_was_open = sessions.open.contains_key(&document_id);
         let slot = CopySlot::Evicted {
             spare: &document_id,
@@ -1178,13 +1235,16 @@ impl<R: DocumentRepository> Documents<R> {
                 return Err(error);
             }
         };
+        drop(sessions);
         // The copy is committed. If the draft cannot be removed it is abandoned again and can
-        // still be discarded; the copy is not undone.
+        // still be discarded; the copy is not undone. Removal does not hold the session table.
         if self.repository.remove_draft(&document_id).is_err() {
             self.repository.release_draft(&document_id);
         }
-        // The source's session stays open unless it was the only clean one left to make room
-        // for the copy. Only a clean session is evicted, so no changes were discarded.
+        drop(draft_io);
+        // The copy or another request may have evicted the source. Only clean sessions are
+        // evicted, so no changes were discarded.
+        let mut sessions = self.lock();
         let response = CopyResponse {
             copy,
             source: CopySource {
@@ -1213,11 +1273,13 @@ impl<R: DocumentRepository> Documents<R> {
         })? {
             return Ok(response);
         }
-        let _turn = self.turn(&document_id)?;
-        let mut sessions = self.lock();
-        if let Some(response) = sessions.drafts_discarded.find(request_id, &mutation)? {
+        let mut turn = self.turn(&document_id)?;
+        if let Some(response) = self.replayed(request_id, |sessions| {
+            sessions.drafts_discarded.find(request_id, &mutation)
+        })? {
             return Ok(response);
         }
+        let draft_io = turn.draft_io();
         if self
             .repository
             .draft_status(&document_id)
@@ -1236,11 +1298,12 @@ impl<R: DocumentRepository> Documents<R> {
             self.repository.release_draft(&document_id);
             return Err(storage_error(error));
         }
+        drop(draft_io);
         let response = DraftDiscardResponse {
             api_version: API_VERSION,
             id: document_id.to_string(),
         };
-        sessions
+        self.lock()
             .drafts_discarded
             .record(request_id, mutation, &response);
         Ok(response)
@@ -1583,6 +1646,36 @@ impl<R: DocumentRepository> Documents<R> {
         }
     }
 
+    /// Preserves a claimed draft before using it. A failed preservation releases ownership so
+    /// the unchanged draft can be recovered or discarded later.
+    fn prepare_claimed_draft(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), ApplicationError> {
+        if let Err(error) = self.repository.prepare_draft_for_recovery(id, target) {
+            self.repository.release_draft(id);
+            return Err(match (target, error) {
+                (
+                    DraftRecoveryTarget::Original { base_revision },
+                    StorageError::Conflict {
+                        stored_revision: Some(current),
+                    },
+                ) => outdated_draft(current, base_revision),
+                (
+                    DraftRecoveryTarget::Original { .. },
+                    StorageError::Conflict {
+                        stored_revision: None,
+                    },
+                ) => not_found(id),
+                // The draft is already owned. A lock refusal here is the document's save
+                // lock, so report storage busy rather than another owner of the draft.
+                (_, error) => storage_error(error),
+            });
+        }
+        Ok(())
+    }
+
     /// The session's response with any abandoned draft of the same document.
     fn respond(&self, session: &Session) -> DocumentResponse {
         DocumentResponse {
@@ -1596,6 +1689,10 @@ impl<R: DocumentRepository> Documents<R> {
     fn session_recovery(&self, session: &Session) -> Option<RecoveryView> {
         if session.drafting.is_writing() {
             session.recovery_at_write.clone()
+        } else if self.turns.draft_io_in_progress(session.document.id()) {
+            // The draft is being acted on by this process, like one it already owns. A later
+            // response can report it as abandoned again if that operation did not consume it.
+            None
         } else {
             self.recovery(session.document.id())
         }
@@ -1853,6 +1950,19 @@ fn draft_error(error: StorageError) -> ApplicationError {
     match error {
         StorageError::Locked(message) => ApplicationError::new(ErrorCode::DraftInUse, message),
         error => storage_error(error),
+    }
+}
+
+fn outdated_draft(current: u64, base: u64) -> ApplicationError {
+    ApplicationError {
+        current_revision: Some(current),
+        ..ApplicationError::new(
+            ErrorCode::DraftOutdated,
+            format!(
+                "the document was saved at revision {current} after this draft's base {base}; \
+                 recover the draft as a copy"
+            ),
+        )
     }
 }
 

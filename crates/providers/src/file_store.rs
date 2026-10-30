@@ -25,8 +25,12 @@
 //!   `migrated/<id>.v<N>.2.json`, then `.v<N>.3.json`, and so on, while one whose bytes are
 //!   already kept under any of these names is not copied again. These copies are not
 //!   documents: they are not listed, opened, trashed, restored, or removed.
+//! - `migrated/<id>.draft.v<N>.json`: the exact bytes of an older draft, kept before recovery
+//!   can rewrite or remove it. Explicitly discarding a draft does not make a copy. Different
+//!   drafts of the same version get numbered copies as documents do.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -35,7 +39,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use chemifree_application::{
-    DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry,
+    DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
+    TrashEntry,
 };
 use chemifree_domain::document::{Document, DocumentId};
 
@@ -45,6 +50,12 @@ const DOCUMENTS_DIR: &str = "documents";
 const DRAFTS_DIR: &str = "drafts";
 const LOCKS_DIR: &str = "locks";
 const MIGRATED_DIR: &str = "migrated";
+
+#[derive(Clone, Copy)]
+enum EarlierFile {
+    Document,
+    Draft,
+}
 const TRASH_DIR: &str = "trash";
 const EXTENSION: &str = "json";
 const TEMPORARY_SUFFIX: &str = ".tmp";
@@ -71,8 +82,9 @@ pub struct FileDocumentRepository {
     /// Revisions read by `stored_revision`, keyed by a stamp of the file, so polling an
     /// unchanged file does not re-read it.
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
-    /// Locked owner files of the drafts this repository owns. Dropping one releases it.
-    owned: Arc<Mutex<HashMap<DocumentId, File>>>,
+    /// Owner locks and the exact earlier bytes returned by a claim, until recovery preserves
+    /// them. Dropping an entry releases its owner lock.
+    owned: Arc<Mutex<HashMap<DocumentId, OwnedDraft>>>,
     /// Held per document from checking whether this store owns its draft until it has acted
     /// on taking the owner lock. An OS file lock refuses every other handle, including this
     /// process's own, so without it a concurrent request here would read another request's
@@ -81,6 +93,25 @@ pub struct FileDocumentRepository {
     /// another's draft status. Order: this, then an owner lock, then a save lock (`save` takes
     /// only the save lock).
     taking_ownership: Arc<OwnershipTurns>,
+}
+
+struct OwnedDraft {
+    _lock: File,
+    original: Option<EarlierDraft>,
+}
+
+struct EarlierDraft {
+    version: u32,
+    bytes: Vec<u8>,
+}
+
+impl fmt::Debug for OwnedDraft {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnedDraft")
+            .field("has_original", &self.original.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Documents whose draft ownership is being checked or taken in this store.
@@ -170,30 +201,46 @@ impl FileDocumentRepository {
     /// bytes. Later files of that version with other bytes under the same ID are kept as
     /// `<id>.v<version>.2.json`, `.v<version>.3.json`, ….
     pub fn migrated_path(&self, id: &DocumentId, version: u32) -> PathBuf {
-        self.migrated_copy_path(id, version, 1)
+        self.migrated_copy_path(id, version, 1, EarlierFile::Document)
     }
 
-    fn migrated_copy_path(&self, id: &DocumentId, version: u32, number: u32) -> PathBuf {
+    /// Where recovery keeps the first earlier draft of this version.
+    pub fn migrated_draft_path(&self, id: &DocumentId, version: u32) -> PathBuf {
+        self.migrated_copy_path(id, version, 1, EarlierFile::Draft)
+    }
+
+    fn migrated_copy_path(
+        &self,
+        id: &DocumentId,
+        version: u32,
+        number: u32,
+        kind: EarlierFile,
+    ) -> PathBuf {
+        let marker = match kind {
+            EarlierFile::Document => "",
+            EarlierFile::Draft => ".draft",
+        };
         if number == 1 {
-            self.migrated.join(format!("{id}.v{version}.{EXTENSION}"))
+            self.migrated
+                .join(format!("{id}{marker}.v{version}.{EXTENSION}"))
         } else {
             self.migrated
-                .join(format!("{id}.v{version}.{number}.{EXTENSION}"))
+                .join(format!("{id}{marker}.v{version}.{number}.{EXTENSION}"))
         }
     }
 
-    /// Keeps `stored`, the file of the earlier format `version` a save is about to replace,
-    /// unless a copy with the same bytes is already kept. Copies are numbered in order and
-    /// never overwritten: the bytes go to the first free name. Called with the save lock held,
-    /// so no other save checks or writes these copies meanwhile.
+    /// Keeps earlier document or draft bytes unless an identical copy already exists. Copies
+    /// are numbered and never overwritten. The caller holds the document's save lock, so
+    /// competing saves and draft recoveries cannot choose the same name at once.
     fn keep_earlier_version(
         &self,
         id: &DocumentId,
         version: u32,
         stored: &[u8],
+        kind: EarlierFile,
     ) -> Result<(), StorageError> {
         for number in 1..=u32::MAX {
-            let kept = self.migrated_copy_path(id, version, number);
+            let kept = self.migrated_copy_path(id, version, number, kind);
             match fs::read(&kept) {
                 Ok(bytes) if bytes == stored => return Ok(()),
                 Ok(_) => continue,
@@ -344,7 +391,7 @@ impl FileDocumentRepository {
         }
     }
 
-    fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, File>> {
+    fn owned(&self) -> MutexGuard<'_, HashMap<DocumentId, OwnedDraft>> {
         self.owned.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -416,6 +463,9 @@ impl FileDocumentRepository {
         let committed = file_format::decode_draft_info(&bytes)
             .is_ok_and(|info| stored != Some(info.base_revision));
         let result = if committed {
+            if let Some(version) = file_format::earlier_draft_version(&bytes) {
+                self.keep_earlier_version(id, version, &bytes, EarlierFile::Draft)?;
+            }
             fs::remove_file(&set_aside)
         } else {
             fs::rename(&set_aside, self.draft_path(id))
@@ -528,7 +578,7 @@ impl DocumentRepository for FileDocumentRepository {
         if let Some(stored) = stored_bytes.as_deref()
             && let Some(version) = file_format::earlier_version(stored)
         {
-            self.keep_earlier_version(id, version, stored)?;
+            self.keep_earlier_version(id, version, stored, EarlierFile::Document)?;
         }
         // The owned draft is set aside before the commit and removed after it, so a draft
         // left behind by a crash in between is recognized as superseded.
@@ -606,7 +656,13 @@ impl DocumentRepository for FileDocumentRepository {
             if !exists(&self.path(id))? {
                 return Err(StorageError::Missing);
             }
-            self.owned().insert(id.clone(), owner);
+            self.owned().insert(
+                id.clone(),
+                OwnedDraft {
+                    _lock: owner,
+                    original: None,
+                },
+            );
         }
         drop(taking);
         let bytes = file_format::encode_draft(draft);
@@ -628,7 +684,13 @@ impl DocumentRepository for FileDocumentRepository {
                     "another running process holds the recovery draft of document {id}"
                 )));
             };
-            self.owned().insert(id.clone(), owner);
+            self.owned().insert(
+                id.clone(),
+                OwnedDraft {
+                    _lock: owner,
+                    original: None,
+                },
+            );
         }
         drop(taking);
         let path = self.draft_path(id);
@@ -644,7 +706,41 @@ impl DocumentRepository for FileDocumentRepository {
                 return Err(error);
             }
         };
-        Ok(Some(self.decode_draft(id, &bytes)))
+        let draft = self.decode_draft(id, &bytes);
+        if let Some(owned) = self.owned().get_mut(id) {
+            owned.original = match (&draft, file_format::earlier_draft_version(&bytes)) {
+                (Ok(_), Some(version)) => Some(EarlierDraft { version, bytes }),
+                _ => None,
+            };
+        }
+        Ok(Some(draft))
+    }
+
+    fn prepare_draft_for_recovery(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), StorageError> {
+        let original = {
+            let mut owned = self.owned();
+            let Some(draft) = owned.get_mut(id) else {
+                return Err(StorageError::Locked(format!(
+                    "this process does not own the draft of {id}"
+                )));
+            };
+            draft.original.take()
+        };
+        let _lock = self.lock_document(id)?;
+        if let DraftRecoveryTarget::Original { base_revision } = target {
+            let stored_revision = self.read_revision(&self.path(id))?;
+            if stored_revision != Some(base_revision) {
+                return Err(StorageError::Conflict { stored_revision });
+            }
+        }
+        if let Some(original) = original {
+            self.keep_earlier_version(id, original.version, &original.bytes, EarlierFile::Draft)?;
+        }
+        Ok(())
     }
 
     fn release_draft(&self, id: &DocumentId) {

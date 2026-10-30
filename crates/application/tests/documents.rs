@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DRAFT_MAX_WAIT, DRAFT_QUIET, DocumentRepository,
-    DocumentResponse, Draft, DraftInfo, DraftStatus, DraftWriter, ErrorCode, ListQuery, ListSort,
-    MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT, TrashEntry,
+    DocumentResponse, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, DraftWriter, ErrorCode,
+    ListQuery, ListSort, MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT,
+    TrashEntry,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -24,6 +25,12 @@ impl CapabilityCatalog for NoCapabilities {
 /// process would, and `end_process` abandons a process's drafts as its exit would.
 /// A draft with its owning process; `None` once that process ended.
 type OwnedDraft = (Draft, Option<u32>);
+
+struct DraftGate {
+    id: DocumentId,
+    started: std::sync::mpsc::Sender<()>,
+    release: Mutex<()>,
+}
 
 #[derive(Clone, Default)]
 struct MemoryStore {
@@ -53,6 +60,10 @@ struct MemoryStore {
     /// Set while one of them waits. Like taking a draft's ownership in the file store, it
     /// makes the document's draft status wait too.
     stalled_draft_waiting: Arc<AtomicBool>,
+    stall_claim: Arc<AtomicBool>,
+    claim_gate: Arc<Mutex<Option<Arc<DraftGate>>>>,
+    prepare_gate: Arc<Mutex<Option<Arc<DraftGate>>>>,
+    prepare_failure: Arc<Mutex<Option<StorageError>>>,
 }
 
 impl MemoryStore {
@@ -194,8 +205,10 @@ impl DocumentRepository for MemoryStore {
     }
 
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError> {
-        let mut drafts = self.drafts.lock().unwrap();
-        match drafts.get_mut(id) {
+        if self.stall_claim.load(Ordering::SeqCst) {
+            self.draft_io(id);
+        }
+        let claimed = match self.drafts.lock().unwrap().get_mut(id) {
             None => Ok(None),
             Some((_, Some(owner))) if *owner != self.process => {
                 Err(StorageError::Locked("owned by another process".into()))
@@ -204,7 +217,43 @@ impl DocumentRepository for MemoryStore {
                 *owner = Some(self.process);
                 Ok(Some(Ok(draft.clone())))
             }
+        };
+        let gate = self.claim_gate.lock().unwrap().clone();
+        if claimed.as_ref().is_ok_and(Option::is_some)
+            && let Some(gate) = gate.filter(|gate| gate.id == *id)
+        {
+            gate.started.send(()).unwrap();
+            drop(gate.release.lock().unwrap());
         }
+        claimed
+    }
+
+    fn prepare_draft_for_recovery(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), StorageError> {
+        let gate = self.prepare_gate.lock().unwrap().clone();
+        if let Some(gate) = gate.filter(|gate| gate.id == *id) {
+            gate.started.send(()).unwrap();
+            drop(gate.release.lock().unwrap());
+        }
+        if let Some(error) = self.prepare_failure.lock().unwrap().clone() {
+            return Err(error);
+        }
+        let _commit = self.commit_gate.lock().unwrap();
+        if let DraftRecoveryTarget::Original { base_revision } = target {
+            let stored_revision = self
+                .documents
+                .lock()
+                .unwrap()
+                .get(id)
+                .map(Document::revision);
+            if stored_revision != Some(base_revision) {
+                return Err(StorageError::Conflict { stored_revision });
+            }
+        }
+        Ok(())
     }
 
     fn release_draft(&self, id: &DocumentId) {
@@ -2689,6 +2738,368 @@ fn a_stalled_draft_write_does_not_hold_up_other_requests() {
     );
     drop(held);
     autosave.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_stalled_recovery_claim_does_not_hold_up_another_document() {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    store.stall_claim.store(true, Ordering::SeqCst);
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    app.document(&id).unwrap();
+    let other = edited(&app);
+    let (held, recovery) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover(&id, Some("slow-recovery"))
+    });
+
+    let answered = within(std::time::Duration::from_secs(1), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.apply_transaction(&other, None, 1, rename_to("Still editable"))
+    });
+    drop(held);
+    recovery.join().unwrap().unwrap();
+    assert_eq!(
+        answered.map(|result| result.unwrap().document.title),
+        Some("Still editable".to_owned()),
+        "an unrelated edit must finish while recovery I/O is held"
+    );
+}
+
+#[test]
+fn editing_the_document_being_claimed_does_not_block_other_documents() {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    store.stall_claim.store(true, Ordering::SeqCst);
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    app.document(&id).unwrap();
+    let other = edited(&app);
+    let (held, recovery) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover(&id, Some("claim-with-edits"))
+    });
+    let same = within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 0, rename_to("Local edit"))
+    });
+    let unrelated = within(std::time::Duration::from_secs(1), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.apply_transaction(&other, None, 1, rename_to("Other edit"))
+    });
+    drop(held);
+    let result = recovery.join().unwrap();
+    let same = same.unwrap().unwrap();
+    assert_eq!(same.document.title, "Local edit");
+    assert!(
+        same.recovery.is_none(),
+        "a local draft operation is not another process"
+    );
+    assert_eq!(
+        unrelated.map(|reply| reply.unwrap().document.title),
+        Some("Other edit".to_owned())
+    );
+    assert_eq!(result.unwrap_err().code, ErrorCode::UnsavedChanges);
+    assert_eq!(
+        app.document(&id).unwrap().recovery.unwrap().state,
+        RecoveryState::Recoverable
+    );
+    assert_eq!(
+        app.autosave(&id, None).unwrap_err().code,
+        ErrorCode::RecoveryPending
+    );
+    app.discard_draft(&id, None).unwrap();
+    assert_eq!(
+        app.autosave(&id, None).unwrap().session.draft_revision,
+        Some(1)
+    );
+}
+
+#[test]
+fn a_stalled_recovery_copy_removal_does_not_hold_up_another_document() {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    app.document(&id).unwrap();
+    let other = edited(&app);
+    let (held, recovery) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover_as_copy(&id, Some("slow-copy"), None)
+    });
+    let answered = within(std::time::Duration::from_secs(1), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.apply_transaction(&other, None, 1, rename_to("Still editable"))
+    });
+    let same = within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 0, rename_to("Local edit"))
+    });
+    let replay = within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover_as_copy(&id, Some("slow-copy"), None)
+    });
+    drop(held);
+    let copied = recovery.join().unwrap().unwrap();
+    assert_eq!(
+        answered.map(|result| result.unwrap().document.title),
+        Some("Still editable".to_owned())
+    );
+    let same = same.unwrap().unwrap();
+    assert_eq!(same.document.title, "Local edit");
+    assert!(same.recovery.is_none());
+    assert_eq!(app.document(&id).unwrap().document.title, "Local edit");
+    assert_eq!(
+        replay.unwrap().unwrap_err().code,
+        ErrorCode::RequestInProgress
+    );
+    assert_eq!(
+        app.recover_as_copy(&id, Some("slow-copy"), None).unwrap(),
+        copied
+    );
+    assert_eq!(
+        app.autosave(&id, None).unwrap().session.draft_revision,
+        Some(1)
+    );
+}
+
+#[test]
+fn recovery_copy_reports_a_source_evicted_while_its_draft_is_removed() {
+    let (app, store, id, _) = full_table_beside_an_abandoned_draft(0, MAX_OPEN_SESSIONS - 1);
+    let app = Arc::new(app);
+    let (held, recovery) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover_as_copy(&id, Some("copy-while-evicted"), None)
+    });
+    let created = within(std::time::Duration::from_secs(1), {
+        let app = Arc::clone(&app);
+        move || app.create_document(None, None)
+    });
+    drop(held);
+    let copied = recovery.join().unwrap().unwrap();
+    assert!(
+        created.is_some_and(|result| result.is_ok()),
+        "creation should finish during draft removal"
+    );
+    assert!(
+        copied.source.closed,
+        "the source was evicted before the copy reply"
+    );
+}
+
+#[test]
+fn a_stalled_draft_discard_does_not_hold_up_another_document() {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    app.document(&id).unwrap();
+    let other = edited(&app);
+    let (held, discard) = stalled_draft(&store, &id, {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.discard_draft(&id, Some("slow-discard"))
+    });
+    let answered = within(std::time::Duration::from_secs(1), {
+        let (app, other) = (Arc::clone(&app), other.clone());
+        move || app.apply_transaction(&other, None, 1, rename_to("Still editable"))
+    });
+    let same = within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.apply_transaction(&id, None, 0, rename_to("Local edit"))
+    });
+    let replay = within(std::time::Duration::from_secs(1), {
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.discard_draft(&id, Some("slow-discard"))
+    });
+    drop(held);
+    let discarded = discard.join().unwrap().unwrap();
+    assert_eq!(
+        answered.map(|result| result.unwrap().document.title),
+        Some("Still editable".to_owned())
+    );
+    let same = same.unwrap().unwrap();
+    assert_eq!(same.document.title, "Local edit");
+    assert!(same.recovery.is_none());
+    assert_eq!(app.document(&id).unwrap().document.title, "Local edit");
+    assert_eq!(
+        replay.unwrap().unwrap_err().code,
+        ErrorCode::RequestInProgress
+    );
+    assert_eq!(
+        app.discard_draft(&id, Some("slow-discard")).unwrap(),
+        discarded
+    );
+    assert_eq!(
+        app.autosave(&id, None).unwrap().session.draft_revision,
+        Some(1)
+    );
+    assert_eq!(
+        app.discard_draft(&id, Some("slow-discard")).unwrap(),
+        discarded
+    );
+    assert_eq!(
+        store.draft_count(),
+        1,
+        "replaying discard does not delete the new draft"
+    );
+}
+
+enum RecoveryPause {
+    Claim,
+    Preservation,
+}
+
+fn edit_during_recovery(pause: RecoveryPause) {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    app.document(&id).unwrap();
+    let (started, claim_started) = std::sync::mpsc::channel();
+    let gate = Arc::new(DraftGate {
+        id: DocumentId::parse(&id).unwrap(),
+        started,
+        release: Mutex::new(()),
+    });
+    let held = gate.release.lock().unwrap();
+    match pause {
+        RecoveryPause::Claim => *store.claim_gate.lock().unwrap() = Some(Arc::clone(&gate)),
+        RecoveryPause::Preservation => {
+            *store.prepare_gate.lock().unwrap() = Some(Arc::clone(&gate))
+        }
+    }
+    let recovery = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover(&id, Some("recover-with-edit"))
+    });
+    claim_started
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let (sent, answer) = std::sync::mpsc::channel();
+    let editing = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || {
+            sent.send(app.apply_transaction(&id, None, 0, rename_to("Concurrent edit")))
+                .unwrap()
+        }
+    });
+    let before_release = answer.recv_timeout(std::time::Duration::from_secs(1)).ok();
+    let completed_while_paused = before_release.is_some();
+    drop(held);
+    let recovered = recovery.join().unwrap();
+    let edited =
+        before_release.or_else(|| answer.recv_timeout(std::time::Duration::from_secs(5)).ok());
+    editing.join().unwrap();
+
+    assert!(
+        completed_while_paused,
+        "the edit should finish while recovery I/O is held"
+    );
+    assert!(
+        edited.as_ref().is_some_and(Result::is_ok),
+        "the edit should complete during recovery I/O"
+    );
+    assert_eq!(recovered.unwrap_err().code, ErrorCode::UnsavedChanges);
+    assert_eq!(app.document(&id).unwrap().document.title, "Concurrent edit");
+    assert!(matches!(
+        store.draft_status(&DocumentId::parse(&id).unwrap()),
+        Ok(DraftStatus::Abandoned(Ok(_)))
+    ));
+}
+
+#[test]
+fn an_edit_made_while_recovery_claims_a_draft_is_not_overwritten() {
+    edit_during_recovery(RecoveryPause::Claim);
+}
+
+#[test]
+fn an_edit_made_while_the_draft_is_preserved_is_not_overwritten() {
+    edit_during_recovery(RecoveryPause::Preservation);
+}
+
+fn save_during_recovery(pause: RecoveryPause) {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    let other = Application::new(NoCapabilities, store.as_process(3));
+    other
+        .apply_transaction(&id, None, 0, rename_to("Saved by another process"))
+        .unwrap();
+
+    let (started, waiting) = std::sync::mpsc::channel();
+    let gate = Arc::new(DraftGate {
+        id: DocumentId::parse(&id).unwrap(),
+        started,
+        release: Mutex::new(()),
+    });
+    let held = gate.release.lock().unwrap();
+    match pause {
+        RecoveryPause::Claim => *store.claim_gate.lock().unwrap() = Some(Arc::clone(&gate)),
+        RecoveryPause::Preservation => {
+            *store.prepare_gate.lock().unwrap() = Some(Arc::clone(&gate))
+        }
+    }
+    let recovery = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover(&id, Some("recover-after-other-save"))
+    });
+    waiting
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    other.save(&id, None, 1).unwrap();
+    drop(held);
+
+    let error = recovery.join().unwrap().unwrap_err();
+    assert_eq!(error.code, ErrorCode::DraftOutdated);
+    assert_eq!(error.current_revision, Some(1));
+    assert!(matches!(
+        store.draft_status(&DocumentId::parse(&id).unwrap()),
+        Ok(DraftStatus::Abandoned(Ok(_)))
+    ));
+    assert_eq!(
+        app.document(&id).unwrap().document.title,
+        "Saved by another process"
+    );
+}
+
+#[test]
+fn a_save_by_another_process_while_claiming_the_draft_refuses_recovery() {
+    save_during_recovery(RecoveryPause::Claim);
+}
+
+#[test]
+fn a_save_by_another_process_while_preserving_the_draft_refuses_recovery() {
+    save_during_recovery(RecoveryPause::Preservation);
+}
+
+#[test]
+fn a_busy_save_lock_during_recovery_is_reported_as_storage_busy() {
+    for copy in [false, true] {
+        let (store, id, _) = autosaved_drawing();
+        store.end_process();
+        *store.prepare_failure.lock().unwrap() = Some(StorageError::Locked(
+            "another process holds the document save lock".into(),
+        ));
+        let app = Application::new(NoCapabilities, store.as_process(2));
+        let result = if copy {
+            app.recover_as_copy(&id, Some("busy-recovery"), None)
+                .map(|_| ())
+        } else {
+            app.recover(&id, Some("busy-recovery")).map(|_| ())
+        };
+        let error = result.unwrap_err();
+        assert_eq!(
+            (error.code, error.reason),
+            (ErrorCode::StorageFailed, Some(StorageReason::Busy))
+        );
+        assert!(matches!(
+            store.draft_status(&DocumentId::parse(&id).unwrap()),
+            Ok(DraftStatus::Abandoned(Ok(_)))
+        ));
+        *store.prepare_failure.lock().unwrap() = None;
+        if copy {
+            app.recover_as_copy(&id, Some("busy-recovery"), None)
+                .unwrap();
+        } else {
+            app.recover(&id, Some("busy-recovery")).unwrap();
+        }
+    }
 }
 
 #[test]
