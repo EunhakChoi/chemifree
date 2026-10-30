@@ -21,6 +21,8 @@ pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
 pub mod phase6_profiles;
+pub mod prediction_input;
+pub mod prediction_wire;
 mod preferences;
 pub mod prepared_xlogp;
 mod repository;

@@ -267,3 +267,6 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
 |---|---|---|---|---|
 | 1 자동 | 2026-10-30 22:35:54 | `d5d5d4383fd970dacd989da878e3d115317edda8` | 22:37:21 | [P2](https://github.com/EunhakChoi/chemifree/pull/47#discussion_r4429069116): 원문 파일의 basename과 nickname 키를 같게 하자는 제안. 공개 `spec/phase6-new-data-format-catalog.json`은 원문 경로 glob만 정하고 `NicknameGraphRow`와 `spec/phase6-new-data-formats.md`는 nickname 이름과 원문 바이트 해시를 별도로 정의하며 둘 사이의 파일명 규칙을 규정하지 않는다. 따라서 basename 일치 제약은 수용하지 않는다. 각 경로의 바이트는 신뢰된 manifest·권리 검토에 고정되고, 제공된 원문은 길이·해시·정규화 트리가 일치하는 기록과 일대일로 대조된다. 다른 경로에 다른 원문을 넣으면 해시 검사가 거절함을 확인했다. 독립 fixture에서 서로 다른 파일명과 키를 허용하는 검사는 basename 일치 변이를 실제로 잡았다. 이 검증은 파일명과 키 사이의 미정의 관계를 보증한다는 뜻이 아니다. |
+| 2 요청 | 22:41:33 | `9ee615bcc0a745c38d1831ce64f2aff7bbe4b46c` | 22:43:15 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [요청](https://github.com/EunhakChoi/chemifree/pull/47#issuecomment-6535033791), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/47#issuecomment-6534951619) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41139765455)는 check·browser 모두 성공했다. 2026-10-30 22:45:28에 `58ea6583855a3be991213cdaed325356991e6226`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41140208619)도 check·browser 모두 성공했다.
