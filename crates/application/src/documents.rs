@@ -20,7 +20,9 @@ use crate::contract::{
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
-use crate::repository::{DocumentRepository, Draft, DraftStatus, StorageError};
+use crate::repository::{
+    DocumentRepository, Draft, DraftRecoveryTarget, DraftStatus, StorageError,
+};
 use crate::turns::{Refusal, Running, TURN_WAIT, Turn, Turns};
 
 pub const DEFAULT_TITLE: &str = "Untitled";
@@ -1056,18 +1058,7 @@ impl<R: DocumentRepository> Documents<R> {
         let draft = self.claim_abandoned(&document_id)?;
         if stored.revision() != draft.base_revision {
             self.repository.release_draft(&document_id);
-            return Err(ApplicationError {
-                current_revision: Some(stored.revision()),
-                ..ApplicationError::new(
-                    ErrorCode::DraftOutdated,
-                    format!(
-                        "the document was saved at revision {} after this draft's base {}; \
-                         recover the draft as a copy",
-                        stored.revision(),
-                        draft.base_revision
-                    ),
-                )
-            });
+            return Err(outdated_draft(stored.revision(), draft.base_revision));
         }
         {
             let sessions = self.lock();
@@ -1085,7 +1076,12 @@ impl<R: DocumentRepository> Documents<R> {
                 return Err(error);
             }
         }
-        self.prepare_claimed_draft(&document_id)?;
+        self.prepare_claimed_draft(
+            &document_id,
+            DraftRecoveryTarget::Original {
+                base_revision: draft.base_revision,
+            },
+        )?;
         drop(draft_io);
         let mut sessions = self.lock();
         // Edits can proceed while storage is busy. Never replace work made in that interval.
@@ -1226,7 +1222,7 @@ impl<R: DocumentRepository> Documents<R> {
             self.repository.release_draft(&document_id);
             return Err(error);
         }
-        self.prepare_claimed_draft(&document_id)?;
+        self.prepare_claimed_draft(&document_id, DraftRecoveryTarget::Copy)?;
         let mut sessions = self.lock();
         let source_was_open = sessions.open.contains_key(&document_id);
         let slot = CopySlot::Evicted {
@@ -1652,10 +1648,30 @@ impl<R: DocumentRepository> Documents<R> {
 
     /// Preserves a claimed draft before using it. A failed preservation releases ownership so
     /// the unchanged draft can be recovered or discarded later.
-    fn prepare_claimed_draft(&self, id: &DocumentId) -> Result<(), ApplicationError> {
-        if let Err(error) = self.repository.prepare_draft_for_recovery(id) {
+    fn prepare_claimed_draft(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), ApplicationError> {
+        if let Err(error) = self.repository.prepare_draft_for_recovery(id, target) {
             self.repository.release_draft(id);
-            return Err(draft_error(error));
+            return Err(match (target, error) {
+                (
+                    DraftRecoveryTarget::Original { base_revision },
+                    StorageError::Conflict {
+                        stored_revision: Some(current),
+                    },
+                ) => outdated_draft(current, base_revision),
+                (
+                    DraftRecoveryTarget::Original { .. },
+                    StorageError::Conflict {
+                        stored_revision: None,
+                    },
+                ) => not_found(id),
+                // The draft is already owned. A lock refusal here is the document's save
+                // lock, so report storage busy rather than another owner of the draft.
+                (_, error) => storage_error(error),
+            });
         }
         Ok(())
     }
@@ -1934,6 +1950,19 @@ fn draft_error(error: StorageError) -> ApplicationError {
     match error {
         StorageError::Locked(message) => ApplicationError::new(ErrorCode::DraftInUse, message),
         error => storage_error(error),
+    }
+}
+
+fn outdated_draft(current: u64, base: u64) -> ApplicationError {
+    ApplicationError {
+        current_revision: Some(current),
+        ..ApplicationError::new(
+            ErrorCode::DraftOutdated,
+            format!(
+                "the document was saved at revision {current} after this draft's base {base}; \
+                 recover the draft as a copy"
+            ),
+        )
     }
 }
 

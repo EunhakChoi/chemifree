@@ -836,12 +836,53 @@ fn recovery_archives_the_bytes_actually_claimed_even_if_the_path_changes() {
     let mut replacement = original.clone();
     replacement.push(b'\n');
     fs::write(&draft_path, replacement).unwrap();
-    repository.prepare_draft_for_recovery(&id()).unwrap();
+    repository
+        .prepare_draft_for_recovery(&id(), chemifree_application::DraftRecoveryTarget::Copy)
+        .unwrap();
     assert_eq!(
         fs::read(repository.migrated_draft_path(&id(), 3)).unwrap(),
         original
     );
     repository.release_draft(&id());
+}
+
+#[test]
+fn recovery_preparation_checks_the_base_against_a_second_file_store() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let mut draft: serde_json::Value =
+        serde_json::from_slice(&version_3_fixture("v2-draft.json")).unwrap();
+    draft["base_revision"] = serde_json::json!(6);
+    let original = serde_json::to_vec_pretty(&draft).unwrap();
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    assert!(matches!(repository.claim_draft(&id()), Ok(Some(Ok(_)))));
+
+    let writer = FileDocumentRepository::new(root.path());
+    let mut changed = writer.load(&id()).unwrap().unwrap();
+    changed
+        .apply(&[Command::Rename {
+            title: "Another writer".to_owned(),
+        }])
+        .unwrap();
+    writer.save(&changed, Some(6)).unwrap();
+
+    assert_eq!(
+        repository.prepare_draft_for_recovery(
+            &id(),
+            chemifree_application::DraftRecoveryTarget::Original { base_revision: 6 },
+        ),
+        Err(StorageError::Conflict {
+            stored_revision: Some(7)
+        })
+    );
+    assert!(!repository.migrated_draft_path(&id(), 3).exists());
+    repository.release_draft(&id());
+    assert_eq!(fs::read(&draft_path).unwrap(), original);
+    assert!(matches!(
+        writer.draft_status(&id()),
+        Ok(DraftStatus::Abandoned(Ok(_)))
+    ));
 }
 
 #[test]

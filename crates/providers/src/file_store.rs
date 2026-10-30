@@ -39,7 +39,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use chemifree_application::{
-    DocumentRepository, Draft, DraftInfo, DraftStatus, StorageError, TrashEntry,
+    DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
+    TrashEntry,
 };
 use chemifree_domain::document::{Document, DocumentId};
 
@@ -715,7 +716,11 @@ impl DocumentRepository for FileDocumentRepository {
         Ok(Some(draft))
     }
 
-    fn prepare_draft_for_recovery(&self, id: &DocumentId) -> Result<(), StorageError> {
+    fn prepare_draft_for_recovery(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), StorageError> {
         let original = {
             let mut owned = self.owned();
             let Some(draft) = owned.get_mut(id) else {
@@ -725,8 +730,14 @@ impl DocumentRepository for FileDocumentRepository {
             };
             draft.original.take()
         };
+        let _lock = self.lock_document(id)?;
+        if let DraftRecoveryTarget::Original { base_revision } = target {
+            let stored_revision = self.read_revision(&self.path(id))?;
+            if stored_revision != Some(base_revision) {
+                return Err(StorageError::Conflict { stored_revision });
+            }
+        }
         if let Some(original) = original {
-            let _lock = self.lock_document(id)?;
             self.keep_earlier_version(id, original.version, &original.bytes, EarlierFile::Draft)?;
         }
         Ok(())

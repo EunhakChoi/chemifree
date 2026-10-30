@@ -47,12 +47,16 @@ pub trait DocumentRepository: Send + Sync {
     /// `Locked` when another running process owns it.
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError>;
 
-    /// Prepares an owned, readable draft for recovery. A provider that migrates an older draft
-    /// preserves its original bytes here before a recovery can replace or remove it. Stores
-    /// without an older representation have nothing to preserve.
-    fn prepare_draft_for_recovery(&self, _id: &DocumentId) -> Result<(), StorageError> {
-        Ok(())
-    }
+    /// Prepares an owned, readable draft for recovery. For in-place recovery, the base check
+    /// must be coordinated with saves by all writers, including other processes. A provider
+    /// that migrates an older draft preserves its original bytes before it can be replaced or
+    /// removed. A changed base returns `Conflict` with the current revision, or `None` if the
+    /// document no longer exists; on failure the caller releases the draft.
+    fn prepare_draft_for_recovery(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), StorageError>;
 
     /// Gives up ownership without removing the draft, so it is abandoned again.
     fn release_draft(&self, id: &DocumentId);
@@ -81,6 +85,13 @@ pub trait DocumentRepository: Send + Sync {
 
     /// A trashed document as it was stored. `Ok(None)` means it is not in the trash.
     fn load_trashed(&self, id: &DocumentId) -> Result<Option<Document>, StorageError>;
+}
+
+/// Whether recovery will replace the working copy of the original or create a new document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DraftRecoveryTarget {
+    Original { base_revision: u64 },
+    Copy,
 }
 
 /// A trashed document's identifier and when it was trashed.

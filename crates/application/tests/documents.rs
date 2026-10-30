@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use chemifree_application::{
     Application, CapabilityCatalog, CommandDto, DRAFT_MAX_WAIT, DRAFT_QUIET, DocumentRepository,
-    DocumentResponse, Draft, DraftInfo, DraftStatus, DraftWriter, ErrorCode, ListQuery, ListSort,
-    MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT, TrashEntry,
+    DocumentResponse, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, DraftWriter, ErrorCode,
+    ListQuery, ListSort, MAX_OPEN_SESSIONS, RecoveryState, StorageError, StorageReason, TURN_WAIT,
+    TrashEntry,
 };
 use chemifree_domain::Capability;
 use chemifree_domain::document::{Document, DocumentId, MAX_EDIT_REVISION, MAX_REVISION};
@@ -62,6 +63,7 @@ struct MemoryStore {
     stall_claim: Arc<AtomicBool>,
     claim_gate: Arc<Mutex<Option<Arc<DraftGate>>>>,
     prepare_gate: Arc<Mutex<Option<Arc<DraftGate>>>>,
+    prepare_failure: Arc<Mutex<Option<StorageError>>>,
 }
 
 impl MemoryStore {
@@ -226,11 +228,30 @@ impl DocumentRepository for MemoryStore {
         claimed
     }
 
-    fn prepare_draft_for_recovery(&self, id: &DocumentId) -> Result<(), StorageError> {
+    fn prepare_draft_for_recovery(
+        &self,
+        id: &DocumentId,
+        target: DraftRecoveryTarget,
+    ) -> Result<(), StorageError> {
         let gate = self.prepare_gate.lock().unwrap().clone();
         if let Some(gate) = gate.filter(|gate| gate.id == *id) {
             gate.started.send(()).unwrap();
             drop(gate.release.lock().unwrap());
+        }
+        if let Some(error) = self.prepare_failure.lock().unwrap().clone() {
+            return Err(error);
+        }
+        let _commit = self.commit_gate.lock().unwrap();
+        if let DraftRecoveryTarget::Original { base_revision } = target {
+            let stored_revision = self
+                .documents
+                .lock()
+                .unwrap()
+                .get(id)
+                .map(Document::revision);
+            if stored_revision != Some(base_revision) {
+                return Err(StorageError::Conflict { stored_revision });
+            }
         }
         Ok(())
     }
@@ -2990,6 +3011,95 @@ fn an_edit_made_while_recovery_claims_a_draft_is_not_overwritten() {
 #[test]
 fn an_edit_made_while_the_draft_is_preserved_is_not_overwritten() {
     edit_during_recovery(RecoveryPause::Preservation);
+}
+
+fn save_during_recovery(pause: RecoveryPause) {
+    let (store, id, _) = autosaved_drawing();
+    store.end_process();
+    let app = Arc::new(Application::new(NoCapabilities, store.as_process(2)));
+    let other = Application::new(NoCapabilities, store.as_process(3));
+    other
+        .apply_transaction(&id, None, 0, rename_to("Saved by another process"))
+        .unwrap();
+
+    let (started, waiting) = std::sync::mpsc::channel();
+    let gate = Arc::new(DraftGate {
+        id: DocumentId::parse(&id).unwrap(),
+        started,
+        release: Mutex::new(()),
+    });
+    let held = gate.release.lock().unwrap();
+    match pause {
+        RecoveryPause::Claim => *store.claim_gate.lock().unwrap() = Some(Arc::clone(&gate)),
+        RecoveryPause::Preservation => {
+            *store.prepare_gate.lock().unwrap() = Some(Arc::clone(&gate))
+        }
+    }
+    let recovery = std::thread::spawn({
+        let (app, id) = (Arc::clone(&app), id.clone());
+        move || app.recover(&id, Some("recover-after-other-save"))
+    });
+    waiting
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    other.save(&id, None, 1).unwrap();
+    drop(held);
+
+    let error = recovery.join().unwrap().unwrap_err();
+    assert_eq!(error.code, ErrorCode::DraftOutdated);
+    assert_eq!(error.current_revision, Some(1));
+    assert!(matches!(
+        store.draft_status(&DocumentId::parse(&id).unwrap()),
+        Ok(DraftStatus::Abandoned(Ok(_)))
+    ));
+    assert_eq!(
+        app.document(&id).unwrap().document.title,
+        "Saved by another process"
+    );
+}
+
+#[test]
+fn a_save_by_another_process_while_claiming_the_draft_refuses_recovery() {
+    save_during_recovery(RecoveryPause::Claim);
+}
+
+#[test]
+fn a_save_by_another_process_while_preserving_the_draft_refuses_recovery() {
+    save_during_recovery(RecoveryPause::Preservation);
+}
+
+#[test]
+fn a_busy_save_lock_during_recovery_is_reported_as_storage_busy() {
+    for copy in [false, true] {
+        let (store, id, _) = autosaved_drawing();
+        store.end_process();
+        *store.prepare_failure.lock().unwrap() = Some(StorageError::Locked(
+            "another process holds the document save lock".into(),
+        ));
+        let app = Application::new(NoCapabilities, store.as_process(2));
+        let result = if copy {
+            app.recover_as_copy(&id, Some("busy-recovery"), None)
+                .map(|_| ())
+        } else {
+            app.recover(&id, Some("busy-recovery")).map(|_| ())
+        };
+        let error = result.unwrap_err();
+        assert_eq!(
+            (error.code, error.reason),
+            (ErrorCode::StorageFailed, Some(StorageReason::Busy))
+        );
+        assert!(matches!(
+            store.draft_status(&DocumentId::parse(&id).unwrap()),
+            Ok(DraftStatus::Abandoned(Ok(_)))
+        ));
+        *store.prepare_failure.lock().unwrap() = None;
+        if copy {
+            app.recover_as_copy(&id, Some("busy-recovery"), None)
+                .unwrap();
+        } else {
+            app.recover(&id, Some("busy-recovery")).unwrap();
+        }
+    }
 }
 
 #[test]
