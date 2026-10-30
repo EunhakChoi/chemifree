@@ -620,9 +620,11 @@ fn load_personal_impl_with_metadata(
     // Read once after authorization, then hash and decode the same immutable bytes.
     let mut payloads = Vec::with_capacity(manifest.files.len());
     for file in &manifest.files {
-        let bytes = source
-            .read(&file.relative_path, file.bytes)
-            .map_err(|_| ActiveDataError::DataUnavailable)?;
+        let bytes = match source.read(&file.relative_path, file.bytes) {
+            Ok(bytes) => bytes,
+            Err(crate::SourceError::Missing) if !file.required => continue,
+            Err(_) => return Err(ActiveDataError::DataUnavailable),
+        };
         if data::has_executable_extension(&file.relative_path)
             || data::executable_signature(&bytes).is_some()
         {
