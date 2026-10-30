@@ -157,6 +157,14 @@ fn declared_counts_bounds_and_references_are_checked_before_exposing_data() {
         decode_nmr(&files(LOOKUP, AMPLITUDES, WIDTHS, &missing_id, BOUNDS)),
         Err(NmrError::Inconsistent)
     ));
+    let unbacked_id = FEATURES.replace(
+        "\"toy-amp\",\"toy-width\"",
+        "\"toy-amp\",\"toy-width\",\"not-in-any-parameter-file\"",
+    );
+    assert!(matches!(
+        decode_nmr(&files(LOOKUP, AMPLITUDES, WIDTHS, &unbacked_id, BOUNDS)),
+        Err(NmrError::Inconsistent)
+    ));
     let outside = BOUNDS.replace(
         "\"source_file_offset_start\":4",
         "\"source_file_offset_start\":60",

@@ -348,6 +348,10 @@ fn validate(data: &NmrData) -> Result<(), NmrError> {
             return Err(NmrError::Inconsistent);
         }
     }
+    // Every advertised parameter must resolve to at least one of the two files.
+    if amplitude_ids.union(&width_ids).count() != allowed.len() {
+        return Err(NmrError::Inconsistent);
+    }
     let bounds = &data.source_bounds;
     if !is_hash(&bounds.source_sha256)
         || !bounds.inert_provenance_only

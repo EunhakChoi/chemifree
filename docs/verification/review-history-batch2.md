@@ -189,3 +189,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-30 18:28:47 | `a8996fa1b6b95006c127ef254aac542de7da68e6` | 18:30:32 | 통과: 해당 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 스레드가 없다. 별도 review 객체가 없어 완료 상태와 SHA가 있는 요약을 근거로 삼는다. | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/38#issuecomment-6530489201) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41107286805)는 check·browser 모두 성공했다. 18:33:03에 `ec3e4058c04233968f7547eb3aeed22d3b679985`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41107893838)도 check·browser 모두 성공했다.
+
+## #39 P14 후속 — NMR 입력 프로필
+
+시간은 UTC다. [#39](https://github.com/EunhakChoi/chemifree/pull/39)는 다섯 파일의 불활성 입력을 검증하며 NMR 계산이나 모델 실행을 구현하지 않는다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 18:48:46 | `9b1fa533ca6b6822f827d1668d9eec1ea1c0988f` | 18:50:54 | P2 한 건: feature schema가 두 파라미터 파일 어디에도 없는 ID를 선언해도 완전한 데이터로 수락함. 수용: 추가 ID가 있는 독립 fixture로 수정 전 실패를 확인하고, 두 파라미터 집합의 합집합과 선언이 같아야 하도록 검사했다. | [지적](https://github.com/EunhakChoi/chemifree/pull/39#discussion_r4427375093), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
