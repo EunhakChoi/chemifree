@@ -15,10 +15,12 @@ pub mod json;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
+pub mod naming_patterns;
 pub mod nmr_profile;
 mod operations;
 pub mod phase6_profiles;
 mod preferences;
+pub mod prepared_xlogp;
 mod repository;
 mod turns;
 
