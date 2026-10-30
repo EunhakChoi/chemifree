@@ -19,6 +19,8 @@ Open **http://127.0.0.1:5173**. This starts Vite and the Rust API together; Vite
 
 Documents are stored as `documents/<id>.json` in the data directory (recovery drafts in `drafts/`, save locks in `locks/`; files from before graph and scene were separated are read and migrated, and the first save over one keeps its original bytes in `migrated/`): `--data-dir` or `CHEMIFREE_DATA_DIR`, otherwise the platform user-data directory (`$XDG_DATA_HOME/chemifree` or `~/.local/share/chemifree` on Linux, `~/Library/Application Support/chemifree` on macOS, `%APPDATA%\chemifree` on Windows). The API prints the path at startup.
 
+The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Version 4 documents and drafts retain this state; versions 1–3 are read in memory and their exact document bytes are kept before the first overwrite. See [the document contract](docs/CONTRACT.md) for limits and deletion behavior.
+
 The first API launch compiles Rust dependencies. If that takes longer than the UI's five-second request timeout, use **Retry connection** once the API is listening. Both development ports must be available.
 
 ```bash

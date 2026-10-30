@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
+import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
   DocumentClient,
@@ -57,6 +58,9 @@ export type TrashState =
  */
 export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
+/** Grouping replaces the members selected at the press with the newly created group. */
+export type EditSelection = { kind: 'group'; objects: string[] }
+
 const client = new DocumentClient()
 
 /** Same title, graph, and scene, whatever revision number names them. */
@@ -92,16 +96,31 @@ export function useDocumentEditor() {
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
+  const [selection, setSelectionState] = useState<Set<string>>(new Set())
+  const selectionRef = useRef<Set<string>>(new Set())
+  const selectionVersion = useRef(0)
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
 
+  const adoptSelection = useCallback((next: Set<string>) => {
+    selectionRef.current = next
+    setSelectionState(next)
+  }, [])
+  const setSelection = useCallback((update: Set<string> | ((current: ReadonlySet<string>) => Set<string>)) => {
+    selectionVersion.current += 1
+    adoptSelection(typeof update === 'function' ? update(selectionRef.current) : update)
+  }, [adoptSelection])
+
   const setCurrent = useCallback((document: DocumentResponse | null) => {
+    if (currentRef.current?.document.id !== document?.document.id) {
+      adoptSelection(selectionIds(document?.document.selection))
+    }
     currentRef.current = document
     setCurrentState(document)
     // Showing anything but the copy ends the notice; returning later would show a stale one.
     setCopyNotice((notice) => (notice?.copyId === document?.document.id ? notice : null))
-  }, [])
+  }, [adoptSelection])
 
   // A restarted service no longer holds the session the notice describes.
   useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
@@ -154,7 +173,7 @@ export function useDocumentEditor() {
   }, [])
 
   const mutate = useCallback(
-    (call: Call) =>
+    (call: Call, onReply?: (response: DocumentResponse) => void) =>
       run(async () => {
         const document = currentRef.current
         if (!document) return
@@ -173,7 +192,10 @@ export function useDocumentEditor() {
           setCurrent(fresh)
           next = await retry
         }
-        if (currentRef.current?.document.id === next.document.id) setCurrent(next)
+        if (currentRef.current?.document.id === next.document.id) {
+          setCurrent(next)
+          onReply?.(next)
+        }
       }),
     [run, setCurrent],
   )
@@ -273,6 +295,8 @@ export function useDocumentEditor() {
     }, []),
     trash,
     current,
+    selection,
+    setSelection,
     busy: pending > 0,
     error,
     autosave,
@@ -298,7 +322,11 @@ export function useDocumentEditor() {
       [copy],
     ),
     /** Makes the abandoned draft the working copy, unsaved, with its undo history. */
-    recover: useCallback(() => run(async () => setCurrent(await client.recover(id()))), [run, setCurrent]),
+    recover: useCallback(() => run(async () => {
+      const recovered = await client.recover(id())
+      setCurrent(recovered)
+      adoptSelection(selectionIds(recovered.document.selection))
+    }), [run, setCurrent, adoptSelection]),
     recoverAsCopy: useCallback(() => copy((shown) => client.recoverAsCopy(shown.document.id), true), [copy]),
     discardDraft: useCallback(
       () =>
@@ -359,33 +387,66 @@ export function useDocumentEditor() {
       [run, setCurrent, refreshList],
     ),
     apply: useCallback(
-      (edit: Edit) => {
+      (edit: Edit, selectionEdit?: EditSelection) => {
         const shown = currentRef.current?.document
+        // Capture at the press, before a caller can clear selection and before the queue runs.
+        const pressed = new Set(selectionRef.current)
+        let groupSource: DocumentView | undefined
+        const snapshots = (document: DocumentView) => {
+          const before = selectionSnapshot(pressed, document)
+          groupSource = document
+          return {
+            before,
+            ...(selectionEdit?.kind === 'group' ? { after: selectionAfterGroup(before, selectionEdit.objects) } : {}),
+          }
+        }
         return mutate((document, restartedFrom) => {
           if (typeof edit === 'function') {
             const commands = edit(document.document)
-            return commands?.length ? client.transact(id(), revision(document), commands) : null
+            return commands?.length ? client.transact(id(), revision(document), commands, snapshots(document.document)) : null
           }
           if (!edit.length || shown?.id !== document.document.id) return null
           if (restartedFrom) {
             // Built on an older view than the one the restarted service matched: it lapses.
             if (restartedFrom.document.revision !== shown.revision) return null
-            return client.transact(shown.id, revision(document), edit)
+            return client.transact(shown.id, revision(document), edit, snapshots(document.document))
           }
-          return client.transact(shown.id, shown.revision, edit)
+          return client.transact(shown.id, shown.revision, edit, snapshots(document.document))
+        }, (response) => {
+          if (selectionEdit?.kind === 'group' && groupSource) {
+            adoptSelection(mergeGroupSelection(selectionRef.current, selectionEdit.objects, groupSource, response.document))
+          } else {
+            adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
+          }
         })
       },
-      [mutate],
+      [mutate, adoptSelection],
     ),
     // Undo and redo are not retried after a restart: the restarted service's history can
     // differ from the one this page saw even when the drawing matches.
     undo: useCallback(
-      () => mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'undo', revision(document)))),
-      [mutate],
+      () => {
+        const version = selectionVersion.current
+        return mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'undo', revision(document))), (response) => {
+          const next = selectionVersion.current === version && response.document.selection
+            ? selectionIds(response.document.selection)
+            : selectionIds(selectionSnapshot(selectionRef.current, response.document))
+          adoptSelection(next)
+        })
+      },
+      [mutate, adoptSelection],
     ),
     redo: useCallback(
-      () => mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'redo', revision(document)))),
-      [mutate],
+      () => {
+        const version = selectionVersion.current
+        return mutate((document, restartedFrom) => (restartedFrom ? null : client.revisionAction(id(), 'redo', revision(document))), (response) => {
+          const next = selectionVersion.current === version && response.document.selection
+            ? selectionIds(response.document.selection)
+            : selectionIds(selectionSnapshot(selectionRef.current, response.document))
+          adoptSelection(next)
+        })
+      },
+      [mutate, adoptSelection],
     ),
     save: useCallback(() => mutate((document) => client.save(id(), revision(document))), [mutate]),
     close: useCallback(

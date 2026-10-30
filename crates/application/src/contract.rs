@@ -5,10 +5,14 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use chemifree_domain::document::{
-    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, InstanceId,
-    MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, PAGE_ID, Point, Vector,
+    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE,
+    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::scene::{
+    DeleteMode, Graphic, GraphicShape, ObjectRef, ReferenceTarget, SceneError, SceneObject,
+    SceneReference, Selection, SelectionRequest, TransactionSelection,
+};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
     StateError,
@@ -33,6 +37,29 @@ pub struct TransactionRequest {
     pub request_id: String,
     pub expected_revision: u64,
     pub commands: Vec<CommandDto>,
+    #[serde(default)]
+    pub selection_before: Option<SelectionDto>,
+    #[serde(default)]
+    pub selection_after: Option<SelectionDto>,
+}
+
+/// A transaction's selection snapshots. Object IDs in `after` may also use `$N` to name an
+/// object created by command N in the same transaction.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionDto {
+    #[serde(default)]
+    pub objects: Vec<String>,
+    #[serde(default)]
+    pub atoms: Vec<String>,
+    #[serde(default)]
+    pub bonds: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TransactionSelections {
+    pub before: Option<SelectionDto>,
+    pub after: Option<SelectionDto>,
 }
 
 /// Body of undo, redo, and save requests.
@@ -120,6 +147,36 @@ pub struct RecoverAsCopyRequest {
 pub struct PointDto {
     pub x: f64,
     pub y: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphicShapeDto {
+    Line,
+    Rectangle,
+    Arrow,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteModeDto {
+    Subtree,
+    ObjectOnly,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReferenceTargetDto {
+    Object { id: String },
+    Atom { id: String },
+    Bond { id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceDto {
+    pub source: String,
+    pub target: ReferenceTargetDto,
 }
 
 /// A bond's kind. `aromatic`, `dative`, `query`, and `unknown` were added within v1; a bond of
@@ -303,6 +360,41 @@ pub enum CommandDto {
     DeleteInstance {
         instance: String,
     },
+    AddGraphic {
+        shape: GraphicShapeDto,
+        points: [PointDto; 2],
+        #[serde(default)]
+        parent: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    Group {
+        objects: Vec<String>,
+    },
+    Ungroup {
+        group: String,
+    },
+    Reorder {
+        object: String,
+        index: usize,
+    },
+    DeleteObjects {
+        objects: Vec<String>,
+        #[serde(default)]
+        mode: Option<DeleteModeDto>,
+    },
+    MoveObjects {
+        objects: Vec<String>,
+        delta: PointDto,
+    },
+    AddReference {
+        source: String,
+        target: ReferenceTargetDto,
+    },
+    RemoveReference {
+        source: String,
+        target: ReferenceTargetDto,
+    },
 }
 
 /// Reads an object into a map, refusing a repeated key instead of keeping the last value.
@@ -460,6 +552,7 @@ pub fn query_label(query: &QueryAtom) -> String {
 struct Refusal {
     message: String,
     state: Option<StateError>,
+    scene: Option<SceneError>,
 }
 
 impl From<String> for Refusal {
@@ -467,6 +560,7 @@ impl From<String> for Refusal {
         Self {
             message,
             state: None,
+            scene: None,
         }
     }
 }
@@ -476,6 +570,7 @@ impl From<StateError> for Refusal {
         Self {
             message: state.to_string(),
             state: Some(state),
+            scene: None,
         }
     }
 }
@@ -489,6 +584,7 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
             to_command(command).map_err(|refusal| ApplicationError {
                 command_index: Some(index),
                 invalid_state: refusal.state,
+                invalid_scene: refusal.scene,
                 ..ApplicationError::new(
                     ErrorCode::InvalidCommand,
                     format!("command {index}: {}", refusal.message),
@@ -638,6 +734,63 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
             instance: instance_id(instance)?,
         },
+        CommandDto::AddGraphic {
+            shape,
+            points,
+            parent,
+            index,
+        } => Command::AddGraphic {
+            graphic: Graphic {
+                shape: match shape {
+                    GraphicShapeDto::Line => GraphicShape::Line,
+                    GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
+                    GraphicShapeDto::Arrow => GraphicShape::Arrow,
+                },
+                points: [point(points[0])?, point(points[1])?],
+            },
+            parent: parent.as_deref().map(instance_id).transpose()?,
+            index: *index,
+        },
+        CommandDto::Group { objects } => Command::Group {
+            objects: objects
+                .iter()
+                .map(|id| instance_id(id))
+                .collect::<Result<_, _>>()?,
+        },
+        CommandDto::Ungroup { group } => Command::Ungroup {
+            group: instance_id(group)?,
+        },
+        CommandDto::Reorder { object, index } => Command::Reorder {
+            object: instance_id(object)?,
+            index: *index,
+        },
+        CommandDto::DeleteObjects { objects, mode } => Command::DeleteObjects {
+            objects: objects
+                .iter()
+                .map(|id| instance_id(id))
+                .collect::<Result<_, _>>()?,
+            mode: match mode.ok_or_else(|| Refusal {
+                message: "delete_objects requires a mode".to_owned(),
+                state: None,
+                scene: Some(SceneError::DeleteModeMissing),
+            })? {
+                DeleteModeDto::Subtree => DeleteMode::Subtree,
+                DeleteModeDto::ObjectOnly => DeleteMode::ObjectOnly,
+            },
+        },
+        CommandDto::MoveObjects { objects, delta } => Command::MoveObjects {
+            objects: objects
+                .iter()
+                .map(|id| instance_id(id))
+                .collect::<Result<_, _>>()?,
+            delta: vector(*delta),
+        },
+        CommandDto::AddReference { source, target } => Command::AddReference {
+            reference: reference(source, target)?,
+        },
+        CommandDto::RemoveReference { source, target } => Command::RemoveReference {
+            reference: reference(source, target)?,
+        },
     })
 }
 
@@ -715,8 +868,99 @@ fn vector(delta: PointDto) -> Vector {
     }
 }
 
-fn instance_id(value: &str) -> Result<InstanceId, String> {
-    InstanceId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
+fn instance_id(value: &str) -> Result<ObjectId, String> {
+    ObjectId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
+}
+
+fn reference(source: &str, target: &ReferenceTargetDto) -> Result<SceneReference, String> {
+    let target = match target {
+        ReferenceTargetDto::Object { id } => ReferenceTarget::Object(instance_id(id)?),
+        ReferenceTargetDto::Atom { id } => ReferenceTarget::Atom(atom_id(id)?),
+        ReferenceTargetDto::Bond { id } => ReferenceTarget::Bond(bond_id(id)?),
+    };
+    Ok(SceneReference {
+        source: instance_id(source)?,
+        target,
+    })
+}
+
+fn reference_view(reference: SceneReference) -> ReferenceDto {
+    let target = match reference.target {
+        ReferenceTarget::Object(id) => ReferenceTargetDto::Object { id: id.to_string() },
+        ReferenceTarget::Atom(id) => ReferenceTargetDto::Atom { id: id.to_string() },
+        ReferenceTarget::Bond(id) => ReferenceTargetDto::Bond { id: id.to_string() },
+    };
+    ReferenceDto {
+        source: reference.source.to_string(),
+        target,
+    }
+}
+
+pub(crate) fn to_selection(
+    selection: &TransactionSelections,
+) -> Result<TransactionSelection, ApplicationError> {
+    fn before(value: &SelectionDto) -> Result<Selection, String> {
+        Ok(Selection {
+            objects: value
+                .objects
+                .iter()
+                .map(|id| instance_id(id))
+                .collect::<Result<_, _>>()?,
+            atoms: value
+                .atoms
+                .iter()
+                .map(|id| atom_id(id))
+                .collect::<Result<_, _>>()?,
+            bonds: value
+                .bonds
+                .iter()
+                .map(|id| bond_id(id))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+    fn after(value: &SelectionDto) -> Result<SelectionRequest, String> {
+        Ok(SelectionRequest {
+            objects: value
+                .objects
+                .iter()
+                .map(|id| object_ref(id))
+                .collect::<Result<_, _>>()?,
+            atoms: value
+                .atoms
+                .iter()
+                .map(|id| atom_id(id))
+                .collect::<Result<_, _>>()?,
+            bonds: value
+                .bonds
+                .iter()
+                .map(|id| bond_id(id))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+    let result = || -> Result<TransactionSelection, String> {
+        Ok(TransactionSelection {
+            before: selection.before.as_ref().map(before).transpose()?,
+            after: selection.after.as_ref().map(after).transpose()?,
+        })
+    };
+    result().map_err(|message| ApplicationError {
+        invalid_scene: Some(SceneError::SelectionUnknown),
+        ..ApplicationError::new(
+            ErrorCode::InvalidCommand,
+            format!("invalid selection: {message}"),
+        )
+    })
+}
+
+fn object_ref(value: &str) -> Result<ObjectRef, String> {
+    match value.strip_prefix('$') {
+        Some(index) if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) => index
+            .parse()
+            .map(ObjectRef::Created)
+            .map_err(|_| format!("{value:?} is not a command reference")),
+        Some(_) => Err(format!("{value:?} is not a command reference")),
+        None => instance_id(value).map(ObjectRef::Id),
+    }
 }
 
 fn element(symbol: &str) -> Result<Element, String> {
@@ -792,6 +1036,7 @@ pub struct DocumentView {
     pub bonds: Vec<BondView>,
     pub molecule: MoleculeView,
     pub scene: SceneView,
+    pub selection: SelectionDto,
 }
 
 /// Positions are scene points; x grows right and y grows down.
@@ -833,6 +1078,31 @@ pub struct SceneView {
     pub pages: Vec<PageView>,
     /// In order; the first one's positions are `atoms[].position`.
     pub instances: Vec<InstanceView>,
+    /// Page roots and all objects in depth-first drawing order.
+    pub roots: Vec<String>,
+    pub objects: Vec<SceneObjectView>,
+    pub references: Vec<ReferenceDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SceneObjectView {
+    Instance {
+        id: String,
+        parent: Option<String>,
+        molecule: &'static str,
+    },
+    Group {
+        id: String,
+        parent: Option<String>,
+        children: Vec<String>,
+    },
+    Graphic {
+        id: String,
+        parent: Option<String>,
+        shape: GraphicShapeDto,
+        points: [PositionView; 2],
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -977,6 +1247,61 @@ impl DocumentResponse {
                                 })
                                 .collect(),
                         })
+                        .collect(),
+                    roots: document.roots().iter().map(ToString::to_string).collect(),
+                    objects: document
+                        .scene_objects()
+                        .into_iter()
+                        .map(|(id, parent, object)| {
+                            let id = id.to_string();
+                            let parent = parent.map(|parent| parent.to_string());
+                            match object {
+                                SceneObject::Instance => SceneObjectView::Instance {
+                                    id,
+                                    parent,
+                                    molecule: MOLECULE_ID,
+                                },
+                                SceneObject::Group { children } => SceneObjectView::Group {
+                                    id,
+                                    parent,
+                                    children: children.iter().map(ToString::to_string).collect(),
+                                },
+                                SceneObject::Graphic(graphic) => SceneObjectView::Graphic {
+                                    id,
+                                    parent,
+                                    shape: match graphic.shape {
+                                        GraphicShape::Line => GraphicShapeDto::Line,
+                                        GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
+                                        GraphicShape::Arrow => GraphicShapeDto::Arrow,
+                                    },
+                                    points: graphic.points.map(|point| PositionView {
+                                        x: point.x(),
+                                        y: point.y(),
+                                    }),
+                                },
+                            }
+                        })
+                        .collect(),
+                    references: document.references().map(reference_view).collect(),
+                },
+                selection: SelectionDto {
+                    objects: document
+                        .selection()
+                        .objects
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    atoms: document
+                        .selection()
+                        .atoms
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    bonds: document
+                        .selection()
+                        .bonds
+                        .iter()
+                        .map(ToString::to_string)
                         .collect(),
                 },
             },

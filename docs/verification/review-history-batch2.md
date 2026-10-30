@@ -116,3 +116,21 @@ main(1a518cd) 위의 브랜치 `feat/atom-bond-states`. 구현은 새 컨텍스�
 | 3 (요청) | 02:28:58 | 65ade75 | 02:32:55 | 지적 2건(P2): ① 라디칼 점·부착점 표시가 결합을 자르는 상자에 들어가지 않아 그쪽으로 나가는 결합선과 겹침 ② 캔버스 view box가 원자 중심만 보고 라벨 폭을 무시해 캔버스 가장자리의 넓은 질의 라벨이 잘림. 3회차까지 통과하지 못함 | [review](https://github.com/EunhakChoi/chemifree/pull/31#pullrequestreview-5692176139) |
 
 CI(65ade75): check·browser 성공(run 40806609015). 그러나 3회 안에 통과하지 못해 규칙대로 PR을 닫았다(병합 없음, [닫은 이유](https://github.com/EunhakChoi/chemifree/pull/31#issuecomment-6486292409)). 세 회차의 지적이 모두 "캔버스가 라벨·상태 표시·결합 끝·view box를 따로, 일부는 추정한 기하로 배치한다"는 같은 약점이었다. 최신 main(1a518cd)에서 새 브랜치 `feat/recorded-atom-states`로 다시 구현한다(#31 코드 재사용·이름 변경·cherry-pick 없음). 다시 구현할 때는 원자마다 라벨 배치(글자와 상태 표시를 함께) 하나를 두고 결합 자르기와 view box가 모두 그것을 쓰게 한다. 후속 PR은 아래에 기록한다.
+
+## #32 P10 재구현 — 원자·결합 상태 기록(병합)
+
+시간은 UTC다. [#32](https://github.com/EunhakChoi/chemifree/pull/32)는 2026-10-29 04:51:00에 열렸고, 자동 Codex review가 04:54:24에 head `b1f94d5e57ae1b4111411648fc9300fe2fbf3c1c`에 대해 완료됐다. GitHub의 [리뷰 상태](https://github.com/EunhakChoi/chemifree/pull/32#issuecomment-6488262099)는 `completed`, 지적 및 미해결 지적 없음이다. 별도의 제출된 review 객체는 없으며 이 상태를 완료 근거로 기록한다.
+
+PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 check·browser 모두 성공했다. 04:54:53에 `b1ccdfb222043cf5d6e69aaa6d5720f2ba4b5654`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820386893)도 check·browser 모두 성공했다.
+
+## #33 P11 — 장면·그룹·선택 이력(병합하지 않고 종료)
+
+시간은 UTC다. [#33](https://github.com/EunhakChoi/chemifree/pull/33)의 자동 리뷰를 포함한 세 회차는 다음과 같다. 마지막 회차의 시작 반응과 `running` 상태는 완료나 통과가 아니다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 또는 기한 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-29 07:08:11 | `e2232ed2ce363cb1f9dda8e07429c6d30ad4e9b2` | 07:12:17 | P2 두 건: 그룹 요청 중 바뀐 무관한 객체 선택 보존, 저장된 선택과 이력 경계 검증. 수용하고 수정했으며 정상적인 undo·undo·redo 및 이력 잘라내기 상태도 허용하도록 경계를 보완했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/33#pullrequestreview-5694073377), [처리 설명](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6490732408) |
+| 2 요청 | 07:30:32 | `2d7791a6049a9f353d23483728521a1a0488eb7d` | 07:34:41 | 새 P2 한 건: Delete가 선택을 지운 후 큐가 선택을 읽어 Undo에서 선택을 잃음. 명령 시점의 선택을 캡처하는 요구사항을 수용했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6490732733), [리뷰](https://github.com/EunhakChoi/chemifree/pull/33#pullrequestreview-5694265656), [처리 설명](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6491288476) |
+| 3 요청 | 08:02:02 | `0e8a4212ca2fadc1f49b295508e7d58e0d7a3d68` | 08:17:02 기한 초과 | 15분 내 완료 리뷰가 없어 실패. 저장된 이력에서 명령으로 만들 수 없는 객체 종류·도형 종류 변경을 거절하는 요건도 새 구현에서 검증한다. | [요청](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6491288912), [리뷰 상태](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6490337177) |
+
+세 head의 CI는 성공했지만 리뷰 조건을 만족하지 못해 08:17:51에 병합 없이 [종료](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6491585846)했다. 마지막 head의 [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40839283811)도 성공했다. 후속 P11은 최신 main에서 새 브랜치로 독립적으로 작성하며 #33 구현을 가져오지 않는다.

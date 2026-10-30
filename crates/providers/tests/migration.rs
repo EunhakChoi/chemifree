@@ -1,7 +1,7 @@
 //! Version 1 documents and drafts, written before graph and scene were separated, and version
 //! 2 ones, written before recorded atom and bond states, are migrated when read and keep their
 //! identifiers, revision, and undo/redo history; the first save that replaces one keeps its
-//! exact bytes. Version 3 keeps every recorded state.
+//! exact bytes. Version 3 keeps every recorded state, and version 4 adds the scene tree and references.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,9 +9,13 @@ use std::path::{Path, PathBuf};
 use chemifree_application::{DocumentRepository, Draft, DraftStatus, StorageError};
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId,
-    InstanceId, NewAtomPositions, Point, Vector,
+    NewAtomPositions, ObjectId, Point, Vector,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::scene::{
+    DeleteMode, Graphic, GraphicShape, ObjectRef, ReferenceTarget, SceneReference, Selection,
+    SelectionRequest, TransactionSelection,
+};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
@@ -34,8 +38,8 @@ fn atom(serial: u32) -> AtomId {
     AtomId::from_serial(serial).unwrap()
 }
 
-fn s1() -> InstanceId {
-    InstanceId::from_serial(1).unwrap()
+fn s1() -> ObjectId {
+    ObjectId::from_serial(1).unwrap()
 }
 
 fn point(x: f64, y: f64) -> Point {
@@ -191,8 +195,8 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
-        saved.contains("\"format_version\":3"),
-        "the document is stored as version 3"
+        saved.contains("\"format_version\":4"),
+        "the document is stored as version 4"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
     assert_eq!(
@@ -300,7 +304,10 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 
 #[test]
 fn a_newer_format_version_is_refused_and_left_untouched() {
-    let newer = fixture("v4-document.json");
+    let newer = String::from_utf8(fixture("v4-document.json"))
+        .unwrap()
+        .replace("\"format_version\": 4", "\"format_version\": 5")
+        .into_bytes();
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
         Err(StorageError::Corrupt(message)) => message,
@@ -308,7 +315,7 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 4") && message.contains("versions 1, 2, and 3"),
+        message.contains("version 5") && message.contains("versions 1, 2, 3, and 4"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));
@@ -344,7 +351,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         "reading wrote nothing"
     );
 
-    // The recovered session's next draft is version 3.
+    // The recovered session's next draft is version 4.
     repository
         .write_draft(&Draft {
             saved_at_ms: 1_767_225_700_000,
@@ -352,11 +359,11 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         })
         .unwrap();
     let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
-    assert!(rewritten.contains("\"format_version\":3"), "{rewritten}");
+    assert!(rewritten.contains("\"format_version\":4"), "{rewritten}");
 }
 
 #[test]
-fn several_scene_instances_round_trip_in_version_3() {
+fn several_scene_instances_round_trip_in_version_4() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();
@@ -368,7 +375,7 @@ fn several_scene_instances_round_trip_in_version_3() {
         .unwrap();
     document
         .apply(&[Command::MoveInstance {
-            instance: InstanceId::from_serial(2).unwrap(),
+            instance: ObjectId::from_serial(2).unwrap(),
             offset: Vector { dx: 5.0, dy: 0.0 },
         }])
         .unwrap();
@@ -376,9 +383,9 @@ fn several_scene_instances_round_trip_in_version_3() {
     repository.save(&document, None).unwrap();
     let loaded = repository.load(&id()).unwrap().unwrap();
     assert_eq!(loaded, document);
-    assert_eq!(loaded.instances().len(), 2);
+    assert_eq!(loaded.instances().count(), 2);
     assert_eq!(
-        loaded.position(InstanceId::from_serial(2).unwrap(), atom(2)),
+        loaded.position(ObjectId::from_serial(2).unwrap(), atom(2)),
         Some(point(30.1, 90.5))
     );
     assert!(!repository.migrated_path(&id(), 1).exists());
@@ -461,7 +468,7 @@ fn drawn_in_version_2() -> Document {
         .apply(&[Command::MoveAtoms {
             atoms: vec![atom(1)],
             delta: Vector { dx: 5.0, dy: 0.0 },
-            instance: Some(InstanceId::from_serial(2).unwrap()),
+            instance: Some(ObjectId::from_serial(2).unwrap()),
         }])
         .unwrap();
     document.undo().unwrap();
@@ -493,8 +500,172 @@ fn a_version_2_file_migrates_with_default_states_and_its_history() {
         document.redo().unwrap();
     }
     assert_eq!(
-        document.position(InstanceId::from_serial(2).unwrap(), atom(1)),
+        document.position(ObjectId::from_serial(2).unwrap(), atom(1)),
         Some(point(5.1, 80.0))
+    );
+}
+
+/// The v2 fixture is an independent older drawing. Add the fields that version 3 wrote,
+/// including a recorded radical on a1 in every state where that atom exists.
+fn version_3_fixture(name: &str) -> Vec<u8> {
+    use serde_json::{Value, json};
+
+    fn add_states(state: &mut Value, atom: &str) {
+        if let Some(fields) = state.as_object_mut() {
+            fields.insert("hydrogens".into(), json!({ "mode": "inferred" }));
+            fields.insert(
+                "radical".into(),
+                json!(if atom == "a1" { "doublet" } else { "none" }),
+            );
+            fields.insert("attachment_points".into(), json!([]));
+        }
+    }
+
+    let mut file: Value = serde_json::from_slice(&fixture(name)).unwrap();
+    file["format_version"] = json!(3);
+    for atom in file["document"]["molecule"]["atoms"]
+        .as_array_mut()
+        .unwrap()
+    {
+        let id = atom["id"].as_str().unwrap().to_owned();
+        add_states(&mut atom["state"], &id);
+    }
+    for stack in ["undo", "redo"] {
+        for set in file["history"][stack].as_array_mut().unwrap() {
+            for atom in set["atoms"].as_array_mut().unwrap() {
+                let id = atom["id"].as_str().unwrap().to_owned();
+                add_states(&mut atom["before"], &id);
+                add_states(&mut atom["after"], &id);
+            }
+        }
+    }
+    serde_json::to_vec_pretty(&file).unwrap()
+}
+
+#[test]
+fn version_3_file_and_draft_migrate_with_history_and_keep_original_bytes() {
+    let original = version_3_fixture("v2-document.json");
+    let (root, repository, path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(document.atoms().next().unwrap().1.radical, Radical::Doublet);
+    assert_eq!(document.instances().count(), 2);
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        original,
+        "reading does not rewrite"
+    );
+    document.undo().unwrap();
+    assert_eq!(document.instances().count(), 1);
+    document.redo().unwrap();
+    assert_eq!(document.instances().count(), 2);
+    repository.save(&document, Some(6)).unwrap();
+    assert_eq!(
+        fs::read(repository.migrated_path(&id(), 3)).unwrap(),
+        original
+    );
+    assert_eq!(repository.load(&id()).unwrap(), Some(document));
+
+    let original_draft = version_3_fixture("v2-draft.json");
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original_draft).unwrap();
+    let Some(Ok(draft)) = repository.claim_draft(&id()).unwrap() else {
+        panic!("a version 3 draft is recoverable");
+    };
+    assert_eq!(
+        draft.document.atoms().next().unwrap().1.radical,
+        Radical::Doublet
+    );
+    assert_eq!(draft.document.instances().count(), 2);
+    assert_eq!(fs::read(&draft_path).unwrap(), original_draft);
+}
+
+#[test]
+fn scene_tree_selection_and_history_survive_file_and_draft_round_trips() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document = Document::new(id(), "Scene").unwrap();
+    let graphic = |shape| Command::AddGraphic {
+        graphic: Graphic {
+            shape,
+            points: [point(0.0, 0.0), point(10.0, 10.0)],
+        },
+        parent: None,
+        index: None,
+    };
+    document
+        .apply(&[graphic(GraphicShape::Line), graphic(GraphicShape::Arrow)])
+        .unwrap();
+    let selected = Selection {
+        objects: [
+            ObjectId::from_serial(2).unwrap(),
+            ObjectId::from_serial(3).unwrap(),
+        ]
+        .into(),
+        ..Selection::default()
+    };
+    document
+        .apply_selecting(
+            &[Command::Group {
+                objects: selected.objects.iter().copied().collect(),
+            }],
+            &TransactionSelection {
+                before: Some(selected),
+                after: Some(SelectionRequest {
+                    objects: vec![ObjectRef::Created(0)],
+                    ..SelectionRequest::default()
+                }),
+            },
+        )
+        .unwrap();
+    document
+        .apply(&[Command::AddReference {
+            reference: SceneReference {
+                source: ObjectId::from_serial(2).unwrap(),
+                target: ReferenceTarget::Object(ObjectId::from_serial(3).unwrap()),
+            },
+        }])
+        .unwrap();
+    document
+        .apply(&[Command::DeleteObjects {
+            objects: vec![ObjectId::from_serial(2).unwrap()],
+            mode: DeleteMode::Subtree,
+        }])
+        .unwrap();
+    document.undo().unwrap();
+    document.undo().unwrap();
+    document.redo().unwrap();
+
+    repository.save(&document, None).unwrap();
+    let loaded = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(
+        loaded, document,
+        "tree, selection, both stacks, and counters round-trip"
+    );
+    let draft = Draft {
+        document: document.clone(),
+        base_revision: 0,
+        saved_at_ms: 42,
+    };
+    repository.write_draft(&draft).unwrap();
+    repository.release_draft(&id());
+    assert_eq!(repository.claim_draft(&id()), Ok(Some(Ok(draft))));
+
+    let path = root.path().join("documents").join(format!("{ID}.json"));
+    let pristine = fs::read(&path).unwrap();
+    let mut corrupt: serde_json::Value = serde_json::from_slice(&pristine).unwrap();
+    corrupt["document"]["selection"]["objects"] = serde_json::json!(["s1"]);
+    fs::write(&path, serde_json::to_vec(&corrupt).unwrap()).unwrap();
+    assert!(
+        matches!(repository.load(&id()), Err(StorageError::Corrupt(_))),
+        "an existing object is still invalid if selection disagrees with the history boundary"
+    );
+    let mut dangling: serde_json::Value = serde_json::from_slice(&pristine).unwrap();
+    dangling["document"]["references"][0]["target"]["id"] = serde_json::json!("s99");
+    fs::write(&path, serde_json::to_vec(&dangling).unwrap()).unwrap();
+    assert!(
+        matches!(repository.load(&id()), Err(StorageError::Corrupt(_))),
+        "dangling scene references are unreadable"
     );
 }
 
@@ -536,7 +707,7 @@ fn the_first_save_over_a_version_2_file_keeps_its_exact_bytes_once() {
     assert_eq!(kept.file_name().unwrap(), format!("{ID}.v2.json").as_str());
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
-    assert!(saved.contains("\"format_version\":3"), "{saved}");
+    assert!(saved.contains("\"format_version\":4"), "{saved}");
 
     // The same version 2 bytes stored again are already kept; other bytes get the next name.
     fs::write(&path, &original).unwrap();
@@ -580,9 +751,9 @@ fn version_1_and_version_2_copies_of_one_document_are_kept_apart() {
     );
 }
 
-/// Every recorded state survives a save and a reopen in version 3, history included.
+/// Every recorded state survives a save and a reopen in version 4, history included.
 #[test]
-fn recorded_states_round_trip_in_version_3() {
+fn recorded_states_round_trip_in_version_4() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();

@@ -20,12 +20,14 @@ use serde::Serialize;
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
     CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource, CreateDocumentRequest,
-    DeleteResponse, DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView,
-    DraftDiscardResponse, DraftFailureView, DraftRequest, HydrogensDto, InstanceView, ListQuery,
-    ListSort, MoleculeView, PageView, PointDto, PositionView, QueryBondOrderDto, QueryDto,
-    RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView, RenameRequest, RestoreRequest,
-    RestoreResponse, RevisionRequest, SaveAsRequest, SceneView, SessionView, TransactionRequest,
-    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
+    DeleteModeDto, DeleteResponse, DocumentListResponse, DocumentResponse, DocumentSummary,
+    DocumentView, DraftDiscardResponse, DraftFailureView, DraftRequest, GraphicShapeDto,
+    HydrogensDto, InstanceView, ListQuery, ListSort, MoleculeView, PageView, PointDto,
+    PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
+    RecoveryView, ReferenceDto, ReferenceTargetDto, RenameRequest, RestoreRequest, RestoreResponse,
+    RevisionRequest, SaveAsRequest, SceneObjectView, SceneView, SelectionDto, SessionView,
+    TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary,
+    UnreadableDocument, query_label,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
@@ -120,8 +122,26 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         expected_revision: u64,
         commands: Vec<CommandDto>,
     ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.transact(
+            id,
+            request_id,
+            expected_revision,
+            commands,
+            TransactionSelections::default(),
+        )
+    }
+
+    /// Applies an atomic edit with the selections captured by its caller.
+    pub fn apply_transaction_selecting(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        commands: Vec<CommandDto>,
+        selection: TransactionSelections,
+    ) -> Result<DocumentResponse, ApplicationError> {
         self.documents
-            .transact(id, request_id, expected_revision, commands)
+            .transact(id, request_id, expected_revision, commands, selection)
     }
 
     pub fn undo(

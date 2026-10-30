@@ -42,14 +42,31 @@
           "followups": []
         },
         {
+          "id": "MODEL-01.2",
+          "summary": "One ordered scene tree holds groups and simple graphics; scene-owned directed references separately name objects, atoms or bonds without chemical semantics.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/scene.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:scene-tree-history",
+            "case:scene-references",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-01.rest",
-          "summary": "Several chemical graphs per document, containment trees beyond page and molecule instance, groups, other scene objects, and external references.",
+          "summary": "Several chemical graphs and pages, text and other specialized scene objects, and specialized reaction or style references.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P11",
             "P35",
             "P37",
             "P40",
@@ -504,14 +521,31 @@
           "followups": []
         },
         {
+          "id": "OPS-02.6",
+          "summary": "Scene creation, grouping, ordering, translation, references and selection are atomic and restored together by undo and redo; deletion rejects surviving dangling references.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/scene.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/documents.rs",
+            "crates/providers/src/file_format.rs"
+          ],
+          "evidence": [
+            "case:scene-tree-history",
+            "case:scene-references",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "OPS-02.rest",
-          "summary": "Change sets, references and history for groups, containment and other scene objects than molecule instances.",
+          "summary": "Change sets and reference rules for later specialized scene and reaction objects.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P11",
             "P25",
             "P32",
             "P33",

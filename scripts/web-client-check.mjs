@@ -13,6 +13,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
   '../apps/web/src/editor/placement.ts'
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
+const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 
 const document = (id, revision = 0) => ({
@@ -507,6 +508,61 @@ test('a document reply with its graph and scene is accepted, and one from before
   delete older.document.molecule
   delete older.document.scene
   assert.equal(isDocumentResponse(older), true, 'a service from before scene instances')
+})
+
+function groupedScene() {
+  const value = drawnTwice()
+  value.document.scene.roots = ['s1', 's4']
+  value.document.scene.references = []
+  value.document.scene.objects = [
+    { kind: 'instance', id: 's1', parent: null, molecule: 'm1' },
+    { kind: 'group', id: 's4', parent: null, children: ['s2', 's3'] },
+    { kind: 'instance', id: 's2', parent: 's4', molecule: 'm1' },
+    { kind: 'graphic', id: 's3', parent: 's4', shape: 'line', points: [{ x: 0, y: 0 }, { x: 4, y: 4 }] },
+  ]
+  value.document.selection = { objects: ['s4'], atoms: ['a1'], bonds: [] }
+  return value
+}
+
+test('a scene reply validates containment and selected identifiers', () => {
+  assert.equal(isDocumentResponse(groupedScene()), true)
+  const invalid = groupedScene()
+  invalid.document.scene.objects[1].children.push('s1')
+  assert.equal(isDocumentResponse(invalid), false, 'an object may not occur under two parents')
+  const stale = groupedScene()
+  stale.document.selection.objects.push('s99')
+  assert.equal(isDocumentResponse(stale), false, 'selection must not name a missing object')
+  const partial = groupedScene()
+  delete partial.document.scene.roots
+  assert.equal(isDocumentResponse(partial), false, 'the tree is not partially present')
+  const dangling = groupedScene()
+  dangling.document.scene.references.push({ source: 's4', target: { kind: 'atom', id: 'a99' } })
+  assert.equal(isDocumentResponse(dangling), false, 'references cannot target missing entities')
+})
+
+test('group selection merges unrelated changes made while the request is pending', () => {
+  const before = groupedScene().document
+  before.scene.roots = ['s1', 's2', 's3', 's6']
+  before.scene.objects = [
+    { kind: 'instance', id: 's1', parent: null, molecule: 'm1' },
+    { kind: 'instance', id: 's2', parent: null, molecule: 'm1' },
+    { kind: 'graphic', id: 's3', parent: null, shape: 'line', points: [{ x: 0, y: 0 }, { x: 4, y: 4 }] },
+    { kind: 'graphic', id: 's6', parent: null, shape: 'line', points: [{ x: 5, y: 0 }, { x: 9, y: 4 }] },
+  ]
+  const pressed = new Set(['s1', 's2', 's3', 'a1'])
+  const captured = selectionSnapshot(pressed, before)
+  assert.deepEqual(selectionAfterGroup(captured, ['s2', 's3']), { objects: ['s1', '$0'], atoms: ['a1'], bonds: [] })
+  pressed.delete('a1')
+  pressed.delete('s1')
+  pressed.add('s6')
+  pressed.add('b1')
+  const after = groupedScene().document
+  after.scene.roots.push('s6')
+  after.scene.objects.push({ kind: 'graphic', id: 's6', parent: null, shape: 'line', points: [{ x: 5, y: 0 }, { x: 9, y: 4 }] })
+  after.selection.objects = ['s1', 's4']
+  const merged = mergeGroupSelection(pressed, ['s2', 's3'], before, after)
+  assert.deepEqual([...merged].sort(), ['b1', 's4', 's6'])
+  assert.deepEqual(captured.atoms, ['a1'], 'the snapshot does not change with the live selection')
 })
 
 for (const [name, change] of [

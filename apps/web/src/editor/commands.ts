@@ -29,6 +29,19 @@ function referencedIds(command: Command): string[] {
     case 'move_instance':
     case 'delete_instance':
       return [command.instance]
+    case 'add_graphic':
+      return command.parent === undefined ? [] : [command.parent]
+    case 'group':
+    case 'delete_objects':
+    case 'move_objects':
+      return command.objects
+    case 'ungroup':
+      return [command.group]
+    case 'reorder':
+      return [command.object]
+    case 'add_reference':
+    case 'remove_reference':
+      return [command.source, command.target.id]
     default: {
       const unknown: never = command
       return unknown
@@ -42,7 +55,8 @@ function referencedIds(command: Command): string[] {
  */
 export function stillApplicable(commands: Command[], document: DocumentView): Command[] | null {
   const instances = document.scene?.instances.map((instance) => instance.id) ?? []
-  const existing = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id), ...instances])
+  const objects = document.scene?.objects?.map((object) => object.id) ?? instances
+  const existing = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id), ...objects])
   const placedEverywhere = (command: Command) => {
     if (command.op !== 'add_atom') return true
     if ('positions' in command) {

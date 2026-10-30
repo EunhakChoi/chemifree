@@ -72,10 +72,42 @@ export interface InstanceView {
   positions: InstancePosition[]
 }
 
+export type GraphicShape = 'line' | 'rectangle' | 'arrow'
+
+export type SceneObject =
+  | { kind: 'instance'; id: string; parent: string | null; molecule: string }
+  | { kind: 'group'; id: string; parent: string | null; children: string[] }
+  | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position] }
+
+export interface ReferenceTarget {
+  kind: 'object' | 'atom' | 'bond'
+  id: string
+}
+
+export interface SceneReference {
+  source: string
+  target: ReferenceTarget
+}
+
+export interface SelectionView {
+  objects: string[]
+  atoms: string[]
+  bonds: string[]
+}
+
+export interface SelectionSnapshots {
+  before?: SelectionView
+  after?: SelectionView
+}
+
 export interface SceneView {
   pages: { id: string }[]
   /** In order; the first one's positions are `atoms[].position`. */
   instances: InstanceView[]
+  /** Both fields are absent when the service predates scene objects. */
+  roots?: string[]
+  objects?: SceneObject[]
+  references?: SceneReference[]
 }
 
 export interface BondView {
@@ -100,6 +132,7 @@ export interface DocumentView {
    */
   molecule?: { id: string }
   scene?: SceneView
+  selection?: SelectionView
 }
 
 export interface SessionView {
@@ -242,6 +275,13 @@ export type Command =
   | { op: 'add_instance'; source?: string; offset: Position }
   | { op: 'move_instance'; instance: string; offset: Position }
   | { op: 'delete_instance'; instance: string }
+  | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
+  | { op: 'group'; objects: string[] }
+  | { op: 'ungroup'; group: string }
+  | { op: 'reorder'; object: string; index: number }
+  | { op: 'delete_objects'; objects: string[]; mode: 'subtree' | 'object_only' }
+  | { op: 'move_objects'; objects: string[]; delta: Position }
+  | { op: 'add_reference' | 'remove_reference'; source: string; target: ReferenceTarget }
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene
@@ -520,6 +560,82 @@ function isScene(document: Record<string, unknown>, atoms: AtomView[]): boolean 
   })
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') && distinct(value)
+}
+
+function isSelection(value: unknown): value is SelectionView {
+  return isRecord(value) && isStringArray(value.objects) && isStringArray(value.atoms) && isStringArray(value.bonds)
+}
+
+function isSceneObject(value: unknown): value is SceneObject {
+  if (!isRecord(value) || typeof value.id !== 'string' || (value.parent !== null && typeof value.parent !== 'string')) return false
+  switch (value.kind) {
+    case 'instance':
+      return typeof value.molecule === 'string'
+    case 'group':
+      return isStringArray(value.children)
+    case 'graphic':
+      return (
+        (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow') &&
+        Array.isArray(value.points) && value.points.length === 2 &&
+        value.points.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y))
+      )
+    default:
+      return false
+  }
+}
+
+function isSceneReference(value: unknown): value is SceneReference {
+  return isRecord(value) && typeof value.source === 'string' && isRecord(value.target) &&
+    (value.target.kind === 'object' || value.target.kind === 'atom' || value.target.kind === 'bond') &&
+    typeof value.target.id === 'string'
+}
+
+/** The optional scene tree and selection must arrive together and describe one ordered tree. */
+function isSceneTree(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
+  const { scene, selection } = document
+  if (scene === undefined) return selection === undefined
+  if (!isRecord(scene)) return false
+  if (scene.roots === undefined && scene.objects === undefined && scene.references === undefined && selection === undefined) return true
+  if (!isStringArray(scene.roots) || !Array.isArray(scene.objects) || !scene.objects.every(isSceneObject) ||
+      !Array.isArray(scene.references) || !scene.references.every(isSceneReference) ||
+      !Array.isArray(scene.instances) || !isSelection(selection) || !isRecord(document.molecule)) return false
+  const sceneObjects = scene.objects
+  const objects = new Map(sceneObjects.map((object) => [object.id, object]))
+  if (objects.size !== sceneObjects.length) return false
+  const visited = new Set<string>()
+  const order: string[] = []
+  const stack = scene.roots.slice().reverse().map((id) => ({ id, parent: null as string | null, depth: 1 }))
+  while (stack.length) {
+    const current = stack.pop()
+    if (!current) return false
+    const object = objects.get(current.id)
+    if (!object || visited.has(current.id) || object.parent !== current.parent || current.depth > 16) return false
+    visited.add(current.id)
+    order.push(current.id)
+    if (object.kind === 'instance' && object.molecule !== document.molecule.id) return false
+    if (object.kind === 'group') {
+      for (const child of object.children.slice().reverse()) stack.push({ id: child, parent: object.id, depth: current.depth + 1 })
+    }
+  }
+  if (visited.size !== objects.size || order.some((id, index) => sceneObjects[index].id !== id)) return false
+  const instanceIds = new Set(scene.instances.map((instance) => isRecord(instance) ? instance.id : undefined))
+  const objectInstances = sceneObjects.filter((object) => object.kind === 'instance')
+  if (objectInstances.length !== instanceIds.size || objectInstances.some((object) => !instanceIds.has(object.id))) return false
+  const atomIds = new Set(atoms.map((atom) => atom.id))
+  const bondIds = new Set(bonds.map((bond) => bond.id))
+  const links = new Set<string>()
+  for (const reference of scene.references) {
+    const key = `${reference.source}:${reference.target.kind}:${reference.target.id}`
+    const targets = reference.target.kind === 'object' ? objects : reference.target.kind === 'atom' ? atomIds : bondIds
+    if (!objects.has(reference.source) || !targets.has(reference.target.id) || links.has(key)) return false
+    links.add(key)
+  }
+  return selection.objects.every((id) => objects.has(id)) &&
+    selection.atoms.every((id) => atomIds.has(id)) && selection.bonds.every((id) => bondIds.has(id))
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -544,6 +660,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
     statesAgree(document.atoms, document.bonds) &&
     isScene(document, document.atoms) &&
+    isSceneTree(document, document.atoms, document.bonds) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
@@ -1120,11 +1237,17 @@ export class DocumentClient {
     }
   }
 
-  async transact(id: string, expectedRevision: number, commands: Command[]) {
+  async transact(id: string, expectedRevision: number, commands: Command[], selection?: SelectionSnapshots) {
     return DocumentClient.document(
       await this.write(
         `${documentPath(id)}/transactions`,
-        { request_id: requestId(), expected_revision: expectedRevision, commands },
+        {
+          request_id: requestId(),
+          expected_revision: expectedRevision,
+          commands,
+          selection_before: selection?.before,
+          selection_after: selection?.after,
+        },
         'reload',
       ),
     )
