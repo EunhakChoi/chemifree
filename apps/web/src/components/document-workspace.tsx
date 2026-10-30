@@ -491,7 +491,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
 
   function deleteSelection() {
     // Keep the IDs from this press while building against the document reached by the queue.
-    const pressed = new Set(selectedIds)
+    const pressed = editor.selectionAtPress()
     void editor.apply((latest) => {
       const atoms = latest.atoms.filter((atom) => pressed.has(atom.id)).map((atom) => atom.id)
       const removed = new Set(atoms)
@@ -500,9 +500,10 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         .map((bond) => bond.id)
       const objects = latest.scene?.objects?.filter((object) => pressed.has(object.id)).map((object) => object.id) ?? []
       const commands: Command[] = [
+        // Removing selected owners first also removes their references to selected targets.
+        ...(objects.length ? [{ op: 'delete_objects' as const, objects, mode: 'subtree' as const }] : []),
         ...(atoms.length ? [{ op: 'delete_atoms' as const, atoms }] : []),
         ...(bonds.length ? [{ op: 'delete_bonds' as const, bonds }] : []),
-        ...(objects.length ? [{ op: 'delete_objects' as const, objects, mode: 'subtree' as const }] : []),
       ]
       return commands.length ? commands : null
     })
@@ -531,7 +532,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         const shortcut = TOOLS.find((item) => item.key.toLowerCase() === key)
         if (shortcut) setTool(shortcut.value)
         else if (key === 'escape') setSelection(new Set())
-        else if ((key === 'delete' || key === 'backspace') && selected.size > 0) {
+        else if ((key === 'delete' || key === 'backspace') && editor.selectionAtPress().size > 0) {
           event.preventDefault()
           deleteSelection()
         }

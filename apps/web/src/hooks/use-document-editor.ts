@@ -296,6 +296,8 @@ export function useDocumentEditor() {
     trash,
     current,
     selection,
+    /** A snapshot for a command made now, including changes not rendered yet. */
+    selectionAtPress: useCallback(() => new Set(selectionRef.current), []),
     setSelection,
     busy: pending > 0,
     error,

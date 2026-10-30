@@ -1935,7 +1935,39 @@ step = 'after recorded_states_drawn_and_kept'
   await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
   await toggle('s5').waitFor()
   assert.equal(await toggle('s5').getAttribute('aria-pressed'), 'true', 'Undo restores the selection from the Delete press')
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'false')
+  // React has not rendered the toggle's new value yet when the keypress is delivered.
+  const quickDelete = page.waitForResponse((r) => r.url().endsWith('/transactions') && r.request().method() === 'POST')
+  await page.evaluate(() => {
+    document.querySelector('[aria-label="Select scene object s4"]').click()
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+  })
+  assert.equal((await quickDelete).status(), 200)
+  await toggle('s5').waitFor({ state: 'detached' })
+  await toggle('s4').waitFor({ state: 'detached' })
+  // Deleting a reference owner and its target together removes the owner first.
+  await clickFor(page.getByRole('button', { name: 'Add line', exact: true }), '/transactions')
+  await drawPair()
+  await tool('Select and move')
+  const selectedAtom = await atomScreen(await openDoc(), 'a1')
+  await page.mouse.click(selectedAtom.x, selectedAtom.y)
+  await page.getByRole('heading', { name: 'Atom a1' }).waitFor()
+  await toggle('s6').click()
+  await clickFor(page.getByRole('button', { name: 'Add reference', exact: true }), '/transactions')
+  assert.deepEqual((await openDoc()).document.scene.references, [{ source: 's6', target: { kind: 'atom', id: 'a1' } }])
+  const deleteOwnerAndTarget = page.waitForResponse((r) => r.url().endsWith('/transactions') && r.request().method() === 'POST')
+  await page.keyboard.press('Delete')
+  assert.equal((await deleteOwnerAndTarget).status(), 200)
+  await waitIdle()
+  const deleted = (await openDoc()).document
+  assert.equal(deleted.atoms.some((atom) => atom.id === 'a1'), false)
+  assert.equal(deleted.scene.objects.some((object) => object.id === 's6'), false)
+  assert.deepEqual(deleted.scene.references, [])
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  assert.deepEqual((await openDoc()).document.scene.references, [{ source: 's6', target: { kind: 'atom', id: 'a1' } }])
   results.scene_group_and_queued_delete_selection = true
+  results.scene_selection_before_render_is_used = true
+  results.scene_reference_owner_and_target_delete = true
 }
 step = 'after scene_group_and_queued_delete_selection'
 
