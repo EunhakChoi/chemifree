@@ -1,0 +1,88 @@
+{
+  "manifest_version": 1,
+  "datasets": [
+    {
+      "id": "synthetic-example-table",
+      "version": "1",
+      "distribution": "public",
+      "rights": "Synthetic test data written for Chemifree's tests, with no chemical meaning. MIT, like the repository.",
+      "files": [
+        {
+          "path": "tables/example-rows.jsonl",
+          "bytes": 202,
+          "sha256": "94625dbcd481b489f470cf7682fe418a752ad187bd7d054ed2a6fc8c01eb912d",
+          "format": "table-jsonl",
+          "format_version": 1,
+          "columns": [
+            {
+              "name": "key",
+              "type": "string",
+              "unique": true
+            },
+            {
+              "name": "size",
+              "type": "integer"
+            },
+            {
+              "name": "weight",
+              "type": "number"
+            },
+            {
+              "name": "flag",
+              "type": "boolean"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "synthetic-example-parameters",
+      "version": "1",
+      "distribution": "public",
+      "rights": "Synthetic test data written for Chemifree's tests, with no chemical meaning. MIT, like the repository.",
+      "files": [
+        {
+          "path": "parameters/example-settings.json",
+          "bytes": 67,
+          "sha256": "ff2e34c08537fd715b874c716d8f28974ff8e8ff7fbc7b6077e82ef3d44fd420",
+          "format": "parameters-json",
+          "format_version": 1,
+          "fields": [
+            {
+              "name": "scale",
+              "type": "number"
+            },
+            {
+              "name": "label",
+              "type": "string"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "feature": "fixture.table",
+      "datasets": [
+        {
+          "dataset": "synthetic-example-table",
+          "version": "1"
+        }
+      ]
+    },
+    {
+      "feature": "fixture.composite",
+      "datasets": [
+        {
+          "dataset": "synthetic-example-table",
+          "version": "1"
+        },
+        {
+          "dataset": "synthetic-example-parameters",
+          "version": "1"
+        }
+      ]
+    }
+  ]
+}

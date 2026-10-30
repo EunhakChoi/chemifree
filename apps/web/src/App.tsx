@@ -155,6 +155,27 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
               ))}
             </ul>
             <Separator />
+            <section aria-label="External data status" className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium">External data</h3>
+                <Badge variant="outline">Chemistry engine not implemented</Badge>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {state.snapshot.dataStatus === null && 'Data status is unavailable.'}
+                {state.snapshot.dataStatus?.state === 'not_configured' && 'No external data selected.'}
+                {state.snapshot.dataStatus?.state === 'refused' && 'The selected data registry could not be used.'}
+                {state.snapshot.dataStatus?.state === 'checked' &&
+                  `${state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'loaded').length} datasets loaded; ${state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'unavailable').length} unavailable.`}
+              </p>
+              {state.snapshot.dataStatus?.state === 'checked' && state.snapshot.dataStatus.registrations.some((entry) => entry.state === 'unavailable') && (
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  {state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'unavailable').map((entry) => (
+                    <li key={entry.registration_id}>{entry.registration_id}: {entry.reason ?? 'unavailable'}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            <Separator />
             <OperationCatalogSection catalog={state.snapshot.operationCatalog} />
           </div>
         )}

@@ -74,7 +74,8 @@
       "expect": {
         "outcome": "unsupported",
         "result": null,
-        "model_id": null
+        "model_id": null,
+        "diagnostics": [{"code": "model_unavailable"}]
       }
     },
     {

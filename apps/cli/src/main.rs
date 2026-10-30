@@ -12,7 +12,8 @@ use chemifree_application::{
     TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, default_data_dir,
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, configure_selected_registry,
+    default_data_dir,
 };
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -28,6 +29,12 @@ struct Args {
     /// Directory for saved documents. Defaults to the platform user-data directory.
     #[arg(long, global = true, env = "CHEMIFREE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Separately selected directory containing authorized local DATA.
+    #[arg(long, global = true, env = "CHEMIFREE_MODEL_DATA_ROOT")]
+    model_data_root: Option<PathBuf>,
+    /// Explicitly trusted registration descriptor, separate from the DATA directory.
+    #[arg(long, global = true, env = "CHEMIFREE_MODEL_TRUSTED_REGISTRY")]
+    model_trusted_registry: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -44,6 +51,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect separately selected DATA registrations.
+    #[command(subcommand)]
+    Data(DataCommand),
     /// Create, inspect, and edit saved documents. Every edit is saved before exit.
     #[command(subcommand)]
     Documents(DocumentCommand),
@@ -55,6 +65,15 @@ enum Command {
     /// reply per line on standard output. Sessions last for this process only: edits are kept
     /// only once a document.save request commits them.
     Operations,
+}
+
+#[derive(Subcommand)]
+enum DataCommand {
+    /// Show payload-free DATA and engine status.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -290,8 +309,13 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     // Construction performs no I/O; status and capabilities never touch storage.
+    let registry = configure_selected_registry(
+        args.model_data_root.as_deref(),
+        args.model_trusted_registry.as_deref(),
+    );
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
-        .with_preferences(FilePreferenceStore::new(&data_dir));
+        .with_preferences(FilePreferenceStore::new(&data_dir))
+        .with_data_registry(registry);
 
     match args.command {
         Command::Status { json } => {
@@ -324,6 +348,29 @@ fn main() -> ExitCode {
                 for operation in response.operation_catalog.operations {
                     println!("{}: {}", operation.id, operation.execution);
                 }
+            }
+            ExitCode::SUCCESS
+        }
+        Command::Data(DataCommand::Status { json }) => {
+            let response = application.data_status();
+            if json {
+                print_json(&response);
+            } else {
+                println!("External data: {:?}", response.status.state);
+                if let Some(reason) = response.status.reason {
+                    println!("  {reason}");
+                }
+                for entry in response.status.registrations {
+                    println!(
+                        "{}: {}{}",
+                        entry.registration_id,
+                        entry.state,
+                        entry
+                            .reason
+                            .map_or(String::new(), |reason| format!(" ({reason})"))
+                    );
+                }
+                println!("Chemistry engine: {}", response.status.engine);
             }
             ExitCode::SUCCESS
         }

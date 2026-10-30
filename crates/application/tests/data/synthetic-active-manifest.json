@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "dataset_id": "independent-fixture",
+  "dataset_version": "1",
+  "family_id": "synthetic",
+  "format_profile_id": "synthetic-v1",
+  "independent_engine_contract_id": "synthetic-test-v1",
+  "source_category": "independent_synthetic",
+  "files": [
+    {
+      "file_id": "example",
+      "relative_path": "normalized/synthetic.jsonl",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 0,
+      "role": "dictionary_entries",
+      "required": true,
+      "declared_content_class": "declarative_data"
+    }
+  ],
+  "feature_schema_sha256": null,
+  "rights_review_id": "synthetic-review",
+  "unknown_field_policy": "reject",
+  "metadata": {
+    "provider_label": "Independent fixture",
+    "version_evidence_id": "authored-1",
+    "description": "Synthetic, no chemical meaning."
+  }
+}

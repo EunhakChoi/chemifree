@@ -2,7 +2,7 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-현재 집계: 요구사항 33개(partial 8, not_implemented 25) · 부분 56개(implemented 20, partial 1, unverified 2, not_implemented 33) · conformance 사례 29개(passed 27: accept 15·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 9, not_implemented 24) · 부분 58개(implemented 21, partial 2, unverified 2, not_implemented 33) · conformance 사례 29개(passed 27: accept 15·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
@@ -18,7 +18,7 @@
 | `scripts/traceability-check.mjs`, `scripts/traceability-check.test.mjs` | 추적 검사와 주요 규칙의 테스트(모든 규칙에 테스트가 있지는 않다) |
 | `docs/roadmap/implementation-roadmap.json` | 로드맵(입력, 이 작업에서 수정하지 않음). 후속 계획은 이 파일의 행 ID다 |
 
-명세 파일은 저장소 밖(로컬)에 있고 복사하지 않는다. 추적 파일에는 경로·SHA-256과, 명세에서 도출한 ID·개수·자체 요약만 있다.
+기능 명세 전체는 저장소 밖(로컬)에 둔다. 추적 파일에는 경로·SHA-256과 명세에서 도출한 ID·개수·자체 요약만 있다. DATA 로더가 정확한 해시를 확인하는 공개 personal-local context 한 파일은 코드에 포함한다.
 
 ## 상태와 도출 규칙
 

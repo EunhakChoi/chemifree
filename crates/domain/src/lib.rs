@@ -1,5 +1,6 @@
 //! Domain vocabulary and rules. This crate has no transport or infrastructure dependencies.
 
+pub mod data;
 pub mod document;
 pub mod element;
 pub mod operation;

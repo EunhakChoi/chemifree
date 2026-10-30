@@ -59,12 +59,39 @@ export interface CapabilitiesResponse {
   operation_catalog?: OperationCatalog
 }
 
+export interface DataStatusResponse {
+  api_version: typeof API_VERSION
+  state: 'not_configured' | 'refused' | 'checked'
+  reason: string | null
+  registrations: Array<{ registration_id: string; state: 'loaded' | 'unavailable'; reason: string | null }>
+  engine: 'not_implemented'
+}
+
 export interface RuntimeSnapshot {
   health: HealthResponse
   capabilities: Capability[]
   /** Null when the service predates the operation catalog. */
   operationCatalog: OperationCatalog | null
+  /** Null if this service cannot report DATA status. */
+  dataStatus: DataStatusResponse | null
   checkedAt: Date
+}
+
+function isDataStatus(value: unknown): value is DataStatusResponse {
+  if (!isRecord(value) || value.api_version !== API_VERSION ||
+      !(value.state === 'not_configured' || value.state === 'refused' || value.state === 'checked') ||
+      !(value.reason === null || typeof value.reason === 'string') ||
+      value.engine !== 'not_implemented' || !Array.isArray(value.registrations)) return false
+  const isRegistration = (entry: unknown): entry is DataStatusResponse['registrations'][number] =>
+    isRecord(entry) && typeof entry.registration_id === 'string' && entry.registration_id.length > 0 &&
+    ((entry.state === 'loaded' && entry.reason === null) ||
+      (entry.state === 'unavailable' && typeof entry.reason === 'string' && entry.reason.length > 0))
+  if (!value.registrations.every(isRegistration)) return false
+  const ids = value.registrations.map((entry) => entry.registration_id)
+  if (new Set(ids).size !== ids.length) return false
+  if (value.state === 'not_configured') return value.reason === null && ids.length === 0
+  if (value.state === 'refused') return typeof value.reason === 'string' && value.reason.length > 0 && ids.length === 0
+  return value.reason === null && ids.length > 0
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -163,9 +190,10 @@ async function readJson(path: string, signal: AbortSignal): Promise<unknown> {
 
 export async function readRuntime(signal: AbortSignal): Promise<RuntimeSnapshot> {
   const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)])
-  const [health, response] = await Promise.all([
+  const [health, response, dataStatus] = await Promise.all([
     readJson('/api/v1/health', requestSignal),
     readJson('/api/v1/capabilities', requestSignal),
+    readJson('/api/v1/data', requestSignal).then((value) => isDataStatus(value) ? value : null).catch(() => null),
   ])
 
   if (!isHealth(health) || !isCapabilities(response)) {
@@ -176,6 +204,7 @@ export async function readRuntime(signal: AbortSignal): Promise<RuntimeSnapshot>
     health,
     capabilities: response.capabilities,
     operationCatalog: response.operation_catalog ?? null,
+    dataStatus,
     checkedAt: new Date(),
   }
 }

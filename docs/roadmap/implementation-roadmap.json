@@ -610,7 +610,7 @@
    "acceptance": "같은 문서가 재개방 후 같은 설정을 갖고 전역 변경이 다른 문서에 뜻밖에 기록되지 않는다. NMR·정밀도 등 후속 설정의 저장 위치가 명시된다.",
    "kind": "core",
    "id": "P12",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -618,7 +618,14 @@
    ],
    "depends_on": [
     "P11"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     36
+    ],
+    "merge_commit": "a8c254db579e9e6108cd18fd0f8ecf13dc646044",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41095602815"
+   }
   },
   {
    "phase": "foundation",
@@ -672,7 +679,7 @@
    "acceptance": "잘못된 버전·참조·해시·누락·손상은 거절한다. 데이터가 없는 설치에서도 편집 기능이 동작하고 모델 기능은 model_unavailable로 응답한다.",
    "kind": "core",
    "id": "P14",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",
@@ -3963,7 +3970,7 @@
     "phase3-design-v3/dependencies.json",
     "deep-rendering-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P12",
     "P22",

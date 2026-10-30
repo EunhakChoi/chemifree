@@ -158,12 +158,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 
 첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)와 마지막 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085389940)는 check·browser 모두 성공했다. 16:00:35에 `9688928b16999f0d4de5c072890e1371054872c5`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085936364)도 check·browser 모두 성공했다.
 
-## #36 P12 — 문서 스타일과 환경 설정(진행 중)
+## #36 P12 — 문서 스타일과 환경 설정(병합)
 
 시간은 UTC다. [#36](https://github.com/EunhakChoi/chemifree/pull/36)은 #34·#35가 병합된 main `9688928`에서 시작했으며, 종료된 #33의 구현은 가져오지 않고 기존 P12 변경만 새 장면 계약에 맞게 옮겼다.
 
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 16:50:48 | `0c3a4cfa37b3225f2939fd41630986f30bd4cbf8` | 16:53:55 | P2 한 건: 첫 환경 설정 읽기가 실패하면 서비스가 나중에 준비돼도 다시 읽을 수 없음. 수용: 최초 읽기를 제어해 실패시킨 브라우저 검사에서 재시도 버튼이 없음을 먼저 재현한 뒤, 재시도와 저장된 테마 적용을 연결했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/36#pullrequestreview-5715691437), [지적](https://github.com/EunhakChoi/chemifree/pull/36#discussion_r4426195414) |
+| 2 요청 | 17:00:44 | `f2717a1ae2a6164a161b160cb8f05bc20563d948` | 17:03:59 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/36#issuecomment-6528514540), [완료](https://github.com/EunhakChoi/chemifree/pull/36#issuecomment-6528581826) |
 
-첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)는 check·browser 모두 성공했다. 다음 리뷰와 병합 결과는 완료 후 이어서 기록한다.
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)와 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41094953659)는 check·browser 모두 성공했다. 17:04:31에 `a8c254db579e9e6108cd18fd0f8ecf13dc646044`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41095602815)도 check·browser 모두 성공했다.

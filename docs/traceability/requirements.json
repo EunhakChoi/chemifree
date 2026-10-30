@@ -773,17 +773,30 @@
       "operations": [
         "render.scene"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "RENDER-01.1",
+          "summary": "The web canvas draws recorded atom labels and bonds with the document font, size and line width, and uses their measured layout bounds for clipping and view extent.",
+          "status": "implemented",
+          "implementation": [
+            "apps/web/src/editor/label.ts",
+            "apps/web/src/editor/geometry.ts",
+            "apps/web/src/editor/structure-canvas.tsx"
+          ],
+          "evidence": [
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "RENDER-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "General Unicode text and captions, precise glyph bounds, vector output, transforms and clipping beyond the editor canvas.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P12",
             "P22",
             "P31",
             "P35",
@@ -1273,7 +1286,7 @@
       "parts": [
         {
           "id": "CLEANROOM-01.1",
-          "summary": "Spec inputs are referenced by a relative path under spec/ and a SHA-256, not copied. The form is checked on every run; paths and hashes are compared with the spec only when CHEMIFREE_SPEC_DIR is set, which npm run check does not do.",
+          "summary": "Traceability sources name a relative path under spec/ and a SHA-256. Paths and hashes are compared with the spec only when CHEMIFREE_SPEC_DIR is set. The loader separately embeds the public personal-local context needed to verify its exact identity.",
           "status": "partial",
           "implementation": [
             "scripts/traceability-check.mjs",
@@ -1289,7 +1302,7 @@
         },
         {
           "id": "CLEANROOM-01.2",
-          "summary": "The public repository holds no private data, vendor material, executable engines or spec copies. A policy and .gitignore exist; no automated check establishes this.",
+          "summary": "The public repository excludes private data, vendor material, executable engines and full spec archives; it includes the public personal-local context required by the loader. A policy and .gitignore exist; no automated check establishes this boundary.",
           "status": "unverified",
           "implementation": [
             "AGENTS.md",
@@ -1303,8 +1316,26 @@
           ]
         },
         {
+          "id": "CLEANROOM-01.3",
+          "summary": "A selected trusted registry checks manifest and review identities, the personal context, path containment, and three named data profiles before retaining typed records; other profiles and full active-registry integration remain open.",
+          "status": "partial",
+          "implementation": [
+            "crates/application/src/active_data.rs",
+            "crates/application/src/active_registry.rs",
+            "crates/application/src/data_profiles.rs",
+            "crates/providers/src/data_directory.rs"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:client"
+          ],
+          "followups": [
+            "P14"
+          ]
+        },
+        {
           "id": "CLEANROOM-01.rest",
-          "summary": "Input allowlist of the implementation context, DATA reader manifest/context/hash/format checks, and absence of dependencies on executing the original program.",
+          "summary": "Complete implementation-context input allowlist, the remaining DATA profiles and full active-registry integration, and independently verified absence of dependencies on executing the original program.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

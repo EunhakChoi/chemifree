@@ -23,8 +23,8 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
-    CopyResponse, CreateDocumentRequest, DeleteResponse, DocumentListResponse, DocumentResponse,
-    DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
+    CopyResponse, CreateDocumentRequest, DataStatusResponse, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
     ImportPreferencesRequest, ImportSettingsRequest, ListQuery, OperationResponse,
     PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest, RenameRequest,
     ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
@@ -196,6 +196,7 @@ pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/capabilities", get(capabilities))
+        .route("/api/v1/data", get(data_status))
         .route("/api/v1/documents", get(list_documents))
         .route("/api/v1/trash", get(list_trash))
         .route("/api/v1/preferences", get(preferences))
@@ -373,6 +374,10 @@ async fn health(State(state): State<Shared>) -> Json<HealthResponse> {
 
 async fn capabilities(State(state): State<Shared>) -> Json<CapabilitiesResponse> {
     Json(state.application.capabilities())
+}
+
+async fn data_status(State(state): State<Shared>) -> Json<DataStatusResponse> {
+    Json(state.application.data_status())
 }
 
 /// Runs one request of the operation contract. Every reply is the contract's envelope: 200 with

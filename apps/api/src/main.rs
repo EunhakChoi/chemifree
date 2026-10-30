@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
 use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, default_data_dir,
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, configure_selected_registry,
+    default_data_dir,
 };
 use clap::Parser;
 use clap::builder::FalseyValueParser;
@@ -20,6 +21,12 @@ struct Args {
     /// Directory for saved documents. Defaults to the platform user-data directory.
     #[arg(long, env = "CHEMIFREE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Separately selected directory containing authorized local DATA.
+    #[arg(long, env = "CHEMIFREE_MODEL_DATA_ROOT")]
+    model_data_root: Option<PathBuf>,
+    /// Explicitly trusted registration descriptor, separate from the DATA directory.
+    #[arg(long, env = "CHEMIFREE_MODEL_TRUSTED_REGISTRY")]
+    model_trusted_registry: Option<PathBuf>,
     /// Loopback web origin allowed to use the API (repeatable). Defaults to the local
     /// development and preview origins on ports 5173 and 4173.
     #[arg(long = "allow-origin", value_name = "ORIGIN")]
@@ -43,8 +50,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let documents = repository.directory().to_path_buf();
     let preferences = FilePreferenceStore::new(&data_dir);
     preferences.prune_stale_temporaries();
-    let application =
-        LocalApplication::new(LocalCapabilities, repository).with_preferences(preferences);
+    let registry = configure_selected_registry(
+        args.model_data_root.as_deref(),
+        args.model_trusted_registry.as_deref(),
+    );
+    let application = LocalApplication::new(LocalCapabilities, repository)
+        .with_preferences(preferences)
+        .with_data_registry(registry);
 
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;
