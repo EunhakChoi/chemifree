@@ -74,8 +74,10 @@ import { stillApplicable } from '@/editor/commands'
 import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
+import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
+import { usePreferences } from '@/hooks/use-preferences'
 import {
   ATTACHMENT_POINTS,
   type AtomView,
@@ -158,6 +160,7 @@ function commitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
 
 export function DocumentWorkspace() {
   const editor = useDocumentEditor()
+  const preferences = usePreferences()
   return (
     <Card className="h-full">
       <CardHeader>
@@ -165,7 +168,8 @@ export function DocumentWorkspace() {
         <CardDescription>
           {editor.current ? 'Edits apply on the local service; save to keep them.' : 'Create a document or open a saved one.'}
         </CardDescription>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
+          <PreferencesButton preferences={preferences} current={editor.current?.document ?? null} editor={editor} />
           {editor.busy ? <Spinner /> : <Badge variant="outline">Local</Badge>}
         </CardAction>
       </CardHeader>
@@ -644,6 +648,12 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        {document.settings && (
+          <>
+            <Separator orientation="vertical" className="h-6" />
+            <DocumentStyleButton editor={editor} document={document} settings={document.settings} />
+          </>
+        )}
       </div>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">

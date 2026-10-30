@@ -154,5 +154,6 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 15:43:29 | `34ba7370c31e9eb4d925bc5dc8f9e8d7dd12af2e` | 15:43:33 | 실제 코드 리뷰 서비스 오류로 완료되지 않아 실패로 센다. | [상태](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6526872497) |
 | 2 요청 | 15:43:42 | `34ba7370c31e9eb4d925bc5dc8f9e8d7dd12af2e` | 15:46:09 | P2 한 건: 초안을 가져오거나 보관하는 동안 다른 프로세스가 저장하면 오래된 기준의 복구가 성공할 수 있다. 수용: 두 지점에 제어 가능한 대기를 둔 회귀 검사가 수정 전 실패함을 확인하고, provider가 저장과 같은 잠금 안에서 기준 리비전을 검사하게 했다. 실제 파일 provider 검사와 이 검사가 누락된 변이의 실패도 확인했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6526874577), [지적](https://github.com/EunhakChoi/chemifree/pull/35#discussion_r4425520660) |
+| 3 요청 | 15:57:01 | `4e321e04bfa0141aef6c439771668d488a24808f` | 15:59:38 | 통과: 이 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 지적이 없다. 2회차 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6527157823), [완료](https://github.com/EunhakChoi/chemifree/pull/35#issuecomment-6527213685) |
 
-첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)는 check·browser 모두 성공했다. 이 기록 시점에 마지막 리뷰는 아직 요청하지 않았다.
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)와 마지막 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085389940)는 check·browser 모두 성공했다. 16:00:35에 `9688928b16999f0d4de5c072890e1371054872c5`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085936364)도 check·browser 모두 성공했다.

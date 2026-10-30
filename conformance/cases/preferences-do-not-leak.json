@@ -1,0 +1,156 @@
+{
+  "id": "preferences-do-not-leak",
+  "title": "Preferences set the settings new documents start from and never change an existing document",
+  "requirements": [
+    "STYLE-01"
+  ],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "before",
+      "title": "Before"
+    },
+    {
+      "call": "save",
+      "document": "before",
+      "expected_revision": 0
+    },
+    {
+      "call": "set_preferences",
+      "expected_revision": 0,
+      "ui": {
+        "theme": "dark"
+      },
+      "new_documents": {
+        "bond_length_pt": 40,
+        "label_font": "serif"
+      },
+      "expect": {
+        "revision": 1,
+        "new_document_settings": {
+          "bond_length_pt": 40,
+          "label_font": "serif",
+          "line_width_pt": 1.2
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "before",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "settings": {
+            "bond_length_pt": 30,
+            "label_font": "sans-serif"
+          }
+        },
+        "session": {
+          "undo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "create",
+      "bind": "after",
+      "title": "After",
+      "expect": {
+        "document": {
+          "settings": {
+            "bond_length_pt": 40,
+            "label_font": "serif",
+            "line_width_pt": 1.2
+          }
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "after",
+      "expected_revision": 0
+    },
+    {
+      "call": "set_preferences",
+      "expected_revision": 1,
+      "ui": {
+        "theme": "light"
+      },
+      "new_documents": {},
+      "expect": {
+        "revision": 2,
+        "new_document_settings": {
+          "bond_length_pt": 30,
+          "label_font": "sans-serif"
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "before",
+      "expect": {
+        "document": {
+          "settings": {
+            "bond_length_pt": 30,
+            "label_font": "sans-serif"
+          }
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "after",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "settings": {
+            "bond_length_pt": 40,
+            "label_font": "serif"
+          }
+        },
+        "session": {
+          "undo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "preferences",
+      "expect": {
+        "revision": 2,
+        "ui": {
+          "theme": "light"
+        },
+        "computation": {
+          "nmr": {
+            "status": "not_implemented"
+          },
+          "numeric_precision": {
+            "status": "not_implemented"
+          }
+        }
+      }
+    },
+    {
+      "call": "reset_settings",
+      "document": "after",
+      "expected_revision": 0,
+      "to": "preferences",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "settings": {
+            "bond_length_pt": 30,
+            "label_font": "sans-serif"
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

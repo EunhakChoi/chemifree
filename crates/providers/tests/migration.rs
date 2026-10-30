@@ -19,6 +19,7 @@ use chemifree_domain::scene::{
     DeleteMode, Graphic, GraphicShape, ObjectRef, ReferenceTarget, SceneReference, Selection,
     SelectionRequest, TransactionSelection,
 };
+use chemifree_domain::settings::{LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
@@ -198,8 +199,8 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
-        saved.contains("\"format_version\":4"),
-        "the document is stored as version 4"
+        saved.contains("\"format_version\":5"),
+        "the document is stored as version 5"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
     assert_eq!(
@@ -309,7 +310,7 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 fn a_newer_format_version_is_refused_and_left_untouched() {
     let newer = String::from_utf8(fixture("v4-document.json"))
         .unwrap()
-        .replace("\"format_version\": 4", "\"format_version\": 5")
+        .replace("\"format_version\": 4", "\"format_version\": 6")
         .into_bytes();
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
@@ -318,7 +319,7 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 5") && message.contains("versions 1, 2, 3, and 4"),
+        message.contains("version 6") && message.contains("versions 1, 2, 3, 4, and 5"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));
@@ -354,7 +355,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         "reading wrote nothing"
     );
 
-    // The recovered session's next draft is version 4.
+    // The recovered session's next draft is version 5.
     repository
         .write_draft(&Draft {
             saved_at_ms: 1_767_225_700_000,
@@ -362,11 +363,11 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         })
         .unwrap();
     let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
-    assert!(rewritten.contains("\"format_version\":4"), "{rewritten}");
+    assert!(rewritten.contains("\"format_version\":5"), "{rewritten}");
 }
 
 #[test]
-fn several_scene_instances_round_trip_in_version_4() {
+fn several_scene_instances_round_trip_in_version_5() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();
@@ -886,6 +887,118 @@ fn recovery_preparation_checks_the_base_against_a_second_file_store() {
 }
 
 #[test]
+fn version_4_scene_migrates_settings_without_losing_tree_references_or_history() {
+    let original = fixture("v4-scene-document.json");
+    let (root, repository, path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    let group = ObjectId::from_serial(4).unwrap();
+    assert_eq!(document.settings(), &Settings::default());
+    assert!(document.selection().objects.contains(&group));
+    assert!(document.selection().atoms.contains(&atom(1)));
+    assert_eq!(
+        document.references().collect::<Vec<_>>(),
+        [SceneReference {
+            source: group,
+            target: ReferenceTarget::Atom(atom(1)),
+        }]
+    );
+    document.undo().unwrap();
+    assert_eq!(document.references().count(), 0);
+    document.redo().unwrap();
+    assert_eq!(document.references().count(), 1);
+    document
+        .apply(&[Command::UpdateSettings(SettingsEdit {
+            label_font: Some(LabelFont::Serif),
+            ..SettingsEdit::default()
+        })])
+        .unwrap();
+    repository.save(&document, Some(2)).unwrap();
+    assert_eq!(
+        fs::read(repository.migrated_path(&id(), 4)).unwrap(),
+        original
+    );
+    assert_eq!(repository.load(&id()).unwrap(), Some(document));
+    assert!(
+        String::from_utf8(fs::read(path).unwrap())
+            .unwrap()
+            .contains("\"format_version\":5")
+    );
+    assert!(root.path().join("migrated").is_dir());
+}
+
+#[test]
+fn version_4_draft_keeps_its_original_bytes_and_redo_after_recovery() {
+    let document = fixture("v4-scene-document.json");
+    let original = fixture("v4-scene-draft.json");
+    let (root, repository, _) = stored(&document);
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    let archive = repository.migrated_draft_path(&id(), 4);
+    let app = Application::new(LocalCapabilities, repository);
+
+    let recovered = app.recover(ID, Some("recover-v4-scene")).unwrap();
+    assert_eq!(recovered.document.revision, 4);
+    assert_eq!(recovered.session.redo_depth, 1);
+    assert_eq!(recovered.document.scene.references.len(), 1);
+    assert_eq!(recovered.document.selection.objects, ["s4"]);
+    assert_eq!(
+        recovered.document.settings.label_font,
+        chemifree_application::LabelFontDto::SansSerif
+    );
+    assert_eq!(fs::read(&archive).unwrap(), original);
+    let redone = app.redo(ID, None, 4).unwrap();
+    assert_eq!(redone.document.revision, 5);
+    app.autosave(ID, None).unwrap();
+    let rewritten = fs::read(&draft_path).unwrap();
+    assert!(
+        String::from_utf8(rewritten)
+            .unwrap()
+            .contains("\"format_version\":5")
+    );
+    assert_eq!(fs::read(archive).unwrap(), original);
+    app.save(ID, None, 5).unwrap();
+    assert_eq!(
+        fs::read(root.path().join("migrated").join(format!("{ID}.v4.json"))).unwrap(),
+        document
+    );
+}
+
+#[test]
+fn version_5_requires_settings_and_does_not_accept_missing_history_fields() {
+    let original = fixture("v4-scene-document.json");
+    let (_root, repository, path) = stored(&original);
+    let mut document = repository.load(&id()).unwrap().unwrap();
+    document
+        .apply(&[Command::UpdateSettings(SettingsEdit {
+            label_font: Some(LabelFont::Serif),
+            ..SettingsEdit::default()
+        })])
+        .unwrap();
+    repository.save(&document, Some(2)).unwrap();
+    let current: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for missing_document_settings in [true, false] {
+        let mut malformed = current.clone();
+        if missing_document_settings {
+            malformed["document"]
+                .as_object_mut()
+                .unwrap()
+                .remove("settings");
+        } else {
+            malformed["history"]["undo"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("settings");
+        }
+        fs::write(&path, serde_json::to_vec(&malformed).unwrap()).unwrap();
+        assert!(matches!(
+            repository.load(&id()),
+            Err(StorageError::Corrupt(_))
+        ));
+    }
+}
+
+#[test]
 fn an_interrupted_old_draft_commit_preserves_its_bytes_before_cleanup() {
     let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
     let original = version_3_fixture("v2-draft.json");
@@ -1084,7 +1197,7 @@ fn the_first_save_over_a_version_2_file_keeps_its_exact_bytes_once() {
     assert_eq!(kept.file_name().unwrap(), format!("{ID}.v2.json").as_str());
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
-    assert!(saved.contains("\"format_version\":4"), "{saved}");
+    assert!(saved.contains("\"format_version\":5"), "{saved}");
 
     // The same version 2 bytes stored again are already kept; other bytes get the next name.
     fs::write(&path, &original).unwrap();
@@ -1128,9 +1241,9 @@ fn version_1_and_version_2_copies_of_one_document_are_kept_apart() {
     );
 }
 
-/// Every recorded state survives a save and a reopen in version 4, history included.
+/// Every recorded state survives a save and a reopen in version 5, history included.
 #[test]
-fn recorded_states_round_trip_in_version_4() {
+fn recorded_states_round_trip_in_version_5() {
     let root = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(root.path());
     let mut document = drawn_today();

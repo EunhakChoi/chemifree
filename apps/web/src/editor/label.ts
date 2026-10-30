@@ -9,11 +9,15 @@
  * what precedes and follows it are one chunk of text, so they flow against each other and
  * cannot overlap or drift apart whatever font renders them; the chunk is centred so that the
  * symbol's reserved width is centred on the atom. The box reserves an upper bound of each
- * glyph's advance (see ADVANCE), so the drawn text lies inside it.
+ * glyph's advance in the label font (see METRICS), so the drawn text lies inside it.
+ *
+ * The document's settings choose the label font and size and which carbons are labelled
+ * (LabelStyle). A layout is made at the built-in size and every length in it, boxes included,
+ * scaled by the label size, so bond trimming, the view box, and hit areas follow one layout.
  *
  * Nothing here computes chemistry: inferred hydrogens are not counted and add nothing.
  */
-import type { AtomView, QueryAtom } from '@/lib/document-contract'
+import type { AtomView, CarbonLabels, DocumentSettings, LabelFont, QueryAtom } from '@/lib/document-contract'
 
 /** A rectangle in document points; `x`, `y` is its top-left corner. */
 export interface Box {
@@ -52,6 +56,7 @@ export interface LabelChunk {
 export interface LabelDot {
   dx: number
   dy: number
+  radius: number
   hollow: boolean
 }
 
@@ -63,35 +68,63 @@ export interface AtomLabel {
   dots: LabelDot[]
   /** Encloses every chunk, mark, and dot, relative to the atom. */
   box: Box
+  /** The font every chunk and mark is drawn in. */
+  font: LabelFont
 }
 
+/** How a document's labels are drawn: from its label font, label size, and carbon labels. */
+export interface LabelStyle {
+  font: LabelFont
+  /** The symbol's font size, in pt; everything else in a label scales with it. */
+  size: number
+  carbons: CarbonLabels
+}
+
+/** The built-in label size, at which a layout is made before it is scaled. */
 export const LABEL_SIZE = 12
+export const DEFAULT_LABEL_STYLE: Readonly<LabelStyle> = Object.freeze({ font: 'sans-serif', size: LABEL_SIZE, carbons: 'default' })
+
+export function labelStyleOf(settings: Readonly<DocumentSettings>): LabelStyle {
+  return { font: settings.label_font, size: settings.label_size_pt, carbons: settings.carbon_labels }
+}
+
 const SMALL_SIZE = 8
 const MARK_SIZE = 7
 /**
  * Half the height a run of text may take around its middle, as a share of its font size. Text
  * drawn with a central baseline measures at most 0.655 of its size either way in the bundled
- * font and the generic sans-serif fallback (Chromium); this keeps a margin.
+ * font and the generic sans-serif fallback (Chromium), and at most 0.53 in the serif and
+ * monospace fonts measured for METRICS; this keeps a margin.
  */
 const HALF_HEIGHT = 0.7
-/**
- * How far a run's drawn box may reach past its advance at either end, as a share of its size
- * (0.03 measured before the start and 0.02 past the end).
- */
-const OVERHANG = 0.04
 const DOT_RADIUS = 1.4
 const PADDING = 1
 /** List queries name at most this many elements on the canvas. */
 export const SHOWN_QUERY_ELEMENTS = 3
 
+/** Characters by the upper bound of their advance, as a share of the font size. */
+type AdvanceTable = ReadonlyArray<readonly [string, number]>
+
+const advances = (table: AdvanceTable): ReadonlyMap<string, number> =>
+  new Map(table.flatMap(([characters, advance]) => [...characters].map((character): [string, number] => [character, advance])))
+
 /**
- * Upper bounds of each character's advance, as a share of the font size: the larger of the
- * bundled font (Geist, weights 400 and 500) and the generic sans-serif fallback shown while it
- * loads, measured in Chromium, plus 2%, rounded up. A character not listed counts as 1.1.
+ * Per label font: upper bounds of each character's advance, as a share of the font size, and
+ * how far a run's drawn box may reach past its advance at either end (`overhang`). A character
+ * not listed counts as 1.1.
+ *
+ * `sans-serif` is the bundled font (Geist, weights 400 and 500) and the generic sans-serif
+ * fallback shown while it loads, measured in Chromium, plus 2%, rounded up (0.03 measured before
+ * the start and 0.02 past the end). `serif` and `monospace` are the generic families: the
+ * largest of Chromium's generic family and DejaVu Serif, Liberation Serif, and Nimbus Roman
+ * (serif), or DejaVu Sans Mono, Liberation Mono, Courier, and Nimbus Mono PS (monospace), at
+ * weights 400 and 500, plus 2%, rounded up; overhang up to 0.1 was measured (DejaVu Serif).
+ * Another system's generic family may be wider; text drawn in it may then reach past the box.
  */
-const ADVANCE: ReadonlyMap<string, number> = new Map(
-  (
-    [
+const METRICS: Readonly<Record<LabelFont, { advance: ReadonlyMap<string, number>; overhang: number }>> = {
+  'sans-serif': {
+    overhang: 0.04,
+    advance: advances([
       ['i', 0.27],
       ['Ijl!,', 0.29],
       ['[]', 0.37],
@@ -118,14 +151,56 @@ const ADVANCE: ReadonlyMap<string, number> = new Map(
       ['Mm', 0.91],
       ['W', 0.99],
       ['…', 1.02],
-    ] as const
-  ).flatMap(([characters, advance]) => [...characters].map((character): [string, number] => [character, advance])),
-)
+    ]),
+  },
+  serif: {
+    overhang: 0.11,
+    advance: advances([
+      ['j', 0.32],
+      ['il,', 0.33],
+      ['f', 0.38],
+      ['[]', 0.4],
+      ['I!tJ', 0.41],
+      ['r', 0.49],
+      ['*', 0.51],
+      ['s', 0.53],
+      ['z', 0.54],
+      ['?', 0.55],
+      ['ycvx', 0.58],
+      ['ae', 0.61],
+      ['ok', 0.62],
+      ['0123456789', 0.65],
+      ['hnubdgpq', 0.66],
+      ['L', 0.68],
+      ['TP', 0.69],
+      ['S', 0.7],
+      ['FZ', 0.71],
+      ['XYAV', 0.74],
+      ['EB', 0.75],
+      ['KR', 0.77],
+      ['C', 0.79],
+      ['DG', 0.82],
+      ['OQ', 0.84],
+      ['+−U', 0.86],
+      ['w', 0.88],
+      ['H', 0.89],
+      ['N', 0.9],
+      ['m', 0.97],
+      ['…', 1.02],
+      ['MW', 1.05],
+    ]),
+  },
+  monospace: {
+    overhang: 0.04,
+    advance: advances([['0123456789iIjl!,[]rft*syzcva?Le+−hnouFJTZbdgkpqxEKPSXYABVCDHRUNGOQwMmW…', 0.62]]),
+  },
+}
 const UNKNOWN_ADVANCE = 1.1
 
-/** An upper bound of the advance of `text` drawn at `size`. */
-export function textWidth(text: string, size: number) {
-  return [...text].reduce((total, character) => total + (ADVANCE.get(character) ?? UNKNOWN_ADVANCE) * size, 0)
+/** An upper bound of the advance of `text` drawn at `size` in `font`. */
+export function textWidth(text: string, size: number, font: LabelFont = 'sans-serif') {
+  const { advance } = METRICS[font]
+  return [...text].reduce((total, character) => total + (advance.get(character) ?? UNKNOWN_ADVANCE) * size, 0)
 }
 
 export function chargeText(charge: number) {
@@ -178,12 +253,19 @@ export function atomName(atom: AtomView, placement: string | null = null) {
 }
 
 /**
- * A carbon is drawn as a bare vertex only while it is bonded and carries nothing recorded:
- * a charge, isotope, stated or unknown hydrogens, a radical, or attachment points label it.
- * Inferred hydrogens do not. Every other element and every query atom is labelled.
+ * With the `default` carbon labels, a carbon is drawn as a bare vertex only while it is bonded
+ * and carries nothing recorded: a charge, isotope, stated or unknown hydrogens, a radical, or
+ * attachment points label it. Inferred hydrogens do not. Every other element and every query
+ * atom is labelled, and with `all` every carbon too.
  */
-export function showsLabel(atom: AtomView, degree: number) {
-  return atom.kind === 'query' || atom.element !== 'C' || degree === 0 || statesDescription(atom).length > 0
+export function showsLabel(atom: AtomView, degree: number, carbons: CarbonLabels = 'default') {
+  return (
+    carbons === 'all' ||
+    atom.kind === 'query' ||
+    atom.element !== 'C' ||
+    degree === 0 ||
+    statesDescription(atom).length > 0
+  )
 }
 
 /** The smallest box enclosing all of `boxes`. */
@@ -203,10 +285,17 @@ const run = (text: string, size: number, shift: number, part: LabelPart, weight:
   weight,
 })
 
-/** A chunk of `runs` anchored at `x`, `y`, with the upper-bound box of what it draws. */
-function chunk(role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[]): LabelChunk {
-  const advance = runs.reduce((total, item) => total + textWidth(item.text, item.size), 0)
-  const overhang = OVERHANG * Math.max(...runs.map((item) => item.size))
+/** A chunk of `runs` anchored at `x`, `y`, with the upper-bound box of what it draws in `font`. */
+function chunk(
+  font: LabelFont,
+  role: LabelChunk['role'],
+  anchor: LabelChunk['anchor'],
+  x: number,
+  y: number,
+  runs: LabelRun[],
+): LabelChunk {
+  const advance = runs.reduce((total, item) => total + textWidth(item.text, item.size, font), 0)
+  const overhang = METRICS[font].overhang * Math.max(...runs.map((item) => item.size))
   const start = anchor === 'start' ? x : anchor === 'end' ? x - advance : x - advance / 2
   const top = Math.min(...runs.map((item) => item.shift - HALF_HEIGHT * item.size))
   const bottom = Math.max(...runs.map((item) => item.shift + HALF_HEIGHT * item.size))
@@ -225,16 +314,23 @@ const layouts = new Map<string, AtomLabel | null>()
 const MAX_LAYOUTS = 4096
 
 /**
- * The complete label of `atom` with `degree` bonds, or null for a bare carbon vertex. The
- * symbol is centred on the atom. Stated or unknown hydrogens go beside it with their count as
- * a subscript ("?" when unknown): after it, or before it ("H3C") when `hydrogensLeft` because
- * the atom's bonds lean right. The isotope is a superscript before the symbol and the charge
- * one after it. Radical dots sit above the symbol and attachment points below it.
+ * The complete label of `atom` with `degree` bonds in `style`, or null for a bare carbon
+ * vertex. The symbol is centred on the atom. Stated or unknown hydrogens go beside it with
+ * their count as a subscript ("?" when unknown): after it, or before it ("H3C") when
+ * `hydrogensLeft` because the atom's bonds lean right. The isotope is a superscript before the
+ * symbol and the charge one after it. Radical dots sit above the symbol and attachment points
+ * below it.
  *
- * A layout depends only on the atom's recorded states, whether it is bonded, and the side, so
- * atoms alike share one (frozen) layout object.
+ * A layout depends only on the atom's recorded states, whether it is bonded, the side, and the
+ * style, so atoms alike share one (frozen) layout object.
  */
-export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false): AtomLabel | null {
+export function atomLabel(
+  atom: AtomView,
+  degree: number,
+  hydrogensLeft = false,
+  style: Readonly<LabelStyle> = DEFAULT_LABEL_STYLE,
+): AtomLabel | null {
+  if (!showsLabel(atom, degree, style.carbons)) return null
   const key = JSON.stringify([
     atom.kind,
     atom.element,
@@ -243,23 +339,50 @@ export function atomLabel(atom: AtomView, degree: number, hydrogensLeft = false)
     atom.hydrogens,
     atom.radical,
     atom.attachment_points,
-    degree === 0,
     hydrogensLeft,
+    style.font,
+    style.size,
   ])
   const known = layouts.get(key)
   if (known !== undefined) return known
-  const made = layout(atom, degree, hydrogensLeft)
+  const made = scaled(layout(atom, hydrogensLeft, style.font), style.size / LABEL_SIZE)
   if (layouts.size >= MAX_LAYOUTS) layouts.clear()
   layouts.set(key, made)
   return made
 }
 
-function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLabel | null {
-  if (!showsLabel(atom, degree)) return null
+/** `label` with every length in it multiplied by `factor`, frozen. */
+function scaled(label: AtomLabel, factor: number): AtomLabel {
+  const box = (item: Box): Box => ({
+    x: item.x * factor,
+    y: item.y * factor,
+    width: item.width * factor,
+    height: item.height * factor,
+  })
+  const text = (item: LabelChunk): LabelChunk => ({
+    ...item,
+    x: item.x * factor,
+    y: item.y * factor,
+    runs: item.runs.map((part) => ({ ...part, size: part.size * factor, shift: part.shift * factor })),
+    box: box(item.box),
+  })
+  return Object.freeze({
+    chunks: label.chunks.map(text),
+    marks: label.marks.map(text),
+    dots: label.dots.map((dot) => ({ ...dot, dx: dot.dx * factor, dy: dot.dy * factor, radius: dot.radius * factor })),
+    box: box(label.box),
+    font: label.font,
+  })
+}
+
+/** The label of a labelled atom at the built-in size. */
+function layout(atom: AtomView, hydrogensLeft: boolean, font: LabelFont): AtomLabel {
+  const chunkOf = (role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[]) =>
+    chunk(font, role, anchor, x, y, runs)
   const symbolText = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
   const symbolRun = run(symbolText, LABEL_SIZE, 0, 'symbol', 500)
   // The symbol's reserved box, centred on the atom: radical dots go above it, marks below.
-  const symbol = chunk('text', 'middle', 0, 0, [symbolRun])
+  const symbol = chunkOf('text', 'middle', 0, 0, [symbolRun])
   const before: LabelRun[] = []
   const after: LabelRun[] = []
   const hydrogens: LabelRun[] = []
@@ -278,8 +401,8 @@ function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLab
   // widths. Centred where the reserved widths centre the symbol's on the atom: the symbol is
   // then off the atom by half the difference of the reserved and natural widths of what is
   // beside it (a fraction of a point), and the text lies inside the reserved widths.
-  const width = (runs: LabelRun[]) => runs.reduce((total, item) => total + textWidth(item.text, item.size), 0)
-  const chunks = [chunk('text', 'middle', (width(after) - width(before)) / 2, 0, [...before, symbolRun, ...after])]
+  const width = (runs: LabelRun[]) => runs.reduce((total, item) => total + textWidth(item.text, item.size, font), 0)
+  const chunks = [chunkOf('text', 'middle', (width(after) - width(before)) / 2, 0, [...before, symbolRun, ...after])]
 
   const dotY = symbol.box.y - DOT_RADIUS - 1
   const dots: LabelDot[] = []
@@ -288,17 +411,17 @@ function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLab
     case 'none':
       break
     case 'doublet':
-      dots.push({ dx: 0, dy: dotY, hollow: false })
+      dots.push({ dx: 0, dy: dotY, radius: DOT_RADIUS, hollow: false })
       break
     case 'singlet':
-      dots.push({ dx: -2.4, dy: dotY, hollow: false }, { dx: 2.4, dy: dotY, hollow: false })
+      dots.push({ dx: -2.4, dy: dotY, radius: DOT_RADIUS, hollow: false }, { dx: 2.4, dy: dotY, radius: DOT_RADIUS, hollow: false })
       break
     case 'triplet':
-      dots.push({ dx: -2.4, dy: dotY, hollow: true }, { dx: 2.4, dy: dotY, hollow: true })
+      dots.push({ dx: -2.4, dy: dotY, radius: DOT_RADIUS, hollow: true }, { dx: 2.4, dy: dotY, radius: DOT_RADIUS, hollow: true })
       break
     case 'unknown':
-      dots.push({ dx: -2, dy: dotY, hollow: false })
-      marks.push(chunk('radical', 'start', 0.5, dotY, [run('?', MARK_SIZE, 0, 'radical')]))
+      dots.push({ dx: -2, dy: dotY, radius: DOT_RADIUS, hollow: false })
+      marks.push(chunkOf('radical', 'start', 0.5, dotY, [run('?', MARK_SIZE, 0, 'radical')]))
       break
     default: {
       const unhandled: never = atom.radical
@@ -307,7 +430,7 @@ function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLab
   }
   if (atom.attachment_points.length > 0) {
     const below = symbol.box.y + symbol.box.height + HALF_HEIGHT * MARK_SIZE
-    marks.push(chunk('attachment', 'middle', 0, below, [run(`ap${atom.attachment_points.join(',')}`, MARK_SIZE, 0, 'attachment')]))
+    marks.push(chunkOf('attachment', 'middle', 0, below, [run(`ap${atom.attachment_points.join(',')}`, MARK_SIZE, 0, 'attachment')]))
   }
 
   const dotBoxes = dots.map((dot) => ({
@@ -323,15 +446,13 @@ function layout(atom: AtomView, degree: number, hydrogensLeft: boolean): AtomLab
     width: content.width + 2 * PADDING,
     height: content.height + 2 * PADDING,
   }
-  return Object.freeze({ chunks, marks, dots, box })
+  return { chunks, marks, dots, box, font }
 }
 
 /** The label's text in reading order, marks left out. */
 export function labelText(label: AtomLabel) {
   return label.chunks.flatMap((item) => item.runs.map((part) => part.text))
 }
-
-export const DOT_SIZE = DOT_RADIUS
 
 /** `box`, relative to an atom, placed at the atom's position. */
 export function placed(box: Box, at: { x: number; y: number }): Box {

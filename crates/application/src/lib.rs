@@ -7,6 +7,7 @@ mod draft_writer;
 mod error;
 pub mod json;
 mod operations;
+mod preferences;
 mod repository;
 mod turns;
 
@@ -15,19 +16,21 @@ use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use chemifree_domain::Capability;
+use chemifree_domain::settings::Settings;
 use serde::Serialize;
 
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
-    CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource, CreateDocumentRequest,
-    DeleteModeDto, DeleteResponse, DocumentListResponse, DocumentResponse, DocumentSummary,
-    DocumentView, DraftDiscardResponse, DraftFailureView, DraftRequest, GraphicShapeDto,
-    HydrogensDto, InstanceView, ListQuery, ListSort, MoleculeView, PageView, PointDto,
-    PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
-    RecoveryView, ReferenceDto, ReferenceTargetDto, RenameRequest, RestoreRequest, RestoreResponse,
+    CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
+    CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto, DocumentListResponse,
+    DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftFailureView,
+    DraftRequest, GraphicShapeDto, HydrogensDto, ImportSettingsRequest, InstanceView, LabelFontDto,
+    ListQuery, ListSort, MoleculeView, PageView, PointDto, PositionView, QueryBondOrderDto,
+    QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView, ReferenceDto,
+    ReferenceTargetDto, RenameRequest, ResetSettingsRequest, RestoreRequest, RestoreResponse,
     RevisionRequest, SaveAsRequest, SceneObjectView, SceneView, SelectionDto, SessionView,
-    TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary,
-    UnreadableDocument, query_label,
+    SettingsDto, SettingsEditDto, SettingsSource, TransactionRequest, TransactionSelections,
+    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
@@ -40,13 +43,19 @@ pub use operations::{
     OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
     Severity, Support,
 };
+pub use preferences::{
+    ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
+    MemoryPreferences, PreferenceRepository, Preferences, PreferencesChange, PreferencesRequest,
+    PreferencesResponse, Theme, UiPreferencesDto,
+};
 pub use repository::{
     DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
     TrashEntry,
 };
 pub use turns::TURN_WAIT;
 
-use documents::Documents;
+use documents::{Documents, SettingsMutation};
+use preferences::PreferenceService;
 
 pub const API_VERSION: &str = "v1";
 
@@ -60,13 +69,26 @@ pub trait CapabilityCatalog: Send + Sync {
 pub struct Application<C, R> {
     catalog: C,
     documents: Documents<R>,
+    preferences: PreferenceService,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    /// An application whose preferences live in memory for its lifetime; see
+    /// [`Application::with_preferences`].
     pub fn new(catalog: C, repository: R) -> Self {
         Self {
             catalog,
             documents: Documents::new(repository),
+            preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
+        }
+    }
+
+    /// Keeps preferences in `store`, as an entry adapter does with its data directory's.
+    #[must_use]
+    pub fn with_preferences(self, store: impl PreferenceRepository + 'static) -> Self {
+        Self {
+            preferences: PreferenceService::new(Box::new(store)),
+            ..self
         }
     }
 
@@ -106,12 +128,143 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.documents.list(query)
     }
 
+    /// Creates a document whose settings are copied from the preferences now: the built-in
+    /// defaults overlaid with `new_documents`. Later preference changes never reach it.
     pub fn create_document(
         &self,
         request_id: Option<&str>,
         title: Option<&str>,
     ) -> Result<DocumentResponse, ApplicationError> {
-        self.documents.create(request_id, title)
+        // Read only for a create that runs: a retried one is answered from its record, even
+        // when the preferences became unreadable since.
+        self.documents.create(request_id, title, || {
+            self.preferences.current()?.new_document_settings()
+        })
+    }
+
+    /// Replaces the document's settings with the built-in defaults, or with the settings a new
+    /// document would start from now, as one undoable `update_settings` edit.
+    pub fn reset_settings(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        to: SettingsSource,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.reset_settings_selecting(
+            id,
+            request_id,
+            expected_revision,
+            to,
+            TransactionSelections::default(),
+        )
+    }
+
+    /// Resets settings with the selection captured when the command was issued.
+    pub fn reset_settings_selecting(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        to: SettingsSource,
+        selection: TransactionSelections,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.replace_settings(
+            id,
+            request_id,
+            expected_revision,
+            SettingsMutation::Reset(to),
+            selection,
+            || match to {
+                SettingsSource::Defaults => Ok(Settings::default()),
+                SettingsSource::Preferences => self.preferences.current()?.new_document_settings(),
+            },
+        )
+    }
+
+    /// Applies the settings of document `source` (as this process shows it) to document `id`,
+    /// as one undoable `update_settings` edit.
+    pub fn import_settings(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        source: &str,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.import_settings_selecting(
+            id,
+            request_id,
+            expected_revision,
+            source,
+            TransactionSelections::default(),
+        )
+    }
+
+    /// Imports settings with the selection captured when the command was issued.
+    pub fn import_settings_selecting(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        source: &str,
+        selection: TransactionSelections,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        self.documents.replace_settings(
+            id,
+            request_id,
+            expected_revision,
+            SettingsMutation::Import(source.to_owned()),
+            selection,
+            || self.source_settings(source),
+        )
+    }
+
+    fn source_settings(&self, source: &str) -> Result<Settings, ApplicationError> {
+        self.documents
+            .settings(source)
+            .map_err(|error| ApplicationError {
+                message: format!("settings source {source}: {}", error.message),
+                ..error
+            })
+    }
+
+    /// The preferences of this data directory, with the settings new documents start from.
+    pub fn preferences(&self) -> Result<PreferencesResponse, ApplicationError> {
+        self.preferences.get()
+    }
+
+    /// Replaces the preferences, based on `expected_revision`. Computation preferences are not
+    /// implemented: naming one is refused and nothing is stored.
+    pub fn set_preferences(
+        &self,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        change: PreferencesChange,
+    ) -> Result<PreferencesResponse, ApplicationError> {
+        self.preferences.set(request_id, expected_revision, change)
+    }
+
+    /// Resets the preferences to the built-in defaults.
+    pub fn reset_preferences(
+        &self,
+        request_id: Option<&str>,
+        expected_revision: u64,
+    ) -> Result<PreferencesResponse, ApplicationError> {
+        self.preferences.reset(request_id, expected_revision)
+    }
+
+    /// Makes new documents start from every setting of `document`, keeping the other
+    /// preferences.
+    pub fn preferences_from_document(
+        &self,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        document: &str,
+    ) -> Result<PreferencesResponse, ApplicationError> {
+        self.preferences
+            .adopt_document(request_id, expected_revision, document, || {
+                self.source_settings(document)
+            })
     }
 
     pub fn document(&self, id: &str) -> Result<DocumentResponse, ApplicationError> {

@@ -23,6 +23,7 @@ function referencedIds(command: Command): string[] {
     case 'delete_bonds':
       return command.bonds
     case 'rename':
+    case 'update_settings':
       return []
     case 'add_instance':
       return command.source === undefined ? [] : [command.source]

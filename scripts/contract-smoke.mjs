@@ -1054,6 +1054,118 @@ try {
     assert.equal((await call(statesPath)).body.document.revision, 1, 'nothing changed')
   }
 
+  // ── Document settings and preferences: the same rules, codes, and reasons over HTTP and the CLI
+  // Preferences live in the data directory, so the CLI process and the API share them: a write
+  // from one makes the other's stale write a revision conflict. A document copies its settings
+  // when it is created and keeps them; settings are edited, reset, and imported as edits.
+  {
+    const put = (body) => call('/api/v1/preferences', { method: 'PUT', body, headers: auth })
+    const shown = await call('/api/v1/preferences')
+    assert.equal(shown.status, 200)
+    assert.deepEqual(cli('preferences', 'show', '--json').body, shown.body, 'HTTP GET = CLI show of preferences')
+    assert.deepEqual(
+      [shown.body.revision, shown.body.computation.nmr.status, shown.body.computation.numeric_precision.status],
+      [0, 'not_implemented', 'not_implemented'],
+    )
+    const before = (await write('/api/v1/documents', { request_id: 'style-before', title: 'Before preferences' })).body.document
+    assert.equal(before.settings.label_font, 'sans-serif')
+    assert.equal((await write(`/api/v1/documents/${before.id}/save`, { request_id: 'style-before-save', expected_revision: 0 })).status, 200)
+    const beforeBytes = readFileSync(join(dataDir, 'documents', `${before.id}.json`), 'utf8')
+
+    // The CLI process writes first; the API's write from the same base is a conflict.
+    const change = { ui: { theme: 'dark' }, new_documents: { label_font: 'monospace', bond_length_pt: 40 } }
+    const viaCli = cli('preferences', 'set', '--expected-revision', '0', '--json', '--preferences', JSON.stringify(change))
+    assert.deepEqual([viaCli.status, viaCli.body.revision], [0, 1])
+    const stale = await put({ request_id: 'prefs-stale', expected_revision: 0, ...change })
+    assert.deepEqual([stale.status, stale.body.code, stale.body.current_revision], [409, 'revision_conflict', 1])
+    const staleCli = cli('preferences', 'set', '--expected-revision', '0', '--json', '--preferences', JSON.stringify(change))
+    assert.deepEqual(
+      [staleCli.status, staleCli.body.code, staleCli.body.current_revision, staleCli.body.message],
+      [1, 'revision_conflict', 1, stale.body.message],
+      'the same conflict from the CLI',
+    )
+    assert.ok(existsSync(join(dataDir, 'preferences.json')))
+
+    // Computation preferences are refused alike, and nothing is stored.
+    const computation = { ...change, computation: { nmr: { solvent: 'CDCl3' } } }
+    const nmr = await put({ request_id: 'prefs-nmr', expected_revision: 1, ...computation })
+    assert.deepEqual([nmr.status, nmr.body.code], [501, 'setting_not_implemented'])
+    const nmrCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(computation))
+    assert.deepEqual([nmrCli.status, nmrCli.body.code, nmrCli.body.message], [1, 'setting_not_implemented', nmr.body.message])
+    // A preferred value out of range is refused with the setting's reason.
+    const tooLarge = { ui: { theme: 'system' }, new_documents: { label_size_pt: 80 } }
+    const large = await put({ request_id: 'prefs-large', expected_revision: 1, ...tooLarge })
+    assert.deepEqual([large.status, large.body.code, large.body.reason], [422, 'invalid_request', 'label_size_out_of_range'])
+    const largeCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(tooLarge))
+    assert.deepEqual(
+      [largeCli.status, largeCli.body.code, largeCli.body.reason, largeCli.body.message],
+      [1, 'invalid_request', 'label_size_out_of_range', large.body.message],
+    )
+    assert.equal(cli('preferences', 'show', '--json').body.revision, 1, 'refusals store nothing')
+
+    // New documents copy the preferences once; the document made before them keeps its own.
+    const afterHttp = (await write('/api/v1/documents', { request_id: 'style-after', title: 'After preferences' })).body.document
+    const afterCli = cli('documents', 'create', '--title', 'After preferences (CLI)', '--json').body.document
+    for (const created of [afterHttp, afterCli]) {
+      assert.deepEqual([created.settings.label_font, created.settings.bond_length_pt, created.settings.line_width_pt], ['monospace', 40, 1.2])
+    }
+    assert.equal(readFileSync(join(dataDir, 'documents', `${before.id}.json`), 'utf8'), beforeBytes, 'the earlier file is untouched')
+    assert.equal(cli('documents', 'show', before.id, '--json').body.document.settings.label_font, 'sans-serif')
+    assert.match(
+      execFileSync(cliPath, ['documents', 'show', before.id], { env, encoding: 'utf8' }),
+      /settings {2}bond length 30 pt · line width 1\.2 pt · labels sans-serif 12 pt/,
+    )
+
+    // update_settings refusals carry the same reason and message from either adapter.
+    const cliDoc = afterCli.id
+    for (const [name, command, reason] of [
+      ['a bond length below 5 pt', { op: 'update_settings', bond_length_pt: 4.9 }, 'bond_length_out_of_range'],
+      ['a line width of 0', { op: 'update_settings', line_width_pt: 0 }, 'line_width_out_of_range'],
+      ['a label size over 72 pt', { op: 'update_settings', label_size_pt: 72.5 }, 'label_size_out_of_range'],
+    ]) {
+      const commands = [{ op: 'rename', title: 'Refused' }, command]
+      const http = await write(`/api/v1/documents/${afterHttp.id}/transactions`, { request_id: `style-${reason}`, expected_revision: 0, commands })
+      assert.deepEqual([http.status, http.body.code, http.body.command_index, http.body.reason], [422, 'invalid_command', 1, reason], `${name} over HTTP`)
+      const refusedCli = cli('documents', 'apply', cliDoc, '--expected-revision', '0', '--json', '--commands', JSON.stringify(commands))
+      assert.deepEqual(
+        [refusedCli.status, refusedCli.body.code, refusedCli.body.command_index, refusedCli.body.reason, refusedCli.body.message],
+        [1, 'invalid_command', 1, reason, http.body.message],
+        `${name} from the CLI`,
+      )
+    }
+    const badFont = [{ op: 'update_settings', label_font: 'cursive' }]
+    const badFontHttp = await write(`/api/v1/documents/${afterHttp.id}/transactions`, { request_id: 'style-bad-font', expected_revision: 0, commands: badFont })
+    assert.deepEqual([badFontHttp.status, badFontHttp.body.code, 'reason' in badFontHttp.body], [422, 'invalid_request', false])
+    assert.equal(cli('documents', 'apply', cliDoc, '--expected-revision', '0', '--json', '--commands', JSON.stringify(badFont)).body.code, 'invalid_request')
+
+    // Edited from the CLI, reset and imported over HTTP and from the CLI, each one undoable edit.
+    const styled = cli('documents', 'apply', cliDoc, '--expected-revision', '0', '--json', '--commands',
+      JSON.stringify([{ op: 'update_settings', carbon_labels: 'all', display_unit: 'mm' }]))
+    assert.deepEqual([styled.status, styled.body.document.settings.carbon_labels], [0, 'all'])
+    assert.deepEqual(cli('documents', 'settings', 'show', cliDoc, '--json').body, styled.body.document.settings)
+    const imported = await write(`/api/v1/documents/${afterHttp.id}/settings/import`, { request_id: 'style-import', expected_revision: 0, source: cliDoc })
+    assert.deepEqual([imported.status, imported.body.document.settings, imported.body.session.undo_depth], [200, styled.body.document.settings, 1])
+    const resetCli = cli('documents', 'settings', 'reset', cliDoc, '--to', 'defaults', '--expected-revision', '1', '--json')
+    assert.deepEqual([resetCli.status, resetCli.body.document.settings], [0, shown.body.new_document_settings])
+    // The CLI reads stored documents, so the imported style is saved first.
+    assert.equal((await write(`/api/v1/documents/${afterHttp.id}/save`, { request_id: 'style-after-save', expected_revision: 1 })).status, 200)
+    const importCli = cli('documents', 'settings', 'import', cliDoc, '--source', afterHttp.id, '--expected-revision', '2', '--json')
+    assert.deepEqual([importCli.status, importCli.body.document.revision, importCli.body.document.settings], [0, 3, styled.body.document.settings])
+    const missing = await write(`/api/v1/documents/${afterHttp.id}/settings/import`, { request_id: 'style-import-missing', expected_revision: 1, source: 'doc-ffffffffffffffff' })
+    const missingCli = cli('documents', 'settings', 'import', cliDoc, '--source', 'doc-ffffffffffffffff', '--expected-revision', '3', '--json')
+    assert.deepEqual([missing.status, missing.body.code], [404, 'document_not_found'])
+    assert.deepEqual([missingCli.body.code, missingCli.body.message], ['document_not_found', missing.body.message])
+    const resetHttp = await write(`/api/v1/documents/${afterHttp.id}/settings/reset`, { request_id: 'style-reset', expected_revision: 1, to: 'preferences' })
+    assert.deepEqual(resetHttp.body.document.settings, cli('preferences', 'show', '--json').body.new_document_settings)
+
+    // New documents take every setting of a document, and the preferences reset, from either adapter.
+    const fromDocument = await write('/api/v1/preferences/import', { request_id: 'prefs-import', expected_revision: 1, document: cliDoc })
+    assert.deepEqual([fromDocument.status, fromDocument.body.revision, fromDocument.body.new_document_settings], [200, 2, styled.body.document.settings])
+    const resetPrefs = cli('preferences', 'reset', '--expected-revision', '2', '--json')
+    assert.deepEqual([resetPrefs.status, resetPrefs.body.revision, resetPrefs.body.new_documents, resetPrefs.body.ui.theme], [0, 3, {}, 'system'])
+    assert.deepEqual((await call('/api/v1/preferences')).body, resetPrefs.body, 'the API reads what the CLI wrote')
+  }
+
   // ── Version 1 files (before graph and scene were separated) ─────────────────────────────
   // A version 1 file placed in the data directory opens over HTTP and from the CLI as one
   // scene instance with its history; reading writes nothing. The first save that replaces it,
@@ -1087,7 +1199,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 4)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 5)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1130,10 +1242,10 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 4)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 5)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 4')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 5')
 
     // Both entry adapters preserve an old draft's exact bytes before recovering it as a copy.
     const oldDraft = (documentId) => {
@@ -1157,14 +1269,37 @@ try {
       assert.equal(readFileSync(draft.kept, 'utf8'), draft.bytes)
     }
 
+    // This independently generated v4 fixture uses the merged P11 tree and reference format.
+    const v4Id = 'doc-00000000000000d4'
+    const v4 = placed('v4-scene-document.json', v4Id)
+    const openedV4 = await call(`/api/v1/documents/${v4Id}`)
+    assert.equal(openedV4.status, 200)
+    assert.deepEqual([openedV4.body.document.revision, openedV4.body.session.undo_depth], [2, 2])
+    assert.deepEqual(openedV4.body.document.selection, { objects: ['s4'], atoms: ['a1'], bonds: [] })
+    assert.deepEqual(openedV4.body.document.scene.references, [{ source: 's4', target: { kind: 'atom', id: 'a1' } }])
+    assert.equal(openedV4.body.document.settings.label_font, 'sans-serif')
+    assert.deepEqual(cli('documents', 'show', v4Id, '--json').body, openedV4.body)
+    assert.equal(readFileSync(v4.path, 'utf8'), v4.bytes, 'reading the older document writes nothing')
+    const styleV4 = await write(`/api/v1/documents/${v4Id}/transactions`, {
+      request_id: 'v4-style', expected_revision: 2, commands: [{ op: 'update_settings', label_font: 'serif' }],
+    })
+    assert.equal(styleV4.status, 200)
+    const savedV4 = await write(`/api/v1/documents/${v4Id}/save`, { request_id: 'v4-save', expected_revision: 3 })
+    assert.equal(savedV4.status, 200)
+    assert.equal(readFileSync(join(dataDir, 'migrated', `${v4Id}.v4.json`), 'utf8'), v4.bytes)
+    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 5)
+    const undoneV4 = cli('documents', 'undo', v4Id, '--expected-revision', '3', '--json')
+    assert.equal(undoneV4.body.document.settings.label_font, 'sans-serif')
+    assert.deepEqual(undoneV4.body.document.scene.references, openedV4.body.document.scene.references)
+
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
-    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 5')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 6')
     writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 5/)
+    assert.match(refused.body.message, /version 6/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 5; this build reads versions 1, 2, 3, and 4/)
+    assert.match(unreadable?.message ?? '', /version 6; this build reads versions 1, 2, 3, 4, and 5/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)

@@ -4,6 +4,7 @@ pub mod document;
 pub mod element;
 pub mod operation;
 pub mod scene;
+pub mod settings;
 pub mod states;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

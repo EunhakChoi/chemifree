@@ -535,7 +535,11 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
                 json!({"document_id": id, "expected_revision": 0, "commands": [{"op": op}]}),
             ),
         );
-        let message = reply["diagnostics"][0]["message"].as_str().unwrap();
+        // A command whose fields are all optional (`update_settings`) runs as a no-op.
+        let message = match reply["outcome"].as_str() {
+            Some("ok") => "",
+            _ => reply["diagnostics"][0]["message"].as_str().unwrap(),
+        };
         let unknown = message.contains("unknown variant");
         let executable = part["execution"] == "executable";
         // A row with `commands` is a capability carried out by those commands; one without
@@ -588,6 +592,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "move_objects",
             "add_reference",
             "remove_reference",
+            "update_settings",
         ]
     );
     let placement = capabilities
@@ -636,6 +641,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         carried_out_by("attachment_point"),
         ["add_atom", "update_atom"]
     );
-    assert_eq!(capabilities.len(), 7, "{capabilities:?}");
+    assert_eq!(carried_out_by("document_settings"), ["update_settings"]);
+    assert_eq!(capabilities.len(), 8, "{capabilities:?}");
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

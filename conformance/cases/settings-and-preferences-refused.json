@@ -1,0 +1,120 @@
+{
+  "id": "settings-and-preferences-refused",
+  "title": "Out-of-range settings, stale preference writes, and computation preferences are refused and change nothing",
+  "requirements": [
+    "STYLE-01"
+  ],
+  "axis": "numeric",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Kept?"
+        },
+        {
+          "op": "update_settings",
+          "bond_length_pt": 4.5
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "bond_length_out_of_range"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "update_settings",
+          "label_size_pt": 72.5
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "label_size_out_of_range"
+      }
+    },
+    {
+      "call": "set_preferences",
+      "expected_revision": 0,
+      "ui": {
+        "theme": "system"
+      },
+      "new_documents": {
+        "line_width_pt": 11
+      },
+      "expect_error": {
+        "code": "invalid_request",
+        "reason": "line_width_out_of_range"
+      }
+    },
+    {
+      "call": "set_preferences",
+      "expected_revision": 0,
+      "ui": {
+        "theme": "system"
+      },
+      "new_documents": {},
+      "computation": {
+        "numeric_precision": {
+          "decimals": 3
+        }
+      },
+      "expect_error": {
+        "code": "setting_not_implemented"
+      }
+    },
+    {
+      "call": "set_preferences",
+      "expected_revision": 3,
+      "ui": {
+        "theme": "dark"
+      },
+      "new_documents": {},
+      "expect_error": {
+        "code": "revision_conflict",
+        "current_revision": 0
+      }
+    },
+    {
+      "call": "preferences",
+      "expect": {
+        "revision": 0,
+        "ui": {
+          "theme": "system"
+        },
+        "new_document_settings": {
+          "bond_length_pt": 30,
+          "label_font": "sans-serif"
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "title": "Untitled",
+          "settings": {
+            "bond_length_pt": 30,
+            "label_size_pt": 12
+          }
+        }
+      }
+    }
+  ]
+}

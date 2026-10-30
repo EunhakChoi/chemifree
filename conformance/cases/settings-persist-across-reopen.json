@@ -1,0 +1,91 @@
+{
+  "id": "settings-persist-across-reopen",
+  "title": "Document settings are saved with the document, reopened after a crash, and undone as an edit",
+  "requirements": [
+    "STYLE-01"
+  ],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "title": "Styled"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "update_settings",
+          "bond_length_pt": 42.5,
+          "line_width_pt": 2.25,
+          "label_font": "monospace",
+          "label_size_pt": 9.5,
+          "carbon_labels": "all",
+          "display_unit": "in"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 1,
+      "expect": {
+        "session": {
+          "saved_revision": 1,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "settings": {
+            "bond_length_pt": 42.5,
+            "line_width_pt": 2.25,
+            "label_font": "monospace",
+            "label_size_pt": 9.5,
+            "carbon_labels": "all",
+            "display_unit": "in"
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 1,
+      "expect": {
+        "document": {
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          }
+        }
+      }
+    }
+  ]
+}

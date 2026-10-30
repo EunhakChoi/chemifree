@@ -1,5 +1,5 @@
 {
-  "suite_version": 5,
+  "suite_version": 6,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -26,6 +26,9 @@
     "cases/versioned-operation-contract.json",
     "cases/operation-errors-match-v1.json",
     "cases/operation-unsupported.json",
-    "cases/operation-version-refused.json"
+    "cases/operation-version-refused.json",
+    "cases/settings-persist-across-reopen.json",
+    "cases/preferences-do-not-leak.json",
+    "cases/settings-and-preferences-refused.json"
   ]
 }

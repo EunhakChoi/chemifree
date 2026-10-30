@@ -1,9 +1,9 @@
-//! Chemifree document file format, version 4 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 5 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 4 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
-//! references, positions, and selection separately. History records their changes together.
+//! Version 5 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
+//! references, positions, selection, and document settings. History records their changes together.
 //! An atom state records its kind (an element or a query),
 //! charge, isotope, hydrogen state, radical, and attachment points; a bond state its order and,
 //! for a query bond, its query. Files are compact JSON, so the largest document a save allows,
@@ -13,8 +13,8 @@
 //! bonds get the defaults (an element atom, inferred hydrogens, no radical, no attachment
 //! points), and version 1 files, which kept one position on each atom, also move those
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
-//! order and its history from their instances. Reading never writes; the next write is version
-//! 4. Other versions are refused.
+//! order and its history from their instances. Versions 1–4 receive the built-in settings.
+//! Reading never writes; the next write is version 5. Other versions are refused.
 
 use std::collections::BTreeSet;
 
@@ -27,26 +27,28 @@ use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
     Graphic, GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
 };
+use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 4;
+const DRAFT_FORMAT_VERSION: u32 = 5;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
 /// migrated, never written.
 const VERSION_2: u32 = 2;
 const VERSION_3: u32 = 3;
+const VERSION_4: u32 = 4;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Version 4 records the tree, positions and selection separately, including in history.
+/// Version 5 adds document settings to the version 4 scene and history.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -73,6 +75,7 @@ struct SceneDocument {
     id: String,
     revision: u64,
     title: String,
+    settings: StoredSettings,
     molecule: StoredMolecule<AtomState, BondState>,
     pages: Vec<StoredPage>,
     roots: Vec<String>,
@@ -106,6 +109,43 @@ enum StoredShape {
     Line,
     Rectangle,
     Arrow,
+}
+
+/// A document's settings, every field present. Lengths are in pt.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredSettings {
+    bond_length_pt: f64,
+    line_width_pt: f64,
+    label_font: StoredFont,
+    label_size_pt: f64,
+    carbon_labels: StoredCarbonLabels,
+    display_unit: StoredUnit,
+}
+
+// The settings enums are shared with the preferences file, which stores the same values.
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum StoredFont {
+    SansSerif,
+    Serif,
+    Monospace,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredCarbonLabels {
+    Default,
+    All,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredUnit {
+    Pt,
+    Mm,
+    Cm,
+    In,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -159,6 +199,8 @@ struct SceneHistory {
 #[serde(deny_unknown_fields)]
 struct SceneChangeSet {
     title: Option<StoredChange<String>>,
+    #[serde(deserialize_with = "required_option")]
+    settings: Option<StoredChange<StoredSettings>>,
     atoms: Vec<Keyed<AtomState>>,
     bonds: Vec<Keyed<BondState>>,
     roots: Option<StoredChange<Vec<String>>>,
@@ -166,6 +208,135 @@ struct SceneChangeSet {
     references: Vec<StoredReferenceChange>,
     positions: Vec<PositionChange>,
     selection: StoredChange<StoredSelection>,
+}
+
+/// Version 4 is the independently implemented scene format, before document settings.
+/// Its exact shape is kept separately so version 5 cannot silently omit required settings.
+mod v4 {
+    use serde::Deserialize;
+
+    use super::{
+        AtomState, BondState, Keyed, PositionChange, ScenePosition, SceneState, Stored,
+        StoredChange, StoredMolecule, StoredPage, StoredReference, StoredReferenceChange,
+        StoredSelection,
+    };
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct File {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Draft {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub base_revision: u64,
+        pub saved_at_ms: u64,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Document {
+        pub id: String,
+        pub revision: u64,
+        pub title: String,
+        pub molecule: StoredMolecule<AtomState, BondState>,
+        pub pages: Vec<StoredPage>,
+        pub roots: Vec<String>,
+        pub objects: Vec<Stored<SceneState>>,
+        pub references: Vec<StoredReference>,
+        pub positions: Vec<ScenePosition>,
+        pub selection: StoredSelection,
+        pub next_atom: u32,
+        pub next_bond: u32,
+        pub next_object: u32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct History {
+        pub undo: Vec<ChangeSet>,
+        pub redo: Vec<ChangeSet>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct ChangeSet {
+        pub title: Option<StoredChange<String>>,
+        pub atoms: Vec<Keyed<AtomState>>,
+        pub bonds: Vec<Keyed<BondState>>,
+        pub roots: Option<StoredChange<Vec<String>>>,
+        pub objects: Vec<Keyed<SceneState>>,
+        pub references: Vec<StoredReferenceChange>,
+        pub positions: Vec<PositionChange>,
+        pub selection: StoredChange<StoredSelection>,
+    }
+}
+
+/// Allows an explicit null while still requiring this field to be present.
+fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+impl From<v4::Document> for SceneDocument {
+    fn from(value: v4::Document) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            title: value.title,
+            settings: stored_settings(&Settings::default()),
+            molecule: value.molecule,
+            pages: value.pages,
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            selection: value.selection,
+            next_atom: value.next_atom,
+            next_bond: value.next_bond,
+            next_object: value.next_object,
+        }
+    }
+}
+
+impl From<v4::History> for SceneHistory {
+    fn from(value: v4::History) -> Self {
+        Self {
+            undo: value.undo.into_iter().map(Into::into).collect(),
+            redo: value.redo.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<v4::ChangeSet> for SceneChangeSet {
+    fn from(value: v4::ChangeSet) -> Self {
+        Self {
+            title: value.title,
+            settings: None,
+            atoms: value.atoms,
+            bonds: value.bonds,
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            selection: value.selection,
+        }
+    }
 }
 
 /// A document file whose atom and bond states are `A` and `B`; versions 2 and 3 differ only
@@ -520,6 +691,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Four,
     Three,
     Two,
     One,
@@ -535,12 +707,13 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        VERSION_4 => Ok(Version::Four),
         VERSION_3 => Ok(Version::Three),
         VERSION_2 => Ok(Version::Two),
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, and {current}"
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, and {current}"
         )),
     }
 }
@@ -587,6 +760,7 @@ fn stored(document: &Document) -> Current {
         id: parts.id.to_string(),
         revision: parts.revision,
         title: parts.title,
+        settings: stored_settings(&parts.settings),
         molecule: StoredMolecule {
             id: MOLECULE_ID.to_owned(),
             atoms: parts
@@ -673,6 +847,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::One) => Some(VERSION_1),
         Ok(Version::Two) => Some(VERSION_2),
         Ok(Version::Three) => Some(VERSION_3),
+        Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Current) | Err(_) => None,
     }
 }
@@ -684,6 +859,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
         Version::Current => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
+        }
+        Version::Four => {
+            let file: v4::File = parse(bytes, "document")?;
+            scene_parts(file.document.into(), file.history.into())?
         }
         Version::Three => {
             let file: File<AtomState, BondState> = parse(bytes, "document")?;
@@ -708,6 +887,11 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
             Version::Current => {
                 let file: SceneDraftFile = parse(bytes, "draft")?;
                 let parts = scene_parts(file.document, file.history)?;
+                (parts, file.base_revision, file.saved_at_ms)
+            }
+            Version::Four => {
+                let file: v4::Draft = parse(bytes, "draft")?;
+                let parts = scene_parts(file.document.into(), file.history.into())?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
             Version::Three => {
@@ -761,6 +945,7 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
+        settings: to_settings(&stored.settings),
         atoms: stored
             .molecule
             .atoms
@@ -923,6 +1108,10 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
         instances: Vec::new(),
         positions: stored.positions,
     })?;
+    set.settings = stored.settings.map(|change| Change {
+        before: to_settings(&change.before),
+        after: to_settings(&change.after),
+    });
     set.roots = stored
         .roots
         .map(|change| {
@@ -1055,6 +1244,7 @@ fn parts<A: AtomRecord, B: BondRecord>(
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
+        settings: Settings::default(),
         atoms: stored
             .molecule
             .atoms
@@ -1106,6 +1296,7 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
+        settings: Settings::default(),
         atoms,
         bonds: stored
             .bonds
@@ -1148,6 +1339,7 @@ fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSe
             before: change.before,
             after: change.after,
         }),
+        settings: None,
         atoms,
         bonds: set
             .bonds
@@ -1361,6 +1553,89 @@ fn bond_state(bond: &Bond) -> BondState {
     }
 }
 
+impl From<LabelFont> for StoredFont {
+    fn from(font: LabelFont) -> Self {
+        match font {
+            LabelFont::SansSerif => Self::SansSerif,
+            LabelFont::Serif => Self::Serif,
+            LabelFont::Monospace => Self::Monospace,
+        }
+    }
+}
+
+impl From<StoredFont> for LabelFont {
+    fn from(font: StoredFont) -> Self {
+        match font {
+            StoredFont::SansSerif => Self::SansSerif,
+            StoredFont::Serif => Self::Serif,
+            StoredFont::Monospace => Self::Monospace,
+        }
+    }
+}
+
+impl From<CarbonLabels> for StoredCarbonLabels {
+    fn from(labels: CarbonLabels) -> Self {
+        match labels {
+            CarbonLabels::Default => Self::Default,
+            CarbonLabels::All => Self::All,
+        }
+    }
+}
+
+impl From<StoredCarbonLabels> for CarbonLabels {
+    fn from(labels: StoredCarbonLabels) -> Self {
+        match labels {
+            StoredCarbonLabels::Default => Self::Default,
+            StoredCarbonLabels::All => Self::All,
+        }
+    }
+}
+
+impl From<DisplayUnit> for StoredUnit {
+    fn from(unit: DisplayUnit) -> Self {
+        match unit {
+            DisplayUnit::Pt => Self::Pt,
+            DisplayUnit::Mm => Self::Mm,
+            DisplayUnit::Cm => Self::Cm,
+            DisplayUnit::In => Self::In,
+        }
+    }
+}
+
+impl From<StoredUnit> for DisplayUnit {
+    fn from(unit: StoredUnit) -> Self {
+        match unit {
+            StoredUnit::Pt => Self::Pt,
+            StoredUnit::Mm => Self::Mm,
+            StoredUnit::Cm => Self::Cm,
+            StoredUnit::In => Self::In,
+        }
+    }
+}
+
+fn stored_settings(settings: &Settings) -> StoredSettings {
+    StoredSettings {
+        bond_length_pt: settings.bond_length_pt,
+        line_width_pt: settings.line_width_pt,
+        label_font: settings.label_font.into(),
+        label_size_pt: settings.label_size_pt,
+        carbon_labels: settings.carbon_labels.into(),
+        display_unit: settings.display_unit.into(),
+    }
+}
+
+/// Stored settings as the domain's; `Document::restore` checks their ranges.
+fn to_settings(stored: &StoredSettings) -> Settings {
+    Settings {
+        bond_length_pt: stored.bond_length_pt,
+        line_width_pt: stored.line_width_pt,
+        label_font: stored.label_font.into(),
+        label_size_pt: stored.label_size_pt,
+        carbon_labels: stored.carbon_labels.into(),
+        display_unit: stored.display_unit.into(),
+    }
+}
+
 fn stored_point(point: &Point) -> StoredPoint {
     StoredPoint {
         x: point.x(),
@@ -1373,6 +1648,10 @@ fn stored_scene_change_set(set: &ChangeSet) -> SceneChangeSet {
         title: set.title.as_ref().map(|change| StoredChange {
             before: change.before.clone(),
             after: change.after.clone(),
+        }),
+        settings: set.settings.as_ref().map(|change| StoredChange {
+            before: stored_settings(&change.before),
+            after: stored_settings(&change.after),
         }),
         atoms: set
             .atoms
@@ -1443,6 +1722,7 @@ fn to_change_set<A: AtomRecord, B: BondRecord>(
             before: change.before,
             after: change.after,
         }),
+        settings: None,
         atoms: stored
             .atoms
             .into_iter()

@@ -7,7 +7,9 @@ import { placed, textWidth, union, type AtomLabel, type Box } from '@/editor/lab
 
 export const BOND_LENGTH = 30
 export const ATOM_HIT_RADIUS = 9
+const ATOM_HIT_SHARE = 0.3
 export const BOND_HIT_DISTANCE = 5
+export const SELECTION_STROKE = 8
 /** The canvas always shows at least this frame so drawing does not rescale constantly. */
 export const FRAME = { x: 0, y: 0, width: 400, height: 240 }
 const FRAME_MARGIN = 30
@@ -32,9 +34,9 @@ export function atomIndex(document: DocumentView) {
 }
 
 /**
- * Atoms take precedence over bonds; the nearest candidate wins. An atom is hit within
- * [ATOM_HIT_RADIUS] of its position and, when labelled, anywhere in its label box. Pass `atoms` to reuse an index and
- * `labels` (relative to each atom) to hit labels.
+ * Vertices take precedence. For a short bond, its central strip stays clickable even when
+ * atom label boxes overlap it; elsewhere labels take precedence over bonds. Pass `atoms` to
+ * reuse an index and `labels` (relative to each atom) to hit labels.
  */
 export function hitTest(
   document: DocumentView,
@@ -45,15 +47,27 @@ export function hitTest(
 ): Hit {
   let best: Hit = null
   let bestDistance = Infinity
+  let labelHit: Hit = null
+  let labelDistance = Infinity
+  const radius = new Map<string, number>()
+  for (const bond of document.bonds) {
+    const begin = atoms.get(bond.begin)
+    const end = atoms.get(bond.end)
+    if (!begin || !end) continue
+    const share = ATOM_HIT_SHARE * distance(begin.position, end.position)
+    for (const id of [bond.begin, bond.end]) radius.set(id, Math.min(radius.get(id) ?? ATOM_HIT_RADIUS, share))
+  }
   for (const atom of document.atoms) {
     if (ignore.has(atom.id)) continue
     const d = distance(point, atom.position)
     const label = labels.get(atom.id)
-    // The label box only ever adds to the vertex radius: a narrow label never shrinks it.
-    const hit = d <= ATOM_HIT_RADIUS || (label ? contains(placed(label.box, atom.position), point) : false)
-    if (hit && d < bestDistance) {
+    if (d <= (radius.get(atom.id) ?? ATOM_HIT_RADIUS) && d < bestDistance) {
       best = { kind: 'atom', id: atom.id }
       bestDistance = d
+    }
+    if (label && contains(placed(label.box, atom.position), point) && d < labelDistance) {
+      labelHit = { kind: 'atom', id: atom.id }
+      labelDistance = d
     }
   }
   if (best) return best
@@ -68,21 +82,33 @@ export function hitTest(
       bestDistance = d
     }
   }
-  return best
+  if (best?.kind === 'bond' && labelHit) {
+    const bond = document.bonds.find((candidate) => candidate.id === best?.id)
+    const begin = bond && atoms.get(bond.begin)?.position
+    const end = bond && atoms.get(bond.end)?.position
+    if (begin && end) {
+      const length = distance(begin, end)
+      const along = length === 0 ? 0 : ((point.x - begin.x) * (end.x - begin.x) + (point.y - begin.y) * (end.y - begin.y)) / (length * length)
+      if (length < 2 * ATOM_HIT_RADIUS && along >= ATOM_HIT_SHARE && along <= 1 - ATOM_HIT_SHARE && bestDistance <= length * 0.2) {
+        return best
+      }
+    }
+  }
+  return labelHit ?? best
 }
 
-/** Fixed-length endpoint whose direction is snapped to 15° steps. */
-export function snappedEndpoint(from: Position, toward: Position): Position {
+/** The endpoint `length` away from `from`, its direction snapped to 15° steps. */
+export function snappedEndpoint(from: Position, toward: Position, length = BOND_LENGTH): Position {
   const raw = Math.atan2(toward.y - from.y, toward.x - from.x)
   const angle = Math.round(raw / ANGLE_STEP) * ANGLE_STEP
-  return { x: round(from.x + BOND_LENGTH * Math.cos(angle)), y: round(from.y + BOND_LENGTH * Math.sin(angle)) }
+  return { x: round(from.x + length * Math.cos(angle)), y: round(from.y + length * Math.sin(angle)) }
 }
 
 /**
- * A free position for a new neighbor: 120° from a single neighbor (zig-zag), otherwise
- * the middle of the widest angular gap. An isolated atom grows up and to the right.
+ * A free position `length` away for a new neighbor: 120° from a single neighbor (zig-zag),
+ * otherwise the middle of the widest angular gap. An isolated atom grows up and to the right.
  */
-export function freeNeighborPosition(document: DocumentView, atomId: string): Position | null {
+export function freeNeighborPosition(document: DocumentView, atomId: string, length = BOND_LENGTH): Position | null {
   const atoms = atomIndex(document)
   const center = atoms.get(atomId)
   if (!center) return null
@@ -111,8 +137,8 @@ export function freeNeighborPosition(document: DocumentView, atomId: string): Po
     })
   }
   return {
-    x: round(center.position.x + BOND_LENGTH * Math.cos(angle)),
-    y: round(center.position.y + BOND_LENGTH * Math.sin(angle)),
+    x: round(center.position.x + length * Math.cos(angle)),
+    y: round(center.position.y + length * Math.sin(angle)),
   }
 }
 
@@ -157,10 +183,12 @@ export function leaningRight(view: DocumentView): Set<string> {
   return new Set([...lean].filter(([, sum]) => sum > 0.01).map(([id]) => id))
 }
 
-/** Bonds stop this far outside a label box. */
-export const LABEL_GAP = 2
+/**
+ * The ink of a bond stops this far outside a label box: a stroke ends this much plus half its
+ * width (its round cap) away, 2 pt at the built-in line width.
+ */
+export const LABEL_GAP = 1.4
 /** A bond squeezed between two labels keeps a stroke this long in the middle of the room left. */
-export const SQUEEZED_STROKE = 3
 /** A label box or placement frame keeps this much room inside the view box. */
 const LABEL_MARGIN = 4
 
@@ -205,25 +233,26 @@ function inside(a: Position, b: Position, box: Box): [number, number] | null {
 }
 
 /**
- * The part of the segment from `a` to `b` outside both label boxes, each grown by
- * [LABEL_GAP]: from where it leaves the box at `a` to where it enters the box at `b`. When the
- * boxes leave less than [SQUEEZED_STROKE], a stroke that long stays in the middle of the room
- * there is (of the bond when there is none), so a bond is never drawn reversed or left out.
+ * The part of the segment from `a` to `b` outside both label boxes, each grown by `gap`
+ * ([LABEL_GAP] and half the built-in stroke width by default): from where it leaves the box at
+ * `a` to where it enters the box at `b`. If the boxes leave no room, there is no visible
+ * stroke; hit testing still uses the full bond. A narrow gap produces a shorter stroke.
  */
-export function clipped(a: Position, b: Position, aBox: Box | null, bBox: Box | null): [Position, Position] {
+export function clipped(
+  a: Position,
+  b: Position,
+  aBox: Box | null,
+  bBox: Box | null,
+  gap = LABEL_GAP + LINE_WIDTH / 2,
+): [Position, Position] | null {
   const length = distance(a, b)
   const at = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
-  const fromA = aBox && inside(a, b, grown(aBox, LABEL_GAP))
-  const intoB = bBox && inside(a, b, grown(bBox, LABEL_GAP))
+  const fromA = aBox && inside(a, b, grown(aBox, gap))
+  const intoB = bBox && inside(a, b, grown(bBox, gap))
   // Only a box the segment starts (ends) in trims it.
   const start = fromA && fromA[0] <= 0 ? Math.min(1, Math.max(0, fromA[1])) : 0
   const end = intoB && intoB[1] >= 1 ? Math.max(0, Math.min(1, intoB[0])) : 1
-  if ((end - start) * length >= SQUEEZED_STROKE) return [at(start), at(end)]
-  // In the middle of what room there is, or of the bond when the boxes leave none.
-  const middle = end > start ? (start + end) / 2 : 0.5
-  const half = Math.min(SQUEEZED_STROKE, length) / 2 / length
-  const from = Math.max(0, Math.min(middle - half, 1 - 2 * half))
-  return [at(from), at(from + 2 * half)]
+  return end > start && length > 0 ? [at(start), at(end)] : null
 }
 
 /** How far an aromatic bond's dashed line runs beside its line. */
@@ -338,12 +367,62 @@ const OFFSETS: Partial<Record<BondOrder, number[]>> = {
   triple: [-3.4, 0, 3.4],
 }
 
+/** The built-in stroke width of bonds and graphics; a document's own is in its settings. */
+export const LINE_WIDTH = 1.2
+
+/** A triple bond's outer lines, the farthest any bond puts a line from its axis. */
+const WIDEST_OFFSET = 3.4
+/** How far a dative bond's arrowhead and an unknown bond's zigzag reach beside the axis. */
+const ARROWHEAD_HALF_WIDTH = 2.5
+const ZIGZAG_HALF_WIDTH = 2
+
+/**
+ * How much farther apart than built in the lines of a double, triple, or aromatic bond are
+ * drawn with strokes `lineWidth` wide. Thinner strokes keep the built-in spacing.
+ */
+export function bondSpacing(lineWidth: number) {
+  return Math.max(1, lineWidth / LINE_WIDTH)
+}
+
+/** How far the ink of a bond of `order` reaches from its axis, its round caps included. */
+export function bondReach(order: BondOrder, lineWidth: number, spacing: number) {
+  const beside: Record<BondOrder, number> = {
+    single: 0,
+    query: 0,
+    double: (OFFSETS.double?.[1] ?? 0) * spacing,
+    triple: WIDEST_OFFSET * spacing,
+    aromatic: INNER_OFFSET * spacing,
+    dative: ARROWHEAD_HALF_WIDTH,
+    unknown: ZIGZAG_HALF_WIDTH,
+  }
+  return beside[order] + lineWidth / 2
+}
+
+/**
+ * How far the ink of any bond reaches from its axis, and so beyond its atoms: placement frames,
+ * what a placement draws, and the view box keep at least this much room around atoms.
+ */
+export function strokeReach(lineWidth: number, spacing: number) {
+  return Math.max(WIDEST_OFFSET * spacing, ARROWHEAD_HALF_WIDTH, ZIGZAG_HALF_WIDTH) + lineWidth / 2
+}
+
+/** The width of the stroke underlaying a selected or hovered bond: it shows beyond its outermost line. */
+export function bondUnderlay(order: BondOrder, lineWidth: number, spacing: number) {
+  return Math.max(SELECTION_STROKE, 2 * bondReach(order, lineWidth, spacing) + 6)
+}
+
+/** The width of the stroke underlaying a selected graphic drawn `lineWidth` wide. */
+export function graphicUnderlay(lineWidth: number) {
+  return Math.max(SELECTION_STROKE, lineWidth + 6)
+}
+
 /**
  * The strokes that draw `bond` from `begin` to `end`, each trimmed where it meets a label box
- * (null for a bare vertex). Every kind looks different: aromatic is a line with a dashed line
- * beside it on `side` (see bondSides), shortened at bare vertices; dative a line with an
- * arrowhead at its end (the bond points away from its donor); query a dotted line; and unknown
- * a zigzag.
+ * (null for a bare vertex) so that strokes `lineWidth` wide keep [LABEL_GAP] from it. Every
+ * kind looks different: aromatic is a line with a dashed line beside it on `side` (see
+ * bondSides), shortened at bare vertices; dative a line with an arrowhead at its end (the bond
+ * points away from its donor); query a dotted line; and unknown a zigzag. `spacing` (see
+ * bondSpacing) multiplies how far apart parallel lines are.
  */
 export function bondStrokes(
   bond: BondView,
@@ -352,43 +431,52 @@ export function bondStrokes(
   beginBox: Box | null,
   endBox: Box | null,
   side: 1 | -1 = 1,
+  spacing = 1,
+  lineWidth = LINE_WIDTH,
 ): Stroke[] {
   const length = distance(begin, end)
   if (length === 0) return []
+  const gap = LABEL_GAP + lineWidth / 2
+  const clip = (a: Position, b: Position) => clipped(a, b, beginBox, endBox, gap)
   const ux = (end.x - begin.x) / length
   const uy = (end.y - begin.y) / length
   const shifted = (point: Position, offset: number) => ({ x: point.x - uy * offset, y: point.y + ux * offset })
-  const line = (offset: number, pattern: 'solid' | 'dashed' | 'dotted', inset = 0): Stroke & { shape: 'line' } => {
+  const line = (offset: number, pattern: 'solid' | 'dashed' | 'dotted', inset = 0): (Stroke & { shape: 'line' }) | null => {
     const pulled = Math.min(inset, length / 4)
     const from = beginBox ? begin : { x: begin.x + ux * pulled, y: begin.y + uy * pulled }
     const to = endBox ? end : { x: end.x - ux * pulled, y: end.y - uy * pulled }
-    const [a, b] = clipped(shifted(from, offset), shifted(to, offset), beginBox, endBox)
+    const segment = clip(shifted(from, offset), shifted(to, offset))
+    if (!segment) return null
+    const [a, b] = segment
     return { shape: 'line', x1: round(a.x), y1: round(a.y), x2: round(b.x), y2: round(b.y), pattern }
   }
   switch (bond.order) {
     case 'single':
     case 'double':
     case 'triple':
-      return (OFFSETS[bond.order] ?? [0]).map((offset) => line(offset, 'solid'))
+      return (OFFSETS[bond.order] ?? [0]).map((offset) => line(offset * spacing, 'solid')).filter((stroke) => stroke !== null)
     case 'aromatic':
-      return [line(0, 'solid'), line(side * INNER_OFFSET, 'dashed', INNER_INSET)]
+      return [line(0, 'solid'), line(side * INNER_OFFSET * spacing, 'dashed', INNER_INSET)].filter((stroke) => stroke !== null)
     case 'query':
-      return [line(0, 'dotted')]
+      return [line(0, 'dotted')].filter((stroke) => stroke !== null)
     case 'dative': {
       const shaft = line(0, 'solid')
+      if (!shaft) return []
       const tip = { x: shaft.x2, y: shaft.y2 }
       const size = Math.min(4, distance({ x: shaft.x1, y: shaft.y1 }, tip))
       const back = { x: tip.x - ux * size, y: tip.y - uy * size }
-      const head = [shifted(back, 2.5), tip, shifted(back, -2.5)].map((p) => ({ x: round(p.x), y: round(p.y) }))
+      const head = [shifted(back, ARROWHEAD_HALF_WIDTH), tip, shifted(back, -ARROWHEAD_HALF_WIDTH)].map((p) => ({ x: round(p.x), y: round(p.y) }))
       return [shaft, { shape: 'polyline', points: head }]
     }
     case 'unknown': {
-      const [a, b] = clipped(begin, end, beginBox, endBox)
+      const segment = clip(begin, end)
+      if (!segment) return []
+      const [a, b] = segment
       const run = distance(a, b)
       const teeth = Math.max(2, Math.round(run / 3))
       const points = Array.from({ length: teeth + 1 }, (_, index) => {
         const t = index / teeth
-        const side = index === 0 || index === teeth ? 0 : index % 2 === 0 ? -2 : 2
+        const side = index === 0 || index === teeth ? 0 : index % 2 === 0 ? -ZIGZAG_HALF_WIDTH : ZIGZAG_HALF_WIDTH
         return shifted({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, side)
       }).map((p) => ({ x: round(p.x), y: round(p.y) }))
       return [{ shape: 'polyline', points }]
@@ -402,13 +490,16 @@ export function bondStrokes(
 
 /**
  * Strokes of every bond of a drawing, by bond ID: label boxes come from `labels` (relative to
- * each atom), inner-line sides from bondSides.
+ * each atom), inner-line sides from bondSides, the spacing of parallel lines from `spacing`,
+ * strokes are `lineWidth` wide.
  */
 export function drawingStrokes(
   view: DocumentView,
   labels: ReadonlyMap<string, AtomLabel | null>,
   atoms: ReadonlyMap<string, AtomView> = atomIndex(view),
   sides: ReadonlyMap<string, 1 | -1> = bondSides(view, atoms),
+  spacing = 1,
+  lineWidth = LINE_WIDTH,
 ) {
   const strokes = new Map<string, Stroke[]>()
   for (const bond of view.bonds) {
@@ -419,7 +510,10 @@ export function drawingStrokes(
       const label = labels.get(atom.id)
       return label ? placed(label.box, atom.position) : null
     }
-    strokes.set(bond.id, bondStrokes(bond, begin.position, end.position, box(begin), box(end), sides.get(bond.id)))
+    strokes.set(
+      bond.id,
+      bondStrokes(bond, begin.position, end.position, box(begin), box(end), sides.get(bond.id), spacing, lineWidth),
+    )
   }
   return strokes
 }
@@ -454,17 +548,13 @@ const FRAME_ID_SIZE = 8
 
 /**
  * The dashed frame drawn around one of several placements: `rect` keeps FRAME_PADDING around
- * its atoms and their label boxes (already placed), the instance ID is drawn above it from
- * `idAt` (start of the text, its middle), and `box` holds both, stroke included.
+ * its atoms and their label boxes (already placed), more when bonds reach farther than that
+ * from their atoms (`reach`, see strokeReach), the instance ID is drawn above it from `idAt`
+ * (start of the text, its middle), and `box` holds both, stroke included.
  */
-export function placementFrame(positions: Position[], labels: Box[], id: string) {
+export function placementFrame(positions: Position[], labels: Box[], id: string, reach = 0) {
   const extent = union([...positions.map(({ x, y }) => ({ x, y, width: 0, height: 0 })), ...labels])
-  const rect = {
-    x: extent.x - FRAME_PADDING,
-    y: extent.y - FRAME_PADDING,
-    width: extent.width + 2 * FRAME_PADDING,
-    height: extent.height + 2 * FRAME_PADDING,
-  }
+  const rect = grown(extent, Math.max(FRAME_PADDING, reach + LABEL_MARGIN))
   const idAt = { x: rect.x + 2, y: rect.y - 6 }
   const idBox = {
     x: idAt.x - 0.04 * FRAME_ID_SIZE,
@@ -480,16 +570,17 @@ export function placementFrame(positions: Position[], labels: Box[], id: string)
  * The frame, grown to include every atom with a margin and every box (already placed) drawn
  * around them: label boxes and placement frames.
  */
-export function viewBox(positions: Position[], boxes: Box[] = []) {
+export function viewBox(positions: Position[], boxes: Box[] = [], reach = 0) {
   let minX = FRAME.x
   let minY = FRAME.y
   let maxX = FRAME.x + FRAME.width
   let maxY = FRAME.y + FRAME.height
+  const margin = Math.max(FRAME_MARGIN, reach + LABEL_MARGIN)
   for (const { x, y } of positions) {
-    minX = Math.min(minX, x - FRAME_MARGIN)
-    minY = Math.min(minY, y - FRAME_MARGIN)
-    maxX = Math.max(maxX, x + FRAME_MARGIN)
-    maxY = Math.max(maxY, y + FRAME_MARGIN)
+    minX = Math.min(minX, x - margin)
+    minY = Math.min(minY, y - margin)
+    maxX = Math.max(maxX, x + margin)
+    maxY = Math.max(maxY, y + margin)
   }
   for (const box of boxes) {
     minX = Math.min(minX, box.x - LABEL_MARGIN)

@@ -11,6 +11,7 @@ import {
   type DocumentResponse,
   type DocumentView,
   type ListQuery,
+  type SettingsSource,
   type TrashListResponse,
 } from '@/lib/document-contract'
 
@@ -63,14 +64,15 @@ export type EditSelection = { kind: 'group'; objects: string[] }
 
 const client = new DocumentClient()
 
-/** Same title, graph, and scene, whatever revision number names them. */
+/** Same title, graph, scene, and settings, whatever revision number names them. */
 function sameContent(a: DocumentView, b: DocumentView) {
   return (
     a.id === b.id &&
     a.title === b.title &&
     JSON.stringify(a.atoms) === JSON.stringify(b.atoms) &&
     JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
-    JSON.stringify(a.scene) === JSON.stringify(b.scene)
+    JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
+    JSON.stringify(a.settings) === JSON.stringify(b.settings)
   )
 }
 
@@ -299,6 +301,18 @@ export function useDocumentEditor() {
     /** A snapshot for a command made now, including changes not rendered yet. */
     selectionAtPress: useCallback(() => new Set(selectionRef.current), []),
     setSelection,
+    /** Holds later document edits until a dependent preference write has finished. */
+    reserveStyle: useCallback(() => {
+      let reached = () => {}
+      let release = () => {}
+      const ready = new Promise<void>((resolve) => { reached = () => resolve() })
+      const released = new Promise<void>((resolve) => { release = () => resolve() })
+      void run(async () => {
+        reached()
+        await released
+      })
+      return { ready, release }
+    }, [run]),
     busy: pending > 0,
     error,
     autosave,
@@ -426,6 +440,24 @@ export function useDocumentEditor() {
     ),
     // Undo and redo are not retried after a restart: the restarted service's history can
     // differ from the one this page saw even when the drawing matches.
+    resetSettings: useCallback((to: SettingsSource) => {
+      const pressed = new Set(selectionRef.current)
+      const shown = currentRef.current?.document.id
+      return mutate((document) => {
+        if (shown !== document.document.id) return null
+        const selection = selectionSnapshot(pressed, document.document)
+        return client.resetSettings(shown, revision(document), to, { before: selection, after: selection })
+      })
+    }, [mutate]),
+    importSettings: useCallback((source: string) => {
+      const pressed = new Set(selectionRef.current)
+      const shown = currentRef.current?.document.id
+      return mutate((document) => {
+        if (shown !== document.document.id || shown === source) return null
+        const selection = selectionSnapshot(pressed, document.document)
+        return client.importSettings(shown, revision(document), source, { before: selection, after: selection })
+      })
+    }, [mutate]),
     undo: useCallback(
       () => {
         const version = selectionVersion.current

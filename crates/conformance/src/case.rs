@@ -8,7 +8,8 @@ use std::path::Path;
 
 use chemifree_application::json;
 use chemifree_application::{
-    CloseRequest, CreateDocumentRequest, DraftRequest, RevisionRequest, TransactionRequest,
+    CloseRequest, CreateDocumentRequest, DraftRequest, PreferencesRequest, ResetSettingsRequest,
+    RevisionRequest, TransactionRequest,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -117,7 +118,18 @@ pub enum Call {
         document: String,
         body: CloseRequest,
     },
+    /// Resets a document's settings (`settings/reset`).
+    ResetSettings {
+        document: String,
+        body: ResetSettingsRequest,
+    },
     Capabilities,
+    /// Reads the data directory's preferences.
+    Preferences,
+    /// Replaces the preferences (`PUT /api/v1/preferences`).
+    SetPreferences {
+        body: PreferencesRequest,
+    },
     /// Ends the application without a normal stop, as a crash would, and starts a new one on
     /// the same data directory.
     Restart,
@@ -150,7 +162,10 @@ impl Call {
             Self::Autosave { .. } => "autosave",
             Self::Recover { .. } => "recover",
             Self::Close { .. } => "close",
+            Self::ResetSettings { .. } => "reset_settings",
             Self::Capabilities => "capabilities",
+            Self::Preferences => "preferences",
+            Self::SetPreferences { .. } => "set_preferences",
             Self::Restart => "restart",
             Self::Operation { .. } => "operation",
         }
@@ -718,7 +733,13 @@ fn parse_step(
         "undo" | "redo" | "save" => (&["expected_revision"], true, true),
         "autosave" | "recover" => (&[], true, true),
         "close" => (&["discard_unsaved", "expected_revision"], true, true),
-        "capabilities" | "restart" => (&[], false, false),
+        "reset_settings" => (&["expected_revision", "to"], true, true),
+        "capabilities" | "preferences" | "restart" => (&[], false, false),
+        "set_preferences" => (
+            &["expected_revision", "ui", "new_documents", "computation"],
+            true,
+            false,
+        ),
         other => return Err(StepProblem::UnknownCall(other.to_owned())),
     };
     if let Some(field) = fields
@@ -845,7 +866,15 @@ fn parse_step(
             document: document(),
             body: request(body)?,
         },
+        "reset_settings" => Call::ResetSettings {
+            document: document(),
+            body: request(body)?,
+        },
         "capabilities" => Call::Capabilities,
+        "preferences" => Call::Preferences,
+        "set_preferences" => Call::SetPreferences {
+            body: request(body)?,
+        },
         "restart" => Call::Restart,
         other => return Err(StepProblem::UnknownCall(other.to_owned())),
     };

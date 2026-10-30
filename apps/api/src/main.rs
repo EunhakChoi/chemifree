@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
+use chemifree_providers::{
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, default_data_dir,
+};
 use clap::Parser;
 use clap::builder::FalseyValueParser;
 use tokio::net::TcpListener;
@@ -39,7 +41,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let repository = FileDocumentRepository::new(&data_dir);
     repository.prune_stale_temporaries();
     let documents = repository.directory().to_path_buf();
-    let application = LocalApplication::new(LocalCapabilities, repository);
+    let preferences = FilePreferenceStore::new(&data_dir);
+    preferences.prune_stale_temporaries();
+    let application =
+        LocalApplication::new(LocalCapabilities, repository).with_preferences(preferences);
 
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;

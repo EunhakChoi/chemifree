@@ -19,7 +19,9 @@ Open **http://127.0.0.1:5173**. This starts Vite and the Rust API together; Vite
 
 Documents are stored as `documents/<id>.json` in the data directory (recovery drafts in `drafts/`, save locks in `locks/`; files from before graph and scene were separated are read and migrated, and the first save over one keeps its original bytes in `migrated/`): `--data-dir` or `CHEMIFREE_DATA_DIR`, otherwise the platform user-data directory (`$XDG_DATA_HOME/chemifree` or `~/.local/share/chemifree` on Linux, `~/Library/Application Support/chemifree` on macOS, `%APPDATA%\chemifree` on Windows). The API prints the path at startup.
 
-The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Version 4 documents and drafts retain this state; versions 1–3 are read in memory. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. See [the document contract](docs/CONTRACT.md) for limits and deletion behavior.
+The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme and defaults copied into newly created documents. **Document style** and **Preferences** edit these settings in the web UI; computation preferences remain unavailable.
+
+Version 5 documents and drafts retain the scene, selection, and style; versions 1–4 are read in memory with default style. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
 The first API launch compiles Rust dependencies. If that takes longer than the UI's five-second request timeout, use **Retry connection** once the API is listening. Both development ports must be available.
 
@@ -41,10 +43,15 @@ cargo run --locked -p chemifree-cli -- documents apply <id> --expected-revision 
 cargo run --locked -p chemifree-cli -- documents undo <id> --expected-revision 1
 cargo run --locked -p chemifree-cli -- documents show <id> --json
 
+# A document style edit is undoable; preferences affect new documents only.
+cargo run --locked -p chemifree-cli -- documents apply <id> --expected-revision 2 --commands '[{"op":"update_settings","bond_length_pt":40}]'
+cargo run --locked -p chemifree-cli -- preferences show
+cargo run --locked -p chemifree-cli -- preferences set --expected-revision 0 --preferences '{"ui":{"theme":"dark"},"new_documents":{"label_font":"serif"}}'
+
 # Operation contract 1: one JSON request per line in, one reply per line out.
 echo '{"contract":1,"request_id":"r1","profile":"preserve-semantics","operation":"capabilities.inspect","parameters":{}}' \
   | cargo run --locked -p chemifree-cli -- operations
-cargo run --locked -p chemifree-cli -- documents save-as <id> --expected-revision 2 --title "Ethanol copy"
+cargo run --locked -p chemifree-cli -- documents save-as <id> --expected-revision 3 --title "Ethanol copy"
 # After an API crash: recover the autosaved draft (and save it), or save it as a copy, or drop it.
 cargo run --locked -p chemifree-cli -- documents recover <id>
 cargo run --locked -p chemifree-cli -- documents recover-as-copy <id>
@@ -142,6 +149,8 @@ The [interactive architecture document](docs/architecture.html) maps these layer
 | `GET/POST /api/v1/documents` | `documents list` / `create` | List and create documents |
 | `GET /api/v1/documents/{id}` | `documents show` | Working copy |
 | `POST …/transactions`, `…/undo`, `…/redo` | `documents apply` / `undo` / `redo` | Edits with `expected_revision` |
+| `POST …/settings/reset`, `…/settings/import` | `documents settings reset` / `import` | Reset or import document style as an edit |
+| `GET/PUT /api/v1/preferences`, `POST …/reset`, `…/import` | `preferences show` / `set` / `reset` / `import` | Data-directory UI and new-document preferences |
 | `POST …/save`, `…/close` | (CLI edits save) | Commit; end session |
 | `POST …/autosave` | — | Write the session's recovery draft |
 | `POST …/save-as`, `…/recover-as-copy` | `documents save-as` / `recover-as-copy` | Commit as a new document |
@@ -157,7 +166,7 @@ The API binds IPv4 loopback and sets no CORS permissions. Writes require an allo
 
 ## UI components and lint
 
-The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Dialog, Empty, Field (with Label and Separator), Input, Kbd, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Dialog, Empty, Field (with Label and Separator), Input, Kbd, Select, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Initialization used **shadcn CLI 4.22.1**:
 

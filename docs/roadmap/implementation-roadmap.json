@@ -542,7 +542,7 @@
    "acceptance": "생성·편집·저장·재개방에서 의미를 보존하고 잘못된 조합은 구조화 진단을 낸다. 아직 계산하지 않는 상태를 정상 계산 결과로 표시하지 않는다.",
    "kind": "core",
    "id": "P10",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -550,7 +550,14 @@
    ],
    "depends_on": [
     "P09"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     32
+    ],
+    "merge_commit": "b1ccdfb222043cf5d6e69aaa6d5720f2ba4b5654",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40820386893"
+   }
   },
   {
    "phase": "foundation",
@@ -569,7 +576,7 @@
    "acceptance": "실패 시 상태가 바뀌지 않고 Undo/Redo가 그래프·장면·참조·선택을 함께 복원한다. ID와 revision을 재사용하지 않는다.",
    "kind": "core",
    "id": "P11",
-   "status": "planned",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -578,7 +585,15 @@
    "depends_on": [
     "P09",
     "P10"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     34,
+     35
+    ],
+    "merge_commit": "9688928b16999f0d4de5c072890e1371054872c5",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41085936364"
+   }
   },
   {
    "phase": "foundation",
@@ -595,7 +610,7 @@
    "acceptance": "같은 문서가 재개방 후 같은 설정을 갖고 전역 변경이 다른 문서에 뜻밖에 기록되지 않는다. NMR·정밀도 등 후속 설정의 저장 위치가 명시된다.",
    "kind": "core",
    "id": "P12",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",
@@ -4133,7 +4148,7 @@
     "phase3-design-v3/semantics.ko.md",
     "public-automation-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P12",
     "P35",
