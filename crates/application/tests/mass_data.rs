@@ -282,3 +282,143 @@ fn catalog_labels_do_not_replace_exact_metadata_bytes() {
         Err(MassError::CatalogMismatch)
     );
 }
+
+#[test]
+fn feature_metadata_must_match_the_typed_keys_and_source_order() {
+    let mut results = Vec::new();
+    for (field, value) in [
+        ("element_key_type", "u64"),
+        ("isotope_key_type", "i32"),
+        ("row_order", "sorted"),
+    ] {
+        let mut docs = documents();
+        docs[5][field] = value.into();
+        results.push(decode(&docs).err());
+    }
+    assert_eq!(results, [Some(MassError::Inconsistent); 3]);
+}
+
+#[test]
+fn element_and_alias_symbols_cannot_be_empty_or_whitespace() {
+    let mut results = Vec::new();
+    for name in ["", " \t"] {
+        let mut docs = documents();
+        docs[0]["elements"][0]["symbol"] = name.into();
+        results.push(decode(&docs).err());
+        let mut docs = documents();
+        docs[3]["aliases"][0]["symbol"] = name.into();
+        results.push(decode(&docs).err());
+    }
+    assert_eq!(results, [Some(MassError::Inconsistent); 4]);
+}
+
+#[test]
+fn feature_identity_and_declared_units_cannot_be_blank() {
+    let mut results = Vec::new();
+    for field in [
+        "schema_id",
+        "mass_unit",
+        "natural_atomic_weight_unit",
+        "abundance_unit",
+    ] {
+        let mut docs = documents();
+        docs[5][field] = "".into();
+        results.push(decode(&docs).err());
+    }
+    let mut docs = documents();
+    docs[5]["native_selected_input_secondary"]["unit"] = " ".into();
+    results.push(decode(&docs).err());
+    let mut docs = documents();
+    docs[4]["signed_charge_mass_coefficient"]["unit"] = "".into();
+    results.push(decode(&docs).err());
+    assert_eq!(results, [Some(MassError::Inconsistent); 6]);
+}
+
+#[test]
+fn an_empty_element_table_and_zero_atomic_number_are_refused() {
+    let mut empty = documents();
+    empty[0]["elements"] = json!([]);
+    empty[1]["isotopes"] = json!([]);
+    empty[2]["rows"] = json!([]);
+    empty[3]["aliases"] = json!([]);
+    empty[5]["element_rows"] = 0.into();
+    empty[5]["isotope_rows"] = 0.into();
+    empty[5]["alias_rows"] = 0.into();
+    empty[6]["row_source_spans"] = json!([]);
+    let empty_result = decode(&empty).err();
+
+    let mut zero = documents();
+    zero[0]["elements"][0]["atomic_number_u32"] = 0.into();
+    zero[1]["isotopes"][0]["atomic_number_u32"] = 0.into();
+    zero[1]["isotopes"][1]["atomic_number_u32"] = 0.into();
+    zero[2]["rows"][0]["atomic_number_u32"] = 0.into();
+    zero[3]["aliases"][0]["atomic_number_u32"] = 0.into();
+    assert_eq!(
+        [empty_result, decode(&zero).err()],
+        [Some(MassError::Inconsistent); 2]
+    );
+}
+
+#[test]
+fn secondary_zero_check_does_not_erase_nonzero_json_tokens_on_underflow() {
+    let docs = documents();
+    let mut encoded: Vec<_> = docs
+        .iter()
+        .map(|doc| serde_json::to_vec(doc).unwrap())
+        .collect();
+    let features = String::from_utf8(encoded[5].clone()).unwrap();
+    let mut results = Vec::new();
+    for value in ["1e-9999", "-1e-9999"] {
+        encoded[5] = features
+            .replacen("\"value\":0", &format!("\"value\":{value}"), 1)
+            .into_bytes();
+        let files: Vec<_> = PATHS
+            .into_iter()
+            .zip(encoded.iter().map(Vec::as_slice))
+            .collect();
+        results.push(decode_set(&files).err());
+    }
+    assert_eq!(results, [Some(MassError::Inconsistent); 2]);
+    for value in ["0", "-0.0", "0e99"] {
+        encoded[5] = features
+            .replacen("\"value\":0", &format!("\"value\":{value}"), 1)
+            .into_bytes();
+        let files: Vec<_> = PATHS
+            .into_iter()
+            .zip(encoded.iter().map(Vec::as_slice))
+            .collect();
+        assert!(decode_set(&files).is_ok(), "zero token {value}");
+    }
+}
+
+#[test]
+fn source_line_spans_are_distinct_nonempty_and_physically_ordered() {
+    let mut unordered_metadata = documents();
+    unordered_metadata[6]["row_source_spans"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    assert!(decode(&unordered_metadata).is_ok());
+    let mut results = Vec::new();
+    let mut same_line = documents();
+    same_line[6]["row_source_spans"][1]["source_line_1based"] = 1.into();
+    results.push(decode(&same_line).err());
+    let mut overlap = documents();
+    overlap[6]["row_source_spans"][1]["source_file_offset"] = 3.into();
+    results.push(decode(&overlap).err());
+    let mut reversed = documents();
+    reversed[6]["row_source_spans"][0]["source_line_1based"] = 2.into();
+    reversed[6]["row_source_spans"][1]["source_line_1based"] = 1.into();
+    results.push(decode(&reversed).err());
+    let mut empty_line = documents();
+    empty_line[6]["row_source_spans"][0]["source_bytes_including_newline"] = 0.into();
+    results.push(decode(&empty_line).err());
+    assert_eq!(results, [Some(MassError::Inconsistent); 4]);
+}
+
+#[test]
+fn static_selection_view_respects_the_declared_source_order() {
+    let mut docs = documents();
+    docs[2]["rows"].as_array_mut().unwrap().reverse();
+    assert_eq!(decode(&docs).err(), Some(MassError::Inconsistent));
+}

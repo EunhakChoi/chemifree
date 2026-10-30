@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
-use serde_json::{Number, Value};
+use serde_json::{Number, Value, value::RawValue};
 use sha2::{Digest, Sha256};
 
 use crate::{exact_decimal::DecimalOrder, json, phase6_profiles};
@@ -304,7 +304,9 @@ pub fn decode_set(files: &[(&str, &[u8])]) -> Result<MassData, MassError> {
     let selections: SelectionsFile = read_json(file(FILES[2])?)?;
     let aliases: AliasesFile = read_json(file(FILES[3])?)?;
     let constants: ConstantsFile = read_json(file(FILES[4])?)?;
-    let features = read_json(file(FEATURES)?)?;
+    let feature_bytes = file(FEATURES)?;
+    let features = read_json(feature_bytes)?;
+    check_secondary_zero(feature_bytes)?;
     let provenance = read_json(file(FILES[6])?)?;
     if !selections.selection_is_static_table_analysis_not_runtime_capture {
         return Err(MassError::Inconsistent);
@@ -323,6 +325,32 @@ pub fn decode_set(files: &[(&str, &[u8])]) -> Result<MassData, MassError> {
         verify_source_lines(&data.provenance, raw)?;
     }
     Ok(data)
+}
+
+// The normal JSON representation is binary64 and can underflow a nonzero token to zero.
+// Read this one declarative value from its original token after the strict duplicate-key
+// check, so the metadata cannot claim an exact zero after that conversion.
+#[derive(Deserialize)]
+struct RawSecondary<'a> {
+    #[serde(borrow)]
+    native_selected_input_secondary: RawSecondaryValue<'a>,
+}
+
+#[derive(Deserialize)]
+struct RawSecondaryValue<'a> {
+    #[serde(borrow)]
+    value: &'a RawValue,
+}
+
+fn check_secondary_zero(bytes: &[u8]) -> Result<(), MassError> {
+    let fields: RawSecondary<'_> = serde_json::from_slice(bytes).map_err(|_| MassError::Record)?;
+    let value = DecimalOrder::parse(fields.native_selected_input_secondary.value.get())
+        .ok_or(MassError::Record)?;
+    let zero = DecimalOrder::parse("0").ok_or(MassError::Record)?;
+    if value != zero {
+        return Err(MassError::Inconsistent);
+    }
+    Ok(())
 }
 
 fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -351,9 +379,23 @@ fn valid_digest(value: &str) -> bool {
 fn validate(data: &MassData) -> Result<(), MassError> {
     use std::cmp::Ordering;
     let meta = &data.features;
-    if meta.element_rows != data.elements.len() as u64
+    if data.elements.is_empty()
+        || meta.element_rows != data.elements.len() as u64
         || meta.isotope_rows != data.isotopes.len() as u64
         || meta.alias_rows != data.aliases.len() as u64
+        || meta.element_key_type != "u32"
+        || meta.isotope_key_type != "u32"
+        || meta.row_order != "source"
+        || [
+            &meta.schema_id,
+            &meta.mass_unit,
+            &meta.natural_atomic_weight_unit,
+            &meta.abundance_unit,
+            &meta.native_selected_input_secondary.unit,
+            &data.charge_coefficient.unit,
+        ]
+        .iter()
+        .any(|text| text.trim().is_empty())
         || !meta.source_decimal_tokens_authoritative
         || !meta.reference_f64_decode_is_independent_not_original_runtime_capture
         || meta.source_mass_number_field_explicit_in_text
@@ -367,6 +409,13 @@ fn validate(data: &MassData) -> Result<(), MassError> {
     }
     let zero = DecimalOrder::parse("0").ok_or(MassError::Record)?;
     let hundred = DecimalOrder::parse("100").ok_or(MassError::Record)?;
+    if data
+        .selections
+        .windows(2)
+        .any(|pair| pair[0].element_row_ordinal >= pair[1].element_row_ordinal)
+    {
+        return Err(MassError::Inconsistent);
+    }
     let mut ids = HashSet::new();
     let mut element_symbols = HashSet::new();
     let mut selections = HashMap::new();
@@ -386,6 +435,8 @@ fn validate(data: &MassData) -> Result<(), MassError> {
             .filter(|end| *end <= data.isotopes.len())
             .ok_or(MassError::Inconsistent)?;
         if element.element_row_ordinal != ordinal as u64
+            || element.atomic_number_u32 == 0
+            || element.symbol.trim().is_empty()
             || element.first_isotope_row_ordinal != position as u64
             || !ids.insert(element.atomic_number_u32)
             || !element_symbols.insert(element.symbol.as_str())
@@ -442,7 +493,8 @@ fn validate(data: &MassData) -> Result<(), MassError> {
             .ok()
             .and_then(|index| data.isotopes.get(index))
             .ok_or(MassError::Inconsistent)?;
-        if row.atomic_number_u32 != alias.atomic_number_u32
+        if alias.symbol.trim().is_empty()
+            || row.atomic_number_u32 != alias.atomic_number_u32
             || row.mass_number_u32 != alias.mass_number_u32
             || element_symbols.contains(alias.symbol.as_str())
             || alias_targets
@@ -486,6 +538,7 @@ fn validate_provenance(data: &MassData) -> Result<(), MassError> {
         if !exists
             || !targets.insert((span.kind, span.row_ordinal))
             || span.source_line_1based == 0
+            || span.source_bytes_including_newline == 0
             || !valid_digest(&span.source_line_sha256)
             || span
                 .source_file_offset
@@ -494,6 +547,19 @@ fn validate_provenance(data: &MassData) -> Result<(), MassError> {
         {
             return Err(MassError::Inconsistent);
         }
+    }
+    // Physical lines are disjoint and appear in the same order as their byte offsets,
+    // even when the source file itself is not available to this reader.
+    let mut spans: Vec<_> = source.row_source_spans.iter().collect();
+    spans.sort_unstable_by_key(|span| span.source_line_1based);
+    if spans.windows(2).any(|pair| {
+        pair[0].source_line_1based == pair[1].source_line_1based
+            || pair[0]
+                .source_file_offset
+                .saturating_add(pair[0].source_bytes_including_newline)
+                > pair[1].source_file_offset
+    }) {
+        return Err(MassError::Inconsistent);
     }
     Ok(())
 }
