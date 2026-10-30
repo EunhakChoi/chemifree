@@ -301,3 +301,22 @@ fn source_line_numbers_cannot_claim_impossible_byte_offsets() {
         [Some(MassInputError::Inconsistent); 2]
     );
 }
+
+#[test]
+fn nominal_mass_limits_use_exact_source_decimals_at_half_boundaries() {
+    let outcomes = [
+        ("6.49999999999999999999", false),
+        ("6.5", true),
+        ("7.49999999999999999999", true),
+        ("7.5", false),
+    ]
+    .map(|(source, expected)| {
+        let mut input = documents();
+        input[1]["isotopes"][0]["mass"] = decimal(source);
+        (load(&input, None).is_ok(), expected)
+    });
+    assert_eq!(
+        outcomes,
+        [(false, false), (true, true), (true, true), (false, false)]
+    );
+}

@@ -224,3 +224,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 20:18:53 | `380458a4cf60265f438abc06f938b5cd6997950c` | 20:21:28 | [P2](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428122647): 한 원소의 동위원소 질량 번호가 중복될 수 있었다. 재작성은 원소별 유일성을 요구하되 서로 다른 원소의 같은 번호는 허용한다. |
 | 2 요청 | 20:26:22 | `7fb0d0ae07bf72dcc163239bb7585906bc10e029` | 20:28:44 | P2 두 건: [키·순서 metadata 불일치](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428179321)와 [빈 원소·별칭 기호](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428179334). 재작성에서 선언과 표현을 대조하고 빈 기호를 거절한다. [요청](https://github.com/EunhakChoi/chemifree/pull/42#issuecomment-6532770365). |
 | 3 요청 | 20:35:35 | `cc698edf40541661e67f99725bce23666bed8139` | 20:37:54 | [P2](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428253672): 계수 출처 범위의 길이 0을 허용했다. 재작성은 줄과 계수에 공통으로 비영 길이·오버플로·부모 범위 검증을 적용한다. [요청](https://github.com/EunhakChoi/chemifree/pull/42#issuecomment-6532932959). |
+
+## #43 질량 입력 독립 재작성
+
+시간은 UTC다. [#43](https://github.com/EunhakChoi/chemifree/pull/43)은 #41·#42의 종료 사유를 검토하고 병합된 최신 main `560aa08485e5629fe7b22b156c21ef8d439a5d71`에서 구현과 독립 fixture를 새로 작성했다. 실패 브랜치의 커밋이나 패치를 가져오지 않았다.
+
+| 회차 | 요청 시각 | 대상 SHA | 완료 시각 | 결과와 처리 근거 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-30 20:57:59 | `c25c991792c819c4eb79891401b336f16831fce1` | 21:00:16 | [P2](https://github.com/EunhakChoi/chemifree/pull/43#discussion_r4428425874): binary64 참고값으로 명목 질량 번호의 반정수 경계를 검사하면 원문 십진수가 경계 양쪽에서 서로 다른 판정을 낸다. 수용: 원문이 authoritative이고 binary64 비트는 독립 참고값이라는 공개 계약을 따라 정확한 십진수 경계를 사용한다. 두 방향의 수정 전 실패와 경계 자체를 검사했다. 이는 원본 실행기의 반올림 비트를 캡처하거나 보장한다는 주장이 아니다. |

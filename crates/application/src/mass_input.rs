@@ -386,8 +386,14 @@ impl MassInput {
             let mut best: Option<&IsotopeRow> = None;
             let mut all_zero = true;
             for (within, isotope) in self.isotopes[cursor..end].iter().enumerate() {
-                let nominal = f64::from(isotope.mass_number_u32);
-                let witness = f64::from_bits(isotope.mass.binary64_bits);
+                let lower_integer = isotope
+                    .mass_number_u32
+                    .checked_sub(1)
+                    .ok_or(MassInputError::Inconsistent)?;
+                let lower = DecimalInput::from_token(&format!("{lower_integer}.5"))
+                    .ok_or(MassInputError::InvalidShape)?;
+                let upper = DecimalInput::from_token(&format!("{}.5", isotope.mass_number_u32))
+                    .ok_or(MassInputError::InvalidShape)?;
                 if isotope.isotope_row_ordinal != (cursor + within) as u64
                     || isotope.element_row_ordinal != index as u64
                     || isotope.atomic_number_u32 != element.atomic_number_u32
@@ -397,8 +403,8 @@ impl MassInput {
                     || isotope.abundance_percent.exact < zero
                     || isotope.abundance_percent.exact > hundred
                     || (!isotope.abundance_token_present && isotope.abundance_percent.exact != zero)
-                    || witness < nominal - 0.5
-                    || witness >= nominal + 0.5
+                    || isotope.mass.exact < lower
+                    || isotope.mass.exact >= upper
                 {
                     return Err(MassInputError::Inconsistent);
                 }
