@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
-import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position } from '@/lib/document-contract'
+import { placements, type AtomView, type BondOrder, type Command, type DocumentView, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import {
@@ -121,6 +121,8 @@ export function StructureCanvas({
   const drawings = useMemo<Drawing[]>(() => {
     const counts = degrees(document)
     const all = placements(document)
+    const order = document.scene?.objects?.filter((object) => object.kind === 'instance').map((object) => object.id)
+    if (order) all.sort((a, b) => order.indexOf(a.id ?? '') - order.indexOf(b.id ?? ''))
     // Rings depend on the graph alone: searched once for every placement.
     const rings = bondRings(document)
     // A label depends on the atom and the side its hydrogens take, not on the placement.
@@ -151,13 +153,16 @@ export function StructureCanvas({
   const box = useMemo(
     () =>
       viewBox(
-        drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
+        [
+          ...drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
+          ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : []) ?? []),
+        ],
         drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
           ...(drawing.frame ? [drawing.frame.box] : []),
         ]),
       ),
-    [drawings],
+    [document.scene, drawings],
   )
 
   function drawingOf(instance: string | null) {
@@ -362,6 +367,47 @@ export function StructureCanvas({
   const hovered = (drawing: Drawing, kind: 'atom' | 'bond', id: string) =>
     hover?.instance === drawing.id && hover.hit?.kind === kind && hover.hit.id === id
 
+  const sceneObjects = document.scene?.objects
+  const byId = new Map(sceneObjects?.map((object) => [object.id, object]) ?? [])
+  const sceneSelected = (object: SceneObject) => {
+    let current: SceneObject | undefined = object
+    while (current) {
+      if (selection.has(current.id)) return true
+      current = current.parent === null ? undefined : byId.get(current.parent)
+    }
+    return false
+  }
+  const drawInstance = (drawing: Drawing) => (
+    <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
+      {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
+      <g className="fill-primary/15 stroke-primary/40">
+        {document.bonds
+          .filter((bond) => selection.has(bond.id) || hovered(drawing, 'bond', bond.id))
+          .map((bond) => {
+            const a = position(drawing, bond.begin)
+            const b = position(drawing, bond.end)
+            return <line key={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={8} strokeLinecap="round" />
+          })}
+        {document.atoms
+          .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
+          .map((atom) => {
+            const p = position(drawing, atom.id)
+            const label = labelBox(drawing.labels, atom.id, p)
+            return label ? (
+              <rect key={atom.id} {...label} rx={3} strokeWidth={1} />
+            ) : (
+              <circle key={atom.id} cx={p.x} cy={p.y} r={8} strokeWidth={1} />
+            )
+          })}
+      </g>
+      <DrawingLayer
+        drawing={drawing}
+        several={drawings.length > 1}
+        moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
+      />
+    </g>
+  )
+
   return (
     <svg
       ref={svgRef}
@@ -383,36 +429,21 @@ export function StructureCanvas({
       }}
       onPointerLeave={() => setHover(null)}
     >
-      {drawings.map((drawing) => (
-        <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
-          {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
-          <g className="fill-primary/15 stroke-primary/40">
-            {document.bonds
-              .filter((bond) => selection.has(bond.id) || hovered(drawing, 'bond', bond.id))
-              .map((bond) => {
-                const a = position(drawing, bond.begin)
-                const b = position(drawing, bond.end)
-                return <line key={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={8} strokeLinecap="round" />
-              })}
-            {document.atoms
-              .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
-              .map((atom) => {
-                const p = position(drawing, atom.id)
-                const label = labelBox(drawing.labels, atom.id, p)
-                return label ? (
-                  <rect key={atom.id} {...label} rx={3} strokeWidth={1} />
-                ) : (
-                  <circle key={atom.id} cx={p.x} cy={p.y} r={8} strokeWidth={1} />
-                )
-              })}
-          </g>
-          <DrawingLayer
-            drawing={drawing}
-            several={drawings.length > 1}
-            moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
-          />
-        </g>
-      ))}
+      {sceneObjects ? sceneObjects.map((object) => {
+        if (object.kind === 'group') return null
+        if (object.kind === 'graphic') return (
+          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} onPointerDown={(event) => {
+            if (tool !== 'select' || disabled) return
+            event.stopPropagation()
+            const next = event.shiftKey ? new Set(selection) : new Set<string>()
+            if (event.shiftKey && next.has(object.id)) next.delete(object.id)
+            else next.add(object.id)
+            onSelectionChange(next)
+          }} />
+        )
+        const drawing = drawings.find((item) => item.id === object.id)
+        return drawing ? drawInstance(drawing) : null
+      }) : drawings.map(drawInstance)}
       {preview?.kind === 'bond' && (
         <line
           x1={preview.from.x}
@@ -436,6 +467,35 @@ export function StructureCanvas({
         />
       )}
     </svg>
+  )
+}
+
+function SceneGraphic({ object, selected, onPointerDown }: {
+  object: Extract<SceneObject, { kind: 'graphic' }>
+  selected: boolean
+  onPointerDown: (event: PointerEvent<SVGGElement>) => void
+}) {
+  const [a, b] = object.points
+  const length = Math.hypot(b.x - a.x, b.y - a.y)
+  const ux = length > 0 ? (b.x - a.x) / length : 0
+  const uy = length > 0 ? (b.y - a.y) / length : 0
+  const head = `${b.x},${b.y} ${b.x - ux * 6 - uy * 3},${b.y - uy * 6 + ux * 3} ${b.x - ux * 6 + uy * 3},${b.y - uy * 6 - ux * 3}`
+  const rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
+  return (
+    <g data-scene-object={object.id} onPointerDown={onPointerDown}>
+      {object.shape === 'rectangle' ? (
+        <>
+          <rect {...rect} fill="none" stroke="transparent" strokeWidth={10} />
+          <rect {...rect} fill="none" className={selected ? 'stroke-primary' : 'stroke-foreground'} strokeWidth={selected ? 2 : 1.2} />
+        </>
+      ) : (
+        <>
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={10} />
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={selected ? 'stroke-primary' : 'stroke-foreground'} strokeWidth={selected ? 2 : 1.2} />
+          {object.shape === 'arrow' && length > 0 && <polygon points={head} className={selected ? 'fill-primary' : 'fill-foreground'} />}
+        </>
+      )}
+    </g>
   )
 }
 

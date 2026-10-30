@@ -1,0 +1,41 @@
+{
+  "id": "scene-tree-history",
+  "title": "Group sibling graphics, move a group and child once, and restore selection through undo, redo, save and reopen",
+  "requirements": ["MODEL-01", "OPS-02"],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    { "call": "create", "bind": "d", "expect": { "document": { "revision": 0 } } },
+    {
+      "call": "transact", "document": "d", "expected_revision": 0,
+      "commands": [
+        { "op": "add_graphic", "shape": "line", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }] },
+        { "op": "add_graphic", "shape": "arrow", "points": [{ "x": 20, "y": 0 }, { "x": 30, "y": 0 }] }
+      ],
+      "expect": { "document": { "revision": 1, "scene": { "roots": ["s1", "s2", "s3"] } } }
+    },
+    {
+      "call": "transact", "document": "d", "expected_revision": 1,
+      "commands": [{ "op": "group", "objects": ["s2", "s3"] }],
+      "selection_before": { "objects": ["s2", "s3"], "atoms": [], "bonds": [] },
+      "selection_after": { "objects": ["$0"], "atoms": [], "bonds": [] },
+      "expect": { "document": { "revision": 2, "selection": { "objects": ["s4"] }, "scene": { "roots": ["s1", "s4"] } } }
+    },
+    {
+      "call": "transact", "document": "d", "expected_revision": 2,
+      "commands": [{ "op": "move_objects", "objects": ["s4", "s2"], "delta": { "x": 5, "y": 0 } }],
+      "expect": { "document": { "revision": 3, "scene": { "objects": [
+        { "id": "s1", "kind": "instance" },
+        { "id": "s4", "kind": "group", "children": ["s2", "s3"] },
+        { "id": "s2", "points": [{ "x": 5, "y": 0 }, { "x": 15, "y": 0 }] },
+        { "id": "s3", "points": [{ "x": 25, "y": 0 }, { "x": 35, "y": 0 }] }
+      ] } } }
+    },
+    { "call": "undo", "document": "d", "expected_revision": 3, "expect": { "document": { "revision": 4, "selection": { "objects": ["s4"] } } } },
+    { "call": "undo", "document": "d", "expected_revision": 4, "expect": { "document": { "revision": 5, "selection": { "objects": ["s2", "s3"] }, "scene": { "roots": ["s1", "s2", "s3"] } } } },
+    { "call": "redo", "document": "d", "expected_revision": 5, "expect": { "document": { "revision": 6, "selection": { "objects": ["s4"] }, "scene": { "roots": ["s1", "s4"] } } } },
+    { "call": "save", "document": "d", "expected_revision": 6 },
+    { "call": "close", "document": "d" },
+    { "call": "get", "document": "d", "expect": { "document": { "revision": 6, "selection": { "objects": ["s4"] }, "scene": { "roots": ["s1", "s4"] } } } }
+  ]
+}

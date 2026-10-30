@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use chemifree_domain::scene::SceneError;
 use chemifree_domain::states::StateError;
 use serde::Serialize;
 
@@ -100,6 +101,8 @@ pub struct ApplicationError {
     /// Set with `InvalidCommand` when a combination of recorded states was refused; sent as
     /// `reason`, like a storage reason.
     pub invalid_state: Option<StateError>,
+    /// Set with `InvalidCommand` when a scene rule was refused.
+    pub invalid_scene: Option<SceneError>,
 }
 
 impl ApplicationError {
@@ -111,6 +114,7 @@ impl ApplicationError {
             command_index: None,
             reason: None,
             invalid_state: None,
+            invalid_scene: None,
         }
     }
 
@@ -138,6 +142,7 @@ impl ApplicationError {
         self.reason
             .map(StorageReason::as_str)
             .or(self.invalid_state.map(StateError::code))
+            .or(self.invalid_scene.map(SceneError::code))
     }
 }
 

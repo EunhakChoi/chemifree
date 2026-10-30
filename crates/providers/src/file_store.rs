@@ -18,7 +18,7 @@
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
 //! - `migrated/<id>.v<N>.json`: the exact bytes of a document file of an earlier version `N`
-//!   (1 or 2), kept by the first save that replaces it with the current version (reading and
+//!   (1, 2, or 3), kept by the first save that replaces it with the current version (reading and
 //!   migrating a file never writes). Under the save lock, the copy is written to a temporary
 //!   file, flushed to disk, and renamed into place before the document is replaced. A copy is
 //!   never overwritten: a later version `N` file with other bytes under the same ID is kept as
@@ -883,9 +883,9 @@ pub fn default_data_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use chemifree_domain::document::{
-        Atom, AtomEdit, AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, InstanceId,
-        MAX_ATOMS, MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MAX_REVISION, MIN_CHARGE,
-        NewAtomPositions, Point, Vector,
+        Atom, AtomEdit, AtomId, AtomRef, BondOrder, BondTo, Command, HISTORY_LIMIT, MAX_ATOMS,
+        MAX_BONDS, MAX_COMMANDS, MAX_INSTANCES, MAX_REVISION, MIN_CHARGE, NewAtomPositions,
+        ObjectId, Point, Vector,
     };
     use chemifree_domain::element::Element;
     use chemifree_domain::states::{
@@ -1108,7 +1108,7 @@ mod tests {
     #[test]
     fn a_document_at_every_limit_encodes_within_the_read_limit() {
         let mut document = at_every_limit();
-        let last = InstanceId::from_serial(MAX_INSTANCES as u32).unwrap();
+        let last = ObjectId::from_serial(MAX_INSTANCES as u32).unwrap();
         let atoms: Vec<AtomId> = (1..=MAX_ATOMS)
             .map(|serial| AtomId::from_serial(serial as u32).unwrap())
             .collect();
@@ -1244,7 +1244,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":3", "\"format_version\":99"),
+            valid.replace("\"format_version\":4", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {

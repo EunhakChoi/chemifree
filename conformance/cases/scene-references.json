@@ -1,0 +1,36 @@
+{
+  "id": "scene-references",
+  "title": "A surviving object's reference prevents target deletion until detached, and undo restores both",
+  "requirements": ["MODEL-01", "OPS-02"],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    { "call": "create", "bind": "d" },
+    { "call": "transact", "document": "d", "expected_revision": 0, "commands": [
+      { "op": "add_graphic", "shape": "line", "points": [{ "x": 0, "y": 0 }, { "x": 10, "y": 0 }] },
+      { "op": "add_graphic", "shape": "arrow", "points": [{ "x": 20, "y": 0 }, { "x": 30, "y": 0 }] }
+    ] },
+    { "call": "transact", "document": "d", "expected_revision": 1, "commands": [
+      { "op": "add_reference", "source": "s2", "target": { "kind": "object", "id": "s3" } }
+    ], "expect": { "document": { "revision": 2, "scene": { "references": [
+      { "source": "s2", "target": { "kind": "object", "id": "s3" } }
+    ] } } } },
+    { "call": "transact", "document": "d", "expected_revision": 2, "commands": [
+      { "op": "delete_objects", "objects": ["s3"], "mode": "subtree" }
+    ], "expect_error": { "code": "invalid_command", "command_index": 0, "reason": "reference_in_use" } },
+    { "call": "transact", "document": "d", "expected_revision": 2, "commands": [
+      { "op": "remove_reference", "source": "s2", "target": { "kind": "object", "id": "s3" } },
+      { "op": "delete_objects", "objects": ["s3"], "mode": "subtree" }
+    ], "expect": { "document": { "revision": 3, "scene": { "roots": ["s1", "s2"], "references": [] } } } },
+    { "call": "undo", "document": "d", "expected_revision": 3,
+      "expect": { "document": { "revision": 4, "scene": { "roots": ["s1", "s2", "s3"], "references": [
+        { "source": "s2", "target": { "kind": "object", "id": "s3" } }
+      ] } } }
+    },
+    { "call": "save", "document": "d", "expected_revision": 4 },
+    { "call": "close", "document": "d" },
+    { "call": "get", "document": "d", "expect": { "document": { "revision": 4, "scene": { "references": [
+      { "source": "s2", "target": { "kind": "object", "id": "s3" } }
+    ] } } } }
+  ]
+}

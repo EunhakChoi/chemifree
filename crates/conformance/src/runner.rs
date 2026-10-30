@@ -210,11 +210,15 @@ fn call(
             json(application.create_document(Some(&body.request_id), body.title.as_deref()))
         }
         Call::Get { document } => json(application.document(id(document)?)),
-        Call::Transact { document, body } => json(application.apply_transaction(
+        Call::Transact { document, body } => json(application.apply_transaction_selecting(
             id(document)?,
             Some(&body.request_id),
             body.expected_revision,
             body.commands.clone(),
+            chemifree_application::TransactionSelections {
+                before: body.selection_before.clone(),
+                after: body.selection_after.clone(),
+            },
         )),
         Call::Undo { document, body } => json(application.undo(
             id(document)?,

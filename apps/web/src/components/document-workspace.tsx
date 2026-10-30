@@ -85,9 +85,11 @@ import {
   type DocumentResponse,
   type DocumentSummary,
   type DocumentView,
+  type GraphicShape,
   type InstanceView,
   type ListSort,
   type Position,
+  type ReferenceTarget,
   type RecoveryView,
   type Hydrogens,
   type QueryAtom,
@@ -478,24 +480,33 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondOrder, setBondOrder] = useState<DrawnOrder>('single')
-  const [selection, setSelection] = useState<Set<string>>(new Set())
-  const exists = new Set([...document.atoms.map((atom) => atom.id), ...document.bonds.map((bond) => bond.id)])
+  const { selection, setSelection } = editor
+  const exists = new Set([
+    ...document.atoms.map((atom) => atom.id),
+    ...document.bonds.map((bond) => bond.id),
+    ...(document.scene?.objects?.map((object) => object.id) ?? []),
+  ])
   const selected = new Set([...selection].filter((id) => exists.has(id)))
   const selectedIds = [...selected]
 
   function deleteSelection() {
-    const atoms = selectedIds.filter((id) => id.startsWith('a'))
-    const bonds = selectedIds.filter((id) => id.startsWith('b'))
-    const removed = new Set(atoms)
-    const remainingBonds = bonds.filter((id) => {
-      const bond = document.bonds.find((candidate) => candidate.id === id)
-      return bond && !removed.has(bond.begin) && !removed.has(bond.end)
+    // Keep the IDs from this press while building against the document reached by the queue.
+    const pressed = editor.selectionAtPress()
+    void editor.apply((latest) => {
+      const atoms = latest.atoms.filter((atom) => pressed.has(atom.id)).map((atom) => atom.id)
+      const removed = new Set(atoms)
+      const bonds = latest.bonds
+        .filter((bond) => pressed.has(bond.id) && !removed.has(bond.begin) && !removed.has(bond.end))
+        .map((bond) => bond.id)
+      const objects = latest.scene?.objects?.filter((object) => pressed.has(object.id)).map((object) => object.id) ?? []
+      const commands: Command[] = [
+        // Removing selected owners first also removes their references to selected targets.
+        ...(objects.length ? [{ op: 'delete_objects' as const, objects, mode: 'subtree' as const }] : []),
+        ...(atoms.length ? [{ op: 'delete_atoms' as const, atoms }] : []),
+        ...(bonds.length ? [{ op: 'delete_bonds' as const, bonds }] : []),
+      ]
+      return commands.length ? commands : null
     })
-    void editor.apply([
-      ...(atoms.length ? [{ op: 'delete_atoms' as const, atoms }] : []),
-      ...(remainingBonds.length ? [{ op: 'delete_bonds' as const, bonds: remainingBonds }] : []),
-    ])
-    setSelection(new Set())
   }
 
   useEffect(() => {
@@ -521,7 +532,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         const shortcut = TOOLS.find((item) => item.key.toLowerCase() === key)
         if (shortcut) setTool(shortcut.value)
         else if (key === 'escape') setSelection(new Set())
-        else if ((key === 'delete' || key === 'backspace') && selected.size > 0) {
+        else if ((key === 'delete' || key === 'backspace') && editor.selectionAtPress().size > 0) {
           event.preventDefault()
           deleteSelection()
         }
@@ -650,6 +661,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+          <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
       </div>
@@ -975,6 +987,130 @@ const NUDGES: { label: string; offset: Position; icon: ReactNode }[] = [
   { label: 'right', offset: { x: NUDGE, y: 0 }, icon: <ArrowRightIcon /> },
 ]
 
+/** Scene selection stays interactive while an edit is in flight. */
+function SceneControls({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+  const objects = document.scene?.objects
+  const roots = document.scene?.roots
+  const references = document.scene?.references
+  if (!objects || !roots || !references) return null
+  const chosen = objects.filter((object) => editor.selection.has(object.id))
+  const groupable = chosen.length >= 2 && chosen.every((object) => object.parent === chosen[0].parent)
+  const one = chosen.length === 1 ? chosen[0] : undefined
+  const siblings = one?.parent === null ? roots : objects.find((object) => object.id === one?.parent && object.kind === 'group')
+  const siblingsOfOne = Array.isArray(siblings) ? siblings : siblings?.kind === 'group' ? siblings.children : []
+  const index = one ? siblingsOfOne.indexOf(one.id) : -1
+  const graphTargets: ReferenceTarget[] = [
+    ...document.atoms.filter((atom) => editor.selection.has(atom.id)).map((atom): ReferenceTarget => ({ kind: 'atom', id: atom.id })),
+    ...document.bonds.filter((bond) => editor.selection.has(bond.id)).map((bond): ReferenceTarget => ({ kind: 'bond', id: bond.id })),
+  ]
+  const link = chosen.length === 1 && graphTargets.length === 1
+    ? { source: chosen[0].id, target: graphTargets[0] }
+    : chosen.length === 2 && graphTargets.length === 0
+      ? { source: chosen[0].id, target: { kind: 'object' as const, id: chosen[1].id } }
+      : undefined
+  const alreadyLinked = link && references.some((reference) =>
+    reference.source === link.source && reference.target.kind === link.target.kind && reference.target.id === link.target.id,
+  )
+
+  function add(shape: GraphicShape) {
+    void editor.apply((latest) => {
+      const count = latest.scene?.objects?.filter((object) => object.kind === 'graphic').length ?? 0
+      const x = 20 + (count % 6) * 35
+      const y = 20 + Math.floor(count / 6) * 30
+      return [{ op: 'add_graphic', shape, points: [{ x, y }, { x: x + 24, y: y + (shape === 'rectangle' ? 16 : 0) }] }]
+    })
+  }
+
+  function reorder(id: string, step: number) {
+    void editor.apply((latest) => {
+      const object = latest.scene?.objects?.find((item) => item.id === id)
+      if (!object) return null
+      const parent = object.parent === null ? undefined : latest.scene?.objects?.find((item) => item.id === object.parent)
+      const list = object.parent === null ? latest.scene?.roots : parent?.kind === 'group' ? parent.children : undefined
+      if (!list) return null
+      const target = list.indexOf(id) + step
+      return target >= 0 && target < list.length ? [{ op: 'reorder', object: id, index: target }] : null
+    })
+  }
+
+  return (
+    <section aria-labelledby="scene-heading" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+      <h3 id="scene-heading" className="text-sm font-medium">Scene</h3>
+      <ul className="flex flex-col gap-1">
+        {objects.map((object) => (
+          <li key={object.id}>
+            <Toggle
+              size="sm"
+              variant="outline"
+              aria-label={`Select scene object ${object.id}`}
+              pressed={editor.selection.has(object.id)}
+              onPressedChange={(pressed) => {
+                editor.setSelection((current) => {
+                  const next = new Set(current)
+                  if (pressed) next.add(object.id)
+                  else next.delete(object.id)
+                  return next
+                })
+              }}
+            >
+              {object.id} {object.kind === 'graphic' ? object.shape : object.kind}
+              {object.parent ? ` in ${object.parent}` : ''}
+            </Toggle>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-1">
+        {(['line', 'rectangle', 'arrow'] as const).map((shape) => (
+          <Button key={shape} size="sm" variant="outline" onClick={() => add(shape)}>Add {shape}</Button>
+        ))}
+      </div>
+      <Button size="sm" variant="outline" disabled={!link || Boolean(alreadyLinked)} onClick={() => {
+        if (link) void editor.apply((latest) => stillApplicable([{ op: 'add_reference', ...link }], latest))
+      }}>Add reference</Button>
+      {references.length > 0 && (
+        <ul aria-label="Scene references" className="flex flex-col gap-1">
+          {references.map((reference) => (
+            <li key={`${reference.source}:${reference.target.kind}:${reference.target.id}`} className="flex items-center gap-1">
+              <span className="text-xs">{reference.source} → {reference.target.kind} {reference.target.id}</span>
+              <Button size="icon-xs" variant="ghost" aria-label={`Remove reference from ${reference.source} to ${reference.target.kind} ${reference.target.id}`}
+                onClick={() => void editor.apply((latest) => stillApplicable([{ op: 'remove_reference', ...reference }], latest))}>
+                <XIcon aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap gap-1">
+        <Button size="sm" variant="outline" disabled={!groupable} onClick={() => {
+          const ids = chosen.map((object) => object.id)
+          void editor.apply((latest) => {
+            const selected = latest.scene?.objects?.filter((object) => ids.includes(object.id)) ?? []
+            return selected.length === ids.length && selected.every((object) => object.parent === selected[0].parent)
+              ? [{ op: 'group', objects: ids }]
+              : null
+          }, { kind: 'group', objects: ids })
+        }}>Group</Button>
+        <Button size="sm" variant="outline" disabled={one?.kind !== 'group'} onClick={() => {
+          if (one?.kind === 'group') void editor.apply((latest) => stillApplicable([{ op: 'ungroup', group: one.id }], latest))
+        }}>Ungroup</Button>
+        <Button size="sm" variant="outline" disabled={!one || index <= 0} onClick={() => one && reorder(one.id, -1)}>Earlier</Button>
+        <Button size="sm" variant="outline" disabled={!one || index < 0 || index === siblingsOfOne.length - 1} onClick={() => one && reorder(one.id, 1)}>Later</Button>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {NUDGES.map((nudge) => (
+          <Button key={nudge.label} size="icon-xs" variant="outline" aria-label={`Move selected scene objects ${nudge.label}`}
+            disabled={chosen.length === 0} onClick={() => {
+              const ids = chosen.map((object) => object.id)
+              void editor.apply((latest) => stillApplicable([{ op: 'move_objects', objects: ids, delta: nudge.offset }], latest))
+            }}>
+            {nudge.icon}
+          </Button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /**
  * The document's scene instances: each draws the same graph at its own positions. A placement
  * is duplicated, moved, or deleted as a whole; the last one cannot be deleted.
@@ -1037,11 +1173,12 @@ function Inspector({
 }) {
   const atom = selected.length === 1 ? document.atoms.find((item) => item.id === selected[0]) : undefined
   const bond = selected.length === 1 ? document.bonds.find((item) => item.id === selected[0]) : undefined
+  const object = selected.length === 1 ? document.scene?.objects?.find((item) => item.id === selected[0]) : undefined
 
   return (
     <aside aria-label="Selection" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
       <h3 className="text-sm font-medium">
-        {atom ? `Atom ${atom.id}` : bond ? `Bond ${bond.id}` : selected.length > 1 ? `${selected.length} selected` : 'Selection'}
+        {atom ? `Atom ${atom.id}` : bond ? `Bond ${bond.id}` : object ? `Scene object ${object.id}` : selected.length > 1 ? `${selected.length} selected` : 'Selection'}
       </h3>
       {selected.length === 0 && (
         <p className="text-xs leading-relaxed text-muted-foreground">

@@ -1087,7 +1087,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 3)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 4)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1130,20 +1130,80 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 3)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 4)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 3')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 4')
 
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 5')
+    writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 4/)
+    assert.match(refused.body.message, /version 5/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 4; this build reads versions 1, 2, and 3/)
+    assert.match(unreadable?.message ?? '', /version 5; this build reads versions 1, 2, 3, and 4/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)
+  }
+
+  // The same scene transactions, selections and undo result through HTTP and the CLI.
+  {
+    const cliCreated = cli('documents', 'create', '--title', 'CLI scene', '--json')
+    const httpCreated = await write('/api/v1/documents', { request_id: 'scene-create', title: 'HTTP scene' })
+    assert.equal(cliCreated.status, 0)
+    assert.equal(httpCreated.status, 201)
+    const cliId = cliCreated.body.document.id
+    const scenePath = `/api/v1/documents/${httpCreated.body.document.id}`
+    const graphics = [
+      { op: 'add_graphic', shape: 'line', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] },
+      { op: 'add_graphic', shape: 'arrow', points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] },
+    ]
+    const createdSelection = { objects: ['$0', '$1'], atoms: [], bonds: [] }
+    const cliDrawn = cli('documents', 'apply', cliId, '--expected-revision', '0', '--json',
+      '--commands', JSON.stringify(graphics), '--selection-after', JSON.stringify(createdSelection))
+    const httpDrawn = await write(`${scenePath}/transactions`, {
+      request_id: 'scene-draw', expected_revision: 0, commands: graphics, selection_after: createdSelection,
+    })
+    assert.equal(cliDrawn.status, 0)
+    assert.equal(httpDrawn.status, 200)
+    assert.deepEqual(cliDrawn.body.document.scene, httpDrawn.body.document.scene)
+    assert.deepEqual(cliDrawn.body.document.selection, httpDrawn.body.document.selection)
+
+    const group = [{ op: 'group', objects: ['s2', 's3'] }]
+    const before = { objects: ['s2', 's3'], atoms: [], bonds: [] }
+    const after = { objects: ['$0'], atoms: [], bonds: [] }
+    const cliGrouped = cli('documents', 'apply', cliId, '--expected-revision', '1', '--json',
+      '--commands', JSON.stringify(group), '--selection-before', JSON.stringify(before), '--selection-after', JSON.stringify(after))
+    const httpGrouped = await write(`${scenePath}/transactions`, {
+      request_id: 'scene-group', expected_revision: 1, commands: group, selection_before: before, selection_after: after,
+    })
+    assert.equal(cliGrouped.status, 0)
+    assert.equal(httpGrouped.status, 200)
+    assert.deepEqual(cliGrouped.body.document.scene, httpGrouped.body.document.scene)
+    assert.deepEqual(cliGrouped.body.document.selection, httpGrouped.body.document.selection)
+
+    const reference = [{ op: 'add_reference', source: 's2', target: { kind: 'object', id: 's3' } }]
+    const cliLinked = cli('documents', 'apply', cliId, '--expected-revision', '2', '--json', '--commands', JSON.stringify(reference))
+    const httpLinked = await write(`${scenePath}/transactions`, { request_id: 'scene-link', expected_revision: 2, commands: reference })
+    assert.equal(cliLinked.status, 0)
+    assert.equal(httpLinked.status, 200)
+    assert.deepEqual(cliLinked.body.document.scene.references, httpLinked.body.document.scene.references)
+    const deletion = [{ op: 'delete_objects', objects: ['s3'], mode: 'subtree' }]
+    const cliRefused = cli('documents', 'apply', cliId, '--expected-revision', '3', '--json', '--commands', JSON.stringify(deletion))
+    const httpRefused = await write(`${scenePath}/transactions`, { request_id: 'scene-delete', expected_revision: 3, commands: deletion })
+    assert.deepEqual([cliRefused.status, cliRefused.body.code, cliRefused.body.reason], [1, 'invalid_command', 'reference_in_use'])
+    assert.deepEqual([httpRefused.status, httpRefused.body.code, httpRefused.body.reason], [422, 'invalid_command', 'reference_in_use'])
+
+    assert.equal(cli('documents', 'undo', cliId, '--expected-revision', '3', '--json').status, 0)
+    assert.equal((await write(`${scenePath}/undo`, { request_id: 'scene-undo-link', expected_revision: 3 })).status, 200)
+    const cliUndo = cli('documents', 'undo', cliId, '--expected-revision', '4', '--json')
+    const httpUndo = await write(`${scenePath}/undo`, { request_id: 'scene-undo', expected_revision: 4 })
+    assert.equal(cliUndo.status, 0)
+    assert.equal(httpUndo.status, 200)
+    assert.deepEqual(cliUndo.body.document.scene, httpUndo.body.document.scene)
+    assert.deepEqual(cliUndo.body.document.selection, httpUndo.body.document.selection)
   }
 
   for (const [path, method, status, code] of [

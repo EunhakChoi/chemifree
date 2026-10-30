@@ -1867,6 +1867,110 @@ step = 'after placements_move_independently'
 results.recorded_states_drawn_and_kept = true
 step = 'after recorded_states_drawn_and_kept'
 
+// Hold replies with explicit gates: selection made while a group is in flight must survive,
+// and Delete queued behind a move must use the selection captured at the Delete keypress.
+{
+  await closeShown()
+  const createdScene = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: 'New document' }).click()
+  docId = (await (await createdScene).json()).document.id
+  await page.getByLabel('Document title').waitFor()
+  for (const shape of ['line', 'arrow', 'rectangle']) {
+    await clickFor(page.getByRole('button', { name: `Add ${shape}`, exact: true }), '/transactions')
+  }
+  assert.equal(await page.locator('[data-scene-object="s2"]').count(), 1)
+  assert.equal(await page.locator('[data-scene-object="s3"]').count(), 1)
+  assert.equal(await page.locator('[data-scene-object="s4"]').count(), 1)
+  const toggle = (id) => page.getByRole('button', { name: `Select scene object ${id}`, exact: true })
+  await toggle('s2').click()
+  await toggle('s3').click()
+
+  let releaseGroup
+  let groupReceived
+  const groupGate = new Promise((resolve) => { releaseGroup = resolve })
+  const groupStarted = new Promise((resolve) => { groupReceived = resolve })
+  const holdGroup = async (route) => {
+    if (!route.request().postDataJSON().commands.some((command) => command.op === 'group')) return route.fallback()
+    const response = await route.fetch()
+    assert.equal(response.status(), 200)
+    groupReceived()
+    await groupGate
+    await route.fulfill({ response })
+  }
+  await page.route('**/transactions', holdGroup)
+  await page.getByRole('button', { name: 'Group', exact: true }).click()
+  await groupStarted
+  await toggle('s4').click()
+  releaseGroup()
+  await toggle('s5').waitFor()
+  await waitIdle()
+  await page.unroute('**/transactions', holdGroup)
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'true', 'the unrelated selection stays')
+  assert.equal(await toggle('s5').getAttribute('aria-pressed'), 'true', 'the new group is selected')
+
+  await toggle('s4').click()
+  let releaseMove
+  let moveReceived
+  const moveGate = new Promise((resolve) => { releaseMove = resolve })
+  const moveStarted = new Promise((resolve) => { moveReceived = resolve })
+  const holdMove = async (route) => {
+    if (!route.request().postDataJSON().commands.some((command) => command.op === 'move_objects')) return route.fallback()
+    const response = await route.fetch()
+    assert.equal(response.status(), 200)
+    moveReceived()
+    await moveGate
+    await route.fulfill({ response })
+  }
+  await page.route('**/transactions', holdMove)
+  await page.getByRole('button', { name: 'Move selected scene objects right' }).click()
+  await moveStarted
+  await page.keyboard.press('Delete')
+  await toggle('s5').click()
+  await toggle('s4').click()
+  releaseMove()
+  await toggle('s5').waitFor({ state: 'detached' })
+  await waitIdle()
+  await page.unroute('**/transactions', holdMove)
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'true', 'the later selection was not deleted')
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  await toggle('s5').waitFor()
+  assert.equal(await toggle('s5').getAttribute('aria-pressed'), 'true', 'Undo restores the selection from the Delete press')
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'false')
+  // React has not rendered the toggle's new value yet when the keypress is delivered.
+  const quickDelete = page.waitForResponse((r) => r.url().endsWith('/transactions') && r.request().method() === 'POST')
+  await page.evaluate(() => {
+    document.querySelector('[aria-label="Select scene object s4"]').click()
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+  })
+  assert.equal((await quickDelete).status(), 200)
+  await toggle('s5').waitFor({ state: 'detached' })
+  await toggle('s4').waitFor({ state: 'detached' })
+  // Deleting a reference owner and its target together removes the owner first.
+  await clickFor(page.getByRole('button', { name: 'Add line', exact: true }), '/transactions')
+  await drawPair()
+  await tool('Select and move')
+  const selectedAtom = await atomScreen(await openDoc(), 'a1')
+  await page.mouse.click(selectedAtom.x, selectedAtom.y)
+  await page.getByRole('heading', { name: 'Atom a1' }).waitFor()
+  await toggle('s6').click()
+  await clickFor(page.getByRole('button', { name: 'Add reference', exact: true }), '/transactions')
+  assert.deepEqual((await openDoc()).document.scene.references, [{ source: 's6', target: { kind: 'atom', id: 'a1' } }])
+  const deleteOwnerAndTarget = page.waitForResponse((r) => r.url().endsWith('/transactions') && r.request().method() === 'POST')
+  await page.keyboard.press('Delete')
+  assert.equal((await deleteOwnerAndTarget).status(), 200)
+  await waitIdle()
+  const deleted = (await openDoc()).document
+  assert.equal(deleted.atoms.some((atom) => atom.id === 'a1'), false)
+  assert.equal(deleted.scene.objects.some((object) => object.id === 's6'), false)
+  assert.deepEqual(deleted.scene.references, [])
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  assert.deepEqual((await openDoc()).document.scene.references, [{ source: 's6', target: { kind: 'atom', id: 'a1' } }])
+  results.scene_group_and_queued_delete_selection = true
+  results.scene_selection_before_render_is_used = true
+  results.scene_reference_owner_and_target_delete = true
+}
+step = 'after scene_group_and_queued_delete_selection'
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

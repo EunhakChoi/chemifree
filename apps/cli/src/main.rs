@@ -6,8 +6,9 @@ use std::process::ExitCode;
 use chemifree_application::{
     Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
     CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
-    ErrorCode, HydrogensDto, ListQuery, ListSort, OperationResponse, RadicalDto, RecoveryState,
-    RestoreResponse, TrashListResponse,
+    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, OperationResponse, RadicalDto,
+    RecoveryState, ReferenceTargetDto, RestoreResponse, SceneObjectView, SelectionDto,
+    TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, default_data_dir};
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -88,6 +89,12 @@ enum DocumentCommand {
         /// Read the JSON command array from this file, or `-` for standard input.
         #[arg(long)]
         commands_file: Option<PathBuf>,
+        /// Selection captured when the edit was requested, as a JSON object.
+        #[arg(long)]
+        selection_before: Option<String>,
+        /// Selection after the edit, as JSON; scene objects can reference a command as `$N`.
+        #[arg(long)]
+        selection_after: Option<String>,
     },
     /// Undo the latest saved transaction as a new revision, then save.
     Undo {
@@ -252,13 +259,20 @@ fn run_document_command(application: &LocalApplication, command: DocumentCommand
             target,
             commands,
             commands_file,
+            selection_before,
+            selection_after,
         } => {
             let result = read_commands(commands, commands_file).and_then(|commands| {
-                let edited = application.apply_transaction(
+                let selection = TransactionSelections {
+                    before: read_selection(selection_before)?,
+                    after: read_selection(selection_after)?,
+                };
+                let edited = application.apply_transaction_selecting(
                     &target.id,
                     None,
                     target.expected_revision,
                     commands,
+                    selection,
                 )?;
                 save(application, &target.id, &edited)
             });
@@ -359,6 +373,21 @@ fn read_commands(
         )));
     }
     serde_json::from_str(&text).map_err(|error| invalid(format!("invalid commands: {error}")))
+}
+
+fn read_selection(value: Option<String>) -> Result<Option<SelectionDto>, ApplicationError> {
+    let invalid = |message: String| ApplicationError::new(ErrorCode::InvalidRequest, message);
+    value
+        .map(|text| {
+            if text.len() as u64 > MAX_COMMAND_INPUT_BYTES {
+                return Err(invalid(format!(
+                    "selection input exceeds {MAX_COMMAND_INPUT_BYTES} bytes"
+                )));
+            }
+            serde_json::from_str(&text)
+                .map_err(|error| invalid(format!("invalid selection: {error}")))
+        })
+        .transpose()
 }
 
 /// Prints a success to stdout. Failures go to stdout as a v1 error envelope with `--json`
@@ -538,6 +567,68 @@ fn document_text(response: &DocumentResponse) -> String {
             bond.begin,
             bond.end,
             bond_text(bond)
+        ));
+    }
+    for object in &document.scene.objects {
+        match object {
+            SceneObjectView::Instance {
+                id,
+                parent: Some(parent),
+                ..
+            } => {
+                lines.push(format!("  {id}  instance in {parent}"));
+            }
+            SceneObjectView::Instance { .. } => {}
+            SceneObjectView::Group {
+                id,
+                parent,
+                children,
+            } => {
+                lines.push(format!(
+                    "  {id}  group in {}: {}",
+                    parent.as_deref().unwrap_or("page"),
+                    children.join(", ")
+                ));
+            }
+            SceneObjectView::Graphic {
+                id,
+                parent,
+                shape,
+                points,
+            } => {
+                let shape = match shape {
+                    GraphicShapeDto::Line => "line",
+                    GraphicShapeDto::Rectangle => "rectangle",
+                    GraphicShapeDto::Arrow => "arrow",
+                };
+                lines.push(format!(
+                    "  {id}  {shape} in {}  ({}, {})–({}, {})",
+                    parent.as_deref().unwrap_or("page"),
+                    points[0].x,
+                    points[0].y,
+                    points[1].x,
+                    points[1].y
+                ));
+            }
+        }
+    }
+    for reference in &document.scene.references {
+        let (kind, id) = match &reference.target {
+            ReferenceTargetDto::Object { id } => ("object", id),
+            ReferenceTargetDto::Atom { id } => ("atom", id),
+            ReferenceTargetDto::Bond { id } => ("bond", id),
+        };
+        lines.push(format!("  {} references {kind} {id}", reference.source));
+    }
+    if !document.selection.objects.is_empty()
+        || !document.selection.atoms.is_empty()
+        || !document.selection.bonds.is_empty()
+    {
+        lines.push(format!(
+            "  selected: objects [{}], atoms [{}], bonds [{}]",
+            document.selection.objects.join(", "),
+            document.selection.atoms.join(", "),
+            document.selection.bonds.join(", ")
         ));
     }
     lines.push(format!(

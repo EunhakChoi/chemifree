@@ -511,11 +511,15 @@ async fn apply_transaction(
     JsonBody(body): JsonBody<TransactionRequest>,
 ) -> Result<Json<DocumentResponse>, ApiError> {
     run(state, move |app| {
-        app.apply_transaction(
+        app.apply_transaction_selecting(
             &id,
             Some(&body.request_id),
             body.expected_revision,
             body.commands,
+            chemifree_application::TransactionSelections {
+                before: body.selection_before,
+                after: body.selection_after,
+            },
         )
     })
     .await
