@@ -174,10 +174,18 @@ pub struct SourceIdentity {
     pub sha256: String,
 }
 
+/// Kinds for which the reader can resolve a source line to a decoded row.
+#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LineKind {
+    Element,
+    Isotope,
+}
+
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LineSpan {
-    pub kind: String,
+    pub kind: LineKind,
     pub row_ordinal: u64,
     pub source_line_1based: u64,
     pub source_file_offset: u64,
@@ -515,6 +523,17 @@ fn validate(data: &MassData) -> Result<(), MassError> {
         })
     {
         return Err(MassError::Inconsistent);
+    }
+    let mut referenced_rows = HashSet::new();
+    for span in &bounds.row_source_spans {
+        let row = usize::try_from(span.row_ordinal).ok();
+        let exists = match span.kind {
+            LineKind::Element => row.is_some_and(|index| index < data.elements.len()),
+            LineKind::Isotope => row.is_some_and(|index| index < data.isotopes.len()),
+        };
+        if !exists || !referenced_rows.insert((span.kind, span.row_ordinal)) {
+            return Err(MassError::Inconsistent);
+        }
     }
     Ok(())
 }

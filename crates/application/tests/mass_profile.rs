@@ -192,6 +192,59 @@ fn cross_file_counts_indices_and_lineage_bounds_are_checked() {
 }
 
 #[test]
+fn lineage_rows_must_identify_existing_unique_element_or_isotope_records() {
+    let original: serde_json::Value = serde_json::from_str(BOUNDS).unwrap();
+    let mut outcomes = Vec::new();
+    for (kind, ordinal) in [
+        ("element", 1_u64),
+        ("isotope", 2),
+        ("element", 2),
+        ("isotope", 3),
+        ("unknown", 0),
+    ] {
+        let mut bounds = original.clone();
+        bounds["row_source_spans"][0]["kind"] = kind.into();
+        bounds["row_source_spans"][0]["row_ordinal"] = ordinal.into();
+        let bounds = serde_json::to_string(&bounds).unwrap();
+        outcomes.push(
+            decode_mass(&files(
+                ELEMENTS, ISOTOPES, DEFAULTS, ALIASES, CONSTANTS, FEATURES, &bounds,
+            ))
+            .err(),
+        );
+    }
+    assert_eq!(
+        outcomes,
+        [
+            None,
+            None,
+            Some(MassError::Inconsistent),
+            Some(MassError::Inconsistent),
+            Some(MassError::Record)
+        ]
+    );
+}
+
+#[test]
+fn lineage_does_not_assign_multiple_source_lines_to_one_record() {
+    let original: serde_json::Value = serde_json::from_str(BOUNDS).unwrap();
+    let mut duplicate = original;
+    let span = duplicate["row_source_spans"][0].clone();
+    duplicate["row_source_spans"]
+        .as_array_mut()
+        .unwrap()
+        .push(span);
+    let duplicate = serde_json::to_string(&duplicate).unwrap();
+    assert_eq!(
+        decode_mass(&files(
+            ELEMENTS, ISOTOPES, DEFAULTS, ALIASES, CONSTANTS, FEATURES, &duplicate,
+        ))
+        .err(),
+        Some(MassError::Inconsistent)
+    );
+}
+
+#[test]
 fn static_view_and_provenance_cannot_claim_executable_behavior() {
     let claimed_runtime = DEFAULTS.replace(
         "\"selection_is_static_table_analysis_not_runtime_capture\":true",
@@ -322,6 +375,12 @@ fn optional_raw_source_is_verified_as_inert_lineage() {
     .to_vec();
     files.push(("raw/CS Isotopes Table.txt", raw));
     assert!(decode_mass(&files).is_ok());
+
+    let mut wrong_row: serde_json::Value = serde_json::from_str(&bounds).unwrap();
+    wrong_row["row_source_spans"][0]["row_ordinal"] = 2.into();
+    let wrong_row = serde_json::to_string(&wrong_row).unwrap();
+    files[6].1 = wrong_row.as_bytes();
+    assert_eq!(decode_mass(&files).err(), Some(MassError::Inconsistent));
 
     let mut wrong_line: serde_json::Value = serde_json::from_str(&bounds).unwrap();
     wrong_line["row_source_spans"][0]["source_line_1based"] = 2.into();

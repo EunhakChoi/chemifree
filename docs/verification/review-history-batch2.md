@@ -210,3 +210,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-30 19:16:02 | `d0313432ce3320ab018222a12bc3fb4304eb3421` | 19:18:46 | 통과: 최신 head의 코드 리뷰 완료, 지적과 미해결 스레드 없음. 별도 review 객체가 없어 완료 상태와 SHA가 있는 요약을 근거로 삼는다. | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/40#issuecomment-6531503481) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41113839046)는 check·browser 모두 성공했다. 19:29:50에 `560aa08485e5629fe7b22b156c21ef8d439a5d71`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41115719039)도 check·browser 모두 성공했다.
+
+## #41 P14 후속 — 질량 입력 프로필
+
+시간은 UTC다. [#41](https://github.com/EunhakChoi/chemifree/pull/41)은 불활성 질량 입력과 정적 선택을 검증하며 질량 계산을 구현하지 않는다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 19:43:36 | `6e6f5599c20574ecaea71d80c77deb7c2d1dae55` | 19:46:03 | P2 한 건: 출처 행이 존재하지 않는 레코드나 알 수 없는 종류를 가리켜도 수락함. 수용: 수정 전 실패를 확인하고 지원하는 원소·동위원소 종류, 대상 행 존재와 중복을 검사한다. 공개 스키마가 종류 문자열을 열거하지 않아 다른 표기의 개인 DATA 호환은 주장하지 않는다. 원문 줄과 정규화 행의 내용 동일성은 검증하지 않는다. | [지적](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427842366), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532020376) |
