@@ -15,6 +15,7 @@ pub mod json;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
+pub mod naming_lexicon;
 pub mod naming_patterns;
 pub mod nmr_profile;
 mod operations;

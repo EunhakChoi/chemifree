@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
-    json, mass_input, naming_labels, naming_patterns, nmr_profile, phase6_profiles, prepared_xlogp,
+    json, mass_input, naming_labels, naming_lexicon, naming_patterns, nmr_profile, phase6_profiles,
+    prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -242,7 +243,9 @@ pub fn validate_model_binding(
             || dataset.feature_schema_sha256.is_some()
             || matches!(
                 &dataset.records,
-                ProfileRecords::PreparedXlogp(_) | ProfileRecords::NamingPatterns(_)
+                ProfileRecords::PreparedXlogp(_)
+                    | ProfileRecords::NamingPatterns(_)
+                    | ProfileRecords::NamingLexicon(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -371,6 +374,7 @@ enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
+    NamingLexicon,
     NamingPatterns(naming_patterns::Profile),
     PreparedXlogp,
     MassInput,
@@ -452,6 +456,31 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::ProfileUnsupported);
             }
             return Ok(SelectedProfile::NamingLabels);
+        }
+        "private-naming-lexicon-typed-v1" => {
+            let required = naming_lexicon::REQUIRED_FILES.iter().all(|path| {
+                manifest
+                    .files
+                    .iter()
+                    .any(|file| file.relative_path == *path && file.required)
+            });
+            let recognized = manifest.files.iter().all(|file| {
+                let path = file.relative_path.as_str();
+                (naming_lexicon::REQUIRED_FILES.contains(&path) || path == naming_lexicon::RAW_PATH)
+                    && matches!(
+                        file.declared_content_class.as_str(),
+                        "declarative_data" | "model_parameters" | "document_resource"
+                    )
+            });
+            if manifest.feature_schema_sha256.is_some()
+                || !required
+                || !recognized
+                || !(manifest.files.len() == naming_lexicon::REQUIRED_FILES.len()
+                    || manifest.files.len() == naming_lexicon::REQUIRED_FILES.len() + 1)
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::NamingLexicon);
         }
         "personal-local-atomic-isotope-mass-profile-v1" => {
             let has_required = mass_input::NORMALIZED_PATHS.iter().all(|path| {
@@ -681,6 +710,16 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::NamingLexicon => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::NamingLexicon(Box::new(
+                naming_lexicon::decode_dataset(&files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::MassInput => {
             let files: Vec<_> = payloads
                 .iter()
@@ -744,6 +783,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::NamingLexicon => naming_lexicon::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2036,3 +2083,7 @@ mod mass_v3_tests;
 #[cfg(test)]
 #[path = "active_data/prepared_tests.rs"]
 mod prepared_tests;
+
+#[cfg(test)]
+#[path = "active_data/lexicon_tests.rs"]
+mod lexicon_tests;

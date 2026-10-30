@@ -244,3 +244,12 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-30 21:35:16 | `a30ddd4a69ca141214d86a66ecde493d240c84b1` | 21:37:22 | 통과: 새 지적과 미해결 리뷰 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/44#issuecomment-6533953920) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41132161028)는 check·browser 모두 성공했다. 2026-10-30 21:39:16에 `4d06b2d31b4d02f7d0971b8d9888e84fd787d626`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41132634409)도 check·browser 모두 성공했다.
+
+### P14 선택 DATA 원문과 파일 경계 — [#45](https://github.com/EunhakChoi/chemifree/pull/45)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-30 21:53:37 | `0d253424d9d92e1aa2a77a59f28cb10f53628870` | 21:55:03 | [P2](https://github.com/EunhakChoi/chemifree/pull/45#discussion_r4428816250): Linux의 `ENOTDIR`가 `Missing`으로 분류돼 선택 원문의 잘못된 상위 경로가 무시된다. 수용: 실제 임시 디렉터리에서 수정 전 `Missing`이 나오는 실패를 재현하고 `NotAFile`로 구분했다. application 테스트는 `NotAFile`·접근 오류·필수 파일 누락과 손상된 선택 파일을 거절한다. |
+| 2 요청 | 21:59:54 | `be14ad8f30ba822cb3c873eb3dc76adcb431eaa4` | 22:02:09 | 통과: 최신 head의 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [요청](https://github.com/EunhakChoi/chemifree/pull/45#issuecomment-6534400472), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/45#issuecomment-6534304741) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41135041883)는 check·browser 모두 성공했다. 2026-10-30 22:03:04에 `87f134a0705ef5bd4fa3b8ce0951024d03ef2e3d`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41135445421)도 check·browser 모두 성공했다.

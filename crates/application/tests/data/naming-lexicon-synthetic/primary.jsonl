@@ -1,0 +1,2 @@
+{"pair_ordinal_0based":0,"source_file_offset":0,"source_bytes":2,"partition":0,"divider_marker":false,"source_hex":"e9","replacement_hex":"78","source_latin1":"é","replacement_latin1":"x"}
+{"pair_ordinal_0based":1,"source_file_offset":2,"source_bytes":2,"partition":1,"divider_marker":true,"source_hex":"e9","replacement_hex":"79","source_latin1":"é","replacement_latin1":"y"}

@@ -67,6 +67,8 @@ pub enum ProfileRecords {
     Phase6(crate::phase6_profiles::DatasetRecords),
     /// Validated, inert pattern declarations; named predicates are not implemented.
     NamingPatterns(Box<crate::naming_patterns::PatternRows>),
+    /// Validated lexical and graph carriers; no naming grammar is implemented.
+    NamingLexicon(Box<crate::naming_lexicon::NamingLexicon>),
     /// Exact paired numeric inputs without an XLogP prediction engine.
     PreparedXlogp(Box<crate::prepared_xlogp::Weights>),
     /// Verified naming label inputs; labels are not executable dispatch rules.
