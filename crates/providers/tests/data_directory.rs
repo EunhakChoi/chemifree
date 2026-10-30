@@ -34,6 +34,37 @@ fn selected_root_remains_the_same_directory_across_reads() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn dataset_scope_stays_in_the_selected_directory_even_after_links_or_renames() {
+    let root = tempfile::tempdir().unwrap();
+    let a = root.path().join("dataset-a");
+    let b = root.path().join("dataset-b");
+    fs::create_dir(&a).unwrap();
+    fs::create_dir(&b).unwrap();
+    fs::write(a.join("entry.json"), b"original-a").unwrap();
+    fs::write(b.join("entry.json"), b"other-b").unwrap();
+    std::os::unix::fs::symlink("../dataset-b", a.join("escape")).unwrap();
+    std::os::unix::fs::symlink("entry.json", a.join("inside")).unwrap();
+    let source = DirectoryDataSource::new(root.path());
+    assert!(source.scope("../dataset-a").is_err());
+    let scoped = source.scope("dataset-a").unwrap();
+    assert_eq!(scoped.read("inside", 100).unwrap(), b"original-a");
+    assert!(matches!(
+        scoped.read("escape/entry.json", 100),
+        Err(chemifree_application::SourceError::Escapes)
+    ));
+    let before_first_read = source.scope("dataset-a").unwrap();
+    fs::rename(&a, root.path().join("renamed-a")).unwrap();
+    fs::create_dir(&a).unwrap();
+    fs::write(a.join("entry.json"), b"replacement-a").unwrap();
+    assert_eq!(scoped.read("entry.json", 100).unwrap(), b"original-a");
+    assert_eq!(
+        before_first_read.read("entry.json", 100).unwrap(),
+        b"original-a"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn a_fifo_selected_as_the_data_root_is_refused_without_blocking() {
     use rustix::fs::{CWD, Mode, OFlags, mkfifoat, open};
     use std::sync::mpsc;

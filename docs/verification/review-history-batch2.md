@@ -169,10 +169,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 
 첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)와 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41094953659)는 check·browser 모두 성공했다. 17:04:31에 `a8c254db579e9e6108cd18fd0f8ecf13dc646044`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41095602815)도 check·browser 모두 성공했다.
 
-## #37 P14 첫 분할 — 신뢰된 DATA 등록 기반(리뷰 중)
+## #37 P14 첫 분할 — 신뢰된 DATA 등록 기반(병합)
 
 시간은 UTC다. [#37](https://github.com/EunhakChoi/chemifree/pull/37)은 보존된 P14 작업을 P12 병합 main에 옮겨 이어받았다. 세 정규화 프로필과 별도 윤곽 디코더만 다루므로 P14 전체는 아직 진행 중이다.
 
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 17:46:21 | `d0aea4dc9f5ddf3abf1776e55145ba444d60edd6` | 17:49:14 | P2 한 건: `retain_opaque_and_report`에서 manifest 확장 필드를 허용해야 한다는 지적. 공개 `spec/phase4-external-data-manifest.schema.json`은 정책과 무관하게 manifest의 추가 필드를 거절하고, `spec/phase4-external-data-loader-contracts.ko.md`는 프로필이 비핵심 metadata로 명시한 payload 필드에만 opaque 보존을 허용한다. 현재 세 프로필은 추가 payload 필드를 허용하지 않는다. 따라서 manifest 확장 필드를 허용하는 변경은 수용하지 않고, retain 정책의 정상 입력은 읽되 manifest·payload의 추가 필드는 거절하는 회귀 검사와 계약 설명을 추가했다. 두 거절을 각각 제거한 변이에서 새 검사가 실패함을 확인했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/37#pullrequestreview-5716370977), [지적](https://github.com/EunhakChoi/chemifree/pull/37#discussion_r4426724916) |
+| 2 요청 | 17:54:37 | `63f8b0d7496f4d31b8daa19a31ba69c10e01fd05` | 17:56:57 | 통과: 최신 head의 코드 리뷰 완료, 새 지적과 미해결 스레드 없음. 첫 회차는 명세 근거와 회귀 검사 기록 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/37#issuecomment-6529743812), [완료](https://github.com/EunhakChoi/chemifree/pull/37#issuecomment-6529792374) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41102322129)는 check·browser 모두 성공했다. 18:05:15에 `87df03ed09ea04d63ff37ca1351a3d8cf4166ec8`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41103819742)도 check·browser 모두 성공했다. 로더 전체와 화학 엔진의 완료를 뜻하지 않는다.

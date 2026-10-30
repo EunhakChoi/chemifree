@@ -6,8 +6,8 @@ use chemifree_domain::data;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ActiveDataError, DataSource, PersonalDataset, TrustedPersonalRegistration,
-    load_personal_dataset,
+    ActiveDataError, DataSource, PersonalDataset, ProfileIdentityFiles,
+    TrustedPersonalRegistration, load_personal_dataset, load_personal_dataset_with_profile_files,
 };
 
 /// A host-selected registry descriptor, kept separate from the selected DATA directory.
@@ -25,6 +25,12 @@ struct RegistryEntry {
     trust: TrustedPersonalRegistration,
     manifest_path: String,
     review_path: String,
+    #[serde(default)]
+    data_root: Option<String>,
+    #[serde(default)]
+    source_registry_path: Option<String>,
+    #[serde(default)]
+    format_profile_path: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -173,6 +179,19 @@ impl TrustedRegistry {
                 || data::check_relative_path(&entry.review_path).is_err()
                 || data::has_executable_extension(&entry.manifest_path)
                 || data::has_executable_extension(&entry.review_path)
+                || entry
+                    .data_root
+                    .as_deref()
+                    .is_some_and(|path| data::check_relative_path(path).is_err())
+                || entry.source_registry_path.is_some() != entry.format_profile_path.is_some()
+                || entry.source_registry_path.as_deref().is_some_and(|path| {
+                    data::check_relative_path(path).is_err() || data::has_executable_extension(path)
+                })
+                || entry.format_profile_path.as_deref().is_some_and(|path| {
+                    data::check_relative_path(path).is_err() || data::has_executable_extension(path)
+                })
+                || entry.source_registry_path.is_some()
+                    && entry.source_registry_path == entry.format_profile_path
             {
                 return Err(ActiveDataError::RegistryInvalid);
             }
@@ -194,21 +213,51 @@ impl TrustedRegistry {
         let mut datasets = Vec::new();
         let mut statuses = Vec::with_capacity(self.registrations.len());
         for entry in &self.registrations {
-            let loaded = source
-                .read(&entry.manifest_path, crate::MAX_MANIFEST_BYTES)
-                .map_err(|_| ActiveDataError::DataUnavailable)
-                .and_then(|manifest| {
-                    let review = source
-                        .read(&entry.review_path, crate::MAX_MANIFEST_BYTES)
-                        .map_err(|_| ActiveDataError::DataUnavailable)?;
-                    load_personal_dataset(
-                        source,
+            let loaded = (|| {
+                let scoped = entry
+                    .data_root
+                    .as_deref()
+                    .map(|path| source.scope(path))
+                    .transpose()
+                    .map_err(|_| ActiveDataError::DataUnavailable)?;
+                let data_source = scoped.as_deref().unwrap_or(source);
+                let manifest = source
+                    .read(&entry.manifest_path, crate::MAX_MANIFEST_BYTES)
+                    .map_err(|_| ActiveDataError::DataUnavailable)?;
+                let review = source
+                    .read(&entry.review_path, crate::MAX_MANIFEST_BYTES)
+                    .map_err(|_| ActiveDataError::DataUnavailable)?;
+                let context = include_bytes!("data/personal-local-context.json");
+                match (&entry.source_registry_path, &entry.format_profile_path) {
+                    (Some(registry_path), Some(profile_path)) => {
+                        let registry = source
+                            .read(registry_path, crate::MAX_MANIFEST_BYTES)
+                            .map_err(|_| ActiveDataError::DataUnavailable)?;
+                        let profile = source
+                            .read(profile_path, crate::MAX_MANIFEST_BYTES)
+                            .map_err(|_| ActiveDataError::DataUnavailable)?;
+                        load_personal_dataset_with_profile_files(
+                            data_source,
+                            &entry.trust,
+                            &manifest,
+                            &review,
+                            context,
+                            &ProfileIdentityFiles {
+                                registry: &registry,
+                                profile: &profile,
+                            },
+                        )
+                    }
+                    (None, None) => load_personal_dataset(
+                        data_source,
                         &entry.trust,
                         &manifest,
                         &review,
-                        include_bytes!("data/personal-local-context.json"),
-                    )
-                });
+                        context,
+                    ),
+                    _ => Err(ActiveDataError::RegistryInvalid),
+                }
+            })();
             let (state, reason) = match loaded {
                 Ok(dataset) => {
                     datasets.push(dataset);
@@ -288,5 +337,90 @@ mod tests {
             .unwrap()
             .push(entry);
         assert!(TrustedRegistry::parse(&serde_json::to_vec(&duplicate).unwrap()).is_err());
+    }
+
+    #[test]
+    fn sources_without_stable_scoping_do_not_load_a_dataset_root() {
+        use std::cell::RefCell;
+        struct Tracking(RefCell<Vec<String>>);
+        impl DataSource for Tracking {
+            fn root_binding_id(&self) -> Option<&str> {
+                Some("fixture-root")
+            }
+            fn read(&self, path: &str, _limit: u64) -> Result<Vec<u8>, crate::SourceError> {
+                self.0.borrow_mut().push(path.to_owned());
+                Ok(b"fixture".to_vec())
+            }
+        }
+        let source = Tracking(RefCell::new(Vec::new()));
+        let mut value = descriptor();
+        value["registrations"][0]["data_root"] = "dataset-a".into();
+        let registry = TrustedRegistry::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let result = registry.load(&source);
+        assert!(result.datasets().is_empty());
+        assert_eq!(
+            result.status().registrations[0].reason,
+            Some("data_unavailable")
+        );
+        assert!(
+            source.0.borrow().is_empty(),
+            "unscoped sources must not read payloads"
+        );
+    }
+
+    #[test]
+    fn phase6_metadata_paths_must_be_safe_and_supplied_together() {
+        let mut value = descriptor();
+        let entry = &mut value["registrations"][0];
+        entry["data_root"] = "datasets/example".into();
+        entry["source_registry_path"] = "catalog/registry.json".into();
+        entry["format_profile_path"] = "catalog/profile.json".into();
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+        let mut incomplete = value.clone();
+        incomplete["registrations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("format_profile_path");
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&incomplete).unwrap()).is_err());
+        for key in ["data_root", "source_registry_path", "format_profile_path"] {
+            let mut invalid = value.clone();
+            invalid["registrations"][0][key] = "../escape".into();
+            assert!(TrustedRegistry::parse(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn missing_phase6_metadata_never_activates_a_registration() {
+        use std::cell::RefCell;
+        struct MetadataOnly(RefCell<Vec<String>>);
+        impl DataSource for MetadataOnly {
+            fn root_binding_id(&self) -> Option<&str> {
+                Some("fixture-root")
+            }
+            fn read(&self, path: &str, _: u64) -> Result<Vec<u8>, crate::SourceError> {
+                self.0.borrow_mut().push(path.to_owned());
+                match path {
+                    "manifest.json" | "review.json" => Ok(b"{}".to_vec()),
+                    _ => Err(crate::SourceError::Missing),
+                }
+            }
+        }
+        let mut value = descriptor();
+        let entry = &mut value["registrations"][0];
+        entry["trust"]["profile_id"] = "private-naming-element-ranks-v1".into();
+        entry["source_registry_path"] = "catalog/registry.json".into();
+        entry["format_profile_path"] = "catalog/profile.json".into();
+        let registry = TrustedRegistry::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let source = MetadataOnly(RefCell::new(Vec::new()));
+        let loaded = registry.load(&source);
+        assert!(loaded.datasets().is_empty());
+        assert_eq!(
+            loaded.status().registrations[0].reason,
+            Some("data_unavailable")
+        );
+        assert_eq!(
+            &*source.0.borrow(),
+            &["manifest.json", "review.json", "catalog/registry.json"]
+        );
     }
 }

@@ -64,6 +64,7 @@ pub enum ProfileRecords {
     ValenceReference(Vec<ValenceOperand>),
     ElementEndpoint(u32),
     Contours(Vec<Contour>),
+    Phase6(crate::phase6_profiles::DatasetRecords),
 }
 
 #[derive(PartialEq)]
@@ -105,7 +106,8 @@ pub fn decode_profile(
     let rows = lines
         .iter()
         .map(|line| {
-            json::parse_strict(line.as_bytes()).map_err(|_| ProfileDecodeError::InvalidRecord)
+            json::parse_integer_zero_strict(line.as_bytes())
+                .map_err(|_| ProfileDecodeError::InvalidRecord)
         })
         .collect::<Result<Vec<_>, _>>()?;
     match profile {
@@ -317,6 +319,14 @@ mod tests {
             panic!("wrong type")
         };
         assert_eq!((rows[0].atomic_number, rows[0].value), (0, u32::MAX));
+        assert!(matches!(
+            decode_profile(
+                DataProfile::ValenceReference,
+                text.replace("\"atomic_number_u32\":0", "\"atomic_number_u32\":-0")
+                    .as_bytes(),
+            ),
+            Ok(ProfileRecords::ValenceReference(_))
+        ));
         assert!(
             decode_profile(
                 DataProfile::ValenceReference,

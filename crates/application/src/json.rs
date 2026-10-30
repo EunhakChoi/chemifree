@@ -18,6 +18,60 @@ pub fn parse_strict(bytes: &[u8]) -> Result<Value, serde_json::Error> {
     serde_json::from_slice::<Strict>(bytes).map(|Strict(value)| value)
 }
 
+/// Strict parsing for contracts that accept the JSON integer token `-0` as integer zero.
+///
+/// Only a bare integer token is normalized; strings, fractional and exponent forms are
+/// unchanged. Contracts requiring the sign of a floating-point zero must keep their own
+/// raw-bit witness.
+///
+/// # Errors
+/// Returns the parser's error for invalid JSON or duplicate keys.
+pub fn parse_integer_zero_strict(bytes: &[u8]) -> Result<Value, serde_json::Error> {
+    parse_strict(&normalize_negative_integer_zero(bytes))
+}
+
+fn normalize_negative_integer_zero(bytes: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut inside = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if inside {
+            output.push(b);
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                inside = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' {
+            inside = true;
+        }
+        let before = i == 0
+            || matches!(
+                bytes[i - 1],
+                b' ' | b'\n' | b'\r' | b'\t' | b':' | b'[' | b','
+            );
+        let after = i + 2 == bytes.len()
+            || bytes
+                .get(i + 2)
+                .is_some_and(|b| matches!(b, b' ' | b'\n' | b'\r' | b'\t' | b',' | b']' | b'}'));
+        if b == b'-' && bytes.get(i + 1) == Some(&b'0') && before && after {
+            output.push(b'0');
+            i += 2;
+        } else {
+            output.push(b);
+            i += 1;
+        }
+    }
+    output
+}
+
 struct Strict(Value);
 
 impl<'de> Deserialize<'de> for Strict {
@@ -109,5 +163,18 @@ mod tests {
             "unexpected error: {error}"
         );
         assert!(parse_strict(br#"{"a": 1, "a": 1}"#).is_err());
+    }
+
+    #[test]
+    fn normalizes_only_integer_negative_zero_tokens() {
+        let value = parse_integer_zero_strict(
+            br#"{"integer":-0,"fraction":-0.0,"exponent":-0e0,"text":"-0"}"#,
+        )
+        .unwrap();
+        assert_eq!(value["integer"].as_u64(), Some(0));
+        assert_eq!(value["fraction"].as_u64(), None);
+        assert_eq!(value["exponent"].as_u64(), None);
+        assert_eq!(value["text"].as_str(), Some("-0"));
+        assert!(parse_integer_zero_strict(br#"{"x":-0,"x":0}"#).is_err());
     }
 }

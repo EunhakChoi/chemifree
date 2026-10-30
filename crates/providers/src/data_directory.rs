@@ -115,20 +115,32 @@ impl DataSource for DirectoryDataSource {
         self.root_binding_id.as_deref()
     }
 
+    fn scope(&self, relative_dir: &str) -> Result<Box<dyn DataSource + '_>, SourceError> {
+        data::check_relative_path(relative_dir).map_err(|_| SourceError::Escapes)?;
+        let directory = open_beneath(self.opened_root()?, relative_dir)?;
+        if !directory
+            .metadata()
+            .map_err(|error| io_error(&error))?
+            .is_dir()
+        {
+            return Err(SourceError::NotAFile);
+        }
+        Ok(Box::new(Self {
+            root: self.root.clone(),
+            root_binding_id: self.root_binding_id.clone(),
+            trusted_public_manifest_sha256: None,
+            opened_root: Arc::new(OnceLock::from(Ok(directory))),
+        }))
+    }
+
     fn read(&self, path: &str, limit: u64) -> Result<Vec<u8>, SourceError> {
         self.read_with_hook(path, limit, || {})
     }
 }
 
 impl DirectoryDataSource {
-    fn read_with_hook(
-        &self,
-        path: &str,
-        limit: u64,
-        after_root_open: impl FnOnce(),
-    ) -> Result<Vec<u8>, SourceError> {
-        let root = self
-            .opened_root
+    fn opened_root(&self) -> Result<&File, SourceError> {
+        self.opened_root
             .get_or_init(|| {
                 let root = open_root(&self.root)?;
                 if !root
@@ -141,7 +153,16 @@ impl DirectoryDataSource {
                 Ok(root)
             })
             .as_ref()
-            .map_err(Clone::clone)?;
+            .map_err(Clone::clone)
+    }
+
+    fn read_with_hook(
+        &self,
+        path: &str,
+        limit: u64,
+        after_root_open: impl FnOnce(),
+    ) -> Result<Vec<u8>, SourceError> {
+        let root = self.opened_root()?;
         // The application checks paths first; this keeps the guarantee for any caller.
         if data::check_relative_path(path).is_err() {
             return Err(SourceError::Escapes);
