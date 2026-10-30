@@ -43,6 +43,8 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
 
 manifest는 공개 ManifestV1 필드와 추가 필드 거절 규칙을 사용한다. 정규화 해시는 중복 키·BOM·부동소수 표기를 거절하고 객체 키 정렬, UTF-8, 공백 없는 정수 JSON으로 계산하며, 공백을 포함하는 원문 바이트 해시와 별개다. 리뷰는 고정된 공개 personal-local context의 원문 해시, 승인 상태, 출처·root ID, manifest와 정확히 같은 파일 ID·바이트 수·해시·내용 분류, `local_load`와 `decode` 허용 범위를 확인한다. `fixture_only` 리뷰는 실제 등록에서 거절한다. 권리 확인은 해당 개인 로컬 사용의 사용자 확인을 받아들이는 계약이며 법률·문서 검증을 주장하지 않는다. 더 넓은 배포·원격 처리·원본 모듈 실행 권한은 추론하지 않는다.
 
+`unknown_field_policy`는 데이터 payload의 알 수 없는 필드를 해당 프로필이 비핵심 metadata로 명시한 경우에만 보존할 수 있다는 정책이다. 공개 `spec/phase4-external-data-manifest.schema.json`은 정책과 무관하게 manifest의 추가 필드를 거절하며, `spec/phase4-external-data-loader-contracts.ko.md`는 그 규칙과 payload 정책의 차이를 명시한다. 현재 등록한 세 프로필의 공개 스키마는 추가 payload 필드를 허용하지 않으므로 `retain_opaque_and_report`를 선택한 manifest도 정상 입력은 처리하되 추가 payload 필드는 거절한다. opaque 필드 보존을 지원하는 프로필은 아직 없다.
+
 각 파일은 같은 바이트를 한 번 읽어 길이·해시·형식을 검사한 뒤에만 공개한다. 한 파일이 실패한 데이터셋은 다른 파일의 성공 여부에 관계없이 부분 공개하지 않는다. 첫 읽기에서 선택한 디렉터리를 열어 이후 읽기에도 같은 디렉터리를 사용하므로 그 경로가 교체되어도 다른 원본과 섞이지 않는다. Linux에서는 열린 디렉터리 기준 `openat2`의 `RESOLVE_BENEATH`와 `NO_MAGICLINKS`로 경로를 원자적으로 제한한다. Linux에서 해당 시스템 호출을 지원하지 않거나 다른 운영체제에서는 외부 DATA 읽기를 거절한다. 편집기 자체의 플랫폼 지원과는 별개다.
 
 모델 바인딩 검증은 신뢰된 기술서 원문 해시와 등록 ID·세대·정규화 manifest 해시·엔진 계약을 대조한다. 결과는 데이터 바인딩 검증일 뿐 실행 가능한 모델을 뜻하지 않는다. 데이터 접근 후속 사용에는 해당 시점의 권리 범위·철회·만료 재검사가 필요하며, 아직 엔진 호출이나 cache/export는 연결하지 않았다.

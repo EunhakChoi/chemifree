@@ -500,6 +500,8 @@ pub fn validate_active_manifest(bytes: &[u8]) -> Result<ManifestIdentity, Active
     Ok(identity)
 }
 
+// ManifestV1 is closed under both policies; retain-opaque applies only to payload metadata
+// that the selected profile explicitly permits, never to unknown manifest members.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -1044,5 +1046,61 @@ mod tests {
         ] {
             assert!(validate_active_manifest(invalid.as_bytes()).is_err());
         }
+    }
+
+    #[test]
+    fn retain_policy_never_weakens_the_manifest_or_a_closed_payload_profile() {
+        let (mut source, mut trust, manifest, mut review) = synthetic_registration();
+        let mut manifest: Value = serde_json::from_slice(&manifest).unwrap();
+        manifest["unknown_field_policy"] = "retain_opaque_and_report".into();
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&manifest_bytes).unwrap();
+        trust.manifest_sha256 = identity.canonical_sha256;
+        trust.manifest_file_sha256 = identity.exact_sha256;
+        let review_bytes = serde_json::to_vec(&review).unwrap();
+        let loaded = load_personal_impl(
+            &source,
+            &trust,
+            &manifest_bytes,
+            &review_bytes,
+            CONTEXT,
+            ReviewTrust::SyntheticFixture,
+        )
+        .unwrap();
+        assert!(matches!(
+            loaded.records(),
+            ProfileRecords::ElementEndpoint(123)
+        ));
+
+        let mut extended_manifest = manifest.clone();
+        extended_manifest["future_extension"] = json!({"value": 1});
+        assert!(matches!(
+            validate_active_manifest(&serde_json::to_vec(&extended_manifest).unwrap()),
+            Err(ActiveDataError::ManifestInvalid)
+        ));
+
+        source.bytes = b"{\"atomic_number_u32\":1,\"source_rank_u32\":123,\"extra\":1}\n".to_vec();
+        let data_hash = hash(&source.bytes);
+        manifest["files"][0]["sha256"] = data_hash.clone().into();
+        manifest["files"][0]["bytes"] = source.bytes.len().into();
+        review["file_identities"][0]["sha256"] = data_hash.into();
+        review["file_identities"][0]["bytes"] = source.bytes.len().into();
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&manifest_bytes).unwrap();
+        trust.manifest_sha256 = identity.canonical_sha256;
+        trust.manifest_file_sha256 = identity.exact_sha256;
+        let review_bytes = serde_json::to_vec(&review).unwrap();
+        trust.review_sha256 = hash(&review_bytes);
+        assert!(matches!(
+            load_personal_impl(
+                &source,
+                &trust,
+                &manifest_bytes,
+                &review_bytes,
+                CONTEXT,
+                ReviewTrust::SyntheticFixture
+            ),
+            Err(ActiveDataError::ContentInvalid)
+        ));
     }
 }
