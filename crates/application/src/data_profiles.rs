@@ -81,6 +81,8 @@ pub enum ProfileRecords {
     Nmr(Box<crate::nmr_profile::NmrData>),
     /// Verified prediction operands; feature extraction and prediction are not implemented.
     PredictionInputs(Box<crate::prediction_input::PredictionInputs>),
+    /// Catalog-bound inert phase 4 bytes and numeric operands, without a model.
+    Phase4Literals(Box<crate::phase4_literals::Records>),
 }
 
 #[derive(PartialEq)]

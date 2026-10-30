@@ -134,6 +134,21 @@ impl Fixture {
         self.trust.manifest_file_sha256 = identity.exact_sha256;
     }
 
+    pub(super) fn set_role(&mut self, path: &str, role: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        let file = manifest["files"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|file| file["relative_path"] == path)
+            .unwrap();
+        file["role"] = role.into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+    }
+
     pub(super) fn add_missing_optional(&mut self, id: &str, path: &str, bytes: &[u8]) {
         let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
         manifest["files"].as_array_mut().unwrap().push(json!({
@@ -158,13 +173,14 @@ impl Fixture {
 }
 
 pub(super) fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> Fixture {
-    let numeric = profile_id == "private-data-molnet-xlogp-100-f64-data-v1";
-    let classification = if numeric {
-        "model_parameters"
-    } else {
-        "declarative_data"
+    let (classification, role) = match profile_id {
+        "private-data-molnet-xlogp-100-f64-data-v1" => ("model_parameters", "weights"),
+        "private-data-molnet-supporting-numeric-literals-v1" => ("model_parameters", "calibration"),
+        "private-data-chemprop-typed-parameter-tables-v1" => {
+            ("model_parameters", "contribution_table")
+        }
+        _ => ("declarative_data", "auxiliary_data"),
     };
-    let role = if numeric { "weights" } else { "auxiliary_data" };
     let files: Vec<Value> = entries
         .iter()
         .map(|(id, path, bytes)| {
