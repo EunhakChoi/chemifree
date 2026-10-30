@@ -6,7 +6,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chemifree_application::{DocumentRepository, Draft, DraftStatus, StorageError};
+use chemifree_application::{
+    Application, DocumentRepository, Draft, DraftStatus, ErrorCode, MAX_OPEN_SESSIONS,
+    RecoveryState, StorageError,
+};
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, DocumentId,
     NewAtomPositions, ObjectId, Point, Vector,
@@ -19,7 +22,7 @@ use chemifree_domain::scene::{
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
-use chemifree_providers::FileDocumentRepository;
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 
 const ID: &str = "doc-00000000000000f1";
 
@@ -540,6 +543,339 @@ fn version_3_fixture(name: &str) -> Vec<u8> {
         }
     }
     serde_json::to_vec_pretty(&file).unwrap()
+}
+
+#[test]
+fn recovering_an_older_draft_keeps_its_exact_bytes_before_rewriting_it() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let mut draft: serde_json::Value =
+        serde_json::from_slice(&version_3_fixture("v2-draft.json")).unwrap();
+    draft["base_revision"] = serde_json::json!(6);
+    let original = serde_json::to_vec_pretty(&draft).unwrap();
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    let backup = root
+        .path()
+        .join("migrated")
+        .join(format!("{ID}.draft.v3.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+
+    app.document(ID).unwrap();
+    assert_eq!(
+        fs::read(&draft_path).unwrap(),
+        original,
+        "inspection never rewrites a draft"
+    );
+    assert!(!backup.exists(), "inspection never archives a draft");
+    let recovered = app.recover(ID, Some("recover-old")).unwrap();
+    assert_eq!(
+        fs::read(&backup).unwrap(),
+        original,
+        "recovery keeps the original bytes"
+    );
+    assert_eq!(
+        fs::read(&draft_path).unwrap(),
+        original,
+        "recovery has not rewritten the draft"
+    );
+    let commands =
+        serde_json::from_value(serde_json::json!([{ "op": "rename", "title": "After recovery" }]))
+            .unwrap();
+    app.apply_transaction(ID, None, recovered.document.revision, commands)
+        .unwrap();
+    assert!(app.draft_all().is_empty());
+    assert_ne!(
+        fs::read(&draft_path).unwrap(),
+        original,
+        "the next draft uses the current format"
+    );
+    assert_eq!(
+        fs::read(&backup).unwrap(),
+        original,
+        "rewriting cannot replace the original copy"
+    );
+}
+
+#[test]
+fn recovering_an_older_draft_as_a_copy_keeps_its_original_bytes() {
+    for (version, document, original) in [
+        (1, fixture("v1-document.json"), fixture("v1-draft.json")),
+        (2, fixture("v2-document.json"), fixture("v2-draft.json")),
+        (
+            3,
+            version_3_fixture("v2-document.json"),
+            version_3_fixture("v2-draft.json"),
+        ),
+    ] {
+        let (root, repository, _) = stored(&document);
+        let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+        let backup = root
+            .path()
+            .join("migrated")
+            .join(format!("{ID}.draft.v{version}.json"));
+        fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+        fs::write(&draft_path, &original).unwrap();
+        let app = Application::new(LocalCapabilities, repository);
+
+        app.recover_as_copy(ID, Some("copy-old"), None).unwrap();
+        assert!(
+            !draft_path.exists(),
+            "version {version}: the draft is consumed"
+        );
+        assert_eq!(
+            fs::read(&backup).unwrap(),
+            original,
+            "version {version}: original bytes"
+        );
+    }
+}
+
+#[test]
+fn discarding_an_older_draft_does_not_archive_it() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    let backup = root
+        .path()
+        .join("migrated")
+        .join(format!("{ID}.draft.v3.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, version_3_fixture("v2-draft.json")).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+
+    app.discard_draft(ID, Some("discard-old")).unwrap();
+    assert!(!draft_path.exists());
+    assert!(
+        !backup.exists(),
+        "an explicit discard does not create an archive"
+    );
+}
+
+#[test]
+fn different_old_drafts_of_one_version_are_kept_without_overwriting_or_duplicating() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let mut different = original.clone();
+    different.push(b'\n');
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+    for (request, bytes) in [
+        ("copy-1", &original),
+        ("copy-2", &different),
+        ("copy-3", &original),
+    ] {
+        fs::write(&draft_path, bytes).unwrap();
+        app.recover_as_copy(ID, Some(request), None).unwrap();
+    }
+    let migrated = root.path().join("migrated");
+    assert_eq!(
+        fs::read(migrated.join(format!("{ID}.draft.v3.json"))).unwrap(),
+        original
+    );
+    assert_eq!(
+        fs::read(migrated.join(format!("{ID}.draft.v3.2.json"))).unwrap(),
+        different
+    );
+    assert!(!migrated.join(format!("{ID}.draft.v3.3.json")).exists());
+}
+
+#[test]
+fn failed_draft_archive_leaves_the_draft_and_creates_no_copy() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+
+    assert!(
+        app.recover_as_copy(ID, Some("cannot-archive"), None)
+            .is_err()
+    );
+    assert_eq!(fs::read(&draft_path).unwrap(), original);
+    assert_eq!(
+        app.document(ID).unwrap().recovery.unwrap().state,
+        RecoveryState::Outdated
+    );
+    let another = FileDocumentRepository::new(root.path());
+    assert!(matches!(
+        another.draft_status(&id()),
+        Ok(DraftStatus::Abandoned(Ok(_)))
+    ));
+    assert_eq!(another.list_ids().unwrap(), vec![id()]);
+    fs::remove_file(root.path().join("migrated")).unwrap();
+    let copied = app
+        .recover_as_copy(ID, Some("cannot-archive"), None)
+        .unwrap();
+    assert_eq!(
+        app.recover_as_copy(ID, Some("cannot-archive"), None)
+            .unwrap(),
+        copied
+    );
+    assert_eq!(
+        fs::read(
+            root.path()
+                .join("migrated")
+                .join(format!("{ID}.draft.v3.json"))
+        )
+        .unwrap(),
+        original
+    );
+    assert_eq!(
+        another.list_ids().unwrap().len(),
+        2,
+        "retry commits only one copy"
+    );
+}
+
+#[test]
+fn an_outdated_draft_is_reported_before_a_backup_would_fail() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+
+    let error = app.recover(ID, Some("outdated-before-backup")).unwrap_err();
+    assert_eq!(error.code, ErrorCode::DraftOutdated);
+    assert_eq!(error.current_revision, Some(6));
+    assert_eq!(fs::read(&draft_path).unwrap(), original);
+}
+
+#[test]
+fn previously_used_identifiers_are_reported_before_a_backup_would_fail() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let mut draft: serde_json::Value =
+        serde_json::from_slice(&version_3_fixture("v2-draft.json")).unwrap();
+    draft["base_revision"] = serde_json::json!(6);
+    let original = serde_json::to_vec_pretty(&draft).unwrap();
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+    let commands = serde_json::from_value(serde_json::json!([
+        { "op": "add_graphic", "shape": "line", "points": [{ "x": 0, "y": 0 }, { "x": 1, "y": 1 }] }
+    ]))
+    .unwrap();
+    let edited = app.apply_transaction(ID, None, 6, commands).unwrap();
+    app.close(ID, None, true, Some(edited.document.revision))
+        .unwrap();
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+
+    let error = app
+        .recover(ID, Some("identifiers-before-backup"))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::DraftOutdated);
+    assert_eq!(fs::read(&draft_path).unwrap(), original);
+}
+
+#[test]
+fn full_dirty_sessions_are_reported_before_a_backup_would_fail() {
+    enum Recovery {
+        InPlace,
+        Copy,
+    }
+    for mode in [Recovery::InPlace, Recovery::Copy] {
+        let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+        let mut draft: serde_json::Value =
+            serde_json::from_slice(&version_3_fixture("v2-draft.json")).unwrap();
+        draft["base_revision"] = serde_json::json!(6);
+        let original = serde_json::to_vec_pretty(&draft).unwrap();
+        let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+        fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+        fs::write(&draft_path, &original).unwrap();
+        let app = Application::new(LocalCapabilities, repository);
+        for _ in 0..MAX_OPEN_SESSIONS {
+            let id = app.create_document(None, None).unwrap().document.id;
+            let commands =
+                serde_json::from_value(serde_json::json!([{ "op": "rename", "title": "Unsaved" }]))
+                    .unwrap();
+            app.apply_transaction(&id, None, 0, commands).unwrap();
+        }
+        fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+        let error = match mode {
+            Recovery::InPlace => app.recover(ID, Some("full-before-backup")).unwrap_err(),
+            Recovery::Copy => app
+                .recover_as_copy(ID, Some("full-before-backup"), None)
+                .unwrap_err(),
+        };
+        assert_eq!(error.code, ErrorCode::ResourceLimit);
+        assert_eq!(fs::read(&draft_path).unwrap(), original);
+    }
+}
+
+#[test]
+fn invalid_copy_title_is_reported_before_a_backup_would_fail() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+
+    let error = app
+        .recover_as_copy(ID, Some("invalid-title-before-backup"), Some("   "))
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert_eq!(fs::read(&draft_path).unwrap(), original);
+}
+
+#[test]
+fn recovery_archives_the_bytes_actually_claimed_even_if_the_path_changes() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    fs::create_dir_all(draft_path.parent().unwrap()).unwrap();
+    fs::write(&draft_path, &original).unwrap();
+    assert!(matches!(repository.claim_draft(&id()), Ok(Some(Ok(_)))));
+    let mut replacement = original.clone();
+    replacement.push(b'\n');
+    fs::write(&draft_path, replacement).unwrap();
+    repository.prepare_draft_for_recovery(&id()).unwrap();
+    assert_eq!(
+        fs::read(repository.migrated_draft_path(&id(), 3)).unwrap(),
+        original
+    );
+    repository.release_draft(&id());
+}
+
+#[test]
+fn an_interrupted_old_draft_commit_preserves_its_bytes_before_cleanup() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let interrupted = root.path().join("drafts").join(format!("{ID}.committing"));
+    fs::create_dir_all(interrupted.parent().unwrap()).unwrap();
+    fs::write(&interrupted, &original).unwrap();
+    // The stored revision differs from the draft's base, so the interrupted commit finished.
+    assert!(matches!(repository.claim_draft(&id()), Ok(None)));
+    assert!(!interrupted.exists());
+    assert_eq!(
+        fs::read(repository.migrated_draft_path(&id(), 3)).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn failed_interrupted_draft_archive_leaves_the_original_for_retry() {
+    let (root, repository, _) = stored(&version_3_fixture("v2-document.json"));
+    let original = version_3_fixture("v2-draft.json");
+    let interrupted = root.path().join("drafts").join(format!("{ID}.committing"));
+    fs::create_dir_all(interrupted.parent().unwrap()).unwrap();
+    fs::write(&interrupted, &original).unwrap();
+    fs::write(root.path().join("migrated"), b"not a directory").unwrap();
+    assert!(repository.claim_draft(&id()).is_err());
+    assert_eq!(fs::read(&interrupted).unwrap(), original);
+    fs::remove_file(root.path().join("migrated")).unwrap();
+    assert!(matches!(repository.claim_draft(&id()), Ok(None)));
+    assert_eq!(
+        fs::read(repository.migrated_draft_path(&id(), 3)).unwrap(),
+        original
+    );
 }
 
 #[test]

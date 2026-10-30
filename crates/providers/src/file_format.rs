@@ -660,7 +660,16 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
 /// The earlier version of a document file this build reads (1, 2, or 3), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
-    match version(bytes, FORMAT, FORMAT_VERSION, "document") {
+    earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
+}
+
+/// The earlier version of a recovery draft this build reads, if any.
+pub(crate) fn earlier_draft_version(bytes: &[u8]) -> Option<u32> {
+    earlier(version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft"))
+}
+
+fn earlier(version: Result<Version, String>) -> Option<u32> {
+    match version {
         Ok(Version::One) => Some(VERSION_1),
         Ok(Version::Two) => Some(VERSION_2),
         Ok(Version::Three) => Some(VERSION_3),

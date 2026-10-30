@@ -28,6 +28,8 @@ struct Table {
     running: HashSet<RequestKey>,
     /// Documents whose turn is taken.
     taken: HashSet<DocumentId>,
+    /// Draft recovery or discard I/O in progress while that document's turn is held.
+    draft_io: HashSet<DocumentId>,
     /// Requests waiting for a turn.
     waiting: usize,
 }
@@ -109,6 +111,11 @@ impl Turns {
     pub fn is_taken(&self, document: &DocumentId) -> bool {
         self.lock().taken.contains(document)
     }
+
+    /// Whether a recovery or discard is currently touching this document's draft.
+    pub fn draft_io_in_progress(&self, document: &DocumentId) -> bool {
+        self.lock().draft_io.contains(document)
+    }
 }
 
 /// A request marked as running.
@@ -131,6 +138,27 @@ impl Drop for Running<'_> {
 pub struct Turn<'a> {
     turns: &'a Turns,
     document: DocumentId,
+}
+
+impl Turn<'_> {
+    /// Marks draft I/O while this turn is held, so session replies need not probe the same
+    /// draft while its owner lock or storage is busy.
+    pub fn draft_io(&mut self) -> DraftIo<'_> {
+        self.turns.lock().draft_io.insert(self.document.clone());
+        DraftIo { turn: self }
+    }
+}
+
+/// A draft recovery or discard's storage work, scoped to its document's turn.
+#[must_use = "draft I/O is marked complete when this guard is dropped"]
+pub struct DraftIo<'a> {
+    turn: &'a Turn<'a>,
+}
+
+impl Drop for DraftIo<'_> {
+    fn drop(&mut self) {
+        self.turn.turns.lock().draft_io.remove(&self.turn.document);
+    }
 }
 
 impl Drop for Turn<'_> {

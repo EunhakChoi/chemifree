@@ -47,6 +47,13 @@ pub trait DocumentRepository: Send + Sync {
     /// `Locked` when another running process owns it.
     fn claim_draft(&self, id: &DocumentId) -> Result<Option<Result<Draft, String>>, StorageError>;
 
+    /// Prepares an owned, readable draft for recovery. A provider that migrates an older draft
+    /// preserves its original bytes here before a recovery can replace or remove it. Stores
+    /// without an older representation have nothing to preserve.
+    fn prepare_draft_for_recovery(&self, _id: &DocumentId) -> Result<(), StorageError> {
+        Ok(())
+    }
+
     /// Gives up ownership without removing the draft, so it is abandoned again.
     fn release_draft(&self, id: &DocumentId);
 

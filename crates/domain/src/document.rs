@@ -1043,6 +1043,18 @@ impl Content {
     }
 }
 
+/// Trims surrounding whitespace and validates a title for creation, rename, or copying.
+///
+/// # Errors
+///
+/// Returns [`EditError::InvalidTitle`] when the trimmed title is empty, too long, or contains
+/// control characters.
+pub fn validated_title(title: &str) -> Result<&str, EditError> {
+    let title = title.trim();
+    validate_title(title)?;
+    Ok(title)
+}
+
 fn validate_title(title: &str) -> Result<(), EditError> {
     let length = title.chars().count();
     if title.trim() != title
@@ -1352,8 +1364,7 @@ impl Draft {
                 self.content.refuse_dangling_references()?;
             }
             Command::Rename { title } => {
-                let title = title.trim();
-                validate_title(title)?;
+                let title = validated_title(title)?;
                 title.clone_into(&mut self.content.title);
             }
             Command::AddInstance { source, offset } => {
@@ -1547,8 +1558,7 @@ impl Document {
     /// Creates an empty document at revision 0 with one scene instance, `s1`, and nothing
     /// selected. Surrounding whitespace is trimmed from the title.
     pub fn new(id: DocumentId, title: &str) -> Result<Self, EditError> {
-        let title = title.trim();
-        validate_title(title)?;
+        let title = validated_title(title)?;
         Ok(Self {
             id,
             revision: 0,
@@ -1574,8 +1584,7 @@ impl Document {
     /// and scene object identifiers are kept, so commands that name them mean the same entities
     /// in the copy.
     pub fn copy_as(&self, id: DocumentId, title: &str) -> Result<Self, EditError> {
-        let title = title.trim();
-        validate_title(title)?;
+        let title = validated_title(title)?;
         Ok(Self {
             id,
             revision: 0,

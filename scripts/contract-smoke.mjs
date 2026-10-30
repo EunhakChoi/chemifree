@@ -1135,6 +1135,28 @@ try {
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
     assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 4')
 
+    // Both entry adapters preserve an old draft's exact bytes before recovering it as a copy.
+    const oldDraft = (documentId) => {
+      placed('v2-document.json', documentId)
+      const bytes = readFileSync(join(fixtures, 'v2-draft.json'), 'utf8').replaceAll(fixtureId, documentId)
+      const path = join(dataDir, 'drafts', `${documentId}.json`)
+      mkdirSync(join(dataDir, 'drafts'), { recursive: true })
+      writeFileSync(path, bytes)
+      return { path, bytes, kept: join(dataDir, 'migrated', `${documentId}.draft.v2.json`) }
+    }
+    const httpDraft = oldDraft('doc-00000000000000c1')
+    const cliDraft = oldDraft('doc-00000000000000c2')
+    const httpCopy = await write('/api/v1/documents/doc-00000000000000c1/recover-as-copy', { request_id: 'old-draft-copy' })
+    const cliCopy = cli('documents', 'recover-as-copy', 'doc-00000000000000c2', '--json')
+    assert.equal(httpCopy.status, 201)
+    assert.equal(cliCopy.status, 0)
+    assert.deepEqual(httpCopy.body.document.atoms, cliCopy.body.document.atoms)
+    assert.deepEqual(httpCopy.body.document.scene, cliCopy.body.document.scene)
+    for (const draft of [httpDraft, cliDraft]) {
+      assert.equal(existsSync(draft.path), false)
+      assert.equal(readFileSync(draft.kept, 'utf8'), draft.bytes)
+    }
+
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
     newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 5')
     writeFileSync(newer.path, newer.bytes)
@@ -1226,6 +1248,7 @@ try {
       'sort, rename, trash, restore, stale sessions, an interrupted delete), and drafts the service writes without a ' +
       'client (crash, stop, maximum wait, retry), operation contract 1 (HTTP = CLI, guards, protocol errors), and ' +
       'version 1 and 2 files (opened over HTTP and the CLI, migrated with history, the first save keeping the exact bytes, a newer version refused), ' +
+      'old draft recovery preserving exact bytes through HTTP and the CLI, ' +
       'and refused combinations of recorded states (the same reason over HTTP and the CLI) verified.',
   )
 } finally {

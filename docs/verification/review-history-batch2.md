@@ -135,12 +135,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 
 세 head의 CI는 성공했지만 리뷰 조건을 만족하지 못해 08:17:51에 병합 없이 [종료](https://github.com/EunhakChoi/chemifree/pull/33#issuecomment-6491585846)했다. 마지막 head의 [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40839283811)도 성공했다. 후속 P11은 최신 main에서 새 브랜치로 독립적으로 작성하며 #33 구현을 가져오지 않는다.
 
-## #34 P11 재구현 — 장면 트리와 선택 이력(진행 중)
+## #34 P11 재구현 — 장면 트리와 선택 이력(병합)
 
 시간은 UTC다. [#34](https://github.com/EunhakChoi/chemifree/pull/34)는 main `b1ccdfb`에서 시작한 `feat/scene-tree`의 중단된 새 구현을 이어받았으며, #33의 구현을 가져오지 않았다.
 
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 14:51:50 | `0f272a8ded93ccc0ec00edae2217fd68cecbbf2e` | 14:54:54 | P2 한 건: 참조 소유 객체와 그 원자·결합 대상을 함께 삭제할 때 대상이 먼저 삭제되어 `reference_in_use`로 거절됨. 브라우저에서 수정 전 422를 재현하고, 선택한 소유 객체를 먼저 삭제하도록 바꾼 뒤 삭제와 Undo 복원을 검사했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/34#pullrequestreview-5714113392), [지적](https://github.com/EunhakChoi/chemifree/pull/34#discussion_r4424973120) |
+| 2 요청 | 15:01:02 | `d117e335ef2143eaed1ea2c6c415a80bcc64364e` | 15:04:33 | 통과: 이 head의 코드 리뷰가 완료됐고 지적과 미해결 지적이 없다. 첫 회차 스레드는 수정과 검사 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/34#issuecomment-6525896757), [완료](https://github.com/EunhakChoi/chemifree/pull/34#issuecomment-6525972986) |
 
-첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41075424089)는 check·browser 모두 성공했다. 별도 사전 검증에서는 선택 변경 직후 화면 렌더 전 Delete가 들어오면 이전 렌더의 선택으로 일부만 삭제되는 문제를 재현했다. 명령을 내리는 순간의 선택을 읽도록 수정하고 브라우저 회귀 검사에 추가했다. 후속 회차와 병합 후 main CI는 실제 완료 뒤 기록한다.
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41075424089)와 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41076751554)는 check·browser 모두 성공했다. 별도 사전 검증에서는 선택 변경 직후 화면 렌더 전 Delete가 들어오면 이전 렌더의 선택으로 일부만 삭제되는 문제를 재현했다. 명령을 내리는 순간의 선택을 읽도록 수정하고 브라우저 회귀 검사에 추가했다. 15:05:07에 `9efa7cbb435144f446716ed28e93e2f051e020a1`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41077425990)도 check·browser 모두 성공했다. 오래된 초안의 원본 바이트 보관은 별도 P11 후속 변경에서 다룬다.
