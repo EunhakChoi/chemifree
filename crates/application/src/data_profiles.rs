@@ -79,6 +79,8 @@ pub enum ProfileRecords {
     MassInput(Box<crate::mass_input::MassInput>),
     /// Verified NMR input operands; no prediction engine is implied.
     Nmr(Box<crate::nmr_profile::NmrData>),
+    /// Verified prediction operands; feature extraction and prediction are not implemented.
+    PredictionInputs(Box<crate::prediction_input::PredictionInputs>),
 }
 
 #[derive(PartialEq)]

@@ -94,6 +94,31 @@ impl Fixture {
         self.source.entries.insert(path.into(), bytes.to_vec());
     }
 
+    pub(super) fn bind_feature(&mut self, path: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        manifest["feature_schema_sha256"] = hash(self.source.entries.get(path).unwrap()).into();
+        let file = manifest["files"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|file| file["relative_path"] == path)
+            .unwrap();
+        file["role"] = "feature_schema".into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+    }
+
+    pub(super) fn set_feature_hash(&mut self, feature_hash: Option<&str>) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        manifest["feature_schema_sha256"] = feature_hash.into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+    }
+
     pub(super) fn mark_optional(&mut self, path: &str) {
         let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
         let file = manifest["files"]
