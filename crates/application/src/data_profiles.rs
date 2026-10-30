@@ -69,6 +69,8 @@ pub enum ProfileRecords {
     NamingPatterns(Box<crate::naming_patterns::PatternRows>),
     /// Validated lexical and graph carriers; no naming grammar is implemented.
     NamingLexicon(Box<crate::naming_lexicon::NamingLexicon>),
+    /// Validated nickname resources; no sequence expansion is implemented.
+    NicknameData(Box<crate::nickname_data::NicknameData>),
     /// Exact paired numeric inputs without an XLogP prediction engine.
     PreparedXlogp(Box<crate::prepared_xlogp::Weights>),
     /// Verified naming label inputs; labels are not executable dispatch rules.

@@ -17,6 +17,7 @@ pub mod mass_sources;
 pub mod naming_labels;
 pub mod naming_lexicon;
 pub mod naming_patterns;
+pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
 pub mod phase6_profiles;
