@@ -21,6 +21,8 @@ Documents are stored as `documents/<id>.json` in the data directory (recovery dr
 
 The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme and defaults copied into newly created documents. **Document style** and **Preferences** edit these settings in the web UI; computation preferences remain unavailable.
 
+If preferences could not be read when the page started, open **Preferences** and choose **Retry preferences** after the local service is available; a successful read applies the saved theme.
+
 Version 5 documents and drafts retain the scene, selection, and style; versions 1–4 are read in memory with default style. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
 The first API launch compiles Rust dependencies. If that takes longer than the UI's five-second request timeout, use **Retry connection** once the API is listening. Both development ports must be available.

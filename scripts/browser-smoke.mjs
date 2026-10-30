@@ -211,8 +211,43 @@ const revision = async () => (await openDoc()).document.revision
 const saveState = () => page.getByTestId('save-state').textContent()
 const tool = (label) => page.getByRole('button', { name: label, exact: true }).first().click()
 
+// The service may not be ready for the first preference read. Once it is reachable, the
+// dialog can retry without reloading the page and applies the already-stored theme.
+execFileSync(cliPath, [
+  'preferences', 'set', '--expected-revision', '0', '--preferences',
+  JSON.stringify({ ui: { theme: 'dark' }, new_documents: {} }),
+], { env })
+await page.emulateMedia({ colorScheme: 'light' })
+let preferencesAvailable = false
+const unavailablePreferences = (route) =>
+  !preferencesAvailable && route.request().method() === 'GET'
+    ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ api_version: 'v1', code: 'storage_failed', message: 'temporarily unavailable' }) })
+    : route.continue()
+await page.route('**/api/v1/preferences', unavailablePreferences)
 await page.goto(BASE)
 await page.getByText('No document open').waitFor()
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+const unavailableDialog = page.getByRole('dialog', { name: 'Preferences' })
+await unavailableDialog.getByText(/Preferences could not be read/).waitFor()
+const failedRetry = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences') && response.request().method() === 'GET' && response.status() === 503)
+await unavailableDialog.getByRole('button', { name: 'Retry preferences' }).click()
+assert.equal((await failedRetry).status(), 503)
+await unavailableDialog.getByText(/Preferences could not be read/).waitFor()
+preferencesAvailable = true
+const retryPreferences = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences') && response.request().method() === 'GET' && response.status() === 200)
+await unavailableDialog.getByRole('button', { name: 'Retry preferences' }).click()
+await retryPreferences
+await unavailableDialog.getByLabel('Theme').waitFor()
+assert.match(await unavailableDialog.getByLabel('Theme').textContent(), /^Dark/)
+await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
+const resetInitialPreferences = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences/reset'))
+await unavailableDialog.getByRole('button', { name: 'Reset preferences' }).click()
+assert.equal((await resetInitialPreferences).status(), 200)
+await page.waitForFunction(() => !document.documentElement.classList.contains('dark'))
+await unavailableDialog.getByRole('button', { name: 'Done' }).click()
+await unavailableDialog.waitFor({ state: 'hidden' })
+await page.unroute('**/api/v1/preferences', unavailablePreferences)
+results.preferences_read_can_be_retried = true
 
 // Create.
 const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')

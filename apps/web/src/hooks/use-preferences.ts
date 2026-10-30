@@ -31,6 +31,7 @@ export function usePreferences() {
   const [pending, setPending] = useState(0)
   const latest = useRef<PreferencesResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
+  const loading = useRef(false)
 
   const show = useCallback((preferences: PreferencesResponse) => {
     latest.current = preferences
@@ -40,11 +41,16 @@ export function usePreferences() {
 
   /** Reads the preferences; a failure after they were shown keeps them and is reported. */
   const load = useCallback(async () => {
+    if (loading.current) return
+    loading.current = true
+    if (latest.current === null) setState({ kind: 'loading' })
     try {
       show(await client.preferences())
     } catch (failure) {
       if (latest.current === null) setState({ kind: 'error', message: asApiError(failure).message })
       else setError(asApiError(failure))
+    } finally {
+      loading.current = false
     }
   }, [show])
 
@@ -88,6 +94,7 @@ export function usePreferences() {
     state,
     error,
     busy: pending > 0,
+    retry: load,
     dismissError: useCallback(() => setError(null), []),
     /** Replaces the preferences with what `change` makes of the latest ones (null: nothing). */
     set: useCallback(

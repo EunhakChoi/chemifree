@@ -397,7 +397,12 @@ export function PreferencesButton({
           </Alert>
         )}
         {state.kind === 'loading' && <Spinner />}
-        {state.kind === 'error' && <p className="text-sm text-muted-foreground">Preferences could not be read: {state.message}</p>}
+        {state.kind === 'error' && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Preferences could not be read: {state.message}</p>
+            <Button size="sm" variant="outline" onClick={() => void preferences.retry()}>Retry preferences</Button>
+          </div>
+        )}
         {state.kind === 'ready' && (
           <>
             <ChoiceSetting
