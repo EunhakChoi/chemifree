@@ -28,7 +28,7 @@ impl DataSource for Files {
     }
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     source: Files,
     manifest: Vec<u8>,
     review: Vec<u8>,
@@ -38,7 +38,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn load(&self) -> Result<PersonalDataset, ActiveDataError> {
+    pub(super) fn load(&self) -> Result<PersonalDataset, ActiveDataError> {
         let registry_hash = hash(&self.registry);
         let profile_hash = hash(&self.profile);
         let identity = phase6_profiles::CatalogIdentity {
@@ -62,9 +62,77 @@ impl Fixture {
             ReviewTrust::SyntheticCatalog((&identity).into()),
         )
     }
+
+    pub(super) fn load_production(&self) -> Result<PersonalDataset, ActiveDataError> {
+        let proof = ProfileIdentityFiles {
+            registry: &self.registry,
+            profile: &self.profile,
+        };
+        load_personal_dataset_with_profile_files(
+            &self.source,
+            &self.trust,
+            &self.manifest,
+            &self.review,
+            CONTEXT,
+            &proof,
+        )
+    }
+
+    pub(super) fn reads(&self) -> usize {
+        self.source.reads.get()
+    }
+
+    pub(super) fn corrupt(&mut self, path: &str) {
+        self.source.entries.get_mut(path).unwrap()[0] ^= 1;
+    }
+
+    pub(super) fn remove(&mut self, path: &str) {
+        self.source.entries.remove(path).unwrap();
+    }
+
+    pub(super) fn insert(&mut self, path: &str, bytes: &[u8]) {
+        self.source.entries.insert(path.into(), bytes.to_vec());
+    }
+
+    pub(super) fn mark_optional(&mut self, path: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        let file = manifest["files"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|file| file["relative_path"] == path)
+            .unwrap();
+        file["required"] = false.into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+    }
+
+    pub(super) fn add_missing_optional(&mut self, id: &str, path: &str, bytes: &[u8]) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        manifest["files"].as_array_mut().unwrap().push(json!({
+            "file_id": id, "relative_path": path, "sha256": hash(bytes), "bytes": bytes.len(),
+            "role": "auxiliary_data", "required": false, "declared_content_class": "declarative_data"
+        }));
+        let mut review: Value = serde_json::from_slice(&self.review).unwrap();
+        review["file_identities"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "file_id": id, "asset_id": "fixture", "sha256": hash(bytes), "bytes": bytes.len(),
+                "content_classification": "declarative_data", "classification_basis_id": "fixture"
+            }));
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        self.review = serde_json::to_vec(&review).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+        self.trust.review_sha256 = hash(&self.review);
+    }
 }
 
-fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> Fixture {
+pub(super) fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> Fixture {
     let numeric = profile_id == "private-data-molnet-xlogp-100-f64-data-v1";
     let classification = if numeric {
         "model_parameters"
@@ -149,7 +217,7 @@ fn xlogp_files(wrong_value: bool) -> Vec<(&'static str, &'static str, Vec<u8>)> 
     ]
 }
 
-fn assert_binding_unavailable(fixture: &Fixture, dataset: &PersonalDataset) {
+pub(super) fn assert_binding_unavailable(fixture: &Fixture, dataset: &PersonalDataset) {
     let binding = serde_json::to_vec(&json!({
         "binding_version": 1, "model_id": "fixture-model", "independent_engine_contract_id": "fixture-contract",
         "independent_engine_version": "1", "data_registrations": [{"registration_id": "fixture-registration", "generation": 1, "manifest_sha256": fixture.trust.manifest_sha256, "feature_schema_sha256": null}],
