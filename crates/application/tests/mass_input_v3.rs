@@ -320,3 +320,44 @@ fn nominal_mass_limits_use_exact_source_decimals_at_half_boundaries() {
         [(false, false), (true, true), (true, true), (false, false)]
     );
 }
+
+#[test]
+fn isotope_nicknames_and_alias_rows_are_separate_declared_names() {
+    let mut alternative = documents();
+    alternative[1]["isotopes"][0]["nickname"] = "different-nickname".into();
+    let loaded = load(&alternative, None).unwrap();
+    assert_eq!(
+        loaded.isotopes[0].nickname.as_deref(),
+        Some("different-nickname")
+    );
+    assert_eq!(loaded.aliases[0].symbol, "fixture-alias");
+
+    let mut without_nickname = documents();
+    without_nickname[1]["isotopes"][0]["nickname"] = Value::Null;
+    assert!(load(&without_nickname, None).is_ok());
+
+    let mut without_alias = documents();
+    without_alias[3]["aliases"] = json!([]);
+    without_alias[5]["alias_rows"] = 0.into();
+    assert!(load(&without_alias, None).is_ok());
+
+    let mut alternate_alias = documents();
+    let mut second = alternate_alias[3]["aliases"][0].clone();
+    second["symbol"] = "second-alias".into();
+    alternate_alias[3]["aliases"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    alternate_alias[5]["alias_rows"] = 2.into();
+    assert_eq!(load(&alternate_alias, None).unwrap().aliases.len(), 2);
+}
+
+#[test]
+fn alias_targets_must_match_the_declared_isotope_identity() {
+    let mut wrong_target = documents();
+    wrong_target[3]["aliases"][0]["source_isotope_row_ordinal"] = 1.into();
+    assert_eq!(
+        load(&wrong_target, None).err(),
+        Some(MassInputError::Inconsistent)
+    );
+}
