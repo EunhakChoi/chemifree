@@ -240,6 +240,7 @@ pub fn validate_model_binding(
             || dataset.generation != registration.generation
             || dataset.manifest_sha256 != registration.manifest_sha256
             || dataset.engine_contract_id != binding.independent_engine_contract_id
+            || dataset.feature_schema_sha256.is_some()
             || registration.feature_schema_sha256.is_some()
         {
             return Err(ActiveDataError::ModelUnavailable);

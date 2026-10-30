@@ -335,6 +335,78 @@ fn absent_abundance_tokens_mean_zero() {
 }
 
 #[test]
+fn present_abundances_cannot_be_negative_even_when_binary64_underflows() {
+    let variants = [
+        (
+            "-1.0",
+            "-1.0",
+            "000000000000f0bf",
+            "-2.0",
+            "-2.0",
+            "00000000000000c0",
+        ),
+        (
+            "-1e-99999999999999999999",
+            "-0.0",
+            "0000000000000080",
+            "-2e-99999999999999999999",
+            "-0.0",
+            "0000000000000080",
+        ),
+    ];
+    let mut outcomes = Vec::new();
+    for (first, first_reference, first_bits, second, second_reference, second_bits) in variants {
+        let isotopes = ISOTOPES
+            .replacen(
+                "\"source_decimal\":\"50.0\",\"reference_f64\":50.0,\"reference_f64_bits_le\":\"0000000000004940\"",
+                &format!("\"source_decimal\":\"{first}\",\"reference_f64\":{first_reference},\"reference_f64_bits_le\":\"{first_bits}\""),
+                1,
+            )
+            .replacen(
+                "\"source_decimal\":\"50.00\",\"reference_f64\":50.0,\"reference_f64_bits_le\":\"0000000000004940\"",
+                &format!("\"source_decimal\":\"{second}\",\"reference_f64\":{second_reference},\"reference_f64_bits_le\":\"{second_bits}\""),
+                1,
+            );
+        outcomes.push(
+            decode_mass(&files(
+                ELEMENTS, &isotopes, DEFAULTS, ALIASES, CONSTANTS, FEATURES, BOUNDS,
+            ))
+            .err(),
+        );
+    }
+    assert_eq!(
+        outcomes,
+        [Some(MassError::Inconsistent), Some(MassError::Inconsistent)]
+    );
+}
+
+#[test]
+fn negative_zero_abundance_remains_a_valid_zero() {
+    let isotopes = ISOTOPES
+        .replacen(
+            "\"source_decimal\":\"50.0\",\"reference_f64\":50.0,\"reference_f64_bits_le\":\"0000000000004940\"",
+            "\"source_decimal\":\"-0.0\",\"reference_f64\":-0.0,\"reference_f64_bits_le\":\"0000000000000080\"",
+            1,
+        )
+        .replacen(
+            "\"source_decimal\":\"50.00\",\"reference_f64\":50.0,\"reference_f64_bits_le\":\"0000000000004940\"",
+            "\"source_decimal\":\"0.0\",\"reference_f64\":0.0,\"reference_f64_bits_le\":\"0000000000000000\"",
+            1,
+        );
+    let defaults = DEFAULTS.replacen(
+        "\"all_abundances_zero\":false",
+        "\"all_abundances_zero\":true",
+        1,
+    );
+    assert!(
+        decode_mass(&files(
+            ELEMENTS, &isotopes, &defaults, ALIASES, CONSTANTS, FEATURES, BOUNDS
+        ))
+        .is_ok()
+    );
+}
+
+#[test]
 fn isotope_masses_must_be_positive() {
     let negative_isotope = ISOTOPES.replacen(
         "\"source_decimal\":\"9.0\",\"reference_f64\":9.0,\"reference_f64_bits_le\":\"0000000000002240\"",
@@ -357,6 +429,101 @@ fn isotope_masses_must_be_positive() {
         .err(),
         Some(MassError::Inconsistent)
     );
+}
+
+#[test]
+fn nominal_mass_number_matches_the_independent_binary64_reference() {
+    let base_isotopes: serde_json::Value = serde_json::from_str(ISOTOPES).unwrap();
+    let base_defaults: serde_json::Value = serde_json::from_str(DEFAULTS).unwrap();
+    let mut outcomes = Vec::new();
+    for (source, number, bits) in [
+        ("8.5", 8.5, "0000000000002140"),
+        ("8.49999999999999999999", 8.5, "0000000000002140"),
+        ("9.5", 9.5, "0000000000002340"),
+        ("9.49999999999999999999", 9.5, "0000000000002340"),
+    ] {
+        let mut isotopes = base_isotopes.clone();
+        let mut defaults = base_defaults.clone();
+        let mass = serde_json::json!({"source_decimal": source, "reference_f64": number, "reference_f64_bits_le": bits});
+        isotopes["isotopes"][0]["mass"] = mass.clone();
+        defaults["rows"][0]["mass"] = mass;
+        let isotopes = serde_json::to_string(&isotopes).unwrap();
+        let defaults = serde_json::to_string(&defaults).unwrap();
+        outcomes.push(
+            decode_mass(&files(
+                ELEMENTS, &isotopes, &defaults, ALIASES, CONSTANTS, FEATURES, BOUNDS,
+            ))
+            .err(),
+        );
+    }
+    assert_eq!(
+        outcomes,
+        [
+            None,
+            None,
+            Some(MassError::Inconsistent),
+            Some(MassError::Inconsistent)
+        ]
+    );
+}
+
+#[test]
+fn mass_metadata_and_charge_coefficient_match_the_profile_contract() {
+    let positive_charge = CONSTANTS
+        .replace("-0.25", "0.25")
+        .replace("000000000000d0bf", "000000000000d03f");
+    let nonzero_secondary = FEATURES.replace("\"value\":0.0", "\"value\":1.0");
+    let explicit_mass_number = FEATURES.replace(
+        "\"source_mass_number_field_explicit_in_text\":false",
+        "\"source_mass_number_field_explicit_in_text\":true",
+    );
+    let unchecked_mass_number = FEATURES.replace(
+        "\"mass_number_values_independently_checked_against_source_constructor_contract\":true",
+        "\"mass_number_values_independently_checked_against_source_constructor_contract\":false",
+    );
+    let outcomes = [
+        decode_mass(&files(
+            ELEMENTS,
+            ISOTOPES,
+            DEFAULTS,
+            ALIASES,
+            &positive_charge,
+            FEATURES,
+            BOUNDS,
+        ))
+        .err(),
+        decode_mass(&files(
+            ELEMENTS,
+            ISOTOPES,
+            DEFAULTS,
+            ALIASES,
+            CONSTANTS,
+            &nonzero_secondary,
+            BOUNDS,
+        ))
+        .err(),
+        decode_mass(&files(
+            ELEMENTS,
+            ISOTOPES,
+            DEFAULTS,
+            ALIASES,
+            CONSTANTS,
+            &explicit_mass_number,
+            BOUNDS,
+        ))
+        .err(),
+        decode_mass(&files(
+            ELEMENTS,
+            ISOTOPES,
+            DEFAULTS,
+            ALIASES,
+            CONSTANTS,
+            &unchecked_mass_number,
+            BOUNDS,
+        ))
+        .err(),
+    ];
+    assert_eq!(outcomes, [Some(MassError::Inconsistent); 4]);
 }
 
 #[test]

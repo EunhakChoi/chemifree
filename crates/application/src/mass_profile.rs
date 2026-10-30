@@ -402,6 +402,10 @@ fn validate(data: &MassData) -> Result<(), MassError> {
         || meta.alias_rows != data.aliases.len() as u64
         || !meta.source_decimal_tokens_authoritative
         || !meta.reference_f64_decode_is_independent_not_original_runtime_capture
+        || meta.source_mass_number_field_explicit_in_text
+        || !meta.mass_number_values_independently_checked_against_source_constructor_contract
+        || meta.native_selected_input_secondary.value.as_f64() != Some(0.0)
+        || f64::from_bits(data.charge_mass_coefficient.bits) >= 0.0
         || meta.original_parser_or_selection_code_included
         || meta.original_naming_grammar_or_module_dispatch_included
         || !data
@@ -411,6 +415,7 @@ fn validate(data: &MassData) -> Result<(), MassError> {
         return Err(MassError::Inconsistent);
     }
     let mut atomic_numbers = HashSet::new();
+    let zero = DecimalKey::new("0");
     let mut start = 0usize;
     for (index, element) in data.elements.iter().enumerate() {
         let count = usize::try_from(element.isotope_rows).map_err(|_| MassError::Inconsistent)?;
@@ -425,11 +430,17 @@ fn validate(data: &MassData) -> Result<(), MassError> {
             return Err(MassError::Inconsistent);
         }
         for (ordinal, isotope) in data.isotopes[start..end].iter().enumerate() {
+            let mass = f64::from_bits(isotope.mass.reference_bits);
+            let nominal = f64::from(isotope.mass_number_u32);
             if isotope.isotope_row_ordinal != (start + ordinal) as u64
                 || isotope.element_row_ordinal != index as u64
                 || isotope.atomic_number_u32 != element.atomic_number_u32
-                || DecimalKey::new(&isotope.mass.source_decimal).compare(&DecimalKey::new("0"))
-                    != Ordering::Greater
+                || DecimalKey::new(&isotope.mass.source_decimal).compare(&zero) != Ordering::Greater
+                || isotope.mass_number_u32 == 0
+                || mass < nominal - 0.5
+                || mass >= nominal + 0.5
+                || DecimalKey::new(&isotope.abundance_percent.source_decimal).compare(&zero)
+                    == Ordering::Less
                 || !isotope.abundance_token_present
                     && !is_zero_decimal(&isotope.abundance_percent.source_decimal)
             {

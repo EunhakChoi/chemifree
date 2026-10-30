@@ -222,6 +222,13 @@ fn complete_mass_dataset_is_atomic_and_does_not_enable_a_model() {
         validate_model_binding(&binding, &hash(&binding), &[&loaded]),
         Err(ActiveDataError::ModelUnavailable)
     ));
+    let mut omitted_feature: Value = serde_json::from_slice(&binding).unwrap();
+    omitted_feature["data_registrations"][0]["feature_schema_sha256"] = Value::Null;
+    let omitted_feature = serde_json::to_vec(&omitted_feature).unwrap();
+    assert!(matches!(
+        validate_model_binding(&omitted_feature, &hash(&omitted_feature), &[&loaded]),
+        Err(ActiveDataError::ModelUnavailable)
+    ));
     fixture
         .source
         .entries

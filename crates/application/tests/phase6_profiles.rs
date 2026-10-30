@@ -155,6 +155,20 @@ fn authoritative_decimal_and_reference_bits_are_checked_and_preserved() {
 }
 
 #[test]
+fn decimal_reference_bits_keep_the_sign_of_zero_and_underflow() {
+    let mismatches: [&[u8]; 3] = [
+        br#"{"source_decimal":"-0.0","reference_f64":0.0,"reference_f64_bits_le":"0000000000000000"}"#,
+        br#"{"source_decimal":"0.0","reference_f64":0.0,"reference_f64_bits_le":"0000000000000080"}"#,
+        br#"{"source_decimal":"-1e-9999","reference_f64":0.0,"reference_f64_bits_le":"0000000000000000"}"#,
+    ];
+    assert_eq!(
+        mismatches.map(|input| decode_decimal_reference(input).err()),
+        [Some(DecodeError::Record); 3]
+    );
+    assert!(decode_decimal_reference(br#"{"source_decimal":"-1e-9999","reference_f64":0.0,"reference_f64_bits_le":"0000000000000080"}"#).is_ok());
+}
+
+#[test]
 fn binary64_with_unit_retains_the_declared_unit_without_conversion() {
     let operand = decode_f64_with_unit(
         br#"{"value":1,"bits_le":"000000000000f03f","unit":"source-specific"}"#,

@@ -227,7 +227,7 @@ pub fn decode_decimal_reference(bytes: &[u8]) -> Result<DecimalReference, Decode
         .parse::<f64>()
         .map_err(|_| DecodeError::Record)?;
     let reference = decode_f64_pair(&wire.reference_f64, &wire.reference_f64_bits_le)?;
-    if !decoded.is_finite() || decoded != reference.value() {
+    if !decoded.is_finite() || decoded.to_bits() != reference.bits {
         return Err(DecodeError::Record);
     }
     Ok(DecimalReference {
