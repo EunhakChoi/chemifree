@@ -270,3 +270,9 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 요청 | 22:41:33 | `9ee615bcc0a745c38d1831ce64f2aff7bbe4b46c` | 22:43:15 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [요청](https://github.com/EunhakChoi/chemifree/pull/47#issuecomment-6535033791), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/47#issuecomment-6534951619) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41139765455)는 check·browser 모두 성공했다. 2026-10-30 22:45:28에 `58ea6583855a3be991213cdaed325356991e6226`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41140208619)도 check·browser 모두 성공했다.
+
+### P14 예측 입력 데이터 — [#48](https://github.com/EunhakChoi/chemifree/pull/48)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-30 23:06:23 | `019312ad605e5c9ce4720b3f1c52b0e9ce59e439` | 23:09:07 | [P2](https://github.com/EunhakChoi/chemifree/pull/48#discussion_r4429235713): 서로 다른 테이블이 같은 ID를 쓰면 집합이 중복을 숨긴다. 수용: 기존 참조 목록은 일치하되 로드된 두 테이블만 중복한 입력이 수정 전 통과하는 회귀를 재현하고 유일성을 확인한다. [P2](https://github.com/EunhakChoi/chemifree/pull/48#discussion_r4429235720): 출처 literal 목록에서 같은 행의 여러 범위를 거절하자는 제안. 공개 `PredictionSourceBounds` 스키마는 이 배열에 행별 유일성을 요구하지 않으며 `spec/phase6-new-data-formats.md`는 구별되는 배열 레코드와 순서를 보존한다. 행 하나에 서로 다른 출처 범위가 연결될 수 있는 입력을 임의로 거절하거나 한 범위로 축약하지 않는다. 독립 fixture·스키마 검사와 유일성 강제 변이로 정책을 확인했고 모든 범위·행 인덱스는 계속 검증한다. 출처를 실행하거나 단일 디스패치 대상으로 해석하지 않는다. |

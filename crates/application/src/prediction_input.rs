@@ -204,21 +204,23 @@ impl PredictionInputs {
         {
             return Err(PredictionInputError::Inconsistent);
         }
-        let mut table_ids = HashSet::from([
+        let mut table_ids = vec![
             self.polarizability.table.table_id.as_str(),
             self.residual_en.table.table_id.as_str(),
             self.xlogp.table.table_id.as_str(),
-        ]);
+        ];
         table_ids.extend(self.pi.tables.iter().map(|table| table.table_id.as_str()));
         table_ids.extend(self.sigma.tables.iter().map(|table| match table {
             wire::SigmaTable::Damping(table) => table.table_id.as_str(),
             wire::SigmaTable::Orbital(table) => table.table_id.as_str(),
             wire::SigmaTable::ElementCubic(table) => table.table_id.as_str(),
         }));
-        if features
-            .table_ids
-            .iter()
-            .any(|table_id| !table_ids.contains(table_id.as_str()))
+        let unique_table_ids: HashSet<_> = table_ids.iter().copied().collect();
+        if unique_table_ids.len() != table_ids.len()
+            || features
+                .table_ids
+                .iter()
+                .any(|table_id| !unique_table_ids.contains(table_id.as_str()))
         {
             return Err(PredictionInputError::Inconsistent);
         }

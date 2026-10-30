@@ -99,6 +99,53 @@ fn declared_table_ids_refer_to_loaded_table_records() {
 }
 
 #[test]
+fn duplicate_loaded_table_ids_are_rejected_even_when_referenced_once() {
+    let mut values = documents();
+    values[3]["table"]["table_id"] = "fixture-polar".into();
+    values[9]["table_ids"] = json_value!([
+        "fixture-polar",
+        "fixture-pi",
+        "fixture-sigma",
+        "fixture-cubic",
+        "fixture-xlogp"
+    ]);
+    assert_eq!(
+        load(&values).err(),
+        Some(PredictionInputError::Inconsistent)
+    );
+}
+
+#[test]
+fn a_source_row_can_retain_multiple_distinct_literal_envelopes() {
+    let mut values = documents();
+    values[10]["table_bounds"]["literal-table"] = json_value!({
+        "evidence_file": "fixture", "evidence_sha256": "0".repeat(64),
+        "source_file_offset_start": 0, "source_file_offset_end_exclusive": 16,
+        "binding_scope": "fixture", "row_count": 2,
+        "literal_argument_envelopes": [
+            {"row_ordinal": 1, "source_file_offset_start": 2, "source_file_offset_end_exclusive": 4},
+            {"row_ordinal": 1, "source_file_offset_start": 6, "source_file_offset_end_exclusive": 8}
+        ]
+    });
+    let loaded = load(&values).unwrap();
+    let prediction_wire::TableBounds::Function(source) =
+        &loaded.sources.table_bounds["literal-table"]
+    else {
+        panic!("expected a function envelope")
+    };
+    let spans = source.literal_argument_envelopes.as_ref().unwrap();
+    assert_eq!(spans.len(), 2);
+    assert_eq!(
+        (spans[0].row_ordinal, spans[0].source_file_offset_start),
+        (1, 2)
+    );
+    assert_eq!(
+        (spans[1].row_ordinal, spans[1].source_file_offset_start),
+        (1, 6)
+    );
+}
+
+#[test]
 fn missing_required_prediction_operands_are_rejected() {
     let values = documents();
     assert!(load(&values).is_ok());
