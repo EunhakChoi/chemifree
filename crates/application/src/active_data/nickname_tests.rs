@@ -82,6 +82,17 @@ fn optional_raw_nickname_sources_may_be_a_verified_subset() {
 }
 
 #[test]
+fn changing_a_raw_path_to_another_source_fails_its_manifest_identity() {
+    let mut fixture = nickname_fixture(graphs_with_raw_q(RAW_Q));
+    fixture.add_missing_optional("raw-q", RAW_PATH, RAW_Q);
+    fixture.insert(RAW_PATH, br#"<CDXML><n id="1"/></CDXML>"#);
+    assert!(matches!(
+        fixture.load(),
+        Err(ActiveDataError::DataIdentityMismatch)
+    ));
+}
+
+#[test]
 fn unsupported_entity_declarations_are_reported_without_enabling_a_dataset() {
     let mut fixture = nickname_fixture(graphs_with_raw_q(RAW_WITH_ENTITY));
     fixture.add_missing_optional("raw-q", RAW_PATH, RAW_WITH_ENTITY);

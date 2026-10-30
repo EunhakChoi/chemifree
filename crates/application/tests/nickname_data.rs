@@ -120,6 +120,17 @@ fn supplied_raw_documents_can_be_verified_as_a_subset() {
 }
 
 #[test]
+fn raw_document_path_is_not_assumed_to_be_the_nickname_key() {
+    let raw_q = br#"<CDXML><fragment id="10"><n id="1" NodeType="Element">first</n>tail<n id="2"/><b id="3" B="1" E="2" Order="1"/></fragment></CDXML>"#;
+    let raw_r = br#"<CDXML><n id="1"/></CDXML>"#;
+    let graphs = graphs_with_raw(raw_q, raw_r);
+    let mut selected = files(&graphs, ALPHABET).to_vec();
+    // The public catalog specifies a path glob, not a mapping from its stem to `name`.
+    selected.push(("raw/nicknames/source-01.cdxml", raw_q));
+    assert!(decode_dataset(&selected).is_ok());
+}
+
+#[test]
 fn supplied_raw_xml_files_match_the_normalized_trees() {
     let raw_q = br#"<CDXML><fragment id="10"><n id="1" NodeType="Element">first</n>tail<n id="2"/><b id="3" B="1" E="2" Order="1"/></fragment></CDXML>"#;
     let raw_r = br#"<CDXML><n id="1"/></CDXML>"#;

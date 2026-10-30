@@ -261,3 +261,9 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-30 22:18:37 | `b832e884ccb904e323edc7994d5c7f75704659a7` | 22:20:33 | 통과: 지적과 미해결 리뷰 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/46#issuecomment-6534693005) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41137259371)는 check·browser 모두 성공했다. 2026-10-30 22:22:30에 `dfe24c4b8666dc4bf019851df48bef86b3737363`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41137701742)도 check·browser 모두 성공했다.
+
+### P14 nickname 그래프 입력 — [#47](https://github.com/EunhakChoi/chemifree/pull/47)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-30 22:35:54 | `d5d5d4383fd970dacd989da878e3d115317edda8` | 22:37:21 | [P2](https://github.com/EunhakChoi/chemifree/pull/47#discussion_r4429069116): 원문 파일의 basename과 nickname 키를 같게 하자는 제안. 공개 `spec/phase6-new-data-format-catalog.json`은 원문 경로 glob만 정하고 `NicknameGraphRow`와 `spec/phase6-new-data-formats.md`는 nickname 이름과 원문 바이트 해시를 별도로 정의하며 둘 사이의 파일명 규칙을 규정하지 않는다. 따라서 basename 일치 제약은 수용하지 않는다. 각 경로의 바이트는 신뢰된 manifest·권리 검토에 고정되고, 제공된 원문은 길이·해시·정규화 트리가 일치하는 기록과 일대일로 대조된다. 다른 경로에 다른 원문을 넣으면 해시 검사가 거절함을 확인했다. 독립 fixture에서 서로 다른 파일명과 키를 허용하는 검사는 basename 일치 변이를 실제로 잡았다. 이 검증은 파일명과 키 사이의 미정의 관계를 보증한다는 뜻이 아니다. |
