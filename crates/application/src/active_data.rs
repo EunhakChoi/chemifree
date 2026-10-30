@@ -1,6 +1,6 @@
 //! Validation of the public external-DATA manifest and its canonical identity.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chemifree_domain::data;
 use serde::Deserialize;
@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
-    phase4_literals, phase6_profiles, prediction_input, prepared_xlogp,
+    phase4_literals, phase4_nmr, phase6_profiles, prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -249,6 +249,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::NicknameData(_)
                     | ProfileRecords::PredictionInputs(_)
                     | ProfileRecords::Phase4Literals(_)
+                    | ProfileRecords::Phase4Nmr(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -385,6 +386,7 @@ enum SelectedProfile {
     Nmr,
     PredictionInputs,
     Phase4Literals(phase4_literals::Profile),
+    Phase4Nmr,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -614,6 +616,23 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             }
             return Ok(SelectedProfile::Phase4Literals(profile));
         }
+        "private-data-nmr-carriers-v1" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 57
+                || manifest.files.iter().any(|file| {
+                    !phase4_nmr::accepts_file(
+                        &file.file_id,
+                        &file.role,
+                        &file.declared_content_class,
+                    ) || phase4_nmr::parse_file_id(&file.file_id).is_some_and(|key| {
+                        key.stage == phase4_nmr::Stage::Normalized && !file.required
+                    })
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Nmr);
+        }
         other => {
             let profile = phase6_profiles::Profile::parse(other)
                 .ok_or(ActiveDataError::ProfileUnsupported)?;
@@ -831,6 +850,26 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Phase4Nmr => {
+            let ids_by_path: HashMap<_, _> = manifest
+                .files
+                .iter()
+                .map(|file| (file.relative_path.as_str(), file.file_id.as_str()))
+                .collect();
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| {
+                    ids_by_path
+                        .get(path)
+                        .copied()
+                        .map(|id| (id, bytes.as_slice()))
+                        .ok_or(ActiveDataError::ContentInvalid)
+                })
+                .collect::<Result<_, _>>()?;
+            ProfileRecords::Phase4Nmr(Box::new(
+                phase4_nmr::decode_dataset(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::MassInput => {
             let files: Vec<_> = payloads
                 .iter()
@@ -927,6 +966,14 @@ fn verify_catalog(
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Phase4Literals(profile) => phase4_literals::verify_catalog_files(
             profile,
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Nmr => phase4_nmr::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2235,3 +2282,7 @@ mod prediction_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_literal_tests.rs"]
 mod phase4_literal_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_nmr_tests.rs"]
+mod phase4_nmr_tests;

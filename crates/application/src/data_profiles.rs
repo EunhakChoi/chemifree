@@ -83,6 +83,8 @@ pub enum ProfileRecords {
     PredictionInputs(Box<crate::prediction_input::PredictionInputs>),
     /// Catalog-bound inert phase 4 bytes and numeric operands, without a model.
     Phase4Literals(Box<crate::phase4_literals::Records>),
+    /// Lexical NMR carrier records and inert ancillary bytes, without an NMR engine.
+    Phase4Nmr(Box<crate::phase4_nmr::NmrCarriers>),
 }
 
 #[derive(PartialEq)]

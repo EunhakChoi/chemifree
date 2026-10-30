@@ -149,6 +149,27 @@ impl Fixture {
         self.trust.manifest_file_sha256 = identity.exact_sha256;
     }
 
+    pub(super) fn remove_declared(&mut self, path: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        let files = manifest["files"].as_array_mut().unwrap();
+        let index = files
+            .iter()
+            .position(|file| file["relative_path"] == path)
+            .unwrap();
+        let removed = files.remove(index);
+        let mut review: Value = serde_json::from_slice(&self.review).unwrap();
+        review["file_identities"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|file| file["file_id"] != removed["file_id"]);
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        self.review = serde_json::to_vec(&review).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+        self.trust.review_sha256 = hash(&self.review);
+    }
+
     pub(super) fn add_missing_optional(&mut self, id: &str, path: &str, bytes: &[u8]) {
         let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
         manifest["files"].as_array_mut().unwrap().push(json!({
@@ -179,6 +200,7 @@ pub(super) fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> 
         "private-data-chemprop-typed-parameter-tables-v1" => {
             ("model_parameters", "contribution_table")
         }
+        "private-data-nmr-carriers-v1" => ("model_parameters", "auxiliary_data"),
         _ => ("declarative_data", "auxiliary_data"),
     };
     let files: Vec<Value> = entries
