@@ -140,6 +140,8 @@ impl MassSources {
             let ordinal = usize::try_from(row.row_ordinal).map_err(|_| InvalidSource)?;
             let line = NonZeroU64::new(row.source_line_1based).ok_or(InvalidSource)?;
             if ordinal >= row_count
+                || (line.get() == 1 && row.source_file_offset != 0)
+                || row.source_file_offset < line.get() - 1
                 || !targets.insert((row.kind, ordinal))
                 || !is_digest(&row.source_line_sha256)
             {

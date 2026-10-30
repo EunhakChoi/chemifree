@@ -285,3 +285,19 @@ fn source_decimal_and_reference_bits_must_agree_even_for_zero_sign() {
         Some(MassInputError::InvalidShape)
     );
 }
+
+#[test]
+fn source_line_numbers_cannot_claim_impossible_byte_offsets() {
+    let mut input = documents();
+    let mut first = input[6]["row_source_spans"][3].clone();
+    first["source_file_offset"] = 1.into();
+    first["source_bytes_including_newline"] = 1.into();
+    input[6]["row_source_spans"] = json!([first.clone()]);
+    let first_result = load(&input, None).err();
+    first["source_line_1based"] = 100.into();
+    input[6]["row_source_spans"] = json!([first]);
+    assert_eq!(
+        [first_result, load(&input, None).err()],
+        [Some(MassInputError::Inconsistent); 2]
+    );
+}
