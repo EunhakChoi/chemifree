@@ -154,6 +154,53 @@ fn static_selection_keeps_the_first_tied_row_and_checks_reference_mass_number() 
 }
 
 #[test]
+fn isotope_mass_number_is_unique_within_each_element() {
+    let mut duplicate = documents();
+    duplicate[1]["isotopes"][1]["mass_number_u32"] = 14.into();
+    duplicate[1]["isotopes"][1]["mass"] = decimal("14.25");
+    assert_eq!(decode(&duplicate).err(), Some(MassError::Inconsistent));
+
+    let mut other_element = documents();
+    other_element[1]["isotopes"][2]["mass_number_u32"] = 14.into();
+    other_element[1]["isotopes"][2]["mass"] = decimal("14.0");
+    other_element[2]["rows"][1]["mass_number_u32"] = 14.into();
+    other_element[2]["rows"][1]["mass"] = other_element[1]["isotopes"][2]["mass"].clone();
+    assert!(decode(&other_element).is_ok());
+}
+
+#[test]
+fn names_cannot_point_to_conflicting_element_or_isotope_identities() {
+    let mut elements = documents();
+    elements[0]["elements"][1]["symbol"] = "X".into();
+    let element_result = decode(&elements).err();
+
+    let mut aliases = documents();
+    let mut conflicting = aliases[3]["aliases"][0].clone();
+    conflicting["mass_number_u32"] = 15.into();
+    conflicting["source_isotope_row_ordinal"] = 1.into();
+    aliases[3]["aliases"]
+        .as_array_mut()
+        .unwrap()
+        .push(conflicting);
+    aliases[5]["alias_rows"] = 2.into();
+    let alias_result = decode(&aliases).err();
+
+    let mut collision = documents();
+    collision[3]["aliases"][0]["symbol"] = "Y".into();
+    let collision_result = decode(&collision).err();
+
+    let mut repeated = documents();
+    let same = repeated[3]["aliases"][0].clone();
+    repeated[3]["aliases"].as_array_mut().unwrap().push(same);
+    repeated[5]["alias_rows"] = 2.into();
+    assert_eq!(decode(&repeated).unwrap().aliases.len(), 2);
+    assert_eq!(
+        [element_result, alias_result, collision_result],
+        [Some(MassError::Inconsistent); 3]
+    );
+}
+
+#[test]
 fn source_rows_cannot_reference_missing_or_duplicate_records() {
     let mut docs = documents();
     docs[6]["row_source_spans"][0]["row_ordinal"] = 99.into();

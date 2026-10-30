@@ -222,3 +222,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 3 요청 | 19:59:59 | `1eb782aec26dc4cdd8fc53fcb5548880155612fe` | 20:03:17 | P2 두 건: 비양수 자연 원자량과 100을 초과하는 개별 풍부도를 허용했다. 공개 스키마 자체에는 수치 범위가 없어 후속 reader의 지원 범위를 명시적으로 양수 원자량·개별 0..100 퍼센트로 정한다. 개별 값의 합은 정규화하거나 100으로 제한하지 않는다. 실제 개인 DATA 호환은 확인하지 않았다. | [요청](https://github.com/EunhakChoi/chemifree/pull/41#issuecomment-6532306946), [원자량](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979268), [풍부도](https://github.com/EunhakChoi/chemifree/pull/41#discussion_r4427979274) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41119760648)는 성공했으나 리뷰가 통과하지 않아 20:04:03에 종료했다. 임시 실패 브랜치와 worktree는 보존한다.
+
+## #42 P14 질량 프로필 — 독립 재작성
+
+시간은 UTC다. [#42](https://github.com/EunhakChoi/chemifree/pull/42)는 종료된 #41의 지적을 요건으로 삼아 최신 main에서 다시 작성했다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 20:18:53 | `380458a4cf60265f438abc06f938b5cd6997950c` | 20:21:28 | P2 한 건: 같은 원소에 같은 질량 번호의 동위원소가 중복되면 조회가 모호하다. 수용: 수정 전 실패를 확인하고 원소별 질량 번호의 유일성을 검사한다. 다른 원소가 같은 번호를 갖는 정상 입력은 별도로 허용했다. 같은 검토에서 원소 기호 및 별칭의 상충 대상도 독립 실패 사례로 확인해 거절하며, 동일한 대상의 반복 별칭은 보존한다. | [지적](https://github.com/EunhakChoi/chemifree/pull/42#discussion_r4428122647), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/42#issuecomment-6532642992) |

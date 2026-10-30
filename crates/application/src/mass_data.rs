@@ -368,6 +368,7 @@ fn validate(data: &MassData) -> Result<(), MassError> {
     let zero = DecimalOrder::parse("0").ok_or(MassError::Record)?;
     let hundred = DecimalOrder::parse("100").ok_or(MassError::Record)?;
     let mut ids = HashSet::new();
+    let mut element_symbols = HashSet::new();
     let mut selections = HashMap::new();
     for selection in &data.selections {
         if selections
@@ -387,12 +388,14 @@ fn validate(data: &MassData) -> Result<(), MassError> {
         if element.element_row_ordinal != ordinal as u64
             || element.first_isotope_row_ordinal != position as u64
             || !ids.insert(element.atomic_number_u32)
+            || !element_symbols.insert(element.symbol.as_str())
             || element.natural_atomic_weight.order <= zero
         {
             return Err(MassError::Inconsistent);
         }
         let mut best: Option<&Isotope> = None;
         let mut all_zero = true;
+        let mut mass_numbers = HashSet::new();
         for (index, isotope) in data.isotopes[position..end].iter().enumerate() {
             let abundance = &isotope.abundance_percent.order;
             let reference = f64::from_bits(isotope.mass.reference_bits);
@@ -405,6 +408,7 @@ fn validate(data: &MassData) -> Result<(), MassError> {
                 || abundance > &hundred
                 || !isotope.abundance_token_present && abundance != &zero
                 || isotope.mass_number_u32 == 0
+                || !mass_numbers.insert(isotope.mass_number_u32)
                 || reference < nominal - 0.5
                 || reference >= nominal + 0.5
             {
@@ -432,6 +436,7 @@ fn validate(data: &MassData) -> Result<(), MassError> {
     if position != data.isotopes.len() || !selections.is_empty() {
         return Err(MassError::Inconsistent);
     }
+    let mut alias_targets = HashMap::new();
     for alias in &data.aliases {
         let row = usize::try_from(alias.source_isotope_row_ordinal)
             .ok()
@@ -439,6 +444,10 @@ fn validate(data: &MassData) -> Result<(), MassError> {
             .ok_or(MassError::Inconsistent)?;
         if row.atomic_number_u32 != alias.atomic_number_u32
             || row.mass_number_u32 != alias.mass_number_u32
+            || element_symbols.contains(alias.symbol.as_str())
+            || alias_targets
+                .insert(&alias.symbol, alias.source_isotope_row_ordinal)
+                .is_some_and(|previous| previous != alias.source_isotope_row_ordinal)
         {
             return Err(MassError::Inconsistent);
         }
