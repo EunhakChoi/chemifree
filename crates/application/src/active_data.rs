@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, nmr_profile, phase6_profiles};
+use crate::{json, naming_labels, nmr_profile, phase6_profiles};
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -363,6 +363,7 @@ fn load_personal_impl(
 enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
+    NamingLabels,
     Nmr,
 }
 
@@ -383,6 +384,22 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             "naming-element-rank-endpoint-operands",
             "normalized/element-order-a-hydrogen.jsonl",
         ),
+        "private-naming-enum-labels-v1" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != naming_labels::REQUIRED_FILES.len()
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !naming_labels::REQUIRED_FILES.contains(&file.relative_path.as_str())
+                        || !matches!(
+                            file.declared_content_class.as_str(),
+                            "declarative_data" | "model_parameters"
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::NamingLabels);
+        }
         "personal-local-nmr-coupling-parameters-v1" => {
             if manifest.files.len() != nmr_profile::REQUIRED_FILES.len()
                 || manifest.files.iter().any(|file| {
@@ -545,6 +562,16 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             )
         }
+        SelectedProfile::NamingLabels => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::NamingLabels(Box::new(
+                naming_labels::decode_labels(&files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Nmr => {
             let files: Vec<_> = payloads
                 .iter()
@@ -581,6 +608,14 @@ fn verify_catalog(
                 proof.profile,
             )
             .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Nmr => nmr_profile::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
@@ -1618,6 +1653,226 @@ mod tests {
                 test_trust
             ),
             Err(ActiveDataError::DataIdentityMismatch)
+        ));
+    }
+    #[test]
+    fn naming_label_profile_requires_both_context_files() {
+        let files: Vec<_> = [
+            ("kind", "normalized/kind-labels.jsonl"),
+            ("subtype", "normalized/subtype-labels.jsonl"),
+        ]
+        .into_iter()
+        .map(|(id, path)| json!({
+            "file_id": id, "relative_path": path, "sha256": "0".repeat(64), "bytes": 1,
+            "role": "dictionary_entries", "required": true, "declared_content_class": "declarative_data"
+        }))
+        .collect();
+        let manifest = json!({
+            "manifest_version": 1, "dataset_id": "fixture-labels", "dataset_version": "1",
+            "family_id": "fixture-family", "format_profile_id": "private-naming-enum-labels-v1",
+            "independent_engine_contract_id": "fixture-contract", "source_category": "independent_synthetic",
+            "files": files, "feature_schema_sha256": null, "rights_review_id": "fixture-review",
+            "unknown_field_policy": "reject", "metadata": {"provider_label": "Independent fixture", "version_evidence_id": "fixture", "description": "No chemistry."}
+        });
+        let (parsed, _) = parse_manifest(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(select_profile(&parsed).is_ok());
+        let mut incomplete = manifest;
+        incomplete["files"].as_array_mut().unwrap().pop();
+        let (parsed, _) = parse_manifest(&serde_json::to_vec(&incomplete).unwrap()).unwrap();
+        assert!(matches!(
+            select_profile(&parsed),
+            Err(ActiveDataError::ProfileUnsupported)
+        ));
+    }
+
+    #[test]
+    fn naming_label_registration_is_complete_authorized_and_atomic() {
+        use std::collections::HashMap;
+
+        struct Files {
+            entries: HashMap<&'static str, Vec<u8>>,
+            reads: Cell<usize>,
+        }
+        impl DataSource for Files {
+            fn root_binding_id(&self) -> Option<&str> {
+                Some("fixture-root")
+            }
+            fn read(&self, path: &str, limit: u64) -> Result<Vec<u8>, crate::SourceError> {
+                self.reads.set(self.reads.get() + 1);
+                let bytes = self.entries.get(path).ok_or(crate::SourceError::Missing)?;
+                if bytes.len() as u64 > limit {
+                    return Err(crate::SourceError::TooLarge);
+                }
+                Ok(bytes.clone())
+            }
+        }
+
+        let entries: [(&str, &str, &[u8]); 2] = [
+            (
+                "kind",
+                naming_labels::KIND_PATH,
+                include_bytes!("../tests/data/naming-labels-synthetic/kind.jsonl"),
+            ),
+            (
+                "subtype",
+                naming_labels::SUBTYPE_PATH,
+                include_bytes!("../tests/data/naming-labels-synthetic/subtype.jsonl"),
+            ),
+        ];
+        let files: Vec<Value> = entries.iter().map(|(id, path, bytes)| json!({
+            "file_id": id, "relative_path": path, "sha256": hash(bytes), "bytes": bytes.len(),
+            "role": "dictionary_entries", "required": true, "declared_content_class": "declarative_data"
+        })).collect();
+        let manifest = serde_json::to_vec(&json!({
+            "manifest_version": 1, "dataset_id": "fixture-labels", "dataset_version": "1",
+            "family_id": "fixture-family", "format_profile_id": "private-naming-enum-labels-v1",
+            "independent_engine_contract_id": "fixture-contract", "source_category": "independent_synthetic",
+            "files": files, "feature_schema_sha256": null, "rights_review_id": "fixture-review",
+            "unknown_field_policy": "reject", "metadata": {"provider_label": "Independent fixture", "version_evidence_id": "fixture", "description": "No chemistry."}
+        })).unwrap();
+        let reviewed: Vec<_> = files.iter().map(|entry| json!({
+            "file_id": entry["file_id"], "asset_id": "fixture", "sha256": entry["sha256"], "bytes": entry["bytes"],
+            "content_classification": "declarative_data", "classification_basis_id": "fixture"
+        })).collect();
+        let review = serde_json::to_vec(&json!({
+            "review_version": 2, "review_id": "fixture-review", "dataset_id": "fixture-labels", "dataset_version": "1",
+            "context_id": "personal-local-user-attested-v1", "context_sha256": hash(CONTEXT),
+            "approval_basis": "user_attested_personal_permission", "attestation_reference_id": "fixture-only",
+            "authorization_status": "approved_personal_local", "source_registry_binding_id": "fixture-registry",
+            "private_root_binding_id": "fixture-root", "file_identities": reviewed,
+            "allowed_operations": ["local_load", "decode"], "prohibited_operations": ["redistribution", "remote_processing", "original_module_execution", "secret_lookup", "public_vendor_payload_copy"],
+            "approved_by": "fixture-author", "additional_licensor_written_document_required": false,
+            "documentary_verification_claimed": false, "technical_availability_claimed": false, "fixture_only": true
+        })).unwrap();
+        let identity = validate_active_manifest(&manifest).unwrap();
+        let trust = TrustedPersonalRegistration {
+            registration_id: "fixture-registration".into(),
+            generation: 1,
+            dataset_id: "fixture-labels".into(),
+            dataset_version: "1".into(),
+            family_id: "fixture-family".into(),
+            profile_id: "private-naming-enum-labels-v1".into(),
+            engine_contract_id: "fixture-contract".into(),
+            manifest_sha256: identity.canonical_sha256,
+            manifest_file_sha256: identity.exact_sha256,
+            review_sha256: hash(&review),
+            source_registry_binding_id: "fixture-registry".into(),
+            private_root_binding_id: "fixture-root".into(),
+        };
+        let registry = b"fixture registry";
+        let profile = b"fixture profile";
+        let registry_hash = hash(registry);
+        let profile_hash = hash(profile);
+        let identity = phase6_profiles::CatalogIdentity {
+            dataset_id: &trust.dataset_id,
+            dataset_version: &trust.dataset_version,
+            registry_sha256: &registry_hash,
+            profile_sha256: &profile_hash,
+            manifest_file_sha256: &trust.manifest_file_sha256,
+        };
+        let fixture_trust = ReviewTrust::SyntheticPhase6((&identity).into());
+        let proof = ProfileIdentityFiles { registry, profile };
+        let wrong_proof = ProfileIdentityFiles {
+            registry: b"wrong",
+            profile,
+        };
+        let mut source = Files {
+            entries: entries
+                .iter()
+                .map(|(_, path, bytes)| (*path, bytes.to_vec()))
+                .collect(),
+            reads: Cell::new(0),
+        };
+        assert!(matches!(
+            load_personal_dataset_with_profile_files(
+                &source, &trust, &manifest, &review, CONTEXT, &proof
+            ),
+            Err(ActiveDataError::RightsUnverified)
+        ));
+        assert!(matches!(
+            load_personal_impl_with_metadata(
+                &source,
+                &trust,
+                &manifest,
+                &review,
+                CONTEXT,
+                Some(&wrong_proof),
+                fixture_trust.clone()
+            ),
+            Err(ActiveDataError::RegistrationMismatch)
+        ));
+        assert_eq!(source.reads.get(), 0);
+
+        let loaded = load_personal_impl_with_metadata(
+            &source,
+            &trust,
+            &manifest,
+            &review,
+            CONTEXT,
+            Some(&proof),
+            fixture_trust.clone(),
+        )
+        .unwrap();
+        let ProfileRecords::NamingLabels(labels) = loaded.records() else {
+            panic!("wrong profile")
+        };
+        assert_eq!(labels.kind[0].source_ordinal, u64::MAX);
+        assert_eq!(labels.kind[0].label_bytes, b"X\0");
+        assert_eq!(labels.kind[1].label_bytes, b"X\0");
+        assert_eq!(labels.subtype[0].label_bytes, b"A");
+        assert_eq!(source.reads.get(), 2);
+
+        source.entries.get_mut(naming_labels::SUBTYPE_PATH).unwrap()[0] ^= 1;
+        assert!(matches!(
+            load_personal_impl_with_metadata(
+                &source,
+                &trust,
+                &manifest,
+                &review,
+                CONTEXT,
+                Some(&proof),
+                fixture_trust
+            ),
+            Err(ActiveDataError::DataIdentityMismatch)
+        ));
+
+        // Even an independently reviewed file with matching hashes must satisfy its schema.
+        let malformed = std::str::from_utf8(entries[1].2)
+            .unwrap()
+            .replace("\"label_bytes_hex\":\"41\"", "\"label_bytes_hex\":\"42\"");
+        let malformed_hash = hash(malformed.as_bytes());
+        source
+            .entries
+            .insert(naming_labels::SUBTYPE_PATH, malformed.into_bytes());
+        let mut modified_manifest: Value = serde_json::from_slice(&manifest).unwrap();
+        modified_manifest["files"][1]["sha256"] = malformed_hash.clone().into();
+        let modified_manifest = serde_json::to_vec(&modified_manifest).unwrap();
+        let mut modified_review: Value = serde_json::from_slice(&review).unwrap();
+        modified_review["file_identities"][1]["sha256"] = malformed_hash.into();
+        let modified_review = serde_json::to_vec(&modified_review).unwrap();
+        let new_identity = validate_active_manifest(&modified_manifest).unwrap();
+        let mut trust = trust;
+        trust.manifest_sha256 = new_identity.canonical_sha256;
+        trust.manifest_file_sha256 = new_identity.exact_sha256;
+        trust.review_sha256 = hash(&modified_review);
+        let identity = phase6_profiles::CatalogIdentity {
+            dataset_id: &trust.dataset_id,
+            dataset_version: &trust.dataset_version,
+            registry_sha256: &registry_hash,
+            profile_sha256: &profile_hash,
+            manifest_file_sha256: &trust.manifest_file_sha256,
+        };
+        assert!(matches!(
+            load_personal_impl_with_metadata(
+                &source,
+                &trust,
+                &modified_manifest,
+                &modified_review,
+                CONTEXT,
+                Some(&proof),
+                ReviewTrust::SyntheticPhase6((&identity).into())
+            ),
+            Err(ActiveDataError::ContentInvalid)
         ));
     }
 }

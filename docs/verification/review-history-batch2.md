@@ -197,3 +197,6 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 18:48:46 | `9b1fa533ca6b6822f827d1668d9eec1ea1c0988f` | 18:50:54 | P2 한 건: feature schema가 두 파라미터 파일 어디에도 없는 ID를 선언해도 완전한 데이터로 수락함. 수용: 추가 ID가 있는 독립 fixture로 수정 전 실패를 확인하고, 두 파라미터 집합의 합집합과 선언이 같아야 하도록 검사했다. | [지적](https://github.com/EunhakChoi/chemifree/pull/39#discussion_r4427375093), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
+| 2 요청 | 18:55:36 | `76146338990022af5d21efb88503829867fc1b8a` | 18:57:34 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6531055174), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111008631)는 check·browser 모두 성공했다. 19:03:03에 `78c02535c496a5e2ed1bcdca2c187887ebb07d5c`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111972478)도 check·browser 모두 성공했다.
