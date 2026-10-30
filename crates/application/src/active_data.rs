@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
-    json, mass_input, naming_labels, naming_lexicon, naming_patterns, nmr_profile, phase6_profiles,
-    prepared_xlogp,
+    json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
+    phase6_profiles, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -246,6 +246,7 @@ pub fn validate_model_binding(
                 ProfileRecords::PreparedXlogp(_)
                     | ProfileRecords::NamingPatterns(_)
                     | ProfileRecords::NamingLexicon(_)
+                    | ProfileRecords::NicknameData(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -375,6 +376,7 @@ enum SelectedProfile {
     Phase6(phase6_profiles::Profile),
     NamingLabels,
     NamingLexicon,
+    NicknameData,
     NamingPatterns(naming_patterns::Profile),
     PreparedXlogp,
     MassInput,
@@ -481,6 +483,29 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::ProfileUnsupported);
             }
             return Ok(SelectedProfile::NamingLexicon);
+        }
+        "private-sequence-nickname-graphs-v1" => {
+            let required = nickname_data::REQUIRED_FILES.iter().all(|path| {
+                manifest
+                    .files
+                    .iter()
+                    .any(|file| file.relative_path == *path && file.required)
+            });
+            let recognized = manifest.files.iter().all(|file| {
+                let path = file.relative_path.as_str();
+                let raw = path
+                    .strip_prefix("raw/nicknames/")
+                    .is_some_and(|name| name.ends_with(".cdxml") && !name.contains('/'));
+                (nickname_data::REQUIRED_FILES.contains(&path) || raw)
+                    && matches!(
+                        file.declared_content_class.as_str(),
+                        "declarative_data" | "model_parameters" | "document_resource"
+                    )
+            });
+            if manifest.feature_schema_sha256.is_some() || !required || !recognized {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::NicknameData);
         }
         "personal-local-atomic-isotope-mass-profile-v1" => {
             let has_required = mass_input::NORMALIZED_PATHS.iter().all(|path| {
@@ -720,6 +745,19 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::NicknameData => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            let records = nickname_data::decode_dataset(&files).map_err(|error| match error {
+                nickname_data::NicknameError::UnsupportedEntityDeclaration => {
+                    ActiveDataError::ProfileUnsupported
+                }
+                _ => ActiveDataError::ContentInvalid,
+            })?;
+            ProfileRecords::NicknameData(Box::new(records))
+        }
         SelectedProfile::MassInput => {
             let files: Vec<_> = payloads
                 .iter()
@@ -791,6 +829,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLexicon => naming_lexicon::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::NicknameData => nickname_data::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2087,3 +2133,7 @@ mod prepared_tests;
 #[cfg(test)]
 #[path = "active_data/lexicon_tests.rs"]
 mod lexicon_tests;
+
+#[cfg(test)]
+#[path = "active_data/nickname_tests.rs"]
+mod nickname_tests;
