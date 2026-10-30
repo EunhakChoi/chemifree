@@ -659,8 +659,13 @@ impl Known {
         if let Some(followup) = entry.followup {
             details.insert("followup".into(), followup.into());
         }
+        let code = if self.operation == OperationId::PredictionEvaluate {
+            "model_unavailable"
+        } else {
+            "operation_not_implemented"
+        };
         self.unsupported(diagnostic(
-            "operation_not_implemented",
+            code,
             format!(
                 "{} is not implemented. {}",
                 self.operation.as_str(),

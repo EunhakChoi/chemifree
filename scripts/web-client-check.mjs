@@ -436,6 +436,31 @@ function runtime(capabilities) {
   return readRuntime(new AbortController().signal)
 }
 
+test('external data status is shown separately from the engine and a failure does not disconnect runtime', async () => {
+  const status = { api_version: 'v1', state: 'checked', reason: null, registrations: [{ registration_id: 'independent-fixture', state: 'unavailable', reason: 'data_unavailable' }], engine: 'not_implemented' }
+  globalThis.fetch = async (path) => json(200, path === '/api/v1/health' ? health : path === '/api/v1/data' ? status : { api_version: 'v1', capabilities: [capability] })
+  const snapshot = await readRuntime(new AbortController().signal)
+  assert.deepEqual(snapshot.dataStatus, status)
+  globalThis.fetch = async (path) => path === '/api/v1/data' ? json(503, {}) : json(200, path === '/api/v1/health' ? health : { api_version: 'v1', capabilities: [capability] })
+  const disconnectedData = await readRuntime(new AbortController().signal)
+  assert.equal(disconnectedData.dataStatus, null)
+  assert.deepEqual(disconnectedData.capabilities, [capability])
+})
+
+test('contradictory or duplicated data status is not presented as a valid registry', async () => {
+  const entry = { registration_id: 'independent-fixture', state: 'loaded', reason: null }
+  for (const value of [
+    { api_version: 'v1', state: 'not_configured', reason: null, registrations: [entry], engine: 'not_implemented' },
+    { api_version: 'v1', state: 'checked', reason: null, registrations: [entry, entry], engine: 'not_implemented' },
+    { api_version: 'v1', state: 'checked', reason: null, registrations: [{ ...entry, state: 'unavailable' }], engine: 'not_implemented' },
+  ]) {
+    globalThis.fetch = async (path) => json(200, path === '/api/v1/health' ? health : path === '/api/v1/data' ? value : { api_version: 'v1', capabilities: [capability] })
+    const snapshot = await readRuntime(new AbortController().signal)
+    assert.equal(snapshot.dataStatus, null)
+    assert.deepEqual(snapshot.capabilities, [capability])
+  }
+})
+
 test('a capabilities reply without an operation catalog, from before it was added, is accepted', async () => {
   const snapshot = await runtime({ api_version: 'v1', capabilities: [capability] })
   assert.equal(snapshot.operationCatalog, null)

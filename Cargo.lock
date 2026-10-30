@@ -162,6 +162,7 @@ dependencies = [
  "chemifree-providers",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
@@ -200,8 +201,10 @@ dependencies = [
  "chemifree-application",
  "chemifree-domain",
  "getrandom",
+ "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 

@@ -1,7 +1,8 @@
 //! Infrastructure implementations of application-owned ports.
-//! No chemistry engines or model files are loaded. User documents and the preferences of a data
-//! directory are local JSON files.
+//! No chemistry engines are included. User documents and preferences are local JSON files;
+//! explicitly selected external data is checked through an application-owned registry.
 
+mod data_directory;
 mod file_format;
 mod file_store;
 mod preference_store;
@@ -9,6 +10,9 @@ mod preference_store;
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
+pub use data_directory::{
+    DirectoryDataSource, configure_selected_registry, load_selected_registry,
+};
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
 pub use preference_store::FilePreferenceStore;
 
@@ -53,7 +57,7 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: LocalModelLoading,
                 label: "Local model loading",
                 status: NotImplemented,
-                description: "No executable vendor engines or proprietary model data are included or loaded.",
+                description: "A trusted local registry can load a limited set of external data profiles. No model engine or model data is included; verified data alone does not run a calculation.",
             },
             Capability {
                 id: Persistence,

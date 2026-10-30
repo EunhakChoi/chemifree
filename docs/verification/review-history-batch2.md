@@ -158,12 +158,21 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 
 첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41083338191)와 마지막 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085389940)는 check·browser 모두 성공했다. 16:00:35에 `9688928b16999f0d4de5c072890e1371054872c5`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41085936364)도 check·browser 모두 성공했다.
 
-## #36 P12 — 문서 스타일과 환경 설정(진행 중)
+## #36 P12 — 문서 스타일과 환경 설정(병합)
 
 시간은 UTC다. [#36](https://github.com/EunhakChoi/chemifree/pull/36)은 #34·#35가 병합된 main `9688928`에서 시작했으며, 종료된 #33의 구현은 가져오지 않고 기존 P12 변경만 새 장면 계약에 맞게 옮겼다.
 
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
 | 1 자동 | 2026-10-30 16:50:48 | `0c3a4cfa37b3225f2939fd41630986f30bd4cbf8` | 16:53:55 | P2 한 건: 첫 환경 설정 읽기가 실패하면 서비스가 나중에 준비돼도 다시 읽을 수 없음. 수용: 최초 읽기를 제어해 실패시킨 브라우저 검사에서 재시도 버튼이 없음을 먼저 재현한 뒤, 재시도와 저장된 테마 적용을 연결했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/36#pullrequestreview-5715691437), [지적](https://github.com/EunhakChoi/chemifree/pull/36#discussion_r4426195414) |
+| 2 요청 | 17:00:44 | `f2717a1ae2a6164a161b160cb8f05bc20563d948` | 17:03:59 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/36#issuecomment-6528514540), [완료](https://github.com/EunhakChoi/chemifree/pull/36#issuecomment-6528581826) |
 
-첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)는 check·browser 모두 성공했다. 다음 리뷰와 병합 결과는 완료 후 이어서 기록한다.
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41093570522)와 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41094953659)는 check·browser 모두 성공했다. 17:04:31에 `a8c254db579e9e6108cd18fd0f8ecf13dc646044`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41095602815)도 check·browser 모두 성공했다.
+
+## #37 P14 첫 분할 — 신뢰된 DATA 등록 기반(리뷰 중)
+
+시간은 UTC다. [#37](https://github.com/EunhakChoi/chemifree/pull/37)은 보존된 P14 작업을 P12 병합 main에 옮겨 이어받았다. 세 정규화 프로필과 별도 윤곽 디코더만 다루므로 P14 전체는 아직 진행 중이다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 17:46:21 | `d0aea4dc9f5ddf3abf1776e55145ba444d60edd6` | 17:49:14 | P2 한 건: `retain_opaque_and_report`에서 manifest 확장 필드를 허용해야 한다는 지적. 공개 `spec/phase4-external-data-manifest.schema.json`은 정책과 무관하게 manifest의 추가 필드를 거절하고, `spec/phase4-external-data-loader-contracts.ko.md`는 프로필이 비핵심 metadata로 명시한 payload 필드에만 opaque 보존을 허용한다. 현재 세 프로필은 추가 payload 필드를 허용하지 않는다. 따라서 manifest 확장 필드를 허용하는 변경은 수용하지 않고, retain 정책의 정상 입력은 읽되 manifest·payload의 추가 필드는 거절하는 회귀 검사와 계약 설명을 추가했다. 두 거절을 각각 제거한 변이에서 새 검사가 실패함을 확인했다. | [리뷰](https://github.com/EunhakChoi/chemifree/pull/37#pullrequestreview-5716370977), [지적](https://github.com/EunhakChoi/chemifree/pull/37#discussion_r4426724916) |

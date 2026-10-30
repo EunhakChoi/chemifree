@@ -4,6 +4,7 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use chemifree_api::{ApiState, LocalApplication, MAX_BODY_BYTES, SESSION_HEADER, router};
+use chemifree_application::{ActiveDataError, DataRegistry};
 use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -14,16 +15,50 @@ const HOST: &str = "127.0.0.1:3999";
 const WEB: &str = "http://127.0.0.1:5173";
 const TOKEN: &str = "test-token";
 
+#[tokio::test]
+async fn absent_model_data_is_reported_without_blocking_document_creation() {
+    let api = api();
+    let (status, body) = api.get("/api/v1/data").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["state"], "not_configured");
+    assert_eq!(body["engine"], "not_implemented");
+    let (status, _) = api
+        .post(
+            "/api/v1/documents",
+            json!({"request_id": "create-1", "title": "Independent drawing"}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn refused_model_data_is_reported_without_blocking_document_creation() {
+    let api = api_with_registry(DataRegistry::refused(ActiveDataError::RegistryInvalid));
+    let (status, body) = api.get("/api/v1/data").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["state"], "refused");
+    assert_eq!(body["reason"], "registry_invalid");
+    let (status, _) = api
+        .post("/api/v1/documents", json!({"request_id": "create-2"}))
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
 struct Api {
     router: Router,
     data: TempDir,
 }
 
 fn api() -> Api {
+    api_with_registry(DataRegistry::not_configured())
+}
+
+fn api_with_registry(registry: DataRegistry) -> Api {
     let data = tempfile::tempdir().unwrap();
     let repository = FileDocumentRepository::new(data.path());
     let application = LocalApplication::new(LocalCapabilities, repository)
-        .with_preferences(FilePreferenceStore::new(data.path()));
+        .with_preferences(FilePreferenceStore::new(data.path()))
+        .with_data_registry(registry);
     let state = ApiState::new(application, TOKEN.into(), PORT, &[WEB.into()]).unwrap();
     Api {
         router: router(Arc::new(state)),

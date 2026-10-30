@@ -14,6 +14,7 @@
 - HTML 설계(architecture.html)는 scaffold 코드 기준 119f477의 스냅숏이며, 상단에 이후 변경 안내를 추가했다. 현재 계약은 CONTRACT.md가 기준이다.
 - P11 장면 핵심은 #34로 병합됐고 포함 트리(그룹·선·사각형·화살표), 객체·원자·결합에 대한 독립적인 방향 참조, 선택 snapshot과 이력을 연결한다. 참조 소유자가 살아 있으면 대상 삭제는 거절되며 참조 해제와 삭제를 한 트랜잭션으로 묶을 수 있다. version 4 문서·초안으로 저장하고 version 1–3은 이력과 함께 메모리에서 이전하며, 첫 덮어쓰기 전에 원본 문서 바이트를 `migrated/`에 보관한다. 이전 초안을 복구할 때도 원본 초안 바이트를 별도로 보관하며 명시적인 폐기는 사본을 만들지 않는다. P09·P10 설명의 저장 형식과 미구현 항목은 해당 작업 당시의 기록이며 현재 계약은 CONTRACT.md를 따른다. 이 항목의 PR·리뷰·병합 상태는 GitHub와 review-history-batch2.md를 확인한다. 화학 계산과 반응 의미는 구현하지 않았다.
 - P12는 문서별 결합 길이·선폭·문자 스타일·탄소 라벨·표시 단위를 Undo/Redo와 저장에 포함하고, 전역 테마와 새 문서 기본 스타일은 데이터 디렉터리의 별도 `preferences.json`에 둔다. 새 문서는 생성 시 기본값 위에 환경 설정을 복사하며 기존 문서는 변하지 않는다. 초기화·다른 문서 스타일 가져오기는 선택 snapshot을 포함한 원자적 편집이다. 환경 설정으로 현재 스타일을 복사할 때는 앞선 문서 편집과 뒤따른 환경 설정 편집의 순서를 지킨다. 최초 환경 설정 읽기에 실패하면 Preferences의 재시도로 다시 읽고 저장된 테마를 적용한다. NMR·수치 계산 환경 설정은 미구현이며 명시된 값(`null` 포함)을 거절한다. 형식 version 5는 스타일을 문서·이력에 저장하고 version 1–4를 기본 스타일로 메모리 이전한다. version 4의 장면·참조·선택·이력은 보존하고 이전 문서 덮어쓰기 및 이전 초안 복구 전 원본 바이트를 보관한다. 결합 획과 라벨이 겹칠 공간도 없는 경우 획은 생략하지만 결합은 선택할 수 있다.
+- P14는 진행 중이다. 공개 ManifestV1의 정규화·원문 해시를 분리하고 신뢰된 개인용 검토·root·파일 식별자를 검사한 뒤 명명용 정수 프로필 세 종류를 불변 타입 값으로 읽는다. 윤곽 binary64 원시 비트 디코더는 등록 연결 전 단계다. HTTP·CLI·웹은 데이터 상태를 표시하고 데이터가 없어도 편집할 수 있다. 다른 활성 DATA 프로필, feature-schema, 의존 모델과 전체 active registry 연결은 아직 남아 있으며 데이터 로딩은 화학 엔진이 아니다. 정확한 선택 방법과 한계는 [DATA.ko.md](DATA.ko.md)에 있다.
 - 이후 문서나 코드가 변경될 수 있으므로 작업 시작 시 git status, git log와 현재 CI를 다시 확인한다. 기존 사용자 변경은 보존한다.
 
 ## 먼저 읽을 파일
@@ -120,9 +121,9 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 8, not_implemented 25) · 부분 56개(implemented 20, partial 1, unverified 2, not_implemented 33) · conformance 사례 29개(passed 27: accept 15·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 9, not_implemented 24) · 부분 58개(implemented 21, partial 2, unverified 2, not_implemented 33) · conformance 사례 29개(passed 27: accept 15·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, OPS-01, OPS-02, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 

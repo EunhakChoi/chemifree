@@ -1,0 +1,292 @@
+//! Explicit trusted-registry selection and payload-free status reporting.
+
+use std::collections::HashSet;
+
+use chemifree_domain::data;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    ActiveDataError, DataSource, PersonalDataset, TrustedPersonalRegistration,
+    load_personal_dataset,
+};
+
+/// A host-selected registry descriptor, kept separate from the selected DATA directory.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedRegistry {
+    registry_version: u64,
+    root_binding_id: String,
+    registrations: Vec<RegistryEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistryEntry {
+    trust: TrustedPersonalRegistration,
+    manifest_path: String,
+    review_path: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryState {
+    NotConfigured,
+    Refused,
+    Checked,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryEntryState {
+    Loaded,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngineState {
+    NotImplemented,
+}
+
+impl std::fmt::Display for EngineState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotImplemented => formatter.write_str("not_implemented"),
+        }
+    }
+}
+
+impl std::fmt::Display for RegistryEntryState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Loaded => "loaded",
+            Self::Unavailable => "unavailable",
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RegistryEntryStatus {
+    pub registration_id: String,
+    pub state: RegistryEntryState,
+    pub reason: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RegistryStatus {
+    pub state: RegistryState,
+    pub reason: Option<&'static str>,
+    pub registrations: Vec<RegistryEntryStatus>,
+    pub engine: EngineState,
+}
+
+/// Contains verified data privately and provides only payload-free status to entry adapters.
+pub struct DataRegistry {
+    status: RegistryStatus,
+    datasets: Vec<PersonalDataset>,
+}
+
+impl DataRegistry {
+    #[must_use]
+    pub fn not_configured() -> Self {
+        Self {
+            status: RegistryStatus {
+                state: RegistryState::NotConfigured,
+                reason: None,
+                registrations: Vec::new(),
+                engine: EngineState::NotImplemented,
+            },
+            datasets: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn refused(reason: ActiveDataError) -> Self {
+        Self {
+            status: RegistryStatus {
+                state: RegistryState::Refused,
+                reason: Some(reason.code()),
+                registrations: Vec::new(),
+                engine: EngineState::NotImplemented,
+            },
+            datasets: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn status(&self) -> &RegistryStatus {
+        &self.status
+    }
+
+    #[must_use]
+    pub fn datasets(&self) -> &[PersonalDataset] {
+        &self.datasets
+    }
+}
+
+impl TrustedRegistry {
+    /// Parses the explicitly trusted descriptor without reading DATA.
+    ///
+    /// # Errors
+    /// Rejects malformed, duplicate or unsafe metadata.
+    pub fn parse(bytes: &[u8]) -> Result<Self, ActiveDataError> {
+        if bytes.len() as u64 > crate::MAX_MANIFEST_BYTES {
+            return Err(ActiveDataError::RegistryInvalid);
+        }
+        let value =
+            crate::json::parse_strict(bytes).map_err(|_| ActiveDataError::RegistryInvalid)?;
+        let registry: Self =
+            serde_json::from_value(value).map_err(|_| ActiveDataError::RegistryInvalid)?;
+        let valid_text = |text: &str| {
+            !text.is_empty() && text.chars().count() <= 1000 && !text.chars().any(char::is_control)
+        };
+        let valid_hash = |text: &str| {
+            text.len() == 64
+                && text
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        };
+        if registry.registry_version != 1
+            || !valid_text(&registry.root_binding_id)
+            || registry.registrations.is_empty()
+            || registry.registrations.len() > crate::MAX_DATASETS
+        {
+            return Err(ActiveDataError::RegistryInvalid);
+        }
+        let mut ids = HashSet::new();
+        for entry in &registry.registrations {
+            let trust = &entry.trust;
+            if !valid_text(&trust.registration_id)
+                || !ids.insert(&trust.registration_id)
+                || !valid_text(&trust.dataset_id)
+                || !valid_text(&trust.dataset_version)
+                || !valid_text(&trust.family_id)
+                || !valid_text(&trust.profile_id)
+                || !valid_text(&trust.engine_contract_id)
+                || !valid_text(&trust.source_registry_binding_id)
+                || trust.private_root_binding_id != registry.root_binding_id
+                || !valid_hash(&trust.manifest_sha256)
+                || !valid_hash(&trust.manifest_file_sha256)
+                || !valid_hash(&trust.review_sha256)
+                || entry.manifest_path == entry.review_path
+                || data::check_relative_path(&entry.manifest_path).is_err()
+                || data::check_relative_path(&entry.review_path).is_err()
+                || data::has_executable_extension(&entry.manifest_path)
+                || data::has_executable_extension(&entry.review_path)
+            {
+                return Err(ActiveDataError::RegistryInvalid);
+            }
+        }
+        Ok(registry)
+    }
+
+    #[must_use]
+    pub fn root_binding_id(&self) -> &str {
+        &self.root_binding_id
+    }
+
+    /// Loads individually complete registrations; rejected entries expose no data.
+    #[must_use]
+    pub fn load(&self, source: &dyn DataSource) -> DataRegistry {
+        if source.root_binding_id() != Some(self.root_binding_id.as_str()) {
+            return DataRegistry::refused(ActiveDataError::RightsUnverified);
+        }
+        let mut datasets = Vec::new();
+        let mut statuses = Vec::with_capacity(self.registrations.len());
+        for entry in &self.registrations {
+            let loaded = source
+                .read(&entry.manifest_path, crate::MAX_MANIFEST_BYTES)
+                .map_err(|_| ActiveDataError::DataUnavailable)
+                .and_then(|manifest| {
+                    let review = source
+                        .read(&entry.review_path, crate::MAX_MANIFEST_BYTES)
+                        .map_err(|_| ActiveDataError::DataUnavailable)?;
+                    load_personal_dataset(
+                        source,
+                        &entry.trust,
+                        &manifest,
+                        &review,
+                        include_bytes!("data/personal-local-context.json"),
+                    )
+                });
+            let (state, reason) = match loaded {
+                Ok(dataset) => {
+                    datasets.push(dataset);
+                    (RegistryEntryState::Loaded, None)
+                }
+                Err(reason) => (RegistryEntryState::Unavailable, Some(reason.code())),
+            };
+            statuses.push(RegistryEntryStatus {
+                registration_id: entry.trust.registration_id.clone(),
+                state,
+                reason,
+            });
+        }
+        DataRegistry {
+            status: RegistryStatus {
+                state: RegistryState::Checked,
+                reason: None,
+                registrations: statuses,
+                engine: EngineState::NotImplemented,
+            },
+            datasets,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::cell::Cell;
+
+    struct Missing {
+        reads: Cell<usize>,
+    }
+    impl DataSource for Missing {
+        fn root_binding_id(&self) -> Option<&str> {
+            Some("fixture-root")
+        }
+        fn read(&self, _: &str, _: u64) -> Result<Vec<u8>, crate::SourceError> {
+            self.reads.set(self.reads.get() + 1);
+            Err(crate::SourceError::Missing)
+        }
+    }
+
+    fn descriptor() -> serde_json::Value {
+        let entry = json!({"trust": {"registration_id": "independent-fixture", "generation": 0, "dataset_id": "fixture", "dataset_version": "1", "family_id": "fixture", "profile_id": "fixture", "engine_contract_id": "fixture", "manifest_sha256": "0".repeat(64), "manifest_file_sha256": "0".repeat(64), "review_sha256": "0".repeat(64), "source_registry_binding_id": "fixture-registry", "private_root_binding_id": "fixture-root"}, "manifest_path": "manifest.json", "review_path": "review.json"});
+        json!({"registry_version": 1, "root_binding_id": "fixture-root", "registrations": [entry]})
+    }
+
+    #[test]
+    fn selected_registry_reports_missing_data_without_activating_an_engine() {
+        let descriptor = descriptor();
+        let registry = TrustedRegistry::parse(&serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        let source = Missing {
+            reads: Cell::new(0),
+        };
+        let loaded = registry.load(&source);
+        assert_eq!(loaded.status().state, RegistryState::Checked);
+        assert_eq!(
+            loaded.status().registrations[0].reason,
+            Some("data_unavailable")
+        );
+        assert_eq!(loaded.status().engine, EngineState::NotImplemented);
+        assert!(loaded.datasets().is_empty());
+        assert_eq!(source.reads.get(), 1);
+    }
+
+    #[test]
+    fn untrusted_registry_cannot_escape_root_or_duplicate_a_registration() {
+        let mut unsafe_path = descriptor();
+        unsafe_path["registrations"][0]["manifest_path"] = "../outside".into();
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&unsafe_path).unwrap()).is_err());
+        let mut duplicate = descriptor();
+        let entry = duplicate["registrations"][0].clone();
+        duplicate["registrations"]
+            .as_array_mut()
+            .unwrap()
+            .push(entry);
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&duplicate).unwrap()).is_err());
+    }
+}

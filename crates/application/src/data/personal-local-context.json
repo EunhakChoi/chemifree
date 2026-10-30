@@ -1,0 +1,32 @@
+{
+  "context_version": 1,
+  "context_id": "personal-local-user-attested-v1",
+  "authority": "explicit_user_confirmation_accepted_in_good_faith",
+  "permission_obtained_attested": true,
+  "personal_use_only": true,
+  "local_only": true,
+  "independent_rust_code_required": true,
+  "allowed_operations": [
+    "metadata_inspection",
+    "local_load",
+    "decode",
+    "normalization",
+    "inference",
+    "private_cache",
+    "private_result_use"
+  ],
+  "prohibited_operations": [
+    "redistribution",
+    "remote_processing",
+    "original_module_execution",
+    "secret_lookup",
+    "public_vendor_payload_copy"
+  ],
+  "source_identity_required": true,
+  "data_classification_required": true,
+  "private_root_binding_required": true,
+  "additional_licensor_written_document_required": false,
+  "documentary_or_legal_certification_claimed": false,
+  "repeat_permission_question_required": false,
+  "legacy_source_snapshots_rewritten": false
+}

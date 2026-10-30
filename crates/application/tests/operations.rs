@@ -375,6 +375,22 @@ fn nothing_runs_under_the_legacy_profile_except_inspecting_capabilities() {
     assert_eq!(profiles[1]["execution"], "not_implemented");
 }
 
+#[test]
+fn an_unavailable_prediction_model_returns_no_scientific_result() {
+    let (app, _data) = application();
+    let reply = send(
+        &app,
+        &request(
+            "predict",
+            "prediction.evaluate",
+            json!({"model_id": "missing"}),
+        ),
+    );
+    assert_eq!(reply["outcome"], "unsupported");
+    assert_eq!(reply["result"], Value::Null);
+    assert_eq!(reply["diagnostics"][0]["code"], "model_unavailable");
+}
+
 /// Whatever the catalog says runs does run, and whatever it says does not run is refused as
 /// unsupported, with no result and no change. This keeps the catalog and the dispatcher from
 /// drifting apart.
@@ -420,10 +436,12 @@ fn the_catalog_says_exactly_which_operations_run() {
                     Value::Null,
                     "{operation}: no made-up result"
                 );
-                assert_eq!(
-                    reply["diagnostics"][0]["code"], "operation_not_implemented",
-                    "{operation}"
-                );
+                let code = if operation == "prediction.evaluate" {
+                    "model_unavailable"
+                } else {
+                    "operation_not_implemented"
+                };
+                assert_eq!(reply["diagnostics"][0]["code"], code, "{operation}");
                 assert_eq!(
                     reply["diagnostics"][0]["details"]["followup"], entry["followup"],
                     "{operation}"

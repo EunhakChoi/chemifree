@@ -1,6 +1,11 @@
 //! Shared use cases and v1 contracts for HTTP and CLI entry adapters.
 
+mod active_data;
+mod active_registry;
 mod contract;
+mod data;
+mod data_formats;
+mod data_profiles;
 mod documents;
 mod draft_schedule;
 mod draft_writer;
@@ -19,6 +24,15 @@ use chemifree_domain::Capability;
 use chemifree_domain::settings::Settings;
 use serde::Serialize;
 
+pub use active_data::{
+    ActiveDataError, ManifestIdentity, PersonalDataset, TrustedPersonalRegistration,
+    ValidatedModelBinding, load_personal_dataset, validate_active_manifest, validate_model_binding,
+};
+pub use active_registry::{
+    DataRegistry, EngineState, RegistryEntryState, RegistryEntryStatus, RegistryState,
+    RegistryStatus, TrustedRegistry,
+};
+
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
     CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
@@ -31,6 +45,18 @@ pub use contract::{
     RevisionRequest, SaveAsRequest, SceneObjectView, SceneView, SelectionDto, SessionView,
     SettingsDto, SettingsEditDto, SettingsSource, TransactionRequest, TransactionSelections,
     TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
+};
+pub use data::{
+    BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,
+    DatasetReference, DatasetStatus, DistributionPolicy, FeatureData, FeatureStatus, FileStatus,
+    LoadedFile, MANIFEST_FILE, MANIFEST_VERSION, MAX_DATA_FILE_BYTES, MAX_DATA_FILES,
+    MAX_DATA_TOTAL_BYTES, MAX_DATASETS, MAX_MANIFEST_BYTES, ManifestState, ManifestStatus,
+    SourceError, load_data, load_data_snapshot,
+};
+pub use data_formats::{Column, DataValue, Parameters, Table, decode_parameters, decode_table};
+pub use data_profiles::{
+    Contour, DataProfile, ProfileDecodeError, ProfileRecords, RankOperand, ValenceOperand,
+    WindingMode, decode_profile,
 };
 pub use documents::{
     DEFAULT_TITLE, MAX_LISTED_DOCUMENTS, MAX_OPEN_SESSIONS, MAX_REQUEST_ID_CHARS, REPLAY_LIMIT,
@@ -70,6 +96,7 @@ pub struct Application<C, R> {
     catalog: C,
     documents: Documents<R>,
     preferences: PreferenceService,
+    data_registry: DataRegistry,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -80,7 +107,32 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             catalog,
             documents: Documents::new(repository),
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
+            data_registry: DataRegistry::not_configured(),
         }
+    }
+
+    /// Retains the checked data generation for the application lifetime.
+    #[must_use]
+    pub fn with_data_registry(self, data_registry: DataRegistry) -> Self {
+        Self {
+            data_registry,
+            ..self
+        }
+    }
+
+    /// Reports registry state without returning data records or source paths.
+    #[must_use]
+    pub fn data_status(&self) -> DataStatusResponse {
+        DataStatusResponse {
+            api_version: API_VERSION,
+            status: self.data_registry.status().clone(),
+        }
+    }
+
+    /// The immutable checked generations available to future in-process consumers.
+    #[must_use]
+    pub fn data_registry(&self) -> &DataRegistry {
+        &self.data_registry
     }
 
     /// Keeps preferences in `store`, as an entry adapter does with its data directory's.
@@ -473,6 +525,13 @@ pub struct HealthResponse {
     pub version: &'static str,
     pub stage: &'static str,
     pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DataStatusResponse {
+    pub api_version: &'static str,
+    #[serde(flatten)]
+    pub status: RegistryStatus,
 }
 
 #[derive(Debug, Serialize)]
