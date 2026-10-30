@@ -8,7 +8,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
-use crate::{json, naming_labels, nmr_profile, phase6_profiles};
+use crate::{json, mass_profile, naming_labels, nmr_profile, phase6_profiles};
+
+#[cfg(test)]
+#[path = "active_data/mass_tests.rs"]
+mod mass_tests;
 
 /// Typed failure reasons for external registration and model-binding validation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -364,6 +368,7 @@ enum SelectedProfile {
     Phase7(DataProfile),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
+    Mass,
     Nmr,
 }
 
@@ -399,6 +404,37 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
                 return Err(ActiveDataError::ProfileUnsupported);
             }
             return Ok(SelectedProfile::NamingLabels);
+        }
+        "personal-local-atomic-isotope-mass-profile-v1" => {
+            if !matches!(manifest.files.len(), 7 | 8)
+                || manifest.files.iter().any(|file| {
+                    let path = file.relative_path.as_str();
+                    (!mass_profile::REQUIRED_FILES.contains(&path)
+                        && path != mass_profile::RAW_PATH)
+                        || (mass_profile::REQUIRED_FILES.contains(&path) && !file.required)
+                        || !matches!(
+                            file.declared_content_class.as_str(),
+                            "declarative_data" | "model_parameters"
+                        )
+                })
+                || mass_profile::REQUIRED_FILES.iter().any(|path| {
+                    !manifest
+                        .files
+                        .iter()
+                        .any(|file| file.relative_path == *path)
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            let feature = manifest
+                .files
+                .iter()
+                .find(|file| file.relative_path == mass_profile::FEATURES_PATH)
+                .ok_or(ActiveDataError::ProfileUnsupported)?;
+            if manifest.feature_schema_sha256.as_deref() != Some(feature.sha256.as_str()) {
+                return Err(ActiveDataError::DataIdentityMismatch);
+            }
+            return Ok(SelectedProfile::Mass);
         }
         "personal-local-nmr-coupling-parameters-v1" => {
             if manifest.files.len() != nmr_profile::REQUIRED_FILES.len()
@@ -572,6 +608,15 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Mass => {
+            let files: Vec<_> = payloads
+                .iter()
+                .map(|(path, bytes)| (*path, bytes.as_slice()))
+                .collect();
+            ProfileRecords::Mass(Box::new(
+                mass_profile::decode_mass(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Nmr => {
             let files: Vec<_> = payloads
                 .iter()
@@ -609,6 +654,14 @@ fn verify_catalog(
             )
             .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::NamingLabels => naming_labels::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Mass => mass_profile::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,

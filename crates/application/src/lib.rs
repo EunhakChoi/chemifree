@@ -11,6 +11,7 @@ mod draft_schedule;
 mod draft_writer;
 mod error;
 pub mod json;
+pub mod mass_profile;
 pub mod naming_labels;
 pub mod nmr_profile;
 mod operations;

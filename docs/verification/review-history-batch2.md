@@ -200,3 +200,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 요청 | 18:55:36 | `76146338990022af5d21efb88503829867fc1b8a` | 18:57:34 | 통과: 최신 head의 실제 코드 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. 첫 지적은 회귀 검사와 수정 후 해결했다. | [요청](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6531055174), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/39#issuecomment-6530910788) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111008631)는 check·browser 모두 성공했다. 19:03:03에 `78c02535c496a5e2ed1bcdca2c187887ebb07d5c`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41111972478)도 check·browser 모두 성공했다.
+
+## #40 P14 후속 — 명명 label 입력 프로필
+
+시간은 UTC다. [#40](https://github.com/EunhakChoi/chemifree/pull/40)은 두 label 파일의 순서·원문 바이트·반복 표기를 보존하며 명명 엔진이나 실행 경로를 구현하지 않는다.
+
+| 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
+|---|---|---|---|---|---|
+| 1 자동 | 2026-10-30 19:16:02 | `d0313432ce3320ab018222a12bc3fb4304eb3421` | 19:18:46 | 통과: 최신 head의 코드 리뷰 완료, 지적과 미해결 스레드 없음. 별도 review 객체가 없어 완료 상태와 SHA가 있는 요약을 근거로 삼는다. | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/40#issuecomment-6531503481) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41113839046)는 check·browser 모두 성공했다. 19:29:50에 `560aa08485e5629fe7b22b156c21ef8d439a5d71`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41115719039)도 check·browser 모두 성공했다.

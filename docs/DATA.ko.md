@@ -6,6 +6,8 @@
 
 `personal-local-nmr-coupling-parameters-v1`도 같은 고정 catalog 식별자와 권리 검토를 사용한다. lookup, amplitude, width, feature schema, source bounds의 다섯 파일을 모두 검증하며, feature schema의 원문 바이트 해시가 manifest의 파일 해시 및 `feature_schema_sha256`과 같아야 한다. 각 binary64 원시 비트와 단위, 배열 순서, 별도 항목 종류를 보존하고 수·키·참조·원본 범위가 모순되면 전체 등록을 거절한다. source bounds는 불활성 출처 정보이며 원본 파일을 열거나 실행하지 않는다. 실제 개인 DATA를 열어 검증하지 않았으며, 공개 명세와 독립 합성 fixture로 reader를 검사했다. 이 데이터가 유효해도 NMR 엔진, feature 의미의 실행 검증, 비어 있지 않은 feature-schema를 요구하는 모델 바인딩은 아직 구현되지 않았다.
 
+`personal-local-atomic-isotope-mass-profile-v1`은 원소·동위원소·정적 기본 선택·별칭·상수·feature schema·출처 범위의 일곱 필수 파일을 한 세대로 검증한다. 원문 십진수와 독립 binary64 참고 비트, 단위, 행 순서, 풍부도 토큰의 유무를 각각 보존하고 원소별 범위·별칭·정적 선택 참조를 확인한다. 정적 선택 확인은 원문 십진수를 정확히 비교하며 계산 엔진의 실행 정밀도를 주장하지 않는다. manifest에 선택적 원문 데이터가 포함되면 이 파일도 권리·해시와 출처 행 범위를 검증해야 하며, 포함되지 않은 원문의 출처 해시는 별도 증거 없이 검증됐다고 주장하지 않는다. 실제 개인 DATA는 읽지 않았고 독립 합성 fixture로 검사했다. 질량 계산과 feature-schema 모델 바인딩은 미구현이다.
+
 `private-naming-enum-labels-v1`은 종류와 하위 종류의 두 파일을 함께 검증하고 서로 다른 맥락, 원래 순서, 반복 표기, ASCII 원문 바이트와 코드·출처 ID를 보존한다. catalog의 고정된 데이터셋 ID·버전과 실제 metadata 파일의 원문 해시가 모두 맞아야 하며 한 파일이 손상되면 해당 데이터셋 전체를 거절한다. 표기는 불활성 데이터이며 명명 엔진이나 실행 경로를 제공하지 않는다. 이 reader도 실제 개인 DATA 대신 독립 합성 fixture로 검증했다.
 
 윤곽의 고정 158행·대형 고리 2행에 대한 독립 디코더는 binary64 원시 비트와 부호 있는 0을 보존하지만 아직 등록 프로필과 연결하지 않았다. 나머지 활성 DATA 프로필과 feature-schema·의존 모델이 있는 바인딩은 지원하지 않고 거절한다. 현재 활성 계약의 29개 데이터셋 전체를 읽는 로더가 완성된 것은 아니다. 공통 scalar 디코더는 U64, binary64 비트·단위, 원문 십진수와 ASCII·Latin-1 바이트 쌍을 보존하지만, 이를 제공하는 것만으로 다른 프로필의 등록이나 과학 계산이 구현된 것은 아니다.
@@ -18,7 +20,7 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
 
 기술서는 독립적으로 정의한 로컬 선택 wrapper다. 공개 명세의 active-contract 원문이나 aggregate registry와 같은 파일 형식이라고 주장하지 않는다. `registry_version: 1`, `root_binding_id`, `registrations` 배열이 필요하다. 각 항목은 `manifest_path`, `review_path`(DATA 디렉터리 아래 상대 경로)와 `trust` 객체를 가진다. `trust`에는 `registration_id`, 정수 `generation`, `dataset_id`, `dataset_version`, `family_id`, `profile_id`, `engine_contract_id`, 정규화 `manifest_sha256`, 원문 `manifest_file_sha256`, 원문 `review_sha256`, `source_registry_binding_id`, `private_root_binding_id`가 필요하다. 모든 해시는 소문자 SHA-256 64자리이고 마지막 root ID는 wrapper의 root ID와 같아야 한다. 등록 기술서와 검토 기록의 신뢰성은 기술서를 선택한 호스트가 제공한다. 검증기는 데이터셋이 제공한 자기 주장으로 신뢰를 만들지 않는다.
 
-서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 다섯 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 프로필은 이 두 필드를 사용하지 않는다.
+서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 여섯 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 프로필은 이 두 필드를 사용하지 않는다.
 
 별도의 일반 JSON/JSONL 로더는 독립 fixture와 범용 타입 검증에 사용하며 과학 데이터 프로필을 활성화하지 않는다. 이 경로도 별도로 신뢰한 공개 manifest 원문 해시가 필요하다. manifest 자체의 `public` 표시나 자유 형식 권리 설명으로 허용 범위를 판단하지 않고, 개인 데이터를 이 일반 경로로 승인하지 않는다.
 
@@ -51,7 +53,7 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
 
 manifest는 공개 ManifestV1 필드와 추가 필드 거절 규칙을 사용한다. 정규화 해시는 중복 키·BOM·부동소수 표기를 거절하고 객체 키 정렬, UTF-8, 공백 없는 정수 JSON으로 계산하며, 공백을 포함하는 원문 바이트 해시와 별개다. 리뷰는 고정된 공개 personal-local context의 원문 해시, 승인 상태, 출처·root ID, manifest와 정확히 같은 파일 ID·바이트 수·해시·내용 분류, `local_load`와 `decode` 허용 범위를 확인한다. `fixture_only` 리뷰는 실제 등록에서 거절한다. 권리 확인은 해당 개인 로컬 사용의 사용자 확인을 받아들이는 계약이며 법률·문서 검증을 주장하지 않는다. 더 넓은 배포·원격 처리·원본 모듈 실행 권한은 추론하지 않는다.
 
-`unknown_field_policy`는 데이터 payload의 알 수 없는 필드를 해당 프로필이 비핵심 metadata로 명시한 경우에만 보존할 수 있다는 정책이다. 공개 `spec/phase4-external-data-manifest.schema.json`은 정책과 무관하게 manifest의 추가 필드를 거절하며, `spec/phase4-external-data-loader-contracts.ko.md`는 그 규칙과 payload 정책의 차이를 명시한다. 현재 등록한 여덟 프로필의 공개 스키마는 추가 payload 필드를 허용하지 않으므로 `retain_opaque_and_report`를 선택한 manifest도 정상 입력은 처리하되 추가 payload 필드는 거절한다. opaque 필드 보존을 지원하는 프로필은 아직 없다.
+`unknown_field_policy`는 데이터 payload의 알 수 없는 필드를 해당 프로필이 비핵심 metadata로 명시한 경우에만 보존할 수 있다는 정책이다. 공개 `spec/phase4-external-data-manifest.schema.json`은 정책과 무관하게 manifest의 추가 필드를 거절하며, `spec/phase4-external-data-loader-contracts.ko.md`는 그 규칙과 payload 정책의 차이를 명시한다. 현재 등록한 아홉 프로필의 공개 스키마는 추가 payload 필드를 허용하지 않으므로 `retain_opaque_and_report`를 선택한 manifest도 정상 입력은 처리하되 추가 payload 필드는 거절한다. opaque 필드 보존을 지원하는 프로필은 아직 없다.
 
 각 파일은 같은 바이트를 한 번 읽어 길이·해시·형식을 검사한 뒤에만 공개한다. 한 파일이 실패한 데이터셋은 다른 파일의 성공 여부에 관계없이 부분 공개하지 않는다. 첫 읽기에서 선택한 디렉터리를 열어 이후 읽기에도 같은 디렉터리를 사용하므로 그 경로가 교체되어도 다른 원본과 섞이지 않는다. Linux에서는 열린 디렉터리 기준 `openat2`의 `RESOLVE_BENEATH`와 `NO_MAGICLINKS`로 경로를 원자적으로 제한한다. Linux에서 해당 시스템 호출을 지원하지 않거나 다른 운영체제에서는 외부 DATA 읽기를 거절한다. 편집기 자체의 플랫폼 지원과는 별개다.
 
