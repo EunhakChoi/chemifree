@@ -72,6 +72,16 @@ pub trait DataSource {
         None
     }
 
+    /// Opens a stable subdirectory as another source with the same trusted root binding.
+    /// Reads through the returned source must remain inside that subdirectory even if a
+    /// path or symbolic link is replaced. Providers without this guarantee fail closed.
+    ///
+    /// # Errors
+    /// Returns a payload-free source error when the subdirectory cannot be safely opened.
+    fn scope(&self, _relative_dir: &str) -> Result<Box<dyn DataSource + '_>, SourceError> {
+        Err(SourceError::Io("scoped reads are unsupported".into()))
+    }
+
     /// Reads the file at `path`, relative to the data directory (it has passed
     /// [`data::check_relative_path`]), if it holds at most `limit` bytes.
     ///

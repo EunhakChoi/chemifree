@@ -12,6 +12,7 @@ mod draft_writer;
 mod error;
 pub mod json;
 mod operations;
+pub mod phase6_profiles;
 mod preferences;
 mod repository;
 mod turns;
@@ -25,8 +26,9 @@ use chemifree_domain::settings::Settings;
 use serde::Serialize;
 
 pub use active_data::{
-    ActiveDataError, ManifestIdentity, PersonalDataset, TrustedPersonalRegistration,
-    ValidatedModelBinding, load_personal_dataset, validate_active_manifest, validate_model_binding,
+    ActiveDataError, ManifestIdentity, PersonalDataset, ProfileIdentityFiles,
+    TrustedPersonalRegistration, ValidatedModelBinding, load_personal_dataset,
+    load_personal_dataset_with_profile_files, validate_active_manifest, validate_model_binding,
 };
 pub use active_registry::{
     DataRegistry, EngineState, RegistryEntryState, RegistryEntryStatus, RegistryState,
