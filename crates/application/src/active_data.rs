@@ -2294,11 +2294,19 @@ mod tests {
                 Ok(bytes.clone())
             }
         }
+        // Synthetic metadata exercises the complete registration path without private inputs.
+        let large = "9".repeat(400);
+        let lookup = include_str!("../tests/data/nmr-synthetic/lookup.json")
+            .replace("\"atomic_number_u32\":0", "\"atomic_number_u32\":-0.0");
+        let features = include_str!("../tests/data/nmr-synthetic/feature-schema.json")
+            .replace("\"version\":1", &format!("\"version\":{large}"));
+        let bounds = include_str!("../tests/data/nmr-synthetic/source-bounds.json")
+            .replace("\"source_bytes\":64", &format!("\"source_bytes\":{large}"));
         let entries: [(&str, &str, &[u8], &str); 5] = [
             (
                 "lookup",
                 nmr_profile::LOOKUP_PATH,
-                include_bytes!("../tests/data/nmr-synthetic/lookup.json"),
+                lookup.as_bytes(),
                 "auxiliary_data",
             ),
             (
@@ -2316,13 +2324,13 @@ mod tests {
             (
                 "features",
                 nmr_profile::FEATURES_PATH,
-                include_bytes!("../tests/data/nmr-synthetic/feature-schema.json"),
+                features.as_bytes(),
                 "feature_schema",
             ),
             (
                 "bounds",
                 nmr_profile::BOUNDS_PATH,
-                include_bytes!("../tests/data/nmr-synthetic/source-bounds.json"),
+                bounds.as_bytes(),
                 "auxiliary_data",
             ),
         ];
@@ -2402,6 +2410,8 @@ mod tests {
         };
         assert_eq!(data.lookup.rows[0].parameter.bits, (-0.0_f64).to_bits());
         assert_eq!(data.widths.parameters[0].unit, "fixture-w");
+        assert_eq!(data.features.version.to_string(), large);
+        assert_eq!(data.source_bounds.source_bytes.to_string(), large);
 
         let binding = serde_json::to_vec(&json!({
             "binding_version": 1, "model_id": "fixture-model", "independent_engine_contract_id": "fixture-contract",

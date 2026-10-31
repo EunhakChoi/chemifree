@@ -6,7 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use serde::Deserializer;
 use serde::de::{self, Deserialize, MapAccess, SeqAccess, Visitor};
 use serde_json::value::RawValue;
@@ -33,6 +33,9 @@ impl IntegerToken for i64 {
     const MAX_DIGITS: usize = 19;
 }
 impl IntegerToken for BigUint {
+    const MAX_DIGITS: usize = 4096;
+}
+impl IntegerToken for BigInt {
     const MAX_DIGITS: usize = 4096;
 }
 
