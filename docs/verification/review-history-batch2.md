@@ -303,3 +303,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-31 00:12:22 | `175a2f7bbf2923273281760c60bf05fd1f32d143` | 00:14:04 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/51#issuecomment-6536300732) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41148884911)는 check·browser 모두 성공했다. 2026-10-31 00:16:35에 `d9aae9243e0b64b4cdc5438a96edc1e68bd32325`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41149277835)도 check·browser 모두 성공했다.
+
+### P14 phase 4 명명 입력 — [#52](https://github.com/EunhakChoi/chemifree/pull/52)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 00:28:52 | `411dcdd43a012001633d4eb7169edc72bd984835` | 00:31:22 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/52#issuecomment-6536506519) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41150390881)는 check·browser 모두 성공했다. 2026-10-31 00:33:47에 `766f432a1f09af379a33e0755b98e3e699e6c4e8`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41150846050)도 check·browser 모두 성공했다.

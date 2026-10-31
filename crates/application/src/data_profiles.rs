@@ -89,6 +89,8 @@ pub enum ProfileRecords {
     Phase4Cmr(Box<crate::phase4_cmr::CmrData>),
     /// Declarative naming inputs and producer reports, without a naming engine.
     Phase4Declarative(Box<crate::phase4_declarative::DeclarativeData>),
+    /// Inert template framing records, without a biopolymer or sequence engine.
+    Phase4Templates(Box<crate::phase4_templates::TemplateCandidates>),
 }
 
 #[derive(PartialEq)]
