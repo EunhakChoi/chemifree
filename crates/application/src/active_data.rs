@@ -11,7 +11,7 @@ use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
     phase4_clogp, phase4_cmr, phase4_declarative, phase4_empirical, phase4_helm, phase4_literals,
-    phase4_nmr, phase4_templates, phase6_profiles, prediction_input, prepared_xlogp,
+    phase4_nist, phase4_nmr, phase4_templates, phase6_profiles, prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -257,6 +257,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::Phase4Helm(_)
                     | ProfileRecords::Phase4Empirical(_)
                     | ProfileRecords::Phase4Clogp(_)
+                    | ProfileRecords::Phase4Nist(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -400,6 +401,7 @@ enum SelectedProfile {
     Phase4Helm,
     Phase4Empirical,
     Phase4Clogp,
+    Phase4Nist,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -692,6 +694,22 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             }
             return Ok(SelectedProfile::Phase4Templates);
         }
+        "private-independent-nist-comp-4.1-snapshot-2026-10-24" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 1
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !phase4_nist::accepts_file(
+                            &file.file_id,
+                            &file.role,
+                            &file.declared_content_class,
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Nist);
+        }
         "private-data-clogp-carriers-v1" => {
             if manifest.feature_schema_sha256.is_some()
                 || manifest.files.len() != 19
@@ -971,6 +989,12 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Phase4Nist => {
+            let files = payloads_by_id(&manifest, &payloads)?;
+            ProfileRecords::Phase4Nist(Box::new(
+                phase4_nist::decode_dataset(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Phase4Clogp => {
             let files = payloads_by_id(&manifest, &payloads)?;
             ProfileRecords::Phase4Clogp(Box::new(
@@ -1140,6 +1164,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Phase4Templates => phase4_templates::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Nist => phase4_nist::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2500,3 +2532,7 @@ mod phase4_empirical_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_clogp_tests.rs"]
 mod phase4_clogp_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_nist_tests.rs"]
+mod phase4_nist_tests;
