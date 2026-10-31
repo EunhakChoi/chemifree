@@ -13,6 +13,7 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+use chemifree_domain::document::validated_title;
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -654,8 +655,8 @@ fn codec_failure(error: CodecError) -> Diagnostic {
     }
 }
 
-/// Associates an export failure with the one-based record currently being written.
-fn at_export_record(mut failure: Diagnostic, record: usize) -> Diagnostic {
+/// Associates a failure with the one-based record being projected or written.
+fn at_record(mut failure: Diagnostic, record: usize) -> Diagnostic {
     failure.details.insert("record".into(), record.into());
     failure
 }
@@ -831,7 +832,31 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             _ => return known.invalid(diagnostic("invalid_record", "Choose a one-based record within the input; selection is required for multiple records.", Map::new())),
         };
         let record = &records[selected - 1];
+        let title = if record.title.trim().is_empty() {
+            crate::documents::DEFAULT_TITLE
+        } else {
+            record.title.trim()
+        };
+        if let Err(error) = validated_title(title) {
+            let mut details = Map::new();
+            details.insert("record".into(), selected.into());
+            details.insert("field".into(), "title".into());
+            return known.invalid(diagnostic(
+                "invalid_request",
+                format!("Imported title: {error}"),
+                details,
+            ));
+        }
         let mut losses = record.losses.clone();
+        if count > 1 {
+            losses.push(Loss {
+                feature: "unselected_records".into(),
+                source_path: "records".into(),
+                disposition: LossDisposition::Dropped,
+                reason: format!("Only selected record {selected} of {count} is stored; the other {} records are not stored.", count - 1),
+                semantic_impact: SemanticImpact::Document,
+            });
+        }
         if record.title.trim() != record.title || record.title.trim().is_empty() {
             losses.push(Loss {
                 feature: "title".into(),
@@ -851,7 +876,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             || self.preferences.current()?.new_document_settings(),
         ) {
             Ok(response) => response,
-            Err(error) => return known.invalid(failure(&error)),
+            Err(error) => return known.invalid(at_record(failure(&error), selected)),
         };
         let revision = response.document.revision;
         let result = ImportResult {
@@ -907,7 +932,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         for (index, item) in documents.iter().enumerate() {
             let document = match self.documents.export_snapshot(&item.document_id) {
                 Ok(document) => document,
-                Err(error) => return known.invalid(at_export_record(failure(&error), index + 1)),
+                Err(error) => return known.invalid(at_record(failure(&error), index + 1)),
             };
             if count == 1 {
                 revision = Some(document.revision());
@@ -915,11 +940,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             let converted = match codec.write(parameters.format, &document, &item.fields) {
                 Ok(converted) => converted,
                 Err(error) => {
-                    return known.invalid(at_export_record(codec_failure(error), index + 1));
+                    return known.invalid(at_record(codec_failure(error), index + 1));
                 }
             };
             if text.len().saturating_add(converted.text.len()) > 1024 * 1024 {
-                return known.invalid(at_export_record(
+                return known.invalid(at_record(
                     diagnostic(
                         "resource_limit",
                         "Encoded output exceeds 1 MiB.",

@@ -1,4 +1,11 @@
-use chemifree_application::{Application, ListQuery};
+use chemifree_application::{
+    Application, CapabilityCatalog, ChemicalBond, ChemicalCodec, ChemicalFormat, ChemicalRecord,
+    CodecError, DataField, ListQuery, WrittenChemical,
+};
+use chemifree_domain::{
+    Capability,
+    document::{BondOrder, Document},
+};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -82,6 +89,127 @@ fn invalid_or_unselected_records_create_no_document() {
     assert_eq!(response["diagnostics"][0]["code"], "truncated_record");
     assert_eq!(response["diagnostics"][0]["details"]["record"], 2);
     assert_eq!(count(&app), 0);
+}
+
+#[test]
+fn selecting_one_record_reports_that_the_others_are_not_stored() {
+    let (app, _data) = app();
+    let second = INPUT.replacen("Sodium acetate", "Other", 1);
+    let input = format!("{INPUT}$$$$\n{second}$$$$\n");
+    let response = call(
+        &app,
+        "select-first",
+        "document.import",
+        json!({"format":"sdf", "text":input, "record":1}),
+    );
+    assert_eq!(response["outcome"], "partial", "{response}");
+    assert_eq!(response["result"]["record_count"], 2);
+    assert_eq!(response["result"]["document"]["title"], "Sodium acetate");
+    assert!(
+        response["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|loss| loss["feature"] == "unselected_records"
+                && loss["disposition"] == "dropped")
+    );
+    assert_eq!(count(&app), 1);
+}
+
+#[test]
+fn invalid_later_record_titles_are_rejected_before_any_document_is_created() {
+    let (app, _data) = app();
+    for (index, title) in ["x".repeat(81), "bad\u{1}title".into()].iter().enumerate() {
+        let second = INPUT.replacen("Sodium acetate", title, 1);
+        let input = format!("{INPUT}$$$$\n{second}$$$$\n");
+        let response = call(
+            &app,
+            &format!("bad-title-{index}"),
+            "document.import",
+            json!({
+                "format":"sdf", "text":input, "record":1
+            }),
+        );
+        assert_eq!(response["outcome"], "error", "{response}");
+        assert_eq!(response["diagnostics"][0]["code"], "invalid_title");
+        assert_eq!(response["diagnostics"][0]["details"]["record"], 2);
+        assert_eq!(response["diagnostics"][0]["details"]["field"], "title");
+        assert_eq!(count(&app), 0);
+    }
+}
+
+struct InvalidProjectionCodec;
+
+impl ChemicalCodec for InvalidProjectionCodec {
+    fn read(&self, _format: ChemicalFormat, text: &str) -> Result<Vec<ChemicalRecord>, CodecError> {
+        let make = |title: &str, bonds| ChemicalRecord {
+            title: title.into(),
+            atoms: Vec::new(),
+            bonds,
+            fields: Vec::new(),
+            losses: Vec::new(),
+        };
+        let second = if text == "invalid-title" {
+            make("bad\u{1}title", Vec::new())
+        } else {
+            make(
+                "Bad graph",
+                vec![ChemicalBond {
+                    begin: 0,
+                    end: 1,
+                    order: BondOrder::Single,
+                }],
+            )
+        };
+        Ok(vec![make("First", Vec::new()), second])
+    }
+    fn write(
+        &self,
+        _format: ChemicalFormat,
+        _document: &Document,
+        _fields: &[DataField],
+    ) -> Result<WrittenChemical, CodecError> {
+        unreachable!("this provider test exercises import only")
+    }
+}
+
+struct InvalidProjectionCapabilities;
+impl CapabilityCatalog for InvalidProjectionCapabilities {
+    fn capabilities(&self) -> Vec<Capability> {
+        Vec::new()
+    }
+    fn chemical_codec(&self) -> Option<&dyn ChemicalCodec> {
+        Some(&InvalidProjectionCodec)
+    }
+}
+
+#[test]
+fn projection_failures_from_a_provider_identify_the_selected_record() {
+    let data = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        InvalidProjectionCapabilities,
+        FileDocumentRepository::new(data.path()),
+    );
+    for (text, field) in [("invalid-title", Some("title")), ("invalid-graph", None)] {
+        let request = json!({"contract":1,"request_id":format!("projection-{text}"),"profile":"preserve-semantics",
+            "operation":"document.import","parameters":{"format":"sdf","text":text,"record":2}});
+        let response = serde_json::to_value(app.execute(request.to_string().as_bytes())).unwrap();
+        assert_eq!(response["outcome"], "error", "{response}");
+        assert_eq!(
+            response["diagnostics"][0]["details"]["record"], 2,
+            "{response}"
+        );
+        if let Some(field) = field {
+            assert_eq!(response["diagnostics"][0]["details"]["field"], field);
+        }
+        assert_eq!(
+            app.list_documents(&ListQuery::default())
+                .unwrap()
+                .documents
+                .len(),
+            0
+        );
+    }
 }
 
 #[test]
@@ -222,6 +350,29 @@ fn multi_record_export_identifies_the_later_failing_record_without_partial_outpu
     assert_eq!(
         unsupported["diagnostics"][0]["details"]["field"],
         "fields.value"
+    );
+
+    let reserved = call(
+        &app,
+        "reserved-name",
+        "document.create",
+        json!({"title":"$$$$ prefix"}),
+    );
+    let reserved_id = reserved["result"]["document"]["id"].as_str().unwrap();
+    let reserved_export = call(
+        &app,
+        "reserved-export",
+        "document.export",
+        json!({
+            "format":"sdf", "documents":[{"document_id":id},{"document_id":reserved_id}]
+        }),
+    );
+    assert_eq!(reserved_export["outcome"], "error");
+    assert_eq!(reserved_export["result"], Value::Null);
+    assert_eq!(reserved_export["diagnostics"][0]["details"]["record"], 2);
+    assert_eq!(
+        reserved_export["diagnostics"][0]["details"]["field"],
+        "title"
     );
 
     let missing = call(

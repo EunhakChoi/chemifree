@@ -26,6 +26,7 @@ const MAX_RECORDS: usize = 999;
 const COMPACT_REFERENCE_MASSES: [u16; 20] = [
     1, 4, 7, 9, 11, 12, 14, 16, 19, 20, 23, 24, 27, 28, 31, 32, 35, 40, 39, 40,
 ];
+const RESERVED_TITLE_TAGS: [&str; 4] = ["$MDL", "$$$$", "$RXN", "$RDFILE"];
 
 #[derive(Clone, Copy, Default)]
 pub struct MolfileCodec;
@@ -53,6 +54,69 @@ fn write_problem(message: impl Into<String>, field: &str) -> CodecError {
         record: None,
         line: None,
         field: Some(field.into()),
+    }
+}
+
+fn title_issue(title: &str) -> Option<(&'static str, &'static str)> {
+    if title.len() > 80 || title.chars().any(char::is_control) {
+        Some((
+            "invalid_title",
+            "The MOL title must be at most 80 UTF-8 bytes without control characters.",
+        ))
+    } else if RESERVED_TITLE_TAGS.iter().any(|tag| title.contains(tag)) {
+        Some((
+            "unsupported_feature",
+            "The MOL title contains a reserved CTfile tag.",
+        ))
+    } else {
+        None
+    }
+}
+
+fn valid_data_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn has_data_number(header: &str) -> Result<bool, ()> {
+    let bytes = header.as_bytes();
+    let mut in_registry = false;
+    let mut found = false;
+    for (index, byte) in bytes.iter().enumerate().skip(1) {
+        match byte {
+            b'(' if !in_registry => in_registry = true,
+            b')' if in_registry => in_registry = false,
+            b'(' | b')' => return Err(()),
+            b'D' if !in_registry
+                && bytes.get(index + 1) == Some(&b'T')
+                && bytes.get(index + 2).is_some_and(u8::is_ascii_digit) =>
+            {
+                found = true
+            }
+            _ => (),
+        }
+    }
+    if in_registry { Err(()) } else { Ok(found) }
+}
+
+// The public CTfile refers to PTABLE.DAT for the absolute M ISO envelope, but the
+// table is not specified here. Only apply our documented H–Ca reference profile.
+fn isotope_in_profile(element: Element, mass: u16) -> Option<bool> {
+    COMPACT_REFERENCE_MASSES
+        .get(usize::from(element.atomic_number() - 1))
+        .map(|reference| (-18..=12).contains(&(i32::from(mass) - i32::from(*reference))))
+}
+
+fn unverified_isotope(path: String) -> Loss {
+    Loss {
+        feature: "isotope_range_unverified".into(),
+        source_path: path,
+        disposition: LossDisposition::Unknown,
+        reason: "The CTfile isotope range depends on an unavailable periodic-table reference for this element.".into(),
+        semantic_impact: SemanticImpact::Chemistry,
     }
 }
 
@@ -255,8 +319,11 @@ fn parse_record(
     record: usize,
     offset: usize,
     sdf: bool,
-) -> Result<ChemicalRecord, CodecError> {
+) -> Result<(ChemicalRecord, usize), CodecError> {
     let title = line_at(lines, 0, record, offset, "title")?.to_owned();
+    if let Some((code, message)) = title_issue(&title) {
+        return Err(problem(code, message, record, offset, "title"));
+    }
     let program = line_at(lines, 1, record, offset, "program")?;
     let comment = line_at(lines, 2, record, offset, "comment")?;
     let counts = line_at(lines, 3, record, offset, "counts")?;
@@ -516,8 +583,17 @@ fn parse_record(
         let line = line_at(lines, row, record, offset, "M  END")?;
         let number = offset + row;
         row += 1;
-        if line == "M  END" {
+        if line.trim_end_matches(' ') == "M  END" {
             break;
+        }
+        if sdf && line.starts_with("$$$$") {
+            return Err(problem(
+                "truncated_record",
+                "The connection table ended before M  END.",
+                record,
+                number,
+                "M  END",
+            ));
         }
         if !line.is_ascii() {
             return Err(problem(
@@ -594,13 +670,14 @@ fn parse_record(
     if let Some(values) = properties.get("M  RAD") {
         for (&index, &(value, number)) in values {
             atoms[index].atom.radical = match value {
+                0 => Radical::None,
                 1 => Radical::Singlet,
                 2 => Radical::Doublet,
                 3 => Radical::Triplet,
                 _ => {
                     return Err(problem(
                         "invalid_property",
-                        "Radical must be 1, 2, or 3.",
+                        "Radical must be 0, 1, 2, or 3.",
                         record,
                         number,
                         "radical",
@@ -619,6 +696,31 @@ fn parse_record(
                     number,
                     "isotope",
                 ));
+            }
+            let element = atoms[index].atom.kind.element().ok_or_else(|| {
+                problem(
+                    "unsupported_atom",
+                    "An isotope requires an element atom.",
+                    record,
+                    number,
+                    "isotope",
+                )
+            })?;
+            match isotope_in_profile(element, value as u16) {
+                Some(false) => {
+                    return Err(problem(
+                        "invalid_property",
+                        "Isotope mass is outside the supported CTfile range for this element.",
+                        record,
+                        number,
+                        "isotope",
+                    ));
+                }
+                None => losses.push(unverified_isotope(format!(
+                    "records[{record}].atoms[{}].isotope",
+                    index + 1
+                ))),
+                Some(true) => (),
             }
             atoms[index].atom.isotope = Some(value as u16);
         }
@@ -666,9 +768,23 @@ fn parse_record(
     }
     let mut fields = Vec::new();
     if sdf {
+        let mut terminated = false;
         while row < lines.len() {
             let header = lines[row];
             let number = offset + row;
+            if header.starts_with("$$$$") {
+                if header != "$$$$" {
+                    losses.push(loss(
+                        "sdf_delimiter_suffix",
+                        format!("records[{record}].line[{number}]"),
+                        "Text after the SDF delimiter is not retained.",
+                        SemanticImpact::Document,
+                    ));
+                }
+                row += 1;
+                terminated = true;
+                break;
+            }
             if header.is_empty() {
                 row += 1;
                 continue;
@@ -677,6 +793,24 @@ fn parse_record(
                 return Err(problem(
                     "invalid_data_header",
                     "Expected an SD data header.",
+                    record,
+                    number,
+                    "data_header",
+                ));
+            }
+            let has_number = has_data_number(header).map_err(|()| {
+                problem(
+                    "invalid_data_header",
+                    "Data header registry parentheses must be balanced and non-nested.",
+                    record,
+                    number,
+                    "data_header",
+                )
+            })?;
+            if !header.contains('<') && has_number {
+                return Err(problem(
+                    "unsupported_feature",
+                    "SDF field-number headers are not supported; a field name is required.",
                     record,
                     number,
                     "data_header",
@@ -704,10 +838,10 @@ fn parse_record(
                     )
                 })?;
             let name = &header[start + 1..end];
-            if name.is_empty() || name.contains(['<', '>']) {
+            if !valid_data_name(name) {
                 return Err(problem(
                     "invalid_data_header",
-                    "Data field name is empty or invalid.",
+                    "A data field name must start with an ASCII letter and contain only letters, digits, and underscores.",
                     record,
                     number,
                     "data_header",
@@ -724,6 +858,24 @@ fn parse_record(
             row += 1;
             let value_start = row;
             while row < lines.len() && !lines[row].is_empty() {
+                if lines[row].starts_with("$$$$") {
+                    return Err(problem(
+                        "truncated_record",
+                        "A data field must end with a blank line before the delimiter.",
+                        record,
+                        offset + row,
+                        "data_value",
+                    ));
+                }
+                if lines[row].chars().count() > 200 {
+                    return Err(problem(
+                        "invalid_data_value",
+                        "An SD data value line cannot exceed 200 characters.",
+                        record,
+                        offset + row,
+                        "data_value",
+                    ));
+                }
                 row += 1;
             }
             if row == lines.len() {
@@ -740,6 +892,15 @@ fn parse_record(
                 value: lines[value_start..row].join("\n"),
             });
             row += 1;
+        }
+        if !terminated {
+            return Err(problem(
+                "truncated_record",
+                "The SDF record lacks a $$$$ delimiter.",
+                record,
+                offset + row,
+                "delimiter",
+            ));
         }
         if !fields.is_empty() {
             losses.push(loss(
@@ -758,13 +919,16 @@ fn parse_record(
             "trailing_data",
         ));
     }
-    Ok(ChemicalRecord {
-        title,
-        atoms,
-        bonds,
-        fields,
-        losses,
-    })
+    Ok((
+        ChemicalRecord {
+            title,
+            atoms,
+            bonds,
+            fields,
+            losses,
+        },
+        row,
+    ))
 }
 
 impl ChemicalCodec for MolfileCodec {
@@ -780,38 +944,24 @@ impl ChemicalCodec for MolfileCodec {
         }
         let lines: Vec<&str> = text.lines().collect();
         if format == ChemicalFormat::Mol {
-            return Ok(vec![parse_record(&lines, 1, 1, false)?]);
+            return Ok(vec![parse_record(&lines, 1, 1, false)?.0]);
         }
         let mut records = Vec::new();
         let mut start = 0;
-        for (index, line) in lines.iter().enumerate() {
-            if line.starts_with("$$$$") {
-                if *line != "$$$$" {
-                    return Err(problem(
-                        "invalid_delimiter",
-                        "The SDF record delimiter must be exactly $$$$.",
-                        records.len() + 1,
-                        index + 1,
-                        "delimiter",
-                    ));
-                }
-                if records.len() == MAX_RECORDS {
-                    return Err(problem(
-                        "resource_limit",
-                        "Too many SDF records.",
-                        records.len() + 1,
-                        index + 1,
-                        "records",
-                    ));
-                }
-                records.push(parse_record(
-                    &lines[start..index],
+        while lines[start..].iter().any(|line| !line.is_empty()) {
+            if records.len() == MAX_RECORDS {
+                return Err(problem(
+                    "resource_limit",
+                    "Too many SDF records.",
                     records.len() + 1,
                     start + 1,
-                    true,
-                )?);
-                start = index + 1;
+                    "records",
+                ));
             }
+            let (record, consumed) =
+                parse_record(&lines[start..], records.len() + 1, start + 1, true)?;
+            records.push(record);
+            start += consumed;
         }
         if records.is_empty() {
             return Err(problem(
@@ -819,15 +969,6 @@ impl ChemicalCodec for MolfileCodec {
                 "An SDF needs at least one $$$$-terminated record.",
                 1,
                 1,
-                "delimiter",
-            ));
-        }
-        if lines[start..].iter().any(|line| !line.is_empty()) {
-            return Err(problem(
-                "truncated_record",
-                "The last SDF record lacks a $$$$ delimiter.",
-                records.len() + 1,
-                start + 1,
                 "delimiter",
             ));
         }
@@ -927,17 +1068,14 @@ fn write_document(
             "counts",
         ));
     }
-    if document.title().contains(['\n', '\r', '\0']) || document.title().len() > 80 {
-        return Err(write_problem(
-            "The MOL title must fit one line of at most 80 UTF-8 bytes.",
-            "title",
-        ));
+    if let Some((_, message)) = title_issue(document.title()) {
+        return Err(write_problem(message, "title"));
     }
     if format == ChemicalFormat::Mol && !fields.is_empty() {
         return Err(write_problem("Data fields require SDF output.", "fields"));
     }
     for field in fields {
-        if field.name.is_empty() || field.name.contains(['<', '>', '\n', '\r', '\0']) {
+        if !valid_data_name(&field.name) {
             return Err(write_problem("Invalid SD field name.", "fields.name"));
         }
         if !field.value.is_empty()
@@ -1062,6 +1200,19 @@ fn write_document(
             charges.push((number, i32::from(atom.charge)));
         }
         if let Some(mass) = atom.isotope {
+            let element = atom.kind.element().ok_or_else(|| {
+                write_problem("An isotope requires an element atom.", "atom.isotope")
+            })?;
+            match isotope_in_profile(element, mass) {
+                Some(false) => {
+                    return Err(write_problem(
+                        "Isotope mass is outside the supported CTfile range for this element.",
+                        "atom.isotope",
+                    ));
+                }
+                None => losses.push(unverified_isotope(format!("document.atoms[{id}].isotope"))),
+                Some(true) => (),
+            }
             isotopes.push((number, i32::from(mass)));
         }
         match atom.radical {
@@ -1088,6 +1239,11 @@ fn write_document(
             ));
         }
     }
+    let mut degree = BTreeMap::new();
+    for (_, bond) in document.bonds() {
+        *degree.entry(bond.begin).or_insert(0_usize) += 1;
+        *degree.entry(bond.end).or_insert(0_usize) += 1;
+    }
     for (id, bond) in document.bonds() {
         let order = mol_bond_type(&bond.order).ok_or_else(|| {
             write_problem(
@@ -1102,6 +1258,15 @@ fn write_document(
             .get(&bond.end)
             .ok_or_else(|| write_problem("Bond refers to a missing atom.", "bond.end"))?;
         let _ = writeln!(output, "{begin:>3}{end:>3}{order:>3}  0  0  0  0");
+        if bond.order == BondOrder::Double && degree[&bond.begin] > 1 && degree[&bond.end] > 1 {
+            losses.push(Loss {
+                feature: "coordinate_stereo".into(),
+                source_path: format!("document.bonds[{id}]"),
+                disposition: LossDisposition::Unknown,
+                reason: "A reader may infer cis/trans from coordinates although the document does not encode it.".into(),
+                semantic_impact: SemanticImpact::Stereo,
+            });
+        }
     }
     write_properties(&mut output, "CHG", &charges);
     write_properties(&mut output, "RAD", &radicals);

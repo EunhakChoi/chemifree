@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import pathlib
@@ -12,6 +13,7 @@ import tempfile
 from typing import Any
 
 from rdkit import Chem
+from rdkit import rdBase
 from rdkit.Chem import AllChem
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -298,8 +300,143 @@ def _verify_exported_attributes(child: subprocess.Popen[str]) -> None:
     print("RDKit decoded charge, isotope, triplet and single-or-double query")
 
 
+def _verify_sdf_and_padded_end(child: subprocess.Popen[str]) -> None:
+    source = (
+        ROOT / "crates/providers/tests/data/molfile/sodium-acetate.mol"
+    ).read_text(encoding="utf-8")
+    padded = source.replace("M  END\n", "M  END   \n")
+    padded_molecule = Chem.MolFromMolBlock(
+        padded, sanitize=False, removeHs=False, strictParsing=True
+    )
+    print(f"RDKit accepts space-padded M  END: {padded_molecule is not None}")
+    first = _request(
+        child, "sdf-one", "document.import", {"format": "mol", "text": padded}
+    )["result"]["document"]["id"]
+    benzene = Chem.MolFromSmiles("c1ccccc1")
+    benzene.SetProp("_Name", "Benzene")
+    AllChem.Compute2DCoords(benzene)
+    second = _request(
+        child,
+        "sdf-two",
+        "document.import",
+        {
+            "format": "mol",
+            "text": Chem.MolToMolBlock(benzene, forceV3000=False),
+        },
+    )["result"]["document"]["id"]
+    reply = _request(
+        child,
+        "sdf-out",
+        "document.export",
+        {
+            "format": "sdf",
+            "documents": [
+                {
+                    "document_id": first,
+                    "fields": [{"name": "NOTE", "value": "first\nsecond"}],
+                },
+                {
+                    "document_id": second,
+                    "fields": [{"name": "NOTE", "value": "benzene"}],
+                },
+            ],
+        },
+    )
+    text = reply["result"]["text"]
+    if [line for line in text.splitlines() if line.startswith("$$$$")] != [
+        "$$$$",
+        "$$$$",
+    ]:
+        raise RuntimeError("SDF export did not use two canonical delimiters")
+    supplier = Chem.ForwardSDMolSupplier(
+        io.BytesIO(text.encode("utf-8")),
+        sanitize=False,
+        removeHs=False,
+        strictParsing=True,
+    )
+    molecules = list(supplier)
+    if (
+        len(molecules) != 2
+        or any(molecule is None for molecule in molecules)
+        or [molecule.GetNumAtoms() for molecule in molecules] != [5, 6]
+        or [molecule.GetProp("NOTE") for molecule in molecules]
+        != ["first\nsecond", "benzene"]
+    ):
+        raise RuntimeError(
+            "RDKit did not read both exported SDF graphs and fields"
+        )
+    print("RDKit read two exported SDF records and their separate data values")
+
+
+def _verify_alkene_stereo_uncertainty(child: subprocess.Popen[str]) -> None:
+    observed = []
+    for suffix, last_y in (("same", 16), ("opposite", -16)):
+        created = _request(
+            child,
+            f"alkene-create-{suffix}",
+            "document.create",
+            {"title": "2-butene"},
+        )
+        document_id = created["result"]["document"]["id"]
+        points = [(-16, 16), (0, 0), (16, 0), (32, last_y)]
+        commands = [
+            {"op": "add_atom", "element": "C", "position": {"x": x, "y": y}}
+            for x, y in points
+        ]
+        commands.extend(
+            {
+                "op": "add_bond",
+                "begin": f"${index}",
+                "end": f"${index + 1}",
+                "order": order,
+            }
+            for index, order in enumerate(("single", "double", "single"))
+        )
+        _request(
+            child,
+            f"alkene-graph-{suffix}",
+            "document.transaction",
+            {
+                "document_id": document_id,
+                "expected_revision": 0,
+                "commands": commands,
+            },
+        )
+        exported = _request(
+            child,
+            f"alkene-out-{suffix}",
+            "document.export",
+            {"format": "mol", "document_id": document_id},
+        )
+        if not any(
+            item["feature"] == "coordinate_stereo"
+            for item in exported["loss_report"]
+        ):
+            raise RuntimeError(
+                "Export omitted its coordinate-stereo uncertainty"
+            )
+        block = exported["result"]["text"]
+        if [line[9:12] for line in block.splitlines()[8:11]] != ["  0"] * 3:
+            raise RuntimeError("Exported alkene bonds contained a stereo code")
+        molecule = Chem.MolFromMolBlock(
+            block, sanitize=True, removeHs=False, strictParsing=True
+        )
+        if molecule is None:
+            raise RuntimeError("RDKit rejected the exported alkene")
+        observed.append(str(molecule.GetBondBetweenAtoms(1, 2).GetStereo()))
+    if set(observed) != {"STEREOE", "STEREOZ"}:
+        raise RuntimeError(
+            f"RDKit did not distinguish the two alkene geometries: {observed}"
+        )
+    print(
+        "RDKit inferred distinct double-bond stereo from exported coordinates: "
+        f"{observed}"
+    )
+
+
 def main() -> None:
     """Run the independent checks against an isolated CLI data directory."""
+    print(f"Independent reader: RDKit {rdBase.rdkitVersion}")
     with (
         tempfile.TemporaryDirectory(prefix="chemifree-rdkit-") as data,
         # The executable is the locally built CLI selected by CARGO_TARGET_DIR.
@@ -314,6 +451,8 @@ def main() -> None:
         _verify_rdkit_inputs(child)
         _verify_compact_isotopes(child)
         _verify_exported_attributes(child)
+        _verify_sdf_and_padded_end(child)
+        _verify_alkene_stereo_uncertainty(child)
 
 
 if __name__ == "__main__":

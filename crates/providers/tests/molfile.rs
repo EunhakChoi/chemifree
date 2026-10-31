@@ -147,6 +147,432 @@ fn reads_multiple_sdf_records_and_ordered_duplicate_fields() {
 }
 
 #[test]
+fn sdf_delimiters_are_interpreted_after_the_mol_header_and_connection_table() {
+    let mut lines: Vec<_> = ACETATE.lines().collect();
+    lines[1] = "$$$$ program metadata";
+    lines[2] = "$$$$";
+    let first = format!("{}\n", lines.join("\n"));
+    let input = format!("{first}$$$$\n{ACETATE}$$$$ suffix\n");
+    let records = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].title, "Sodium acetate");
+    assert!(
+        records[0]
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "mol_header")
+    );
+    assert!(
+        records[1]
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "sdf_delimiter_suffix")
+    );
+}
+
+#[test]
+fn reserved_tags_in_molecule_names_are_rejected_by_reader_and_writer() {
+    for title in [
+        "$$$$",
+        "$$$$prefix",
+        "name $$$$ tail",
+        "$MDL name",
+        "$RXN",
+        "$RDFILE",
+    ] {
+        let input = ACETATE.replacen("Sodium acetate", title, 1);
+        for format in [ChemicalFormat::Mol, ChemicalFormat::Sdf] {
+            let text = if format == ChemicalFormat::Sdf {
+                format!("{input}$$$$\n")
+            } else {
+                input.clone()
+            };
+            let error = MolfileCodec.read(format, &text).unwrap_err();
+            assert_eq!(
+                (error.code, error.record, error.line, error.field.as_deref()),
+                ("unsupported_feature", Some(1), Some(1), Some("title")),
+                "{title:?}"
+            );
+            let doc = Document::new(DocumentId::parse("reserved-title").unwrap(), title).unwrap();
+            let error = MolfileCodec.write(format, &doc, &[]).unwrap_err();
+            assert_eq!(
+                (error.code, error.field.as_deref()),
+                ("unsupported_feature", Some("title")),
+                "{title:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sdf_delimiter_like_data_lines_require_a_finished_data_item() {
+    for marker in ["$$$$", "$$$$ suffix"] {
+        let input = format!("{ACETATE}$$$$\n{ACETATE}> <NOTE>\nvalue\n{marker}\n");
+        let error = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap_err();
+        assert_eq!(
+            (error.code, error.record, error.field.as_deref()),
+            ("truncated_record", Some(2), Some("data_value")),
+            "{marker:?}"
+        );
+        let doc = document();
+        let field = DataField {
+            name: "NOTE".into(),
+            value: format!("line\n{marker}"),
+        };
+        let error = MolfileCodec
+            .write(ChemicalFormat::Sdf, &doc, &[field])
+            .unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("unsupported_feature", Some("fields.value"))
+        );
+    }
+}
+
+#[test]
+fn sdf_field_names_follow_the_public_identifier_grammar() {
+    let document = document();
+    for name in [
+        "BAD-NAME",
+        "Has Space",
+        "A.B",
+        "A=B",
+        "A%B",
+        "1NAME",
+        "_NAME",
+        "µNAME",
+    ] {
+        let source = format!("{ACETATE}> <{name}>\nvalue\n\n$$$$\n");
+        let error = MolfileCodec.read(ChemicalFormat::Sdf, &source).unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("invalid_data_header", Some("data_header")),
+            "{name}"
+        );
+        let field = DataField {
+            name: name.into(),
+            value: "value".into(),
+        };
+        let error = MolfileCodec
+            .write(ChemicalFormat::Sdf, &document, &[field])
+            .unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("unsupported_feature", Some("fields.name")),
+            "{name}"
+        );
+    }
+    let valid = format!("{ACETATE}> <Z_1>\nvalue\n\n$$$$\n");
+    assert_eq!(
+        MolfileCodec.read(ChemicalFormat::Sdf, &valid).unwrap()[0].fields[0].name,
+        "Z_1"
+    );
+}
+
+#[test]
+fn sdf_field_number_only_header_is_deliberately_unsupported() {
+    let source = format!("{ACETATE}> DT12\nvalue\n\n$$$$\n");
+    let error = MolfileCodec.read(ChemicalFormat::Sdf, &source).unwrap_err();
+    assert_eq!(
+        (error.code, error.field.as_deref()),
+        ("unsupported_feature", Some("data_header"))
+    );
+}
+
+#[test]
+fn sdf_number_headers_allow_optional_registry_text_but_reject_unbalanced_parentheses() {
+    for header in ["> (REG)DT12", "> 55(REG)DT12", "> DT12 (REG)"] {
+        let source = format!("{ACETATE}{header}\nvalue\n\n$$$$\n");
+        let error = MolfileCodec.read(ChemicalFormat::Sdf, &source).unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("unsupported_feature", Some("data_header")),
+            "{header}"
+        );
+    }
+    for header in [
+        "> (REGDT12)",
+        "> (REGDT12",
+        "> (REG))DT12",
+        "> ((REG))DT12",
+        "> (REG<NAME>",
+    ] {
+        let source = format!("{ACETATE}{header}\nvalue\n\n$$$$\n");
+        let error = MolfileCodec.read(ChemicalFormat::Sdf, &source).unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("invalid_data_header", Some("data_header")),
+            "{header}"
+        );
+    }
+    let valid = format!("{ACETATE}> 55(MD-08974)<BOILING_POINT>DT12\n100\n\n$$$$\n");
+    let records = MolfileCodec.read(ChemicalFormat::Sdf, &valid).unwrap();
+    assert_eq!(records[0].fields[0].name, "BOILING_POINT");
+    assert!(
+        records[0]
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "sdf_header_metadata")
+    );
+}
+
+#[test]
+fn sdf_value_line_limit_counts_characters_and_reports_the_later_record() {
+    let accepted = "é".repeat(200);
+    let second = format!("{ACETATE}> <NOTE>\n{accepted}\n\n$$$$\n");
+    let input = format!("{ACETATE}$$$$\n{second}");
+    let records = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap();
+    assert_eq!(records[1].fields[0].value, accepted);
+    let too_long = "é".repeat(201);
+    let input = format!("{ACETATE}$$$$\n{ACETATE}> <NOTE>\n{too_long}\n\n$$$$\n");
+    let error = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap_err();
+    assert_eq!(
+        (error.code, error.record, error.line, error.field.as_deref()),
+        (
+            "invalid_data_value",
+            Some(2),
+            Some(ACETATE.lines().count() * 2 + 3),
+            Some("data_value")
+        )
+    );
+    let field = DataField {
+        name: "NOTE".into(),
+        value: too_long,
+    };
+    assert_eq!(
+        MolfileCodec
+            .write(ChemicalFormat::Sdf, &document(), &[field])
+            .unwrap_err()
+            .field
+            .as_deref(),
+        Some("fields.value")
+    );
+}
+
+#[test]
+fn sdf_missing_connection_table_end_is_not_mistaken_for_a_record_boundary() {
+    let broken = ACETATE.replace("M  END\n", "");
+    let input = format!("{broken}$$$$\n{ACETATE}$$$$\n");
+    let error = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap_err();
+    assert_eq!(
+        (error.code, error.record, error.field.as_deref()),
+        ("truncated_record", Some(1), Some("M  END"))
+    );
+}
+
+#[test]
+fn sdf_blank_names_trailing_blank_lines_and_record_limit_are_distinct() {
+    let blank = ACETATE.replacen("Sodium acetate", "", 1);
+    let two = format!("{blank}$$$$\n{ACETATE}$$$$\n\n\n");
+    let records = MolfileCodec.read(ChemicalFormat::Sdf, &two).unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].title, "");
+    assert_eq!(records[1].title, "Sodium acetate");
+    let one = format!("{blank}$$$$\n");
+    assert_eq!(
+        MolfileCodec
+            .read(ChemicalFormat::Sdf, &one.repeat(999))
+            .unwrap()
+            .len(),
+        999
+    );
+    let error = MolfileCodec
+        .read(ChemicalFormat::Sdf, &one.repeat(1000))
+        .unwrap_err();
+    assert_eq!(
+        (error.code, error.record, error.field.as_deref()),
+        ("resource_limit", Some(1000), Some("records"))
+    );
+    assert_eq!(
+        MolfileCodec
+            .read(ChemicalFormat::Sdf, "\n\n")
+            .unwrap_err()
+            .code,
+        "truncated_record"
+    );
+}
+
+#[test]
+fn isotope_symbol_aliases_are_rejected_but_absolute_hydrogen_isotopes_are_supported() {
+    for symbol in ["D", "T"] {
+        let source = ACETATE.replacen("C   0  0", &format!("{symbol}   0  0"), 1);
+        let error = MolfileCodec.read(ChemicalFormat::Mol, &source).unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            ("unsupported_atom", Some("symbol"))
+        );
+    }
+    let source = ACETATE
+        .replacen("C   0  0", "H   0  0", 1)
+        .replace("M  END", "M  ISO  1   1   2\nM  END");
+    let record = MolfileCodec.read(ChemicalFormat::Mol, &source).unwrap();
+    assert_eq!(record[0].atoms[0].atom.isotope, Some(2));
+}
+
+#[test]
+fn invalid_title_length_and_control_characters_are_reported_at_the_source() {
+    for title in ["x".repeat(81), "bad\u{1}title".into()] {
+        let second = ACETATE.replacen("Sodium acetate", &title, 1);
+        let input = format!("{ACETATE}$$$$\n{second}$$$$\n");
+        let error = MolfileCodec.read(ChemicalFormat::Sdf, &input).unwrap_err();
+        assert_eq!(
+            (error.code, error.record, error.field.as_deref()),
+            ("invalid_title", Some(2), Some("title"))
+        );
+    }
+}
+
+#[test]
+fn zero_radical_property_clears_compact_charge_and_radical_fields() {
+    let source = ACETATE
+        .replacen("C   0  0", "C   0  4", 1)
+        .replace("M  CHG  2   4  -1   5   1", "M  RAD  1   1   0");
+    let record = MolfileCodec
+        .read(ChemicalFormat::Mol, &source)
+        .unwrap()
+        .remove(0);
+    assert_eq!(record.atoms[0].atom.radical, Radical::None);
+    assert!(record.atoms.iter().all(|atom| atom.atom.charge == 0));
+}
+
+fn isotope_document(symbol: &str, mass: u16) -> Document {
+    let mut document =
+        Document::new(DocumentId::parse("isotope-test").unwrap(), "Isotope").unwrap();
+    let mut atom = Atom::from(Element::from_symbol(symbol).unwrap());
+    atom.isotope = Some(mass);
+    document
+        .apply(&[Command::AddAtom {
+            atom,
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        }])
+        .unwrap();
+    document
+}
+
+#[test]
+fn absolute_isotopes_use_the_bounded_reference_profile_or_report_uncertainty() {
+    let carbon = ACETATE.replace("M  END", "M  ISO  1   1  25\nM  END");
+    let error = MolfileCodec.read(ChemicalFormat::Mol, &carbon).unwrap_err();
+    assert_eq!(
+        (error.code, error.field.as_deref()),
+        ("invalid_property", Some("isotope"))
+    );
+    let error = MolfileCodec
+        .write(ChemicalFormat::Mol, &isotope_document("C", 25), &[])
+        .unwrap_err();
+    assert_eq!(
+        (error.code, error.field.as_deref()),
+        ("unsupported_feature", Some("atom.isotope"))
+    );
+    let valid = ACETATE.replace("M  END", "M  ISO  1   1  24\nM  END");
+    assert_eq!(
+        MolfileCodec.read(ChemicalFormat::Mol, &valid).unwrap()[0].atoms[0]
+            .atom
+            .isotope,
+        Some(24)
+    );
+    for (symbol, mass) in [("Ni", 60), ("Br", 81)] {
+        let source = ACETATE
+            .replacen("C   0  0", &format!("{symbol:<3} 0  0"), 1)
+            .replace("M  END", &format!("M  ISO  1   1{mass:>4}\nM  END"));
+        let read = MolfileCodec.read(ChemicalFormat::Mol, &source).unwrap();
+        assert_eq!(read[0].atoms[0].atom.isotope, Some(mass));
+        assert!(
+            read[0]
+                .losses
+                .iter()
+                .any(|loss| loss.feature == "isotope_range_unverified"
+                    && loss.disposition == LossDisposition::Unknown)
+        );
+        let written = MolfileCodec
+            .write(ChemicalFormat::Mol, &isotope_document(symbol, mass), &[])
+            .unwrap();
+        assert!(
+            written
+                .losses
+                .iter()
+                .any(|loss| loss.feature == "isotope_range_unverified"
+                    && loss.disposition == LossDisposition::Unknown)
+        );
+    }
+}
+
+#[test]
+fn accepts_space_padded_m_end_but_not_a_property_suffix() {
+    let padded = ACETATE.replace("M  END\n", "M  END   \n");
+    assert_eq!(
+        MolfileCodec
+            .read(ChemicalFormat::Mol, &padded)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        MolfileCodec
+            .read(ChemicalFormat::Sdf, &format!("{padded}$$$$\n"))
+            .unwrap()
+            .len(),
+        1
+    );
+    let suffix = ACETATE.replace("M  END\n", "M  ENDx\n");
+    assert!(MolfileCodec.read(ChemicalFormat::Mol, &suffix).is_err());
+}
+
+#[test]
+fn export_reports_uninterpreted_double_bond_geometry() {
+    let mut doc = Document::new(DocumentId::parse("alkene").unwrap(), "Alkene").unwrap();
+    let atom = || Atom::from(Element::from_symbol("C").unwrap());
+    doc.apply(&[
+        Command::AddAtom {
+            atom: atom(),
+            positions: NewAtomPositions::Single(Point::new(-16.0, 16.0).unwrap()),
+            bond_to: None,
+        },
+        Command::AddAtom {
+            atom: atom(),
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        },
+        Command::AddAtom {
+            atom: atom(),
+            positions: NewAtomPositions::Single(Point::new(16.0, 0.0).unwrap()),
+            bond_to: None,
+        },
+        Command::AddAtom {
+            atom: atom(),
+            positions: NewAtomPositions::Single(Point::new(32.0, -16.0).unwrap()),
+            bond_to: None,
+        },
+        Command::AddBond {
+            begin: AtomRef::Created(0),
+            end: AtomRef::Created(1),
+            order: BondOrder::Single,
+        },
+        Command::AddBond {
+            begin: AtomRef::Created(1),
+            end: AtomRef::Created(2),
+            order: BondOrder::Double,
+        },
+        Command::AddBond {
+            begin: AtomRef::Created(2),
+            end: AtomRef::Created(3),
+            order: BondOrder::Single,
+        },
+    ])
+    .unwrap();
+    let written = MolfileCodec.write(ChemicalFormat::Mol, &doc, &[]).unwrap();
+    assert!(
+        written
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "coordinate_stereo"
+                && loss.disposition == LossDisposition::Unknown
+                && loss.semantic_impact == SemanticImpact::Stereo)
+    );
+}
+
+#[test]
 fn refuses_invalid_and_truncated_input_with_field_location() {
     let cases = [
         ("", "truncated_record", "title"),
