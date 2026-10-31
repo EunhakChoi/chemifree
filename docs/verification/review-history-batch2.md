@@ -336,3 +336,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 2 | 2026-10-31 01:44:44 | `551f2dbf9ddb40d29748f00a5f38d210ccff6980` | 01:47:52 | 통과: 최신 head에 대한 실제 리뷰 완료, 지적과 미해결 스레드 없음 | [요청](https://github.com/EunhakChoi/chemifree/pull/55#issuecomment-6537350265), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/55#issuecomment-6537171567) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41156804670)는 check·browser 모두 성공했다. 2026-10-31 01:49:34에 `98fb2edd44e265e3625baf053ad4f0fbafa283aa`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41157175267)도 check·browser 모두 성공했다.
+
+### P14 기존 DATA reader의 정수 스키마 수정 — [#56](https://github.com/EunhakChoi/chemifree/pull/56)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 02:03:24 | `9b89eb9919ce14974eb861e4a8ce2afff5b8f4b7` | 02:04:58 | 통과: 최신 head에 대한 실제 리뷰 완료, 지적과 미해결 스레드 없음 | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/56#issuecomment-6537543860) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41158217589)는 check·browser 모두 성공했다. 2026-10-31 02:08:33에 `2433616c8d61f171613bb604a220fe87de884081`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41158625894)도 check·browser 모두 성공했다.

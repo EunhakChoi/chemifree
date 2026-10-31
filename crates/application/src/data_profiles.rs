@@ -91,6 +91,8 @@ pub enum ProfileRecords {
     Phase4Declarative(Box<crate::phase4_declarative::DeclarativeData>),
     /// Inert template framing records, without a biopolymer or sequence engine.
     Phase4Templates(Box<crate::phase4_templates::TemplateCandidates>),
+    /// Source fragment carriers without a CLogP model.
+    Phase4Clogp(Box<crate::phase4_clogp::ClogpData>),
     /// Prepared empirical rows and graphs, without a property engine.
     Phase4Empirical(Box<crate::phase4_empirical::EmpiricalData>),
     /// Inert HELM source rows, without attachment, sequence or stereo semantics.

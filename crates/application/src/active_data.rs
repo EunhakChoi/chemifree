@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
-    phase4_cmr, phase4_declarative, phase4_empirical, phase4_helm, phase4_literals, phase4_nmr,
-    phase4_templates, phase6_profiles, prediction_input, prepared_xlogp,
+    phase4_clogp, phase4_cmr, phase4_declarative, phase4_empirical, phase4_helm, phase4_literals,
+    phase4_nmr, phase4_templates, phase6_profiles, prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -256,6 +256,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::Phase4Templates(_)
                     | ProfileRecords::Phase4Helm(_)
                     | ProfileRecords::Phase4Empirical(_)
+                    | ProfileRecords::Phase4Clogp(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -398,6 +399,7 @@ enum SelectedProfile {
     Phase4Templates,
     Phase4Helm,
     Phase4Empirical,
+    Phase4Clogp,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -690,6 +692,21 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             }
             return Ok(SelectedProfile::Phase4Templates);
         }
+        "private-data-clogp-carriers-v1" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 19
+                || manifest.files.iter().any(|file| {
+                    !phase4_clogp::accepts_file(
+                        &file.file_id,
+                        &file.role,
+                        &file.declared_content_class,
+                    ) || (phase4_clogp::is_normalized(&file.file_id) && !file.required)
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Clogp);
+        }
         "private-data-chemprop-empirical-v1" => {
             if manifest.feature_schema_sha256.is_some()
                 || manifest.files.len() != 17
@@ -954,6 +971,13 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Phase4Clogp => {
+            let files = payloads_by_id(&manifest, &payloads)?;
+            ProfileRecords::Phase4Clogp(Box::new(
+                phase4_clogp::decode_dataset(&files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::Phase4Empirical => {
             let files = payloads_by_id(&manifest, &payloads)?;
             ProfileRecords::Phase4Empirical(Box::new(
@@ -1116,6 +1140,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Phase4Templates => phase4_templates::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Clogp => phase4_clogp::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2464,3 +2496,7 @@ mod phase4_helm_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_empirical_tests.rs"]
 mod phase4_empirical_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_clogp_tests.rs"]
+mod phase4_clogp_tests;

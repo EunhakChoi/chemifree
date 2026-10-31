@@ -26,6 +26,16 @@ impl IntegerToken for i64 {
     const MAX_DIGITS: usize = 19;
 }
 
+/// Reads an already validated raw JSON token as an exact integer value.
+pub(crate) fn parse_integer_raw<T: IntegerToken>(raw: &RawValue) -> Option<T> {
+    let token = if raw.get() == "-0" { "0" } else { raw.get() };
+    token.parse().ok().or_else(|| {
+        crate::decimal_input::DecimalInput::from_token(token)
+            .and_then(|value| value.integer_token(T::MAX_DIGITS))
+            .and_then(|value| value.parse().ok())
+    })
+}
+
 /// Reads a JSON integer token without changing adjacent raw numeric witnesses.
 pub(crate) fn deserialize_integer<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
@@ -33,13 +43,7 @@ where
     T: IntegerToken,
 {
     let raw = Box::<RawValue>::deserialize(deserializer)?;
-    let token = if raw.get() == "-0" { "0" } else { raw.get() };
-    if let Ok(value) = token.parse() {
-        return Ok(value);
-    }
-    crate::decimal_input::DecimalInput::from_token(token)
-        .and_then(|value| value.integer_token(T::MAX_DIGITS))
-        .and_then(|value| value.parse().ok())
+    parse_integer_raw(&raw)
         .ok_or_else(|| de::Error::custom("expected an exact integer value in range"))
 }
 
