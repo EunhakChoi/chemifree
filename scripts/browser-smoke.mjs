@@ -301,7 +301,7 @@ results.preferences_read_can_be_retried = true
   await page.getByText('No document open').waitFor()
   const cdx = Buffer.concat([
     Buffer.from('VjCD0100', 'ascii'), Buffer.from([4, 3, 2, 1]), Buffer.alloc(16),
-    Buffer.from('0180010000000380020000000480030000000204020008000000000000000000', 'hex'),
+    Buffer.from('0180010000000380020000000480030000000002080000000000000000000204020008000000000000000000', 'hex'),
   ])
   await page.getByLabel('CDXML or CDX file').setInputFiles({ name: 'oxygen.cdx', mimeType: 'application/octet-stream', buffer: cdx })
   await page.getByRole('button', { name: 'Preview import' }).click()

@@ -10,6 +10,12 @@ type App = Application<LocalCapabilities, FileDocumentRepository>;
 fn call(app: &App, id: &str, operation: &str, parameters: Value) -> Value {
     serde_json::to_value(app.execute(&serde_json::to_vec(&json!({"contract":1,"request_id":id,"profile":"preserve-semantics","operation":operation,"parameters":parameters})).unwrap())).unwrap()
 }
+fn position(bytes: &mut Vec<u8>, x: i32, y: i32) {
+    bytes.extend(0x0200u16.to_le_bytes());
+    bytes.extend(8u16.to_le_bytes());
+    bytes.extend(y.to_le_bytes());
+    bytes.extend(x.to_le_bytes());
+}
 fn example() -> Vec<u8> {
     let mut bytes = b"VjCD0100\x04\x03\x02\x01".to_vec();
     bytes.extend([0; 16]);
@@ -17,6 +23,7 @@ fn example() -> Vec<u8> {
         bytes.extend(tag.to_le_bytes());
         bytes.extend(id.to_le_bytes());
     }
+    position(&mut bytes, 0, 0);
     bytes.extend(0x0402u16.to_le_bytes());
     bytes.extend(2u16.to_le_bytes());
     bytes.extend(8u16.to_le_bytes());
@@ -126,6 +133,28 @@ fn unknown_binary_node_semantics_are_preserved_but_editor_projection_refuses_the
     );
     assert_eq!(projection["diagnostics"][0]["code"], "unsupported_node");
     assert!(projection["result"].is_null());
+    let write = call(
+        &app,
+        "opaque-write",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":source}),
+    );
+    assert_eq!(write["result"]["content"], source);
+    let create = call(
+        &app,
+        "opaque-create",
+        "document.import",
+        json!({"mode":"create","format":"cdx","source":source,"title":"Opaque","page_id":1,"fragment_id":2,"preview_digest":"unavailable","accept_loss":true}),
+    );
+    assert_eq!(create["diagnostics"][0]["code"], "unsupported_node");
+    assert!(create["result"].is_null());
+    assert_eq!(
+        app.list_documents(&Default::default())
+            .unwrap()
+            .documents
+            .len(),
+        0
+    );
 }
 
 #[test]
@@ -139,9 +168,11 @@ fn dative_binary_is_preserved_but_refused_before_editor_creation() {
         bytes.extend(tag.to_le_bytes());
         bytes.extend(id.to_le_bytes());
     }
+    position(&mut bytes, 0, 0);
     bytes.extend([0, 0]);
     bytes.extend(0x8004u16.to_le_bytes());
     bytes.extend(4u32.to_le_bytes());
+    position(&mut bytes, 65536, 0);
     bytes.extend([0, 0]);
     bytes.extend(0x8005u16.to_le_bytes());
     bytes.extend(5u32.to_le_bytes());

@@ -297,13 +297,15 @@ fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
         font.properties
             .push(property(K::FontIndex, V::Integer(i64::from(id))));
         font.properties.push(property(K::FontName, V::Text(name)));
-        let name = if charset == 1252 {
-            "iso-8859-1".to_owned()
-        } else {
-            format!("cdx-charset-{charset}")
-        };
+        if charset != 1252 {
+            return Err(fail(
+                "unsupported_encoding",
+                format!("Font charset {charset} has no supported CDXML mapping."),
+                at,
+            ));
+        }
         font.properties
-            .push(property(K::FontCharset, V::Text(name)));
+            .push(property(K::FontCharset, V::Text("iso-8859-1".to_owned())));
         table.children.push(Content::Object(font));
     }
     if c.at != bytes.len() {

@@ -219,6 +219,23 @@ fn styled_text(charset: u16, second_offset: u16) -> Vec<u8> {
 }
 
 #[test]
+fn an_unused_unsupported_font_charset_is_not_invented_as_a_cdxml_name() {
+    let mut bytes = header();
+    let mut fonts = Vec::new();
+    for value in [1u16, 1, 3, 65001, 5] {
+        fonts.extend(value.to_le_bytes());
+    }
+    fonts.extend(b"Arial");
+    field(&mut bytes, 0x0100, &fonts);
+    begin(&mut bytes, 0x8001, 1);
+    end(&mut bytes);
+    end(&mut bytes);
+    let error = cdx::read(&bytes).unwrap_err();
+    assert_eq!(error.code, "unsupported_encoding");
+    assert!(error.message.contains("65001"));
+}
+
+#[test]
 fn styled_text_and_font_table_match_cdxml_and_unknown_encodings_are_refused() {
     let bytes = styled_text(1252, 2);
     let read = cdx::read(&bytes).unwrap();
