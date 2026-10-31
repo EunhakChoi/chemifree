@@ -650,6 +650,24 @@ impl<R: DocumentRepository> Documents<R> {
         Ok(self.respond(session))
     }
 
+    /// Read the graph and its ordinary document view under one lock. The view lets clients
+    /// verify the actual analyzed content even when a revision number is reused after restart.
+    pub(crate) fn inspect_valence(
+        &self,
+        id: &str,
+    ) -> Result<
+        (
+            DocumentResponse,
+            Vec<chemifree_domain::chemistry::AtomAssessment>,
+        ),
+        ApplicationError,
+    > {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let findings = chemifree_domain::chemistry::inspect_valence(&session.document);
+        Ok((self.respond(session), findings))
+    }
+
     pub(crate) fn transact(
         &self,
         id: &str,

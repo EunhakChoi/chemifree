@@ -23,8 +23,8 @@ export type QueryAtom =
 export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
 
 /**
- * An atom's hydrogen state. `inferred` means "to be derived from valence"; nothing derives it,
- * so it has no count and nothing is shown for it.
+ * An atom's recorded hydrogen state. `inferred` stores no count; the separate valence
+ * inspector can derive a count for supported states without changing this record.
  */
 export type Hydrogens = { mode: 'inferred' } | { mode: 'unknown' } | { mode: 'specified'; count: number }
 
@@ -177,6 +177,28 @@ export interface DocumentView {
   selection?: SelectionView
   /** Omitted by services predating document style settings. */
   settings?: DocumentSettings
+}
+
+export interface ValenceAtom {
+  atom_id: string
+  bond_order_sum: number | null
+  hydrogens: number | null
+  status: 'valid' | 'invalid' | 'unsupported'
+  reason: string | null
+}
+
+export interface ValenceInspection {
+  model: string
+  snapshot: DocumentView
+  atoms: ValenceAtom[]
+}
+
+/** ID and revision alone can be reused across service processes. Compare the analyzed graph
+ * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
+export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentView): boolean {
+  return shown.id === inspected.id && shown.revision === inspected.revision &&
+    JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
+    JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds)
 }
 
 /** The document's own style, or built-in defaults for an older service. */
@@ -1061,6 +1083,30 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
     }
     return withStates(value)
+  }
+
+  /** The server returns the actual inspected snapshot, not just its potentially reused revision. */
+  async inspectValence(id: string): Promise<ValenceInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics',
+      operation: 'chem.validate', parameters: { document_id: id },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || typeof value.model_id !== 'string' ||
+        !isRecord(value.result) || !isRecord(value.result.snapshot) || !Array.isArray(value.result.atoms)) {
+      throw new ApiError('analysis_unavailable', 'The local service could not inspect the drawing.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const atoms = value.result.atoms
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision ||
+        !atoms.every((a): a is ValenceAtom => isRecord(a) && typeof a.atom_id === 'string' &&
+          (a.bond_order_sum === null || isCount(a.bond_order_sum)) && (a.hydrogens === null || isCount(a.hydrogens)) &&
+          (a.status === 'valid' || a.status === 'invalid' || a.status === 'unsupported') &&
+          (a.reason === null || typeof a.reason === 'string')) ||
+        atoms.length !== snapshot.atoms.length || new Set(atoms.map((a) => a.atom_id)).size !== atoms.length ||
+        atoms.some((a) => !snapshot.atoms.some((atom) => atom.id === a.atom_id))) {
+      throw new ApiError('analysis_unavailable', 'The local service returned an incompatible inspection.', 200)
+    }
+    return { model: value.model_id, snapshot, atoms }
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

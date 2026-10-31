@@ -191,7 +191,7 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
       </CardContent>
       <CardFooter>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          The web UI and CLI use the same application service. No chemical analysis engine or model data is included.
+          The web UI and CLI use the same application service. The valence inspector has a bounded policy; broader chemistry and external model engines remain unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -245,7 +245,7 @@ function App() {
             </div>
             <h1 id="workspace-title" className="text-3xl font-semibold tracking-tight sm:text-4xl">A clear space for chemistry.</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-              An open-source chemical drawing workspace for humans and agents. Draw, undo, save, and reopen structures locally; chemistry analysis comes later.
+              An open-source chemical drawing workspace for humans and agents. Draw, undo, save, reopen, and inspect supported valence states locally.
             </p>
           </section>
 

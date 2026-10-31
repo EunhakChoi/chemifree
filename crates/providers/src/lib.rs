@@ -39,13 +39,13 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: DocumentEditing,
                 label: "Document editing",
                 status: Available,
-                description: "Create drawings and add, edit, move, or delete atoms (element, charge, isotope) and single/double/triple bonds, with atomic transactions and undo/redo. Drawing only: no valence, aromaticity, stereo, or layout perception.",
+                description: "Create and edit drawings with atomic transactions and undo/redo. Chemistry inspection is a separate read-only operation.",
             },
             Capability {
                 id: StructureAnalysis,
-                label: "Structure analysis",
-                status: NotImplemented,
-                description: "No chemical calculations, validation, or prediction engine is connected.",
+                label: "Valence inspection",
+                status: Available,
+                description: "Read-only valence and non-vertex hydrogen inspection for a bounded model; other chemical calculations and prediction remain unimplemented. See the per-operation catalog.",
             },
             Capability {
                 id: FormatConversion,
@@ -99,6 +99,7 @@ mod tests {
             [
                 CapabilityId::RuntimeInspection,
                 CapabilityId::DocumentEditing,
+                CapabilityId::StructureAnalysis,
                 CapabilityId::Persistence
             ]
         );

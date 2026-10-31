@@ -166,7 +166,7 @@
     },
     {
       "id": "capabilities-report-unimplemented",
-      "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+      "title": "The capability list distinguishes bounded valence inspection from unimplemented formats, models and integrations",
       "requirements": [
         "API-01",
         "QUALITY-01"
@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f40acc5ffb2f0e3e042f89fc6eed5f72f2ca1ebf2cd0cbed92942391dbb19f75"
+      "case_sha256": "88c9157785c418c915c650be774c49462f346bec63c1f4cb3db5a226714644a7"
     },
     {
       "id": "formula-and-mass",
@@ -345,7 +345,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "86b4989e3d304996bd9a45b0c679695d522b2a61759e4a8d953f3be79c7ddb3f"
+      "case_sha256": "4f29422a6c96aafa60021555d03039e95bdbf315415cefa9e8184f098d2718d3"
     },
     {
       "id": "operation-version-refused",
@@ -399,11 +399,25 @@
       "pending": null,
       "failure": null,
       "case_sha256": "64cb75a82d36e32031386dc89aee87fecce81226255d4775a22fb41b17d95daf"
+    },
+    {
+      "id": "valence-snapshot",
+      "title": "Valence inspection names its snapshot and does not edit it",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f588ecb578d7e086cb8be76a4f24c41dfbbd1a16a0b291886dae62f1f05153b7"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 15,
+      "passed": 16,
       "failed": 0,
       "not_run": 2
     },
@@ -413,7 +427,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 27,
+      "passed": 28,
       "failed": 0,
       "not_run": 2
     }

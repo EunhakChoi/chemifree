@@ -103,7 +103,7 @@
         },
         {
           "id": "MODEL-02.2",
-          "summary": "Hydrogen states are recorded and told apart as drawn: stated with a count of 0 to 16, unknown, or inferred (the default). An inferred state carries no count, since nothing computes one.",
+          "summary": "Hydrogen states are recorded and told apart as drawn: stated with a count of 0 to 16, unknown, or inferred (the default). Inferred counts are separate read-only interpretations.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/states.rs",
@@ -142,8 +142,16 @@
           "followups": []
         },
         {
+          "id": "MODEL-02.4",
+          "summary": "A bounded named valence policy reports additional hydrogens and uncertain states without changing the drawing.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs", "apps/web/src/components/document-workspace.tsx"],
+          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
+          "followups": ["P16", "P17"]
+        },
+        {
           "id": "MODEL-02.rest",
-          "summary": "Valence, computed (inferred) hydrogen counts, aromaticity perception and Kekule forms, and query matching.",
+          "summary": "Broader valence models, aromaticity perception and Kekule forms, and query matching.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -614,8 +622,16 @@
       "operations": [
         "chem.validate"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
+        {
+          "id": "CHEM-02.1",
+          "summary": "The bounded valence inspector distinguishes invalid and unsupported atom states with structured warnings and preserves the source graph and history.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
+          "followups": ["P16", "P17"]
+        },
         {
           "id": "CHEM-02.rest",
           "summary": "All of this requirement: nothing of it is implemented.",
