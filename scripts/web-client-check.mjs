@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -1828,4 +1828,43 @@ test('new-document preferences are built from the latest preferences and store w
   assert.deepEqual(preferenceStep(latest, 'bond_length_pt', 1), { ui: { theme: 'dark' }, new_documents: { bond_length_pt: 41 } })
   const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
   assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
+})
+
+
+test('an unanswered import reuses the request ID against the same service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, format: 'mol', source: 'source', record: 1, digest: 'a'.repeat(64) }
+  await assert.rejects(client.importCt(input), { code: 'unreachable' })
+  const result = await client.importCt(input)
+  assert.equal(result.document.revision, 1)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('conversion failures retain their record and line context', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null,
+    diagnostics: [{ code: 'data_line_too_long', message: 'Too long.', details: { record: 2, line: 13 } }], loss_report: [] })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewCt('doc-1', 0, 'sdf', 'source', 1), {
+    code: 'data_line_too_long', message: 'Too long. Record 2. Line 13.',
+  })
+})
+
+
+test('an import preview exposes the actual graph even when a revision is reused', async () => {
+  const actual = document('doc-1', 1)
+  actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [],
+    result: { selected_record: 1, preview_digest: 'a'.repeat(64), records: [{ title: '', atoms: [], bonds: [], fields: [] }],
+      snapshot: actual, document: actual.document } })] })
+  const client = new DocumentClient()
+  const preview = await client.previewCt('doc-1', 1, 'mol', 'source', 1)
+  const shown = structuredClone(preview.snapshot)
+  shown.atoms[0].element = 'C'
+  assert.equal(shown.id, preview.snapshot.id)
+  assert.equal(shown.revision, preview.snapshot.revision)
+  assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })

@@ -167,6 +167,7 @@ dependencies = [
  "chemifree-domain",
  "chemifree-numerics",
  "chemifree-providers",
+ "getrandom",
  "num-bigint",
  "roxmltree",
  "serde",

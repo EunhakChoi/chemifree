@@ -906,7 +906,7 @@
    "acceptance": "독립 리더로 그래프를 대조하고 잘린 파일·잘못된 원자·결합·필드 길이와 다중 레코드를 검사한다. 입체·고급 객체 미지원은 명시한다.",
    "kind": "core",
    "id": "P20",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -915,7 +915,13 @@
    "depends_on": [
     "P10",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [83],
+    "merge_commit": "fe443007193bfef7af16f3771cb1dde3431646a0",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41227984583",
+    "note": "V2000 MOL/SDF의 제한된 입출력 부분 납품이다. 고급 객체와 입체 해석은 후속 범위다."
+   }
   },
   {
    "phase": "chemistry",
@@ -3688,7 +3694,7 @@
     "phase3-stereo-default-contracts.md",
     "phase2-stereo-signedness-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P20",
     "P24",
@@ -3752,7 +3758,7 @@
     "deep-format-contracts.md",
     "format-boundary-observations.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P20",
     "P21",
