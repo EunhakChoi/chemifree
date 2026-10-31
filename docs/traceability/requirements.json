@@ -156,7 +156,6 @@
             "check:test:contracts"
           ],
           "followups": [
-            "P16",
             "P17"
           ]
         },
@@ -686,7 +685,6 @@
             "check:test:contracts"
           ],
           "followups": [
-            "P16",
             "P17"
           ]
         },
