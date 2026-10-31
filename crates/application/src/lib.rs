@@ -98,9 +98,10 @@ pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
-    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
-    Loss, LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse,
-    OperationResult, Outcome, ProfileSupport, SemanticImpact, Severity, Support,
+    FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
+    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
+    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
+    ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

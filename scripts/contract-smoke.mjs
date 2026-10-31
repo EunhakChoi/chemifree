@@ -940,28 +940,30 @@ try {
 
     const catalog = await both(() => request('op-caps', 'capabilities.inspect', {}))
     assert.deepEqual(catalog.result, (await call('/api/v1/capabilities')).body.operation_catalog)
-    const cdxml = '\ufeff<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2" Element="8"/></fragment><t id="4"><s>α</s></t></page></CDXML>'
-    const readCdxml = await both(() => request('rich-read', 'document.import', { mode: 'read', format: 'cdxml', source: cdxml }))
-    assert.equal(readCdxml.result.choices[0].fragment_id, 2)
-    const writeCdxml = await both(() => request('rich-write', 'document.export', {
-      format: 'cdxml', document: readCdxml.result.document, original: cdxml,
-    }))
-    assert.equal(writeCdxml.result.content, cdxml, 'unchanged rich CDXML preserves its BOM and content')
-    const project = { format: 'cdxml', source: cdxml, title: 'Projected parity', page_id: 1, fragment_id: 2 }
-    const previewRequest = request('rich-preview', 'document.import', { mode: 'preview', ...project })
-    const httpPreview = (await viaHttp(previewRequest)).body
-    const cliPreview = await viaCli(previewRequest)
-    assert.deepEqual(httpPreview.result.document.atoms, cliPreview.result.document.atoms)
-    assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
-    assert.equal(httpPreview.result.document.atoms[0].element, 'O')
-    for (const [send, preview] of [[async (text) => (await viaHttp(text)).body, httpPreview], [viaCli, cliPreview]]) {
-      const createRich = request('rich-create', 'document.import', {
-        mode: 'create', ...project, preview_digest: preview.result.preview_digest, accept_loss: true,
-      })
-      const result = await send(createRich)
-      assert.equal(result.result.document.atoms[0].element, 'O')
-      assert.equal(result.result.interchange_mapping.atoms[0].source_id, 3)
-      assert.deepEqual(await send(createRich), result, 'a repeated projection creation replays the first result')
+    {
+      const cdxml = '\ufeff<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2" Element="8"/></fragment><t id="4"><s>α</s></t></page></CDXML>'
+      const readCdxml = await both(() => request('rich-read', 'document.import', { mode: 'read', format: 'cdxml', source: cdxml }))
+      assert.equal(readCdxml.result.choices[0].fragment_id, 2)
+      const writeCdxml = await both(() => request('rich-write', 'document.export', {
+        format: 'cdxml', document: readCdxml.result.document, original: cdxml,
+      }))
+      assert.equal(writeCdxml.result.content, cdxml, 'unchanged rich CDXML preserves its BOM and content')
+      const project = { format: 'cdxml', source: cdxml, title: 'Projected parity', page_id: 1, fragment_id: 2 }
+      const previewRequest = request('rich-preview', 'document.import', { mode: 'preview', ...project })
+      const httpPreview = (await viaHttp(previewRequest)).body
+      const cliPreview = await viaCli(previewRequest)
+      assert.deepEqual(httpPreview.result.document.atoms, cliPreview.result.document.atoms)
+      assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
+      assert.equal(httpPreview.result.document.atoms[0].element, 'O')
+      for (const [send, preview] of [[async (text) => (await viaHttp(text)).body, httpPreview], [viaCli, cliPreview]]) {
+        const createRich = request('rich-create', 'document.import', {
+          mode: 'create', ...project, preview_digest: preview.result.preview_digest, accept_loss: true,
+        })
+        const result = await send(createRich)
+        assert.equal(result.result.document.atoms[0].element, 'O')
+        assert.equal(result.result.interchange_mapping.atoms[0].source_id, 3)
+        assert.deepEqual(await send(createRich), result, 'a repeated projection creation replays the first result')
+      }
     }
     const propertiesSupport = catalog.result.operations.find((operation) => operation.id === 'chem.properties')
     assert.deepEqual(propertiesSupport.sub_operations.map(({ id, execution }) => [id, execution]), [
@@ -995,6 +997,11 @@ try {
     const unchanged = await both((id) => request('op-kekule', 'chem.aromaticity_convert', { document_id: id, expected_revision: 1, to: 'kekule' }))
     assert.equal(unchanged.model_id, 'chemifree-aromaticity-1')
     assert.equal(unchanged.document_revision, 1, 'a conversion with no aromatic bonds is a no-op')
+    const identity = await both((id) => request('op-identity', 'chem.identity', { document_id: id, other_document_id: id, mode: 'recorded' }))
+    assert.equal(identity.model_id, 'chemifree-recorded-graph-1')
+    assert.equal(identity.result.comparison.equivalent, true)
+    assert.deepEqual(identity.result.identity.numbering, ['a1'])
+    assert.deepEqual(identity.result.identity.symmetry, [['a1']])
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const beforeProperties = await both((id) => request('op-before-properties', 'document.snapshot', { document_id: id }))

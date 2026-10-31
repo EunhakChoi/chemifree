@@ -863,6 +863,47 @@ test('aromaticity conversion exposes a model refusal rather than a document', as
     { code: 'invalid_command', stateReason: 'aromatic_bond_outside_ring' })
 })
 
+test('identity comparison validates both snapshots, symmetry and folded atom IDs', async () => {
+  const source = document('identity-source', 2)
+  source.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'H', 1, 0)]
+  source.document.bonds = [bondWith('b1', 'a1', 'a2')]
+  const target = document('identity-target', 3)
+  target.document.atoms = [atomWith('a1', 'C', 0, 0)]
+  const identity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1'], ['a2']], folded_hydrogens: [{ hydrogen: 'a2', attached_to: 'a1' }] }
+  const targetIdentity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1']], folded_hydrogens: [] }
+  const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 2,
+    model_id: 'chemifree-chemical-graph-1', result: {
+      snapshot: { document: source.document, session: source.session, recovery: null }, identity,
+      comparison: { snapshot: { document: target.document, session: target.session, recovery: { state: 'recoverable', revision: 4, base_revision: 3, saved_at_ms: 0, message: null } }, identity: targetIdentity, equivalent: true },
+    } }
+  const badOrbit = structuredClone(reply)
+  badOrbit.result.identity.symmetry = [['a1', 'a1']]
+  const badTarget = structuredClone(reply)
+  badTarget.result.comparison.snapshot.document.id = 'different-target'
+  const badEquality = structuredClone(reply)
+  badEquality.result.comparison.equivalent = false
+  const unsupported = { outcome: 'unsupported', model_id: 'chemifree-chemical-graph-1', result: null,
+    diagnostics: [{ message: 'Graph identity was not determined under this model.', details: {
+      side: 'target', reason: 'element_or_charge', snapshot: { document: target.document, session: target.session, recovery: null },
+    } }] }
+  const wrongFailure = structuredClone(unsupported)
+  wrongFailure.diagnostics[0].details.snapshot.document.id = 'wrong-target'
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, badOrbit), () => json(200, badTarget), () => json(200, badEquality), () => json(200, wrongFailure), () => json(200, unsupported)] })
+  const client = new DocumentClient()
+  const result = await client.inspectIdentity('identity-source', 'chemical', 'identity-target')
+  assert.equal(result.comparison.equivalent, true)
+  assert.equal(result.comparison.snapshot.revision, 3)
+  assert.equal(result.comparison.recovery.state, 'recoverable')
+  assert.deepEqual(result.identity.folded_hydrogens, [{ hydrogen: 'a2', attached_to: 'a1' }])
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
+  }
+  await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
+  await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), {
+    code: 'identity_unavailable', message: 'Graph identity was not determined under this model. Comparison snapshot identity-target, revision 3: element or charge. Inspect again to include later edits.',
+  })
+})
+
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
 function recorded() {
   return {

@@ -821,7 +821,13 @@
    ],
    "depends_on": [
     "P16"
-   ]
+   ],
+   "delivered": {
+    "prs": [82],
+    "merge_commit": "c4a8e44eafeb5f560743559d4797d0791c463eb2",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41225052724",
+    "note": "제한된 방향족 모델과 원자적 변환의 부분 납품이다. 더 넓은 융합계와 상태는 후속 범위다."
+   }
   },
   {
    "phase": "chemistry",
@@ -839,7 +845,7 @@
    "acceptance": "원자 재번호와 대칭 구조가 같은 화학적 판정을 얻고, 전하·동위원소·후속 입체 차이가 뭉개지지 않는다.",
    "kind": "core",
    "id": "P18",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -909,7 +915,13 @@
    "depends_on": [
     "P10",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [83],
+    "merge_commit": "fe443007193bfef7af16f3771cb1dde3431646a0",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41227984583",
+    "note": "V2000 MOL/SDF의 제한된 입출력 부분 납품이다. 고급 객체와 입체 해석은 후속 범위다."
+   }
   },
   {
    "phase": "chemistry",
