@@ -44,7 +44,7 @@ Capabilities: `{ api_version, capabilities: [{ id, label, status, description }]
 | `runtime_inspection` | `available` |
 | `document_editing` | `available` — drawing model only |
 | `structure_analysis` | `available` — the explicitly labeled bounded valence inspection only; operation catalog specifies other operations |
-| `format_conversion` | `available` — the explicitly labeled bounded V2000 MOL/SDF subset only |
+| `format_conversion` | `available` — the explicitly labeled bounded V2000 MOL/SDF and CDXML subsets |
 | `local_model_loading` | `not_implemented` |
 | `persistence` | `available` — local Chemifree JSON files |
 | `authentication` | `not_implemented` |
