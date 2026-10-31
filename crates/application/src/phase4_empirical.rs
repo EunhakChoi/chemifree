@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 use serde_json::value::RawValue;
 
@@ -111,7 +112,7 @@ fn hex_valid(text: &str) -> bool {
 #[serde(deny_unknown_fields)]
 pub struct TextRow {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub ordinal: u64,
+    pub ordinal: BigUint,
     pub text: String,
 }
 
@@ -127,11 +128,11 @@ pub struct TextTable {
 #[serde(deny_unknown_fields)]
 pub struct ReferenceOrdinals {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub literature: u64,
+    pub literature: BigUint,
     #[serde(default, deserialize_with = "json::deserialize_optional_integer")]
-    pub notes: Option<u64>,
+    pub notes: Option<BigUint>,
     #[serde(default, deserialize_with = "json::deserialize_optional_integer")]
-    pub units: Option<u64>,
+    pub units: Option<BigUint>,
 }
 
 #[derive(Deserialize)]
@@ -155,14 +156,14 @@ impl FloatWire {
 #[serde(deny_unknown_fields)]
 struct MeasurementWire {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    molecule_id: i64,
+    molecule_id: BigInt,
     #[serde(
         rename = "DAT_field_id",
         deserialize_with = "json::deserialize_integer"
     )]
-    dat_field_id: i64,
+    dat_field_id: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    source_offset: u64,
+    source_offset: BigUint,
     #[serde(deserialize_with = "json::deserialize_integer")]
     flag_byte: u8,
     raw_record_hex: String,
@@ -181,9 +182,9 @@ struct MeasurementWire {
 /// An empirical row with inert provenance, flags and optional explicitly F32-bound witnesses.
 #[derive(PartialEq)]
 pub struct Measurement {
-    pub molecule_id: i64,
-    pub dat_field_id: i64,
-    pub source_offset: u64,
+    pub molecule_id: BigInt,
+    pub dat_field_id: BigInt,
+    pub source_offset: BigUint,
     pub flag_byte: u8,
     pub raw_record_hex: String,
     pub text: Option<String>,
@@ -222,21 +223,21 @@ pub struct Bond {
     #[serde(deserialize_with = "json::deserialize_integer")]
     pub b_1based: u64,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub source_bond_code: i64,
+    pub source_bond_code: BigInt,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphWire {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    molecule_id: i64,
+    molecule_id: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer_vec")]
-    atomic_numbers: Vec<i64>,
+    atomic_numbers: Vec<BigInt>,
     #[serde(
         rename = "header_H_count",
         deserialize_with = "json::deserialize_integer"
     )]
-    header_h_count: i64,
+    header_h_count: BigInt,
     bonds: Vec<Bond>,
     unresolved_indexed_annotations: Box<RawValue>,
     header_raw_hex: String,
@@ -257,9 +258,9 @@ impl OpaqueAnnotations {
 /// Source graph framing, not a canonical chemical graph or a prediction result.
 #[derive(PartialEq)]
 pub struct GraphRow {
-    pub molecule_id: i64,
-    pub atomic_numbers: Vec<i64>,
-    pub header_h_count: i64,
+    pub molecule_id: BigInt,
+    pub atomic_numbers: Vec<BigInt>,
+    pub header_h_count: BigInt,
     pub bonds: Vec<Bond>,
     pub unresolved_indexed_annotations: OpaqueAnnotations,
     pub header_raw_hex: String,
@@ -328,6 +329,7 @@ fn lines<T: DeserializeOwned, U>(
         if rows.len() == count {
             return Err(EmpiricalError::RecordCount);
         }
+        json::validate_raw_strict(line.as_bytes()).map_err(|_| EmpiricalError::Record)?;
         let row = serde_json::from_str(line).map_err(|_| EmpiricalError::Record)?;
         rows.push(convert(row)?);
     }
@@ -486,7 +488,7 @@ mod tests {
     fn integer_negative_zero_keeps_float_and_opaque_zero_unchanged() {
         let text = b"{\"ordinal\": \t-0 \t,\"text\":\"synthetic\"}";
         let row = lines::<TextRow, _>(text, 1, Ok).unwrap();
-        assert_eq!(row[0].ordinal, 0);
+        assert_eq!(row[0].ordinal, BigUint::from(0_u8));
         for invalid in [
             &b"{\"ordinal\":-1,\"text\":\"synthetic\"}"[..],
             &b"{\"ordinal\":\"0\",\"text\":\"synthetic\"}"[..],
@@ -500,7 +502,10 @@ mod tests {
 
         let measurement = br#"{"molecule_id":-0,"DAT_field_id":-0,"source_offset":-0,"flag_byte":-0,"raw_record_hex":"","reference_ordinals":{"literature":-0,"notes":-0},"primary":{"ieee754_f32_le_hex":"00000080","value":-0,"finite":true}}"#;
         let row = lines::<MeasurementWire, _>(measurement, 1, Measurement::try_from).unwrap();
-        assert_eq!(row[0].reference_ordinals.as_ref().unwrap().notes, Some(0));
+        assert_eq!(
+            row[0].reference_ordinals.as_ref().unwrap().notes,
+            Some(BigUint::from(0_u8))
+        );
         let witness = row[0].primary.as_ref().unwrap();
         assert_eq!(witness.bits(), 0x8000_0000);
         assert_eq!(witness.decimal(), "-0");
@@ -514,8 +519,8 @@ mod tests {
 
         let graph = br#"{"molecule_id":-0,"atomic_numbers":[-0],"header_H_count":-0,"bonds":[{"a_1based":1,"b_1based":1,"source_bond_code":-0}],"unresolved_indexed_annotations":{"preserve":-0},"header_raw_hex":"","COS_row_raw_hex":""}"#;
         let row = lines::<GraphWire, _>(graph, 1, GraphRow::try_from).unwrap();
-        assert_eq!(row[0].atomic_numbers, [0]);
-        assert_eq!(row[0].bonds[0].source_bond_code, 0);
+        assert_eq!(row[0].atomic_numbers, [BigInt::from(0)]);
+        assert_eq!(row[0].bonds[0].source_bond_code, BigInt::from(0));
         assert_eq!(
             row[0].unresolved_indexed_annotations.as_str(),
             r#"{"preserve":-0}"#
@@ -536,12 +541,11 @@ mod tests {
         ] {
             let line = format!(r#"{{"ordinal":{token},"text":"synthetic"}}"#);
             let row = lines::<TextRow, _>(line.as_bytes(), 1, Ok).unwrap();
-            assert_eq!(row[0].ordinal, expected, "{token}");
+            assert_eq!(row[0].ordinal, BigUint::from(expected), "{token}");
         }
         for token in [
             "0.00000000000000000001",
             "1.00000000000000000001",
-            "18446744073709551616.0",
             "1e99999999999999999999",
             "1e-99999999999999999999",
         ] {
@@ -555,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_integers_respect_each_field_type_range() {
+    fn schema_integers_preserve_source_ids_and_byte_range() {
         let measurement = MEASUREMENT
             .replace(
                 "\"molecule_id\":7",
@@ -564,10 +568,20 @@ mod tests {
             .replace("\"flag_byte\":255", "\"flag_byte\":255.0");
         let row =
             lines::<MeasurementWire, _>(measurement.as_bytes(), 1, Measurement::try_from).unwrap();
-        assert_eq!(row[0].molecule_id, i64::MIN);
+        assert_eq!(row[0].molecule_id, BigInt::from(i64::MIN));
         assert_eq!(row[0].flag_byte, u8::MAX);
+        let larger = measurement.replace("-92233720368547758080e-1", "-9223372036854775809.0");
+        let larger_row =
+            lines::<MeasurementWire, _>(larger.as_bytes(), 1, Measurement::try_from).unwrap();
+        assert_eq!(
+            larger_row[0].molecule_id.to_string(),
+            "-9223372036854775809"
+        );
         for invalid in [
-            measurement.replace("-92233720368547758080e-1", "-9223372036854775809.0"),
+            measurement.replace(
+                "-92233720368547758080e-1",
+                &format!("-{}", "9".repeat(4097)),
+            ),
             measurement.replace("\"flag_byte\":255.0", "\"flag_byte\":256.0"),
             measurement.replace(
                 "\"flag_byte\":255.0",
@@ -579,6 +593,111 @@ mod tests {
                 Some(EmpiricalError::Record)
             );
         }
+    }
+
+    #[test]
+    fn large_text_ordinals_are_preserved_exactly() {
+        let large = format!("1{}", "0".repeat(200));
+        let input = format!(r#"{{"ordinal":{large}.0,"text":"synthetic"}}"#);
+        let rows = lines::<TextRow, _>(input.as_bytes(), 1, Ok).unwrap();
+        assert_eq!(rows[0].ordinal.to_string(), large);
+        let boundary = br#"{"ordinal":18446744073709551616.0,"text":"synthetic"}"#;
+        let rows = lines::<TextRow, _>(boundary, 1, Ok).unwrap();
+        assert_eq!(rows[0].ordinal.to_string(), "18446744073709551616");
+        let too_long = format!(r#"{{"ordinal":{},"text":"synthetic"}}"#, "9".repeat(4097));
+        assert_eq!(
+            lines::<TextRow, _>(too_long.as_bytes(), 1, Ok).err(),
+            Some(EmpiricalError::Record)
+        );
+    }
+
+    #[test]
+    fn large_measurement_source_numbers_keep_signedness_and_f32() {
+        let large = format!("1{}", "0".repeat(200));
+        let negative = format!("-{large}");
+        let input = MEASUREMENT
+            .replace(
+                "\"molecule_id\":7",
+                &format!("\"molecule_id\":{negative}.0"),
+            )
+            .replace("\"DAT_field_id\":2", &format!("\"DAT_field_id\":{large}"))
+            .replace("\"source_offset\":0", &format!("\"source_offset\":{large}"))
+            .replace(
+                "\"literature\":0",
+                &format!("\"literature\":{large},\"notes\":{large},\"units\":{large}"),
+            );
+        assert!(input.contains(&format!("\"molecule_id\":{negative}.0")));
+        let rows = lines::<MeasurementWire, _>(input.as_bytes(), 1, Measurement::try_from).unwrap();
+        assert_eq!(rows[0].molecule_id.to_string(), negative);
+        assert_eq!(rows[0].dat_field_id.to_string(), large);
+        assert_eq!(rows[0].source_offset.to_string(), large);
+        assert_eq!(
+            rows[0]
+                .reference_ordinals
+                .as_ref()
+                .unwrap()
+                .literature
+                .to_string(),
+            large
+        );
+        let references = rows[0].reference_ordinals.as_ref().unwrap();
+        assert_eq!(references.notes.as_ref().unwrap().to_string(), large);
+        assert_eq!(references.units.as_ref().unwrap().to_string(), large);
+        assert_eq!(rows[0].primary.as_ref().unwrap().bits(), 0x3f80_0001);
+    }
+
+    #[test]
+    fn large_graph_source_values_do_not_change_bounded_atom_references() {
+        let large = format!("1{}", "0".repeat(200));
+        let negative = format!("-{large}");
+        let input = GRAPH
+            .replace("\"molecule_id\":7", &format!("\"molecule_id\":{negative}"))
+            .replace(
+                "\"atomic_numbers\":[6,8]",
+                &format!("\"atomic_numbers\":[{negative},{large}]"),
+            )
+            .replace(
+                "\"header_H_count\":0",
+                &format!("\"header_H_count\":{negative}"),
+            )
+            .replace(
+                "\"source_bond_code\":1",
+                &format!("\"source_bond_code\":{large}"),
+            );
+        assert!(input.contains(&format!("\"atomic_numbers\":[{negative},{large}]")));
+        let rows = lines::<GraphWire, _>(input.as_bytes(), 1, GraphRow::try_from).unwrap();
+        assert_eq!(rows[0].molecule_id.to_string(), negative);
+        assert_eq!(rows[0].atomic_numbers[1].to_string(), large);
+        assert_eq!(rows[0].header_h_count.to_string(), negative);
+        assert_eq!(rows[0].bonds[0].source_bond_code.to_string(), large);
+        assert_eq!(rows[0].bonds[0].b_1based, 2);
+        let outside = input.replace("\"b_1based\":2", "\"b_1based\":3");
+        assert_eq!(
+            lines::<GraphWire, _>(outside.as_bytes(), 1, GraphRow::try_from).err(),
+            Some(EmpiricalError::Record)
+        );
+    }
+
+    #[test]
+    fn duplicate_keys_in_opaque_annotations_are_rejected() {
+        let input = GRAPH.replace(
+            "\"unknown_decimal\":0.1000000000000000000000001",
+            "\"x\":1,\"\\u0078\":2",
+        );
+        assert!(input.contains("\\u0078"));
+        assert_eq!(
+            lines::<GraphWire, _>(input.as_bytes(), 1, GraphRow::try_from).err(),
+            Some(EmpiricalError::Record)
+        );
+        let raw = GRAPH.replace(
+            "\"unknown_decimal\":0.1000000000000000000000001",
+            "\"large\":1e9999,\"zero\":-0.0",
+        );
+        let rows = lines::<GraphWire, _>(raw.as_bytes(), 1, GraphRow::try_from).unwrap();
+        assert_eq!(
+            rows[0].unresolved_indexed_annotations.as_str(),
+            r#"{"large":1e9999,"zero":-0.0}"#
+        );
     }
 
     #[test]

@@ -32,6 +32,10 @@ const PARAMETER: &str = r#"{"ordinal":0,"data_role":"synthetic","count":0,"eleme
 const ACTIVE: &str = r#"{"fragment_storage_index_0based":0,"key_latin1":"é","key_hex":"00","value_slot_1based":1,"environment_raw_hex":"aa","environment_trimmed_latin1":"é","FVALUE_f32_le_hex":"00000080","FVALUE":-0.0,"quality_integer":0,"zwitter_category":0}"#;
 
 fn clogp_fixture(invalid: bool) -> Fixture {
+    clogp_fixture_with(invalid, None)
+}
+
+fn clogp_fixture_with(invalid: bool, replacement: Option<(&str, &str)>) -> Fixture {
     let mut entries = Vec::new();
     for (index, id) in RAW_DECLARATIVE.into_iter().chain(RAW_MODEL).enumerate() {
         entries.push((id, id, format!("synthetic raw {index}").into_bytes()));
@@ -45,7 +49,11 @@ fn clogp_fixture(invalid: bool) -> Fixture {
             9 => ACTIVE.to_owned(),
             _ => unreachable!(),
         };
-        entries.push((id, id, format!("{row}\n").repeat(count).into_bytes()));
+        let first = replacement
+            .filter(|(file, _)| *file == id)
+            .map_or(row.as_str(), |(_, row)| row);
+        let bytes = format!("{first}\n{}", format!("{row}\n").repeat(count - 1)).into_bytes();
+        entries.push((id, id, bytes));
     }
     let mut test_fixture = fixture("private-data-clogp-carriers-v1", entries);
     for id in RAW_MODEL {
@@ -80,6 +88,26 @@ fn complete_carriers_are_typed_without_a_prediction_engine() {
         panic!("wrong table")
     };
     assert_eq!(rows.len(), 1686);
+    assert_eq!(rows[0].fvalue.bits(), 0x8000_0000);
+    assert_binding_unavailable(&test_fixture, &loaded);
+}
+
+#[test]
+fn registered_fragment_source_values_are_exact_without_enabling_a_model() {
+    let large = format!("1{}", "0".repeat(200));
+    let row = ACTIVE.replace(
+        "\"quality_integer\":0",
+        &format!("\"quality_integer\":-{large}.0"),
+    );
+    let test_fixture = clogp_fixture_with(false, Some((NORMALIZED[9].0, &row)));
+    let loaded = test_fixture.load().unwrap();
+    let ProfileRecords::Phase4Clogp(data) = loaded.records() else {
+        panic!("wrong dataset type")
+    };
+    let phase4_clogp::CarrierRows::Active(rows) = &data.tables[9].rows else {
+        panic!("wrong table")
+    };
+    assert_eq!(rows[0].quality_integer.to_string(), format!("-{large}"));
     assert_eq!(rows[0].fvalue.bits(), 0x8000_0000);
     assert_binding_unavailable(&test_fixture, &loaded);
 }
