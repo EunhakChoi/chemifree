@@ -31,7 +31,10 @@ opaque outside-root material remains without an explicit
 discard decision. The application-facing codec re-parses any supplied original
 and compares its decoded tree with the submitted tree; it does not trust a
 client-supplied opaque baseline. It reports retained or dropped opaque material,
-and does not mutate the submitted document on failure. Unknown property values and
+and does not mutate the submitted document on failure. Without an original, it
+can validate only the submitted tree and cannot detect content a caller already
+omitted or prove anything about that earlier source's unknown references.
+Unknown property values and
 unimplemented graphics, styles or references remain opaque rather than being
 silently assigned another meaning.
 
