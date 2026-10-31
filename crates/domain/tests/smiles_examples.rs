@@ -98,6 +98,14 @@ fn bracket_atoms_do_not_silently_erase_possible_radical_electrons() {
 }
 
 #[test]
+fn writer_refuses_to_turn_an_unproven_closed_shell_into_a_bracket_radical() {
+    let mut graph = parse("C").unwrap();
+    graph.atoms[0].atom.hydrogens = Hydrogens::Specified(0);
+    assert_eq!(write(&graph, &[0]), Err(WriteError::UnsupportedAtom));
+    assert!(write(&parse("[CH4]").unwrap(), &[0]).is_ok());
+}
+
+#[test]
 fn rings_aromatic_bonds_and_explicit_double_bonds_are_distinct() {
     let benzene = parse("c1ccccc1").unwrap();
     assert_eq!((benzene.atoms.len(), benzene.bonds.len()), (6, 6));

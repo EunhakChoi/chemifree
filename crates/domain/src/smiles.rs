@@ -676,6 +676,19 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     if !aromatic_supported(graph) {
         return Err(WriteError::UnsupportedAromaticity);
     }
+    // Brackets suppress ordinary implicit hydrogen in SMILES. A recorded closed-shell
+    // atom whose stated bonds and H do not prove that shell would acquire an unknown
+    // radical state on reading; refuse that semantic change rather than emitting it.
+    let mut interpreted = graph.clone();
+    mark_uncertain_bracket_radicals(&mut interpreted);
+    if graph
+        .atoms
+        .iter()
+        .zip(&interpreted.atoms)
+        .any(|(source, decoded)| source.atom.radical != decoded.atom.radical)
+    {
+        return Err(WriteError::UnsupportedAtom);
+    }
     let mut visited = vec![false; n];
     let mut seen_edge = vec![false; graph.bonds.len()];
     let mut discovery = vec![0; n];
