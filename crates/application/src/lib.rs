@@ -21,6 +21,7 @@ pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
 pub mod phase4_cmr;
+pub mod phase4_declarative;
 pub mod phase4_literals;
 pub mod phase4_nmr;
 pub mod phase6_profiles;
