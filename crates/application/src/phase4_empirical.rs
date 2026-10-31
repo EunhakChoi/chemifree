@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 use serde_json::value::RawValue;
 
 use crate::{
-    phase6_profiles,
+    json, phase6_profiles,
     prepared_f32::{self, F32Witness},
 };
 
@@ -110,6 +110,7 @@ fn hex_valid(text: &str) -> bool {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TextRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub ordinal: u64,
     pub text: String,
 }
@@ -125,10 +126,11 @@ pub struct TextTable {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ReferenceOrdinals {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub literature: u64,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "json::deserialize_optional_integer")]
     pub notes: Option<u64>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "json::deserialize_optional_integer")]
     pub units: Option<u64>,
 }
 
@@ -152,10 +154,16 @@ impl FloatWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MeasurementWire {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     molecule_id: i64,
-    #[serde(rename = "DAT_field_id")]
+    #[serde(
+        rename = "DAT_field_id",
+        deserialize_with = "json::deserialize_integer"
+    )]
     dat_field_id: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     source_offset: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     flag_byte: u8,
     raw_record_hex: String,
     #[serde(default, deserialize_with = "present")]
@@ -209,17 +217,25 @@ impl TryFrom<MeasurementWire> for Measurement {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Bond {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub a_1based: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub b_1based: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub source_bond_code: i64,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphWire {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     molecule_id: i64,
+    #[serde(deserialize_with = "json::deserialize_integer_vec")]
     atomic_numbers: Vec<i64>,
-    #[serde(rename = "header_H_count")]
+    #[serde(
+        rename = "header_H_count",
+        deserialize_with = "json::deserialize_integer"
+    )]
     header_h_count: i64,
     bonds: Vec<Bond>,
     unresolved_indexed_annotations: Box<RawValue>,
@@ -464,6 +480,48 @@ mod tests {
         ] {
             assert_eq!(lines::<GraphWire, _>(invalid.as_bytes(), 1, GraphRow::try_from).err(), Some(EmpiricalError::Record));
         }
+    }
+
+    #[test]
+    fn integer_negative_zero_keeps_float_and_opaque_zero_unchanged() {
+        let text = b"{\"ordinal\": \t-0 \t,\"text\":\"synthetic\"}";
+        let row = lines::<TextRow, _>(text, 1, Ok).unwrap();
+        assert_eq!(row[0].ordinal, 0);
+        for invalid in [
+            &b"{\"ordinal\":-0.0,\"text\":\"synthetic\"}"[..],
+            &b"{\"ordinal\":-0e0,\"text\":\"synthetic\"}"[..],
+            &b"{\"ordinal\":-1,\"text\":\"synthetic\"}"[..],
+            &b"{\"ordinal\":\"0\",\"text\":\"synthetic\"}"[..],
+            &b"{\"ordinal\":null,\"text\":\"synthetic\"}"[..],
+        ] {
+            assert_eq!(
+                lines::<TextRow, _>(invalid, 1, Ok).err(),
+                Some(EmpiricalError::Record)
+            );
+        }
+
+        let measurement = br#"{"molecule_id":-0,"DAT_field_id":-0,"source_offset":-0,"flag_byte":-0,"raw_record_hex":"","reference_ordinals":{"literature":-0,"notes":-0},"primary":{"ieee754_f32_le_hex":"00000080","value":-0,"finite":true}}"#;
+        let row = lines::<MeasurementWire, _>(measurement, 1, Measurement::try_from).unwrap();
+        assert_eq!(row[0].reference_ordinals.as_ref().unwrap().notes, Some(0));
+        let witness = row[0].primary.as_ref().unwrap();
+        assert_eq!(witness.bits(), 0x8000_0000);
+        assert_eq!(witness.decimal(), "-0");
+        let null_note = std::str::from_utf8(measurement)
+            .unwrap()
+            .replace("\"notes\":-0", "\"notes\":null");
+        assert_eq!(
+            lines::<MeasurementWire, _>(null_note.as_bytes(), 1, Measurement::try_from).err(),
+            Some(EmpiricalError::Record)
+        );
+
+        let graph = br#"{"molecule_id":-0,"atomic_numbers":[-0],"header_H_count":-0,"bonds":[{"a_1based":1,"b_1based":1,"source_bond_code":-0}],"unresolved_indexed_annotations":{"preserve":-0},"header_raw_hex":"","COS_row_raw_hex":""}"#;
+        let row = lines::<GraphWire, _>(graph, 1, GraphRow::try_from).unwrap();
+        assert_eq!(row[0].atomic_numbers, [0]);
+        assert_eq!(row[0].bonds[0].source_bond_code, 0);
+        assert_eq!(
+            row[0].unresolved_indexed_annotations.as_str(),
+            r#"{"preserve":-0}"#
+        );
     }
 
     #[test]

@@ -4,10 +4,61 @@
 //! unnoticed.
 
 use std::fmt;
+use std::str::FromStr;
 
 use serde::Deserializer;
 use serde::de::{self, Deserialize, MapAccess, SeqAccess, Visitor};
+use serde_json::value::RawValue;
 use serde_json::{Map, Number, Value};
+
+/// Integer types admitted by the prepared DATA readers.
+pub(crate) trait IntegerToken: FromStr {}
+
+impl IntegerToken for u8 {}
+impl IntegerToken for u64 {}
+impl IntegerToken for i64 {}
+
+/// Reads a JSON integer token without changing adjacent raw numeric witnesses.
+pub(crate) fn deserialize_integer<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: IntegerToken,
+{
+    let raw = Box::<RawValue>::deserialize(deserializer)?;
+    let token = if raw.get() == "-0" { "0" } else { raw.get() };
+    token
+        .parse()
+        .map_err(|_| de::Error::custom("expected an integer token in range"))
+}
+
+/// Reads a present integer, preserving the distinction between null and absent.
+pub(crate) fn deserialize_optional_integer<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: IntegerToken,
+{
+    deserialize_integer(deserializer).map(Some)
+}
+
+struct Integer<T>(T);
+
+impl<'de, T: IntegerToken> Deserialize<'de> for Integer<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserialize_integer(deserializer).map(Self)
+    }
+}
+
+/// Reads an array of integer tokens without narrowing adjacent raw values.
+pub(crate) fn deserialize_integer_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: IntegerToken,
+{
+    Vec::<Integer<T>>::deserialize(deserializer)
+        .map(|values| values.into_iter().map(|value| value.0).collect())
+}
 
 /// Parses `bytes` as JSON, refusing duplicate keys at any depth.
 ///

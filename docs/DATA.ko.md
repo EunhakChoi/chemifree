@@ -12,7 +12,7 @@
 
 `private-sequence-nickname-graphs-v1`은 nickname 그래프와 순서 있는 alphabet 후보를 함께 검증한다. 각 문서 안의 ID, `n`·`b` 개수와 결합의 B/E 원자 참조, alphabet 내 키·순번의 유일성 및 nickname 참조를 확인하며 XML 태그·속성·text·tail과 반복 후보의 순서를 보존한다. 선택 원문 CDXML은 일부만 있어도 되며 제공된 각 파일은 길이·해시와 정규화 XML 트리를 대조한다. 공개 catalog는 원문 경로의 glob을 정할 뿐 파일명과 nickname 키의 일치를 규정하지 않으므로 그 관계를 추측하지 않는다. 파일 경로별 바이트 식별자는 신뢰된 manifest와 별도 권리 검토 기록으로 검증한다. 원문은 UTF-8 XML만 지원한다. 외부 DTD를 읽지 않으며 사용자 정의 엔터티 선언은 확장하지 않고 `profile_unsupported`로 거절한다. 일반 XML 속성은 보존하지만 B/E 이외 모든 CDXML 참조의 완전성이나 전체 화학 XML 스키마를 검증했다고 주장하지 않는다. 시퀀스 결합·생체고분자 확장과 모델 바인딩은 미구현이다.
 
-`private-data-chemprop-empirical-v1`은 공개 catalog의 17개 파일 ID·역할·분류와 manifest·registry·형식의 바이트 해시를 검사한다. 세 텍스트 표와 경험값·그래프의 다섯 필수 정규화 스트림 44,202행을 원자적으로 검증하고 원문 십진수 표기, F32 little-endian 원시 비트, 플래그·출처 정보와 1 기반 그래프 참조를 보존한다. F32 값은 F64를 경유하지 않고 직접 반올림해 비트와 비교하며 비유한 값은 거절한다. 선택 원문 파일은 manifest가 허용하고 실제로 없는 경우에만 생략한다. 단위·경험값 선택·그래프 매칭과 예측 엔진은 구현되지 않았고 개인 DATA 대신 독립 fixture를 사용한다.
+`private-data-chemprop-empirical-v1`은 공개 catalog의 17개 파일 ID·역할·분류와 manifest·registry·형식의 바이트 해시를 검사한다. 세 텍스트 표와 경험값·그래프의 다섯 필수 정규화 스트림 44,202행을 원자적으로 검증하고 원문 십진수 표기, F32 little-endian 원시 비트, 플래그·출처 정보와 1 기반 그래프 참조를 보존한다. 정수 토큰 `-0`은 0으로 읽되 F32의 음수 0과 불투명 JSON 원문은 그대로 보존하며 정수 위치의 소수·지수 표기는 거절한다. F32 값은 F64를 경유하지 않고 직접 반올림해 비트와 비교하며 비유한 값은 거절한다. 선택 원문 파일은 manifest가 허용하고 실제로 없는 경우에만 생략한다. 단위·경험값 선택·그래프 매칭과 예측 엔진은 구현되지 않았고 개인 DATA 대신 독립 fixture를 사용한다.
 
 `private-independent-helm-core-fecc972`은 공개 catalog에 고정된 HELM JSON의 705개 레코드와 닫힌 스키마를 검사한다. 필수 `createDate: null`, `capGroupSmiles`와 `capGroupSMILES`의 독립적인 선택 필드, `Terminal` 등의 원문 문자열을 보존한다. 이 자료의 그래프·입체화학·attachment 및 말단 결합 규칙은 검증하지 않았고 생체고분자 확장과 모델 바인딩은 미구현이다.
 
