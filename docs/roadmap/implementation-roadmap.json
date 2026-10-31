@@ -744,7 +744,7 @@
    "acceptance": "경계·비유한 값·중간 저장·계산 순서의 공개 사례를 검사한다. 필요한 정밀도가 없는 경로를 보통 float로 통과 처리하지 않는다.",
    "kind": "core",
    "id": "P15",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "logic",
     "provider",

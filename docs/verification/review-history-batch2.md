@@ -474,3 +474,15 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41178213555)는 check·browser 모두 성공했다. 2026-10-31 06:55:29에 `a0d95aa17a67b4d75c991133f955c11586bb8d0f`로 병합했다.
 
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41178532934)도 check·browser 모두 성공했다.
+
+### P14 완료 인계·추적성 — [#70](https://github.com/EunhakChoi/chemifree/pull/70)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 07:02:30 | `98ad9dc89b53d5f22def12f4a1d706d5554ab96c` | 07:04:04 | [P2](https://github.com/EunhakChoi/chemifree/pull/70#discussion_r4430896888): DATA 문서 두 곳에 완료된 정수 경계가 미완료로 남았다. #61–#69 구현·독립 검사와 상세 문서를 대조해 오래된 문장으로 확인하고 수정했으며 의존 모델·개인 DATA·집계 registry 소속의 미검증 한계는 유지했다. |
+| 2 재요청 | [2026-10-31 07:05:14](https://github.com/EunhakChoi/chemifree/pull/70#issuecomment-6540407986) | `6624147c11088a12a3ed4c846cacc09fc7fb21a7` | 07:07:15 | [P2](https://github.com/EunhakChoi/chemifree/pull/70#discussion_r4430905759): 추적성 설명이 완료된 P14를 후속 항목으로 지목했다. 수정 전 불일치를 확인하고 기계가 읽는 후속 목록과 설명을 일치시켰다. |
+| 3 재요청 | [2026-10-31 07:08:27](https://github.com/EunhakChoi/chemifree/pull/70#issuecomment-6540437689) | `e7ff0b431c3fc635c518f7438cda0141f4a984d5` | 07:10:35 | 통과: 실제 리뷰 완료, 새로운 지적 없음; 앞선 두 스레드 해결. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/70#issuecomment-6540385008) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41179387528)는 check·browser 모두 성공했다. 2026-10-31 07:13:21에 `27188130cec4b4855bdb0e23043ee9d98d4f4568`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41179747069)도 check·browser 모두 성공했다.

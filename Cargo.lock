@@ -203,6 +203,14 @@ name = "chemifree-domain"
 version = "0.1.0"
 
 [[package]]
+name = "chemifree-numerics"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+]
+
+[[package]]
 name = "chemifree-providers"
 version = "0.1.0"
 dependencies = [
