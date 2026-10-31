@@ -6,6 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use num_bigint::BigUint;
 use serde::Deserializer;
 use serde::de::{self, Deserialize, MapAccess, SeqAccess, Visitor};
 use serde_json::value::RawValue;
@@ -28,15 +29,21 @@ impl IntegerToken for u64 {
 impl IntegerToken for i64 {
     const MAX_DIGITS: usize = 19;
 }
+impl IntegerToken for BigUint {
+    const MAX_DIGITS: usize = 4096;
+}
 
 /// Reads an already validated raw JSON token as an exact integer value.
 pub(crate) fn parse_integer_raw<T: IntegerToken>(raw: &RawValue) -> Option<T> {
     let token = if raw.get() == "-0" { "0" } else { raw.get() };
-    token.parse().ok().or_else(|| {
-        crate::decimal_input::DecimalInput::from_token(token)
-            .and_then(|value| value.integer_token(T::MAX_DIGITS))
-            .and_then(|value| value.parse().ok())
-    })
+    if token.trim_start_matches('-').len() <= T::MAX_DIGITS
+        && let Ok(value) = token.parse()
+    {
+        return Some(value);
+    }
+    crate::decimal_input::DecimalInput::from_token(token)
+        .and_then(|value| value.integer_token(T::MAX_DIGITS))
+        .and_then(|value| value.parse().ok())
 }
 
 /// Reads a JSON integer token without changing adjacent raw numeric witnesses.
@@ -97,6 +104,52 @@ where
 /// Returns the parser's error, which names the position of invalid JSON or a duplicate key.
 pub fn parse_strict(bytes: &[u8]) -> Result<Value, serde_json::Error> {
     serde_json::from_slice::<Strict>(bytes).map(|Strict(value)| value)
+}
+
+/// Checks original JSON syntax and duplicate keys without converting its numeric values.
+/// The normalized copy is used only for the duplicate-key check; consumers decode the
+/// original bytes so that integers, floating witnesses and opaque values retain their input.
+pub(crate) fn validate_raw_strict(bytes: &[u8]) -> Result<(), serde_json::Error> {
+    let _: &RawValue = serde_json::from_slice(bytes)?;
+    parse_strict(&normalize_json_numbers(bytes)).map(|_| ())
+}
+
+// The original input has already passed the JSON grammar check, so outside strings every
+// number start and its characters can be replaced without interpreting its numeric value.
+fn normalize_json_numbers(bytes: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut inside = false;
+    let mut escaped = false;
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        if inside {
+            output.push(byte);
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                inside = false;
+            }
+            index += 1;
+        } else if byte == b'"' {
+            output.push(byte);
+            inside = true;
+            index += 1;
+        } else if byte == b'-' || byte.is_ascii_digit() {
+            output.push(b'0');
+            index += 1;
+            while bytes.get(index).is_some_and(|next| {
+                next.is_ascii_digit() || matches!(*next, b'.' | b'e' | b'E' | b'+' | b'-')
+            }) {
+                index += 1;
+            }
+        } else {
+            output.push(byte);
+            index += 1;
+        }
+    }
+    output
 }
 
 /// Strict parsing for contracts that accept the JSON integer token `-0` as integer zero.
@@ -244,6 +297,49 @@ mod tests {
             "unexpected error: {error}"
         );
         assert!(parse_strict(br#"{"a": 1, "a": 1}"#).is_err());
+    }
+
+    #[test]
+    fn raw_strict_validation_preserves_large_numbers_and_checks_original_syntax() {
+        let large = "9".repeat(400);
+        let valid = format!(
+            r#"{{"number":{large},"nested":[-1.2e-300,{{"text":"quote: \\\"-5e+3\\\""}}]}}"#
+        );
+        assert!(parse_strict(valid.as_bytes()).is_err());
+        assert!(validate_raw_strict(valid.as_bytes()).is_ok());
+        assert!(validate_raw_strict(br#"{"123":1,"0":2,"text":"-7e+12"}"#).is_ok());
+
+        let duplicate = format!(r#"{{"number":{large},"items":[{{"key":0,"\u006bey":1}}]}}"#);
+        assert!(validate_raw_strict(duplicate.as_bytes()).is_err());
+        for malformed in [
+            &br#"{"n":1e+}"#[..],
+            &br#"{"n":+1}"#[..],
+            &br#"{"n":0,}"#[..],
+            &br#"{"s":"unfinished}"#[..],
+        ] {
+            assert!(validate_raw_strict(malformed).is_err());
+        }
+    }
+
+    #[test]
+    fn oversized_integer_is_rejected_before_direct_integer_parsing() {
+        struct Limited;
+        impl FromStr for Limited {
+            type Err = ();
+
+            fn from_str(token: &str) -> Result<Self, Self::Err> {
+                assert!(
+                    token.len() <= 2,
+                    "oversized token reached the integer parser"
+                );
+                Ok(Self)
+            }
+        }
+        impl IntegerToken for Limited {
+            const MAX_DIGITS: usize = 2;
+        }
+        let raw = RawValue::from_string("123".into()).unwrap();
+        assert!(parse_integer_raw::<Limited>(&raw).is_none());
     }
 
     #[test]

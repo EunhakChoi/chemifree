@@ -1,5 +1,6 @@
 //! Inert labels from the independently selected phase 6 naming DATA profile.
 
+use num_bigint::BigUint;
 use serde::Deserialize;
 
 use crate::{json, phase6_profiles};
@@ -33,12 +34,12 @@ impl std::error::Error for LabelError {}
 /// A source label with its original bytes, code, order and inert lineage.
 #[derive(PartialEq)]
 pub struct Label {
-    pub source_ordinal: u64,
+    pub source_ordinal: BigUint,
     pub code: u32,
     pub label_ascii: String,
     pub label_bytes: Vec<u8>,
-    pub source_row_file_offset: u64,
-    pub source_label_file_offset: u64,
+    pub source_row_file_offset: BigUint,
+    pub source_label_file_offset: BigUint,
     pub source_row_sha256: String,
 }
 
@@ -100,12 +101,16 @@ pub fn decode_labels(files: &[(&str, &[u8])]) -> Result<NamingLabels, LabelError
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelWire {
-    source_ordinal_0based: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_ordinal_0based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     code_u32: u32,
     label_ascii: String,
     label_bytes_hex: String,
-    source_row_file_offset: u64,
-    source_label_file_offset: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_row_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_label_file_offset: BigUint,
     source_row_sha256: String,
 }
 
@@ -126,9 +131,8 @@ fn decode_rows(bytes: &[u8]) -> Result<Vec<Label>, LabelError> {
         if line.trim().is_empty() {
             return Err(LabelError::Framing);
         }
-        let value =
-            json::parse_integer_zero_strict(line.as_bytes()).map_err(|_| LabelError::Record)?;
-        let wire: LabelWire = serde_json::from_value(value).map_err(|_| LabelError::Record)?;
+        json::validate_raw_strict(line.as_bytes()).map_err(|_| LabelError::Record)?;
+        let wire: LabelWire = serde_json::from_str(line).map_err(|_| LabelError::Record)?;
         if wire.source_row_sha256.len() != 64
             || !wire
                 .source_row_sha256
