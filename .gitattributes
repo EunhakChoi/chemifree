@@ -1,3 +1,5 @@
 conformance/**/*.json text eol=lf
 docs/verification/conformance-report.json text eol=lf
 crates/providers/tests/data/model-data/** -text
+# CRLF and surrounding spaces are intentional CSV test data.
+crates/application/tests/data/aqsoldb-independent-v1/records.csv -text -whitespace

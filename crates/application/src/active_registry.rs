@@ -6,7 +6,7 @@ use chemifree_domain::data;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ActiveDataError, DataSource, PersonalDataset, ProfileIdentityFiles,
+    ActiveDataError, DataSource, PersonalDataset, ProfileIdentityFiles, ProfileRecords,
     TrustedPersonalRegistration, load_personal_dataset, load_personal_dataset_with_profile_files,
 };
 
@@ -76,6 +76,26 @@ pub struct RegistryEntryStatus {
     pub registration_id: String,
     pub state: RegistryEntryState,
     pub reason: Option<&'static str>,
+    /// Number of source columns kept as opaque metadata; no names or values are exposed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retained_extra_columns: Option<usize>,
+}
+
+impl RegistryEntryStatus {
+    pub(crate) fn loaded(dataset: &PersonalDataset) -> Self {
+        let retained_extra_columns = match dataset.records() {
+            ProfileRecords::Phase4AqSolDb(data) if !data.extra_columns.is_empty() => {
+                Some(data.extra_columns.len())
+            }
+            _ => None,
+        };
+        Self {
+            registration_id: dataset.registration_id().to_owned(),
+            state: RegistryEntryState::Loaded,
+            reason: None,
+            retained_extra_columns,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -258,18 +278,20 @@ impl TrustedRegistry {
                     _ => Err(ActiveDataError::RegistryInvalid),
                 }
             })();
-            let (state, reason) = match loaded {
+            let status = match loaded {
                 Ok(dataset) => {
+                    let status = RegistryEntryStatus::loaded(&dataset);
                     datasets.push(dataset);
-                    (RegistryEntryState::Loaded, None)
+                    status
                 }
-                Err(reason) => (RegistryEntryState::Unavailable, Some(reason.code())),
+                Err(reason) => RegistryEntryStatus {
+                    registration_id: entry.trust.registration_id.clone(),
+                    state: RegistryEntryState::Unavailable,
+                    reason: Some(reason.code()),
+                    retained_extra_columns: None,
+                },
             };
-            statuses.push(RegistryEntryStatus {
-                registration_id: entry.trust.registration_id.clone(),
-                state,
-                reason,
-            });
+            statuses.push(status);
         }
         DataRegistry {
             status: RegistryStatus {

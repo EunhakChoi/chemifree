@@ -447,6 +447,25 @@ test('external data status is shown separately from the engine and a failure doe
   assert.deepEqual(disconnectedData.capabilities, [capability])
 })
 
+test('extra data column counts are validated before they are displayed', async () => {
+  const entry = { registration_id: 'independent-fixture', state: 'loaded', reason: null, retained_extra_columns: 2 }
+  const status = { api_version: 'v1', state: 'checked', reason: null, registrations: [entry], engine: 'not_implemented' }
+  const read = async (response) => {
+    globalThis.fetch = async (path) => json(200, path === '/api/v1/health' ? health : path === '/api/v1/data' ? response : { api_version: 'v1', capabilities: [capability] })
+    return readRuntime(new AbortController().signal)
+  }
+  assert.deepEqual((await read(status)).dataStatus, status)
+  const oldEntry = { registration_id: entry.registration_id, state: entry.state, reason: entry.reason }
+  const oldStatus = { ...status, registrations: [oldEntry] }
+  assert.deepEqual((await read(oldStatus)).dataStatus, oldStatus)
+  const zeroStatus = { ...status, registrations: [{ ...entry, retained_extra_columns: 0 }] }
+  assert.deepEqual((await read(zeroStatus)).dataStatus, zeroStatus)
+  for (const count of [-1, 1.5, '2', null, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal((await read({ ...status, registrations: [{ ...entry, retained_extra_columns: count }] })).dataStatus, null)
+  }
+  assert.equal((await read({ ...status, registrations: [{ ...entry, state: 'unavailable', reason: 'data_unavailable' }] })).dataStatus, null)
+})
+
 test('contradictory or duplicated data status is not presented as a valid registry', async () => {
   const entry = { registration_id: 'independent-fixture', state: 'loaded', reason: null }
   for (const value of [

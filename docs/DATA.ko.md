@@ -12,6 +12,8 @@
 
 `private-sequence-nickname-graphs-v1`은 nickname 그래프와 순서 있는 alphabet 후보를 함께 검증한다. 각 문서 안의 ID, `n`·`b` 개수와 결합의 B/E 원자 참조, alphabet 내 키·순번의 유일성 및 nickname 참조를 확인하며 XML 태그·속성·text·tail과 반복 후보의 순서를 보존한다. 선택 원문 CDXML은 일부만 있어도 되며 제공된 각 파일은 길이·해시와 정규화 XML 트리를 대조한다. 공개 catalog는 원문 경로의 glob을 정할 뿐 파일명과 nickname 키의 일치를 규정하지 않으므로 그 관계를 추측하지 않는다. 파일 경로별 바이트 식별자는 신뢰된 manifest와 별도 권리 검토 기록으로 검증한다. 원문은 UTF-8 XML만 지원한다. 외부 DTD를 읽지 않으며 사용자 정의 엔터티 선언은 확장하지 않고 `profile_unsupported`로 거절한다. 일반 XML 속성은 보존하지만 B/E 이외 모든 CDXML 참조의 완전성이나 전체 화학 XML 스키마를 검증했다고 주장하지 않는다. 시퀀스 결합·생체고분자 확장과 모델 바인딩은 미구현이다.
 
+`private-independent-aqsoldb-v1.0-original`은 공개 catalog가 고정한 단일 필수 UTF-8 CSV의 manifest·출처 registry·형식 파일과 파일 ID·분류·해시를 검사한다. 9,982개 행의 지정된 26개 열과 추가 열을 읽으며 쉼표·인용부호·줄바꿈 및 각 셀의 문자열 값을 보존한다. 추가 열의 이름과 값은 개인 입력 안에만 불투명 메타데이터로 남고, 상태 응답에는 추가 열의 개수만 보고한다. 단위 추론과 용해도 예측은 구현하지 않는다. 공개 검사는 독립 fixture를 사용한다.
+
 `private-independent-nist-comp-4.1-snapshot-2026-10-24`은 공개 catalog가 고정한 manifest·출처 registry·형식 파일과 단일 필수 snapshot을 검증하고 출처 텍스트, 선택·null 필드, 원소와 동위원소 항목 및 불투명한 합계 JSON을 보존한다. 정수 필드는 정수값인 소수·지수 표기도 정확히 읽으며 출처·원소·동위원소 필드는 부호 있는 64비트, 개수는 부호 없는 64비트 범위를 벗어나면 거절한다. 출처 경로·URL과 출처가 보고한 바이트 개수는 읽기 명령이나 검증된 실제 파일 크기가 아닌 기술 메타데이터이며 원자량·동위원소 계산은 구현하지 않는다. 개인 입력은 사용자가 별도로 권한을 확인해야 하며 공개 검사는 독립 fixture를 사용한다.
 
 `private-data-clogp-carriers-v1`은 공개 catalog의 19개 파일 ID·역할·분류와 정확한 metadata 해시를 확인하고 열 필수 정규화 표의 11,987행을 함께 읽는다. 문자열·원시 바이트·F32 비트와 십진 입력, 1 기반 위치를 보존한다. 정수 필드는 정수값인 소수·지수 표기도 정확히 읽고 비정수와 범위 밖의 값을 거절한다. 명세가 규정하지 않은 원시 바이트와 표시 문자열의 대응이나 원문 크기 관계를 추측하지 않는다. 선택 원문은 manifest가 허용하고 실제로 없을 때만 생략한다. fragment 매칭, 단위, 예측 엔진과 모델 바인딩은 미구현이며 개인 DATA 대신 독립 fixture로 검증했다.
@@ -50,7 +52,7 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
 
 기술서는 독립적으로 정의한 로컬 선택 wrapper다. 공개 명세의 active-contract 원문이나 aggregate registry와 같은 파일 형식이라고 주장하지 않는다. `registry_version: 1`, `root_binding_id`, `registrations` 배열이 필요하다. 각 항목은 `manifest_path`, `review_path`(DATA 디렉터리 아래 상대 경로)와 `trust` 객체를 가진다. `trust`에는 `registration_id`, 정수 `generation`, `dataset_id`, `dataset_version`, `family_id`, `profile_id`, `engine_contract_id`, 정규화 `manifest_sha256`, 원문 `manifest_file_sha256`, 원문 `review_sha256`, `source_registry_binding_id`, `private_root_binding_id`가 필요하다. 모든 해시는 소문자 SHA-256 64자리이고 마지막 root ID는 wrapper의 root ID와 같아야 한다. 등록 기술서와 검토 기록의 신뢰성은 기술서를 선택한 호스트가 제공한다. 검증기는 데이터셋이 제공한 자기 주장으로 신뢰를 만들지 않는다.
 
-서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 열한 프로필과 phase 4의 열두 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 프로필은 이 두 필드를 사용하지 않는다.
+서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 열한 프로필과 phase 4의 열세 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 프로필은 이 두 필드를 사용하지 않는다.
 
 별도의 일반 JSON/JSONL 로더는 독립 fixture와 범용 타입 검증에 사용하며 과학 데이터 프로필을 활성화하지 않는다. 이 경로도 별도로 신뢰한 공개 manifest 원문 해시가 필요하다. manifest 자체의 `public` 표시나 자유 형식 권리 설명으로 허용 범위를 판단하지 않고, 개인 데이터를 이 일반 경로로 승인하지 않는다.
 

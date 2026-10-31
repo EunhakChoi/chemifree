@@ -226,7 +226,9 @@ pub(super) fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> 
         "private-data-chemprop-typed-parameter-tables-v1" => {
             ("model_parameters", "contribution_table")
         }
-        "private-data-nmr-carriers-v1" => ("model_parameters", "auxiliary_data"),
+        "private-data-nmr-carriers-v1" | "private-independent-aqsoldb-v1.0-original" => {
+            ("model_parameters", "auxiliary_data")
+        }
         "private-data-biopolymer-template-candidates-v1" => {
             ("document_resource", "document_resource")
         }

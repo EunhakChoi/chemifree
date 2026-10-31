@@ -63,7 +63,13 @@ export interface DataStatusResponse {
   api_version: typeof API_VERSION
   state: 'not_configured' | 'refused' | 'checked'
   reason: string | null
-  registrations: Array<{ registration_id: string; state: 'loaded' | 'unavailable'; reason: string | null }>
+  registrations: Array<{
+    registration_id: string
+    state: 'loaded' | 'unavailable'
+    reason: string | null
+    /** Present when a loaded dataset retained source columns as opaque metadata. */
+    retained_extra_columns?: number
+  }>
   engine: 'not_implemented'
 }
 
@@ -82,10 +88,14 @@ function isDataStatus(value: unknown): value is DataStatusResponse {
       !(value.state === 'not_configured' || value.state === 'refused' || value.state === 'checked') ||
       !(value.reason === null || typeof value.reason === 'string') ||
       value.engine !== 'not_implemented' || !Array.isArray(value.registrations)) return false
-  const isRegistration = (entry: unknown): entry is DataStatusResponse['registrations'][number] =>
-    isRecord(entry) && typeof entry.registration_id === 'string' && entry.registration_id.length > 0 &&
-    ((entry.state === 'loaded' && entry.reason === null) ||
-      (entry.state === 'unavailable' && typeof entry.reason === 'string' && entry.reason.length > 0))
+  const isRegistration = (entry: unknown): entry is DataStatusResponse['registrations'][number] => {
+    if (!isRecord(entry) || typeof entry.registration_id !== 'string' || entry.registration_id.length === 0) return false
+    const count = entry.retained_extra_columns
+    if (count !== undefined &&
+        (entry.state !== 'loaded' || typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)) return false
+    return (entry.state === 'loaded' && entry.reason === null) ||
+      (entry.state === 'unavailable' && typeof entry.reason === 'string' && entry.reason.length > 0)
+  }
   if (!value.registrations.every(isRegistration)) return false
   const ids = value.registrations.map((entry) => entry.registration_id)
   if (new Set(ids).size !== ids.length) return false
