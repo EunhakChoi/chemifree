@@ -1,9 +1,9 @@
-# Interchange document and CDXML codec
+# Interchange document and CDXML/CDX codecs
 
-The rich CDXML tree is available through operation contract 1 in the Rust
-application, HTTP and CLI. The browser can preview a selected page and molecule
-and create a new editable drawing after the user accepts its loss report. CDX is
-available as a bounded binary subset through the same common tree.
+The rich interchange tree is available for bounded CDXML and CDX subsets through
+operation contract 1 in the Rust application, HTTP and CLI. The browser can preview
+a selected page and molecule and create a new editable drawing after the user
+accepts its loss report.
 
 `chemifree_domain::interchange::Document` is an ordered tree independent of the
 editor's single-graph document. It can hold a document with several pages, nested

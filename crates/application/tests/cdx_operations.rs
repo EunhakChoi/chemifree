@@ -32,6 +32,64 @@ fn example() -> Vec<u8> {
     }
     bytes
 }
+
+fn graphic_with_unknown_binary_content() -> Vec<u8> {
+    let mut bytes = example();
+    // Leave the selected node and fragment closed, and add a graphic to their page.
+    bytes.truncate(bytes.len() - 4);
+    bytes.extend(0x8007u16.to_le_bytes());
+    bytes.extend(4u32.to_le_bytes());
+    bytes.extend(0x0204u16.to_le_bytes());
+    bytes.extend(16u16.to_le_bytes());
+    bytes.extend([0; 16]);
+    bytes.extend(0x7ff0u16.to_le_bytes());
+    bytes.extend(2u16.to_le_bytes());
+    bytes.extend([0xaa, 0x55]);
+    bytes.extend(0x8ffeu16.to_le_bytes());
+    bytes.extend(5u32.to_le_bytes());
+    for _ in 0..4 {
+        bytes.extend([0, 0]);
+    }
+    bytes
+}
+
+#[test]
+fn discarded_graphic_reports_unknown_binary_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    let bytes = graphic_with_unknown_binary_content();
+    let source = STANDARD.encode(&bytes);
+    let read = call(
+        &app,
+        "unknown-graphic-read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":source}),
+    );
+    assert_eq!(read["outcome"], "ok", "{read}");
+    assert!(read["loss_report"].as_array().unwrap().iter().any(|loss| {
+        loss["feature"] == "opaque_extensions" && loss["disposition"] == "retained"
+    }));
+    let write = call(
+        &app,
+        "unknown-graphic-write",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":source}),
+    );
+    assert_eq!(STANDARD.decode(write["result"]["content"].as_str().unwrap()).unwrap(), bytes);
+    let preview = call(
+        &app,
+        "unknown-graphic-preview",
+        "document.import",
+        json!({"mode":"preview","format":"cdx","source":source,"title":"Binary","page_id":1,"fragment_id":2}),
+    );
+    let losses = preview["loss_report"].as_array().unwrap();
+    assert!(losses.iter().any(|loss| loss["feature"] == "graphic" && loss["semantic_impact"] == "rendering"));
+    assert!(losses.iter().any(|loss| loss["feature"] == "unprojected_property" && loss["semantic_impact"] == "unknown"));
+    assert!(losses.iter().any(|loss| loss["feature"] == "opaque_object" && loss["semantic_impact"] == "unknown"));
+    assert!(app.list_documents(&Default::default()).unwrap().documents.is_empty());
+}
+
 #[test]
 fn cdx_base64_read_write_projection_and_xml_transcode_use_real_operations() {
     let dir = tempfile::tempdir().unwrap();

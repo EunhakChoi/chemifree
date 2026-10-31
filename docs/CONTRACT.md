@@ -74,7 +74,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `history.undo`, `history.redo`, `document.save` | `{ document_id, expected_revision }` | same |
 | `document.close` | `{ document_id, discard_unsaved?, expected_revision? }` | `{ document_id, discarded_changes }` |
 | `chem.validate` | `{ document_id }` | `{ snapshot: { document, session, recovery }, atoms: [{ atom_id, bond_order_sum, hydrogens, status, reason }] }`; [policy and limits](#valence-inspection) |
-| `document.import`, `document.export` | [Rich CDXML or editor projection](#cdxml-interchange) | Rich tree, preview, created document, or CDXML content |
+| `document.import`, `document.export` | [Rich CDXML/CDX or editor projection](#cdxml-and-cdx-interchange) | Rich tree, preview, created document, or encoded file content |
 
 Unknown parameters are `invalid_request` (`path: "parameters"`). Every other operation name the catalog lists (`chem.properties`, `chem.name_to_structure`, `chem.structure_to_name`, `layout.structure`, `layout.reaction`, `render.scene`, `biopolymer.expand`, `prediction.evaluate`, `integration.invoke`, `script.evaluate`) is answered `outcome: "unsupported"` with `details: { execution, followup }`, whatever its parameters. Prediction uses the diagnostic `model_unavailable`; the other operations use `operation_not_implemented`: nothing is computed and no placeholder result is returned. Mutations retain the v1 request replay, revision and saving rules; inspection reads the current working snapshot. An operation that fails reports the v1 error code as its diagnostic (`revision_conflict`, `document_not_found`, `storage_failed`, …), with `details.current_revision`, `details.command_index`, and `details.reason` where the v1 envelope has them.
 
