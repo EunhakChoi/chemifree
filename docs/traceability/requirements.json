@@ -725,7 +725,7 @@
           "summary": "Query searches distinguish unsupported graph states from bounded incomplete results and preserve the inspected snapshots.",
           "status": "partial",
           "implementation": ["crates/domain/src/query.rs", "crates/application/src/operations.rs"],
-          "evidence": ["check:check:rust", "check:test:contracts", "check:test:browser"],
+          "evidence": ["case:query-matching", "check:check:rust", "check:test:contracts", "check:test:browser"],
           "followups": ["P24"]
         },
         {

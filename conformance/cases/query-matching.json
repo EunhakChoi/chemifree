@@ -22,6 +22,16 @@
     {"call":"operation","document":"q","request":{"contract":1,"request_id":"bounded","profile":"preserve-semantics","operation":"chem.query_match","parameters":{"target_document_id":null,"mode":"recorded","predicates":[{"atom":"a1","ring":true,"min_neighbors":2,"max_neighbors":2}],"max_matches":1}},
      "substitute":{"/parameters/target_document_id":"target_id"},
      "expect":{"outcome":"partial","model_id":"chemifree-query-recorded-1","result":{"complete":false,"limit":"mappings","mappings":[[{"query_atom":"a1","target_atom":"a1"},{"query_atom":"a2","target_atom":"a2"}]],"query_snapshot":{"document":{"revision":1}},"target_snapshot":{"document":{"revision":1}}},"loss_report":{"$contains":[{"feature":"additional_mappings","disposition":"unknown"}]}}},
+    {"call":"operation","document":"q","request":{"contract":1,"request_id":"complete","profile":"preserve-semantics","operation":"chem.query_match","parameters":{"target_document_id":null,"mode":"recorded","predicates":[{"atom":"a1","ring":true,"min_neighbors":2,"max_neighbors":2}],"max_matches":10}},
+     "substitute":{"/parameters/target_document_id":"target_id"},
+     "expect":{"outcome":"ok","result":{"complete":true,"limit":null,"mappings":[
+       [{"query_atom":"a1","target_atom":"a1"},{"query_atom":"a2","target_atom":"a2"}],
+       [{"query_atom":"a1","target_atom":"a1"},{"query_atom":"a2","target_atom":"a3"}],
+       [{"query_atom":"a1","target_atom":"a2"},{"query_atom":"a2","target_atom":"a1"}],
+       [{"query_atom":"a1","target_atom":"a2"},{"query_atom":"a2","target_atom":"a3"}],
+       [{"query_atom":"a1","target_atom":"a3"},{"query_atom":"a2","target_atom":"a1"}],
+       [{"query_atom":"a1","target_atom":"a3"},{"query_atom":"a2","target_atom":"a2"}]
+     ]}}},
     {"call":"get","document":"q","expect":{"document":{"revision":1},"session":{"undo_depth":1}}},
     {"call":"get","document":"t","expect":{"document":{"revision":1},"session":{"undo_depth":1}}}
   ]
