@@ -91,6 +91,8 @@ pub enum ProfileRecords {
     Phase4Declarative(Box<crate::phase4_declarative::DeclarativeData>),
     /// Inert template framing records, without a biopolymer or sequence engine.
     Phase4Templates(Box<crate::phase4_templates::TemplateCandidates>),
+    /// Inert HELM source rows, without attachment, sequence or stereo semantics.
+    Phase4Helm(Box<crate::phase4_helm::HelmData>),
 }
 
 #[derive(PartialEq)]
