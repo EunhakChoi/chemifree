@@ -116,7 +116,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     </>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {current && <div className="space-y-3 text-sm" data-testid="cdxml-preview">
-      <p>Preview: {current.preview.atomLabels.length} atoms ({current.preview.atomLabels.join(', ') || 'none'}), {current.preview.bonds} bonds.</p>
+      <p>Preview: {current.preview.atomLabels.length} {current.preview.atomLabels.length === 1 ? 'atom' : 'atoms'} ({current.preview.atomLabels.join(', ') || 'none'}), {current.preview.bonds} {current.preview.bonds === 1 ? 'bond' : 'bonds'}.</p>
       <p className="font-medium">Source-to-editor IDs</p>
       <ul className="list-disc pl-5">
         {[current.preview.mapping.page, current.preview.mapping.fragment, ...current.preview.mapping.atoms, ...current.preview.mapping.bonds].map((item, index) =>
