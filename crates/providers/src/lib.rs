@@ -43,8 +43,8 @@ impl CapabilityCatalog for LocalCapabilities {
             },
             Capability {
                 id: StructureAnalysis,
-                label: "Structure analysis",
-                status: NotImplemented,
+                label: "Valence inspection",
+                status: Available,
                 description: "Read-only valence inspection covers a limited model; broader chemical analysis and prediction are not implemented.",
             },
             Capability {
@@ -99,9 +99,15 @@ mod tests {
             [
                 CapabilityId::RuntimeInspection,
                 CapabilityId::DocumentEditing,
+                CapabilityId::StructureAnalysis,
                 CapabilityId::Persistence
             ]
         );
+        let analysis = capabilities
+            .iter()
+            .find(|entry| entry.id == CapabilityId::StructureAnalysis)
+            .unwrap();
+        assert_eq!(analysis.label, "Valence inspection");
 
         let ids: std::collections::HashSet<_> = capabilities
             .iter()

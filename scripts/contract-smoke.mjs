@@ -131,9 +131,12 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'structure_analysis', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
+  const valenceCapability = capabilities.find((item) => item.id === 'structure_analysis')
+  assert.equal(valenceCapability.label, 'Valence inspection')
+  assert.match(valenceCapability.description, /limited model/)
 
   // The opt-in request log: one line per request with method, path, and status, and
   // nothing from the headers (such as the session token).

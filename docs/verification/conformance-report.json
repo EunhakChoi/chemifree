@@ -166,7 +166,7 @@
     },
     {
       "id": "capabilities-report-unimplemented",
-      "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+      "title": "The capability list reports bounded valence inspection and the remaining unimplemented capabilities",
       "requirements": [
         "API-01",
         "QUALITY-01"
@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f40acc5ffb2f0e3e042f89fc6eed5f72f2ca1ebf2cd0cbed92942391dbb19f75"
+      "case_sha256": "fab9591410ef84b36bf81a9fab3ed349a3e2fa75c5925d4ee5af3d7ad43d0d84"
     },
     {
       "id": "formula-and-mass",

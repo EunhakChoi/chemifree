@@ -146,7 +146,12 @@ async fn capabilities_report_connected_operations() {
         .collect();
     assert_eq!(
         available,
-        ["runtime_inspection", "document_editing", "persistence"]
+        [
+            "runtime_inspection",
+            "document_editing",
+            "structure_analysis",
+            "persistence"
+        ]
     );
 }
 

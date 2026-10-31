@@ -486,6 +486,16 @@ test('a capabilities reply without an operation catalog, from before it was adde
   assert.deepEqual(snapshot.capabilities, [capability])
 })
 
+test('v1 accepts both the earlier unimplemented analysis capability and bounded valence availability', async () => {
+  const prior = { id: 'structure_analysis', label: 'Structure analysis', status: 'not_implemented', description: 'No analysis.' }
+  const bounded = { id: 'structure_analysis', label: 'Valence inspection', status: 'available', description: 'Bounded valence only.' }
+  for (const item of [prior, bounded]) {
+    const result = await runtime({ api_version: 'v1', capabilities: [item] })
+    assert.deepEqual(result.capabilities, [item])
+    assert.equal(result.operationCatalog, null, 'older replies may omit the operation catalog')
+  }
+})
+
 test('an operation catalog is read with its sub-operations, follow-ups, and capability commands', async () => {
   const snapshot = await runtime({ api_version: 'v1', capabilities: [capability], operation_catalog: catalog() })
   assert.deepEqual(snapshot.operationCatalog, catalog())

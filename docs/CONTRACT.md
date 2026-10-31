@@ -37,13 +37,13 @@ The CLI calls the same `Application` in-process and does not contact HTTP. Both 
 
 Health: `{ "api_version", "service": "chemifree", "version", "stage": "scaffold", "status": "ok" }`. `ok` is handler liveness only. `stage` remains `scaffold`; most product capabilities are still unimplemented.
 
-Capabilities: `{ api_version, capabilities: [{ id, label, status, description }], operation_catalog }`, `status` ∈ `available | not_implemented`. Identifiers are unique; consumers tolerate new ones. `operation_catalog` (added within v1) is the catalog that `capabilities.inspect` returns (see Operation contract 1); a service from before it leaves it out, and the web client then says that per-operation support is not reported.
+Capabilities: `{ api_version, capabilities: [{ id, label, status, description }], operation_catalog }`, `status` ∈ `available | not_implemented`. Identifiers are unique; consumers tolerate new ones. Availability means the specifically labeled capability runs, not that its whole broad domain is complete; consult `operation_catalog` for per-operation coverage. `operation_catalog` (added within v1) is the catalog that `capabilities.inspect` returns (see Operation contract 1); a service from before it leaves it out, and the web client then says that per-operation support is not reported. Existing v1 status values and capability IDs are unchanged.
 
 | ID | Status |
 | --- | --- |
 | `runtime_inspection` | `available` |
 | `document_editing` | `available` — drawing model only |
-| `structure_analysis` | `not_implemented` |
+| `structure_analysis` | `available` — labeled **Valence inspection**, limited to the documented bounded valence and hydrogen model; broader chemistry remains unsupported |
 | `format_conversion` | `not_implemented` |
 | `local_model_loading` | `not_implemented` |
 | `persistence` | `available` — local Chemifree JSON files |
