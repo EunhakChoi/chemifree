@@ -8,8 +8,8 @@ use chemifree_application::{
     CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
     ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, OperationResponse,
     PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
-    RestoreResponse, SceneObjectView, SelectionDto, SettingsDto, SettingsSource,
-    TransactionSelections, TrashListResponse,
+    RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
+    SettingsSource, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, configure_selected_registry,
@@ -361,14 +361,7 @@ fn main() -> ExitCode {
                     println!("  {reason}");
                 }
                 for entry in response.status.registrations {
-                    println!(
-                        "{}: {}{}",
-                        entry.registration_id,
-                        entry.state,
-                        entry
-                            .reason
-                            .map_or(String::new(), |reason| format!(" ({reason})"))
-                    );
+                    println!("{}", data_entry_text(&entry));
                 }
                 println!("Chemistry engine: {}", response.status.engine);
             }
@@ -378,6 +371,16 @@ fn main() -> ExitCode {
         Command::Preferences(command) => run_preference_command(&application, command),
         Command::Operations => run_operations(&application),
     }
+}
+
+fn data_entry_text(entry: &RegistryEntryStatus) -> String {
+    let reason = entry
+        .reason
+        .map_or(String::new(), |reason| format!(" ({reason})"));
+    let extra = entry.retained_extra_columns.map_or(String::new(), |count| {
+        format!("\n  extra source columns retained but not used for prediction: {count}")
+    });
+    format!("{}: {}{reason}{extra}", entry.registration_id, entry.state)
 }
 
 fn run_document_command(application: &LocalApplication, command: DocumentCommand) -> ExitCode {
@@ -952,7 +955,7 @@ fn bond_text(bond: &BondView) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chemifree_application::{Application, CommandDto};
+    use chemifree_application::{Application, CommandDto, RegistryEntryState};
     use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
     use serde_json::json;
 
@@ -972,6 +975,20 @@ mod tests {
             .apply_transaction(&id, None, 0, commands)
             .unwrap();
         document_text(&response)
+    }
+
+    #[test]
+    fn data_status_reports_only_the_retained_extra_column_count() {
+        let entry = RegistryEntryStatus {
+            registration_id: "independent-fixture".into(),
+            state: RegistryEntryState::Loaded,
+            reason: None,
+            retained_extra_columns: Some(2),
+        };
+        assert_eq!(
+            data_entry_text(&entry),
+            "independent-fixture: loaded\n  extra source columns retained but not used for prediction: 2"
+        );
     }
 
     #[test]

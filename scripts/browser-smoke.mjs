@@ -236,6 +236,24 @@ await refreshedData
 await page.getByText('No external data selected.').waitFor()
 assert.equal((await api('/api/v1/data')).engine, 'not_implemented')
 await page.getByText('Chemistry engine not implemented').waitFor()
+const dataWithExtraColumns = (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({
+    api_version: 'v1', state: 'checked', reason: null, engine: 'not_implemented',
+    registrations: [{ registration_id: 'independent-fixture', state: 'loaded', reason: null, retained_extra_columns: 2 }],
+  }),
+})
+await page.route('**/api/v1/data', dataWithExtraColumns)
+const extraColumnsResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/data') && response.status() === 200)
+await page.getByRole('button', { name: 'Refresh status' }).click()
+await extraColumnsResponse
+await page.getByText('independent-fixture: 2 extra source columns retained but not used for prediction.').waitFor()
+await page.unroute('**/api/v1/data', dataWithExtraColumns)
+const originalDataResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/data') && response.status() === 200)
+await page.getByRole('button', { name: 'Refresh status' }).click()
+await originalDataResponse
+await page.getByText('No external data selected.').waitFor()
 results.data_status = true
 await page.getByRole('button', { name: 'Preferences', exact: true }).click()
 const unavailableDialog = page.getByRole('dialog', { name: 'Preferences' })

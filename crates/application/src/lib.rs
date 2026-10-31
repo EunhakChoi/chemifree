@@ -20,6 +20,7 @@ pub mod naming_patterns;
 pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
+pub mod phase4_aqsoldb;
 pub mod phase4_clogp;
 pub mod phase4_cmr;
 pub mod phase4_declarative;

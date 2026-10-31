@@ -168,9 +168,18 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
                   `${state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'loaded').length} datasets loaded; ${state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'unavailable').length} unavailable.`}
               </p>
               {state.snapshot.dataStatus?.state === 'checked' && state.snapshot.dataStatus.registrations.some((entry) => entry.state === 'unavailable') && (
-                <ul className="space-y-1 text-xs text-muted-foreground">
+                <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
                   {state.snapshot.dataStatus.registrations.filter((entry) => entry.state === 'unavailable').map((entry) => (
                     <li key={entry.registration_id}>{entry.registration_id}: {entry.reason ?? 'unavailable'}</li>
+                  ))}
+                </ul>
+              )}
+              {state.snapshot.dataStatus?.state === 'checked' && state.snapshot.dataStatus.registrations.some((entry) => (entry.retained_extra_columns ?? 0) > 0) && (
+                <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  {state.snapshot.dataStatus.registrations.filter((entry) => (entry.retained_extra_columns ?? 0) > 0).map((entry) => (
+                    <li key={entry.registration_id}>
+                      {entry.registration_id}: {entry.retained_extra_columns} extra source {entry.retained_extra_columns === 1 ? 'column' : 'columns'} retained but not used for prediction.
+                    </li>
                   ))}
                 </ul>
               )}
