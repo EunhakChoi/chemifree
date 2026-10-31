@@ -235,7 +235,7 @@ await page.getByRole('button', { name: 'Refresh status' }).click()
 await refreshedData
 await page.getByText('No external data selected.').waitFor()
 assert.equal((await api('/api/v1/data')).engine, 'not_implemented')
-await page.getByText('Chemistry engine not implemented').waitFor()
+await page.getByText('DATA-backed models not implemented').waitFor()
 const dataWithExtraColumns = (route) => route.fulfill({
   status: 200,
   contentType: 'application/json',
@@ -298,12 +298,29 @@ assert.equal(doc.document.atoms.length, 2)
 assert.equal(doc.document.bonds.length, 1)
 assert.equal(await saveState(), 'Unsaved changes')
 
+// The inspector reports the two terminal carbons without editing the document.
+const beforeInspection = doc
+await page.getByRole('button', { name: 'Check valence' }).click()
+const inspection = page.getByRole('complementary', { name: 'Chemical inspection' })
+await inspection.getByText('a1: valid; hydrogens 3', { exact: true }).waitFor()
+assert.equal(await inspection.getByText('a2: valid; hydrogens 3', { exact: true }).count(), 1)
+await page.screenshot({ path: join(outDir, 'editor-valence.png') })
+const afterInspection = await openDoc()
+assert.deepEqual(afterInspection.document, beforeInspection.document, 'inspection does not change the drawing')
+assert.equal(afterInspection.session.undo_depth, beforeInspection.session.undo_depth)
+assert.equal(afterInspection.session.redo_depth, beforeInspection.session.redo_depth)
+results.valence_inspection = true
+
 // Click the end atom to grow a chain; drag from it to make another bond.
 let a2 = await atomScreen(doc, 'a2')
 await page.mouse.click(a2.x, a2.y)
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.length, 3)
+assert.equal(await inspection.getByText('The drawing changed. Check it again for current results.').count(), 1)
+await page.route('**/api/v1/operations', (route) => route.fulfill({ status: 200, json: { outcome: 'error' } }), { times: 1 })
+await page.getByRole('button', { name: 'Check valence' }).click()
+await inspection.getByRole('alert').waitFor()
 const a3 = await atomScreen(doc, 'a3')
 await page.mouse.move(a3.x, a3.y)
 await page.mouse.down()
@@ -313,6 +330,7 @@ await page.mouse.up()
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.length, 4)
+assert.equal(await inspection.getByRole('alert').count(), 0, 'an old inspection error is hidden after an edit')
 assert.equal(doc.document.bonds.length, 3)
 const a4 = doc.document.atoms.find((atom) => atom.id === 'a4')
 const a3pos = doc.document.atoms.find((atom) => atom.id === 'a3').position
@@ -1518,15 +1536,16 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '9 of 21 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19'], ['chem.validate', 'P16']]) {
+for (const [id, followup] of [['chem.properties', 'P19']]) {
   const row = operationRow(id)
   assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
 }
+assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 for (const id of [
   'document.transaction/scene_placement',
   'document.transaction/add_instance',

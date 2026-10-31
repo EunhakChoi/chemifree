@@ -41,29 +41,6 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "op-validate",
-        "profile": "preserve-semantics",
-        "operation": "chem.validate",
-        "parameters": {}
-      },
-      "expect": {
-        "outcome": "unsupported",
-        "result": null,
-        "diagnostics": [
-          {
-            "code": "operation_not_implemented",
-            "details": {
-              "followup": "P16"
-            }
-          }
-        ]
-      },
-      "document": "d"
-    },
-    {
-      "call": "operation",
-      "request": {
-        "contract": 1,
         "request_id": "op-predict",
         "profile": "preserve-semantics",
         "operation": "prediction.evaluate",
@@ -75,7 +52,11 @@
         "outcome": "unsupported",
         "result": null,
         "model_id": null,
-        "diagnostics": [{"code": "model_unavailable"}]
+        "diagnostics": [
+          {
+            "code": "model_unavailable"
+          }
+        ]
       }
     },
     {

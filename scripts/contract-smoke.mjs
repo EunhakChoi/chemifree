@@ -949,6 +949,11 @@ try {
       })
     assert.equal((await both(edit)).document_revision, 1)
     assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
+    const validation = await both((id) => request('op-validate', 'chem.validate', { document_id: id }))
+    assert.equal(validation.model_id, 'chemifree-valence-1')
+    assert.deepEqual(validation.result.atoms, [
+      { atom_id: 'a1', bond_order_sum: 0, hydrogens: 4, status: 'valid', reason: null },
+    ])
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const unsupported = await both(() => request('op-props', 'chem.properties', {}))

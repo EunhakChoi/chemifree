@@ -47,6 +47,142 @@ fn created(app: &App) -> String {
 }
 
 #[test]
+fn valence_inspection_counts_hydrogens_without_changing_the_document() {
+    let (app, _data) = application();
+    let id = created(&app);
+    let edited = send(
+        &app,
+        &request(
+            "valence-edit",
+            "document.transaction",
+            json!({
+                "document_id": id, "expected_revision": 0, "commands": [
+                    {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+                    {"op": "add_atom", "element": "O", "position": {"x": 20, "y": 0}, "bond_to": {"atom": "$0", "order": "single"}},
+                    {"op": "add_atom", "element": "H", "position": {"x": 40, "y": 0}, "bond_to": {"atom": "$1", "order": "single"}}
+                ]
+            }),
+        ),
+    );
+    assert_eq!(edited["outcome"], "ok");
+    let before = send(
+        &app,
+        &request(
+            "valence-before",
+            "document.snapshot",
+            json!({"document_id": id}),
+        ),
+    );
+    let result = send(
+        &app,
+        &request("valence-check", "chem.validate", json!({"document_id": id})),
+    );
+    assert_eq!(result["outcome"], "ok");
+    assert_eq!(result["document_revision"], 1);
+    assert_eq!(
+        result["result"]["atoms"],
+        json!([
+            {"atom_id": "a1", "bond_order_sum": 1, "hydrogens": 3, "status": "valid", "reason": null},
+            {"atom_id": "a2", "bond_order_sum": 2, "hydrogens": 0, "status": "valid", "reason": null},
+            {"atom_id": "a3", "bond_order_sum": 1, "hydrogens": 0, "status": "valid", "reason": null}
+        ])
+    );
+    let after = send(
+        &app,
+        &request(
+            "valence-after",
+            "document.snapshot",
+            json!({"document_id": id}),
+        ),
+    );
+    assert_eq!(
+        before["result"], after["result"],
+        "inspection changes no graph, selection, revision, or history"
+    );
+}
+
+#[test]
+fn valence_reports_invalid_and_indeterminate_atoms_without_repairing_them() {
+    let (app, _data) = application();
+    let id = created(&app);
+    let edited = send(
+        &app,
+        &request(
+            "mixed-edit",
+            "document.transaction",
+            json!({
+                "document_id": id, "expected_revision": 0, "commands": [
+                    {"op": "add_atom", "element": "C", "hydrogens": {"mode": "specified", "count": 1}, "position": {"x": 0, "y": 0}},
+                    {"op": "add_atom", "element": "H", "position": {"x": 1, "y": 0}, "bond_to": {"atom": "$0", "order": "single"}},
+                    {"op": "add_atom", "element": "H", "position": {"x": 2, "y": 0}, "bond_to": {"atom": "$0", "order": "single"}},
+                    {"op": "add_atom", "element": "H", "position": {"x": 3, "y": 0}, "bond_to": {"atom": "$0", "order": "single"}},
+                    {"op": "add_atom", "element": "H", "position": {"x": 4, "y": 0}, "bond_to": {"atom": "$0", "order": "single"}},
+                    {"op": "add_atom", "query": {"kind": "any"}, "position": {"x": 5, "y": 0}},
+                    {"op": "add_atom", "element": "Fe", "position": {"x": 6, "y": 0}},
+                    {"op": "add_atom", "element": "C", "position": {"x": 7, "y": 0}, "bond_to": {"atom": "$5", "order": "query", "query": {"kind": "any"}}},
+                    {"op": "add_atom", "element": "O", "hydrogens": {"mode": "unknown"}, "position": {"x": 8, "y": 0}},
+                    {"op": "add_atom", "element": "C", "radical": "doublet", "position": {"x": 9, "y": 0}}
+                ]
+            }),
+        ),
+    );
+    assert_eq!(edited["outcome"], "ok", "{edited}");
+    let before = send(
+        &app,
+        &request(
+            "mixed-before",
+            "document.snapshot",
+            json!({"document_id": id}),
+        ),
+    );
+    let result = send(
+        &app,
+        &request(
+            "mixed-validate",
+            "chem.validate",
+            json!({"document_id": id}),
+        ),
+    );
+    assert_eq!(result["outcome"], "ok");
+    assert_eq!(result["model_id"], "chemifree-valence-1");
+    let atoms = result["result"]["atoms"].as_array().unwrap();
+    assert_eq!(
+        atoms[0],
+        json!({"atom_id": "a1", "bond_order_sum": 4, "hydrogens": 1, "status": "invalid", "reason": "unusual_valence"})
+    );
+    assert_eq!(
+        (atoms[5]["status"].clone(), atoms[5]["reason"].clone()),
+        (json!("unsupported"), json!("query_atom"))
+    );
+    assert_eq!(
+        (atoms[6]["status"].clone(), atoms[6]["reason"].clone()),
+        (json!("unsupported"), json!("element_or_charge"))
+    );
+    assert_eq!(
+        (atoms[7]["hydrogens"].clone(), atoms[7]["reason"].clone()),
+        (Value::Null, json!("non_covalent_or_ambiguous_bond"))
+    );
+    assert_eq!(
+        (atoms[8]["hydrogens"].clone(), atoms[8]["reason"].clone()),
+        (Value::Null, json!("unknown_hydrogens"))
+    );
+    assert_eq!(
+        (atoms[9]["status"].clone(), atoms[9]["hydrogens"].clone()),
+        (json!("valid"), json!(3))
+    );
+    assert_eq!(result["diagnostics"].as_array().unwrap().len(), 5);
+    let after = send(
+        &app,
+        &request(
+            "mixed-after",
+            "document.snapshot",
+            json!({"document_id": id}),
+        ),
+    );
+    assert_eq!(before["result"], after["result"]);
+}
+
+#[test]
 fn a_document_is_created_edited_undone_redone_saved_read_and_closed_through_the_contract() {
     let (app, _data) = application();
     let id = created(&app);
@@ -404,7 +540,7 @@ fn the_catalog_says_exactly_which_operations_run() {
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
-        "document.snapshot" | "document.close" => json!({"document_id": id}),
+        "document.snapshot" | "document.close" | "chem.validate" => json!({"document_id": id}),
         "document.transaction" => {
             json!({"document_id": id, "expected_revision": 0, "commands": []})
         }
@@ -461,6 +597,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "history.redo",
             "document.save",
             "document.close",
+            "chem.validate",
         ]
     );
     assert_eq!(
@@ -506,8 +643,8 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
             validate["representation"].clone(),
             validate["execution"].clone()
         ),
-        (json!("not_supported"), json!("not_implemented")),
-        "recorded states are not validated chemically"
+        (json!("supported"), json!("executable")),
+        "bounded valence inspection is available"
     );
     let prediction = catalog["operations"]
         .as_array()

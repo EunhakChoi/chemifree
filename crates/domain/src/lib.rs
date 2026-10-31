@@ -7,6 +7,7 @@ pub mod operation;
 pub mod scene;
 pub mod settings;
 pub mod states;
+pub mod valence;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityId {

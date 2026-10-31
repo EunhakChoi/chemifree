@@ -671,6 +671,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+          <ValidationPanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
@@ -681,6 +682,52 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
       </p>
     </div>
+  )
+}
+
+function ValidationPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState<{ documentId: string; revision: number; message: string } | null>(null)
+  const [analysis, setAnalysis] = useState<{
+    documentId: string
+    result: Awaited<ReturnType<DocumentEditor['validate']>>
+  } | null>(null)
+  const current = analysis?.documentId === document.id && analysis.result.revision === document.revision
+    ? analysis.result : null
+
+  async function check() {
+    const documentId = document.id
+    const revision = document.revision
+    setChecking(true)
+    setError(null)
+    try {
+      setAnalysis({ documentId, result: await editor.validate(documentId) })
+    } catch (cause) {
+      setAnalysis(null)
+      setError({ documentId, revision, message: cause instanceof Error ? cause.message : 'The drawing could not be inspected.' })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <aside aria-label="Chemical inspection" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+      <h3 className="text-sm font-medium">Chemical inspection</h3>
+      <p className="text-xs text-muted-foreground">Check valence and non-vertex hydrogens without changing the drawing.</p>
+      <Button size="sm" variant="outline" disabled={checking || editor.busy} onClick={() => void check()}>
+        {checking ? 'Checking…' : 'Check valence'}
+      </Button>
+      {error?.documentId === document.id && error.revision === document.revision && <p role="alert" className="text-xs">{error.message}</p>}
+      {analysis && !current && <p className="text-xs">The drawing changed. Check it again for current results.</p>}
+      {current && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto text-xs">
+        <p>Model: {current.model}</p>
+        {current.atoms.length === 0 && <p>No atoms to inspect.</p>}
+        {current.atoms.map((atom) => <p key={atom.atom_id}>
+          {atom.atom_id}: {atom.status}; hydrogens {atom.hydrogens ?? 'unknown'}
+          {atom.reason && ` (${atom.reason.replaceAll('_', ' ')})`}
+        </p>)}
+      </div>}
+    </aside>
   )
 }
 

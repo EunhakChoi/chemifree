@@ -14,6 +14,7 @@
 //! executable.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
+use chemifree_domain::valence;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -161,6 +162,22 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
+    /// `chem.validate`: a read-only interpretation of each atom.
+    Validation(ValidationResult),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ValidationResult {
+    pub atoms: Vec<AtomValidation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AtomValidation {
+    pub atom_id: String,
+    pub bond_order_sum: Option<u16>,
+    pub hydrogens: Option<u16>,
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -349,7 +366,7 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
-         default). Representation only: no hydrogen count is computed from valence.",
+         default). Analysis may compute a count without changing this recorded state.",
     )
     .carried_out_by(&["add_atom", "update_atom"]),
     runs(
@@ -452,10 +469,9 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             &[],
         ),
         Op::ChemValidate => (
-            missing(
+            runs(
                 id,
-                "P16",
-                "No valence or other chemical validation is implemented.",
+                "Read-only valence and hydrogen inspection under chemifree-valence-1; unsupported states are identified per atom.",
             ),
             &[],
         ),
@@ -914,6 +930,39 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(p) => known.document(self.document(&p.document_id)),
                 Err(invalid) => known.invalid(invalid),
             },
+            Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {
+                Ok(p) => match self.documents.inspect_valence(&p.document_id) {
+                    Ok((revision, inspected)) => {
+                        let mut diagnostics = Vec::new();
+                        let atoms = inspected.into_iter().map(|atom| {
+                            let id = atom.atom_id.to_string();
+                            let status = match atom.status {
+                                valence::Status::Valid => "valid",
+                                valence::Status::Invalid => "invalid",
+                                valence::Status::Unsupported => "unsupported",
+                            };
+                            if let Some(reason) = atom.reason {
+                                let mut details = Map::new();
+                                details.insert("atom_id".into(), id.clone().into());
+                                details.insert("reason".into(), reason.into());
+                                diagnostics.push(Diagnostic {
+                                    code: "valence_diagnostic",
+                                    severity: Severity::Warning,
+                                    message: format!("Atom {id}: {reason}."),
+                                    path: None,
+                                    details,
+                                });
+                            }
+                            AtomValidation { atom_id: id, bond_order_sum: atom.bond_order_sum, hydrogens: atom.hydrogens, status, reason: atom.reason }
+                        }).collect();
+                        let mut response = known.reply(Outcome::Ok, Some(revision), Some(OperationResult::Validation(ValidationResult { atoms })), diagnostics);
+                        response.model_id = Some(valence::MODEL_ID.into());
+                        response
+                    }
+                    Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                },
+                Err(invalid) => known.invalid(invalid),
+            },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {
                     Ok(p) => known.document(self.apply_transaction_selecting(
@@ -965,7 +1014,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentImport
             | Op::DocumentExport
-            | Op::ChemValidate
             | Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName

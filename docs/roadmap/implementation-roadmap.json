@@ -781,7 +781,7 @@
    "acceptance": "전하·라디칼·동위원소·명시적 H·비정상 입력을 독립 사례로 검사하고 진단만으로 문서를 자동 수정하지 않는다.",
    "kind": "core",
    "id": "P16",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3860,7 +3860,7 @@
     "deep-behavior-contracts.md",
     "phase2-naming-observed-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P10",
     "P13",

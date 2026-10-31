@@ -120,6 +120,35 @@
       "call": "operation",
       "request": {
         "contract": 1,
+        "request_id": "op-validate",
+        "profile": "preserve-semantics",
+        "operation": "chem.validate",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-valence-1",
+        "diagnostics": [],
+        "loss_report": [],
+        "result": {
+          "atoms": [
+            {
+              "atom_id": "a1",
+              "bond_order_sum": 0,
+              "hydrogens": 3,
+              "status": "valid",
+              "reason": null
+            }
+          ]
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
         "request_id": "op-save",
         "profile": "preserve-semantics",
         "operation": "document.save",

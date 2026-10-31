@@ -11,8 +11,9 @@
 //! This is a drawing model. It records what the user drew and stated, including hydrogen,
 //! radical, query, attachment-point, and bond-kind states (see [`crate::states`]), and enforces
 //! structural invariants (no dangling or duplicate bonds, a position per atom in every
-//! instance, bounded values, valid state combinations). It does not perceive valence,
-//! aromaticity, stereochemistry, or implicit hydrogens, and matches no query.
+//! instance, bounded values, valid state combinations). The separate valence module can inspect
+//! supported graphs without modifying them; this document does not perceive aromaticity or
+//! stereochemistry, and matches no query.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;

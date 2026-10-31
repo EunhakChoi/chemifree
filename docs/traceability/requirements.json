@@ -103,7 +103,7 @@
         },
         {
           "id": "MODEL-02.2",
-          "summary": "Hydrogen states are recorded and told apart as drawn: stated with a count of 0 to 16, unknown, or inferred (the default). An inferred state carries no count, since nothing computes one.",
+          "summary": "Hydrogen states are recorded and told apart as drawn: stated with a count of 0 to 16, unknown, or inferred (the default). The recorded inferred state carries no count; analysis derives one separately when supported.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/states.rs",
@@ -142,8 +142,27 @@
           "followups": []
         },
         {
+          "id": "MODEL-02.4",
+          "summary": "A versioned, bounded valence policy computes non-vertex hydrogens separately from recorded states, and reports unsupported inputs per atom without editing the drawing.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/valence.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "case:valence-inspection",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P16",
+            "P17"
+          ]
+        },
+        {
           "id": "MODEL-02.rest",
-          "summary": "Valence, computed (inferred) hydrogen counts, aromaticity perception and Kekule forms, and query matching.",
+          "summary": "Aromaticity perception, Kekule forms, query matching and broader valence models.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -614,11 +633,30 @@
       "operations": [
         "chem.validate"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CHEM-02.1",
+          "summary": "Read-only valence inspection distinguishes unusual valence and indeterminate input with atom IDs and leaves graph and history unchanged.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/valence.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:valence-inspection",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P16",
+            "P17",
+            "P24"
+          ]
+        },
+        {
           "id": "CHEM-02.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Parser errors, other opaque values, and chemical diagnostics beyond the bounded valence model.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1161,7 +1199,7 @@
         },
         {
           "id": "API-01.4",
-          "summary": "Operation contract 1: each request names its contract version, request_id, compatibility profile and operation; each reply gives an envelope, an outcome (ok, partial, error, unsupported), the document revision, a typed result, model_id, diagnostics with paths and details, and a loss report. HTTP and the CLI pass the request bytes to the same Application::execute, and failures carry the v1 error codes. The catalog states, per operation and per transaction sub-operation, representation apart from execution, with the follow-up for what does not run; an operation that does not run (every chem.* operation among them) is answered unsupported, never with a result. model_id is always null and the loss report always empty: no operation uses a model or drops content.",
+          "summary": "Operation contract 1: each request names its contract version, request_id, compatibility profile and operation; each reply gives an envelope, an outcome (ok, partial, error, unsupported), the document revision, a typed result, model_id, diagnostics with paths and details, and a loss report. HTTP and the CLI pass the request bytes to the same Application::execute, and failures carry the v1 error codes. The catalog states, per operation and per transaction sub-operation, representation apart from execution, with the follow-up for what does not run; an operation that does not run is answered unsupported, never with a result. Valence inspection identifies its method in model_id; operations that do not use a model leave it null.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/operation.rs",
@@ -1181,7 +1219,7 @@
         },
         {
           "id": "API-01.rest",
-          "summary": "Model identifiers from operations that use a model or method, resource and cancel errors, reproducing observed behaviour under the legacy-observed profile, other adapters.",
+          "summary": "resource and cancel errors, reproducing observed behaviour under the legacy-observed profile, other adapters.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

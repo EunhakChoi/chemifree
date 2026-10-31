@@ -23,12 +23,33 @@ export type QueryAtom =
 export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
 
 /**
- * An atom's hydrogen state. `inferred` means "to be derived from valence"; nothing derives it,
- * so it has no count and nothing is shown for it.
+ * An atom's recorded hydrogen state. Analysis can derive a count without changing it.
  */
 export type Hydrogens = { mode: 'inferred' } | { mode: 'unknown' } | { mode: 'specified'; count: number }
 
 export type Radical = 'none' | 'singlet' | 'doublet' | 'triplet' | 'unknown'
+
+export interface AtomValidation {
+  atom_id: string
+  bond_order_sum: number | null
+  hydrogens: number | null
+  status: 'valid' | 'invalid' | 'unsupported'
+  reason: string | null
+}
+
+export interface ValidationResult {
+  revision: number
+  model: string
+  atoms: AtomValidation[]
+}
+
+function isAtomValidation(value: unknown): value is AtomValidation {
+  return isRecord(value) && typeof value.atom_id === 'string' &&
+    (value.bond_order_sum === null || isCount(value.bond_order_sum)) &&
+    (value.hydrogens === null || isCount(value.hydrogens)) &&
+    (value.status === 'valid' || value.status === 'invalid' || value.status === 'unsupported') &&
+    (value.reason === null || typeof value.reason === 'string')
+}
 
 /** The most hydrogens an atom can be stated to carry, and the attachment points it may have. */
 export const MAX_STATED_HYDROGENS = 16
@@ -1149,6 +1170,23 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible reply.', 200)
     }
     return value
+  }
+
+  /** Read-only chemistry analysis tied to the same service session as this editor. */
+  async validate(id: string): Promise<ValidationResult> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1,
+      request_id: requestId(),
+      profile: 'preserve-semantics',
+      operation: 'chem.validate',
+      parameters: { document_id: id },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || !isCount(value.document_revision) ||
+      typeof value.model_id !== 'string' || !isRecord(value.result) ||
+      !Array.isArray(value.result.atoms) || !value.result.atoms.every(isAtomValidation)) {
+      throw new ApiError('analysis_unavailable', 'The local service could not inspect this drawing.', 200)
+    }
+    return { revision: value.document_revision, model: value.model_id, atoms: value.result.atoms }
   }
 
   /**

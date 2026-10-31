@@ -1,0 +1,32 @@
+{
+  "id": "valence-inspection",
+  "title": "Read-only valence inspection computes methane and identifies an unsupported metal",
+  "requirements": ["MODEL-02", "CHEM-02"],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {"call": "create", "bind": "d"},
+    {"call": "transact", "document": "d", "expected_revision": 0,
+      "commands": [
+        {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+        {"op": "add_atom", "element": "Fe", "position": {"x": 20, "y": 0}}
+      ],
+      "expect": {"document": {"revision": 1}}
+    },
+    {"call": "operation", "document": "d", "request": {
+      "contract": 1, "request_id": "check-valence", "profile": "preserve-semantics",
+      "operation": "chem.validate", "parameters": {}
+    }, "expect": {
+      "outcome": "ok", "document_revision": 1, "model_id": "chemifree-valence-1", "loss_report": [],
+      "result": {"atoms": [
+        {"atom_id": "a1", "bond_order_sum": 0, "hydrogens": 4, "status": "valid", "reason": null},
+        {"atom_id": "a2", "bond_order_sum": 0, "hydrogens": null, "status": "unsupported", "reason": "element_or_charge"}
+      ]},
+      "diagnostics": [{"code": "valence_diagnostic", "severity": "warning", "details": {"atom_id": "a2", "reason": "element_or_charge"}}]
+    }},
+    {"call": "get", "document": "d", "expect": {"document": {"revision": 1, "atoms": [
+      {"id": "a1", "hydrogens": {"mode": "inferred"}},
+      {"id": "a2", "hydrogens": {"mode": "inferred"}}
+    ]}, "session": {"undo_depth": 1, "redo_depth": 0}}}
+  ]
+}

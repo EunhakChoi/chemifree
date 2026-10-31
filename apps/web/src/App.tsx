@@ -158,7 +158,7 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
             <section aria-label="External data status" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-medium">External data</h3>
-                <Badge variant="outline">Chemistry engine not implemented</Badge>
+                <Badge variant="outline">DATA-backed models not implemented</Badge>
               </div>
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {state.snapshot.dataStatus === null && 'Data status is unavailable.'}
@@ -191,7 +191,7 @@ function CapabilitiesCard({ state }: { state: RuntimeState }) {
       </CardContent>
       <CardFooter>
         <p className="text-xs leading-relaxed text-muted-foreground">
-          The web UI and CLI use the same application service. No chemical analysis engine or model data is included.
+          The web UI and CLI use the same application service. Valence inspection is available; external DATA does not enable prediction engines.
         </p>
       </CardFooter>
     </Card>
@@ -245,7 +245,7 @@ function App() {
             </div>
             <h1 id="workspace-title" className="text-3xl font-semibold tracking-tight sm:text-4xl">A clear space for chemistry.</h1>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-              An open-source chemical drawing workspace for humans and agents. Draw, undo, save, and reopen structures locally; chemistry analysis comes later.
+              An open-source chemical drawing workspace for humans and agents. Draw, inspect, undo, save, and reopen structures locally.
             </p>
           </section>
 

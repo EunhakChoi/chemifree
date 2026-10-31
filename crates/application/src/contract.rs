@@ -1251,7 +1251,7 @@ pub struct AtomView {
     pub kind: AtomKindView,
     /// The query a query atom stands for; null for an element.
     pub query: Option<QueryDto>,
-    /// `{"mode": "inferred"}` has no count: nothing computes it.
+    /// `{"mode": "inferred"}` stores no count; analysis can derive one separately.
     pub hydrogens: HydrogensDto,
     pub radical: RadicalDto,
     /// Ascending, 1-4; empty when there are none.

@@ -482,6 +482,7 @@ export function useDocumentEditor() {
       },
       [mutate, adoptSelection],
     ),
+    validate: useCallback((documentId: string) => client.validate(documentId), []),
     save: useCallback(() => mutate((document) => client.save(id(), revision(document))), [mutate]),
     close: useCallback(
       (discardUnsaved: boolean) => {

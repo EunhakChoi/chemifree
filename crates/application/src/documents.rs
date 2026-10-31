@@ -650,6 +650,19 @@ impl<R: DocumentRepository> Documents<R> {
         Ok(self.respond(session))
     }
 
+    /// Read one consistent working graph without copying its potentially large edit history.
+    pub(crate) fn inspect_valence(
+        &self,
+        id: &str,
+    ) -> Result<(u64, Vec<chemifree_domain::valence::AtomValence>), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((
+            session.document.revision(),
+            chemifree_domain::valence::inspect(&session.document),
+        ))
+    }
+
     pub(crate) fn transact(
         &self,
         id: &str,

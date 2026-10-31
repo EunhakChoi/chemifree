@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 6,
+  "suite_version": 7,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -318,7 +318,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "3c726eec15d45f02ed4b5929f582f8df3ee6858ad10d86660abd3229514acc10"
+      "case_sha256": "e0266815fde2bdbb248680c0265026cefaec5cddad3e670ad57ef40030e8b670"
     },
     {
       "id": "operation-errors-match-v1",
@@ -345,7 +345,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "86b4989e3d304996bd9a45b0c679695d522b2a61759e4a8d953f3be79c7ddb3f"
+      "case_sha256": "3041d5535c88d5043e020c50976c3844923a5e88143ddf3ec153b0943f335e00"
     },
     {
       "id": "operation-version-refused",
@@ -399,11 +399,25 @@
       "pending": null,
       "failure": null,
       "case_sha256": "64cb75a82d36e32031386dc89aee87fecce81226255d4775a22fb41b17d95daf"
+    },
+    {
+      "id": "valence-inspection",
+      "title": "Read-only valence inspection computes methane and identifies an unsupported metal",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "eb9a50a11c002df35e093386aa4084c74c56d6984f7cccbf40af18aa2b6e9059"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 15,
+      "passed": 16,
       "failed": 0,
       "not_run": 2
     },
@@ -413,7 +427,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 27,
+      "passed": 28,
       "failed": 0,
       "not_run": 2
     }
