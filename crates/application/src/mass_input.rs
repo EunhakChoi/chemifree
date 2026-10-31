@@ -134,21 +134,30 @@ impl<'de> Deserialize<'de> for UnitValue {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ElementRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub element_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub atomic_number_u32: u32,
     pub symbol: String,
     pub natural_atomic_weight: DecimalValue,
+    #[serde(deserialize_with = "json::deserialize_integer_vec")]
     pub permitted_valences_u32: Vec<u32>,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub first_isotope_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub isotope_rows: u64,
 }
 
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct IsotopeRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub isotope_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub element_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub atomic_number_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub mass_number_u32: u32,
     pub mass: DecimalValue,
     pub abundance_percent: DecimalValue,
@@ -160,9 +169,13 @@ pub struct IsotopeRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StaticSelection {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub element_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub atomic_number_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub selected_isotope_row_ordinal: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub mass_number_u32: u32,
     pub mass: DecimalValue,
     pub all_abundances_zero: bool,
@@ -172,8 +185,11 @@ pub struct StaticSelection {
 #[serde(deny_unknown_fields)]
 pub struct AliasRow {
     pub symbol: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub atomic_number_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub mass_number_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub source_isotope_row_ordinal: u64,
 }
 
@@ -190,8 +206,11 @@ pub struct MassFeatures {
     pub schema_id: String,
     pub source_decimal_tokens_authoritative: bool,
     pub reference_f64_decode_is_independent_not_original_runtime_capture: bool,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub element_rows: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub isotope_rows: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub alias_rows: u64,
     pub element_key_type: String,
     pub isotope_key_type: String,
@@ -257,8 +276,8 @@ fn read_document<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, MassInputError>
     if bytes.len() as u64 > crate::MAX_DATA_FILE_BYTES || bytes.starts_with(b"\xef\xbb\xbf") {
         return Err(MassInputError::InvalidShape);
     }
-    let value = json::parse_integer_zero_strict(bytes).map_err(|_| MassInputError::InvalidShape)?;
-    serde_json::from_value(value).map_err(|_| MassInputError::InvalidShape)
+    json::validate_raw_strict(bytes).map_err(|_| MassInputError::InvalidShape)?;
+    serde_json::from_slice(bytes).map_err(|_| MassInputError::InvalidShape)
 }
 
 // Deserialize only this value as a raw JSON token after strict duplicate-key checking.
