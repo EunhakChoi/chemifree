@@ -1081,7 +1081,7 @@ mod tests {
              carbon labels default · display unit pt\n\
              \x20   set: line_width_pt\n\
              \x20 computation.nmr  not implemented (P66)\n\
-             \x20 computation.numeric_precision  not implemented (P15)\n"
+             \x20 computation.numeric_precision  not implemented (P19)\n"
         );
     }
 }

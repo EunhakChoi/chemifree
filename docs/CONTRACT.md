@@ -76,7 +76,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 
 Unknown parameters are `invalid_request` (`path: "parameters"`). Every other operation name the catalog lists (`document.import`, `document.export`, `chem.validate`, `chem.properties`, `chem.name_to_structure`, `chem.structure_to_name`, `layout.structure`, `layout.reaction`, `render.scene`, `biopolymer.expand`, `prediction.evaluate`, `integration.invoke`, `script.evaluate`) is answered `outcome: "unsupported"` with `details: { execution, followup }`, whatever its parameters. Prediction uses the diagnostic `model_unavailable`; the other operations use `operation_not_implemented`: nothing is computed and no placeholder result is returned. Semantics match the v1 routes: the same `request_id` replay and reuse rules, revisions, sessions, and saving. An operation that fails reports the v1 error code as its diagnostic (`revision_conflict`, `document_not_found`, `storage_failed`, …), with `details.current_revision`, `details.command_index`, and `details.reason` where the v1 envelope has them.
 
-## Numeric foundation (P15 in progress)
+## Numeric foundation (P15)
 
 The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32, binary64 and 80-bit extended raw storage. Finite conversions and basic arithmetic use each documented rounding rule at explicit intermediate stores, and report nonfinite input, invalid encodings, division by zero, overflow or resource limits. The selected heading step uses explicit extended intermediate operations and a binary64 final store; the deviation boundary rounds nonnegative half-integers upward. Typed length conversion uses the computer point and exact physical factors; an independent Real48 mol/L–g/L conversion requires an explicit positive molar mass. Decimal display and F32 storage each use their stated, separate rounding rules. These types do not add an HTTP or CLI chemistry operation or claim legacy property-unit or locale equivalence. The exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
 
@@ -244,7 +244,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
   "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
   "computation": {
     "nmr": { "status": "not_implemented", "owner": "preferences", "followup": "P66", "note": "..." },
-    "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P15", "note": "..." } } }
+    "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P19", "note": "..." } } }
 ```
 
 - `ui.theme` (`system | light | dark`) is the web page's theme (`system` follows the operating system). `new_documents` holds the settings fields new documents start from, as stored; `new_document_settings` is the built-in defaults overlaid with them.

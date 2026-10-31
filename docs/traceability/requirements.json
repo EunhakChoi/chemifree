@@ -595,7 +595,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P15",
             "P19",
             "P52",
             "P58",
@@ -727,7 +726,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P15",
             "P17",
             "P37",
             "P42",
@@ -884,7 +882,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P15",
             "P24",
             "P58",
             "P59",
@@ -915,7 +912,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P15",
             "P65",
             "P66",
             "P67"
@@ -1053,7 +1049,7 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P15",
+            "P19",
             "P35",
             "P40",
             "P66",

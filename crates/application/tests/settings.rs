@@ -254,7 +254,7 @@ fn computation_preferences_are_refused_as_not_implemented_and_never_stored() {
     .unwrap();
 
     let reported = json_of(&app.preferences().unwrap())["computation"].clone();
-    for (setting, followup) in [("nmr", "P66"), ("numeric_precision", "P15")] {
+    for (setting, followup) in [("nmr", "P66"), ("numeric_precision", "P19")] {
         assert_eq!(reported[setting]["status"], "not_implemented", "{setting}");
         assert_eq!(reported[setting]["owner"], "preferences", "{setting}");
         assert_eq!(reported[setting]["followup"], followup, "{setting}");
