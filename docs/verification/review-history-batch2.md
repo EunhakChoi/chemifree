@@ -171,7 +171,7 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 
 ## #37 P14 첫 분할 — 신뢰된 DATA 등록 기반(병합)
 
-시간은 UTC다. [#37](https://github.com/EunhakChoi/chemifree/pull/37)은 보존된 P14 작업을 P12 병합 main에 옮겨 이어받았다. 세 정규화 프로필과 별도 윤곽 디코더만 다루므로 P14 전체는 아직 진행 중이다.
+시간은 UTC다. [#37](https://github.com/EunhakChoi/chemifree/pull/37)은 보존된 P14 작업을 P12 병합 main에 옮겨 이어받았다. #37 당시에는 세 정규화 프로필과 별도 윤곽 디코더만 다뤘으므로 P14 전체가 진행 중이었다.
 
 | 회차 | 요청 시각 | 대상 head | 완료 시각 | 결과와 처리 | 링크 |
 |---|---|---|---|---|---|
