@@ -127,7 +127,7 @@ const QUERY_ATOMS: { value: Exclude<QueryAtom['kind'], 'list'>; label: string }[
   { value: 'halogen', label: 'Query: any halogen' },
 ]
 const HYDROGEN_MODES: { value: Hydrogens['mode']; label: string; text: string }[] = [
-  { value: 'inferred', label: 'Hydrogens inferred (not computed)', text: 'Inferred' },
+  { value: 'inferred', label: 'Hydrogens inferred', text: 'Inferred' },
   { value: 'unknown', label: 'Hydrogens unknown', text: 'Unknown' },
   { value: 'specified', label: 'Hydrogens stated', text: 'Stated' },
 ]
@@ -179,7 +179,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Drawing only: Chemifree records atoms and bonds as drawn. Valence, aromaticity, stereo, and naming are not computed.
+          Atoms and bonds are recorded as drawn. Check valence to inspect supported states without editing them.
         </p>
       </CardFooter>
     </Card>
