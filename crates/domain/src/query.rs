@@ -5,10 +5,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::aromaticity;
 use crate::document::{Atom, AtomId, Bond, BondOrder, Document};
+use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
 pub const MATCH_MODEL: &str = "chemifree-query-recorded-1";
+pub const AROMATIC_TARGET_MODEL: &str = "chemifree-query-aromatic-target-1";
 pub const MAX_QUERY_ATOMS: usize = 64;
 pub const MAX_MATCHES: usize = 1000;
 pub const MAX_STATES: usize = 1_000_000;
@@ -30,6 +33,15 @@ pub enum QueryError {
     InvalidPredicate,
     UnsupportedQuery,
     UnsupportedTarget,
+    AromaticTargetUnsupported(&'static str),
+}
+
+/// Query bonds remain explicit predicates in both modes. The second mode interprets
+/// supported target ring bonds with `chemifree-aromaticity-1` before matching.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MatchModel {
+    Recorded,
+    AromaticTarget,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,10 +66,11 @@ struct Graph<'a> {
     atoms: Vec<&'a Atom>,
     adjacent: Vec<Vec<(usize, &'a Bond)>>,
     in_ring: Vec<bool>,
+    perceived_aromatic: BTreeSet<(AtomId, AtomId)>,
 }
 
 impl<'a> Graph<'a> {
-    fn new(document: &'a Document) -> Self {
+    fn new(document: &'a MoleculeGraph, perceived_aromatic: BTreeSet<(AtomId, AtomId)>) -> Self {
         let atoms: Vec<_> = document.atoms().collect();
         let ids: Vec<_> = atoms.iter().map(|(id, _)| *id).collect();
         let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
@@ -77,6 +90,7 @@ impl<'a> Graph<'a> {
             atoms: atoms.into_iter().map(|(_, a)| a).collect(),
             adjacent,
             in_ring,
+            perceived_aromatic,
         }
     }
 
@@ -186,11 +200,22 @@ fn atom_matches(
     })
 }
 
-fn bond_matches(query: &Bond, source: AtomId, target: &Bond, target_source: AtomId) -> bool {
+fn bond_matches(
+    query: &Bond,
+    source: AtomId,
+    target: &Bond,
+    target_source: AtomId,
+    aromatic: bool,
+) -> bool {
+    let target_order = if aromatic {
+        &BondOrder::Aromatic
+    } else {
+        &target.order
+    };
     match &query.order {
         BondOrder::Query(BondQuery::Any) => true,
         BondOrder::Query(BondQuery::OneOf(orders)) => {
-            let target = match target.order {
+            let target = match target_order {
                 BondOrder::Single => Some(QueryBondOrder::Single),
                 BondOrder::Double => Some(QueryBondOrder::Double),
                 BondOrder::Triple => Some(QueryBondOrder::Triple),
@@ -200,10 +225,10 @@ fn bond_matches(query: &Bond, source: AtomId, target: &Bond, target_source: Atom
             target.is_some_and(|order| orders.contains(&order))
         }
         BondOrder::Dative => {
-            target.order == BondOrder::Dative
+            *target_order == BondOrder::Dative
                 && (query.begin == source) == (target.begin == target_source)
         }
-        order => *order == target.order,
+        order => order == target_order,
     }
 }
 
@@ -284,7 +309,17 @@ impl Search<'_> {
                 }
                 let bond = self.query.adjacent[q][edge_index].1;
                 if !self.target.edge(t, mapped).is_some_and(|target_bond| {
-                    bond_matches(bond, self.query.ids[q], target_bond, self.target.ids[t])
+                    let key = (
+                        target_bond.begin.min(target_bond.end),
+                        target_bond.begin.max(target_bond.end),
+                    );
+                    bond_matches(
+                        bond,
+                        self.query.ids[q],
+                        target_bond,
+                        self.target.ids[t],
+                        self.target.perceived_aromatic.contains(&key),
+                    )
                 }) {
                     edges_match = false;
                     break;
@@ -314,8 +349,49 @@ pub fn find(
     match_limit: usize,
     state_limit: usize,
 ) -> Result<SearchResult, QueryError> {
-    let query = Graph::new(query);
-    let target = Graph::new(target);
+    find_graphs(
+        &MoleculeGraph::from_document(query),
+        &MoleculeGraph::from_document(target),
+        predicates,
+        match_limit,
+        state_limit,
+        MatchModel::Recorded,
+    )
+}
+
+/// Match immutable graph snapshots. Aromatic target interpretation is opt-in and fails
+/// as a whole when the named aromaticity model cannot justify the target representation.
+pub fn find_graphs(
+    query: &MoleculeGraph,
+    target: &MoleculeGraph,
+    predicates: &[AtomPredicate],
+    match_limit: usize,
+    state_limit: usize,
+    model: MatchModel,
+) -> Result<SearchResult, QueryError> {
+    let perceived_aromatic = if model == MatchModel::AromaticTarget {
+        let interpretation = aromaticity::perceive(target);
+        interpretation
+            .kekulize()
+            .map_err(QueryError::AromaticTargetUnsupported)?;
+        let bonds: BTreeSet<_> = interpretation
+            .aromatize()
+            .map_err(QueryError::AromaticTargetUnsupported)?
+            .into_iter()
+            .collect();
+        target
+            .bonds()
+            .filter_map(|(id, bond)| {
+                bonds
+                    .contains(&id)
+                    .then_some((bond.begin.min(bond.end), bond.begin.max(bond.end)))
+            })
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
+    let query = Graph::new(query, BTreeSet::new());
+    let target = Graph::new(target, perceived_aromatic);
     if query.ids.is_empty() {
         return Err(QueryError::EmptyQuery);
     }

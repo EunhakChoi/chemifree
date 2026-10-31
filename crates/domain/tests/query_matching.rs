@@ -2,7 +2,10 @@ use chemifree_domain::document::{
     Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
-use chemifree_domain::query::{AtomPredicate, QueryError, SearchLimit, find};
+use chemifree_domain::graph::MoleculeGraph;
+use chemifree_domain::query::{
+    AtomPredicate, MatchModel, QueryError, SearchLimit, find, find_graphs,
+};
 use chemifree_domain::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
 
 fn atom(symbol: &str) -> Atom {
@@ -228,6 +231,73 @@ fn aromatic_bonds_match_recorded_aromatic_bonds_but_not_kekule_orders() {
             .mappings
             .is_empty()
     );
+}
+
+#[test]
+fn aromatic_query_can_use_the_named_target_model_without_guessing_invalid_targets() {
+    let query = graph(
+        "query-aromatic",
+        vec![atom("C"), atom("C")],
+        &[(0, 1, BondOrder::Aromatic)],
+    );
+    let edges = (0..6)
+        .map(|i| {
+            (
+                i,
+                (i + 1) % 6,
+                if i % 2 == 0 {
+                    BondOrder::Double
+                } else {
+                    BondOrder::Single
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let kekule = graph("benzene-kekule", vec![atom("C"); 6], &edges);
+    let aromatic = graph(
+        "benzene-aromatic",
+        vec![atom("C"); 6],
+        &(0..6)
+            .map(|i| (i, (i + 1) % 6, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    for target in [&kekule, &aromatic] {
+        let result = find_graphs(
+            &MoleculeGraph::from_document(&query),
+            &MoleculeGraph::from_document(target),
+            &[],
+            100,
+            10_000,
+            MatchModel::AromaticTarget,
+        )
+        .unwrap();
+        assert!(result.complete);
+        assert_eq!(result.mappings.len(), 12);
+    }
+    assert!(
+        find(&query, &kekule, &[], 100, 10_000)
+            .unwrap()
+            .mappings
+            .is_empty()
+    );
+    let invalid = graph(
+        "invalid-aromatic",
+        vec![atom("C"); 4],
+        &(0..4)
+            .map(|i| (i, (i + 1) % 4, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    assert!(matches!(
+        find_graphs(
+            &MoleculeGraph::from_document(&query),
+            &MoleculeGraph::from_document(&invalid),
+            &[],
+            100,
+            10_000,
+            MatchModel::AromaticTarget
+        ),
+        Err(QueryError::AromaticTargetUnsupported(_))
+    ));
 }
 
 #[test]
