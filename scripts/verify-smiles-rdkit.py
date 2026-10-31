@@ -94,7 +94,13 @@ def main() -> None:
         "C1=CC=CC=C1",
         "c1ccccc1",
         "[nH]1cccc1",
+        "[nH+]1ccccc1",
+        "c1ccc2ccccc2c1",
         "[13CH3-].[NH4+]",
+        "[13CH4]",
+        "[OH-]",
+        "[Na+].[Cl-]",
+        "[2H]O[2H]",
         "C1CC11CC1",
         "c1ccccc1-c1ccccc1",
     ):
