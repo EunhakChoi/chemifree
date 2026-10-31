@@ -138,13 +138,13 @@ fn ascii_line(value: &str, record: usize, line: Option<usize>) -> Result<(), CtE
     Ok(())
 }
 
-fn column<'a>(
-    value: &'a str,
+fn column(
+    value: &str,
     start: usize,
     end: usize,
     record: usize,
     line: Option<usize>,
-) -> Result<&'a str, CtError> {
+) -> Result<&str, CtError> {
     if value.len() <= start {
         return Ok("");
     }
@@ -568,10 +568,22 @@ fn parse_record(
     }
     let property_count = number(counts, 30, 33, record, lines.line())?;
     if !(0..=999).contains(&property_count) {
-        return Err(error("invalid_counts", record, lines.line(), "The obsolete property count must be nonnegative."));
+        return Err(error(
+            "invalid_counts",
+            record,
+            lines.line(),
+            "The obsolete property count must be nonnegative.",
+        ));
     }
     if property_count != 0 && property_count != 999 {
-        losses.push(loss(record, ".counts.property_count", "obsolete_property_count", LossDisposition::Dropped, SemanticImpact::Document, "The obsolete count of property lines is not retained."));
+        losses.push(loss(
+            record,
+            ".counts.property_count",
+            "obsolete_property_count",
+            LossDisposition::Dropped,
+            SemanticImpact::Document,
+            "The obsolete count of property lines is not retained.",
+        ));
     }
     let mut atoms = Vec::with_capacity(atom_count);
     let mut masses = Vec::with_capacity(atom_count);

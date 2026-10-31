@@ -251,10 +251,25 @@ pub(crate) fn export_record(
         ));
     }
     if let Some(first) = doc.scene.instances.first() {
-        losses.push(loss(index, &format!(".scene.instances[{}]", first.id), "placement_id", SemanticImpact::Document, "The placement ID is not embedded in V2000."));
+        losses.push(loss(
+            index,
+            &format!(".scene.instances[{}]", first.id),
+            "placement_id",
+            SemanticImpact::Document,
+            "The placement ID is not embedded in V2000.",
+        ));
     }
-    if !doc.selection.atoms.is_empty() || !doc.selection.bonds.is_empty() || !doc.selection.objects.is_empty() {
-        losses.push(loss(index, ".selection", "selection", SemanticImpact::Document, "The editor selection is not written."));
+    if !doc.selection.atoms.is_empty()
+        || !doc.selection.bonds.is_empty()
+        || !doc.selection.objects.is_empty()
+    {
+        losses.push(loss(
+            index,
+            ".selection",
+            "selection",
+            SemanticImpact::Document,
+            "The editor selection is not written.",
+        ));
     }
     for instance in doc.scene.instances.iter().skip(1) {
         losses.push(loss(

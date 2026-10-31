@@ -721,17 +721,18 @@ impl<R: DocumentRepository> Documents<R> {
         id: &str,
         expected_revision: u64,
         commands: &[Command],
-    ) -> Result<DocumentResponse, ApplicationError> {
+    ) -> Result<(DocumentResponse, DocumentResponse), ApplicationError> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         session.expect_revision(expected_revision)?;
+        let before = session.response();
         let mut candidate = session.document.clone();
-        candidate.apply(commands).map_err(rejected_edit)?;
-        Ok(DocumentResponse::new(
-            &candidate,
-            session.saved_revision,
-            session.draft_revision,
-        ))
+        if !commands.is_empty() {
+            candidate.apply(commands).map_err(rejected_edit)?;
+        }
+        let after =
+            DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+        Ok((before, after))
     }
 
     /// Recheck the consented candidate under the session lock and commit it atomically.
@@ -742,15 +743,18 @@ impl<R: DocumentRepository> Documents<R> {
         expected_revision: u64,
         fingerprint: String,
         commands: &[Command],
-        verify: impl FnOnce(&DocumentView) -> Result<(), ApplicationError>,
+        verify: impl FnOnce(&DocumentView, &DocumentView) -> Result<(), ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
         let mutation = Mutation::ImportCtfile { fingerprint };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
+            let before = session.response();
             let mut candidate = session.document.clone();
-            candidate.apply(commands).map_err(rejected_edit)?;
+            if !commands.is_empty() {
+                candidate.apply(commands).map_err(rejected_edit)?;
+            }
             let projected =
                 DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
-            verify(&projected.document)?;
+            verify(&before.document, &projected.document)?;
             session.document = candidate;
             Ok(())
         })

@@ -2534,6 +2534,29 @@ step = 'after short_wide_bond_is_selectable'
   const written = readFileSync(path, 'utf8')
   assert.match(written, /V2000/)
   assert.match(written, /M  END/)
+
+  // The page still shows the imported carbon at revision 1. A restarted service can reuse
+  // that revision for a different unsaved graph. First check an old export cannot download;
+  // then the refreshed token must not make the oxygen snapshot look like the carbon preview.
+  await crashApi()
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-browser-replacement', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(replacement.body.document.revision, 1)
+  assert.equal(replacement.body.document.atoms[0].element, 'O')
+  let extraDownloads = 0
+  const countDownload = () => { extraDownloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('link', { name: 'Download MOL' }).click()
+  await panel.getByText(/The local service restarted/).waitFor()
+  await panel.getByRole('link', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
+  assert.equal(extraDownloads, 0, 'an old export is not downloaded after restart')
+  page.off('download', countDownload)
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('The service previewed a different drawing. Reload and preview again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
   results.ctfile_preview_import_export = true
 }
 

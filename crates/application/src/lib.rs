@@ -125,6 +125,9 @@ pub struct Application<C, R> {
     preferences: PreferenceService,
     data_registry: DataRegistry,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
+    /// A process-local binding for conversion previews. If entropy is unavailable, previews
+    /// are refused rather than accepting a token from an earlier service instance.
+    ctfile_generation: Option<[u8; 16]>,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -137,6 +140,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
             ctfile_codec: None,
+            ctfile_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
         }
     }
 

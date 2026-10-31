@@ -291,3 +291,12 @@ fn numbered_fields_and_registry_text_are_distinguished() {
             .any(|item| item.feature == "data_header_metadata")
     );
 }
+
+#[test]
+fn aromatic_type_four_is_refused_as_a_query_family_bond() {
+    let input = MOL.replace("  1  2  1  0", "  1  2  4  0");
+    let error = V2000Codec
+        .read(CtFormat::Mol, input.as_bytes())
+        .unwrap_err();
+    assert_eq!(error.code, "unsupported_bond");
+}

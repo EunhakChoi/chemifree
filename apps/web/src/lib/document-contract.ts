@@ -965,6 +965,7 @@ export interface CtLoss {
 
 export interface CtPreview {
   digest: string
+  snapshot: DocumentView
   records: Array<{ title: string; atoms: number; bonds: number; fields: Array<{ name: string; value: string }> }>
   losses: CtLoss[]
 }
@@ -976,6 +977,11 @@ export interface CtImport {
   source: string
   record: number
   digest: string
+}
+
+/** Full drawing comparison for conversion previews, including scene and settings. */
+export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 interface CtSourceRecord {
@@ -1181,15 +1187,19 @@ export class DocumentClient {
     const { result } = reply
     if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
         result.selected_record !== record || !Array.isArray(result.records) ||
-        !result.records.every(isCtSourceRecord) ||
+        !result.records.every(isCtSourceRecord) || !isRecord(result.snapshot) ||
         !isRecord(result.document) || result.document.id !== documentId || !Array.isArray(result.document.atoms) ||
         !Array.isArray(result.document.bonds)) {
       throw new ApiError('incompatible_response', 'The service returned an incompatible import preview.', 200)
     }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The import preview used a different drawing or revision.', 200)
+    }
     const records = result.records.map((item) => ({
       title: item.title, atoms: item.atoms.length, bonds: item.bonds.length, fields: item.fields,
     }))
-    return { digest: result.preview_digest, records, losses: reply.losses }
+    return { digest: result.preview_digest, snapshot, records, losses: reply.losses }
   }
 
   async importCt(input: CtImport): Promise<DocumentResponse> {

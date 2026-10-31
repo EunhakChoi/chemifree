@@ -163,7 +163,7 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
-    CtPreview(CtPreviewResult),
+    CtPreview(Box<CtPreviewResult>),
     CtExport(CtExportResult),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
@@ -215,6 +215,8 @@ pub struct CtMapping {
 pub struct CtPreviewResult {
     pub selected_record: usize,
     pub records: Vec<CtRecord>,
+    /// Exact working snapshot captured under the same lock as the candidate.
+    pub snapshot: DocumentResult,
     pub document: DocumentView,
     pub preview_digest: String,
 }
@@ -966,7 +968,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 losses,
             );
         }
-        let candidate =
+        let Some(generation) = self.ctfile_generation else {
+            return known.invalid(ct_failure(CtError {
+                code: "service_identity_unavailable",
+                message: "A service identity could not be created for the preview.".into(),
+                record: p.record,
+                line: None,
+            }));
+        };
+        let (before, candidate) =
             match self
                 .documents
                 .preview_import(&p.document_id, p.expected_revision, &commands)
@@ -974,21 +984,32 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(candidate) => candidate,
                 Err(error) => return known.indexed_error(&error, p.record),
             };
-        let bind = |document: &DocumentView| {
-            ct_projection::digest(&(p.format, p.record, &p.source, document, &losses))
+        if before.document != target.document {
+            return known.invalid(ct_failure(CtError {
+                code: "preview_changed",
+                message: "The drawing changed while the import preview was prepared.".into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        let bind = |snapshot: &DocumentView, document: &DocumentView| {
+            ct_projection::digest(&(
+                generation, p.format, p.record, &p.source, snapshot, document, &losses,
+            ))
         };
-        let preview_digest = bind(&candidate.document);
+        let preview_digest = bind(&before.document, &candidate.document);
         if p.preview {
             let revision = target.document.revision;
             return converted(
                 known,
                 Some(revision),
-                OperationResult::CtPreview(CtPreviewResult {
+                OperationResult::CtPreview(Box::new(CtPreviewResult {
                     selected_record: p.record,
                     records: input.value,
+                    snapshot: before.into(),
                     document: candidate.document,
                     preview_digest,
-                }),
+                })),
                 losses,
             );
         }
@@ -1017,8 +1038,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             p.expected_revision,
             fingerprint,
             &commands,
-            |current| {
-                if bind(current) == preview_digest {
+            |current, candidate| {
+                if bind(current, candidate) == preview_digest {
                     Ok(())
                 } else {
                     Err(ApplicationError::new(

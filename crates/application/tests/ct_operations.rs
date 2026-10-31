@@ -318,20 +318,117 @@ fn cumulative_export_limit_points_to_the_record_that_crosses_it() {
 fn preview_and_export_are_bound_to_graph_when_restart_reuses_revision() {
     let (application, directory, id) = setup();
     let edit = |element: &str| json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":element,"position":{"x":0,"y":0}}]});
-    assert_eq!(call(&application, "edit-carbon", "document.transaction", edit("C"))["document_revision"], 1);
+    assert_eq!(
+        call(
+            &application,
+            "edit-carbon",
+            "document.transaction",
+            edit("C")
+        )["document_revision"],
+        1
+    );
     let previewed = preview(&application, &id, MOL, "mol", 1, 1);
-    let digest = previewed["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let digest = previewed["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let old = snapshot(&application, &id);
     drop(application);
 
     let restarted = app(directory.path());
-    assert_eq!(call(&restarted, "edit-oxygen", "document.transaction", edit("O"))["document_revision"], 1);
+    assert_eq!(
+        call(&restarted, "edit-oxygen", "document.transaction", edit("O"))["document_revision"],
+        1
+    );
     let current = snapshot(&restarted, &id);
     assert_eq!(old["revision"], current["revision"]);
-    assert_eq!((old["atoms"][0]["element"].as_str(), current["atoms"][0]["element"].as_str()), (Some("C"), Some("O")));
-    let commit = call(&restarted, "stale-import", "document.import", json!({"document_id":id,"expected_revision":1,"format":"mol","source":MOL,"record":1,"preview_digest":digest,"accept_loss":true}));
+    assert_eq!(
+        (
+            old["atoms"][0]["element"].as_str(),
+            current["atoms"][0]["element"].as_str()
+        ),
+        (Some("C"), Some("O"))
+    );
+    let commit = call(
+        &restarted,
+        "stale-import",
+        "document.import",
+        json!({"document_id":id,"expected_revision":1,"format":"mol","source":MOL,"record":1,"preview_digest":digest,"accept_loss":true}),
+    );
     assert_eq!(commit["diagnostics"][0]["code"], "preview_changed");
     assert_eq!(snapshot(&restarted, &id), current);
-    let export = call(&restarted, "export-current", "document.export", json!({"format":"mol","records":[{"document_id":id}]}));
-    assert_eq!(export["result"]["records"][0]["snapshot"]["document"], current);
+    let export = call(
+        &restarted,
+        "export-current",
+        "document.export",
+        json!({"format":"mol","records":[{"document_id":id}]}),
+    );
+    assert_eq!(
+        export["result"]["records"][0]["snapshot"]["document"],
+        current
+    );
+}
+
+#[test]
+fn an_empty_mol_is_a_replayable_no_op_without_revision_or_history_change() {
+    let (application, _directory, id) = setup();
+    let empty = "Empty\n\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n";
+    let before = snapshot(&application, &id);
+    let inspected = preview(&application, &id, empty, "mol", 1, 0);
+    assert_eq!(inspected["outcome"], "partial");
+    assert_eq!(inspected["result"]["snapshot"]["document"], before);
+    let digest = inspected["result"]["preview_digest"].as_str().unwrap();
+    let request = json!({"document_id":id,"expected_revision":0,"format":"mol","source":empty,"record":1,"preview_digest":digest,"accept_loss":true});
+    let first = call(&application, "empty", "document.import", request.clone());
+    assert_eq!(first["outcome"], "partial");
+    assert_eq!(first["document_revision"], 0);
+    assert_eq!(first["result"]["session"]["undo_depth"], 0);
+    assert_eq!(
+        first["result"]["import_mapping"],
+        json!({"atoms":[],"bonds":[]})
+    );
+    assert_eq!(snapshot(&application, &id), before);
+    assert_eq!(
+        call(&application, "empty", "document.import", request),
+        first
+    );
+}
+
+#[test]
+fn a_new_service_rejects_even_a_matching_graph_preview_from_the_previous_service() {
+    let (application, directory, id) = setup();
+    let result = preview(&application, &id, MOL, "mol", 1, 0);
+    let digest = result["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let original = snapshot(&application, &id);
+    drop(application);
+    let restarted = app(directory.path());
+    assert_eq!(snapshot(&restarted, &id), original);
+    let commit = call(
+        &restarted,
+        "old-preview",
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"mol","source":MOL,"record":1,"preview_digest":digest,"accept_loss":true}),
+    );
+    assert_eq!(commit["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(snapshot(&restarted, &id), original);
+}
+
+#[test]
+fn selected_record_that_exceeds_editor_transaction_limit_does_not_change_target() {
+    let (application, _directory, id) = setup();
+    let mut large = String::from("Many\n\n\n501  0  0  0  0  0  0  0  0  0999 V2000\n");
+    for _ in 0..501 {
+        large.push_str("    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n");
+    }
+    large.push_str("M  END\n$$$$\n");
+    let source = format!("{MOL}$$$$\n{large}");
+    let before = snapshot(&application, &id);
+    let result = preview(&application, &id, &source, "sdf", 2, 0);
+    assert_eq!(result["outcome"], "error");
+    assert_eq!(result["diagnostics"][0]["details"]["record"], 2);
+    assert!(result["result"].is_null());
+    assert_eq!(snapshot(&application, &id), before);
 }

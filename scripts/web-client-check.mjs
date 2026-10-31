@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -1748,4 +1748,20 @@ test('conversion failures retain their record and line context', async () => {
   await assert.rejects(client.previewCt('doc-1', 0, 'sdf', 'source', 1), {
     code: 'data_line_too_long', message: 'Too long. Record 2. Line 13.',
   })
+})
+
+
+test('an import preview exposes the actual graph even when a revision is reused', async () => {
+  const actual = document('doc-1', 1)
+  actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [],
+    result: { selected_record: 1, preview_digest: 'a'.repeat(64), records: [{ title: '', atoms: [], bonds: [], fields: [] }],
+      snapshot: actual, document: actual.document } })] })
+  const client = new DocumentClient()
+  const preview = await client.previewCt('doc-1', 1, 'mol', 'source', 1)
+  const shown = structuredClone(preview.snapshot)
+  shown.atoms[0].element = 'C'
+  assert.equal(shown.id, preview.snapshot.id)
+  assert.equal(shown.revision, preview.snapshot.revision)
+  assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })
