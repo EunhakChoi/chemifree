@@ -62,6 +62,42 @@ fn rich_tree_and_unchanged_bytes_preserve_bom_text_style_and_references() {
 }
 
 #[test]
+fn projection_reports_nested_reference_opaque_property_and_unselected_chemistry() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = include_str!("../../providers/tests/data/cdxml/multi-page.cdxml").replace(
+        "GraphicType=\"Line\"",
+        "GraphicType=\"Line\" future=\"opaque\"",
+    );
+    let report = call(
+        &application,
+        "nested-losses",
+        "document.import",
+        json!({"mode":"preview","format":"cdxml","source":source,"title":"Projected","page_id":1,"fragment_id":2}),
+    );
+    assert_eq!(report["outcome"], "partial", "{report}");
+    let losses = report["loss_report"].as_array().unwrap();
+    assert!(
+        losses
+            .iter()
+            .any(|loss| { loss["feature"] == "graphic" && loss["semantic_impact"] == "rendering" })
+    );
+    assert!(losses.iter().any(|loss| {
+        loss["feature"] == "reference"
+            && loss["semantic_impact"] == "document"
+            && loss["reason"].as_str().unwrap().contains("object 4")
+            && loss["reason"].as_str().unwrap().contains("Charge")
+    }));
+    assert!(losses.iter().any(|loss| {
+        loss["feature"] == "unprojected_property" && loss["semantic_impact"] == "unknown"
+    }));
+    assert!(losses.iter().any(|loss| {
+        loss["feature"] == "unselected_fragment" && loss["semantic_impact"] == "chemistry"
+    }));
+    assert_eq!(count(&application), 0);
+}
+
+#[test]
 fn projected_creation_reports_losses_maps_ids_replays_and_persists() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());

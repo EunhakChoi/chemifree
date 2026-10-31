@@ -395,7 +395,82 @@ fn bond(
     })
 }
 
-/// Reports every unprojected subtree once, and every unprojected property on selected objects.
+/// A subtree-level rendering or document loss must not hide chemistry, references, or opaque
+/// data inside it. Opaque objects are reported as a whole because their contents are unknown.
+fn nested_semantic_losses(
+    object: &Object,
+    indices: &mut Vec<usize>,
+    is_subtree_root: bool,
+    losses: &mut Vec<Loss>,
+) {
+    if matches!(
+        object.kind,
+        ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
+    ) {
+        if !is_subtree_root {
+            losses.push(dropped(
+                path(indices),
+                "opaque_object",
+                SemanticImpact::Unknown,
+                "This uninterpreted object and its contents are not stored in the editor.",
+            ));
+        }
+        return;
+    }
+    if !is_subtree_root && object.kind == ObjectKind::Fragment {
+        losses.push(dropped(
+            path(indices),
+            "unselected_fragment",
+            SemanticImpact::Chemistry,
+            "This molecular fragment is not included in the editor projection.",
+        ));
+    }
+    if object.kind == ObjectKind::Represents {
+        let description = match (
+            property(object, &PropertyKind::RepresentObject),
+            property(object, &PropertyKind::RepresentAttribute),
+        ) {
+            (
+                Some(PropertyValue::ObjectReference(target)),
+                Some(PropertyValue::Text(attribute)),
+            ) => {
+                format!(
+                    "The represented-property reference to object {target}, attribute {attribute:?}, is not stored in the editor."
+                )
+            }
+            _ => "The represented-property reference is not stored in the editor.".to_owned(),
+        };
+        losses.push(dropped(
+            path(indices),
+            "reference",
+            SemanticImpact::Document,
+            &description,
+        ));
+    }
+    for (index, item) in object.properties.iter().enumerate() {
+        if matches!(
+            item.kind,
+            PropertyKind::UnknownXml(_) | PropertyKind::UnknownBinary(_)
+        ) {
+            losses.push(dropped(
+                format!("{}.properties[{index}]", path(indices)),
+                "unprojected_property",
+                SemanticImpact::Unknown,
+                "This uninterpreted property is not stored in the editor.",
+            ));
+        }
+    }
+    for (index, child) in object.children.iter().enumerate() {
+        if let Content::Object(child) = child {
+            indices.push(index);
+            nested_semantic_losses(child, indices, false, losses);
+            indices.pop();
+        }
+    }
+}
+
+/// Reports unprojected subtrees and their material nested semantics, plus properties on the
+/// selected objects.
 fn losses_for_tree(
     object: &Object,
     indices: &mut Vec<usize>,
@@ -425,12 +500,15 @@ fn losses_for_tree(
             }
             _ => ("unprojected_object", SemanticImpact::Document),
         };
-        losses.push(dropped(
-            path(indices),
-            feature,
-            impact,
-            "This object and its contents are not represented in the editor projection.",
-        ));
+        if object.kind != ObjectKind::Represents {
+            losses.push(dropped(
+                path(indices),
+                feature,
+                impact,
+                "This object and its contents are not represented in the editor projection.",
+            ));
+        }
+        nested_semantic_losses(object, indices, true, losses);
         return;
     }
     if object.kind == ObjectKind::Group {
@@ -771,6 +849,7 @@ mod tests {
                 "double_bond_stereo",
                 "styled_text",
                 "unselected_page",
+                "unselected_fragment",
                 "implicit_hydrogen_interpretation"
             ]
         );
@@ -787,5 +866,53 @@ mod tests {
             project(&fixture(false, true), 1, 2).unwrap_err().code,
             "unsupported_node"
         );
+    }
+
+    #[test]
+    fn discarded_graphic_does_not_hide_binary_extensions() {
+        let mut document = fixture(false, false);
+        document
+            .edit(|root| {
+                let Content::Object(page) = &mut root.children[0] else {
+                    unreachable!()
+                };
+                page.children.push(object(
+                    ObjectKind::Graphic,
+                    Some(10),
+                    vec![
+                        item(
+                            PropertyKind::BoundingBox,
+                            PropertyValue::Rectangle {
+                                left: 0.,
+                                top: 0.,
+                                right: 1.,
+                                bottom: 1.,
+                            },
+                        ),
+                        item(
+                            PropertyKind::UnknownBinary(0x7000),
+                            PropertyValue::Bytes(vec![1, 2]),
+                        ),
+                    ],
+                    vec![object(
+                        ObjectKind::UnknownBinary(0x8fff),
+                        Some(11),
+                        vec![],
+                        vec![],
+                    )],
+                ));
+            })
+            .unwrap();
+        let projection = project(&document, 1, 2).unwrap();
+        assert!(projection.losses.iter().any(|loss| {
+            loss.feature == "graphic" && loss.semantic_impact == SemanticImpact::Rendering
+        }));
+        assert!(projection.losses.iter().any(|loss| {
+            loss.feature == "unprojected_property"
+                && loss.semantic_impact == SemanticImpact::Unknown
+        }));
+        assert!(projection.losses.iter().any(|loss| {
+            loss.feature == "opaque_object" && loss.semantic_impact == SemanticImpact::Unknown
+        }));
     }
 }

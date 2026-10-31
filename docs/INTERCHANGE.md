@@ -61,7 +61,9 @@ reader. Double bonds also report uncertainty about stereo another reader may
 interpret from the drawing. Original IDs and source
 paths are mapped to new editor IDs. Unselected pages and fragments, styled text,
 graphics, groups, references, unknown properties outside selected chemistry, and
-outside-root XML that the editor cannot store are reported as losses. A preview does not create a document.
+outside-root XML that the editor cannot store are reported as losses. A discarded
+container also reports nested molecular fragments, opaque content and represented-property
+references, including each known reference target and attribute. A preview does not create a document.
 The create operation recomputes the source, selection, losses, settings and graph;
 its digest also binds the preview to the running service. Changed input, settings
 or a restart requires a new preview. Creation commits the complete document
