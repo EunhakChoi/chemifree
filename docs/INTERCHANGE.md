@@ -70,6 +70,9 @@ expected values. It is a bounded check, not a claim of general CDXML compatibili
 
 The independent CDX codec checks the 28-byte header, little-endian object tree,
 short and extended property lengths, nesting, global IDs and known references.
+It accepts the public example's implicit document and an explicit document object;
+the latter has its own object terminator followed by the file terminator, as in the
+[tagged-object framing](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/General.htm).
 It reads and writes supported node, bond, position, bounds, graphic, font, color
 and text properties. Coordinates and style sizes must be exactly representable in
 CDX units when writing. Default unstyled strings use ISO Latin-1; styled strings

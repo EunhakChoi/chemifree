@@ -73,6 +73,31 @@ fn independently_framed_binary_matches_cdxml_chemistry_and_coordinates() {
 }
 
 #[test]
+fn explicit_document_has_distinct_object_and_file_terminators() {
+    // The top-level object is explicit here, unlike the public implicit-document example.
+    // Both object and file endings are independently framed rather than made by the writer.
+    let mut input = header();
+    begin(&mut input, 0x8000, 9);
+    begin(&mut input, 0x8001, 1);
+    end(&mut input); // page
+    end(&mut input); // document object
+    end(&mut input); // file
+    for i in 0..input.len() {
+        assert!(cdx::read(&input[..i]).is_err(), "accepted prefix {i}");
+    }
+    let read = cdx::read(&input).unwrap();
+    assert_eq!(read.document.root().id, Some(9));
+    assert_eq!(cdx::write(&read.document).unwrap(), input);
+    let mut wrong_terminator = input.clone();
+    let last = wrong_terminator.len() - 2;
+    wrong_terminator[last] = 1;
+    assert_eq!(
+        cdx::read(&wrong_terminator).unwrap_err().code,
+        "invalid_cdx_terminator"
+    );
+}
+
+#[test]
 fn every_truncated_prefix_fails_and_extended_text_is_read_and_written() {
     let input = structure();
     for i in 0..input.len() {

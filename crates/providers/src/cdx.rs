@@ -502,7 +502,8 @@ pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
         properties: 0,
     };
     let mut root = object(O::Document, 0);
-    if cursor.bytes[cursor.at..].starts_with(&[0x00, 0x80]) {
+    let explicit_document = cursor.bytes[cursor.at..].starts_with(&[0x00, 0x80]);
+    if explicit_document {
         cursor.u16()?;
         root.id = match cursor.u32()? {
             0 => None,
@@ -510,6 +511,13 @@ pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
         };
     }
     cursor.body(&mut root, false, 0)?;
+    if explicit_document && cursor.u16()? != 0 {
+        return Err(fail(
+            "invalid_cdx_terminator",
+            "An explicit document object must be followed by the file terminator.",
+            cursor.at - 2,
+        ));
+    }
     if cursor.at != bytes.len() {
         return Err(fail(
             "trailing_cdx",
@@ -1088,5 +1096,13 @@ pub fn write(document: &Document) -> Result<Vec<u8>, CdxError> {
     check_limits(document.root(), true, &mut total_properties)?;
     let mut out = HEADER.to_vec();
     encode_item(&mut out, document.root(), &fonts(document.root()), true)?;
+    if document.root().id.is_some() {
+        // Unlike the implicit-document form, an explicit document has its own object
+        // terminator before the file's separate document terminator.
+        out.extend_from_slice(&[0, 0]);
+        if out.len() > LIMIT {
+            return Err(fail("resource_limit", "CDX output exceeds 1 MiB.", 0));
+        }
+    }
     Ok(out)
 }
