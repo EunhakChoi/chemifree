@@ -1512,7 +1512,7 @@ function preferences(overrides = {}) {
     ui: { theme: 'dark' },
     new_documents: { bond_length_pt: 40 },
     new_document_settings: { ...DEFAULT_SETTINGS, bond_length_pt: 40 },
-    computation: { nmr: computation('P66'), numeric_precision: computation('P15') },
+    computation: { nmr: computation('P66'), numeric_precision: computation('P19') },
     ...overrides,
   }
 }

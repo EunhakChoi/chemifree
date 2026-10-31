@@ -163,7 +163,7 @@ const NMR: ComputationSetting = ComputationSetting {
 const NUMERIC_PRECISION: ComputationSetting = ComputationSetting {
     status: "not_implemented",
     owner: "preferences",
-    followup: "P15",
+    followup: "P19",
     note: "Numeric precision and decimals shown for computed values will be stored here, \
            apart from documents; results will record the precision they used. No value is \
            computed yet.",

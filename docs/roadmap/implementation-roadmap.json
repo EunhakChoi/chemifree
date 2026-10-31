@@ -740,11 +740,11 @@
     "PREDICT-02",
     "LAYOUT-03"
    ],
-   "scope": "Real48·F32·Float64와 명시된 확장 정밀도 연산·반올림·표시를 독립 구현한다. 단위·raw bits·문자열과 호환 프로필의 차이를 구분한다.",
+   "scope": "Real48·F32·Float64와 명시된 확장 정밀도 연산·반올림·표시를 독립 구현한다. 단위·raw bits·문자열과 호환 프로필의 차이를 구분한다. 선택한 물리 단위·표시 정책과 미지원 레거시 범위를 명시한다.",
    "acceptance": "경계·비유한 값·중간 저장·계산 순서의 공개 사례를 검사한다. 필요한 정밀도가 없는 경로를 보통 float로 통과 처리하지 않는다.",
    "kind": "core",
    "id": "P15",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -752,7 +752,18 @@
    ],
    "depends_on": [
     "P14"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     71,
+     72,
+     73,
+     74,
+     75
+    ],
+    "merge_commit": "92015c24eb1476c2fcdd48f63bd57fabf9fd1bcd",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41187150290"
+   }
   },
   {
    "phase": "chemistry",
@@ -843,10 +854,11 @@
     "numeric_profiles"
    ],
    "requirements": [
-    "CHEM-01"
+    "CHEM-01",
+    "STYLE-01"
    ],
-   "scope": "선택·분자·단절 성분의 분자식, 평균·정확 질량, 동위원소 분포를 계산한다. 사용한 원소 데이터·전하 관례·정밀도를 결과에 붙인다.",
-   "acceptance": "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다.",
+   "scope": "선택·분자·단절 성분의 분자식, 평균·정확 질량, 동위원소 분포를 계산한다. 사용한 원소 데이터·전하 관례·정밀도를 결과에 붙인다. 첫 계산 결과에 필요한 전역 정밀도·소수 자릿수 환경 설정을 연결한다.",
+   "acceptance": "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다. 계산 정밀도 설정의 저장·적용과 기존 문서 비소급을 검사한다.",
    "kind": "core",
    "id": "P19",
    "status": "planned",
@@ -3338,11 +3350,11 @@
  ],
  "schema_version": 1,
  "title": "Chemifree 구현 완료까지의 PR 계획",
- "date": "2026-10-29",
+ "date": "2026-10-31",
  "language": "ko",
  "basis": {
   "repository": "https://github.com/EunhakChoi/chemifree",
-  "main_commit": "530aa16",
+  "main_commit": "92015c24eb1476c2fcdd48f63bd57fabf9fd1bcd",
   "public_spec_packet": "승인된 공개 기능 명세 패킷(로컬, 저장소 밖)",
   "public_spec_entry": "spec/phase7-implementation-entry.ko.md",
   "requirement_source": "spec/phase7-readiness-requirements-v2.json",
@@ -3356,7 +3368,7 @@
    "total": 2914
   },
   "declaration_count_is_not_feature_count": true,
-  "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40739733773"
+  "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41187150290"
  },
  "baseline": {
   "completed": [
@@ -3364,12 +3376,17 @@
    "기본 원자/단일·이중·삼중 결합 그리기·편집·Undo/Redo",
    "원자적 저장·프로세스 간 잠금·복구 초안·복구·사본 저장",
    "shadcn/ui Base UI/Nova와 기본 개발·CI 환경",
-   "문서 목록·휴지통, 저장 피드백, 페이지 없는 서버 초안(P05–P07), 초안 I/O의 잠금 분리(A1), 웹의 서버 초안 실패 표시(A2)"
+   "문서 목록·휴지통, 저장 피드백, 페이지 없는 서버 초안(P05–P07), 초안 I/O의 잠금 분리(A1), 웹의 서버 초안 실패 표시(A2)",
+   "요구사항 추적·conformance와 버전 연산 계약·capability 기반(P08·P13)",
+   "화학 그래프·장면 분리, 기록 상태와 장면 트랜잭션·선택·이력(P09–P11)",
+   "문서 스타일과 전역 UI·새 문서 환경 설정의 분리(P12)",
+   "선택형 외부 DATA registry와 명시된 typed reader 범위(P14)",
+   "선택된 Real48·F32·Float64·확장 정밀도, 단위·출력 경계(P15)"
   ],
   "partial": [
-   "문서/화학 그래프/장면의 공통 모델",
-   "원자적 편집·선택·이력",
-   "버전 계약·진단·capability·회귀 검사"
+   "문서·화학 그래프·장면의 기본 표현은 구현됐고 고급 의미는 후속",
+   "연산 계약·진단·capability 기반은 구현됐고 화학 연산은 후속",
+   "선택된 DATA·수치 기반은 구현됐고 개인 DATA·화학 엔진은 별도 검증 필요"
   ],
   "not_implemented": [
    "화학 해석·입체·자동 배치",
@@ -4195,6 +4212,7 @@
    "current_status": "partial",
    "planned_prs": [
     "P12",
+    "P19",
     "P35",
     "P40",
     "P66",

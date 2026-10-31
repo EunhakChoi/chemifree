@@ -528,3 +528,21 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41185591990)는 check·browser 모두 성공했다. 2026-10-31 08:45:34에 `991f2682c75a4514f323682172815412fc2ec189`로 병합했다.
 
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41185901065)도 check·browser 모두 성공했다.
+
+### P15 표시 문자열과 F32 저장 — [#75](https://github.com/EunhakChoi/chemifree/pull/75)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 08:59:27 | `975958f6ff54655daf979ee21a03f9cd9bfda23f` | 09:01:34 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/75#issuecomment-6541431537) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41186804054)는 check·browser 모두 성공했다. 2026-10-31 09:04:15에 `92015c24eb1476c2fcdd48f63bd57fabf9fd1bcd`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41187150290)도 check·browser 모두 성공했다.
+
+### P15 완료 인계와 미구현 설정 안내 — [#76](https://github.com/EunhakChoi/chemifree/pull/76)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 09:19:25 | `fda12da1d3e316197870204a10757e52691e732d` | 09:20:48 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/76#issuecomment-6541615528) |
+
+첫 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41188224802)는 check·browser 모두 성공했다. 이 기록을 추가한 이후의 리뷰 요청 시각·대상 SHA·완료 결과와 최종 병합·main CI는 [PR 본문](https://github.com/EunhakChoi/chemifree/pull/76)에 이어 기록한다.

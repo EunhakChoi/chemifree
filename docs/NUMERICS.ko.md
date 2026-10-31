@@ -39,3 +39,12 @@
 ## 검증
 
 `crates/numerics/tests/storage.rs`는 정확한 반정수·최소 서브노멀·최대 유한값·부호 있는 0·비유한 비트·Real48의 반올림 후 언더플로와 목적지 보존을 검사한다. `tests/extended.rs`는 확장 형식의 원시 부호화와 유한 연산, 명시적 중간 저장과 재결합의 차이를 확인한다. `tests/data/generate_storage_vectors.py`는 Python `Fraction`과 별도의 이분 탐색으로 기존 저장 형식 850개와 확장 형식 328개의 합성 기준을 생성하며 `--check`로 재현성을 확인한다. `tests/ordered.rs`는 확장 정밀도 C 실행과 유리수 이분 탐색을 별도로 대조해 준비한 양 방향 18개 순서 기준과 반쪽 경계를 확인한다. `tests/units.rs`는 독립 유리수 기준 384개와 Real48 중간 저장의 손실 가능성·보조값 오류를 확인한다. `tests/display.rs`는 C와 Python 출력이 일치하는 표시 2,240개 및 독립 유리수 탐색으로 만든 F32 저장 224개를 대조한다. C 실행은 테스트마다 자동으로 실행하지 않는다. 이 기준은 화학 데이터가 아니다. 개인 DATA·모델 계수·원본 실행은 사용하지 않는다.
+
+기준은 저장소 루트에서 다음 명령으로 다시 대조할 수 있다. C의 각도 기준은 유효숫자 64비트의 `long double`과 최근접 반올림을 확인한 환경에서만 실행한다. 표시 C 기준은 C 로캘과 `double`의 2진 53비트 가수·8바이트 크기를 확인한다. 두 C 파일은 `crates/numerics/tests/data/`에 있으며 제품 코드나 모델 데이터가 아니다.
+
+```sh
+python3 -B crates/numerics/tests/data/generate_storage_vectors.py --check
+python3 -B crates/numerics/tests/data/generate_heading_vectors.py --check
+python3 -B crates/numerics/tests/data/generate_unit_vectors.py --check
+python3 -B crates/numerics/tests/data/generate_display_vectors.py --check
+```

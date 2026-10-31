@@ -1067,6 +1067,7 @@ try {
       [shown.body.revision, shown.body.computation.nmr.status, shown.body.computation.numeric_precision.status],
       [0, 'not_implemented', 'not_implemented'],
     )
+    assert.equal(shown.body.computation.numeric_precision.followup, 'P19')
     const before = (await write('/api/v1/documents', { request_id: 'style-before', title: 'Before preferences' })).body.document
     assert.equal(before.settings.label_font, 'sans-serif')
     assert.equal((await write(`/api/v1/documents/${before.id}/save`, { request_id: 'style-before-save', expected_revision: 0 })).status, 200)
@@ -1092,6 +1093,13 @@ try {
     assert.deepEqual([nmr.status, nmr.body.code], [501, 'setting_not_implemented'])
     const nmrCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(computation))
     assert.deepEqual([nmrCli.status, nmrCli.body.code, nmrCli.body.message], [1, 'setting_not_implemented', nmr.body.message])
+    const precision = { ...change, computation: { numeric_precision: null } }
+    const precisionHttp = await put({ request_id: 'prefs-precision', expected_revision: 1, ...precision })
+    assert.deepEqual([precisionHttp.status, precisionHttp.body.code], [501, 'setting_not_implemented'])
+    assert.match(precisionHttp.body.message, /\(P19\)/)
+    const precisionCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(precision))
+    assert.deepEqual([precisionCli.status, precisionCli.body.code, precisionCli.body.message], [1, 'setting_not_implemented', precisionHttp.body.message])
+    assert.equal((await call('/api/v1/preferences')).body.revision, 1, 'refused computation settings store nothing')
     // A preferred value out of range is refused with the setting's reason.
     const tooLarge = { ui: { theme: 'system' }, new_documents: { label_size_pt: 80 } }
     const large = await put({ request_id: 'prefs-large', expected_revision: 1, ...tooLarge })
