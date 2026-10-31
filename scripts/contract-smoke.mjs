@@ -953,6 +953,11 @@ try {
     assert.equal(mol.outcome, 'partial')
     assert.match(mol.result.text, /\bV2000\n/)
     assert.ok(mol.loss_report.some((loss) => loss.feature === 'document_settings'))
+    const failedSdf = await both((id) => request('op-sdf-error', 'document.export', {
+      format: 'sdf',
+      documents: [{ document_id: id }, { document_id: id, fields: [{ name: 'X', value: 'bad\n\nvalue' }] }],
+    }))
+    assert.deepEqual([failedSdf.outcome, failedSdf.result, failedSdf.diagnostics[0].details.record], ['error', null, 2])
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const unsupported = await both(() => request('op-props', 'chem.properties', {}))

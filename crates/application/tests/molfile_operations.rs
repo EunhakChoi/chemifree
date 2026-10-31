@@ -185,6 +185,92 @@ fn exports_multiple_sdf_records_in_the_requested_order() {
 }
 
 #[test]
+fn multi_record_export_identifies_the_later_failing_record_without_partial_output() {
+    let (app, _data) = app();
+    let imported = call(
+        &app,
+        "in",
+        "document.import",
+        json!({"format":"mol", "text":INPUT}),
+    );
+    let id = imported["result"]["document"]["id"].as_str().unwrap();
+    let before = call(
+        &app,
+        "before",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+
+    let unsupported = call(
+        &app,
+        "bad-field",
+        "document.export",
+        json!({
+            "format":"sdf", "documents":[
+                {"document_id":id},
+                {"document_id":id, "fields":[{"name":"X","value":"bad\n\nvalue"}]}
+            ]
+        }),
+    );
+    assert_eq!(unsupported["outcome"], "error");
+    assert_eq!(unsupported["result"], Value::Null);
+    assert_eq!(unsupported["diagnostics"][0]["code"], "unsupported_feature");
+    assert_eq!(
+        unsupported["diagnostics"][0]["details"]["record"], 2,
+        "{unsupported}"
+    );
+    assert_eq!(
+        unsupported["diagnostics"][0]["details"]["field"],
+        "fields.value"
+    );
+
+    let missing = call(
+        &app,
+        "missing",
+        "document.export",
+        json!({
+            "format":"sdf", "documents":[
+                {"document_id":id}, {"document_id":"doc-0000000000000000"}
+            ]
+        }),
+    );
+    assert_eq!(missing["outcome"], "error");
+    assert_eq!(missing["result"], Value::Null);
+    assert_eq!(missing["diagnostics"][0]["code"], "document_not_found");
+    assert_eq!(
+        missing["diagnostics"][0]["details"]["record"], 2,
+        "{missing}"
+    );
+
+    let large = vec!["x".repeat(199); 3000].join("\n");
+    let oversized = call(
+        &app,
+        "too-large",
+        "document.export",
+        json!({
+            "format":"sdf", "documents":[
+                {"document_id":id, "fields":[{"name":"A","value":large}]},
+                {"document_id":id, "fields":[{"name":"B","value":large}]}
+            ]
+        }),
+    );
+    assert_eq!(oversized["outcome"], "error");
+    assert_eq!(oversized["result"], Value::Null);
+    assert_eq!(oversized["diagnostics"][0]["code"], "resource_limit");
+    assert_eq!(
+        oversized["diagnostics"][0]["details"]["record"], 2,
+        "{oversized}"
+    );
+    let after = call(
+        &app,
+        "after",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    assert_eq!(before["result"], after["result"]);
+}
+
+#[test]
 fn export_reports_multiple_instances_graphics_and_references() {
     let (app, _data) = app();
     let imported = call(

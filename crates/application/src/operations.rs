@@ -654,6 +654,12 @@ fn codec_failure(error: CodecError) -> Diagnostic {
     }
 }
 
+/// Associates an export failure with the one-based record currently being written.
+fn at_export_record(mut failure: Diagnostic, record: usize) -> Diagnostic {
+    failure.details.insert("record".into(), record.into());
+    failure
+}
+
 /// The same failure as the v1 error envelope reports, as a diagnostic.
 fn failure(error: &ApplicationError) -> Diagnostic {
     let mut details = Map::new();
@@ -901,20 +907,25 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         for (index, item) in documents.iter().enumerate() {
             let document = match self.documents.export_snapshot(&item.document_id) {
                 Ok(document) => document,
-                Err(error) => return known.invalid(failure(&error)),
+                Err(error) => return known.invalid(at_export_record(failure(&error), index + 1)),
             };
             if count == 1 {
                 revision = Some(document.revision());
             }
             let converted = match codec.write(parameters.format, &document, &item.fields) {
                 Ok(converted) => converted,
-                Err(error) => return known.invalid(codec_failure(error)),
+                Err(error) => {
+                    return known.invalid(at_export_record(codec_failure(error), index + 1));
+                }
             };
             if text.len().saturating_add(converted.text.len()) > 1024 * 1024 {
-                return known.invalid(diagnostic(
-                    "resource_limit",
-                    "Encoded output exceeds 1 MiB.",
-                    Map::new(),
+                return known.invalid(at_export_record(
+                    diagnostic(
+                        "resource_limit",
+                        "Encoded output exceeds 1 MiB.",
+                        Map::new(),
+                    ),
+                    index + 1,
                 ));
             }
             text.push_str(&converted.text);
