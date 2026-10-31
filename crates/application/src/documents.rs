@@ -15,7 +15,7 @@ use chemifree_domain::settings::Settings;
 use crate::API_VERSION;
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
+    DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
     SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
@@ -44,6 +44,9 @@ enum Mutation {
         expected_revision: u64,
         commands: Vec<CommandDto>,
         selection: TransactionSelections,
+    },
+    ImportCtfile {
+        fingerprint: String,
     },
     ResetSettings {
         expected_revision: u64,
@@ -671,6 +674,67 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_selecting(&domain_commands, &domain_selection)
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
+        })
+    }
+
+    /// Check a previously completed import before looking at the document's current revision.
+    pub(crate) fn replay_import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        fingerprint: &str,
+    ) -> Result<Option<DocumentResponse>, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::ImportCtfile {
+            fingerprint: fingerprint.to_owned(),
+        };
+        self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })
+    }
+
+    /// Apply the complete graph to a copy for preview. This performs the very same domain
+    /// validation as a real transaction without changing the working document or its history.
+    pub(crate) fn preview_import(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        commands: &[Command],
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        session.expect_revision(expected_revision)?;
+        let mut candidate = session.document.clone();
+        candidate.apply(commands).map_err(rejected_edit)?;
+        Ok(DocumentResponse::new(
+            &candidate,
+            session.saved_revision,
+            session.draft_revision,
+        ))
+    }
+
+    /// Recheck the consented candidate under the session lock and commit it atomically.
+    pub(crate) fn import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        fingerprint: String,
+        commands: &[Command],
+        verify: impl FnOnce(&DocumentView) -> Result<(), ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let mutation = Mutation::ImportCtfile { fingerprint };
+        self.mutate(id, request_id, expected_revision, mutation, |session| {
+            let mut candidate = session.document.clone();
+            candidate.apply(commands).map_err(rejected_edit)?;
+            let projected =
+                DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+            verify(&projected.document)?;
+            session.document = candidate;
+            Ok(())
         })
     }
 

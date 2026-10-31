@@ -3,6 +3,8 @@
 mod active_data;
 mod active_registry;
 mod contract;
+mod ct_projection;
+pub mod ctfile;
 mod data;
 mod data_formats;
 mod data_profiles;
@@ -122,6 +124,7 @@ pub struct Application<C, R> {
     documents: Documents<R>,
     preferences: PreferenceService,
     data_registry: DataRegistry,
+    ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -133,6 +136,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             documents: Documents::new(repository),
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
+            ctfile_codec: None,
+        }
+    }
+
+    /// Connects the independently implemented MOL/SDF provider for every entry adapter.
+    #[must_use]
+    pub fn with_ctfile_codec(self, codec: impl ctfile::CtCodec + 'static) -> Self {
+        Self {
+            ctfile_codec: Some(Arc::new(codec)),
+            ..self
         }
     }
 
@@ -187,12 +200,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .catalog
                 .capabilities()
                 .into_iter()
-                .map(|capability| CapabilityResponse {
+                .map(|mut capability| {
+                    if capability.id == chemifree_domain::CapabilityId::FormatConversion && self.ctfile_codec.is_some() {
+                        capability.label = "MOL/SDF subset";
+                        capability.status = chemifree_domain::ImplementationStatus::Available;
+                        capability.description = "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.";
+                    }
+                    CapabilityResponse {
                     id: capability.id.as_str(),
                     label: capability.label,
                     status: capability.status.as_str(),
                     description: capability.description,
-                })
+                }})
                 .collect(),
             operation_catalog: self.operation_catalog(),
         }

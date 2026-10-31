@@ -2,6 +2,7 @@
 //! No chemistry engines are included. User documents and preferences are local JSON files;
 //! explicitly selected external data is checked through an application-owned registry.
 
+mod ctfile;
 mod data_directory;
 mod file_format;
 mod file_store;
@@ -10,6 +11,7 @@ mod preference_store;
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
+pub use ctfile::V2000Codec;
 pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };

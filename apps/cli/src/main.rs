@@ -12,8 +12,8 @@ use chemifree_application::{
     SettingsSource, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, configure_selected_registry,
-    default_data_dir,
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
+    configure_selected_registry, default_data_dir,
 };
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -314,6 +314,7 @@ fn main() -> ExitCode {
         args.model_trusted_registry.as_deref(),
     );
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
+        .with_ctfile_codec(V2000Codec)
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);
 

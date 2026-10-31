@@ -22,6 +22,8 @@ use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
     TransactionSelections,
 };
+use crate::ct_projection;
+use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
 use crate::documents::validate_request_id;
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
@@ -50,7 +52,7 @@ pub enum Envelope {
 pub enum Outcome {
     /// The operation ran to completion. This says nothing about chemical correctness.
     Ok,
-    /// It ran, and `loss_report` lists what it could not keep. No operation reports loss yet.
+    /// It ran, and `loss_report` lists what it could not keep or validate.
     Partial,
     Error,
     Unsupported,
@@ -161,6 +163,8 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
+    CtPreview(CtPreviewResult),
+    CtExport(CtExportResult),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -168,6 +172,8 @@ pub struct DocumentResult {
     pub document: DocumentView,
     pub session: SessionView,
     pub recovery: Option<RecoveryView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_mapping: Option<CtMapping>,
 }
 
 impl From<DocumentResponse> for DocumentResult {
@@ -176,8 +182,30 @@ impl From<DocumentResponse> for DocumentResult {
             document: response.document,
             session: response.session,
             recovery: response.recovery,
+            import_mapping: None,
         }
     }
+}
+
+/// One-based file indices and their corresponding native identifiers.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtMapping {
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtPreviewResult {
+    pub selected_record: usize,
+    pub records: Vec<CtRecord>,
+    pub document: DocumentView,
+    pub preview_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtExportResult {
+    pub content: String,
+    pub records: Vec<CtMapping>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -579,6 +607,76 @@ struct CloseParameters {
     expected_revision: Option<u64>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct CtImportParameters {
+    document_id: String,
+    expected_revision: u64,
+    format: CtFormat,
+    source: String,
+    /// One-based; every record is validated even when it is not selected.
+    record: usize,
+    #[serde(default)]
+    preview: bool,
+    #[serde(default)]
+    preview_digest: Option<String>,
+    #[serde(default)]
+    accept_loss: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CtExportRecord {
+    document_id: String,
+    #[serde(default)]
+    fields: Vec<CtField>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CtExportParameters {
+    format: CtFormat,
+    records: Vec<CtExportRecord>,
+}
+
+fn ct_failure(error: CtError) -> Diagnostic {
+    let mut details = Map::new();
+    details.insert("record".into(), error.record.into());
+    if let Some(line) = error.line {
+        details.insert("line".into(), line.into());
+    }
+    Diagnostic {
+        code: error.code,
+        severity: Severity::Error,
+        message: error.message,
+        path: None,
+        details,
+    }
+}
+
+fn indexed_failure(error: &ApplicationError, record: usize) -> Diagnostic {
+    let mut diagnostic = failure(error);
+    diagnostic.details.insert("record".into(), record.into());
+    diagnostic
+}
+
+fn ct_mapping(document: &DocumentView, atoms: usize, bonds: usize) -> CtMapping {
+    CtMapping {
+        atoms: document
+            .atoms
+            .iter()
+            .skip(document.atoms.len().saturating_sub(atoms))
+            .map(|a| a.id.clone())
+            .collect(),
+        bonds: document
+            .bonds
+            .iter()
+            .skip(document.bonds.len().saturating_sub(bonds))
+            .map(|b| b.id.clone())
+            .collect(),
+    }
+}
+
 /// The same failure as the v1 error envelope reports, as a diagnostic.
 fn failure(error: &ApplicationError) -> Diagnostic {
     let mut details = Map::new();
@@ -675,6 +773,15 @@ impl Known {
         ))
     }
 
+    fn indexed_error(&self, error: &ApplicationError, record: usize) -> OperationResponse {
+        self.reply(
+            Outcome::Error,
+            error.current_revision,
+            None,
+            vec![indexed_failure(error, record)],
+        )
+    }
+
     fn invalid(&self, diagnostic: Diagnostic) -> OperationResponse {
         self.reply(Outcome::Error, None, None, vec![diagnostic])
     }
@@ -698,6 +805,22 @@ impl Known {
             ),
         }
     }
+}
+
+fn converted(
+    known: &Known,
+    revision: Option<u64>,
+    result: OperationResult,
+    losses: Vec<Loss>,
+) -> OperationResponse {
+    let outcome = if losses.is_empty() {
+        Outcome::Ok
+    } else {
+        Outcome::Partial
+    };
+    let mut response = known.reply(outcome, revision, Some(result), Vec::new());
+    response.loss_report = losses;
+    response
 }
 
 fn protocol_error(
@@ -735,6 +858,228 @@ fn malformed(
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
+        if self.ctfile_codec.is_some() {
+            match operation {
+                OperationId::DocumentImport => {
+                    return (
+                        runs(
+                            operation.as_str(),
+                            "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent.",
+                        ),
+                        &[],
+                    );
+                }
+                OperationId::DocumentExport => {
+                    return (
+                        runs(
+                            operation.as_str(),
+                            "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported.",
+                        ),
+                        &[],
+                    );
+                }
+                _ => {}
+            }
+        }
+        entry(operation)
+    }
+
+    fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
+        let Some(codec) = &self.ctfile_codec else {
+            return known.not_running();
+        };
+        let fingerprint = ct_projection::digest(&p);
+        let replay = if p.preview {
+            None
+        } else {
+            match self.documents.replay_import(
+                &p.document_id,
+                Some(&known.request_id),
+                &fingerprint,
+            ) {
+                Ok(replay) => replay,
+                Err(error) => return known.indexed_error(&error, p.record),
+            }
+        };
+        let input = match codec.read(p.format, p.source.as_bytes()) {
+            Ok(input) => input,
+            Err(error) => return known.invalid(ct_failure(error)),
+        };
+        let Some(record) = p.record.checked_sub(1).and_then(|i| input.value.get(i)) else {
+            return known.invalid(ct_failure(CtError {
+                code: "invalid_record",
+                message: "Selected record does not exist; records are numbered from one.".into(),
+                record: p.record.max(1),
+                line: None,
+            }));
+        };
+        let target = match replay.as_ref() {
+            Some(response) => response.clone(),
+            None => match self.document(&p.document_id) {
+                Ok(response) => response,
+                Err(error) => return known.indexed_error(&error, p.record),
+            },
+        };
+        let mut losses = input.losses;
+        ct_projection::unselected_losses(&input.value, p.record, &mut losses);
+        let commands =
+            match ct_projection::import_commands(record, p.record, &target.document, &mut losses) {
+                Ok(commands) => commands,
+                Err(error) => return known.invalid(ct_failure(error)),
+            };
+        if let Some(response) = replay {
+            let mut result: DocumentResult = response.into();
+            result.import_mapping = Some(ct_mapping(
+                &result.document,
+                record.atoms.len(),
+                record.bonds.len(),
+            ));
+            return converted(
+                known,
+                Some(result.document.revision),
+                OperationResult::Document(Box::new(result)),
+                losses,
+            );
+        }
+        let candidate =
+            match self
+                .documents
+                .preview_import(&p.document_id, p.expected_revision, &commands)
+            {
+                Ok(candidate) => candidate,
+                Err(error) => return known.indexed_error(&error, p.record),
+            };
+        let bind = |document: &DocumentView| {
+            ct_projection::digest(&(p.format, p.record, &p.source, document, &losses))
+        };
+        let preview_digest = bind(&candidate.document);
+        if p.preview {
+            let revision = target.document.revision;
+            return converted(
+                known,
+                Some(revision),
+                OperationResult::CtPreview(CtPreviewResult {
+                    selected_record: p.record,
+                    records: input.value,
+                    document: candidate.document,
+                    preview_digest,
+                }),
+                losses,
+            );
+        }
+        if p.preview_digest.as_deref() != Some(preview_digest.as_str()) {
+            return known.invalid(ct_failure(CtError {
+                code: "preview_changed",
+                message:
+                    "Preview is missing or does not match the current document, graph and losses."
+                        .into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        if !p.accept_loss && !losses.is_empty() {
+            return known.invalid(ct_failure(CtError {
+                code: "loss_consent_required",
+                message: "Review the reported losses and explicitly accept them before importing."
+                    .into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        let response = self.documents.import(
+            &p.document_id,
+            Some(&known.request_id),
+            p.expected_revision,
+            fingerprint,
+            &commands,
+            |current| {
+                if bind(current) == preview_digest {
+                    Ok(())
+                } else {
+                    Err(ApplicationError::new(
+                        ErrorCode::InvalidRequest,
+                        "The import preview changed before commit.",
+                    ))
+                }
+            },
+        );
+        match response {
+            Ok(response) => {
+                let mut result: DocumentResult = response.into();
+                result.import_mapping = Some(ct_mapping(
+                    &result.document,
+                    record.atoms.len(),
+                    record.bonds.len(),
+                ));
+                converted(
+                    known,
+                    Some(result.document.revision),
+                    OperationResult::Document(Box::new(result)),
+                    losses,
+                )
+            }
+            Err(error) => known.indexed_error(&error, p.record),
+        }
+    }
+
+    fn ct_export(&self, known: &Known, p: CtExportParameters) -> OperationResponse {
+        let Some(codec) = &self.ctfile_codec else {
+            return known.not_running();
+        };
+        if p.records.is_empty() {
+            return known.invalid(ct_failure(CtError {
+                code: "empty_input",
+                message: "At least one source document is required.".into(),
+                record: 1,
+                line: None,
+            }));
+        }
+        if p.records.len() > 128 || (p.format == CtFormat::Mol && p.records.len() != 1) {
+            return known.invalid(ct_failure(CtError {
+                code: "invalid_count",
+                message: "MOL needs one source; SDF supports up to 128.".into(),
+                record: if p.format == CtFormat::Mol { 2 } else { 129 },
+                line: None,
+            }));
+        }
+        let mut records = Vec::with_capacity(p.records.len());
+        let mut mappings = Vec::with_capacity(p.records.len());
+        let mut losses = Vec::new();
+        for (i, source) in p.records.into_iter().enumerate() {
+            let index = i + 1;
+            let document = match self.document(&source.document_id) {
+                Ok(document) => document.document,
+                Err(error) => return known.indexed_error(&error, index),
+            };
+            let record =
+                match ct_projection::export_record(&document, index, source.fields, &mut losses) {
+                    Ok(record) => record,
+                    Err(error) => return known.invalid(ct_failure(error)),
+                };
+            mappings.push(CtMapping {
+                atoms: document.atoms.iter().map(|atom| atom.id.clone()).collect(),
+                bonds: document.bonds.iter().map(|bond| bond.id.clone()).collect(),
+            });
+            records.push(record);
+        }
+        match codec.write(p.format, &records) {
+            Ok(output) => {
+                losses.extend(output.losses);
+                converted(
+                    known,
+                    None,
+                    OperationResult::CtExport(CtExportResult {
+                        content: output.value,
+                        records: mappings,
+                    }),
+                    losses,
+                )
+            }
+            Err(error) => known.invalid(ct_failure(error)),
+        }
+    }
+
     /// What this service supports of the operation contract, per operation and sub-operation.
     pub fn operation_catalog(&self) -> OperationCatalog {
         OperationCatalog {
@@ -748,7 +1093,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = entry(operation);
+                    let (entry, parts) = self.effective_entry(operation);
                     entry.view(parts)
                 })
                 .collect(),
@@ -892,7 +1237,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if entry(known.operation).0.execution != Execution::Executable {
+        if self.effective_entry(known.operation).0.execution != Execution::Executable {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());
@@ -963,9 +1308,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport
-            | Op::DocumentExport
-            | Op::ChemValidate
+            Op::DocumentImport => match parameters::<CtImportParameters>(parameters_value) {
+                Ok(p) => self.ct_import(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::DocumentExport => match parameters::<CtExportParameters>(parameters_value) {
+                Ok(p) => self.ct_export(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemValidate
             | Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName
