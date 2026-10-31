@@ -8,6 +8,8 @@ This file records completed rounds preceding the current delivery. A PR comment 
 
 [Round 2](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546329361) was requested at 16:51:19 UTC on `5549404279ba30592ca55b5360892b063cec51d6`, with a 17:06:19 deadline. It completed at 16:54:23.059388 UTC (3m 4.059388s) and failed: [mass suboperations were advertised as executable without compatible data](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432505526). The following change reports registry-dependent readiness separately for mass and isotope distribution; [round 2 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546382070).
 
+[Round 3](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546546309) was requested at 17:09:47 UTC on `7d3703f8148fff1ba9b81ec963a2ac26e93e9264`, with a 17:24:47 deadline. It completed at 17:12:22.601823 UTC (2m 35.601823s) with no findings or unresolved threads. Current-head CI passed and the PR merged as `3aa8686cc30c0c717bfbe02e94ffd2cc1a3c786d`; the [final review record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546582777) records its disposition. [Exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41223458088) passed both jobs.
+
 ## P16 first attempt: closed without merge
 
 [#78](https://github.com/EunhakChoi/chemifree/pull/78) was closed on 2026-10-31 after its third round failed. The replacement is independently authored from main; the closed branch is not reused.

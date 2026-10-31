@@ -122,7 +122,7 @@
         },
         {
           "id": "MODEL-02.3",
-          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Representation only: no query is matched and no aromaticity is perceived.",
+          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Recording is separate from the bounded aromaticity interpretation; no query is matched.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/states.rs",
@@ -150,8 +150,16 @@
           "followups": ["P17"]
         },
         {
+          "id": "MODEL-02.5",
+          "summary": "A named bounded policy interprets cyclic systems and converts supported aromatic and Kekule representations without changing the input during inspection.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/rings.rs", "crates/domain/src/aromaticity.rs", "crates/application/src/operations.rs", "apps/web/src/components/aromaticity-panel.tsx"],
+          "evidence": ["case:aromaticity-conversion", "check:check:rust", "check:test:contracts"],
+          "followups": ["P17"]
+        },
+        {
           "id": "MODEL-02.rest",
-          "summary": "Broader valence models, aromaticity perception and Kekule forms, and query matching.",
+          "summary": "Broader valence and aromaticity models, additional fused and charged systems, and query matching.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -640,8 +648,16 @@
           "followups": ["P17"]
         },
         {
+          "id": "CHEM-02.2",
+          "summary": "Ring inspection reports unsupported systems, and a failed aromaticity conversion preserves the graph, selection and history.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/aromaticity.rs", "crates/application/src/documents.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:aromaticity-conversion", "check:check:rust", "check:test:contracts"],
+          "followups": ["P17"]
+        },
+        {
           "id": "CHEM-02.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Other chemical warnings, parser errors and opaque values across the full requirement.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

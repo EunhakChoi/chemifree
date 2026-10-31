@@ -99,6 +99,7 @@ export function useDocumentEditor() {
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
   const [serviceGeneration, setServiceGeneration] = useState(0)
+  const serviceGenerationRef = useRef(0)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
@@ -128,7 +129,8 @@ export function useDocumentEditor() {
   // A restarted service no longer holds the session the notice describes.
   useEffect(() => client.onRestart(() => {
     setCopyNotice(null)
-    setServiceGeneration((generation) => generation + 1)
+    serviceGenerationRef.current += 1
+    setServiceGeneration(serviceGenerationRef.current)
   }), [])
 
   const [listRequest, setListRequest] = useState(0)
@@ -321,6 +323,16 @@ export function useDocumentEditor() {
     }, [run]),
     busy: pending > 0,
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
+    inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
+    convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || generation !== serviceGenerationRef.current ||
+            !sameContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
+        const selected = selectionSnapshot(pressed, document.document)
+        return client.convertAromaticity(inspected.id, inspected.revision, to, selected)
+      })
+    }, [mutate]),
     error,
     autosave,
     copyNotice,

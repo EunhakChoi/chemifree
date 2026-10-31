@@ -1,0 +1,32 @@
+{
+  "id": "aromaticity-conversion",
+  "title": "Benzene inspection is read only; conversion is one replayable undoable edit",
+  "requirements": ["MODEL-02", "CHEM-02"],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {"call":"create","bind":"d"},
+    {"call":"transact","document":"d","expected_revision":0,"commands":[
+      {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":1,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":2,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":3,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":4,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":5,"y":0}},
+      {"op":"add_bond","begin":"$0","end":"$1","order":"double"},
+      {"op":"add_bond","begin":"$1","end":"$2","order":"single"},
+      {"op":"add_bond","begin":"$2","end":"$3","order":"double"},
+      {"op":"add_bond","begin":"$3","end":"$4","order":"single"},
+      {"op":"add_bond","begin":"$4","end":"$5","order":"double"},
+      {"op":"add_bond","begin":"$5","end":"$0","order":"single"}
+    ],"expect":{"document":{"revision":1}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"ring-check","profile":"preserve-semantics","operation":"chem.aromaticity","parameters":{}},
+     "expect":{"outcome":"ok","document_revision":1,"model_id":"chemifree-aromaticity-1","result":{"snapshot":{"document":{"revision":1},"session":{"undo_depth":1}},"systems":[{"classification":"aromatic","cycle_rank":1,"electrons":6,"reason":null}]}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"make-aromatic","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
+     "expect":{"outcome":"ok","document_revision":2,"model_id":"chemifree-aromaticity-1","result":{"document":{"bonds":[{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"}]},"session":{"undo_depth":2}}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"make-aromatic","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
+     "expect":{"outcome":"ok","document_revision":2,"result":{"session":{"undo_depth":2}}}},
+    {"call":"undo","document":"d","expected_revision":2,
+     "expect":{"document":{"revision":3,"bonds":[{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"}]},"session":{"redo_depth":1}}}
+  ]
+}

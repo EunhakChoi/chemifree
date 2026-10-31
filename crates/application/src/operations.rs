@@ -22,7 +22,7 @@ use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
     TransactionSelections,
 };
-use crate::documents::validate_request_id;
+use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
 use crate::properties::{
@@ -168,6 +168,24 @@ pub enum OperationResult {
     Valence(Box<ValenceResult>),
     /// `chem.properties` over one immutable document snapshot.
     Properties(Box<PropertiesResult>),
+    /// `chem.aromaticity`: cyclic systems and their model-specific interpretations.
+    Aromaticity(Box<AromaticityResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AromaticityResult {
+    pub snapshot: DocumentResult,
+    pub systems: Vec<AromaticitySystem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AromaticitySystem {
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
+    pub cycle_rank: usize,
+    pub classification: &'static str,
+    pub electrons: Option<u16>,
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -422,7 +440,7 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "aromatic_or_dative_bond",
         "Records aromatic, dative (from its begin atom, the donor), and unknown bonds. \
-         Representation only: aromaticity is not perceived and no Kekulé form is computed.",
+         Recording is separate from the bounded aromaticity and conversion operations.",
     )
     .carried_out_by(&["add_atom", "add_bond", "update_bond"]),
     runs(
@@ -520,6 +538,20 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Read-only bounded valence and hydrogen inspection; unsupported states are diagnosed.",
+            ),
+            &[],
+        ),
+        Op::ChemAromaticity => (
+            runs(
+                id,
+                "Read-only topological ring systems and a named bounded aromaticity interpretation.",
+            ),
+            &[],
+        ),
+        Op::ChemAromaticityConvert => (
+            runs(
+                id,
+                "Converts supported aromatic or Kekule bonds as one atomic undoable edit under a named model.",
             ),
             &[],
         ),
@@ -646,6 +678,18 @@ struct TransactionParameters {
 struct RevisionParameters {
     document_id: String,
     expected_revision: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AromaticityConversionParameters {
+    document_id: String,
+    expected_revision: u64,
+    to: AromaticityConversion,
+    #[serde(default)]
+    selection_before: Option<SelectionDto>,
+    #[serde(default)]
+    selection_after: Option<SelectionDto>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1289,6 +1333,45 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     }
                     Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
                 },
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemAromaticity => match parameters::<SnapshotParameters>(parameters_value) {
+                Ok(p) => match self.documents.graph_snapshot(&p.document_id) {
+                    Ok((snapshot, graph)) => {
+                        let revision = snapshot.document.revision;
+                        let interpretation = chemifree_domain::aromaticity::perceive(&graph);
+                        let systems = interpretation.systems.into_iter().map(|system| {
+                            let classification = match system.classification {
+                                chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
+                                chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
+                                chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
+                            };
+                            AromaticitySystem {
+                                atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
+                                bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
+                                cycle_rank: system.cycle_rank,
+                                classification,
+                                electrons: system.electrons,
+                                reason: system.reason,
+                            }
+                        }).collect();
+                        let mut reply = known.reply(Outcome::Ok, Some(revision),
+                            Some(OperationResult::Aromaticity(Box::new(AromaticityResult { snapshot: snapshot.into(), systems }))), Vec::new());
+                        reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                        reply
+                    }
+                    Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                },
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
+                Ok(p) => {
+                    let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
+                        TransactionSelections { before: p.selection_before, after: p.selection_after });
+                    let mut reply = known.document(outcome);
+                    reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                    reply
+                }
                 Err(invalid) => known.invalid(invalid),
             },
             Op::DocumentTransaction => {

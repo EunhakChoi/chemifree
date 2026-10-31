@@ -30,6 +30,7 @@
     "cases/settings-persist-across-reopen.json",
     "cases/preferences-do-not-leak.json",
     "cases/settings-and-preferences-refused.json",
-    "cases/valence-snapshot.json"
+    "cases/valence-snapshot.json",
+    "cases/aromaticity-conversion.json"
   ]
 }
