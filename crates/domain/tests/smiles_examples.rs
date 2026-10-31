@@ -41,13 +41,14 @@ fn branches_disconnected_ions_and_bracket_atom_states() {
 #[test]
 fn dot_branches_restore_the_parent_without_connecting_the_detached_fragment() {
     // OpenSMILES permits dot chains within branches as well as at top level.
-    for (input, expected) in [
-        ("C(.O)C", vec![(0, 2)]),
-        ("C(C.O)N", vec![(0, 1), (0, 3)]),
-    ] {
+    for (input, expected) in [("C(.O)C", vec![(0, 2)]), ("C(C.O)N", vec![(0, 1), (0, 3)])] {
         let graph = parse(input).unwrap();
         assert_eq!(
-            graph.bonds.iter().map(|bond| (bond.begin, bond.end)).collect::<Vec<_>>(),
+            graph
+                .bonds
+                .iter()
+                .map(|bond| (bond.begin, bond.end))
+                .collect::<Vec<_>>(),
             expected,
             "{input}"
         );
@@ -65,7 +66,10 @@ fn writer_reuses_ring_labels_after_their_closures() {
         let order: Vec<_> = (0..graph.atoms.len()).collect();
         let output = write(&graph, &order).unwrap();
         let decoded = parse(&output).unwrap();
-        assert_eq!((decoded.atoms.len(), decoded.bonds.len()), (graph.atoms.len(), graph.bonds.len()));
+        assert_eq!(
+            (decoded.atoms.len(), decoded.bonds.len()),
+            (graph.atoms.len(), graph.bonds.len())
+        );
     }
     // The central atom closes one ring and immediately opens another with the same label.
     let shared_atom = parse("C1CC11CC1").unwrap();
@@ -123,6 +127,24 @@ fn aromatic_bracket_atoms_keep_closed_shell_pyrrole_and_benzene() {
         let output = write(&graph, &order).unwrap();
         assert_eq!(parse(&output).unwrap().atoms.len(), graph.atoms.len());
     }
+}
+
+#[test]
+fn aromatic_syntax_requires_a_complete_supported_assignment() {
+    for input in ["c", "c1ccc1", "[se]1cccc1"] {
+        let error = parse(input).unwrap_err();
+        assert_eq!(error.code, "aromaticity_outside_model", "{input}");
+        assert!(input.get(error.start..error.end).is_some());
+    }
+    for input in ["n1ccccc1", "o1cccc1", "c1ccccc1-c1ccccc1"] {
+        assert!(parse(input).is_ok(), "{input}");
+    }
+    let mut orphan = parse("C").unwrap();
+    orphan.atoms[0].aromatic = true;
+    assert_eq!(
+        write(&orphan, &[0]),
+        Err(WriteError::UnsupportedAromaticity)
+    );
 }
 
 #[test]

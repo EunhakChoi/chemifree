@@ -2,8 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::document::{Atom, BondOrder};
+use crate::aromaticity;
+use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::element::Element;
+use crate::graph::MoleculeGraph;
 use crate::states::{Hydrogens, Radical};
 
 pub const MAX_ATOMS: usize = 2000;
@@ -55,6 +57,7 @@ struct Parser<'a> {
     bytes: &'a [u8],
     position: usize,
     graph: SmilesGraph,
+    atom_spans: Vec<(usize, usize)>,
     current: Option<usize>,
     bond: Option<(BondOrder, usize)>,
     rings: BTreeMap<u8, Ring>,
@@ -312,6 +315,7 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
         bytes: text.as_bytes(),
         position: 0,
         graph: SmilesGraph::default(),
+        atom_spans: Vec::new(),
         current: None,
         bond: None,
         rings: BTreeMap::new(),
@@ -391,6 +395,7 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
                 }
                 let atom = p.atom()?;
                 let next = p.graph.atoms.len();
+                p.atom_spans.push((start, p.position));
                 p.graph.atoms.push(atom);
                 if let Some(previous) = p.current {
                     let order = p.bond.take().map(|(o, _)| o);
@@ -413,6 +418,16 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
         return Err(p.error("trailing_dot", p.position - 1, p.position));
     }
     mark_uncertain_bracket_radicals(&mut p.graph);
+    if !aromatic_supported(&p.graph) {
+        let first = p
+            .graph
+            .atoms
+            .iter()
+            .position(|atom| atom.aromatic)
+            .unwrap_or(0);
+        let (start, end) = p.atom_spans[first];
+        return Err(p.error("aromaticity_outside_model", start, end));
+    }
     Ok(p.graph)
 }
 
@@ -434,6 +449,11 @@ fn mark_uncertain_bracket_radicals(graph: &mut SmilesGraph) {
         }
     }
     for (index, item) in graph.atoms.iter_mut().enumerate() {
+        // A supported aromatic system is checked as a whole below, including a complete
+        // Kekule assignment. Do not infer a radical merely from its nonintegral bonds.
+        if item.aromatic {
+            continue;
+        }
         let Hydrogens::Specified(hydrogens) = item.atom.hydrogens else {
             continue;
         };
@@ -463,12 +483,56 @@ fn mark_uncertain_bracket_radicals(graph: &mut SmilesGraph) {
             ("F" | "Cl" | "Br" | "I", 0) => &[1],
             _ => &[],
         };
-        let closed = !item.aromatic
-            && sums[index].is_some_and(|sum| allowed.contains(&(sum + u16::from(hydrogens))));
+        let closed = sums[index].is_some_and(|sum| allowed.contains(&(sum + u16::from(hydrogens))));
         if !closed {
             item.atom.radical = Radical::Unknown;
         }
     }
+}
+
+/// Lowercase atoms must survive conversion to the native bond representation without
+/// losing aromatic state. The named shared model must prove a complete assignment;
+/// structures outside that model are refused rather than assigned guessed radicals.
+fn aromatic_supported(graph: &SmilesGraph) -> bool {
+    if !graph.atoms.iter().any(|atom| atom.aromatic) {
+        return true;
+    }
+    if graph.atoms.iter().enumerate().any(|(index, atom)| {
+        atom.aromatic
+            && !graph.bonds.iter().any(|bond| {
+                bond.order == BondOrder::Aromatic && (bond.begin == index || bond.end == index)
+            })
+    }) {
+        return false;
+    }
+    let atoms = graph
+        .atoms
+        .iter()
+        .enumerate()
+        .map(|(index, atom)| {
+            (
+                AtomId::from_serial((index + 1) as u32).expect("bounded atom index"),
+                atom.atom.clone(),
+            )
+        })
+        .collect();
+    let bonds = graph
+        .bonds
+        .iter()
+        .enumerate()
+        .map(|(index, bond)| {
+            (
+                BondId::from_serial((index + 1) as u32).expect("bounded bond index"),
+                Bond {
+                    begin: AtomId::from_serial((bond.begin + 1) as u32)
+                        .expect("validated endpoint"),
+                    end: AtomId::from_serial((bond.end + 1) as u32).expect("validated endpoint"),
+                    order: bond.order.clone(),
+                },
+            )
+        })
+        .collect();
+    aromaticity::kekulize(&MoleculeGraph::from_parts(atoms, bonds)).is_ok()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -476,6 +540,7 @@ pub enum WriteError {
     InvalidGraph,
     UnsupportedAtom,
     UnsupportedBond,
+    UnsupportedAromaticity,
     RingLimit,
 }
 
@@ -608,6 +673,9 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     for edges in &mut adjacency {
         edges.sort_by_key(|(v, _)| rank[*v]);
     }
+    if !aromatic_supported(graph) {
+        return Err(WriteError::UnsupportedAromaticity);
+    }
     let mut visited = vec![false; n];
     let mut seen_edge = vec![false; graph.bonds.len()];
     let mut discovery = vec![0; n];
@@ -689,7 +757,8 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
                             out.push_str(bond_text(graph, edge)?);
                             label
                         } else {
-                            let label = open_labels.remove(&ring).ok_or(WriteError::InvalidGraph)?;
+                            let label =
+                                open_labels.remove(&ring).ok_or(WriteError::InvalidGraph)?;
                             free_labels.insert(label);
                             label
                         };

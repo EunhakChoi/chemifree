@@ -10,6 +10,12 @@ pub struct MoleculeGraph {
 }
 
 impl MoleculeGraph {
+    /// Build an internal snapshot from already validated, document-scoped parts.
+    /// Parsers use temporary IDs; these do not become persisted document IDs.
+    pub(crate) fn from_parts(atoms: Vec<(AtomId, Atom)>, bonds: Vec<(BondId, Bond)>) -> Self {
+        Self { atoms, bonds }
+    }
+
     /// Copies only graph state, not scene, settings, selection, or document history.
     pub fn from_document(document: &Document) -> Self {
         Self {
