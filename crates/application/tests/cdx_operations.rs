@@ -114,6 +114,63 @@ fn discarded_graphic_reports_unknown_binary_content() {
 }
 
 #[test]
+fn scoped_tables_refuse_preview_and_creation_without_changing_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    let existing = call(
+        &app,
+        "existing",
+        "document.create",
+        json!({"title":"Existing"}),
+    );
+    let id = existing["result"]["document"]["id"].as_str().unwrap();
+    let before = call(
+        &app,
+        "before",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    let mut bytes = example();
+    bytes.truncate(bytes.len() - 4);
+    bytes.extend(0x0100u16.to_le_bytes());
+    bytes.extend(4u16.to_le_bytes());
+    bytes.extend([1, 0, 0, 0]); // font table with platform 1 and no fonts
+    bytes.extend([0, 0, 0, 0]); // page and file terminators
+    let source = STANDARD.encode(bytes);
+    for mode in ["preview", "create"] {
+        let mut parameters = json!({"mode":mode,"format":"cdx","source":source,"title":"Binary","page_id":1,"fragment_id":2});
+        if mode == "create" {
+            parameters["preview_digest"] = json!("unavailable");
+            parameters["accept_loss"] = json!(true);
+        }
+        let result = call(&app, mode, "document.import", parameters);
+        assert_eq!(result["diagnostics"][0]["code"], "unsupported_table_scope");
+        assert!(
+            result["diagnostics"][0]["details"]["byte_offset"]
+                .as_u64()
+                .unwrap()
+                > 28
+        );
+        assert!(result["result"].is_null());
+        assert_eq!(
+            app.list_documents(&Default::default())
+                .unwrap()
+                .documents
+                .len(),
+            1
+        );
+        let after = call(
+            &app,
+            &format!("after-{mode}"),
+            "document.snapshot",
+            json!({"document_id":id}),
+        );
+        assert_eq!(after["result"], before["result"]);
+    }
+}
+
+#[test]
 fn cdx_base64_read_write_projection_and_xml_transcode_use_real_operations() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))

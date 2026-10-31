@@ -86,6 +86,11 @@ CDX units when writing. Default unstyled strings use ISO Latin-1; styled strings
 are supported only for the documented ISO Latin-1 font mapping, with explicit
 font, face, size and color for each run. Styled bytes 0x80–0x9f are refused because
 the published charset example does not resolve their Latin-1/Windows-1252 ambiguity.
+Font and color tables are decoded at document scope; table tags on other known
+objects are refused because the public [string](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/DataType/CDXString.htm)
+and [color table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/ColorTable.htm)
+descriptions allow references to tables in an object or its ancestors. Unknown
+objects remain opaque, including any tags inside them.
 Non-ASCII font names and other encodings are refused rather than guessed. The font platform is not represented in the common tree and is reported;
 supplying an unchanged original preserves the bytes. Unknown binary objects and
 properties are retained as opaque, with no assumption about their references;

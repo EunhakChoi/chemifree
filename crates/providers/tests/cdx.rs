@@ -367,6 +367,79 @@ fn color_table_components_agree_with_cdxml() {
 }
 
 #[test]
+fn scoped_font_and_color_tables_are_not_interpreted_using_root_defaults() {
+    let mut errors = Vec::new();
+    for tag in [0x0100, 0x0300] {
+        let mut bytes = header();
+        let mut fonts = Vec::new();
+        for value in [1u16, 1, 3, 1252, 5] {
+            fonts.extend(value.to_le_bytes());
+        }
+        fonts.extend(b"Arial");
+        field(&mut bytes, 0x0100, &fonts);
+        let mut colors = 2u16.to_le_bytes().to_vec();
+        for value in [u16::MAX, u16::MAX, u16::MAX, 0, 0, 0] {
+            colors.extend(value.to_le_bytes());
+        }
+        field(&mut bytes, 0x0300, &colors);
+        begin(&mut bytes, 0x8001, 1);
+        let nested = if tag == 0x0100 {
+            let mut nested_fonts = Vec::new();
+            for value in [1u16, 1, 3, 65001, 5] {
+                nested_fonts.extend(value.to_le_bytes());
+            }
+            nested_fonts.extend(b"Arial");
+            nested_fonts
+        } else {
+            let mut nested_colors = 2u16.to_le_bytes().to_vec();
+            for value in [u16::MAX, 0, 0, 0, 0, 0] {
+                nested_colors.extend(value.to_le_bytes());
+            }
+            nested_colors
+        };
+        field(&mut bytes, tag, &nested);
+        begin(&mut bytes, 0x8006, 2);
+        let mut text = Vec::new();
+        for value in [1u16, 0, 3, 0, 240, 2] {
+            text.extend(value.to_le_bytes());
+        }
+        text.extend(b"T");
+        field(&mut bytes, 0x0700, &text);
+        end(&mut bytes);
+        end(&mut bytes);
+        end(&mut bytes);
+        errors.push(cdx::read(&bytes).err().map(|error| {
+            assert!(error.offset > 28);
+            error.code
+        }));
+    }
+    assert_eq!(
+        errors,
+        [
+            Some("unsupported_table_scope"),
+            Some("unsupported_table_scope")
+        ]
+    );
+}
+
+#[test]
+fn table_tags_inside_unknown_objects_remain_opaque_and_byte_preserved() {
+    let mut bytes = header();
+    begin(&mut bytes, 0x8001, 1);
+    begin(&mut bytes, 0x9001, 9);
+    field(&mut bytes, 0x0100, &[0, 1, 2]);
+    field(&mut bytes, 0x0300, &[3, 4, 5]);
+    end(&mut bytes);
+    end(&mut bytes);
+    end(&mut bytes);
+    let parsed = cdx::read(&bytes).unwrap().document;
+    let encoded = LocalInterchangeCodec
+        .write(InterchangeFormat::Cdx, &parsed, Some(&bytes), false)
+        .unwrap();
+    assert_eq!(encoded.bytes, bytes);
+}
+
+#[test]
 fn writer_refuses_unrepresentable_coordinate_instead_of_silent_rounding() {
     let xml =
         cdxml::read("<CDXML><page><fragment><n p=\"0.1 0\"/></fragment></page></CDXML>").unwrap();

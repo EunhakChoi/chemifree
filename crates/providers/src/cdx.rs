@@ -148,6 +148,13 @@ impl<'a> Cursor<'a> {
                     usize::from(short)
                 };
                 let value = self.take(length)?;
+                if !unknown && current.kind != O::Document && matches!(tag, 0x0100 | 0x0300) {
+                    return Err(fail(
+                        "unsupported_table_scope",
+                        "Scoped font and color tables outside the document are not interpreted.",
+                        self.at - length,
+                    ));
+                }
                 if !unknown && current.kind == O::Document && tag == 0x0100 {
                     current
                         .children
