@@ -1,5 +1,5 @@
 use chemifree_application::{Application, PreferencesChange};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
 use serde_json::{Value, json};
 
 fn call(
@@ -13,7 +13,7 @@ fn call(
 }
 
 #[test]
-fn formula_scopes_and_precision_use_one_unchanged_snapshot() {
+fn formula_scopes_use_one_unchanged_snapshot_independent_of_mass_precision() {
     let data = tempfile::tempdir().unwrap();
     let app = Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
     let id = app
@@ -43,7 +43,7 @@ fn formula_scopes_and_precision_use_one_unchanged_snapshot() {
     assert_eq!(all["outcome"], "ok", "{all}");
     assert_eq!(all["model_id"], "chemifree-properties-1");
     assert_eq!(all["result"]["components"][0]["formula"], "CH4O");
-    assert_eq!(all["result"]["display_decimals"], 5);
+    assert_eq!(all["result"]["display_decimals"], 0);
     assert_eq!(all["result"]["snapshot"]["document"], before["document"]);
     assert_eq!(all["result"]["snapshot"]["session"], before["session"]);
     let selected = call(
@@ -60,11 +60,8 @@ fn formula_scopes_and_precision_use_one_unchanged_snapshot() {
         "chem.properties",
         json!({"document_id":id,"scope":"molecule","property":"formula"}),
     );
-    assert_eq!(new["result"]["display_decimals"], 2);
-    assert_eq!(
-        all["result"]["display_decimals"], 5,
-        "an earlier result is immutable"
-    );
+    assert_eq!(new["result"]["display_decimals"], 0);
+    assert_eq!(all["result"]["components"], new["result"]["components"]);
     assert_eq!(
         serde_json::to_value(app.document(&id).unwrap()).unwrap(),
         before
@@ -106,5 +103,59 @@ fn missing_mass_data_and_invalid_selection_return_no_partial_result() {
     assert_eq!(
         serde_json::to_value(app.document(&id).unwrap()).unwrap(),
         before
+    );
+}
+
+#[test]
+fn formula_is_available_when_mass_preferences_are_unreadable() {
+    let data = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()))
+        .with_preferences(FilePreferenceStore::new(data.path()));
+    let id = app
+        .create_document(None, Some("Methane"))
+        .unwrap()
+        .document
+        .id;
+    let edited = call(
+        &app,
+        "draw",
+        "document.transaction",
+        json!({
+            "document_id": id, "expected_revision": 0,
+            "commands": [{"op":"add_atom", "element":"C", "position":{"x":0,"y":0}}]
+        }),
+    );
+    assert_eq!(edited["outcome"], "ok");
+    let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+    std::fs::write(data.path().join("preferences.json"), b"not valid JSON").unwrap();
+
+    let formula = call(
+        &app,
+        "formula-unreadable",
+        "chem.properties",
+        json!({
+            "document_id": id, "scope": "molecule", "property": "formula"
+        }),
+    );
+    assert_eq!(formula["outcome"], "ok", "{formula}");
+    assert_eq!(formula["result"]["components"][0]["formula"], "CH4");
+    assert_eq!(formula["result"]["display_decimals"], 0);
+    let mass = call(
+        &app,
+        "mass-unreadable",
+        "chem.properties",
+        json!({
+            "document_id": id, "scope": "molecule", "property": "masses"
+        }),
+    );
+    assert_eq!(mass["diagnostics"][0]["code"], "preferences_unreadable");
+    assert!(mass["result"].is_null());
+    assert_eq!(
+        serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+        before
+    );
+    assert_eq!(
+        std::fs::read(data.path().join("preferences.json")).unwrap(),
+        b"not valid JSON"
     );
 }

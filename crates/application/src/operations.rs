@@ -1089,9 +1089,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Ok(snapshot) => snapshot,
             Err(error) => return known.invalid(failure(&error)),
         };
-        let precision = match self.preferences.current() {
-            Ok(preferences) => preferences.mass_precision.decimals,
-            Err(error) => return known.invalid(failure(&error)),
+        let precision = if parameters.property == PropertyKind::Formula {
+            0
+        } else {
+            match self.preferences.current() {
+                Ok(preferences) => preferences.mass_precision.decimals,
+                Err(error) => return known.invalid(failure(&error)),
+            }
         };
         let data = if parameters.property == PropertyKind::Formula {
             None
@@ -1176,7 +1180,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             selection: parameters.selection,
             property: parameters.property.as_str(),
             valence_model: chemifree_domain::chemistry::VALENCE_MODEL,
-            arithmetic: "binary64-sequential-species-order; fixed display ties-to-even",
+            arithmetic: if parameters.property == PropertyKind::Formula {
+                "integer-composition"
+            } else {
+                "binary64-sequential-species-order; fixed display ties-to-even"
+            },
             mass_unit: data.as_ref().map(|_| "u"),
             display_decimals: precision,
             data: data.map(|(view, _)| view),
@@ -1430,12 +1438,23 @@ mod property_tests {
         );
         assert_eq!(added["outcome"], "ok");
         let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+        let preferences: crate::PreferencesChange = serde_json::from_value(json!({
+            "ui":{"theme":"system"}, "new_documents":{},
+            "computation":{"mass_precision":{"decimals":5}}
+        }))
+        .unwrap();
+        app.set_preferences(None, 0, preferences).unwrap();
         let natural = call(
             "natural",
             "chem.properties",
             json!({"document_id":id,"scope":"molecule","property":"distribution"}),
         );
         assert_eq!(natural["outcome"], "partial", "{natural}");
+        assert_eq!(natural["result"]["display_decimals"], 5);
+        assert_eq!(
+            natural["result"]["components"][0]["mass"]["average_display"],
+            "12.01074"
+        );
         assert_eq!(
             natural["result"]["data"]["dataset_id"],
             "synthetic-public-values"
@@ -1464,6 +1483,22 @@ mod property_tests {
         assert_eq!(
             serde_json::to_value(app.document(&id).unwrap()).unwrap(),
             before
+        );
+        app.reset_preferences(None, 1).unwrap();
+        let after_reset = call(
+            "natural-after-reset",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(after_reset["outcome"], "partial", "{after_reset}");
+        assert_eq!(after_reset["result"]["display_decimals"], 2);
+        assert_eq!(
+            after_reset["result"]["components"][0]["mass"]["average_display"],
+            "12.01"
+        );
+        assert_eq!(
+            natural["result"]["display_decimals"], 5,
+            "a previous mass result is unchanged"
         );
 
         let updated = call(

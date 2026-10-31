@@ -800,17 +800,21 @@ test('property results validate the analyzed snapshot and refuse incompatible or
     document_revision: 1, loss_report: [],
     result: {
       snapshot: { document: shown.document, session: shown.session, recovery: null },
-      scope: 'molecule', property: 'formula', selection: null, display_decimals: 2,
+      scope: 'molecule', property: 'formula', selection: null, display_decimals: 0,
       valence_model: 'chemifree-valence-2', arithmetic: 'binary64', data: null, valence_warnings: [],
       components: [{ atoms: ['a1'], formula: 'CH4', formal_charge: 0, mass: null, isotope_distribution: null, omitted_abundances: [], abundance_sums: [] }],
     },
   }
+  const legacy = structuredClone(result)
+  legacy.result.display_decimals = 2
   const invalid = structuredClone(result)
   invalid.result.components[0].atoms = ['a1', 'a1']
-  service({ '/api/v1/operations': [() => json(200, result), () => json(200, invalid)] })
+  service({ '/api/v1/operations': [() => json(200, result), () => json(200, legacy), () => json(200, invalid)] })
   const client = new DocumentClient()
   const inspection = await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)
   assert.equal(inspection.components[0].formula, 'CH4')
+  assert.equal(inspection.display_decimals, 0)
+  assert.equal((await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)).display_decimals, 2, 'earlier numeric formula replies remain readable')
   assert.equal(samePropertySnapshot(shown.document, inspection.snapshot), true)
   const replaced = { ...shown.document, atoms: [atomWith('a1', 'O', 0, 0)] }
   assert.equal(samePropertySnapshot(replaced, inspection.snapshot), false, 'same ID and revision cannot hide different atom content')

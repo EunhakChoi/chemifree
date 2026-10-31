@@ -117,7 +117,7 @@ export function PropertiesPanel({ document, editor }: { document: DocumentView; 
           {current.warnings.map((warning, index) => <p key={index} className="text-amber-700 dark:text-amber-300">{warning}</p>)}
           <details>
             <summary>Method and data</summary>
-            <p>Model: {current.model}; valence: {current.valence_model}; display: {current.display_decimals} decimal places.</p>
+            <p>Model: {current.model}; valence: {current.valence_model}{current.property !== 'formula' && `; display: ${current.display_decimals} decimal places`}.</p>
             <p>Arithmetic: {current.arithmetic}</p>
             {current.data && <>
               <p>Data: {current.data.dataset_id} · {current.data.dataset_version} · {current.data.calculation_profile}</p>

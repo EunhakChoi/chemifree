@@ -14,7 +14,7 @@
      "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}],
      "expect": {"document": {"revision": 1}}},
     {"call": "operation", "document": "d", "request": {"contract": 1, "request_id": "formula", "profile": "preserve-semantics", "operation": "chem.properties", "parameters": {"scope": "molecule", "property": "formula"}},
-     "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-properties-1", "result": {"components": [{"formula": "CH4", "formal_charge": 0}], "snapshot": {"document": {"revision": 1}}}}},
+     "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-properties-1", "result": {"display_decimals": 0, "components": [{"formula": "CH4", "formal_charge": 0}], "snapshot": {"document": {"revision": 1}}}}},
     {"call": "transact", "document": "d", "expected_revision": 1,
      "commands": [{"op": "update_atom", "atom": "a1", "hydrogens": {"mode": "specified", "count": 0}}],
      "expect": {"document": {"revision": 2}}},
