@@ -149,11 +149,25 @@ fn restart_and_source_change_invalidate_consent_before_creation() {
         .to_owned();
     let changed_source = SOURCE.replace("α &amp; β", "γ &amp; β");
     let changed = json!({"mode":"create","format":"cdxml","source":changed_source,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
-    assert_eq!(call(&application, "changed-source", "document.import", changed)["diagnostics"][0]["code"], "preview_changed");
-    let preferences = serde_json::from_value(json!({"ui":{"theme":"system"},"new_documents":{"bond_length_pt":40}})).unwrap();
+    assert_eq!(
+        call(&application, "changed-source", "document.import", changed)["diagnostics"][0]["code"],
+        "preview_changed"
+    );
+    let preferences = serde_json::from_value(
+        json!({"ui":{"theme":"system"},"new_documents":{"bond_length_pt":40}}),
+    )
+    .unwrap();
     application.set_preferences(None, 0, preferences).unwrap();
     let changed_settings = json!({"mode":"create","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
-    assert_eq!(call(&application, "changed-settings", "document.import", changed_settings)["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(
+        call(
+            &application,
+            "changed-settings",
+            "document.import",
+            changed_settings
+        )["diagnostics"][0]["code"],
+        "preview_changed"
+    );
     assert_eq!(count(&application), 0);
     drop(application);
     let restarted = app(dir.path());
@@ -192,5 +206,16 @@ fn invalid_references_and_unsafe_opaque_rewrites_are_refused() {
     );
     assert_eq!(write["diagnostics"][0]["code"], "unsafe_unknown_rewrite");
     assert!(write["result"].is_null());
+    assert_eq!(count(&application), 0);
+}
+
+#[test]
+fn explicit_unknown_hydrogen_semantics_are_not_silently_inferred() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = SOURCE.replace("p=\"1 2\"", "p=\"1 2\" NumHydrogens=\"4\"");
+    let result = call(&application, "explicit-h", "document.import", json!({"mode":"preview","format":"cdxml","source":source,"title":"Projected","page_id":1,"fragment_id":2}));
+    assert_eq!(result["diagnostics"][0]["code"], "unsupported_node");
+    assert!(result["result"].is_null());
     assert_eq!(count(&application), 0);
 }

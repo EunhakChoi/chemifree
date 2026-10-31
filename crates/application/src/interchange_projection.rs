@@ -62,13 +62,26 @@ pub(crate) struct Choice {
 }
 
 pub(crate) fn choices(document: &Document) -> Vec<Choice> {
-    fn fragments(page_id: u32, page_path: &[usize], object: &Object, indices: &mut Vec<usize>, choices: &mut Vec<Choice>) {
+    fn fragments(
+        page_id: u32,
+        page_path: &[usize],
+        object: &Object,
+        indices: &mut Vec<usize>,
+        choices: &mut Vec<Choice>,
+    ) {
         for (index, child) in object.children.iter().enumerate() {
-            let Content::Object(child) = child else { continue };
+            let Content::Object(child) = child else {
+                continue;
+            };
             indices.push(index);
             if child.kind == ObjectKind::Fragment {
                 if let Some(fragment_id) = child.id {
-                    choices.push(Choice { page_id, fragment_id, page_path: path(page_path), fragment_path: path(indices) });
+                    choices.push(Choice {
+                        page_id,
+                        fragment_id,
+                        page_path: path(page_path),
+                        fragment_path: path(indices),
+                    });
                 }
             } else if child.kind == ObjectKind::Group {
                 fragments(page_id, page_path, child, indices, choices);
@@ -79,10 +92,20 @@ pub(crate) fn choices(document: &Document) -> Vec<Choice> {
 
     let mut result = Vec::new();
     for (index, child) in document.root().children.iter().enumerate() {
-        let Content::Object(page) = child else { continue };
-        if page.kind == ObjectKind::Page && let Some(page_id) = page.id {
+        let Content::Object(page) = child else {
+            continue;
+        };
+        if page.kind == ObjectKind::Page
+            && let Some(page_id) = page.id
+        {
             let page_path = vec![index];
-            fragments(page_id, &page_path, page, &mut page_path.clone(), &mut result);
+            fragments(
+                page_id,
+                &page_path,
+                page,
+                &mut page_path.clone(),
+                &mut result,
+            );
         }
     }
     result
@@ -216,7 +239,7 @@ fn atom(
 ) -> Result<ProjectedAtom, InterchangeError> {
     if unknown_named(
         object,
-        &["NodeType", "Element", "Charge", "Isotope", "Radical"],
+        &["NodeType", "Element", "Charge", "Isotope", "Radical", "ElementList", "Formula", "NumHydrogens", "ImplicitHydrogens", "FreeSites", "AS", "BondOrdering", "EnhancedStereoType"],
     ) {
         return Err(fail(
             "unsupported_node",
@@ -475,7 +498,17 @@ pub(crate) fn project(
         }
         let mut indices = fragment_path.clone();
         indices.push(index);
-        bonds.push(bond(item, &indices, &ids)?);
+        let projected = bond(item, &indices, &ids)?;
+        if projected.order == 2 {
+            losses.push(Loss {
+                feature: "double_bond_stereo".into(),
+                source_path: path(&indices),
+                disposition: LossDisposition::Unknown,
+                reason: "The editor does not interpret double-bond stereochemistry that another reader may derive from the drawing.".into(),
+                semantic_impact: SemanticImpact::Stereo,
+            });
+        }
+        bonds.push(projected);
     }
     losses_for_tree(
         root,
@@ -484,6 +517,15 @@ pub(crate) fn project(
         &fragment_path,
         &mut losses,
     );
+    if !atoms.is_empty() {
+        losses.push(Loss {
+            feature: "implicit_hydrogen_interpretation".into(),
+            source_path: path(&fragment_path),
+            disposition: LossDisposition::Unknown,
+            reason: "The editor records inferred hydrogen states; its bounded valence inspection may differ from the source reader's implicit-hydrogen policy.".into(),
+            semantic_impact: SemanticImpact::Chemistry,
+        });
+    }
     Ok(Projection {
         document: source(root, &[]),
         page: source(at(root, &page_path), &page_path),
@@ -686,7 +728,7 @@ mod tests {
                 .iter()
                 .map(|loss| loss.feature.as_str())
                 .collect::<Vec<_>>(),
-            ["styled_text", "unselected_page"]
+            ["double_bond_stereo", "styled_text", "unselected_page", "implicit_hydrogen_interpretation"]
         );
         assert_eq!(projection.commands().unwrap().len(), 3);
     }

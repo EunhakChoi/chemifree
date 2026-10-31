@@ -26,7 +26,8 @@ The CDXML reader accepts UTF-8 input up to 1 MiB and checks XML syntax, IDs and
 known references. It does not fetch external DTDs, entities, or resources; DTD
 internal subsets are rejected. The reader preserves an unchanged input byte for
 byte, including uninterpreted extensions and outside-root material. A changed
-document cannot be rewritten while such material remains without an explicit
+document retains its UTF-8 BOM when one was present and cannot be rewritten while
+opaque outside-root material remains without an explicit
 discard decision. The application-facing codec re-parses any supplied original
 and compares its decoded tree with the submitted tree; it does not trust a
 client-supplied opaque baseline. It reports retained or dropped opaque material,
@@ -44,7 +45,11 @@ silently emitted as a single bond.
 
 The editor projection selects one page and a top-level fragment, including one
 inside groups. Element nodes and supported bond orders become an editable graph;
-unsupported chemical node or bond types are refused. Original IDs and source
+unsupported chemical node or bond types and explicit unimplemented hydrogen/query
+attributes are refused. Default implicit-hydrogen interpretation is reported as
+uncertain because the editor's bounded inference need not agree with another
+reader. Double bonds also report uncertainty about stereo another reader may
+interpret from the drawing. Original IDs and source
 paths are mapped to new editor IDs. Unselected pages and fragments, styled text,
 graphics, groups, references, unknown properties and outside-root XML that the
 editor cannot store are reported as losses. A preview does not create a document.

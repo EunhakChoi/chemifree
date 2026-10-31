@@ -51,7 +51,7 @@
 
 HTTP 계약은 health·capabilities·session과 /api/v1/documents 아래 생성·조회·transactions·undo·redo·save·close·autosave·save-as·recover·recover-as-copy·discard-draft다. CLI는 status·capabilities·documents 하위 명령으로 같은 Application을 호출한다. 모든 JSON에는 api_version: v1이 있다. 세부 내용은 CONTRACT.md에 있다.
 
-runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. format_conversion, local_model_loading, authentication, windows_bridge는 not_implemented다.
+runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), format_conversion(CDXML의 명시된 부분), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. local_model_loading, authentication, windows_bridge는 not_implemented다.
 
 ## UI 결정
 

@@ -446,3 +446,16 @@ fn outside_root_processing_instructions_are_not_mistaken_for_xml_declarations() 
         "unsafe_prolog_rewrite"
     );
 }
+
+#[test]
+fn utf8_bom_is_preserved_and_is_not_an_opaque_instruction() {
+    let source = "\u{feff}<?xml version=\"1.0\" encoding=\"UTF-8\"?><CDXML><page id=\"1\"/></CDXML>";
+    let mut document = cdxml::read(source).unwrap();
+    assert!(!document.has_unrewritable_prolog());
+    assert_eq!(cdxml::write(&document).unwrap().as_bytes(), source.as_bytes());
+    document.document_mut().edit(|root| first_mut(root, ObjectKind::Page).unwrap().id = Some(2)).unwrap();
+    let rewritten = cdxml::write(&document).unwrap();
+    assert!(rewritten.starts_with('\u{feff}'));
+    let reloaded = cdxml::read(&rewritten).unwrap();
+    assert_eq!(find(reloaded.document().root(), ObjectKind::Page)[0].id, Some(2));
+}

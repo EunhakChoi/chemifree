@@ -1,0 +1,79 @@
+{
+  "id": "cdxml-rich-projection",
+  "title": "Rich CDXML preserves opaque data and projects a selected molecule only after loss consent",
+  "requirements": ["CODEC-01", "CODEC-06"],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "read-cdxml", "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read", "format": "cdxml",
+          "source": "\ufeff<CDXML><page id=\"1\" future=\"opaque\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\" Element=\"8\"/></fragment><t id=\"4\"><s>α</s></t></page><page id=\"5\"><fragment id=\"6\"><n id=\"7\"/></fragment></page></CDXML>"
+        }
+      },
+      "capture": {"tree": "/result/document"},
+      "expect": {
+        "outcome": "ok",
+        "result": {"choices": {"$contains": [{"page_id": 1, "fragment_id": 2}, {"page_id": 5, "fragment_id": 6}]}},
+        "loss_report": {"$contains": [{"feature": "opaque_extensions", "disposition": "retained"}]}
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "write-cdxml", "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdxml", "document": null,
+          "original": "\ufeff<CDXML><page id=\"1\" future=\"opaque\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\" Element=\"8\"/></fragment><t id=\"4\"><s>α</s></t></page><page id=\"5\"><fragment id=\"6\"><n id=\"7\"/></fragment></page></CDXML>"
+        }
+      },
+      "substitute": {"/parameters/document": "tree"},
+      "expect": {
+        "outcome": "ok",
+        "result": {"content": "\ufeff<CDXML><page id=\"1\" future=\"opaque\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\" Element=\"8\"/></fragment><t id=\"4\"><s>α</s></t></page><page id=\"5\"><fragment id=\"6\"><n id=\"7\"/></fragment></page></CDXML>"}
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "preview-cdxml", "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview", "format": "cdxml", "title": "Projected", "page_id": 1, "fragment_id": 2,
+          "source": "\ufeff<CDXML><page id=\"1\" future=\"opaque\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\" Element=\"8\"/></fragment><t id=\"4\"><s>α</s></t></page><page id=\"5\"><fragment id=\"6\"><n id=\"7\"/></fragment></page></CDXML>"
+        }
+      },
+      "capture": {"digest": "/result/preview_digest"},
+      "expect": {
+        "outcome": "partial",
+        "result": {"document": {"atoms": [{"element": "O", "position": {"x": 1, "y": 2}}]}},
+        "loss_report": {"$contains": [{"feature": "styled_text"}, {"feature": "unselected_page"}, {"feature": "unprojected_property"}, {"feature": "implicit_hydrogen_interpretation"}]}
+      }
+    },
+    {
+      "call": "operation",
+      "bind": "projected",
+      "request": {
+        "contract": 1, "request_id": "create-cdxml", "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create", "format": "cdxml", "title": "Projected", "page_id": 1, "fragment_id": 2,
+          "preview_digest": null, "accept_loss": true,
+          "source": "\ufeff<CDXML><page id=\"1\" future=\"opaque\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\" Element=\"8\"/></fragment><t id=\"4\"><s>α</s></t></page><page id=\"5\"><fragment id=\"6\"><n id=\"7\"/></fragment></page></CDXML>"
+        }
+      },
+      "substitute": {"/parameters/preview_digest": "digest"},
+      "expect": {
+        "outcome": "partial", "document_revision": 1,
+        "result": {"document": {"atoms": [{"element": "O"}]}, "interchange_mapping": {"atoms": [{"source_id": 3, "target_id": "a1"}]}}
+      }
+    },
+    {"call": "restart"},
+    {"call": "get", "document": "projected", "expect": {"document": {"revision": 1, "atoms": [{"element": "O", "position": {"x": 1, "y": 2}}]}}}
+  ]
+}

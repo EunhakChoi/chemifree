@@ -131,7 +131,7 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'structure_analysis', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'structure_analysis', 'format_conversion', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
 

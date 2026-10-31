@@ -34,6 +34,7 @@ impl std::error::Error for CdxmlError {}
 pub struct CdxmlDocument {
     document: Document,
     original: Option<(Object, String)>,
+    byte_order_mark: bool,
     declaration: Option<String>,
     doctype: Option<String>,
     unsafe_outside_root: bool,
@@ -45,6 +46,7 @@ impl CdxmlDocument {
         Self {
             document,
             original: None,
+            byte_order_mark: false,
             declaration: None,
             doctype: None,
             unsafe_outside_root: false,
@@ -131,7 +133,9 @@ pub fn read(text: &str) -> Result<CdxmlDocument, CdxmlError> {
     }
     let namespace = root.tag_name().namespace();
     let range = root.range();
-    let (declaration, doctype, unsafe_prolog) = prolog(&text[..range.start]);
+    let prefix = &text[..range.start];
+    let byte_order_mark = prefix.starts_with('\u{feff}');
+    let (declaration, doctype, unsafe_prolog) = prolog(prefix.strip_prefix('\u{feff}').unwrap_or(prefix));
     let unsafe_outside_root = unsafe_prolog || !text[range.end..].trim().is_empty();
     let parsed = parse_object(root, namespace, 0, false)?;
     let document = Document::new(parsed.clone())
@@ -139,6 +143,7 @@ pub fn read(text: &str) -> Result<CdxmlDocument, CdxmlError> {
     Ok(CdxmlDocument {
         document,
         original: Some((parsed, text.to_owned())),
+        byte_order_mark,
         declaration,
         doctype,
         unsafe_outside_root,
@@ -659,10 +664,9 @@ pub fn write(file: &CdxmlDocument) -> Result<String, CdxmlError> {
             None,
         ));
     }
-    let mut result = file
-        .declaration
-        .clone()
-        .unwrap_or_else(|| "<?xml version=\"1.0\" encoding=\"UTF-8\"?>".into());
+    let mut result = String::new();
+    if file.byte_order_mark { result.push('\u{feff}'); }
+    result.push_str(file.declaration.as_deref().unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
     result.push('\n');
     if let Some(doctype) = &file.doctype {
         result.push_str(doctype);

@@ -45,8 +45,8 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       setError('Choose a .cdxml file.')
       return
     }
-    if (file.size > 200 * 1024) {
-      setError('This web form accepts files up to 200 KiB. The operation API and CLI have their own limits.')
+    if (file.size > 120 * 1024) {
+      setError('This web form accepts CDXML files up to 120 KiB. The operation API and CLI have their own limits.')
       return
     }
     setPending(true)
@@ -100,7 +100,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     {source && source.choices.length > 0 && <>
       <Field>
         <FieldLabel htmlFor="cdxml-choice">Page and molecule</FieldLabel>
-        <select id="cdxml-choice" className="rounded-md border bg-background p-2 text-sm" value={choice} disabled={pending || editor.busy}
+        <select id="cdxml-choice" className="w-full min-w-0 max-w-full rounded-md border bg-background p-2 text-sm" value={choice} disabled={pending || editor.busy}
           onChange={(event) => { setChoice(Number(event.currentTarget.value)); setPrepared(null) }}>
           {source.choices.map((item, index) => <option key={`${item.page_id}:${item.fragment_id}`} value={index}>
             Page {item.page_id}, molecule {item.fragment_id} ({item.fragment_path})
@@ -120,11 +120,11 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       <p className="font-medium">Source-to-editor IDs</p>
       <ul className="list-disc pl-5">
         {[current.preview.mapping.page, current.preview.mapping.fragment, ...current.preview.mapping.atoms, ...current.preview.mapping.bonds].map((item, index) =>
-          <li key={`${item.source_path}:${index}`}>{item.source_path} {item.source_id === null ? '(no ID)' : `#${item.source_id}`} → {item.target_id}</li>)}
+          <li className="break-all" key={`${item.source_path}:${index}`}>{item.source_path} {item.source_id === null ? '(no ID)' : `#${item.source_id}`} → {item.target_id}</li>)}
       </ul>
       <p className="font-medium">Content changed or left out</p>
       {current.preview.losses.length === 0 ? <p>No loss reported.</p> : <ul className="list-disc space-y-1 pl-5">
-        {current.preview.losses.map((loss, index) => <li key={`${loss.source_path}:${index}`}>
+        {current.preview.losses.map((loss, index) => <li className="break-words" key={`${loss.source_path}:${index}`}>
           {loss.source_path}: {loss.reason} ({loss.disposition}, {loss.semantic_impact})
         </li>)}
       </ul>}

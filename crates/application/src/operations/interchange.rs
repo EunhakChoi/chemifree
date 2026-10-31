@@ -437,6 +437,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             &commands,
             || self.preferences.current()?.new_document_settings(),
             |document| {
+                // Validate the source-to-target mapping while the candidate is still staged.
+                mapping(&projection, document).map_err(|error| {
+                    ApplicationError::new(ErrorCode::InvalidRequest, error.message)
+                })?;
                 if bind(document) == expected {
                     Ok(())
                 } else {
