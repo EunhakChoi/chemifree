@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -792,6 +792,36 @@ const atomWith = (id, element, x, y, states = {}) => ({
 })
 const bondWith = (id, begin, end, order = 'single', query = null) => ({ id, begin, end, order, query })
 
+test('property results validate the analyzed snapshot and refuse incompatible or stale graphs', async () => {
+  const shown = document('doc-properties', 1)
+  shown.document.atoms = [atomWith('a1', 'C', 0, 0)]
+  const result = {
+    envelope: 'operation_result', contract: 1, outcome: 'ok', model_id: 'chemifree-properties-1',
+    document_revision: 1, loss_report: [],
+    result: {
+      snapshot: { document: shown.document, session: shown.session, recovery: null },
+      scope: 'molecule', property: 'formula', selection: null, display_decimals: 0,
+      valence_model: 'chemifree-valence-2', arithmetic: 'binary64', data: null, valence_warnings: [],
+      components: [{ atoms: ['a1'], formula: 'CH4', formal_charge: 0, mass: null, isotope_distribution: null, omitted_abundances: [], abundance_sums: [] }],
+    },
+  }
+  const legacy = structuredClone(result)
+  legacy.result.display_decimals = 2
+  const invalid = structuredClone(result)
+  invalid.result.components[0].atoms = ['a1', 'a1']
+  service({ '/api/v1/operations': [() => json(200, result), () => json(200, legacy), () => json(200, invalid)] })
+  const client = new DocumentClient()
+  const inspection = await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)
+  assert.equal(inspection.components[0].formula, 'CH4')
+  assert.equal(inspection.display_decimals, 0)
+  assert.equal((await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)).display_decimals, 2, 'earlier numeric formula replies remain readable')
+  assert.equal(samePropertySnapshot(shown.document, inspection.snapshot), true)
+  const replaced = { ...shown.document, atoms: [atomWith('a1', 'O', 0, 0)] }
+  assert.equal(samePropertySnapshot(replaced, inspection.snapshot), false, 'same ID and revision cannot hide different atom content')
+  assert.equal(samePropertySnapshot({ ...shown.document, scene: { changed: true } }, inspection.snapshot), false)
+  await assert.rejects(client.inspectProperties('doc-properties', 'molecule', 'formula', null, null), { code: 'incompatible_response' })
+})
+
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
 function recorded() {
   return {
@@ -1533,6 +1563,14 @@ function preferences(overrides = {}) {
 
 test('a preferences reply is checked whole, computation included', () => {
   assert.ok(isPreferencesResponse(preferences()))
+  const withMass = (decimals) => preferences({ computation: {
+    ...preferences().computation,
+    mass_precision: { status: 'available', owner: 'preferences', decimals },
+  } })
+  assert.ok(isPreferencesResponse(withMass(0)))
+  assert.ok(isPreferencesResponse(withMass(8)))
+  assert.equal(isPreferencesResponse(withMass(9)), false)
+  assert.equal(isPreferencesResponse(withMass(1.5)), false)
   for (const [name, bad] of [
     ['an unknown theme', preferences({ ui: { theme: 'sepia' } })],
     ['a negative revision', preferences({ revision: -1 })],

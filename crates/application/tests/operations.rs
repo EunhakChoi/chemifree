@@ -405,6 +405,7 @@ fn the_catalog_says_exactly_which_operations_run() {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
         "document.snapshot" | "document.close" | "chem.validate" => json!({"document_id": id}),
+        "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
         "document.transaction" => {
             json!({"document_id": id, "expected_revision": 0, "commands": []})
         }
@@ -462,6 +463,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "document.save",
             "document.close",
             "chem.validate",
+            "chem.properties",
         ]
     );
     assert_eq!(

@@ -671,6 +671,17 @@ impl<R: DocumentRepository> Documents<R> {
         Ok((self.respond(session), findings))
     }
 
+    /// The view and graph are taken under the same lock, so later computation can be checked
+    /// against the exact analyzed snapshot even after a service restart or concurrent edit.
+    pub(crate) fn analysis_snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(DocumentResponse, Document), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((self.respond(session), session.document.clone()))
+    }
+
     pub(crate) fn transact(
         &self,
         id: &str,

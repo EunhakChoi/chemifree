@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chemifree_application::{Application, ApplicationError};
+use chemifree_application::{
+    Application, ApplicationError, DataRegistry, ProfileRecords, phase4_nist,
+};
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
 };
@@ -12,7 +14,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::case::{
-    Body, Call, Case, Expectation, Kind, LoadedCase, OperationRequest, Pending, Step, Suite,
+    Body, Call, Case, DataFixture, Expectation, Kind, LoadedCase, OperationRequest, Pending, Step,
+    Suite,
 };
 use crate::expect;
 
@@ -112,7 +115,7 @@ fn run_loaded(loaded: &LoadedCase) -> CaseResult {
     let case = &loaded.case;
     let (outcome, pending, failure) = match &case.body {
         Body::Pending(pending) => (Outcome::NotRun, Some(pending.clone()), None),
-        Body::Steps(steps) => match run_steps(steps) {
+        Body::Steps(steps) => match run_steps(steps, case.data_fixture.as_ref()) {
             Ok(()) => (Outcome::Passed, None, None),
             Err(failure) => (Outcome::Failed, None, Some(failure)),
         },
@@ -137,15 +140,15 @@ fn run_loaded(loaded: &LoadedCase) -> CaseResult {
 /// Returns a message naming the failing step.
 pub fn run_case(case: &Case) -> Result<(), String> {
     match &case.body {
-        Body::Steps(steps) => run_steps(steps),
+        Body::Steps(steps) => run_steps(steps, case.data_fixture.as_ref()),
         Body::Pending(_) => Err("the case is pending".to_owned()),
     }
 }
 
-fn run_steps(steps: &[Step]) -> Result<(), String> {
+fn run_steps(steps: &[Step], fixture: Option<&DataFixture>) -> Result<(), String> {
     let directory = tempfile::tempdir()
         .map_err(|error| format!("cannot create a temporary data directory: {error}"))?;
-    let mut application = Some(start(directory.path()));
+    let mut application = Some(start(directory.path(), fixture)?);
     let mut documents: HashMap<String, String> = HashMap::new();
     let mut captured: HashMap<String, Value> = HashMap::new();
     for (index, step) in steps.iter().enumerate() {
@@ -154,7 +157,7 @@ fn run_steps(steps: &[Step]) -> Result<(), String> {
             // Dropping the application without `draft_all` is what a crash leaves behind:
             // nothing more is written, and its file handles (and so its locks) are released.
             drop(application.take());
-            application = Some(start(directory.path()));
+            application = Some(start(directory.path(), fixture)?);
             continue;
         }
         let Some(running) = application.as_ref() else {
@@ -196,14 +199,28 @@ fn run_steps(steps: &[Step]) -> Result<(), String> {
 }
 
 /// Starts the application on `directory` as the API process does at startup.
-fn start(directory: &Path) -> LocalApplication {
+fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplication, String> {
     let repository = FileDocumentRepository::new(directory);
     repository.prune_stale_temporaries();
     let preferences = FilePreferenceStore::new(directory);
     preferences.prune_stale_temporaries();
-    Application::new(LocalCapabilities, repository)
+    let application = Application::new(LocalCapabilities, repository)
         .with_ctfile_codec(V2000Codec)
-        .with_preferences(preferences)
+        .with_preferences(preferences);
+    let Some(fixture) = fixture else {
+        return Ok(application);
+    };
+    let bytes = include_bytes!("../../../conformance/fixtures/synthetic-carbon-nist.json");
+    if fixture.id != "synthetic-carbon-nist-1" || crate::case::sha256_hex(bytes) != fixture.sha256 {
+        return Err("synthetic data fixture identity does not match its pinned hash".into());
+    }
+    let snapshot = phase4_nist::decode_dataset(&[(phase4_nist::FILE_ID, bytes)])
+        .map_err(|error| format!("invalid synthetic data fixture: {error}"))?;
+    Ok(
+        application.with_data_registry(DataRegistry::synthetic_conformance(
+            ProfileRecords::Phase4Nist(Box::new(snapshot)),
+        )),
+    )
 }
 
 /// The response, or the v1 error envelope, as JSON.

@@ -254,11 +254,77 @@ fn computation_preferences_are_refused_as_not_implemented_and_never_stored() {
     .unwrap();
 
     let reported = json_of(&app.preferences().unwrap())["computation"].clone();
-    for (setting, followup) in [("nmr", "P66"), ("numeric_precision", "P19")] {
+    for (setting, followup) in [("nmr", "P66"), ("numeric_precision", "P60")] {
         assert_eq!(reported[setting]["status"], "not_implemented", "{setting}");
         assert_eq!(reported[setting]["owner"], "preferences", "{setting}");
         assert_eq!(reported[setting]["followup"], followup, "{setting}");
     }
+}
+
+#[test]
+fn mass_display_precision_is_persisted_and_old_writes_preserve_it() {
+    let (app, data) = application();
+    let document = created(&app, "Existing");
+    let before = app.document(&document).unwrap();
+    let original_file = stored_file(data.path(), &document);
+    assert_eq!(
+        json_of(&app.preferences().unwrap())["computation"]["mass_precision"]["decimals"],
+        2
+    );
+
+    let request = |precision| {
+        change(
+            json!({"ui":{"theme":"dark"},"new_documents":{},"computation":{"mass_precision":precision}}),
+        )
+    };
+    let saved = app
+        .set_preferences(None, 0, request(json!({"decimals":5})))
+        .unwrap();
+    assert_eq!(
+        json_of(&saved)["computation"]["mass_precision"]["decimals"],
+        5
+    );
+    assert_eq!(
+        json_of(&process(data.path()).preferences().unwrap())["computation"]["mass_precision"]["decimals"],
+        5
+    );
+
+    for invalid in [
+        json!(null),
+        json!({"decimals":9}),
+        json!({"decimals":-1}),
+        json!({"decimals":2,"other":1}),
+    ] {
+        assert_eq!(
+            app.set_preferences(None, 1, request(invalid))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(app.preferences().unwrap().revision, 1);
+    }
+    let old_client = change(json!({"ui":{"theme":"light"},"new_documents":{}}));
+    let after_old = app.set_preferences(None, 1, old_client).unwrap();
+    assert_eq!(
+        json_of(&after_old)["computation"]["mass_precision"]["decimals"],
+        5
+    );
+
+    let adopted = app.preferences_from_document(None, 2, &document).unwrap();
+    assert_eq!(
+        json_of(&adopted)["computation"]["mass_precision"]["decimals"],
+        5
+    );
+    let reset = app.reset_preferences(None, adopted.revision).unwrap();
+    assert_eq!(
+        json_of(&reset)["computation"]["mass_precision"]["decimals"],
+        2
+    );
+    assert_eq!(
+        serde_json::to_value(app.document(&document).unwrap()).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
+    assert_eq!(stored_file(data.path(), &document), original_file);
 }
 
 #[test]

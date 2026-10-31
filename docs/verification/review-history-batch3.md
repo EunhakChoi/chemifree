@@ -2,6 +2,12 @@
 
 This file records completed rounds preceding the current delivery. A PR comment records the final reviewed head without requiring a new commit just to describe its own review.
 
+## P19 formula and mass inspection
+
+[#81](https://github.com/EunhakChoi/chemifree/pull/81) opened on 2026-10-31 at 16:38:59 UTC. Automatic round 1 reviewed `fc84150039019acbf4f998725c846fa35daa7fca`, with a 16:53:59 deadline, and completed at 16:41:23.746969 UTC (2m 24.746969s). It failed with [a finding](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432463655): formula-only inspection unnecessarily depended on the availability of mass preferences. The fix and later review rounds are recorded on the PR; [round 1 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546230978).
+
+[Round 2](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546329361) was requested at 16:51:19 UTC on `5549404279ba30592ca55b5360892b063cec51d6`, with a 17:06:19 deadline. It completed at 16:54:23.059388 UTC (3m 4.059388s) and failed: [mass suboperations were advertised as executable without compatible data](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432505526). The following change reports registry-dependent readiness separately for mass and isotope distribution; [round 2 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546382070).
+
 ## P16 first attempt: closed without merge
 
 [#78](https://github.com/EunhakChoi/chemifree/pull/78) was closed on 2026-10-31 after its third round failed. The replacement is independently authored from main; the closed branch is not reused.
@@ -19,3 +25,7 @@ This file records completed rounds preceding the current delivery. A PR comment 
 The [second request](https://github.com/EunhakChoi/chemifree/pull/79#issuecomment-6545311017) was sent at 15:20:31 UTC on `89e3c8aeed28aaf4a366530418fb3ead89a8a053`, with a 15:35:31 deadline. It completed at 15:23:19.039190 UTC (2m 48.039190s) with [a record-delimiter finding](https://github.com/EunhakChoi/chemifree/pull/79#discussion_r4432222522). The PR tracks the record-context fix and the final round.
 
 The [third request](https://github.com/EunhakChoi/chemifree/pull/79#issuecomment-6545715776) was sent at 15:56:38 UTC on `b9a61506a195298ce7714e77396ca7623a866930`, with a 16:11:38 deadline. It completed at 16:00:53.817665 UTC (4m 15.817665s) with [a case-insensitive literal finding](https://github.com/EunhakChoi/chemifree/pull/79#discussion_r4432340882): mixed-case V2000 property names could lose charge. The PR closed without merging at 16:01:31 UTC. Its independently authored replacement must start from current main and satisfy the record-context, framing and literal-case requirements without reusing the failed implementation. [Final round record](https://github.com/EunhakChoi/chemifree/pull/79#issuecomment-6545784090).
+
+## P16 independent rewrite
+
+[#80](https://github.com/EunhakChoi/chemifree/pull/80) opened on 2026-10-31 at 16:03:23 UTC and triggered automatic round 1 on head `0d4003b2bd0b7054dfe7ee7c3a6a14dbb6674505`; its deadline was 16:18:23 UTC. The [completed review](https://github.com/EunhakChoi/chemifree/pull/80#issuecomment-6545797944) finished at 16:05:35.680026 UTC (2m 12.680026s) with no findings or unresolved threads. The current-head check and browser jobs passed, so it merged as `fb61369aeb456d6e4f7940dc13dc46d86d1c061d`. [Exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41218250815) passed both jobs; the [PR evidence comment](https://github.com/EunhakChoi/chemifree/pull/80#issuecomment-6545920244) records the disposition.

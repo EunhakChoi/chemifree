@@ -2,9 +2,9 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NMR 연산을 구현하지 않는다. 이 요구사항의 미구현 부분은 각각 후속 엔진에 남고, 아직 저장하거나 적용하지 않는 계산 정밀도 환경 설정은 첫 소비 단계 P19로 추적한다.
+P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계산과 별도의 질량 표시 자릿수 환경 설정을 연결한다. 일반 수치 정밀도, 배치·예측·NMR 등은 후속 작업이다.
 
-현재 집계: 요구사항 33개(partial 12, not_implemented 21) · 부분 62개(implemented 23, partial 4, unverified 2, not_implemented 33) · conformance 사례 30개(passed 29: accept 17·reject 12, not_run 1, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 13, not_implemented 20) · 부분 64개(implemented 25, partial 4, unverified 2, not_implemented 33) · conformance 사례 30개(passed 30: accept 18·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
@@ -53,7 +53,7 @@ P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NM
 
 ## conformance runner
 
-사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 단계는 공유 Application을 HTTP 핸들러와 같은 요청 타입(같은 DTO로 본문을 역직렬화)과 같은 인자로 호출하고, 모든 쓰기에 `request_id`를 보낸다. HTTP 계층(상태 코드, Host·Origin·토큰 검사, JSON 거절 응답)은 거치지 않으며 상태 코드는 비교하지 않는다. 호출: `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
+사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 선택적인 `data_fixture`는 conformance 전용 합성 자료의 이름과 SHA-256을 고정하며 runner가 실제 내장 fixture의 바이트를 대조한다. 이 경로는 제품 API나 CLI의 DATA 주입 기능이 아니고 결과에도 합성 자료라고 표시된다. 단계는 공유 Application을 HTTP 핸들러와 같은 요청 타입(같은 DTO로 본문을 역직렬화)과 같은 인자로 호출하고, 모든 쓰기에 `request_id`를 보낸다. HTTP 계층(상태 코드, Host·Origin·토큰 검사, JSON 거절 응답)은 거치지 않으며 상태 코드는 비교하지 않는다. 호출: `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
 
 - 모든 쓰기는 `request_id`를 보낸다. 단계에 없으면 `step-<단계 번호>`를 만든다(`[A-Za-z0-9_-]`만 사용). `get`·`capabilities`·`restart`에 `request_id`가 있으면 거절한다.
 - 문서는 `create`의 `bind` 이름으로 가리킨다. 바인딩 전 사용, 두 번 바인딩, 오류를 기대하는 `create`의 바인딩은 거절한다.

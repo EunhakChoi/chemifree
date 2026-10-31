@@ -47,7 +47,7 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: StructureAnalysis,
                 label: "Valence inspection",
                 status: Available,
-                description: "Read-only valence and non-vertex hydrogen inspection for a bounded model; other chemical calculations and prediction remain unimplemented. See the per-operation catalog.",
+                description: "Read-only valence and non-vertex hydrogen inspection for a bounded model. The operation catalog separately describes formula and data-backed mass calculations; other analysis and prediction remain limited.",
             },
             Capability {
                 id: FormatConversion,

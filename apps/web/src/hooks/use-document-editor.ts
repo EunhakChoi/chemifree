@@ -305,6 +305,8 @@ export function useDocumentEditor() {
     }, []),
     trash,
     current,
+    serviceGeneration,
+    inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),
     selection,
     /** A snapshot for a command made now, including changes not rendered yet. */
     selectionAtPress: useCallback(() => new Set(selectionRef.current), []),
@@ -322,7 +324,6 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
-    serviceGeneration,
     isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
       serviceGenerationRef.current === generation && currentRef.current !== null &&
       sameConversionSnapshot(currentRef.current.document, snapshot), []),
