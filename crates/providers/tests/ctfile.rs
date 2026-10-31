@@ -97,12 +97,23 @@ fn mixed_case_properties_override_all_compact_charge_radical_and_isotope_fields(
 #[test]
 fn unsupported_compact_baseline_is_refused_unless_absolute_isotope_overrides_it() {
     let input = "Ni\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 Ni  1  0  0  0  0  0  0  0  0  0  0  0\nM  END\n";
+    let error = V2000Codec
+        .read(CtFormat::Mol, input.as_bytes())
+        .unwrap_err();
     assert_eq!(
-        V2000Codec
-            .read(CtFormat::Mol, input.as_bytes())
-            .unwrap_err()
-            .code,
-        "uncertain_isotope_baseline"
+        (error.code, error.record, error.line),
+        ("uncertain_isotope_baseline", 1, Some(5))
+    );
+    let first = format!("{MOL}$$$$\n");
+    let two = format!("{first}{input}$$$$\n");
+    let error = V2000Codec.read(CtFormat::Sdf, two.as_bytes()).unwrap_err();
+    assert_eq!(
+        (error.code, error.record, error.line),
+        (
+            "uncertain_isotope_baseline",
+            2,
+            Some(first.lines().count() + 5)
+        )
     );
     let overridden = input.replace("M  END", "M  ISO  1   1  60\nM  END");
     assert_eq!(

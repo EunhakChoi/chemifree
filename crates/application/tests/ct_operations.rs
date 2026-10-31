@@ -57,6 +57,51 @@ fn preview(
 }
 
 #[test]
+fn charged_and_radical_default_hydrogens_have_explicit_reader_uncertainty() {
+    let (application, _directory, id) = setup();
+    let source = "Defaults\n\n\n  3  0  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\nM  CHG  1   1   1\nM  RAD  1   2   2\nM  END\n";
+    let report = preview(&application, &id, source, "mol", 1, 0);
+    let atoms = report["result"]["document"]["atoms"].as_array().unwrap();
+    assert_eq!(atoms[0]["charge"], 1);
+    assert_eq!(atoms[1]["radical"], "doublet");
+    assert!(
+        atoms
+            .iter()
+            .all(|atom| atom["hydrogens"]["mode"] == "inferred")
+    );
+    let uncertainty = report["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|loss| loss["feature"] == "default_hydrogen_interpretation")
+        .unwrap();
+    assert_eq!(uncertainty["disposition"], "unknown");
+    assert_eq!(uncertainty["semantic_impact"], "chemistry");
+    assert_eq!(snapshot(&application, &id)["revision"], 0);
+    let imported = call(
+        &application,
+        "defaults-import",
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"mol","source":source,"record":1,"preview_digest":report["result"]["preview_digest"],"accept_loss":true}),
+    );
+    assert_eq!(imported["document_revision"], 1);
+    let exported = call(
+        &application,
+        "defaults-export",
+        "document.export",
+        json!({"format":"mol","records":[{"document_id":id}]}),
+    );
+    assert!(
+        exported["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|loss| loss["feature"] == "default_hydrogen_interpretation"
+                && loss["disposition"] == "unknown")
+    );
+}
+
+#[test]
 fn preview_consent_commit_replay_undo_redo_and_persistence_share_one_graph() {
     let (application, directory, id) = setup();
     let before = snapshot(&application, &id);

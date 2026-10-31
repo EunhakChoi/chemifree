@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
@@ -117,7 +117,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
   async function commitImport() {
     if (!currentImport) return
     setPending((count) => count + 1)
-    const committed = await editor.importCt(currentImport.input)
+    const committed = await editor.importCt(currentImport.input, currentImport.snapshot, currentImport.generation)
     if (alive.current) {
       if (committed) setPrepared(null)
       setPending((count) => count - 1)
@@ -149,7 +149,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     try {
       // Recheck at the click: a service restart may have occurred while the page was idle.
       const fresh = await editor.exportCt(item.snapshot.id, item.format)
-      if (editor.currentServiceGeneration() !== item.generation ||
+      if (!alive.current || !editor.isCurrentConversion(item.snapshot, item.generation) ||
           !sameConversionSnapshot(item.snapshot, fresh.snapshot) || fresh.content !== item.content ||
           JSON.stringify(fresh.losses) !== JSON.stringify(item.losses)) {
         throw new Error('The export preview changed. Preview the export again.')
@@ -204,10 +204,9 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     {exported && !currentExport && <p>The drawing changed. Preview the export again.</p>}
     {currentExport && <div className="flex max-h-64 flex-col gap-2 overflow-auto" aria-live="polite">
       <Losses losses={currentExport.losses} />
-      <a className={buttonVariants({ size: 'sm' })} href={currentExport.url} download={`chemifree.${currentExport.format}`}
-        onClick={(event) => { event.preventDefault(); if (pending === 0 && !editor.busy) void downloadExport(currentExport) }}>
+      <Button size="sm" disabled={pending > 0 || editor.busy} onClick={() => void downloadExport(currentExport)}>
         Download {currentExport.format.toUpperCase()}
-      </a>
+      </Button>
     </div>}
   </aside>
 }

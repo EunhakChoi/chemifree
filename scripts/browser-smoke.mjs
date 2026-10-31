@@ -1518,7 +1518,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '9 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '11 of 21 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -2504,6 +2504,58 @@ step = 'after short_wide_bond_is_selectable'
   results.valence_snapshot_after_restart = true
 }
 
+// A verified export response can arrive after an editor transaction has completed. Its
+// bytes belong to the older drawing and must not trigger a download of that stale preview.
+{
+  step = 'MOL export delayed response after edit'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-export-race-create', title: 'Export race' })
+  const id = created.body.document.id
+  const carbon = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-export-race-carbon', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }],
+  })
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const holdExport = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.export') return route.continue()
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdExport)
+  let downloads = 0
+  const countDownload = () => { downloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await responseArrived
+  await tool('Select and move')
+  const position = await atomScreen(carbon.body, 'a1')
+  await page.mouse.click(position.x, position.y)
+  const edit = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  assert.equal((await edit).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const settled = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    panel.getByText('The export preview changed. Preview the export again.', { exact: true }).waitFor().then(() => 'refused'),
+  ])
+  release()
+  assert.equal(await settled, 'refused', 'a stale verified export is refused after the edit')
+  assert.equal(downloads, 0, 'an export from before the edit is not downloaded')
+  await page.unroute('**/api/v1/operations', holdExport)
+  page.off('download', countDownload)
+  results.ctfile_export_response_race = true
+}
+
 // Import previews a selected record and its losses before one atomic edit. Export gives a
 // separate preview and download containing the resulting graph.
 {
@@ -2527,7 +2579,7 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
   await panel.getByText(/Native atom and bond IDs/).waitFor()
   const downloadPromise = page.waitForEvent('download')
-  await panel.getByRole('link', { name: 'Download MOL' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
   const download = await downloadPromise
   const path = join(work, 'ct-browser.mol')
   await download.saveAs(path)
@@ -2548,9 +2600,9 @@ step = 'after short_wide_bond_is_selectable'
   let extraDownloads = 0
   const countDownload = () => { extraDownloads += 1 }
   page.on('download', countDownload)
-  await panel.getByRole('link', { name: 'Download MOL' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
   await panel.getByText(/The local service restarted/).waitFor()
-  await panel.getByRole('link', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
   assert.equal(extraDownloads, 0, 'an old export is not downloaded after restart')
   page.off('download', countDownload)
   await panel.getByRole('button', { name: 'Preview import' }).click()

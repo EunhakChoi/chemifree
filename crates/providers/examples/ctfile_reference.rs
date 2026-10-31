@@ -4,10 +4,11 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use chemifree_application::Application;
 use chemifree_application::ctfile::{
     CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord,
 };
-use chemifree_providers::V2000Codec;
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities, V2000Codec};
 
 fn atom(element: &str, x: f64) -> CtAtom {
     CtAtom {
@@ -56,6 +57,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             .write(CtFormat::Sdf, &[molecule, second])
             .map_err(|error| io::Error::other(format!("{}: {}", error.code, error.message)))?;
         fs::write(Path::new(&path).join("records.sdf"), sdf.value)?;
+    } else if mode == "preview" {
+        let source = fs::read_to_string(path)?;
+        let directory = tempfile::tempdir()?;
+        let app = Application::new(
+            LocalCapabilities,
+            FileDocumentRepository::new(directory.path()),
+        )
+        .with_ctfile_codec(V2000Codec);
+        let id = app
+            .create_document(None, Some("Reference target"))?
+            .document
+            .id;
+        let request = serde_json::json!({"contract":1,"request_id":"reference-preview","profile":"preserve-semantics","operation":"document.import","parameters":{"format":"mol","source":source,"record":1,"document_id":id,"expected_revision":0,"preview":true}});
+        println!(
+            "{}",
+            serde_json::to_string(&app.execute(&serde_json::to_vec(&request)?))?
+        );
     } else if mode == "read" {
         let bytes = fs::read(path)?;
         let parsed = V2000Codec

@@ -5,6 +5,7 @@ import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapsh
 import {
   ApiError,
   DocumentClient,
+  sameConversionSnapshot,
   type Command,
   type CopyResponse,
   type CtImport,
@@ -322,16 +323,20 @@ export function useDocumentEditor() {
     }, [run]),
     busy: pending > 0,
     serviceGeneration,
-    currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
+    isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
+      serviceGenerationRef.current === generation && currentRef.current !== null &&
+      sameConversionSnapshot(currentRef.current.document, snapshot), []),
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
-    importCt: useCallback(async (input: CtImport) => {
+    importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) => {
       let committed = false
       await run(async () => {
         const shown = currentRef.current
-        if (!shown || shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
           throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
         }
         const response = await client.importCt(input)

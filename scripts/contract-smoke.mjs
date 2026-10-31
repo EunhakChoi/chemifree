@@ -131,7 +131,7 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'structure_analysis', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'structure_analysis', 'format_conversion', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
 
@@ -973,8 +973,9 @@ try {
     })
     const httpPreview = (await viaHttp(preview(httpDoc))).body
     const cliPreview = await viaCli(preview(cliDoc))
-    assert.equal(httpPreview.outcome, 'ok')
-    assert.equal(cliPreview.outcome, 'ok')
+    assert.equal(httpPreview.outcome, 'partial')
+    assert.equal(cliPreview.outcome, 'partial')
+    assert.ok(httpPreview.loss_report.some((loss) => loss.feature === 'default_hydrogen_interpretation' && loss.disposition === 'unknown'))
     assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
     assert.deepEqual(httpPreview.result.records, cliPreview.result.records)
     const commit = (id, digest) => request('op-import', 'document.import', {

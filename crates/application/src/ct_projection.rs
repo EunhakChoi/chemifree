@@ -36,6 +36,16 @@ fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason
     }
 }
 
+fn implicit_hydrogen_uncertainty(record: usize) -> Loss {
+    Loss {
+        feature: "default_hydrogen_interpretation".into(),
+        source_path: format!("records[{record}].atoms"),
+        disposition: LossDisposition::Unknown,
+        reason: "Default V2000 hydrogen and valence fields do not establish the same implicit hydrogen count in every reader. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader.".into(),
+        semantic_impact: SemanticImpact::Chemistry,
+    }
+}
+
 /// Build domain edits for one record; document validation is performed by a candidate transaction.
 pub(crate) fn import_commands(
     record: &CtRecord,
@@ -76,6 +86,9 @@ pub(crate) fn import_commands(
             SemanticImpact::Document,
             "SD field values are returned in the preview but are not stored in the drawing.",
         ));
+    }
+    if !record.atoms.is_empty() {
+        losses.push(implicit_hydrogen_uncertainty(index));
     }
     let mut commands = Vec::with_capacity(record.atoms.len() + record.bonds.len());
     for (i, source) in record.atoms.iter().enumerate() {
@@ -167,6 +180,9 @@ pub(crate) fn export_record(
     fields: Vec<CtField>,
     losses: &mut Vec<Loss>,
 ) -> Result<CtRecord, CtError> {
+    if !doc.atoms.is_empty() {
+        losses.push(implicit_hydrogen_uncertainty(index));
+    }
     let mut atoms = Vec::with_capacity(doc.atoms.len());
     let mut ids = HashMap::new();
     for (i, atom) in doc.atoms.iter().enumerate() {

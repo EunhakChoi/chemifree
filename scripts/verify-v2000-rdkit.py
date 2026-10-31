@@ -47,6 +47,16 @@ def _butene(last_y: int) -> str:
     )
 
 
+def _hydrogen_defaults() -> str:
+    return (
+        "Defaults\n\n\n  3  0  0  0  0  0  0  0  0  0999 V2000\n"
+        "    0.0000    0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "M  CHG  1   1   1\nM  RAD  1   2   2\nM  END\n"
+    )
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: verify-v2000-rdkit.py /absolute/path/to/ctfile_reference")
@@ -86,6 +96,36 @@ def main() -> None:
         valence_path.write_text(rdkit.Chem.MolToMolBlock(explicit_valence), encoding="utf-8")
         refusal = subprocess.run([str(binary), "read", str(valence_path)], capture_output=True, text=True, check=False)
         _require(refusal.returncode != 0 and "unsupported_atom_field" in refusal.stderr, "Explicit valence was not refused")
+        defaults_path = root / "charged-radical-default-h.mol"
+        defaults_path.write_text(_hydrogen_defaults(), encoding="utf-8")
+        defaults = rdkit.Chem.MolFromMolFile(str(defaults_path), removeHs=False)
+        _require(defaults is not None, "RDKit refused the charged/radical default-H fixture")
+        observed = [
+            (a.GetSymbol(), a.GetFormalCharge(), a.GetNumRadicalElectrons(), a.GetNumImplicitHs())
+            for a in defaults.GetAtoms()
+        ]
+        _require(
+            observed[0][0:2] == ("N", 1) and observed[1][0:3] == ("C", 0, 1),
+            "RDKit charge or radical differs",
+        )
+        print(f"RDKit charged/radical default-H observations: {observed}")
+        result = subprocess.run(
+            [str(binary), "preview", str(defaults_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        preview = json.loads(result.stdout)
+        _require(preview["outcome"] == "partial", "Default-H import did not report uncertainty")
+        _require(
+            any(item["feature"] == "default_hydrogen_interpretation" and item["disposition"] == "unknown"
+                for item in preview["loss_report"]),
+            "Default-H uncertainty is missing",
+        )
+        _require(
+            all(atom["hydrogens"]["mode"] == "inferred" for atom in preview["result"]["document"]["atoms"]),
+            "The recorded hydrogen state differs",
+        )
         for last_y, expected in [(1, "STEREOZ"), (-1, "STEREOE")]:
             source = _butene(last_y)
             reference_mol = rdkit.Chem.MolFromMolBlock(source, removeHs=False)

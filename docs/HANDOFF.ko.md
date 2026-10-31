@@ -52,7 +52,7 @@
 
 HTTP 계약은 health·capabilities·session과 /api/v1/documents 아래 생성·조회·transactions·undo·redo·save·close·autosave·save-as·recover·recover-as-copy·discard-draft다. CLI는 status·capabilities·documents 하위 명령으로 같은 Application을 호출한다. 모든 JSON에는 api_version: v1이 있다. 세부 내용은 CONTRACT.md에 있다.
 
-runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. format_conversion, local_model_loading, authentication, windows_bridge는 not_implemented다.
+runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), format_conversion(MOL/SDF V2000의 명시된 부분), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. local_model_loading, authentication, windows_bridge는 not_implemented다.
 
 ## UI 결정
 
@@ -130,14 +130,14 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 현재 집계: 요구사항 33개(partial 12, not_implemented 21) · 부분 62개(implemented 23, partial 4, unverified 2, not_implemented 33) · conformance 사례 30개(passed 29: accept 17·reject 12, not_run 1, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CODEC-03, CODEC-06, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 
 사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다. 그 밖의 후보:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
-2. 형식 입출력: MOL/SDF·SMILES 독립 codec과 손실 보고(format_conversion). Chemifree 저장 형식은 손상 입력을 통째로 거절하지만, 외부 형식 가져오기는 공개 명세의 손상 입력 관찰(§Parsing)을 참고해 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
+2. 형식 입출력: 구현된 MOL/SDF V2000 부분을 유지하고 CDXML·CDX·SMILES와 고급 필드는 별도 작업으로 진행한다. 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 제한된 원자가 검사 이후 방향족·분자식·질량과 독립 사례를 구현하고 검증한다.
 4. 편집기 확장: 고리 템플릿, 확대·화면 이동과 추가 장면 객체.
 5. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.

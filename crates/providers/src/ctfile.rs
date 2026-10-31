@@ -591,7 +591,7 @@ fn parse_record(
         let line = lines.next(record)?;
         let (atom, mass) = parse_atom(line, record, lines.line())?;
         atoms.push(atom);
-        masses.push(mass);
+        masses.push((mass, lines.line()));
     }
     let mut bonds = Vec::with_capacity(bond_count);
     let mut pairs = HashSet::new();
@@ -667,9 +667,9 @@ fn parse_record(
         } else {
             (atom.charge, atom.radical) = compact[index];
         }
-        if !has_isotope && masses[index] != 0 {
-            let base = compact_baseline(&atom.element).ok_or_else(|| error("uncertain_isotope_baseline", record, None, format!("Compact isotope baseline for {} is not defined by this profile; use M ISO.", atom.element)))?;
-            let value = base + masses[index];
+        if !has_isotope && masses[index].0 != 0 {
+            let base = compact_baseline(&atom.element).ok_or_else(|| error("uncertain_isotope_baseline", record, masses[index].1, format!("Compact isotope baseline for {} is not defined by this profile; use M ISO.", atom.element)))?;
+            let value = base + masses[index].0;
             atom.isotope = Some(
                 u16::try_from(value)
                     .ok()
@@ -678,7 +678,7 @@ fn parse_record(
                         error(
                             "invalid_isotope",
                             record,
-                            None,
+                            masses[index].1,
                             "Compact isotope mass is not positive.",
                         )
                     })?,
