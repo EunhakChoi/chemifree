@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use num_bigint::BigUint;
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::{json, phase6_profiles};
@@ -72,9 +73,9 @@ pub struct Latin1Text {
 /// A source span retained as inert lineage, never an I/O or dispatch instruction.
 #[derive(PartialEq)]
 pub struct SourceSpan {
-    pub ordinal: u64,
-    pub file_offset: u64,
-    pub bytes: u64,
+    pub ordinal: BigUint,
+    pub file_offset: BigUint,
+    pub bytes: BigUint,
 }
 
 #[derive(PartialEq)]
@@ -87,26 +88,39 @@ pub struct Attribute {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AtomReference {
-    #[serde(rename = "atom_index_0based")]
+    #[serde(
+        rename = "atom_index_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub atom_index: u64,
-    #[serde(rename = "value_u8")]
+    #[serde(rename = "value_u8", deserialize_with = "json::deserialize_integer")]
     pub value: u8,
 }
 
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SignedAnnotation {
-    #[serde(rename = "atom_index_0based")]
+    #[serde(
+        rename = "atom_index_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub atom_index: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub signed_value: i32,
 }
 
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CodedAnnotation {
-    #[serde(rename = "atom_index_0based")]
+    #[serde(
+        rename = "atom_index_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub atom_index: u64,
-    #[serde(rename = "source_code_u8")]
+    #[serde(
+        rename = "source_code_u8",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub source_code: u8,
 }
 
@@ -128,20 +142,35 @@ impl ValenceOverride {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Bond {
-    #[serde(rename = "begin_atom_0based")]
+    #[serde(
+        rename = "begin_atom_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub begin_atom: u64,
-    #[serde(rename = "end_atom_0based")]
+    #[serde(
+        rename = "end_atom_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub end_atom: u64,
-    #[serde(rename = "source_bond_code_u8")]
+    #[serde(
+        rename = "source_bond_code_u8",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub source_code: u8,
 }
 
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BondAnnotation {
-    #[serde(rename = "bond_index_0based")]
+    #[serde(
+        rename = "bond_index_0based",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub bond_index: u64,
-    #[serde(rename = "source_code_u8")]
+    #[serde(
+        rename = "source_code_u8",
+        deserialize_with = "json::deserialize_integer"
+    )]
     pub source_code: u8,
 }
 
@@ -174,7 +203,7 @@ pub struct LexiconEntry {
 #[derive(PartialEq)]
 pub struct TextMapEntry {
     pub source: SourceSpan,
-    pub partition: u64,
+    pub partition: BigUint,
     pub divider_marker: bool,
     pub original: Latin1Text,
     pub replacement: Latin1Text,
@@ -219,13 +248,13 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<NamingLexicon, LexiconE
         .into_iter()
         .map(|entry| entry.convert(raw))
         .collect::<Result<Vec<_>, _>>()?;
-    let entries = unique_ordinals(entries, |entry| entry.source.ordinal)?;
+    let entries = unique_ordinals(entries, |entry| &entry.source.ordinal)?;
     let maps = |path| -> Result<Vec<TextMapEntry>, LexiconError> {
         let rows = decode_rows::<TextMapWire>(file(path)?)?
             .into_iter()
             .map(TextMapWire::convert)
             .collect::<Result<Vec<_>, _>>()?;
-        unique_ordinals(rows, |row| row.source.ordinal)
+        unique_ordinals(rows, |row| &row.source.ordinal)
     };
     Ok(NamingLexicon {
         entries,
@@ -234,11 +263,15 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<NamingLexicon, LexiconE
     })
 }
 
-fn unique_ordinals<T>(rows: Vec<T>, ordinal: impl Fn(&T) -> u64) -> Result<Vec<T>, LexiconError> {
+fn unique_ordinals<T>(
+    rows: Vec<T>,
+    ordinal: impl Fn(&T) -> &BigUint,
+) -> Result<Vec<T>, LexiconError> {
     let mut seen = HashSet::with_capacity(rows.len());
     if rows.iter().any(|row| !seen.insert(ordinal(row))) {
         return Err(LexiconError::Inconsistent);
     }
+    drop(seen);
     Ok(rows)
 }
 
@@ -259,9 +292,8 @@ fn decode_rows<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, LexiconError
             if line.trim().is_empty() {
                 return Err(LexiconError::Framing);
             }
-            let value = json::parse_integer_zero_strict(line.as_bytes())
-                .map_err(|_| LexiconError::Record)?;
-            serde_json::from_value(value).map_err(|_| LexiconError::Record)
+            json::validate_raw_strict(line.as_bytes()).map_err(|_| LexiconError::Record)?;
+            serde_json::from_str(line).map_err(|_| LexiconError::Record)
         })
         .collect()
 }
@@ -273,15 +305,12 @@ fn latin1(hex: String, text: String) -> Result<Latin1Text, LexiconError> {
 }
 
 fn source(
-    ordinal: u64,
-    file_offset: u64,
-    bytes: u64,
+    ordinal: BigUint,
+    file_offset: BigUint,
+    bytes: BigUint,
     raw: Option<&[u8]>,
 ) -> Result<SourceSpan, LexiconError> {
-    let end = file_offset
-        .checked_add(bytes)
-        .ok_or(LexiconError::Inconsistent)?;
-    if raw.is_some_and(|raw| end > raw.len() as u64) {
+    if raw.is_some_and(|raw| &file_offset + &bytes > BigUint::from(raw.len())) {
         return Err(LexiconError::Inconsistent);
     }
     Ok(SourceSpan {
@@ -296,6 +325,7 @@ fn source(
 struct AttributeWire {
     name_hex: String,
     name_latin1: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     value_u8: u8,
     role: String,
 }
@@ -303,6 +333,7 @@ struct AttributeWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphWire {
+    #[serde(deserialize_with = "json::deserialize_integer_vec")]
     atomic_number_codes_u8: Vec<u8>,
     atom_annotation_columns: AnnotationColumns,
     bonds: Vec<Bond>,
@@ -321,13 +352,19 @@ struct AnnotationColumns(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EntryWire {
-    entry_ordinal_0based: u64,
-    source_file_offset: u64,
-    source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    entry_ordinal_0based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_bytes: BigUint,
     token_hex: String,
     token_latin1: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     kind_code_u8: u8,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     subtype_code_u8: u8,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     signed_scalar: i32,
     attributes: Vec<AttributeWire>,
     atom_reference_lists: [Vec<AtomReference>; 2],
@@ -422,10 +459,14 @@ impl EntryWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextMapWire {
-    pair_ordinal_0based: u64,
-    source_file_offset: u64,
-    source_bytes: u64,
-    partition: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pair_ordinal_0based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_bytes: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    partition: BigUint,
     divider_marker: bool,
     source_hex: String,
     replacement_hex: String,

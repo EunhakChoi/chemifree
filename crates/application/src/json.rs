@@ -26,6 +26,9 @@ impl IntegerToken for u32 {
 impl IntegerToken for u64 {
     const MAX_DIGITS: usize = 20;
 }
+impl IntegerToken for i32 {
+    const MAX_DIGITS: usize = 10;
+}
 impl IntegerToken for i64 {
     const MAX_DIGITS: usize = 19;
 }

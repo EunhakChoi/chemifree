@@ -394,3 +394,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41166003198)는 check·browser 모두 성공했다. 2026-10-31 03:54:19에 `617bff9c986d71302dd75e4698e5656413268fe1`로 병합했다.
 
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41166337210)도 check·browser 모두 성공했다.
+
+### P14 명명 출처의 큰 정수와 JSON 검증 — [#62](https://github.com/EunhakChoi/chemifree/pull/62)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 04:14:05 | `001e441554352000b247cad6d2e461b573eeac96` | 04:15:42 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/62#issuecomment-6538868656) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41167715739)는 check·browser 모두 성공했다. 2026-10-31 04:19:04에 `56c81205c1606b7241635dcc3c669efbe3b6602f`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41168067568)도 check·browser 모두 성공했다.

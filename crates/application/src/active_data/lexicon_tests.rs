@@ -78,6 +78,42 @@ fn complete_lexicon_loads_atomically_without_enabling_a_model() {
 }
 
 #[test]
+fn large_lexicon_provenance_survives_the_complete_registration() {
+    let large = "9".repeat(400);
+    let entries = String::from_utf8(LEXICON.to_vec()).unwrap().replacen(
+        "\"source_file_offset\":0",
+        &format!("\"source_file_offset\":{large}"),
+        1,
+    );
+    let fixture = fixture(
+        "private-naming-lexicon-typed-v1",
+        vec![
+            (
+                "lexicon",
+                "normalized/lexicon-entries.jsonl",
+                entries.into_bytes(),
+            ),
+            (
+                "primary",
+                "normalized/text-map-primary.jsonl",
+                PRIMARY.to_vec(),
+            ),
+            (
+                "secondary",
+                "normalized/text-map-secondary.jsonl",
+                SECONDARY.to_vec(),
+            ),
+        ],
+    );
+    let dataset = fixture.load().unwrap();
+    let ProfileRecords::NamingLexicon(records) = dataset.records() else {
+        panic!("wrong record type")
+    };
+    assert_eq!(records.entries[0].source.file_offset.to_string(), large);
+    assert_binding_unavailable(&fixture, &dataset);
+}
+
+#[test]
 fn optional_lexicon_source_may_be_absent_but_is_checked_when_present() {
     let mut fixture = independent_lexicon();
     let raw_path = "raw/NameToStructure.dat";

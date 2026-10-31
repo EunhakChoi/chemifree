@@ -82,6 +82,23 @@ fn optional_raw_nickname_sources_may_be_a_verified_subset() {
 }
 
 #[test]
+fn large_nickname_source_length_survives_the_complete_registration() {
+    let large = "9".repeat(400);
+    let graphs = GRAPHS.replacen(
+        "\"source_bytes\":9",
+        &format!("\"source_bytes\":{large}"),
+        1,
+    );
+    let fixture = nickname_fixture(graphs.into_bytes());
+    let dataset = fixture.load().unwrap();
+    let ProfileRecords::NicknameData(records) = dataset.records() else {
+        panic!("wrong record type")
+    };
+    assert_eq!(records.graphs[0].source_bytes.to_string(), large);
+    assert_binding_unavailable(&fixture, &dataset);
+}
+
+#[test]
 fn changing_a_raw_path_to_another_source_fails_its_manifest_identity() {
     let mut fixture = nickname_fixture(graphs_with_raw_q(RAW_Q));
     fixture.add_missing_optional("raw-q", RAW_PATH, RAW_Q);
