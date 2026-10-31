@@ -8,7 +8,7 @@ fn helm_fixture(invalid: bool) -> Fixture {
     let row = if invalid {
         ROW.replace("\"createDate\":null", "\"createDate\":false")
     } else {
-        ROW.to_owned()
+        ROW.replace("\"id\":0", &format!("\"id\":-{}", "9".repeat(400)))
     };
     let bytes = format!("[{}]", vec![row; 705].join(",")).into_bytes();
     let mut test_fixture = fixture(
@@ -39,6 +39,10 @@ fn complete_monomers_are_typed_without_a_sequence_engine() {
     };
     assert_eq!(data.monomers.len(), 705);
     assert_eq!(data.monomers[0].monomer_type, "Terminal");
+    assert_eq!(
+        data.monomers[0].id.to_string(),
+        format!("-{}", "9".repeat(400))
+    );
     assert_eq!(
         data.monomers[0].rgroups[0].cap_group_smiles.as_deref(),
         Some("C")

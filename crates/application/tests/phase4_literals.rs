@@ -287,6 +287,93 @@ fn real48_rows_keep_exact_rationals_raw_bytes_and_distinct_table_metadata() {
 }
 
 #[test]
+fn numeric_source_offsets_accept_exact_decimal_integers() {
+    let mut files = numeric_files();
+    let input = String::from_utf8(files[0].1.clone()).unwrap();
+    let input = input.replacen("\"source_file_offset\":0", "\"source_file_offset\":0.0", 1);
+    assert!(input.contains("\"source_file_offset\":0.0"));
+    files[0].1 = input.into_bytes();
+    assert!(phase4_literals::decode_dataset(Profile::Numeric, &refs(&files)).is_ok());
+}
+
+#[test]
+fn numeric_value_keeps_a_negative_zero_written_as_an_integer_token() {
+    let mut files = numeric_files();
+    let input = String::from_utf8(files[0].1.clone())
+        .unwrap()
+        .replacen(
+            "\"ieee754_f64_le_hex\":\"0000000000000000\"",
+            "\"ieee754_f64_le_hex\":\"0000000000000080\"",
+            1,
+        )
+        .replacen("\"value\":0", "\"value\":-0", 1);
+    assert!(input.contains("\"value\":-0"));
+    files[0].1 = input.into_bytes();
+    let phase4_literals::Records::Numeric(tables) =
+        phase4_literals::decode_dataset(Profile::Numeric, &refs(&files)).unwrap()
+    else {
+        panic!("wrong profile")
+    };
+    assert_eq!(tables[0].rows[0].bits, (-0.0_f64).to_bits());
+    assert_eq!(
+        tables[0].rows[0].value.as_f64().unwrap().to_bits(),
+        (-0.0_f64).to_bits()
+    );
+}
+
+#[test]
+fn real48_table_source_integers_preserve_large_values_and_raw_rationals() {
+    let mut files = real48_files();
+    let magnitude = "9".repeat(400);
+    let negative = format!("-{magnitude}");
+    let input = String::from_utf8(files[0].1.clone())
+        .unwrap()
+        .replacen(
+            "\"storage_index\":0",
+            &format!("\"storage_index\":{negative}"),
+            1,
+        )
+        .replacen("\"aux_word\":0", &format!("\"aux_word\":{negative}"), 1)
+        .replacen(
+            "\"column_byte_offset\":0",
+            &format!("\"column_byte_offset\":{magnitude}"),
+            1,
+        );
+    for token in [
+        format!("\"storage_index\":{negative}"),
+        format!("\"aux_word\":{negative}"),
+        format!("\"column_byte_offset\":{magnitude}"),
+    ] {
+        assert!(input.contains(&token));
+    }
+    files[0].1 = input.into_bytes();
+    let phase4_literals::Records::ChempropTables(tables) =
+        phase4_literals::decode_dataset(Profile::ChempropTables, &refs(&files)).unwrap()
+    else {
+        panic!("wrong profile")
+    };
+    let first = &tables[0].rows[0];
+    assert_eq!(first.storage_index.to_string(), negative);
+    assert_eq!(first.columns[0].column_byte_offset.to_string(), magnitude);
+    assert_eq!(first.columns[0].raw, [0; 6]);
+    assert_eq!(first.columns[0].numerator.to_string(), "0");
+    let phase4_literals::Real48Context::Typed { aux_word, .. } = &first.context else {
+        panic!("wrong table context")
+    };
+    assert_eq!(aux_word.to_string(), negative);
+    let overlong = String::from_utf8(files[0].1.clone()).unwrap().replacen(
+        &format!("\"storage_index\":{negative}"),
+        &format!("\"storage_index\":-{}", "9".repeat(4097)),
+        1,
+    );
+    files[0].1 = overlong.into_bytes();
+    assert_eq!(
+        phase4_literals::decode_dataset(Profile::ChempropTables, &refs(&files)).err(),
+        Some(InputError::Record)
+    );
+}
+
+#[test]
 fn chemprop_hex_allows_uppercase_without_changing_its_bytes_or_latin1_text() {
     let mut files = real48_files();
     replace_first_row(&mut files, |row| {

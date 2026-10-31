@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::BigInt;
 use serde::{Deserialize, Deserializer};
 
 use crate::{json, phase6_profiles};
@@ -97,27 +98,27 @@ where
 #[serde(deny_unknown_fields)]
 pub struct ObjectFraming {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub index: i64,
+    pub index: BigInt,
     #[serde(deserialize_with = "json::deserialize_nullable_integer")]
-    pub parent_index: Option<i64>,
+    pub parent_index: Option<BigInt>,
     pub tag: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub object_id: i64,
+    pub object_id: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub header_offset: i64,
+    pub header_offset: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub header_bytes: i64,
+    pub header_bytes: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub depth: i64,
+    pub depth: BigInt,
     pub implicit_document_root: bool,
     #[serde(deserialize_with = "json::deserialize_integer_vec")]
-    pub property_indices: Vec<i64>,
+    pub property_indices: Vec<BigInt>,
     #[serde(deserialize_with = "json::deserialize_integer_vec")]
-    pub child_indices: Vec<i64>,
+    pub child_indices: Vec<BigInt>,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub end_marker_offset: i64,
+    pub end_marker_offset: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub range_bytes: i64,
+    pub range_bytes: BigInt,
 }
 
 /// Inert property-framing metadata; it is not a native address or dispatch target.
@@ -125,20 +126,20 @@ pub struct ObjectFraming {
 #[serde(deny_unknown_fields)]
 pub struct PropertyFraming {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub index: i64,
+    pub index: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub object_index: i64,
+    pub object_index: BigInt,
     pub tag: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub header_offset: i64,
+    pub header_offset: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub header_bytes: i64,
+    pub header_bytes: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub length_field_u16: i64,
+    pub length_field_u16: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub payload_offset: i64,
+    pub payload_offset: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub payload_bytes: i64,
+    pub payload_bytes: BigInt,
     pub payload_sha256: String,
     pub user_defined_bit14: bool,
 }
@@ -294,15 +295,48 @@ mod tests {
         let decoded = rows(row, 1).unwrap();
         let object = decoded[0].data.as_ref().unwrap();
         assert_eq!(decoded[0].kind, "-0.0");
-        assert_eq!(object.index, 1);
-        assert_eq!(object.parent_index, Some(0));
-        assert_eq!(object.property_indices, [1, 0]);
+        assert_eq!(object.index.to_string(), "1");
+        assert_eq!(object.parent_index.as_ref().unwrap().to_string(), "0");
+        assert_eq!(
+            object
+                .property_indices
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["1", "0"]
+        );
         assert_eq!(object.tag, "-0e0");
         let invalid = std::str::from_utf8(row)
             .unwrap()
             .replace("\"index\":1.0", "\"index\":1.00000000000000000001");
         assert_eq!(
             rows(invalid.as_bytes(), 1).err(),
+            Some(TemplateError::Record)
+        );
+    }
+
+    #[test]
+    fn framing_preserves_large_signed_identifiers_offsets_and_nullable_arrays() {
+        let magnitude = "9".repeat(400);
+        let negative = format!("-{magnitude}");
+        let row = format!(
+            r#"{{"kind":"fixture","data":{{"index":{negative},"parent_index":{negative},"tag":"x","object_id":{magnitude},"header_offset":{magnitude},"header_bytes":2.0,"depth":-1.0,"implicit_document_root":true,"property_indices":[{negative},1e0],"child_indices":[{magnitude}],"end_marker_offset":{magnitude},"range_bytes":2}},"framing":{{"index":{negative},"object_index":{negative},"tag":"x","header_offset":{magnitude},"header_bytes":2,"length_field_u16":1e0,"payload_offset":{magnitude},"payload_bytes":2,"payload_sha256":"fixture","user_defined_bit14":false}}}}"#
+        );
+        let decoded = rows(row.as_bytes(), 1).unwrap();
+        let object = decoded[0].data.as_ref().unwrap();
+        let property = decoded[0].framing.as_ref().unwrap();
+        assert_eq!(object.index.to_string(), negative);
+        assert_eq!(object.parent_index.as_ref().unwrap().to_string(), negative);
+        assert_eq!(object.property_indices[0].to_string(), negative);
+        assert_eq!(object.child_indices[0].to_string(), magnitude);
+        assert_eq!(property.payload_offset.to_string(), magnitude);
+        let overlong = row.replacen(
+            &format!("\"index\":{negative}"),
+            &format!("\"index\":-{}", "9".repeat(4097)),
+            1,
+        );
+        assert_eq!(
+            rows(overlong.as_bytes(), 1).err(),
             Some(TemplateError::Record)
         );
     }
@@ -335,7 +369,7 @@ mod tests {
         let good = b"{\"kind\":\"source-kind\",\"framing\":{\"index\":1,\"object_index\":2,\"tag\":\"p\",\"header_offset\":3,\"header_bytes\":4,\"length_field_u16\":5,\"payload_offset\":7,\"payload_bytes\":2,\"payload_sha256\":\"synthetic\",\"user_defined_bit14\":false}}";
         let result = rows(good, 1).unwrap();
         let framing = result[0].framing.as_ref().unwrap();
-        assert_eq!(framing.object_index, 2);
+        assert_eq!(framing.object_index.to_string(), "2");
         assert_eq!(framing.payload_sha256, "synthetic");
         assert!(!framing.user_defined_bit14);
         let extra = std::str::from_utf8(good)

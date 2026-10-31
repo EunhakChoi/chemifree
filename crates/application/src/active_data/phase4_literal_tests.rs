@@ -22,18 +22,29 @@ fn metadata_fixture() -> Fixture {
 }
 
 fn numeric_fixture() -> Fixture {
-    let files =
-        phase4_literals::NUMERIC_FILES
-            .iter()
-            .map(|&(id, count)| {
-                let rows: String = (0..count).map(|index| format!("{}\n", json!({
-            "preferred_data_va": "independent-fixture", "source_file_offset": index,
-            "source_section": "fixture", "ieee754_f64_le_hex": "0000000000000000",
-            "value": 0, "semantic_role": "fixture"
-        }))).collect();
-                (id, id, rows.into_bytes())
-            })
-            .collect();
+    let files = phase4_literals::NUMERIC_FILES
+        .iter()
+        .map(|&(id, count)| {
+            let rows: String = (0..count)
+                .map(|index| {
+                    let row = format!(
+                        "{}\n",
+                        json!({
+                            "preferred_data_va": "independent-fixture", "source_file_offset": index,
+                            "source_section": "fixture", "ieee754_f64_le_hex": "0000000000000000",
+                            "value": 0, "semantic_role": "fixture"
+                        })
+                    );
+                    if index == 0 {
+                        row.replacen("\"source_file_offset\":0", "\"source_file_offset\":0e0", 1)
+                    } else {
+                        row
+                    }
+                })
+                .collect();
+            (id, id, rows.into_bytes())
+        })
+        .collect();
     fixture("private-data-molnet-supporting-numeric-literals-v1", files)
 }
 
@@ -55,7 +66,8 @@ fn real48_fixture(invalid_rational: bool) -> Fixture {
                 row["aux_word"] = 0.into();
                 row["flag_byte"] = 0.into();
             }
-            format!("{row}\n")
+            let row = format!("{row}\n");
+            if index == 0 { row.replacen("\"storage_index\":0", &format!("\"storage_index\":-{}", "9".repeat(400)), 1) } else { row }
         }).collect();
         (id, id, rows.into_bytes())
     }).collect();
@@ -115,6 +127,10 @@ fn real48_raw_bytes_and_exact_rationals_are_retained_separately() {
         [243, 304, 87]
     );
     let column = &files[0].rows[0].columns[0];
+    assert_eq!(
+        files[0].rows[0].storage_index.to_string(),
+        format!("-{}", "9".repeat(400))
+    );
     assert_eq!(column.raw, [1, 2, 3, 4, 5, 6]);
     assert_eq!(column.numerator, BigInt::from(-7));
     assert_eq!(column.denominator, BigInt::from(13));

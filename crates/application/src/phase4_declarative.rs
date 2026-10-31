@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::{json, phase6_profiles};
@@ -84,7 +85,7 @@ pub fn is_normalized(id: &str) -> bool {
 #[serde(deny_unknown_fields)]
 pub struct TextLine {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub line: u64,
+    pub line: BigUint,
     pub text: String,
 }
 
@@ -101,7 +102,7 @@ pub struct Attributes {
 #[serde(deny_unknown_fields)]
 pub struct SourceRow {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub ordinal: u64,
+    pub ordinal: BigUint,
     pub attributes: Attributes,
 }
 
@@ -110,17 +111,17 @@ pub struct SourceRow {
 #[serde(deny_unknown_fields)]
 pub struct ParseReport {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub source_ordinal: u64,
+    pub source_ordinal: BigUint,
     pub source_attributes: Attributes,
     pub independent_parse_ok: bool,
     pub canonical_isomeric_smiles: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub formal_charge: i64,
+    pub formal_charge: BigInt,
     pub formula: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub atoms: u64,
+    pub atoms: BigUint,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub bonds: u64,
+    pub bonds: BigUint,
 }
 
 /// Optional raw material is preserved as bytes and is never interpreted or executed.
@@ -182,7 +183,7 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<DeclarativeData, Declar
     }
     let get = |id| index.get(id).copied().ok_or(DeclarativeError::FileSet);
     let text: Vec<TextLine> = rows(get(NORMALIZED[0])?, 127)?;
-    if text.iter().any(|row| row.line == 0) {
+    if text.iter().any(|row| row.line == BigUint::from(0_u8)) {
         return Err(DeclarativeError::LineNumber);
     }
     let source = rows(get(NORMALIZED[1])?, 159)?;
@@ -231,19 +232,53 @@ mod tests {
     fn schema_integral_numbers_preserve_declarative_strings() {
         let source = br#"{"ordinal":-0.0,"attributes":{"name":"1.0","smiles":"C"}}"#;
         let decoded = rows::<SourceRow>(source, 1).unwrap();
-        assert_eq!(decoded[0].ordinal, 0);
+        assert_eq!(decoded[0].ordinal.to_string(), "0");
         assert_eq!(decoded[0].attributes.name, "1.0");
         let report = br#"{"source_ordinal":1e0,"source_attributes":{"name":"x","smiles":"C"},"independent_parse_ok":false,"canonical_isomeric_smiles":"","formal_charge":-1.0,"formula":"","atoms":1.0,"bonds":0e0}"#;
         let decoded = rows::<ParseReport>(report, 1).unwrap();
-        assert_eq!(decoded[0].source_ordinal, 1);
-        assert_eq!(decoded[0].formal_charge, -1);
-        assert_eq!(decoded[0].atoms, 1);
-        assert_eq!(decoded[0].bonds, 0);
+        assert_eq!(decoded[0].source_ordinal.to_string(), "1");
+        assert_eq!(decoded[0].formal_charge.to_string(), "-1");
+        assert_eq!(decoded[0].atoms.to_string(), "1");
+        assert_eq!(decoded[0].bonds.to_string(), "0");
         let invalid = std::str::from_utf8(report)
             .unwrap()
             .replace("\"atoms\":1.0", "\"atoms\":1.00000000000000000001");
         assert_eq!(
             rows::<ParseReport>(invalid.as_bytes(), 1).err(),
+            Some(DeclarativeError::Record)
+        );
+    }
+
+    #[test]
+    fn producer_metadata_keeps_large_positions_counts_and_signed_charge() {
+        let magnitude = "9".repeat(400);
+        let negative = format!("-{magnitude}");
+        let text = format!(r#"{{"line":{magnitude},"text":"fixture"}}"#);
+        let source =
+            format!(r#"{{"ordinal":{magnitude},"attributes":{{"name":"fixture","smiles":"C"}}}}"#);
+        let report = format!(
+            r#"{{"source_ordinal":{magnitude},"source_attributes":{{"name":"fixture","smiles":"C"}},"independent_parse_ok":false,"canonical_isomeric_smiles":"","formal_charge":{negative},"formula":"","atoms":{magnitude},"bonds":{magnitude}}}"#
+        );
+        assert_eq!(
+            rows::<TextLine>(text.as_bytes(), 1).unwrap()[0]
+                .line
+                .to_string(),
+            magnitude
+        );
+        assert_eq!(
+            rows::<SourceRow>(source.as_bytes(), 1).unwrap()[0]
+                .ordinal
+                .to_string(),
+            magnitude
+        );
+        let report = rows::<ParseReport>(report.as_bytes(), 1).unwrap();
+        assert_eq!(report[0].source_ordinal.to_string(), magnitude);
+        assert_eq!(report[0].formal_charge.to_string(), negative);
+        assert_eq!(report[0].atoms.to_string(), magnitude);
+        assert_eq!(report[0].bonds.to_string(), magnitude);
+        let overlong = format!(r#"{{"line":{},"text":"fixture"}}"#, "9".repeat(4097));
+        assert_eq!(
+            rows::<TextLine>(overlong.as_bytes(), 1).err(),
             Some(DeclarativeError::Record)
         );
     }
@@ -256,11 +291,11 @@ mod tests {
         assert_eq!(data.text.len(), 127);
         assert_eq!(data.text[0].text, "synthetic α");
         assert_eq!(data.source.len(), 159);
-        assert_eq!(data.source[1].ordinal, 0);
+        assert_eq!(data.source[1].ordinal.to_string(), "0");
         assert_eq!(data.source[0].attributes.smiles, "C");
         assert_eq!(data.reports.len(), 159);
         assert!(!data.reports[0].independent_parse_ok);
-        assert_eq!(data.reports[0].formal_charge, -1);
+        assert_eq!(data.reports[0].formal_charge.to_string(), "-1");
         assert_eq!(data.ancillary.len(), 1);
         assert_eq!(data.ancillary[0].file_id, RAW[1]);
         assert_eq!(data.ancillary[0].bytes, [0, 0xff, 1]);

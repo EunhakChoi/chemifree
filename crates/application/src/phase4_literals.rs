@@ -2,9 +2,9 @@
 //!
 //! These inputs supply neither an executable configuration nor a prediction engine.
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, BigUint};
 use serde::Deserialize;
-use serde_json::{Number, Value};
+use serde_json::Number;
 
 use crate::{json, phase6_profiles};
 
@@ -167,7 +167,7 @@ pub struct Latin1Key {
 /// Raw six-byte storage and an exact rational view, retained as separate witnesses.
 #[derive(PartialEq)]
 pub struct RationalColumn {
-    pub column_byte_offset: u64,
+    pub column_byte_offset: BigUint,
     pub raw: [u8; 6],
     pub numerator: BigInt,
     pub denominator: BigInt,
@@ -176,14 +176,14 @@ pub struct RationalColumn {
 /// Distinct source table fields, without interpreting them as chemical features.
 #[derive(PartialEq)]
 pub enum Real48Context {
-    Typed { aux_word: i64, flag_byte: i64 },
+    Typed { aux_word: BigInt, flag_byte: BigInt },
     Thermodynamic { secondary_key: String },
 }
 
 /// An ordered table row; storage labels are preserved without index conversion.
 #[derive(PartialEq)]
 pub struct Real48Row {
-    pub storage_index: i64,
+    pub storage_index: BigInt,
     pub key: Latin1Key,
     pub columns: Vec<RationalColumn>,
     pub context: Real48Context,
@@ -263,7 +263,7 @@ pub fn decode_dataset(profile: Profile, files: &[(&str, &[u8])]) -> Result<Recor
 fn decode_rows<T>(
     bytes: &[u8],
     count: usize,
-    mut decode: impl FnMut(Value) -> Result<T, InputError>,
+    mut decode: impl FnMut(&str) -> Result<T, InputError>,
 ) -> Result<Vec<T>, InputError> {
     let text = std::str::from_utf8(bytes).map_err(|_| InputError::Framing)?;
     if text.starts_with('\u{feff}') {
@@ -277,9 +277,8 @@ fn decode_rows<T>(
         if rows.len() == count {
             return Err(InputError::RecordCount);
         }
-        let value =
-            json::parse_integer_zero_strict(line.as_bytes()).map_err(|_| InputError::Record)?;
-        rows.push(decode(value)?);
+        json::validate_raw_strict(line.as_bytes()).map_err(|_| InputError::Record)?;
+        rows.push(decode(line)?);
     }
     if rows.len() != count {
         return Err(InputError::RecordCount);
@@ -288,8 +287,8 @@ fn decode_rows<T>(
 }
 
 fn decode_numeric(bytes: &[u8], count: usize) -> Result<Vec<NumericOperand>, InputError> {
-    decode_rows(bytes, count, |value| {
-        let wire: NumericWire = serde_json::from_value(value).map_err(|_| InputError::Record)?;
+    decode_rows(bytes, count, |line| {
+        let wire: NumericWire = serde_json::from_str(line).map_err(|_| InputError::Record)?;
         let bits = decode_bits(&wire.ieee754_f64_le_hex)?;
         let reference = f64::from_bits(bits);
         let parsed = wire
@@ -341,10 +340,10 @@ fn decode_chemprop_rows(
     count: usize,
     shape: Real48Shape,
 ) -> Result<Vec<Real48Row>, InputError> {
-    decode_rows(bytes, count, |value| match shape {
+    decode_rows(bytes, count, |line| match shape {
         Real48Shape::Typed => {
             let row: TypedReal48Wire =
-                serde_json::from_value(value).map_err(|_| InputError::Record)?;
+                serde_json::from_str(line).map_err(|_| InputError::Record)?;
             real48_row(
                 row.storage_index,
                 row.key_hex,
@@ -358,7 +357,7 @@ fn decode_chemprop_rows(
         }
         Real48Shape::Thermodynamic => {
             let row: ThermodynamicReal48Wire =
-                serde_json::from_value(value).map_err(|_| InputError::Record)?;
+                serde_json::from_str(line).map_err(|_| InputError::Record)?;
             real48_row(
                 row.storage_index,
                 row.key_hex,
@@ -373,7 +372,7 @@ fn decode_chemprop_rows(
 }
 
 fn real48_row(
-    storage_index: i64,
+    storage_index: BigInt,
     key_hex: String,
     key_latin1: String,
     columns: Vec<RationalWire>,
@@ -425,7 +424,8 @@ struct NumericWire {
     #[serde(rename = "preferred_data_va")]
     _preferred_data_va: String,
     #[serde(rename = "source_file_offset")]
-    _source_file_offset: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    _source_file_offset: BigUint,
     #[serde(rename = "source_section")]
     _source_section: String,
     ieee754_f64_le_hex: String,
@@ -436,7 +436,8 @@ struct NumericWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RationalWire {
-    column_byte_offset: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    column_byte_offset: BigUint,
     raw_real48_le_hex: String,
     exact_rational_numerator: String,
     exact_rational_denominator: String,
@@ -445,18 +446,22 @@ struct RationalWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TypedReal48Wire {
-    storage_index: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    storage_index: BigInt,
     key_hex: String,
     key_latin1: String,
     real48_columns: Vec<RationalWire>,
-    aux_word: i64,
-    flag_byte: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    aux_word: BigInt,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    flag_byte: BigInt,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThermodynamicReal48Wire {
-    storage_index: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    storage_index: BigInt,
     key_hex: String,
     key_latin1: String,
     real48_columns: Vec<RationalWire>,

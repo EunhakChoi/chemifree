@@ -27,7 +27,16 @@ fn templates_fixture(invalid_record: bool) -> Fixture {
         } else {
             "{\"kind\":\"synthetic\"}\n"
         };
-        entries.push((id, id, row.repeat(count).into_bytes()));
+        let rows = if !invalid_record && index == 0 {
+            let first = format!(
+                r#"{{"kind":"synthetic","data":{{"index":{},"parent_index":null,"tag":"x","object_id":0,"header_offset":0,"header_bytes":1,"depth":0,"implicit_document_root":true,"property_indices":[],"child_indices":[],"end_marker_offset":1,"range_bytes":1}}}}"#,
+                "9".repeat(400)
+            );
+            format!("{first}\n{}", row.repeat(count - 1))
+        } else {
+            row.repeat(count)
+        };
+        entries.push((id, id, rows.into_bytes()));
     }
     fixture("private-data-biopolymer-template-candidates-v1", entries)
 }
@@ -59,6 +68,15 @@ fn complete_framing_data_is_typed_without_a_sequence_engine() {
         20467
     );
     assert_eq!(data.tables[0].rows[0].kind, "synthetic");
+    assert_eq!(
+        data.tables[0].rows[0]
+            .data
+            .as_ref()
+            .unwrap()
+            .index
+            .to_string(),
+        "9".repeat(400)
+    );
     assert_eq!(data.ancillary.len(), 5);
     assert_binding_unavailable(&test_fixture, &loaded);
 }
