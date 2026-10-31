@@ -727,7 +727,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P15",
             "P17",
             "P37",
@@ -859,7 +858,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P53",
             "P54",
             "P55",
@@ -886,7 +884,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P15",
             "P24",
             "P58",
@@ -918,7 +915,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P15",
             "P65",
             "P66",
@@ -1195,7 +1191,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P41",
             "P82",
             "P83",
@@ -1310,38 +1305,40 @@
           ],
           "evidence": [],
           "followups": [
-            "P14",
             "P88",
             "P89"
           ]
         },
         {
           "id": "CLEANROOM-01.3",
-          "summary": "A selected trusted registry checks manifest and review identities, the personal context, path containment, and three named data profiles before retaining typed records; other profiles and full active-registry integration remain open.",
+          "summary": "A selected trusted registry verifies manifest and review identities, the personal context, path containment, and typed readers for the scoped active DATA roles. Independent fixtures exercise decoding and atomic rejection; aggregate registry membership and actual private payloads are not independently verified.",
           "status": "partial",
           "implementation": [
             "crates/application/src/active_data.rs",
             "crates/application/src/active_registry.rs",
             "crates/application/src/data_profiles.rs",
-            "crates/providers/src/data_directory.rs"
+            "crates/providers/src/data_directory.rs",
+            "crates/application/src/layout_data_binding.rs",
+            "crates/application/src/prediction_input.rs",
+            "crates/application/src/phase4_empirical.rs"
           ],
           "evidence": [
             "check:check:rust",
             "check:test:client"
           ],
           "followups": [
-            "P14"
+            "P88",
+            "P89"
           ]
         },
         {
           "id": "CLEANROOM-01.rest",
-          "summary": "Complete implementation-context input allowlist, the remaining DATA profiles and full active-registry integration, and independently verified absence of dependencies on executing the original program.",
+          "summary": "Complete implementation-context input allowlist, independent verification of aggregate registry membership and absence of dependencies on executing the original program, and future DATA profiles.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P14",
             "P82",
             "P88",
             "P89"

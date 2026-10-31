@@ -679,7 +679,7 @@
    "acceptance": "잘못된 버전·참조·해시·누락·손상은 거절한다. 데이터가 없는 설치에서도 편집 기능이 동작하고 모델 기능은 model_unavailable로 응답한다.",
    "kind": "core",
    "id": "P14",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "logic",
     "provider",
@@ -688,7 +688,44 @@
    "depends_on": [
     "P08",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [
+     37,
+     38,
+     39,
+     40,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50,
+     51,
+     52,
+     53,
+     54,
+     55,
+     56,
+     57,
+     58,
+     59,
+     60,
+     61,
+     62,
+     63,
+     64,
+     65,
+     66,
+     67,
+     68,
+     69
+    ],
+    "merge_commit": "a0d95aa17a67b4d75c991133f955c11586bb8d0f",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41178532934"
+   }
   },
   {
    "phase": "foundation",

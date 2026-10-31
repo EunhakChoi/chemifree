@@ -464,3 +464,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41176579902)는 check·browser 모두 성공했다. 2026-10-31 06:29:53에 `19b97402dcfd28246543d6071ba1b5f1a2da10ab`로 병합했다.
 
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41176845426)도 check·browser 모두 성공했다.
+
+### P14 CLogP·경험 DATA 정수와 불투명 JSON — [#69](https://github.com/EunhakChoi/chemifree/pull/69)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 06:50:25 | `7ef8b4eb8ce0be3bb19f69ca5545c55de79ca6a3` | 06:52:13 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/69#issuecomment-6540278135) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41178213555)는 check·browser 모두 성공했다. 2026-10-31 06:55:29에 `a0d95aa17a67b4d75c991133f955c11586bb8d0f`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41178532934)도 check·browser 모두 성공했다.
