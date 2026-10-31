@@ -97,7 +97,7 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, Loss, LossDisposition,
     OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    ProfileSupport, SemanticImpact, Severity, SmilesPreviewResult, SmilesTextResult, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -135,6 +135,8 @@ pub struct Application<C, R> {
     /// A process-local binding for conversion previews. If entropy is unavailable, previews
     /// are refused rather than accepting a token from an earlier service instance.
     ctfile_generation: Option<[u8; 16]>,
+    /// Separately binds SMILES previews to this service lifetime.
+    smiles_generation: Option<[u8; 16]>,
     property_data_readiness: properties::DataReadiness,
 }
 
@@ -149,6 +151,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             data_registry: DataRegistry::not_configured(),
             ctfile_codec: None,
             ctfile_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
+            smiles_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },

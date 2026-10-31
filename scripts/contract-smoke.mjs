@@ -977,6 +977,31 @@ try {
     assert.equal(identity.result.comparison.equivalent, true)
     assert.deepEqual(identity.result.identity.numbering, ['a1'])
     assert.deepEqual(identity.result.identity.symmetry, [['a1']])
+    const smiles = await both((id) => request('op-smiles-write', 'chem.smiles_write', { document_id: id, mode: 'canonical' }))
+    assert.equal(smiles.model_id, 'chemifree-smiles-canonical-1')
+    assert.equal(smiles.result.text, '[CH4]')
+    const invalidSmiles = await both((id) => request('op-smiles-invalid', 'chem.smiles_read', {
+      document_id: id, expected_revision: 1, source: '[Cé]', preview: true,
+    }))
+    assert.deepEqual([invalidSmiles.diagnostics[0].code, invalidSmiles.diagnostics[0].details.start_byte,
+      invalidSmiles.diagnostics[0].details.end_byte], ['invalid_bracket_atom', 2, 4])
+    const smilesCreate = request('op-smiles-create', 'document.create', { title: 'SMILES parity' })
+    const httpSmilesDoc = (await viaHttp(smilesCreate)).body.result.document.id
+    const cliSmilesDoc = (await viaCli(smilesCreate)).result.document.id
+    const smilesPreview = (id) => request('op-smiles-preview', 'chem.smiles_read', {
+      document_id: id, expected_revision: 0, source: 'CC(O)C', preview: true,
+    })
+    const httpSmiles = (await viaHttp(smilesPreview(httpSmilesDoc))).body
+    const cliSmiles = await viaCli(smilesPreview(cliSmilesDoc))
+    assert.deepEqual([httpSmiles.result.atoms, httpSmiles.result.bonds], [4, 3])
+    assert.deepEqual(httpSmiles.loss_report, cliSmiles.loss_report)
+    const smilesCommit = (id, digest) => request('op-smiles-commit', 'chem.smiles_read', {
+      document_id: id, expected_revision: 0, source: 'CC(O)C', preview_digest: digest, accept_loss: true,
+    })
+    const createdSmilesHttp = (await viaHttp(smilesCommit(httpSmilesDoc, httpSmiles.result.preview_digest))).body
+    const createdSmilesCli = await viaCli(smilesCommit(cliSmilesDoc, cliSmiles.result.preview_digest))
+    assert.deepEqual(createdSmilesHttp.result.document.atoms, createdSmilesCli.result.document.atoms)
+    assert.deepEqual(createdSmilesHttp.result.document.bonds, createdSmilesCli.result.document.bonds)
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const beforeProperties = await both((id) => request('op-before-properties', 'document.snapshot', { document_id: id }))

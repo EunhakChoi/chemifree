@@ -14,7 +14,7 @@
 //! executable.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
-use chemifree_domain::{graph::MoleculeGraph, identity};
+use chemifree_domain::{graph::MoleculeGraph, identity, smiles};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -176,6 +176,26 @@ pub enum OperationResult {
     Aromaticity(Box<AromaticityResult>),
     /// `chem.identity`: canonical graph identity and an optional second snapshot comparison.
     Identity(Box<IdentityResult>),
+    /// `chem.smiles_read`: a consent-bound candidate drawing and its source snapshot.
+    SmilesPreview(Box<SmilesPreviewResult>),
+    /// `chem.smiles_write`: text generated from the accompanying snapshot.
+    SmilesText(Box<SmilesTextResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SmilesPreviewResult {
+    pub snapshot: DocumentResult,
+    pub document: DocumentView,
+    pub atoms: usize,
+    pub bonds: usize,
+    pub preview_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SmilesTextResult {
+    pub snapshot: DocumentResult,
+    pub text: String,
+    pub mode: &'static str,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -630,6 +650,20 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             ),
             &[],
         ),
+        Op::ChemSmilesRead => (
+            runs(
+                id,
+                "Parse bounded basic SMILES with byte spans and preview an atomic append; stereo is unsupported.",
+            ),
+            &[],
+        ),
+        Op::ChemSmilesWrite => (
+            runs(
+                id,
+                "Write recorded or versioned model-canonical basic SMILES from an exact snapshot; stereo and unsupported states are refused.",
+            ),
+            &[],
+        ),
         Op::ChemProperties => (
             runs(
                 id,
@@ -747,6 +781,34 @@ struct IdentityParameters {
     mode: IdentityMode,
     #[serde(default)]
     other_document_id: Option<String>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct SmilesReadParameters {
+    document_id: String,
+    expected_revision: u64,
+    source: String,
+    #[serde(default)]
+    preview: bool,
+    #[serde(default)]
+    preview_digest: Option<String>,
+    #[serde(default)]
+    accept_loss: bool,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SmilesMode {
+    Recorded,
+    Canonical,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SmilesWriteParameters {
+    document_id: String,
+    mode: SmilesMode,
 }
 
 fn identity_view(
@@ -1256,6 +1318,315 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             }
         }
         entry(operation)
+    }
+
+    fn smiles_read(&self, known: &Known, p: SmilesReadParameters) -> OperationResponse {
+        use chemifree_domain::document::{AtomRef, Command, MAX_COMMANDS, NewAtomPositions, Point};
+        use chemifree_domain::states::Radical;
+
+        let fingerprint = ct_projection::digest(&("smiles-import-1", &p));
+        let replay = if p.preview {
+            None
+        } else {
+            match self.documents.replay_import(
+                &p.document_id,
+                Some(&known.request_id),
+                &fingerprint,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    return known.reply(
+                        Outcome::Error,
+                        error.current_revision,
+                        None,
+                        vec![failure(&error)],
+                    );
+                }
+            }
+        };
+        let graph = match smiles::parse(&p.source) {
+            Ok(value) => value,
+            Err(error) => {
+                let mut details = Map::new();
+                details.insert("start_byte".into(), error.start.into());
+                details.insert("end_byte".into(), error.end.into());
+                return known.invalid(Diagnostic {
+                    code: error.code,
+                    severity: Severity::Error,
+                    message: "SMILES could not be parsed under the supported basic profile.".into(),
+                    path: Some("parameters.source".into()),
+                    details,
+                });
+            }
+        };
+        if graph.atoms.len() + graph.bonds.len() > MAX_COMMANDS {
+            return known.invalid(diagnostic(
+                "resource_limit",
+                "This import exceeds the atomic transaction command limit.",
+                Map::new(),
+            ));
+        }
+        let target = match replay.as_ref() {
+            Some(response) => response.clone(),
+            None => match self.document(&p.document_id) {
+                Ok(response) => response,
+                Err(error) => {
+                    return known.reply(
+                        Outcome::Error,
+                        error.current_revision,
+                        None,
+                        vec![failure(&error)],
+                    );
+                }
+            },
+        };
+        if target.document.scene.instances.len() != 1 {
+            return known.invalid(diagnostic(
+                "unsupported_scene",
+                "Import requires exactly one molecule placement.",
+                Map::new(),
+            ));
+        }
+        let mut losses = vec![Loss {
+            feature: "generated_positions".into(),
+            source_path: "parameters.source".into(),
+            disposition: LossDisposition::Normalized,
+            reason: "SMILES has no coordinates. Atoms are placed on a schematic grid that may overlap the existing drawing; this is not a chemical layout.".into(),
+            semantic_impact: SemanticImpact::Geometry,
+        }];
+        if graph
+            .atoms
+            .iter()
+            .any(|item| item.atom.radical == Radical::Unknown)
+        {
+            losses.push(Loss {
+                feature: "radical_state".into(),
+                source_path: "parameters.source".into(),
+                disposition: LossDisposition::Unknown,
+                reason: "A bracket atom has an incomplete shell; its radical or spin state is recorded as unknown.".into(),
+                semantic_impact: SemanticImpact::Chemistry,
+            });
+        }
+        let mut commands: Vec<_> = graph
+            .atoms
+            .iter()
+            .enumerate()
+            .map(|(index, atom)| Command::AddAtom {
+                atom: atom.atom.clone(),
+                positions: NewAtomPositions::Single(
+                    Point::new((index % 20) as f64 * 30.0, (index / 20) as f64 * 30.0)
+                        .expect("bounded grid"),
+                ),
+                bond_to: None,
+            })
+            .collect();
+        commands.extend(graph.bonds.iter().map(|bond| Command::AddBond {
+            begin: AtomRef::Created(bond.begin),
+            end: AtomRef::Created(bond.end),
+            order: bond.order.clone(),
+        }));
+        if let Some(response) = replay {
+            let mut result: DocumentResult = response.into();
+            result.import_mapping = Some(ct_mapping(
+                &result.document,
+                graph.atoms.len(),
+                graph.bonds.len(),
+            ));
+            let mut reply = converted(
+                known,
+                Some(result.document.revision),
+                OperationResult::Document(Box::new(result)),
+                losses,
+            );
+            reply.model_id = Some("chemifree-smiles-basic-1".into());
+            return reply;
+        }
+        let Some(generation) = self.smiles_generation else {
+            return known.invalid(diagnostic(
+                "service_identity_unavailable",
+                "A service identity could not be created for the preview.",
+                Map::new(),
+            ));
+        };
+        let (before, candidate) =
+            match self
+                .documents
+                .preview_import(&p.document_id, p.expected_revision, &commands)
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    return known.reply(
+                        Outcome::Error,
+                        error.current_revision,
+                        None,
+                        vec![failure(&error)],
+                    );
+                }
+            };
+        if before.document != target.document {
+            return known.invalid(diagnostic(
+                "preview_changed",
+                "The drawing changed while the import preview was prepared.",
+                Map::new(),
+            ));
+        }
+        let bind = |snapshot: &DocumentView, document: &DocumentView| {
+            ct_projection::digest(&(
+                "smiles-preview-1",
+                generation,
+                &p.source,
+                snapshot,
+                document,
+                &losses,
+            ))
+        };
+        let preview_digest = bind(&before.document, &candidate.document);
+        if p.preview {
+            let revision = before.document.revision;
+            let mut response = converted(
+                known,
+                Some(revision),
+                OperationResult::SmilesPreview(Box::new(SmilesPreviewResult {
+                    snapshot: before.into(),
+                    document: candidate.document,
+                    atoms: graph.atoms.len(),
+                    bonds: graph.bonds.len(),
+                    preview_digest,
+                })),
+                losses,
+            );
+            response.model_id = Some("chemifree-smiles-basic-1".into());
+            return response;
+        }
+        if p.preview_digest.as_deref() != Some(preview_digest.as_str()) {
+            return known.invalid(diagnostic(
+                "preview_changed",
+                "Preview is missing or does not match the current drawing and source.",
+                Map::new(),
+            ));
+        }
+        if !p.accept_loss {
+            return known.invalid(diagnostic(
+                "loss_consent_required",
+                "Review the schematic placement and any uncertainty before importing.",
+                Map::new(),
+            ));
+        }
+        let response = self.documents.import(
+            &p.document_id,
+            Some(&known.request_id),
+            p.expected_revision,
+            fingerprint,
+            &commands,
+            |current, projected| {
+                if bind(current, projected) == preview_digest {
+                    Ok(())
+                } else {
+                    Err(ApplicationError::new(
+                        ErrorCode::InvalidRequest,
+                        "The import preview changed before commit.",
+                    ))
+                }
+            },
+        );
+        match response {
+            Ok(response) => {
+                let mut result: DocumentResult = response.into();
+                result.import_mapping = Some(ct_mapping(
+                    &result.document,
+                    graph.atoms.len(),
+                    graph.bonds.len(),
+                ));
+                let mut reply = converted(
+                    known,
+                    Some(result.document.revision),
+                    OperationResult::Document(Box::new(result)),
+                    losses,
+                );
+                reply.model_id = Some("chemifree-smiles-basic-1".into());
+                reply
+            }
+            Err(error) => known.reply(
+                Outcome::Error,
+                error.current_revision,
+                None,
+                vec![failure(&error)],
+            ),
+        }
+    }
+
+    fn smiles_write(&self, known: &Known, p: SmilesWriteParameters) -> OperationResponse {
+        let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
+            Ok(value) => value,
+            Err(error) => {
+                return known.reply(
+                    Outcome::Error,
+                    error.current_revision,
+                    None,
+                    vec![failure(&error)],
+                );
+            }
+        };
+        let revision = snapshot.document.revision;
+        let (text, mode, model) = match p.mode {
+            SmilesMode::Recorded => (
+                smiles::write_recorded(&graph).map_err(|error| format!("{error:?}")),
+                "recorded",
+                "chemifree-smiles-recorded-1",
+            ),
+            SmilesMode::Canonical => (
+                smiles::write_canonical(&graph).map_err(|error| format!("{error:?}")),
+                "canonical",
+                smiles::CANONICAL_MODEL_ID,
+            ),
+        };
+        let text = match text {
+            Ok(value) => value,
+            Err(reason) => {
+                let mut details = Map::new();
+                details.insert("reason".into(), reason.into());
+                let mut response = known.reply(
+                    Outcome::Unsupported,
+                    Some(revision),
+                    None,
+                    vec![diagnostic(
+                        "smiles_write_unsupported",
+                        "The graph cannot be written under this SMILES profile.",
+                        details,
+                    )],
+                );
+                response.model_id = Some(model.into());
+                return response;
+            }
+        };
+        let mut losses = vec![Loss {
+            feature: "drawing_scene".into(),
+            source_path: "document.scene".into(),
+            disposition: LossDisposition::Dropped,
+            reason: "SMILES carries graph chemistry, not page objects, positions, style, selection, or the document title.".into(),
+            semantic_impact: SemanticImpact::Document,
+        }];
+        if matches!(p.mode, SmilesMode::Canonical) {
+            losses.push(Loss {
+                feature: "chemical_representation".into(),
+                source_path: "document.graph".into(),
+                disposition: LossDisposition::Normalized,
+                reason: "The named identity model normalizes supported aromatic bonds and folds eligible ordinary terminal hydrogens.".into(),
+                semantic_impact: SemanticImpact::Chemistry,
+            });
+        }
+        let mut response = converted(
+            known,
+            Some(revision),
+            OperationResult::SmilesText(Box::new(SmilesTextResult {
+                snapshot: snapshot.into(),
+                text,
+                mode,
+            })),
+            losses,
+        );
+        response.model_id = Some(model.into());
+        response
     }
 
     fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
@@ -1919,6 +2290,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     response.model_id = Some(p.mode.model_id().into());
                     response
                 }
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemSmilesRead => match parameters::<SmilesReadParameters>(parameters_value) {
+                Ok(p) => self.smiles_read(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemSmilesWrite => match parameters::<SmilesWriteParameters>(parameters_value) {
+                Ok(p) => self.smiles_write(known, p),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::DocumentTransaction => {

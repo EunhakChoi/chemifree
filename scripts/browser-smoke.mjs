@@ -1566,7 +1566,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '15 of 24 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '17 of 26 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1579,6 +1579,9 @@ assert.equal(await operationRow('chem.validate').locator('[data-execution]').get
 assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+for (const id of ['chem.smiles_read', 'chem.smiles_write']) {
+  assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'executable')
+}
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2763,6 +2766,100 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
   results.ctfile_preview_import_export = true
+}
+
+// Parse and append a benzene spelling, then write its model-canonical form from the same graph.
+{
+  step = 'SMILES preview, import and canonical output'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-create', title: 'SMILES browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  await panel.getByLabel('SMILES input').fill('[Cé]')
+  await panel.getByRole('button', { name: 'Preview SMILES' }).click()
+  await panel.getByRole('alert').getByText(/UTF-8 bytes 2–4/).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'invalid syntax changes nothing')
+  await panel.getByLabel('SMILES input').fill('C1=CC=CC=C1')
+  await panel.getByRole('button', { name: 'Preview SMILES' }).click()
+  await panel.getByText('6 atoms, 6 bonds.', { exact: true }).waitFor()
+  await panel.getByText(/schematic grid/).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview changes nothing')
+  await panel.getByRole('button', { name: 'Accept and import SMILES' }).click()
+  await panel.getByRole('button', { name: 'Accept and import SMILES' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.equal(imported.document.atoms.length, 6)
+  assert.deepEqual(imported.document.bonds.map((bond) => bond.order).sort(), ['double', 'double', 'double', 'single', 'single', 'single'])
+  await panel.getByRole('button', { name: 'Write canonical SMILES' }).click()
+  await panel.getByText('Model: chemifree-smiles-canonical-1', { exact: true }).waitFor()
+  const text = await panel.locator('code').textContent()
+  assert.ok(text?.includes('c') && text.includes('1'), `canonical benzene output: ${text}`)
+  await panel.screenshot({ path: join(outDir, 'editor-smiles.png') })
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await panel.getByText('The drawing changed. Write the SMILES again.', { exact: true }).waitFor()
+  assert.equal(await panel.locator('code').count(), 0, 'old SMILES is hidden after a graph edit')
+  results.smiles_preview_import_canonical_and_undo = true
+}
+
+// A successful old-service import reply must not replace the view after another request
+// observes a restart, even if the replacement process reuses the same document ID/revision.
+{
+  step = 'SMILES delayed import success after service restart'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-restart-create', title: 'SMILES restart' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  const valence = page.getByRole('complementary', { name: 'Valence inspection' })
+  await panel.getByLabel('SMILES input').fill('C')
+  await panel.getByRole('button', { name: 'Preview SMILES' }).click()
+  await panel.getByText('1 atom, 0 bonds.', { exact: true }).waitFor()
+  let validationArrived
+  const validationReady = new Promise((resolve) => { validationArrived = resolve })
+  let releaseValidation
+  const validationHeld = new Promise((resolve) => { releaseValidation = resolve })
+  let importArrived
+  const importReady = new Promise((resolve) => { importArrived = resolve })
+  let releaseImport
+  const importHeld = new Promise((resolve) => { releaseImport = resolve })
+  const holdOperations = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation === 'chem.validate') {
+      validationArrived()
+      await validationHeld
+      return route.continue()
+    }
+    if (request?.operation === 'chem.smiles_read' && !request.parameters.preview) {
+      const response = await route.fetch()
+      importArrived()
+      await importHeld
+      return route.fulfill({ response })
+    }
+    return route.continue()
+  }
+  await page.route('**/api/v1/operations', holdOperations)
+  await valence.getByRole('button', { name: 'Inspect valence' }).click()
+  await validationReady
+  await panel.getByRole('button', { name: 'Accept and import SMILES' }).click()
+  await importReady
+  await crashApi()
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'smiles-restart-replacement', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(replacement.body.document.revision, 1)
+  assert.equal(replacement.body.document.atoms[0].element, 'O')
+  releaseValidation()
+  await valence.getByRole('alert').getByText(/The local service restarted/).waitFor()
+  const disposition = Promise.race([
+    page.getByLabel('Revision 1').waitFor().then(() => 'adopted stale success'),
+    page.getByText('Import completed for an earlier drawing or service. Reload the drawing before continuing.', { exact: true }).waitFor().then(() => 'refused stale success'),
+  ])
+  releaseImport()
+  assert.equal(await disposition, 'refused stale success')
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
+  await page.unroute('**/api/v1/operations', holdOperations)
+  results.smiles_delayed_import_restart = true
 }
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.

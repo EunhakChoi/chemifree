@@ -14,6 +14,7 @@ import {
   type DocumentView,
   type ListQuery,
   type SettingsSource,
+  type SmilesImport,
   type TrashListResponse,
 } from '@/lib/document-contract'
 
@@ -342,7 +343,37 @@ export function useDocumentEditor() {
           throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
         }
         const response = await client.importCt(input)
-        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+        const current = currentRef.current
+        if (current?.document.id === input.documentId) {
+          if (serviceGenerationRef.current !== generation || !sameConversionSnapshot(current.document, snapshot)) {
+            throw new ApiError('preview_changed', 'Import completed for an earlier drawing or service. Reload the drawing before continuing.', 200)
+          }
+          setCurrent(response)
+        }
+        committed = true
+      })
+      return committed
+    }, [run, setCurrent]),
+    previewSmiles: useCallback((id: string, revision: number, source: string) =>
+      client.previewSmiles(id, revision, source), []),
+    writeSmiles: useCallback((id: string, mode: 'recorded' | 'canonical') => client.writeSmiles(id, mode), []),
+    importSmiles: useCallback(async (input: SmilesImport, snapshot: DocumentView, generation: number) => {
+      let committed = false
+      await run(async () => {
+        const shown = currentRef.current
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          throw new ApiError('preview_changed', 'The drawing changed. Preview the SMILES again.', 200)
+        }
+        const response = await client.importSmiles(input)
+        const current = currentRef.current
+        if (current?.document.id === input.documentId) {
+          if (serviceGenerationRef.current !== generation || !sameConversionSnapshot(current.document, snapshot)) {
+            throw new ApiError('preview_changed', 'Import completed for an earlier drawing or service. Reload the drawing before continuing.', 200)
+          }
+          setCurrent(response)
+        }
         committed = true
       })
       return committed

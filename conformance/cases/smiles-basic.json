@@ -1,0 +1,22 @@
+{
+  "id": "smiles-basic",
+  "title": "Basic SMILES preserves isotope and charge, reports syntax spans, and names its canonical model",
+  "requirements": ["CODEC-05", "CODEC-06"],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {"call":"create","bind":"d"},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"syntax","profile":"preserve-semantics","operation":"chem.smiles_read","parameters":{"expected_revision":0,"source":"[Cé]","preview":true}},
+     "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"invalid_bracket_atom","details":{"start_byte":2,"end_byte":4}}]}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"preview","profile":"preserve-semantics","operation":"chem.smiles_read","parameters":{"expected_revision":0,"source":"[13CH3-].[NH4+]","preview":true}},
+     "capture":{"digest":"/result/preview_digest"},
+     "expect":{"outcome":"partial","document_revision":0,"model_id":"chemifree-smiles-basic-1","result":{"atoms":2,"bonds":0,"snapshot":{"document":{"revision":0}},"document":{"atoms":[{"element":"C","isotope":13,"charge":-1},{"element":"N","charge":1}]}},"loss_report":{"$contains":[{"feature":"generated_positions"}]}}},
+    {"call":"get","document":"d","expect":{"document":{"revision":0,"atoms":[]},"session":{"undo_depth":0}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"import","profile":"preserve-semantics","operation":"chem.smiles_read","parameters":{"expected_revision":0,"source":"[13CH3-].[NH4+]","preview_digest":null,"accept_loss":true}},
+     "substitute":{"/parameters/preview_digest":"digest"},
+     "expect":{"outcome":"partial","document_revision":1,"result":{"import_mapping":{"atoms":["a1","a2"],"bonds":[]},"document":{"atoms":[{"element":"C","isotope":13,"charge":-1},{"element":"N","charge":1}]}}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"write","profile":"preserve-semantics","operation":"chem.smiles_write","parameters":{"mode":"canonical"}},
+     "expect":{"outcome":"partial","model_id":"chemifree-smiles-canonical-1","result":{"mode":"canonical","snapshot":{"document":{"revision":1}}}}},
+    {"call":"get","document":"d","expect":{"document":{"revision":1},"session":{"undo_depth":1}}}
+  ]
+}

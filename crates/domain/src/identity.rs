@@ -165,6 +165,15 @@ impl Graph {
     }
 
     fn chemical(input: &MoleculeGraph) -> Result<Self, IdentityError> {
+        let (normalized, folded) = Self::normalized(input)?;
+        let mut graph = Self::new(&normalized)?;
+        graph.folded = folded;
+        Ok(graph)
+    }
+
+    fn normalized(
+        input: &MoleculeGraph,
+    ) -> Result<(MoleculeGraph, Vec<(AtomId, AtomId)>), IdentityError> {
         if input.atoms().len() > MAX_ATOMS {
             return Err(IdentityError::AtomLimit);
         }
@@ -278,41 +287,42 @@ impl Graph {
             .copied()
             .filter(|id| !suppressed.contains(id))
             .collect();
-        let indices: BTreeMap<_, _> = ids
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(i, id)| (id, i))
-            .collect();
-        let labels = ids
+        let normalized_atoms = ids
             .iter()
             .map(|id| {
                 let mut atom = (*atoms[id]).clone();
                 let count = u8::try_from(hydrogens[id])
                     .map_err(|_| IdentityError::Unsupported("hydrogen_limit"))?;
                 atom.hydrogens = Hydrogens::Specified(count);
-                Ok(atom_label(&atom))
+                Ok((*id, atom))
             })
             .collect::<Result<Vec<_>, IdentityError>>()?;
-        let mut edges = vec![vec![None; ids.len()]; ids.len()];
-        for (id, bond) in input.bonds() {
-            let (Some(&a), Some(&b)) = (indices.get(&bond.begin), indices.get(&bond.end)) else {
-                continue;
-            };
-            let mut normalized = bond.clone();
-            if aromatic_bonds.contains(&id) {
-                normalized.order = BondOrder::Aromatic;
-            }
-            edges[a][b] = Some(edge_label(&normalized, true));
-            edges[b][a] = Some(edge_label(&normalized, false));
-        }
-        Ok(Self {
-            ids,
-            labels,
-            edges,
+        let normalized_bonds = input
+            .bonds()
+            .filter(|(_, bond)| {
+                !suppressed.contains(&bond.begin) && !suppressed.contains(&bond.end)
+            })
+            .map(|(id, bond)| {
+                let mut normalized = bond.clone();
+                if aromatic_bonds.contains(&id) {
+                    normalized.order = BondOrder::Aromatic;
+                }
+                (id, normalized)
+            })
+            .collect();
+        Ok((
+            MoleculeGraph::from_parts(normalized_atoms, normalized_bonds),
             folded,
-        })
+        ))
     }
+}
+
+/// The exact chemical profile used by identity, also consumed by canonical SMILES.
+/// The returned IDs are still document-local and folded hydrogens are reported separately.
+pub(crate) fn normalize_chemical(
+    input: &MoleculeGraph,
+) -> Result<(MoleculeGraph, Vec<(AtomId, AtomId)>), IdentityError> {
+    Graph::normalized(input)
 }
 
 /// Refine by the current partition and each atom's sorted labeled neighborhood.

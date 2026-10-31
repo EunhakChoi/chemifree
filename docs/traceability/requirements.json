@@ -383,13 +383,23 @@
       "summary": "Line notations (SMILES, InChI) are interpreted, distinguishing string equality from chemical equality and reporting loss.",
       "operations": [
         "document.import",
-        "document.export"
+        "document.export",
+        "chem.smiles_read",
+        "chem.smiles_write"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-05.smiles-basic",
+          "summary": "Basic SMILES parse and versioned canonical or recorded output with byte-span syntax errors and an atomic, consented editor projection; stereo and query extensions remain open.",
+          "status": "implemented",
+          "implementation": ["crates/domain/src/smiles.rs", "crates/domain/src/identity.rs", "crates/application/src/operations.rs", "apps/web/src/components/smiles-panel.tsx"],
+          "evidence": ["case:smiles-basic", "check:check:rust", "check:test:contracts", "check:test:client"],
+          "followups": []
+        },
+        {
           "id": "CODEC-05.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Stereo, query extensions, InChI and additional line-notation behavior remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -411,7 +421,9 @@
       "summary": "Unknown objects and properties are preserved, refused or reported according to a stated policy.",
       "operations": [
         "document.import",
-        "document.export"
+        "document.export",
+        "chem.smiles_read",
+        "chem.smiles_write"
       ],
       "status": "partial",
       "parts": [
@@ -427,6 +439,14 @@
             "check:check:rust",
             "check:test:contracts"
           ],
+          "followups": []
+        },
+        {
+          "id": "CODEC-06.smiles-policy",
+          "summary": "SMILES stereo and query extensions are refused with spans; schematic placement, radical uncertainty and omitted document scene are explicitly reported.",
+          "status": "implemented",
+          "implementation": ["crates/domain/src/smiles.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:smiles-basic", "check:check:rust", "check:test:contracts"],
           "followups": []
         },
         {

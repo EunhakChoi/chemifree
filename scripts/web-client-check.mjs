@@ -1853,6 +1853,36 @@ test('conversion failures retain their record and line context', async () => {
   })
 })
 
+test('SMILES preview exposes the returned snapshot and UTF-8 syntax offsets', async () => {
+  const actual = document('doc-1', 1)
+  actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'partial', model_id: 'chemifree-smiles-basic-1', diagnostics: [], loss_report: [],
+      result: { preview_digest: 'a'.repeat(64), atoms: 1, bonds: 0, snapshot: actual, document: actual.document } }),
+    () => json(200, { outcome: 'error', result: null, diagnostics: [{ code: 'invalid_bracket_atom', message: 'Invalid.',
+      details: { start_byte: 2, end_byte: 4 } }], loss_report: [] }),
+  ] })
+  const client = new DocumentClient()
+  const result = await client.previewSmiles('doc-1', 1, 'O')
+  const shown = structuredClone(result.snapshot)
+  shown.atoms[0].element = 'C'
+  assert.equal(sameConversionSnapshot(shown, result.snapshot), false)
+  await assert.rejects(client.previewSmiles('doc-1', 1, '[Cé]'), {
+    code: 'invalid_bracket_atom', message: 'Invalid. UTF-8 bytes 2–4.',
+  })
+})
+
+test('an unanswered SMILES import reuses its request ID only for the same service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, source: 'C', digest: 'a'.repeat(64) }
+  await assert.rejects(client.importSmiles(input), { code: 'unreachable' })
+  assert.equal((await client.importSmiles(input)).document.revision, 1)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
 
 test('an import preview exposes the actual graph even when a revision is reused', async () => {
   const actual = document('doc-1', 1)

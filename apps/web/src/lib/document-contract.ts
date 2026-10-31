@@ -1071,6 +1071,21 @@ export interface CtImport {
   digest: string
 }
 
+export interface SmilesImport {
+  documentId: string
+  revision: number
+  source: string
+  digest: string
+}
+
+export interface SmilesPreview {
+  digest: string
+  snapshot: DocumentView
+  atoms: number
+  bonds: number
+  losses: CtLoss[]
+}
+
 /** Full drawing comparison for conversion previews, including scene and settings. */
 export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -1099,7 +1114,9 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
       const details = isRecord(diagnostic.details) ? diagnostic.details : {}
       const record = isCount(details.record) ? ` Record ${details.record}.` : ''
       const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+      const span = isCount(details.start_byte) && isCount(details.end_byte) && details.end_byte >= details.start_byte
+        ? ` UTF-8 bytes ${details.start_byte}–${details.end_byte}.` : ''
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}${span}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
       })
     }
@@ -1292,6 +1309,70 @@ export class DocumentClient {
       title: item.title, atoms: item.atoms.length, bonds: item.bonds.length, fields: item.fields,
     }))
     return { digest: result.preview_digest, snapshot, records, losses: reply.losses }
+  }
+
+  async previewSmiles(documentId: string, revision: number, source: string): Promise<SmilesPreview> {
+    const raw = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.smiles_read',
+      parameters: { document_id: documentId, expected_revision: revision, source, preview: true },
+    }, 'reload')
+    const reply = ctReply(raw)
+    const { result } = reply
+    if (!isRecord(raw) || raw.model_id !== 'chemifree-smiles-basic-1' ||
+        typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        !isCount(result.atoms) || !isCount(result.bonds) || !isRecord(result.snapshot) ||
+        !isRecord(result.document) || result.document.id !== documentId) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The SMILES preview used a different drawing or revision.', 200)
+    }
+    return { digest: result.preview_digest, snapshot, atoms: result.atoms, bonds: result.bonds, losses: reply.losses }
+  }
+
+  async importSmiles(input: SmilesImport): Promise<DocumentResponse> {
+    const key = JSON.stringify(['smiles', input])
+    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
+    this.unconfirmedImports.set(key, pending)
+    let sentTo: string | undefined
+    try {
+      const reply = ctReply(await this.write('/api/v1/operations', {
+        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'chem.smiles_read',
+        parameters: { document_id: input.documentId, expected_revision: input.revision, source: input.source,
+          preview_digest: input.digest, accept_loss: true },
+      }, 'reload', (token) => {
+        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
+        sentTo = token
+      }))
+      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
+      if (response.document.id !== input.documentId) throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
+      this.unconfirmedImports.delete(key)
+      return response
+    } catch (error) {
+      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
+        pending.sentTo = sentTo
+        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
+      }
+      this.unconfirmedImports.delete(key)
+      throw error
+    }
+  }
+
+  async writeSmiles(documentId: string, mode: 'recorded' | 'canonical'): Promise<{ text: string; model: string; losses: CtLoss[]; snapshot: DocumentView }> {
+    const raw = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.smiles_write',
+      parameters: { document_id: documentId, mode },
+    }, 'reload')
+    const reply = ctReply(raw)
+    const model = mode === 'canonical' ? 'chemifree-smiles-canonical-1' : 'chemifree-smiles-recorded-1'
+    if (!isRecord(raw) || raw.model_id !== model || reply.result.mode !== mode ||
+        typeof reply.result.text !== 'string' || !isRecord(reply.result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned incompatible SMILES output.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The output used a different drawing.', 200)
+    return { text: reply.result.text, model, losses: reply.losses, snapshot }
   }
 
   async importCt(input: CtImport): Promise<DocumentResponse> {

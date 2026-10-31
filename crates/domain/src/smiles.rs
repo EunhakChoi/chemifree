@@ -6,8 +6,11 @@ use crate::aromaticity;
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::element::Element;
 use crate::graph::MoleculeGraph;
+use crate::identity::{self, IdentityError};
 use crate::states::{Hydrogens, Radical};
 
+/// Stable only within the explicitly bounded valence, aromaticity, and identity profiles.
+pub const CANONICAL_MODEL_ID: &str = "chemifree-smiles-canonical-1";
 pub const MAX_ATOMS: usize = 2000;
 pub const MAX_BONDS: usize = 4000;
 pub const MAX_BRANCH_DEPTH: usize = 128;
@@ -550,6 +553,57 @@ pub enum WriteError {
     UnsupportedBond,
     UnsupportedAromaticity,
     RingLimit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalError {
+    Identity(IdentityError),
+    Write(WriteError),
+}
+
+/// Convert a native graph to the writer's indexed representation without changing its
+/// recorded atoms or bonds. Aromatic atoms are those incident to recorded aromatic bonds.
+fn indexed(input: &MoleculeGraph) -> (SmilesGraph, BTreeMap<AtomId, usize>) {
+    let mut graph = SmilesGraph::default();
+    let mut indices = BTreeMap::new();
+    for (id, atom) in input.atoms() {
+        indices.insert(id, graph.atoms.len());
+        graph.atoms.push(SmilesAtom {
+            atom: atom.clone(),
+            aromatic: false,
+        });
+    }
+    for (_, bond) in input.bonds() {
+        let begin = indices[&bond.begin];
+        let end = indices[&bond.end];
+        if bond.order == BondOrder::Aromatic {
+            graph.atoms[begin].aromatic = true;
+            graph.atoms[end].aromatic = true;
+        }
+        graph.bonds.push(SmilesBond {
+            begin,
+            end,
+            order: bond.order.clone(),
+        });
+    }
+    (graph, indices)
+}
+
+/// Serialize the recorded graph in document order, without claiming canonical ordering.
+pub fn write_recorded(input: &MoleculeGraph) -> Result<String, WriteError> {
+    let (graph, _) = indexed(input);
+    let order: Vec<_> = (0..graph.atoms.len()).collect();
+    write(&graph, &order)
+}
+
+/// Serialize a chemical graph using the same bounded normalization as chemical identity.
+/// Unproved valence, aromaticity, or exhaustive ordering fails without returning a string.
+pub fn write_canonical(input: &MoleculeGraph) -> Result<String, CanonicalError> {
+    let (normalized, _) = identity::normalize_chemical(input).map_err(CanonicalError::Identity)?;
+    let canonical = identity::canonicalize(&normalized).map_err(CanonicalError::Identity)?;
+    let (graph, indices) = indexed(&normalized);
+    let order: Vec<_> = canonical.numbering.iter().map(|id| indices[id]).collect();
+    write(&graph, &order).map_err(CanonicalError::Write)
 }
 
 fn atom_text(atom: &SmilesAtom) -> Result<String, WriteError> {
