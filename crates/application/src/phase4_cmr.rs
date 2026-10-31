@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::phase6_profiles;
+use crate::{json, phase6_profiles};
 
 /// The public catalog binds each raw array to a normalized stream and record width.
 const FILES: [(&str, &str, usize, usize); 4] = [
@@ -158,6 +158,7 @@ pub struct CmrData {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NumericWire<'a> {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     storage_index_0based: u64,
     raw_hex: String,
     #[serde(borrow)]
@@ -167,6 +168,7 @@ struct NumericWire<'a> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KeyWire {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     storage_index_0based: u64,
     raw_hex: String,
     key_text_latin1: String,
@@ -401,6 +403,24 @@ mod tests {
         assert_eq!(rows.len(), 62);
         assert_eq!(rows[0].raw, [0xe9, 0, 0, 0, 0]);
         assert_eq!(rows[0].key_text_latin1, "é");
+    }
+
+    #[test]
+    fn schema_integral_indices_leave_raw_numeric_lexemes_unchanged() {
+        let numeric = br#"{"storage_index_0based":-0.0,"raw_hex":"00010203","value":-0.0}"#;
+        let decoded = numeric_rows(&[0, 1, 2, 3], numeric, 1).unwrap();
+        assert_eq!(decoded[0].storage_index, 0);
+        assert_eq!(decoded[0].value.as_str(), "-0.0");
+        let key = r#"{"storage_index_0based":0e0,"raw_hex":"E900000000","key_text_latin1":"é"}"#;
+        let decoded = key_rows(&[0xe9, 0, 0, 0, 0], key.as_bytes(), 1).unwrap();
+        assert_eq!(decoded[0].storage_index, 0);
+        assert_eq!(decoded[0].key_text_latin1, "é");
+        let invalid =
+            br#"{"storage_index_0based":0.00000000000000000001,"raw_hex":"00010203","value":-0.0}"#;
+        assert_eq!(
+            numeric_rows(&[0, 1, 2, 3], invalid, 1).err(),
+            Some(CmrError::Record)
+        );
     }
 
     #[test]

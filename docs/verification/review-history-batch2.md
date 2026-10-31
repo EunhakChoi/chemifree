@@ -327,3 +327,12 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 (자동) | 2026-10-31 01:08:36 | `65de9c62237b6b36dd9cbb38cfe4fe6cdc628684` | 01:10:15 | 지적 없음, 미해결 스레드 없음 | [review](https://github.com/EunhakChoi/chemifree/pull/54#issuecomment-6536960103) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41153864674)는 check·browser 모두 성공했다. 2026-10-31 01:13:04에 `ad1466e5859fe7f4661d6973a34e0b358dd56dec`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41154248075)도 check·browser 모두 성공했다.
+
+### P14 경험 데이터 타입 로딩 — [#55](https://github.com/EunhakChoi/chemifree/pull/55)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 01:28:18 | `a9b9a7a3e65b2898e887f7accd77a673211d9341` | 01:30:32 | 지적 없이 완료. 이후 독립 검사로 JSON 정수 `-0` 및 값이 정수인 소수·지수 표기의 거절을 재현해 수정 | [완료 상태](https://github.com/EunhakChoi/chemifree/pull/55#issuecomment-6537171567) |
+| 2 | 2026-10-31 01:44:44 | `551f2dbf9ddb40d29748f00a5f38d210ccff6980` | 01:47:52 | 통과: 최신 head에 대한 실제 리뷰 완료, 지적과 미해결 스레드 없음 | [요청](https://github.com/EunhakChoi/chemifree/pull/55#issuecomment-6537350265), [완료 상태](https://github.com/EunhakChoi/chemifree/pull/55#issuecomment-6537171567) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41156804670)는 check·browser 모두 성공했다. 2026-10-31 01:49:34에 `98fb2edd44e265e3625baf053ad4f0fbafa283aa`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41157175267)도 check·browser 모두 성공했다.

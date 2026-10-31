@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer};
 
-use crate::phase6_profiles;
+use crate::{json, phase6_profiles};
 
 const RAW: [&str; 5] = [
     "P4-BIOPOLYMER-TEMPLATE-CANDIDATES-001",
@@ -92,30 +92,31 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer)
-}
-
 /// Structural metadata retained exactly; indices and offsets do not trigger I/O.
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectFraming {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub index: i64,
-    #[serde(deserialize_with = "required_nullable")]
+    #[serde(deserialize_with = "json::deserialize_nullable_integer")]
     pub parent_index: Option<i64>,
     pub tag: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub object_id: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub header_offset: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub header_bytes: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub depth: i64,
     pub implicit_document_root: bool,
+    #[serde(deserialize_with = "json::deserialize_integer_vec")]
     pub property_indices: Vec<i64>,
+    #[serde(deserialize_with = "json::deserialize_integer_vec")]
     pub child_indices: Vec<i64>,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub end_marker_offset: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub range_bytes: i64,
 }
 
@@ -123,13 +124,20 @@ pub struct ObjectFraming {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyFraming {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub index: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub object_index: i64,
     pub tag: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub header_offset: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub header_bytes: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub length_field_u16: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub payload_offset: i64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub payload_bytes: i64,
     pub payload_sha256: String,
     pub user_defined_bit14: bool,
@@ -278,6 +286,25 @@ mod tests {
         assert_eq!(data.ancillary.len(), 1);
         assert_eq!(data.ancillary[0].file_id, RAW[3]);
         assert_eq!(data.ancillary[0].bytes, [0, 1, 0xff]);
+    }
+
+    #[test]
+    fn schema_integral_numbers_preserve_nullable_and_array_fields() {
+        let row = br#"{"kind":"-0.0","data":{"index":1.0,"parent_index":-0.0,"tag":"-0e0","object_id":1e0,"header_offset":0.0,"header_bytes":2.0,"depth":0e0,"implicit_document_root":true,"property_indices":[1e0,0.0],"child_indices":[],"end_marker_offset":2.0,"range_bytes":2e0}}"#;
+        let decoded = rows(row, 1).unwrap();
+        let object = decoded[0].data.as_ref().unwrap();
+        assert_eq!(decoded[0].kind, "-0.0");
+        assert_eq!(object.index, 1);
+        assert_eq!(object.parent_index, Some(0));
+        assert_eq!(object.property_indices, [1, 0]);
+        assert_eq!(object.tag, "-0e0");
+        let invalid = std::str::from_utf8(row)
+            .unwrap()
+            .replace("\"index\":1.0", "\"index\":1.00000000000000000001");
+        assert_eq!(
+            rows(invalid.as_bytes(), 1).err(),
+            Some(TemplateError::Record)
+        );
     }
 
     #[test]

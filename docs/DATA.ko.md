@@ -14,6 +14,8 @@
 
 `private-data-chemprop-empirical-v1`은 공개 catalog의 17개 파일 ID·역할·분류와 manifest·registry·형식의 바이트 해시를 검사한다. 세 텍스트 표와 경험값·그래프의 다섯 필수 정규화 스트림 44,202행을 원자적으로 검증하고 원문 십진수 표기, F32 little-endian 원시 비트, 플래그·출처 정보와 1 기반 그래프 참조를 보존한다. 정수 필드는 [JSON Schema](https://json-schema.org/understanding-json-schema/reference/numeric)에 따라 소수·지수 표기도 정확한 값이 정수이고 해당 타입 범위 안이면 허용하며, 정수 `-0`은 0으로 읽는다. 비정수 값이나 범위를 벗어난 값과 가수 또는 지수 숫자가 4096자를 초과한 표기는 근사하지 않고 거절한다. F32의 음수 0과 불투명 JSON 원문은 그대로 보존한다. F32 값은 F64를 경유하지 않고 직접 반올림해 비트와 비교하며 비유한 값은 거절한다. 선택 원문 파일은 manifest가 허용하고 실제로 없는 경우에만 생략한다. 단위·경험값 선택·그래프 매칭과 예측 엔진은 구현되지 않았고 개인 DATA 대신 독립 fixture를 사용한다.
 
+HELM, 템플릿 프레이밍, phase 4 명명 및 CMR 입력의 정수 필드는 정수인 소수·지수 표기를 정확히 처리한다. CMR 값의 원문 십진수와 부호 있는 0은 인덱스 처리와 별도로 보존한다. 정수값이 아니거나 타입 범위를 벗어나거나 숫자 성분이 4096자를 초과하면 근사하지 않고 거절한다.
+
 `private-independent-helm-core-fecc972`은 공개 catalog에 고정된 HELM JSON의 705개 레코드와 닫힌 스키마를 검사한다. 필수 `createDate: null`, `capGroupSmiles`와 `capGroupSMILES`의 독립적인 선택 필드, `Terminal` 등의 원문 문자열을 보존한다. 이 자료의 그래프·입체화학·attachment 및 말단 결합 규칙은 검증하지 않았고 생체고분자 확장과 모델 바인딩은 미구현이다.
 
 `private-data-biopolymer-template-candidates-v1`은 공개 catalog의 다섯 정규화 스트림 20,467행과 닫힌 필드 스키마를 검사하고 객체·속성 프레이밍을 타입으로 보존한다. 필수인 nullable 부모와 생략 가능한 필드를 구분하고 제공된 payload hex를 검사한다. 출처 위치와 payload 해시 표기는 불투명 정보로 보존하며 행 사이의 트리·속성 참조나 원문과의 대응을 독립 검증했다고 주장하지 않는다. 선택 원문은 manifest가 허용하고 실제 파일이 없는 경우에만 생략하며, 제공된 원문은 파일 해시를 검사해 불투명 바이트로 보존한다. 활성 템플릿 연결, 생체고분자 확장과 모델 바인딩은 미구현이다.
