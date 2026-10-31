@@ -1006,6 +1006,10 @@ try {
     assert.equal(cliImport.document_revision, 2)
     assert.deepEqual(httpImport.result.import_mapping, cliImport.result.import_mapping)
     assert.deepEqual(httpImport.result.document.atoms, cliImport.result.document.atoms)
+    const importedFormula = await both((id) => request('op-formula-after-import', 'chem.properties', {
+      document_id: id, scope: 'molecule', property: 'formula',
+    }))
+    assert.equal(importedFormula.result.components[0].formula, 'C2H8', 'formula inspection sees the imported graph')
     const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
     assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
     await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
