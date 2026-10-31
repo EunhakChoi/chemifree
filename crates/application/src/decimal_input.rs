@@ -74,6 +74,27 @@ impl DecimalInput {
         self.coefficient == BigUint::from(0_u8)
     }
 
+    /// Returns an exact integer spelling only when its magnitude can fit the caller's type.
+    pub(crate) fn integer_token(&self, max_digits: usize) -> Option<String> {
+        if self.is_zero() {
+            return Some("0".into());
+        }
+        let max_power = max_digits.checked_sub(self.digits)?;
+        if self.power_of_ten < BigInt::from(0) || self.power_of_ten > BigInt::from(max_power) {
+            return None;
+        }
+        let zeros = self.power_of_ten.to_string().parse::<usize>().ok()?;
+        let mut result = String::with_capacity(self.digits + zeros + usize::from(self.negative));
+        if self.negative {
+            result.push('-');
+        }
+        result.push_str(&self.coefficient.to_str_radix(10));
+        for _ in 0..zeros {
+            result.push('0');
+        }
+        Some(result)
+    }
+
     fn magnitude_cmp(&self, other: &Self) -> Ordering {
         let left_size = &self.power_of_ten + BigInt::from(self.digits);
         let right_size = &other.power_of_ten + BigInt::from(other.digits);

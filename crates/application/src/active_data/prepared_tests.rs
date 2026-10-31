@@ -149,6 +149,32 @@ impl Fixture {
         self.trust.manifest_file_sha256 = identity.exact_sha256;
     }
 
+    pub(super) fn set_class(&mut self, path: &str, class: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        let file = manifest["files"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|file| file["relative_path"] == path)
+            .unwrap();
+        file["declared_content_class"] = class.into();
+        let file_id = file["file_id"].as_str().unwrap();
+        let mut review: Value = serde_json::from_slice(&self.review).unwrap();
+        let identity = review["file_identities"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|identity| identity["file_id"] == file_id)
+            .unwrap();
+        identity["content_classification"] = class.into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        self.review = serde_json::to_vec(&review).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+        self.trust.review_sha256 = hash(&self.review);
+    }
+
     pub(super) fn remove_declared(&mut self, path: &str) {
         let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
         let files = manifest["files"].as_array_mut().unwrap();
