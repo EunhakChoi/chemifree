@@ -41,27 +41,28 @@ fn complete_synthetic_data_preserves_bits_units_and_separate_parameter_families(
     assert!(!decoded.widths.trained_model_claimed);
     assert_eq!(decoded.features.counts.lookup_rows, 2);
     assert_eq!(
-        decoded.source_bounds.numeric_source_bounds[0].source_bytes,
-        8
+        decoded.source_bounds.numeric_source_bounds[0]
+            .source_bytes
+            .to_string(),
+        "8"
     );
 }
 
 #[test]
-fn integer_negative_zero_is_an_integer_zero_not_a_decimal_token() {
+fn integer_negative_zero_in_integer_and_decimal_form_is_zero() {
     let zero = LOOKUP.replace("\"atomic_number_u32\":0", "\"atomic_number_u32\":-0");
     let decoded = decode_nmr(&files(&zero, AMPLITUDES, WIDTHS, FEATURES, BOUNDS)).unwrap();
     assert_eq!(decoded.lookup.rows[0].atomic_number, 0);
     let fractional_zero = LOOKUP.replace("\"atomic_number_u32\":0", "\"atomic_number_u32\":-0.0");
-    assert!(matches!(
-        decode_nmr(&files(
-            &fractional_zero,
-            AMPLITUDES,
-            WIDTHS,
-            FEATURES,
-            BOUNDS
-        )),
-        Err(NmrError::Record)
-    ));
+    let decoded = decode_nmr(&files(
+        &fractional_zero,
+        AMPLITUDES,
+        WIDTHS,
+        FEATURES,
+        BOUNDS,
+    ))
+    .unwrap();
+    assert_eq!(decoded.lookup.rows[0].atomic_number, 0);
 }
 
 #[test]

@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 
+use num_bigint::{BigInt, BigUint};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Number;
@@ -154,8 +155,10 @@ pub struct NumericType {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct IndexBounds {
-    pub minimum: i64,
-    pub exclusive_maximum: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub minimum: BigInt,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub exclusive_maximum: BigUint,
     pub zero_is_sentinel_key: bool,
 }
 
@@ -163,8 +166,11 @@ pub struct IndexBounds {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Counts {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub lookup_rows: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub empirical_scalars: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub configuration_widths: u64,
 }
 
@@ -173,7 +179,8 @@ pub struct Counts {
 #[serde(deny_unknown_fields)]
 pub struct FeatureMetadata {
     pub schema_id: String,
-    pub version: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub version: BigUint,
     pub key_types: KeyTypes,
     pub numeric_type: NumericType,
     pub lookup_index_bounds: IndexBounds,
@@ -191,8 +198,10 @@ pub struct FeatureMetadata {
 #[serde(deny_unknown_fields)]
 pub struct SourceSpan {
     pub row_id: String,
-    pub source_file_offset_start: u64,
-    pub source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_file_offset_start: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_bytes: BigUint,
     pub source_encoding: String,
     pub source_payload_sha256: String,
 }
@@ -203,7 +212,8 @@ pub struct SourceSpan {
 pub struct SourceBounds {
     pub record_id: String,
     pub source_file_name: String,
-    pub source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_bytes: BigUint,
     pub source_sha256: String,
     pub numeric_source_bounds: Vec<SourceSpan>,
     pub inert_provenance_only: bool,
@@ -306,17 +316,18 @@ fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, NmrError> {
     if bytes.len() as u64 > crate::MAX_DATA_FILE_BYTES || bytes.starts_with(b"\xef\xbb\xbf") {
         return Err(NmrError::Record);
     }
-    let value = json::parse_integer_zero_strict(bytes).map_err(|_| NmrError::Record)?;
-    serde_json::from_value(value).map_err(|_| NmrError::Record)
+    json::validate_raw_strict(bytes).map_err(|_| NmrError::Record)?;
+    serde_json::from_slice(bytes).map_err(|_| NmrError::Record)
 }
 
 fn validate(data: &NmrData) -> Result<(), NmrError> {
     let features = &data.features;
+    let lower = &features.lookup_index_bounds.minimum;
+    let upper = BigInt::from(features.lookup_index_bounds.exclusive_maximum.clone());
     if features.counts.lookup_rows != data.lookup.rows.len() as u64
         || features.counts.empirical_scalars != data.amplitudes.parameters.len() as u64
         || features.counts.configuration_widths != data.widths.parameters.len() as u64
-        || i128::from(features.lookup_index_bounds.minimum)
-            > i128::from(features.lookup_index_bounds.exclusive_maximum)
+        || lower > &upper
         || data.widths.trained_model_claimed
         || features.original_factory_dispatch_rules_included
         || features.original_formula_or_instruction_sequence_included
@@ -329,10 +340,8 @@ fn validate(data: &NmrData) -> Result<(), NmrError> {
     }
     let mut keys = HashSet::new();
     for row in &data.lookup.rows {
-        if !keys.insert(row.atomic_number)
-            || i64::from(row.atomic_number) < features.lookup_index_bounds.minimum
-            || u64::from(row.atomic_number) >= features.lookup_index_bounds.exclusive_maximum
-        {
+        let key = BigInt::from(row.atomic_number);
+        if !keys.insert(row.atomic_number) || &key < lower || key >= upper {
             return Err(NmrError::Inconsistent);
         }
     }
@@ -365,10 +374,7 @@ fn validate(data: &NmrData) -> Result<(), NmrError> {
     for span in &bounds.numeric_source_bounds {
         if !span_ids.insert(&span.row_id)
             || !is_hash(&span.source_payload_sha256)
-            || span
-                .source_file_offset_start
-                .checked_add(span.source_bytes)
-                .is_none_or(|end| end > bounds.source_bytes)
+            || &span.source_file_offset_start + &span.source_bytes > bounds.source_bytes
         {
             return Err(NmrError::Inconsistent);
         }
@@ -406,6 +412,7 @@ struct LookupWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LookupRowWire {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     atomic_number_u32: u32,
     parameter_f64: FloatWire,
 }
