@@ -488,8 +488,6 @@ mod tests {
         let row = lines::<TextRow, _>(text, 1, Ok).unwrap();
         assert_eq!(row[0].ordinal, 0);
         for invalid in [
-            &b"{\"ordinal\":-0.0,\"text\":\"synthetic\"}"[..],
-            &b"{\"ordinal\":-0e0,\"text\":\"synthetic\"}"[..],
             &b"{\"ordinal\":-1,\"text\":\"synthetic\"}"[..],
             &b"{\"ordinal\":\"0\",\"text\":\"synthetic\"}"[..],
             &b"{\"ordinal\":null,\"text\":\"synthetic\"}"[..],
@@ -522,6 +520,65 @@ mod tests {
             row[0].unresolved_indexed_annotations.as_str(),
             r#"{"preserve":-0}"#
         );
+    }
+
+    #[test]
+    fn schema_integer_values_are_exact_across_decimal_and_exponent_spellings() {
+        for (token, expected) in [
+            ("0.0", 0),
+            ("-0.0", 0),
+            ("-0e0", 0),
+            ("0e99999999999999999999", 0),
+            ("1e0", 1),
+            ("1E+0", 1),
+            ("120.00e-1", 12),
+            ("184467440737095516150e-1", u64::MAX),
+        ] {
+            let line = format!(r#"{{"ordinal":{token},"text":"synthetic"}}"#);
+            let row = lines::<TextRow, _>(line.as_bytes(), 1, Ok).unwrap();
+            assert_eq!(row[0].ordinal, expected, "{token}");
+        }
+        for token in [
+            "0.00000000000000000001",
+            "1.00000000000000000001",
+            "18446744073709551616.0",
+            "1e99999999999999999999",
+            "1e-99999999999999999999",
+        ] {
+            let line = format!(r#"{{"ordinal":{token},"text":"synthetic"}}"#);
+            assert_eq!(
+                lines::<TextRow, _>(line.as_bytes(), 1, Ok).err(),
+                Some(EmpiricalError::Record),
+                "{token}"
+            );
+        }
+    }
+
+    #[test]
+    fn schema_integers_respect_each_field_type_range() {
+        let measurement = MEASUREMENT
+            .replace(
+                "\"molecule_id\":7",
+                "\"molecule_id\":-92233720368547758080e-1",
+            )
+            .replace("\"flag_byte\":255", "\"flag_byte\":255.0");
+        let row =
+            lines::<MeasurementWire, _>(measurement.as_bytes(), 1, Measurement::try_from).unwrap();
+        assert_eq!(row[0].molecule_id, i64::MIN);
+        assert_eq!(row[0].flag_byte, u8::MAX);
+        for invalid in [
+            measurement.replace("-92233720368547758080e-1", "-9223372036854775809.0"),
+            measurement.replace("\"flag_byte\":255.0", "\"flag_byte\":256.0"),
+            measurement.replace(
+                "\"flag_byte\":255.0",
+                "\"flag_byte\":254.999999999999999999",
+            ),
+        ] {
+            assert_eq!(
+                lines::<MeasurementWire, _>(invalid.as_bytes(), 1, Measurement::try_from).err(),
+                Some(EmpiricalError::Record)
+            );
+        }
     }
 
     #[test]
