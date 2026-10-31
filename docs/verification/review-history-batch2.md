@@ -319,3 +319,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-31 00:49:07 | `06951260b87ef31c23e8b7c313b599a807d1b37c` | 00:50:37 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/53#issuecomment-6536746832) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41152214955)는 check·browser 모두 성공했다. 2026-10-31 00:53:47에 `ea6a0f0ec19a5c2f90d07aff47131af5f3c2bd48`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41152621823)도 check·browser 모두 성공했다.
+
+### P14 독립 HELM 레코드의 타입 로딩 — [#54](https://github.com/EunhakChoi/chemifree/pull/54)
+
+| 회차 | 요청 | 대상 head | 종료 | 결과 | 링크 |
+|---|---|---|---|---|---|
+| 1 (자동) | 2026-10-31 01:08:36 | `65de9c62237b6b36dd9cbb38cfe4fe6cdc628684` | 01:10:15 | 지적 없음, 미해결 스레드 없음 | [review](https://github.com/EunhakChoi/chemifree/pull/54#issuecomment-6536960103) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41153864674)는 check·browser 모두 성공했다. 2026-10-31 01:13:04에 `ad1466e5859fe7f4661d6973a34e0b358dd56dec`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41154248075)도 check·browser 모두 성공했다.
