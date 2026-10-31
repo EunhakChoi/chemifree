@@ -1,0 +1,323 @@
+{
+  "id": "cdx-cross-format-projection",
+  "title": "CDX graph and signed fields survive rich transport, CDXML conversion and consented creation",
+  "requirements": [
+    "CODEC-02",
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "read-cdx",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AAAEgAQAAAAAAggAAAADAAAAAgAAAAWABQAAAAQGBAADAAAABQYEAAQAAAAABgIAAgAAAAAAAAAAAA=="
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "choices": {
+            "$contains": [
+              {
+                "page_id": 1,
+                "fragment_id": 2
+              }
+            ]
+          }
+        }
+      },
+      "capture": {
+        "tree": "/result/document"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "write-cdx",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "document": null,
+          "original": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AAAEgAQAAAAAAggAAAADAAAAAgAAAAWABQAAAAQGBAADAAAABQYEAAQAAAAABgIAAgAAAAAAAAAAAA=="
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "content": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AAAEgAQAAAAAAggAAAADAAAAAgAAAAWABQAAAAQGBAADAAAABQYEAAQAAAAABgIAAgAAAAAAAAAAAA==",
+          "encoding": "base64"
+        }
+      },
+      "substitute": {
+        "/parameters/document": "tree"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "write-xml",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdxml",
+          "document": null
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "encoding": "utf8"
+        }
+      },
+      "substitute": {
+        "/parameters/document": "tree"
+      },
+      "capture": {
+        "xml": "/result/content"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "preview-xml",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": null,
+          "title": "Binary graph",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "O",
+                "position": {
+                  "x": 1,
+                  "y": -2
+                },
+                "charge": -1,
+                "isotope": 18
+              },
+              {
+                "element": "C",
+                "position": {
+                  "x": 2,
+                  "y": 3
+                }
+              }
+            ]
+          }
+        }
+      },
+      "substitute": {
+        "/parameters/source": "xml"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "preview-cdx",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AAAEgAQAAAAAAggAAAADAAAAAgAAAAWABQAAAAQGBAADAAAABQYEAAQAAAAABgIAAgAAAAAAAAAAAA==",
+          "title": "Binary graph",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "O",
+                "position": {
+                  "x": 1,
+                  "y": -2
+                },
+                "charge": -1,
+                "isotope": 18
+              },
+              {
+                "element": "C",
+                "position": {
+                  "x": 2,
+                  "y": 3
+                }
+              }
+            ]
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "implicit_hydrogen_interpretation"
+            },
+            {
+              "feature": "double_bond_stereo"
+            }
+          ]
+        }
+      },
+      "capture": {
+        "digest": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "create-cdx",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AAAEgAQAAAAAAggAAAADAAAAAgAAAAWABQAAAAQGBAADAAAABQYEAAQAAAAABgIAAgAAAAAAAAAAAA==",
+          "title": "Binary graph",
+          "page_id": 1,
+          "fragment_id": 2,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "O",
+                "position": {
+                  "x": 1,
+                  "y": -2
+                },
+                "charge": -1,
+                "isotope": 18
+              },
+              {
+                "element": "C"
+              }
+            ]
+          },
+          "interchange_mapping": {
+            "atoms": [
+              {
+                "source_id": 3,
+                "target_id": "a1"
+              },
+              {
+                "source_id": 4,
+                "target_id": "a2"
+              }
+            ]
+          }
+        }
+      },
+      "bind": "created",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "created",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "element": "O",
+              "position": {
+                "x": 1,
+                "y": -2
+              },
+              "charge": -1,
+              "isotope": 18
+            },
+            {
+              "element": "C"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "unknown-node",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAAGAAQAAAAOAAgAAAASAAwAAAAACCAAAAP7/AAABAAIEAgAIACAEAgASACEEBAAAAAD/AwQBAAcAAASABAAAAAACCAAAAAMAAAACAAAABYAFAAAABAYEAAMAAAAFBgQABAAAAAAGAgACAAAAAAAAAAAA",
+          "title": "Opaque graph",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "unsupported_node"
+          }
+        ],
+        "result": null
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "profile": "preserve-semantics",
+        "request_id": "invalid-base64",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdx",
+          "source": "??"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "invalid_base64"
+          }
+        ],
+        "result": null
+      }
+    }
+  ]
+}
