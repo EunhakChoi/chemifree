@@ -173,8 +173,16 @@ impl Parser<'_> {
                 return Err(self.error("stereo_unsupported", self.position, self.position + 1));
             }
             if self.bytes.get(self.position) == Some(&b'H') {
+                let hydrogen_start = self.position;
                 self.position += 1;
                 let count = self.number().unwrap_or(1);
+                if symbol == "H" {
+                    return Err(self.error(
+                        "hydrogen_count_on_hydrogen",
+                        hydrogen_start,
+                        self.position,
+                    ));
+                }
                 if count > 16 {
                     return Err(self.error("hydrogens_out_of_range", start, self.position));
                 }
@@ -561,6 +569,9 @@ fn atom_text(atom: &SmilesAtom) -> Result<String, WriteError> {
         return Err(WriteError::InvalidGraph);
     }
     let symbol = element.symbol();
+    if symbol == "H" && matches!(atom.atom.hydrogens, Hydrogens::Specified(n) if n > 0) {
+        return Err(WriteError::UnsupportedAtom);
+    }
     let plain = matches!(
         symbol,
         "B" | "C" | "N" | "O" | "P" | "S" | "F" | "Cl" | "Br" | "I"

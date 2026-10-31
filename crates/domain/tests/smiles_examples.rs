@@ -106,6 +106,23 @@ fn writer_refuses_to_turn_an_unproven_closed_shell_into_a_bracket_radical() {
 }
 
 #[test]
+fn hydrogen_atom_cannot_itself_have_a_bracket_hydrogen_count() {
+    // OpenSMILES section 3.1.2 distinguishes [H] from the illegal [HH1].
+    for input in ["[HH]", "[HH1]", "[2HH]"] {
+        let error = parse(input).unwrap_err();
+        assert_eq!(error.code, "hydrogen_count_on_hydrogen", "{input}");
+        assert!(input.get(error.start..error.end).is_some());
+    }
+    for input in ["[H]", "[H+]", "[H-]"] {
+        assert!(parse(input).is_ok(), "{input}");
+    }
+    let mut impossible = parse("[H+]").unwrap();
+    impossible.atoms[0].atom.charge = 0;
+    impossible.atoms[0].atom.hydrogens = Hydrogens::Specified(1);
+    assert_eq!(write(&impossible, &[0]), Err(WriteError::UnsupportedAtom));
+}
+
+#[test]
 fn rings_aromatic_bonds_and_explicit_double_bonds_are_distinct() {
     let benzene = parse("c1ccccc1").unwrap();
     assert_eq!((benzene.atoms.len(), benzene.bonds.len()), (6, 6));
