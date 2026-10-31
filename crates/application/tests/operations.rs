@@ -404,7 +404,7 @@ fn the_catalog_says_exactly_which_operations_run() {
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
-        "document.snapshot" | "document.close" => json!({"document_id": id}),
+        "document.snapshot" | "document.close" | "chem.validate" => json!({"document_id": id}),
         "document.transaction" => {
             json!({"document_id": id, "expected_revision": 0, "commands": []})
         }
@@ -461,6 +461,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "history.redo",
             "document.save",
             "document.close",
+            "chem.validate",
         ]
     );
     assert_eq!(
@@ -506,8 +507,8 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
             validate["representation"].clone(),
             validate["execution"].clone()
         ),
-        (json!("not_supported"), json!("not_implemented")),
-        "recorded states are not validated chemically"
+        (json!("supported"), json!("executable")),
+        "the bounded valence inspector is available"
     );
     let prediction = catalog["operations"]
         .as_array()
@@ -520,6 +521,58 @@ fn the_catalog_separates_what_a_transaction_holds_from_what_it_cannot_yet() {
         "no engine is claimed to be waiting for data"
     );
     assert_eq!(catalog["contracts"], json!([1]));
+}
+
+#[test]
+fn valence_returns_the_actual_snapshot_and_does_not_edit_history() {
+    let (app, _data) = application();
+    let id = created(&app);
+    let edited = send(
+        &app,
+        &request(
+            "add-valence",
+            "document.transaction",
+            json!({
+                "document_id": id, "expected_revision": 0, "commands": [
+                    {"op":"add_atom", "element":"C", "position":{"x":0,"y":0}},
+                    {"op":"add_atom", "element":"Fe", "position":{"x":20,"y":0}}
+                ]
+            }),
+        ),
+    );
+    let inspected = send(
+        &app,
+        &request("inspect", "chem.validate", json!({"document_id":id})),
+    );
+    assert_eq!(inspected["outcome"], "ok");
+    assert_eq!(inspected["model_id"], "chemifree-valence-2");
+    assert_eq!(
+        inspected["result"]["snapshot"]["document"],
+        edited["result"]["document"]
+    );
+    assert_eq!(inspected["result"]["snapshot"]["session"]["undo_depth"], 1);
+    assert_eq!(
+        inspected["result"]["atoms"],
+        json!([
+            {"atom_id":"a1", "bond_order_sum":0, "hydrogens":4, "status":"valid", "reason":null},
+            {"atom_id":"a2", "bond_order_sum":0, "hydrogens":null, "status":"unsupported", "reason":"element_or_charge"}
+        ])
+    );
+    assert_eq!(
+        inspected["diagnostics"][0]["details"]["reason"],
+        "element_or_charge"
+    );
+    let after = send(
+        &app,
+        &request(
+            "after-inspect",
+            "document.snapshot",
+            json!({"document_id":id}),
+        ),
+    );
+    assert_eq!(after["result"]["document"], edited["result"]["document"]);
+    assert_eq!(after["result"]["session"]["undo_depth"], 1);
+    assert_eq!(after["result"]["session"]["redo_depth"], 0);
 }
 
 /// A transaction accepts exactly the commands its catalog entry lists as executable: each one

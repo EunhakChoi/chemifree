@@ -80,6 +80,7 @@ import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEdito
 import { usePreferences } from '@/hooks/use-preferences'
 import {
   ATTACHMENT_POINTS,
+  sameInspectionSnapshot,
   type AtomView,
   type BondOrder,
   type BondView,
@@ -127,7 +128,7 @@ const QUERY_ATOMS: { value: Exclude<QueryAtom['kind'], 'list'>; label: string }[
   { value: 'halogen', label: 'Query: any halogen' },
 ]
 const HYDROGEN_MODES: { value: Hydrogens['mode']; label: string; text: string }[] = [
-  { value: 'inferred', label: 'Hydrogens inferred (not computed)', text: 'Inferred' },
+  { value: 'inferred', label: 'Hydrogens inferred', text: 'Inferred' },
   { value: 'unknown', label: 'Hydrogens unknown', text: 'Unknown' },
   { value: 'specified', label: 'Hydrogens stated', text: 'Stated' },
 ]
@@ -151,6 +152,45 @@ function Hint({ label, keys, children }: { label: string; keys?: string; childre
       </TooltipContent>
     </Tooltip>
   )
+}
+
+function ValenceInspector({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<{ snapshot: DocumentView; message: string } | null>(null)
+  const [result, setResult] = useState<Awaited<ReturnType<DocumentEditor['inspectValence']>> | null>(null)
+  const current = result && sameInspectionSnapshot(document, result.snapshot) ? result : null
+
+  async function inspect() {
+    const requested = document
+    setPending(true)
+    setError(null)
+    try {
+      setResult(await editor.inspectValence(requested.id))
+    } catch (cause) {
+      setResult(null)
+      setError({ snapshot: requested, message: cause instanceof Error ? cause.message : 'Inspection failed.' })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return <aside aria-label="Valence inspection" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
+    <h3 className="text-sm font-medium">Valence inspection</h3>
+    <p className="text-xs text-muted-foreground">Inspect valence and additional hydrogens without changing the drawing.</p>
+    <Button size="sm" variant="outline" disabled={pending || editor.busy} onClick={() => void inspect()}>
+      {pending ? 'Inspecting…' : 'Inspect valence'}
+    </Button>
+    {error && sameInspectionSnapshot(document, error.snapshot) && <p role="alert" className="text-xs">{error.message}</p>}
+    {result && !current && <p className="text-xs">The inspected drawing differs from this one. Inspect again.</p>}
+    {current && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto text-xs">
+      <p>Model: {current.model}</p>
+      {current.atoms.length === 0 && <p>No atoms to inspect.</p>}
+      {current.atoms.map((atom) => <p key={atom.atom_id}>
+        {atom.atom_id}: {atom.status}; hydrogens {atom.hydrogens ?? 'unknown'}
+        {atom.reason && ` (${atom.reason.replaceAll('_', ' ')})`}
+      </p>)}
+    </div>}
+  </aside>
 }
 
 /** Applies a text field's value on Enter or blur when it changed. */
@@ -179,7 +219,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Drawing only: Chemifree records atoms and bonds as drawn. Valence, aromaticity, stereo, and naming are not computed.
+          Atoms and bonds remain as drawn. Valence inspection uses a bounded model; aromaticity, stereo, and naming remain unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -671,6 +711,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+          <ValenceInspector document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>

@@ -1,6 +1,6 @@
 {
   "id": "capabilities-report-unimplemented",
-  "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+  "title": "The capability list distinguishes bounded valence inspection from unimplemented formats, models and integrations",
   "requirements": [
     "API-01",
     "QUALITY-01"
@@ -15,7 +15,8 @@
           "$contains": [
             {
               "id": "structure_analysis",
-              "status": "not_implemented"
+              "label": "Valence inspection",
+              "status": "available"
             },
             {
               "id": "format_conversion",

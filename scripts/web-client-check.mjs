@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -26,6 +26,20 @@ const copy = (id) => ({ ...document(id), source: { id: 'doc-1', closed: true, di
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const error = (status, code) => json(status, { api_version: 'v1', code, message: code })
+
+test('an inspection is stale when another graph replaces the same ID and revision', () => {
+  const atom = { id: 'a1', element: 'C', charge: 0, isotope: null, radical: 'none', hydrogens: { mode: 'inferred' } }
+  const carbon = { ...document('branch', 1).document, atoms: [atom] }
+  assert.equal(sameInspectionSnapshot(carbon, structuredClone(carbon)), true)
+  for (const changed of [
+    { ...atom, element: 'O' }, { ...atom, charge: 1 }, { ...atom, isotope: 13 },
+    { ...atom, radical: 'doublet' }, { ...atom, hydrogens: { mode: 'specified', count: 3 } },
+  ]) {
+    assert.equal(sameInspectionSnapshot({ ...carbon, atoms: [changed] }, carbon), false, 'same ID and revision do not establish graph identity')
+  }
+  assert.equal(sameInspectionSnapshot({ ...carbon, bonds: [{ id: 'b1', order: 'double' }] }, carbon), false)
+  assert.equal(sameInspectionSnapshot({ ...carbon, revision: 2 }, carbon), false)
+})
 const lost = () => {
   throw new TypeError('fetch failed')
 }

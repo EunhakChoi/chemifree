@@ -165,6 +165,23 @@ pub enum OperationResult {
     Closed(ClosedResult),
     CtPreview(CtPreviewResult),
     CtExport(CtExportResult),
+    /// `chem.validate`: inspection and the exact document snapshot it used.
+    Valence(Box<ValenceResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ValenceResult {
+    pub snapshot: DocumentResult,
+    pub atoms: Vec<ValenceAtom>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ValenceAtom {
+    pub atom_id: String,
+    pub bond_order_sum: Option<u16>,
+    pub hydrogens: Option<u16>,
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -480,10 +497,9 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             &[],
         ),
         Op::ChemValidate => (
-            missing(
+            runs(
                 id,
-                "P16",
-                "No valence or other chemical validation is implemented.",
+                "Read-only bounded valence and hydrogen inspection; unsupported states are diagnosed.",
             ),
             &[],
         ),
@@ -1259,6 +1275,32 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(p) => known.document(self.document(&p.document_id)),
                 Err(invalid) => known.invalid(invalid),
             },
+            Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {
+                Ok(p) => match self.documents.inspect_valence(&p.document_id) {
+                    Ok((snapshot, assessed)) => {
+                        let revision = snapshot.document.revision;
+                        let mut warnings = Vec::new();
+                        let atoms = assessed.into_iter().map(|item| {
+                            let atom_id = item.atom.to_string();
+                            if let Some(reason) = item.reason {
+                                let mut details = Map::new();
+                                details.insert("atom_id".into(), atom_id.clone().into());
+                                details.insert("reason".into(), reason.into());
+                                warnings.push(Diagnostic { code: "valence_diagnostic", severity: Severity::Warning,
+                                    message: "The atom is invalid or outside this valence model.".into(), path: None, details });
+                            }
+                            ValenceAtom { atom_id, bond_order_sum: item.bond_order_sum,
+                                hydrogens: item.hydrogen_count, status: item.finding.as_str(), reason: item.reason }
+                        }).collect();
+                        let mut reply = known.reply(Outcome::Ok, Some(revision),
+                            Some(OperationResult::Valence(Box::new(ValenceResult { snapshot: snapshot.into(), atoms }))), warnings);
+                        reply.model_id = Some(chemifree_domain::chemistry::VALENCE_MODEL.into());
+                        reply
+                    }
+                    Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                },
+                Err(invalid) => known.invalid(invalid),
+            },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {
                     Ok(p) => known.document(self.apply_transaction_selecting(
@@ -1316,8 +1358,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(p) => self.ct_export(known, p),
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::ChemValidate
-            | Op::ChemProperties
+            Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName
             | Op::LayoutStructure

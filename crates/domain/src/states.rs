@@ -2,9 +2,8 @@
 //! element or a query), its hydrogen state, radical, and attachment points, and the bond kinds
 //! a query bond allows.
 //!
-//! These record what was drawn or stated. Nothing here computes them: inferred hydrogens are
-//! not counted, aromaticity is not perceived, and no query is matched against anything. A
-//! state that is representable is not thereby computable.
+//! These record what was drawn or stated. Interpretation is separate: a representable state
+//! is not necessarily computable by the bounded valence model or any later model.
 
 use std::fmt;
 
@@ -63,7 +62,7 @@ pub enum QueryAtom {
 /// atoms and are not counted here.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Hydrogens {
-    /// To be derived from valence. Nothing derives it yet, so no count exists.
+    /// To be derived from valence; the recorded state itself carries no count.
     #[default]
     Inferred,
     /// Stated to be unknown.

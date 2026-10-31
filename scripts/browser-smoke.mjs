@@ -1518,15 +1518,18 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '9 of 21 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19'], ['chem.validate', 'P16']]) {
+for (const [id, followup] of [['chem.properties', 'P19']]) {
   const row = operationRow(id)
   assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
 }
+assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
+await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
   'document.transaction/scene_placement',
   'document.transaction/add_instance',
@@ -2461,6 +2464,45 @@ step = 'after document_style_and_preferences'
 }
 results.short_wide_bond_is_selectable = true
 step = 'after short_wide_bond_is_selectable'
+
+// A process restart can reuse the same document ID and revision for a different graph.
+// Verify that the inspection is tied to its actual snapshot, not just that revision.
+{
+  const created = await apiWrite('/api/v1/documents', { request_id: 'valence-branch-create', title: 'Valence branch' })
+  const id = created.body.document.id
+  const carbon = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'valence-branch-carbon', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(carbon.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'Valence inspection' })
+  await panel.getByRole('button', { name: 'Inspect valence' }).click()
+  await panel.getByText('a1: valid; hydrogens 4', { exact: true }).waitFor()
+  const unchanged = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(unchanged.document, carbon.body.document)
+  assert.equal(unchanged.session.undo_depth, carbon.body.session.undo_depth)
+  await crashApi()
+  const oxygen = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'valence-branch-oxygen', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(oxygen.status, 200)
+  assert.equal(oxygen.body.document.revision, carbon.body.document.revision)
+  await tool('Select and move')
+  const carbonPoint = await atomScreen(carbon.body, 'a1')
+  await page.mouse.click(carbonPoint.x, carbonPoint.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await page.getByText('Local service restarted', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await panel.getByText('The inspected drawing differs from this one. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByText('a1: valid; hydrogens 4', { exact: true }).count(), 0)
+  await panel.getByRole('button', { name: 'Inspect valence' }).click()
+  await panel.getByText('a1: valid; hydrogens 2', { exact: true }).waitFor()
+  await page.screenshot({ path: join(outDir, 'editor-valence.png') })
+  results.valence_snapshot_after_restart = true
+}
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
