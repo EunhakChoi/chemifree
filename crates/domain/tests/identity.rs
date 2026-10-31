@@ -269,10 +269,23 @@ fn chemical_identity_preserves_isotope_and_charge_when_normalizing() {
     let aromatic = identity::canonicalize_chemical(&graph(labeled.clone(), &cycle(6))).unwrap();
     let kekule: Vec<_> = (0..6)
         .map(|i| {
-            (i, (i + 1) % 6, if i % 2 == 0 { BondOrder::Double } else { BondOrder::Single })
+            (
+                i,
+                (i + 1) % 6,
+                if i % 2 == 0 {
+                    BondOrder::Double
+                } else {
+                    BondOrder::Single
+                },
+            )
         })
         .collect();
-    assert_eq!(identity::canonicalize_chemical(&graph(labeled, &kekule)).unwrap().code, aromatic.code);
+    assert_eq!(
+        identity::canonicalize_chemical(&graph(labeled, &kekule))
+            .unwrap()
+            .code,
+        aromatic.code
+    );
     assert_ne!(aromatic.code, natural.code);
 
     // The supported H+ and H− states both have zero attached H, isolating charge itself.
@@ -282,8 +295,12 @@ fn chemical_identity_preserves_isotope_and_charge_when_normalizing() {
     let mut anion = cation.clone();
     anion.charge = -1;
     assert_ne!(
-        identity::canonicalize_chemical(&graph(vec![cation], &[])).unwrap().code,
-        identity::canonicalize_chemical(&graph(vec![anion], &[])).unwrap().code,
+        identity::canonicalize_chemical(&graph(vec![cation], &[]))
+            .unwrap()
+            .code,
+        identity::canonicalize_chemical(&graph(vec![anion], &[]))
+            .unwrap()
+            .code,
     );
 }
 

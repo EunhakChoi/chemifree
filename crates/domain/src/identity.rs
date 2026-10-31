@@ -43,7 +43,7 @@ pub struct CanonicalGraph {
     /// Canonical number `i + 1` maps to this document's atom ID. Symmetric atoms can be
     /// permuted inside an orbit without changing the code.
     pub numbering: Vec<AtomId>,
-    /// Exact orbits of the recorded, labeled graph; IDs are document-local.
+    /// Exact orbits under the chosen profile, including folded H; IDs are document-local.
     pub symmetry: Vec<Vec<AtomId>>,
     /// Terminal natural H vertices folded into a heavy atom in the chemical profile.
     pub folded_hydrogens: Vec<(AtomId, AtomId)>,
@@ -212,8 +212,14 @@ impl Graph {
                 },
                 BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
             };
-            orders.get_mut(&bond.begin).expect("validated endpoint").push(order);
-            orders.get_mut(&bond.end).expect("validated endpoint").push(order);
+            orders
+                .get_mut(&bond.begin)
+                .expect("validated endpoint")
+                .push(order);
+            orders
+                .get_mut(&bond.end)
+                .expect("validated endpoint")
+                .push(order);
         }
         let mut hydrogens = BTreeMap::new();
         for (&id, atom) in &atoms {

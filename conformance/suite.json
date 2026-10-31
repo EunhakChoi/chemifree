@@ -31,6 +31,7 @@
     "cases/preferences-do-not-leak.json",
     "cases/settings-and-preferences-refused.json",
     "cases/valence-snapshot.json",
-    "cases/aromaticity-conversion.json"
+    "cases/aromaticity-conversion.json",
+    "cases/graph-identity.json"
   ]
 }

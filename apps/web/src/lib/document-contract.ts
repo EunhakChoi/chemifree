@@ -208,6 +208,22 @@ export interface AromaticityInspection {
   systems: AromaticitySystem[]
 }
 
+export type IdentityMode = 'recorded' | 'chemical'
+
+export interface CanonicalIdentity {
+  code: string
+  numbering: string[]
+  symmetry: string[][]
+  folded_hydrogens: { hydrogen: string; attached_to: string }[]
+}
+
+export interface IdentityInspection {
+  model: string
+  snapshot: DocumentView
+  identity: CanonicalIdentity
+  comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
+}
+
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
  * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
 export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentView): boolean {
@@ -1290,6 +1306,72 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible aromaticity inspection.', 200)
     }
     return { model: value.model_id, snapshot, systems }
+  }
+
+  /** Canonical identity and optional comparison are bound to the returned graph snapshots. */
+  async inspectIdentity(id: string, mode: IdentityMode, otherId: string | null): Promise<IdentityInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.identity',
+      parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok') {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
+      const details = isRecord(first) && isRecord(first.details) ? first.details : null
+      const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
+      const side = details?.side === 'target' ? 'Comparison' : 'Current drawing'
+      throw new ApiError('identity_unavailable', reason ? `${message} ${side}: ${reason}.` : message, 200)
+    }
+    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-1'
+    if (value.model_id !== expectedModel || !isRecord(value.result) || !isRecord(value.result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible graph identity.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const validIdentity = (item: unknown, document: DocumentView): item is CanonicalIdentity => {
+      if (!isRecord(item) || typeof item.code !== 'string' || !Array.isArray(item.numbering) ||
+          !Array.isArray(item.symmetry) || !Array.isArray(item.folded_hydrogens) ||
+          !item.numbering.every((atom: unknown) => typeof atom === 'string')) return false
+      const numbered = new Set<string>(item.numbering as string[])
+      const atoms = new Map(document.atoms.map((atom) => [atom.id, atom]))
+      if (numbered.size !== item.numbering.length || [...numbered].some((id) => !atoms.has(id))) return false
+      const folded = new Set<string>()
+      for (const row of item.folded_hydrogens) {
+        if (!isRecord(row) || typeof row.hydrogen !== 'string' || typeof row.attached_to !== 'string' ||
+            folded.has(row.hydrogen) || numbered.has(row.hydrogen) || !numbered.has(row.attached_to) ||
+            atoms.get(row.hydrogen)?.element !== 'H') return false
+        folded.add(row.hydrogen)
+      }
+      if (numbered.size + folded.size !== atoms.size || (mode === 'recorded' && folded.size !== 0)) return false
+      const members: string[] = []
+      for (const orbit of item.symmetry) {
+        if (!Array.isArray(orbit) || orbit.length === 0 ||
+            !orbit.every((atom: unknown) => typeof atom === 'string' && atoms.has(atom))) return false
+        members.push(...orbit)
+      }
+      return members.length === atoms.size && new Set(members).size === atoms.size
+    }
+    const sourceIdentity = value.result.identity
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision || !validIdentity(sourceIdentity, snapshot)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible graph identity.', 200)
+    }
+    const other = value.result.comparison
+    let comparison: IdentityInspection['comparison'] = null
+    if (otherId === null) {
+      if (other !== null) throw new ApiError('incompatible_response', 'The local service returned an unexpected comparison.', 200)
+    } else {
+      if (!isRecord(other) || !isRecord(other.snapshot) || typeof other.equivalent !== 'boolean') {
+        throw new ApiError('incompatible_response', 'The local service returned an incompatible comparison.', 200)
+      }
+      const otherResponse = DocumentClient.document({ api_version: API_VERSION, ...other.snapshot })
+      const otherSnapshot = otherResponse.document
+      if (otherSnapshot.id !== otherId || !validIdentity(other.identity, otherSnapshot) ||
+          other.equivalent !== (sourceIdentity.code === other.identity.code) ||
+          (otherId === id && !sameInspectionSnapshot(snapshot, otherSnapshot))) {
+        throw new ApiError('incompatible_response', 'The local service returned an incompatible comparison.', 200)
+      }
+      comparison = { snapshot: otherSnapshot, recovery: otherResponse.recovery, identity: other.identity, equivalent: other.equivalent }
+    }
+    return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
   }
 
   /** Apply one model conversion under the revision the user inspected, with history selection. */

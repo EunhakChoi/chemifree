@@ -35,6 +35,8 @@ pub const REPLAY_LIMIT: usize = 64;
 pub const MAX_REQUEST_ID_CHARS: usize = 64;
 pub const MAX_LISTED_DOCUMENTS: usize = 1_000;
 
+pub(crate) type GraphSnapshot = (DocumentResponse, MoleculeGraph);
+
 /// What a request asked for, compared when a `request_id` is seen again.
 #[derive(Clone, Debug, PartialEq)]
 enum Mutation {
@@ -704,6 +706,62 @@ impl<R: DocumentRepository> Documents<R> {
             self.respond(session),
             MoleculeGraph::from_document(&session.document),
         ))
+    }
+
+    /// Capture both working copies while holding the session lock. IDs and revisions in the
+    /// returned views therefore name the exact graphs used by a comparison.
+    pub(crate) fn graph_pair_snapshot(
+        &self,
+        id: &str,
+        other_id: Option<&str>,
+    ) -> Result<(GraphSnapshot, Option<GraphSnapshot>), ApplicationError> {
+        let mut sessions = self.lock();
+        // Validate both IDs before either read. Closed graphs are inspected without opening a
+        // session, so even a refused comparison cannot evict an unrelated working copy.
+        parse_id(id)?;
+        if let Some(other_id) = other_id {
+            parse_id(other_id)?;
+        }
+        let first = self.graph_readonly(&mut sessions, id)?;
+        let other = match other_id {
+            None => None,
+            Some(other_id) if other_id == id => Some(first.clone()),
+            Some(other_id) => Some(self.graph_readonly(&mut sessions, other_id)?),
+        };
+        Ok((first, other))
+    }
+
+    fn graph_readonly(
+        &self,
+        sessions: &mut Sessions,
+        id: &str,
+    ) -> Result<GraphSnapshot, ApplicationError> {
+        let parsed = parse_id(id)?;
+        if sessions.open.contains_key(&parsed) {
+            let session = self.session(sessions, id)?;
+            Ok((
+                self.respond(session),
+                MoleculeGraph::from_document(&session.document),
+            ))
+        } else {
+            // Use the same revision continuation that opening the saved copy would use,
+            // without publishing a session or consuming a slot. A returned revision must
+            // still be retired so a later different commit cannot reuse it.
+            let document = self.load(&parsed)?.ok_or_else(|| not_found(&parsed))?;
+            let session = Session::open(document, sessions.retired.get(&parsed).copied())?;
+            let snapshot = (
+                self.respond(&session),
+                MoleculeGraph::from_document(&session.document),
+            );
+            if let Some(retired) = session.retirement() {
+                let merged = match sessions.retired.get(&parsed) {
+                    Some(known) => known.merge(retired),
+                    None => retired,
+                };
+                sessions.retired.insert(parsed, merged);
+            }
+            Ok(snapshot)
+        }
     }
 
     /// Convert an entire graph as one ordinary undoable edit. A replay is checked before

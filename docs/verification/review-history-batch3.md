@@ -2,6 +2,10 @@
 
 This file records completed rounds preceding the current delivery. A PR comment records the final reviewed head without requiring a new commit just to describe its own review.
 
+## P17 ring and aromaticity interpretation
+
+[#82](https://github.com/EunhakChoi/chemifree/pull/82) opened on 2026-10-31 at 17:22:46 UTC and triggered automatic round 1 on `d9ea212ad9a3d6ce4e7c10eb81ccae792c0acfbe`; its deadline was 17:37:46 UTC. The [completed review](https://github.com/EunhakChoi/chemifree/pull/82#issuecomment-6546692262) finished at 17:25:17.290759 UTC (2m 31.290759s) without findings or unresolved threads. Current-head CI and the full local gate passed, so it merged as `c4a8e44eafeb5f560743559d4797d0791c463eb2`. [Exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41225052724) passed both jobs; the [final gate record](https://github.com/EunhakChoi/chemifree/pull/82#issuecomment-6546797496) records the disposition.
+
 ## P19 formula and mass inspection
 
 [#81](https://github.com/EunhakChoi/chemifree/pull/81) opened on 2026-10-31 at 16:38:59 UTC. Automatic round 1 reviewed `fc84150039019acbf4f998725c846fa35daa7fca`, with a 16:53:59 deadline, and completed at 16:41:23.746969 UTC (2m 24.746969s). It failed with [a finding](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432463655): formula-only inspection unnecessarily depended on the availability of mass preferences. The fix and later review rounds are recorded on the PR; [round 1 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546230978).

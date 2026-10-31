@@ -158,6 +158,14 @@
           "followups": ["P17"]
         },
         {
+          "id": "MODEL-02.6",
+          "summary": "A bounded versioned graph identity reports canonical numbering, symmetry and supported recorded or normalized comparisons without editing either snapshot.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/identity.rs", "crates/application/src/operations.rs", "apps/web/src/components/identity-panel.tsx"],
+          "evidence": ["case:graph-identity", "check:check:rust", "check:test:contracts"],
+          "followups": ["P18"]
+        },
+        {
           "id": "MODEL-02.rest",
           "summary": "Broader valence and aromaticity models, additional fused and charged systems, and query matching.",
           "status": "not_implemented",
@@ -1288,6 +1296,14 @@
           "followups": [
             "P89"
           ]
+        },
+        {
+          "id": "QUALITY-01.3",
+          "summary": "Independent graph fixtures exercise reindexing, symmetry, isotope and charge distinctions, supported normalization and bounded failure.",
+          "status": "partial",
+          "implementation": ["crates/domain/tests/identity.rs", "crates/application/tests/identity_operations.rs", "conformance/cases/graph-identity.json"],
+          "evidence": ["case:graph-identity", "check:check:rust", "check:test:contracts"],
+          "followups": ["P18", "P89"]
         },
         {
           "id": "QUALITY-01.rest",

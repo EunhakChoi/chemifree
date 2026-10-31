@@ -1566,7 +1566,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '12 of 23 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '13 of 24 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1578,6 +1578,7 @@ for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution'
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2558,6 +2559,67 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByText('a1: valid; hydrogens 2', { exact: true }).waitFor()
   await page.screenshot({ path: join(outDir, 'editor-valence.png') })
   results.valence_snapshot_after_restart = true
+}
+
+// Compare two captured graph snapshots, and do not show an error for a different target.
+{
+  const source = await apiWrite('/api/v1/documents', { request_id: 'identity-source-create', title: 'Identity source' })
+  const target = await apiWrite('/api/v1/documents', { request_id: 'identity-target-create', title: 'Identity iron' })
+  const id = source.body.document.id
+  const targetId = target.body.document.id
+  const sourceDraw = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'identity-source-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }] })
+  const targetDraw = await apiWrite(`/api/v1/documents/${targetId}/transactions`, { request_id: 'identity-target-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'Fe', position: { x: 0, y: 0 } }] })
+  assert.equal(sourceDraw.status, 200)
+  assert.equal(targetDraw.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const identity = page.getByRole('region', { name: 'Graph identity' })
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
+  const before = await api(`/api/v1/documents/${id}`)
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  const afterInspection = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterInspection.document, before.document, 'identity inspection leaves the drawing unchanged')
+  assert.equal(afterInspection.session.undo_depth, before.session.undo_depth, 'identity inspection adds no history')
+  assert.equal(afterInspection.session.redo_depth, before.session.redo_depth, 'identity inspection preserves redo')
+  await page.screenshot({ path: join(outDir, 'editor-identity.png') })
+  await identity.getByLabel('Comparison model').click()
+  await page.getByRole('option', { name: 'Bounded chemical model', exact: true }).click()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity iron (${targetId})`, exact: true }).click()
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  const targetError = /Graph identity was not determined under this model\. Comparison: element or charge\./
+  await identity.getByText(targetError).waitFor()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
+  assert.equal(await identity.getByText(targetError).count(), 0, 'an error for another comparison is hidden')
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await crashApi()
+  const recreated = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'identity-recreate', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }] })
+  assert.equal(recreated.status, 200)
+  assert.deepEqual(recreated.body.document, sourceDraw.body.document, 'the restarted service recreated the same graph and revision')
+  await page.getByRole('complementary', { name: 'Valence inspection' }).getByRole('button', { name: 'Inspect valence' }).click()
+  await identity.getByText('The drawing, model, comparison or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await identity.getByTestId('identity-result').count(), 0, 'a restart invalidates the old identity even for the same snapshot')
+  const afterRestart = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterRestart.document, recreated.body.document, 'the restart check leaves the graph unchanged')
+  assert.equal(afterRestart.session.undo_depth, recreated.body.session.undo_depth, 'the restart check leaves history unchanged')
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await tool('Select and move')
+  await canvas.scrollIntoViewIfNeeded()
+  const point = await atomScreen(sourceDraw.body, 'a1')
+  await page.mouse.click(point.x, point.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await waitIdle()
+  await identity.getByText('The drawing, model, comparison or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await identity.getByTestId('identity-result').count(), 0, 'an edit hides the earlier identity')
+  results.graph_identity_snapshots_and_comparison = true
 }
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
