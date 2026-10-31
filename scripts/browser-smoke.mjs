@@ -289,6 +289,7 @@ results.preferences_read_can_be_retried = true
   await preview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
   await preview.getByText(/#7 → a1/).waitFor()
   await preview.getByText(/not represented in the editor projection/i).first().waitFor()
+  await preview.locator('..').screenshot({ path: join(outDir, 'editor-cdxml-preview.png') })
   assert.equal((await api('/api/v1/documents')).documents.length, before, 'preview creates no document')
   const committed = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
     response.request().postDataJSON()?.parameters?.mode === 'create')
