@@ -3,6 +3,7 @@
 //! External entities are never resolved. Uninterpreted extensions are retained in an unchanged
 //! source document; an edit that would require rewriting them is refused rather than guessed.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
@@ -75,6 +76,15 @@ impl CdxmlDocument {
         }
         Ok(count)
     }
+
+    /// Replace a source after the caller has explicitly discarded opaque content from
+    /// the replacement. This preserves the known XML envelope without attempting to
+    /// delete objects that the original document may still reference.
+    pub(crate) fn replace_after_discard(&mut self, document: Document) {
+        self.document = document;
+        self.original = None;
+        self.unsafe_outside_root = false;
+    }
 }
 
 fn error(code: &'static str, message: impl Into<String>, node: Option<Node<'_, '_>>) -> CdxmlError {
@@ -139,6 +149,17 @@ pub fn read(text: &str) -> Result<CdxmlDocument, CdxmlError> {
         prolog(prefix.strip_prefix('\u{feff}').unwrap_or(prefix));
     let unsafe_outside_root = unsafe_prolog || !text[range.end..].trim().is_empty();
     let parsed = parse_object(root, namespace, 0, false)?;
+    let mut opaque_ids = HashSet::new();
+    opaque_id_candidates(&parsed, &mut opaque_ids);
+    if let Some(id) = ambiguous_opaque_reference(&parsed, &opaque_ids) {
+        return Err(error(
+            "unsupported_opaque_reference",
+            format!(
+                "Reference {id} may target an opaque extension identifier whose semantics cannot be verified."
+            ),
+            Some(root),
+        ));
+    }
     let document = Document::new(parsed.clone())
         .map_err(|cause| error("invalid_document", cause.to_string(), Some(root)))?;
     Ok(CdxmlDocument {
@@ -149,6 +170,65 @@ pub fn read(text: &str) -> Result<CdxmlDocument, CdxmlError> {
         doctype,
         unsafe_outside_root,
     })
+}
+
+// Foreign extension identifiers remain opaque. A known reference matching one
+// is ambiguous even if an interpreted object happens to use the same number.
+fn opaque_id_candidates(object: &Object, ids: &mut HashSet<u32>) {
+    if matches!(object.kind, ObjectKind::UnknownXml(_)) {
+        for property in &object.properties {
+            if let (
+                PropertyKind::UnknownXml(XmlName {
+                    namespace: None,
+                    local,
+                }),
+                PropertyValue::Text(value),
+            ) = (&property.kind, &property.value)
+                && local == "id"
+                && let Some(id) = opaque_numeric_id(value)
+            {
+                ids.insert(id);
+            }
+        }
+    }
+    for child in &object.children {
+        if let Content::Object(child) = child {
+            opaque_id_candidates(child, ids);
+        }
+    }
+}
+
+// Numeric spellings outside the profile's integer-ID syntax may still denote
+// the same value in an opaque extension. They are candidates for ambiguity,
+// not proof of an object identity.
+fn opaque_numeric_id(value: &str) -> Option<u32> {
+    let value = value.trim();
+    if let Ok(id) = value.parse::<u32>() {
+        return Some(id);
+    }
+    let number: f64 = value.parse().ok()?;
+    if number.is_finite() && number.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&number)
+    {
+        Some(number as u32)
+    } else {
+        None
+    }
+}
+
+fn ambiguous_opaque_reference(object: &Object, ids: &HashSet<u32>) -> Option<u32> {
+    object
+        .properties
+        .iter()
+        .find_map(|property| match property.value {
+            PropertyValue::ObjectReference(id) if ids.contains(&id) => Some(id),
+            _ => None,
+        })
+        .or_else(|| {
+            object.children.iter().find_map(|child| match child {
+                Content::Object(child) => ambiguous_opaque_reference(child, ids),
+                _ => None,
+            })
+        })
 }
 
 // roxmltree correctly requires an &str but intentionally does not check the declaration's
@@ -332,7 +412,18 @@ fn parse_object(
         let name = attribute.name();
         let namespace = attribute.namespace();
         let value = attribute.value();
-        if namespace.is_none() && name == "id" && object.kind != ObjectKind::Font && !opaque {
+        // An unknown CDXML-namespace child of a known object still has the
+        // format's numeric object ID. Do not interpret data nested within an
+        // opaque subtree or foreign-namespace extension as CDXML identities.
+        let opaque_cdxml_id = opaque
+            && !opaque_ancestor
+            && node.tag_name().namespace() == root_namespace
+            && value.parse::<u32>().is_ok();
+        if namespace.is_none()
+            && name == "id"
+            && object.kind != ObjectKind::Font
+            && (!opaque || opaque_cdxml_id)
+        {
             let parsed: u32 = value.parse().map_err(|_| {
                 error(
                     "invalid_id",

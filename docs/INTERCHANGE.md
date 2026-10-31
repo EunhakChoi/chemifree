@@ -34,9 +34,24 @@ client-supplied opaque baseline. It reports retained or dropped opaque material,
 and does not mutate the submitted document on failure. Without an original, it
 can validate only the submitted tree and cannot detect content a caller already
 omitted or prove anything about that earlier source's unknown references.
-Unknown property values and
-unimplemented graphics, styles or references remain opaque rather than being
-silently assigned another meaning.
+Numeric unqualified IDs on opaque objects in the CDXML document's own namespace
+directly under known objects are checked for duplicates and can be targets of
+known references; their other properties remain uninterpreted. Identifiers on
+foreign-namespace extensions, descendants of opaque objects and identifiers
+outside the profile's unsigned-integer spelling remain opaque. If a known
+reference could match an unqualified numeric `id` in such opaque data, the reader
+returns `unsupported_opaque_reference` instead of guessing its meaning. If discarding an opaque object would
+leave a known reference dangling, the discard fails atomically; the caller must
+resolve the reference in a valid replacement before explicitly discarding it.
+Unknown property values and unimplemented graphics, styles or references remain
+opaque rather than being silently assigned another meaning.
+
+An explicit CDXML [font table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/FontTable.htm)
+or [color table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/ColorTable.htm)
+must contain at least one corresponding entry; a missing table is distinct from
+an empty one. With no color table, the documented default indexes 0 through 3
+remain available. A future binary codec using these common-model table objects
+must state its own count-zero profile policy.
 
 The known CDXML subset includes 2D positions and bounds, element numbers, isotope,
 charge and radical values, node types, bond endpoints and order bitsets, basic

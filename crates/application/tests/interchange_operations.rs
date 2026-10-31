@@ -62,6 +62,93 @@ fn rich_tree_and_unchanged_bytes_preserve_bom_text_style_and_references() {
 }
 
 #[test]
+fn opaque_target_references_remain_readable_and_are_reported_before_projection() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = SOURCE
+        .replacen(
+            "<page id=\"1\">",
+            "<page id=\"1\"><bracketedgroup id=\"20\" RepeatCount=\"3\"/>",
+            1,
+        )
+        .replacen(
+            "</fragment>",
+            "</fragment><graphic id=\"21\" BoundingBox=\"0 0 1 1\"><represent object=\"20\" attribute=\"RepeatCount\"/></graphic>",
+            1,
+        );
+    let decoded = call(
+        &application,
+        "opaque-reference-read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":source}),
+    );
+    assert!(decoded["result"]["document"].is_object(), "{decoded}");
+    let written = call(
+        &application,
+        "opaque-reference-write",
+        "document.export",
+        json!({"format":"cdxml","document":decoded["result"]["document"],"original":source}),
+    );
+    assert_eq!(written["result"]["content"], source);
+    let preview = call(
+        &application,
+        "opaque-reference-preview",
+        "document.import",
+        json!({"mode":"preview","format":"cdxml","source":source,"title":"Projected","page_id":1,"fragment_id":2}),
+    );
+    let losses = preview["loss_report"].as_array().unwrap();
+    assert!(losses.iter().any(|loss| loss["feature"] == "opaque_object"));
+    assert!(losses.iter().any(|loss| {
+        loss["feature"] == "reference"
+            && loss["reason"].as_str().unwrap().contains("object 20")
+            && loss["reason"].as_str().unwrap().contains("RepeatCount")
+    }));
+    assert_eq!(count(&application), 0);
+    let digest = preview["result"]["preview_digest"].as_str().unwrap();
+    let request = json!({"mode":"create","format":"cdxml","source":source,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
+    let created = call(
+        &application,
+        "opaque-reference-create",
+        "document.import",
+        request,
+    );
+    assert_eq!(created["result"]["document"]["atoms"][1]["element"], "O");
+    assert_eq!(count(&application), 1);
+}
+
+#[test]
+fn exporting_an_empty_explicit_table_is_refused_without_creating_a_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = r#"<CDXML><fonttable><font id="3" name="Serif"/></fonttable><colortable><color r="1" g="1" b="1"/></colortable><page id="1"/></CDXML>"#;
+    let read = call(
+        &application,
+        "tables-read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":source}),
+    );
+    for (index, expected) in [(0, "EmptyFontTable"), (1, "EmptyColorTable")] {
+        let mut tree = read["result"]["document"].clone();
+        tree["root"]["children"][index]["value"]["children"] = json!([]);
+        let write = call(
+            &application,
+            &format!("empty-table-{index}"),
+            "document.export",
+            json!({"format":"cdxml","document":tree}),
+        );
+        assert_eq!(write["diagnostics"][0]["code"], "invalid_document");
+        assert!(
+            write["diagnostics"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains(expected)
+        );
+        assert!(write["result"].is_null());
+        assert_eq!(count(&application), 0);
+    }
+}
+
+#[test]
 fn projection_reports_nested_reference_opaque_property_and_unselected_chemistry() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
