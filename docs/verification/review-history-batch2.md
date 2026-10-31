@@ -508,3 +508,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41183353146)도 check·browser 모두 성공했다.
 
 다음 P15 계산 순서의 독립 합성 기준을 준비할 때 짧은 Python 대조 한 번은 공용 메모리 제한 scope 밖에서 실행됐다. 같은 대조를 16 GiB scope 안에서 다시 실행해 같은 결과를 확인했다. 이후 빌드와 검사는 scope 안에서 실행한다.
+
+### P15 계산 순서와 불규칙도 — [#73](https://github.com/EunhakChoi/chemifree/pull/73)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 08:21:37 | `b79c8f4ada4cd729c1b66f0b38ad0b884263ceb3` | 08:23:24 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/73#issuecomment-6541093420) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41184285192)는 check·browser 모두 성공했다. 2026-10-31 08:26:51에 `fb6b0ba3f7584dae9aa2d2b207f3d204d4904fbd`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41184646093)도 check·browser 모두 성공했다.
