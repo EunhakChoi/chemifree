@@ -2591,11 +2591,46 @@ step = 'after short_wide_bond_is_selectable'
   await identity.getByLabel('Compare with').click()
   await page.getByRole('option', { name: `Identity iron (${targetId})`, exact: true }).click()
   await identity.getByRole('button', { name: 'Inspect identity' }).click()
-  const targetError = /Graph identity was not determined under this model\. Comparison: element or charge\./
-  await identity.getByText(targetError).waitFor()
+  const targetError = `Graph identity was not determined under this model. Comparison snapshot ${targetId}, revision ${targetDraw.body.document.revision}: element or charge. Inspect again to include later edits.`
+  await identity.getByText(targetError, { exact: true }).waitFor()
+  let errorArrived
+  const errorReady = new Promise((resolve) => { errorArrived = resolve })
+  let releaseError
+  const errorHeld = new Promise((resolve) => { releaseError = resolve })
+  const holdIdentityError = async (route) => {
+    if (route.request().postDataJSON()?.operation !== 'chem.identity') return route.continue()
+    const response = await route.fetch()
+    errorArrived()
+    await errorHeld
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdIdentityError)
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await errorReady
+  await identity.getByRole('button', { name: 'Refresh documents' }).click()
+  releaseError()
+  await identity.getByRole('button', { name: 'Inspect identity' }).waitFor()
+  await page.unroute('**/api/v1/operations', holdIdentityError)
+  assert.equal(await identity.getByText(targetError, { exact: true }).count(), 0, 'refresh invalidates an in-flight comparison error')
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor()
   await identity.getByLabel('Compare with').click()
   await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
-  assert.equal(await identity.getByText(targetError).count(), 0, 'an error for another comparison is hidden')
+  assert.equal(await identity.getByText(targetError, { exact: true }).count(), 0, 'an error for another comparison is hidden')
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity iron (${targetId})`, exact: true }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor()
+  const changedTarget = await apiWrite(`/api/v1/documents/${targetId}/transactions`, {
+    request_id: 'identity-target-now-carbon', expected_revision: targetDraw.body.document.revision,
+    commands: [{ op: 'update_atom', atom: 'a1', element: 'C' }],
+  })
+  assert.equal(changedTarget.status, 200)
+  await identity.getByRole('button', { name: 'Refresh documents' }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor({ state: 'hidden' })
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
   await identity.getByRole('button', { name: 'Inspect identity' }).click()
   await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
   await crashApi()

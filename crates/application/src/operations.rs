@@ -921,11 +921,17 @@ fn identity_failure(
     revision: u64,
     mode: IdentityMode,
     side: &'static str,
+    snapshot: DocumentResponse,
     error: identity::IdentityError,
 ) -> OperationResponse {
     let mut details = Map::new();
     details.insert("side".into(), side.into());
     details.insert("reason".into(), error.code().into());
+    details.insert(
+        "snapshot".into(),
+        serde_json::to_value(DocumentResult::from(snapshot))
+            .expect("validated document snapshots serialize to JSON"),
+    );
     let (outcome, code) = match error {
         identity::IdentityError::Unsupported(_) => (Outcome::Unsupported, "identity_unsupported"),
         identity::IdentityError::AtomLimit | identity::IdentityError::SearchLimit => {
@@ -1509,12 +1515,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     let revision = snapshot.document.revision;
                     let identity = match identity_view(&graph, p.mode) {
                         Ok(value) => value,
-                        Err(error) => return identity_failure(known, revision, p.mode, "source", error),
+                        Err(error) => return identity_failure(known, revision, p.mode, "source", snapshot, error),
                     };
                     let comparison = if let Some((other_snapshot, other_graph)) = other {
                         let other_identity = match identity_view(&other_graph, p.mode) {
                             Ok(value) => value,
-                            Err(error) => return identity_failure(known, revision, p.mode, "target", error),
+                            Err(error) => return identity_failure(known, revision, p.mode, "target", other_snapshot, error),
                         };
                         Some(IdentityComparison {
                             equivalent: identity.code == other_identity.code,

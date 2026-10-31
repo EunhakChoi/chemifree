@@ -128,6 +128,14 @@ fn a_target_outside_the_model_returns_no_partial_identity_or_document_change() {
         "element_or_charge"
     );
     assert_eq!(
+        failed["diagnostics"][0]["details"]["snapshot"]["document"],
+        before_target["document"]
+    );
+    assert_eq!(
+        failed["diagnostics"][0]["details"]["snapshot"]["session"],
+        before_target["session"]
+    );
+    assert_eq!(
         serde_json::to_value(app.document(&source).unwrap()).unwrap(),
         before_source
     );

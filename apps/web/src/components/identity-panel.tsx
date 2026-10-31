@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<{ key: string; result: IdentityInspection } | null>(null)
   const [failure, setFailure] = useState<{ key: string; snapshot: DocumentView; message: string } | null>(null)
+  const requestEpoch = useRef(0)
   const documents = editor.list.kind === 'ready' ? editor.list.list.documents : []
   const choices: Record<string, string> = { none: 'No comparison' }
   for (const item of documents) choices[item.id] = `${item.title} (${item.id})`
@@ -39,15 +40,16 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
 
   async function inspect() {
     const requested = requestKey(mode, other, editor.serviceGeneration)
+    const epoch = ++requestEpoch.current
     const snapshot = document
     setBusy(true)
     setAnswer(null)
     setFailure(null)
     try {
       const result = await editor.inspectIdentity(document.id, mode, other === 'none' ? null : other)
-      setAnswer({ key: requested, result })
+      if (requestEpoch.current === epoch) setAnswer({ key: requested, result })
     } catch (error) {
-      setFailure({ key: requested, snapshot, message: error instanceof Error ? error.message : 'Identity inspection failed.' })
+      if (requestEpoch.current === epoch) setFailure({ key: requested, snapshot, message: error instanceof Error ? error.message : 'Identity inspection failed.' })
     } finally {
       setBusy(false)
     }
@@ -70,7 +72,7 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
         <SelectContent>{Object.entries(choices).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
       </Select>
       <FieldDescription>The comparison uses the other document as captured when inspected.</FieldDescription>
-      <Button size="sm" variant="ghost" disabled={editor.list.kind === 'loading'} onClick={editor.refreshList}>Refresh documents</Button>
+      <Button size="sm" variant="ghost" disabled={editor.list.kind === 'loading'} onClick={() => { requestEpoch.current += 1; setFailure(null); editor.refreshList() }}>Refresh documents</Button>
     </Field>
     <Button size="sm" disabled={busy || editor.busy} onClick={() => void inspect()}>{busy ? 'Inspecting…' : 'Inspect identity'}</Button>
     {currentFailure && <Alert variant="destructive"><AlertTitle>Could not inspect identity</AlertTitle><AlertDescription>{currentFailure}</AlertDescription></Alert>}

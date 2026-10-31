@@ -865,8 +865,13 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   badTarget.result.comparison.snapshot.document.id = 'different-target'
   const badEquality = structuredClone(reply)
   badEquality.result.comparison.equivalent = false
-  const unsupported = { outcome: 'unsupported', diagnostics: [{ message: 'Graph identity was not determined under this model.', details: { side: 'target', reason: 'element_or_charge' } }] }
-  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, badOrbit), () => json(200, badTarget), () => json(200, badEquality), () => json(200, unsupported)] })
+  const unsupported = { outcome: 'unsupported', model_id: 'chemifree-chemical-graph-1', result: null,
+    diagnostics: [{ message: 'Graph identity was not determined under this model.', details: {
+      side: 'target', reason: 'element_or_charge', snapshot: { document: target.document, session: target.session, recovery: null },
+    } }] }
+  const wrongFailure = structuredClone(unsupported)
+  wrongFailure.diagnostics[0].details.snapshot.document.id = 'wrong-target'
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, badOrbit), () => json(200, badTarget), () => json(200, badEquality), () => json(200, wrongFailure), () => json(200, unsupported)] })
   const client = new DocumentClient()
   const result = await client.inspectIdentity('identity-source', 'chemical', 'identity-target')
   assert.equal(result.comparison.equivalent, true)
@@ -876,8 +881,9 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   for (let i = 0; i < 3; i++) {
     await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
   }
+  await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
   await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), {
-    code: 'identity_unavailable', message: 'Graph identity was not determined under this model. Comparison: element or charge.',
+    code: 'identity_unavailable', message: 'Graph identity was not determined under this model. Comparison snapshot identity-target, revision 3: element or charge. Inspect again to include later edits.',
   })
 })
 

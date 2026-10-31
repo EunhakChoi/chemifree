@@ -1314,15 +1314,26 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.identity',
       parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
     }, 'reload')
+    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-1'
     if (!isRecord(value) || value.outcome !== 'ok') {
       const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
       const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
       const details = isRecord(first) && isRecord(first.details) ? first.details : null
       const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
-      const side = details?.side === 'target' ? 'Comparison' : 'Current drawing'
-      throw new ApiError('identity_unavailable', reason ? `${message} ${side}: ${reason}.` : message, 200)
+      if (reason && (details?.side === 'source' || details?.side === 'target')) {
+        if (!isRecord(value) || value.model_id !== expectedModel || value.result !== null || !isRecord(details.snapshot)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
+        }
+        const snapshot = DocumentClient.document({ api_version: API_VERSION, ...details.snapshot }).document
+        const target = details.side === 'target'
+        if (snapshot.id !== (target ? otherId : id) || (!target && snapshot.revision !== value.document_revision)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
+        }
+        const side = target ? 'Comparison' : 'Current drawing'
+        throw new ApiError('identity_unavailable', `${message} ${side} snapshot ${snapshot.id}, revision ${snapshot.revision}: ${reason}. Inspect again to include later edits.`, 200)
+      }
+      throw new ApiError('identity_unavailable', message, 200)
     }
-    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-1'
     if (value.model_id !== expectedModel || !isRecord(value.result) || !isRecord(value.result.snapshot)) {
       throw new ApiError('incompatible_response', 'The local service returned incompatible graph identity.', 200)
     }
