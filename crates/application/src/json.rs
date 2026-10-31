@@ -19,6 +19,9 @@ pub(crate) trait IntegerToken: FromStr {
 impl IntegerToken for u8 {
     const MAX_DIGITS: usize = 3;
 }
+impl IntegerToken for u32 {
+    const MAX_DIGITS: usize = 10;
+}
 impl IntegerToken for u64 {
     const MAX_DIGITS: usize = 20;
 }

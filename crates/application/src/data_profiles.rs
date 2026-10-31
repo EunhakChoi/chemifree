@@ -64,6 +64,8 @@ pub enum ProfileRecords {
     ValenceReference(Vec<ValenceOperand>),
     ElementEndpoint(u32),
     Contours(Vec<Contour>),
+    /// Validated layout operands together with the explicit selected source role.
+    LayoutContours(Box<crate::layout_data_binding::LayoutOperands>),
     Phase6(crate::phase6_profiles::DatasetRecords),
     /// Validated, inert pattern declarations; named predicates are not implemented.
     NamingPatterns(Box<crate::naming_patterns::PatternRows>),
@@ -125,7 +127,7 @@ pub fn decode_profile(
     bytes: &[u8],
 ) -> Result<ProfileRecords, ProfileDecodeError> {
     let text = std::str::from_utf8(bytes).map_err(|_| ProfileDecodeError::InvalidFraming)?;
-    if text.starts_with('\u{feff}') || !text.ends_with('\n') {
+    if text.starts_with('\u{feff}') {
         return Err(ProfileDecodeError::InvalidFraming);
     }
     let expected = match profile {
@@ -135,7 +137,11 @@ pub fn decode_profile(
         DataProfile::FixedContours => 158,
         DataProfile::LargeRingSeeds => 2,
     };
-    let lines: Vec<_> = text[..text.len() - 1].split('\n').collect();
+    let lines: Vec<_> = text
+        .strip_suffix('\n')
+        .unwrap_or(text)
+        .split('\n')
+        .collect();
     if lines.len() != expected || lines.iter().any(|line| line.trim().is_empty()) {
         return Err(ProfileDecodeError::InvalidRecordCount);
     }
@@ -199,9 +205,9 @@ pub fn decode_profile(
         DataProfile::FixedContours | DataProfile::LargeRingSeeds => {
             let mut ids = HashSet::new();
             let mut result = Vec::with_capacity(expected);
-            for value in rows {
+            for line in lines {
                 let row: ContourWire =
-                    serde_json::from_value(value).map_err(|_| ProfileDecodeError::InvalidRecord)?;
+                    serde_json::from_str(line).map_err(|_| ProfileDecodeError::InvalidRecord)?;
                 if row.operand_id.is_empty()
                     || row.operand_id.chars().count() > 80
                     || !ids.insert(row.operand_id.clone())
@@ -264,9 +270,11 @@ struct ValenceRow {
 #[serde(deny_unknown_fields)]
 struct ContourWire {
     operand_id: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     ring_size: u32,
     calibration_reference_radians_f64le: String,
     constructor_heading_radians_f64le: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     winding_mode: u32,
     joint_policy_flag: bool,
     turn_degrees_f64le: Vec<String>,
@@ -339,7 +347,8 @@ mod tests {
             )
             .is_err()
         );
-        assert!(decode_profile(DataProfile::RingRank, text.trim_end().as_bytes()).is_err());
+        assert!(decode_profile(DataProfile::RingRank, text.trim_end().as_bytes()).is_ok());
+        assert!(decode_profile(DataProfile::RingRank, format!("{text}\n").as_bytes()).is_err());
     }
 
     #[test]
