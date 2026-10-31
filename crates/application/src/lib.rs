@@ -24,6 +24,7 @@ pub mod phase4_cmr;
 pub mod phase4_declarative;
 pub mod phase4_literals;
 pub mod phase4_nmr;
+pub mod phase4_templates;
 pub mod phase6_profiles;
 pub mod prediction_input;
 pub mod prediction_wire;

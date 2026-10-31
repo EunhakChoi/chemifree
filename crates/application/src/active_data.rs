@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
-    phase4_cmr, phase4_declarative, phase4_literals, phase4_nmr, phase6_profiles, prediction_input,
-    prepared_xlogp,
+    phase4_cmr, phase4_declarative, phase4_literals, phase4_nmr, phase4_templates, phase6_profiles,
+    prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -253,6 +253,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::Phase4Nmr(_)
                     | ProfileRecords::Phase4Cmr(_)
                     | ProfileRecords::Phase4Declarative(_)
+                    | ProfileRecords::Phase4Templates(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -392,6 +393,7 @@ enum SelectedProfile {
     Phase4Nmr,
     Phase4Cmr,
     Phase4Declarative,
+    Phase4Templates,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -669,6 +671,21 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             }
             return Ok(SelectedProfile::Phase4Declarative);
         }
+        "private-data-biopolymer-template-candidates-v1" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 10
+                || manifest.files.iter().any(|file| {
+                    !phase4_templates::accepts_file(
+                        &file.file_id,
+                        &file.role,
+                        &file.declared_content_class,
+                    ) || (phase4_templates::is_normalized(&file.file_id) && !file.required)
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Templates);
+        }
         other => {
             let profile = phase6_profiles::Profile::parse(other)
                 .ok_or(ActiveDataError::ProfileUnsupported)?;
@@ -895,6 +912,13 @@ fn load_personal_impl_with_metadata(
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
+        SelectedProfile::Phase4Templates => {
+            let files = payloads_by_id(&manifest, &payloads)?;
+            ProfileRecords::Phase4Templates(Box::new(
+                phase4_templates::decode_dataset(&files)
+                    .map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
         SelectedProfile::MassInput => {
             let files: Vec<_> = payloads
                 .iter()
@@ -1036,6 +1060,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Phase4Declarative => phase4_declarative::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Templates => phase4_templates::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2356,3 +2388,7 @@ mod phase4_cmr_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_declarative_tests.rs"]
 mod phase4_declarative_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_templates_tests.rs"]
+mod phase4_templates_tests;
