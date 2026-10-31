@@ -47,8 +47,8 @@ export function AromaticityPanel({ document, editor }: { document: DocumentView;
       </p>)}
     </div>}
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={!current || pending || editor.busy} onClick={() => void editor.convertAromaticity('aromatic')}>Convert to aromatic</Button>
-      <Button size="sm" variant="outline" disabled={!current || pending || editor.busy} onClick={() => void editor.convertAromaticity('kekule')}>Convert to Kekulé</Button>
+      <Button size="sm" variant="outline" disabled={!current || pending || editor.busy} onClick={() => current && answer && void editor.convertAromaticity('aromatic', current.snapshot, answer.generation)}>Convert to aromatic</Button>
+      <Button size="sm" variant="outline" disabled={!current || pending || editor.busy} onClick={() => current && answer && void editor.convertAromaticity('kekule', current.snapshot, answer.generation)}>Convert to Kekulé</Button>
     </div>
   </section>
 }
