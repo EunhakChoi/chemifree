@@ -127,3 +127,61 @@ fn unknown_binary_node_semantics_are_preserved_but_editor_projection_refuses_the
     assert_eq!(projection["diagnostics"][0]["code"], "unsupported_node");
     assert!(projection["result"].is_null());
 }
+
+#[test]
+fn dative_binary_is_preserved_but_refused_before_editor_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    let mut bytes = b"VjCD0100\x04\x03\x02\x01".to_vec();
+    bytes.extend([0; 16]);
+    for (tag, id) in [(0x8001u16, 1u32), (0x8003, 2), (0x8004, 3)] {
+        bytes.extend(tag.to_le_bytes());
+        bytes.extend(id.to_le_bytes());
+    }
+    bytes.extend([0, 0]);
+    bytes.extend(0x8004u16.to_le_bytes());
+    bytes.extend(4u32.to_le_bytes());
+    bytes.extend([0, 0]);
+    bytes.extend(0x8005u16.to_le_bytes());
+    bytes.extend(5u32.to_le_bytes());
+    for (tag, value) in [(0x0604u16, 3u32), (0x0605, 4)] {
+        bytes.extend(tag.to_le_bytes());
+        bytes.extend(4u16.to_le_bytes());
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend(0x0600u16.to_le_bytes());
+    bytes.extend(2u16.to_le_bytes());
+    bytes.extend(0x1000u16.to_le_bytes());
+    bytes.extend([0; 8]);
+    let source = STANDARD.encode(&bytes);
+    let read = call(
+        &app,
+        "dative-binary-read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":source}),
+    );
+    assert_eq!(read["outcome"], "ok");
+    let write = call(
+        &app,
+        "dative-binary-write",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":source}),
+    );
+    assert_eq!(write["result"]["content"], source);
+    let create = call(
+        &app,
+        "dative-binary-create",
+        "document.import",
+        json!({"mode":"create","format":"cdx","source":source,"title":"Dative","page_id":1,"fragment_id":2,"preview_digest":"unavailable","accept_loss":true}),
+    );
+    assert_eq!(create["diagnostics"][0]["code"], "unsupported_bond");
+    assert!(create["result"].is_null());
+    assert_eq!(
+        app.list_documents(&Default::default())
+            .unwrap()
+            .documents
+            .len(),
+        0
+    );
+}

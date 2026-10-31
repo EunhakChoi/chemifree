@@ -208,3 +208,42 @@ fn invalid_references_and_unsafe_opaque_rewrites_are_refused() {
     assert!(write["result"].is_null());
     assert_eq!(count(&application), 0);
 }
+
+#[test]
+fn dative_direction_is_retained_in_rich_xml_but_cannot_create_an_editor_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" Element=\"7\"/><n id=\"4\" Element=\"8\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"dative\"/></fragment></page></CDXML>";
+    let read = call(
+        &application,
+        "dative-read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":source}),
+    );
+    assert_eq!(read["outcome"], "ok");
+    let write = call(
+        &application,
+        "dative-write",
+        "document.export",
+        json!({"format":"cdxml","document":read["result"]["document"],"original":source}),
+    );
+    assert_eq!(write["result"]["content"], source);
+    let parameters = json!({"mode":"preview","format":"cdxml","source":source,"title":"Dative","page_id":1,"fragment_id":2});
+    let preview = call(
+        &application,
+        "dative-preview",
+        "document.import",
+        parameters,
+    );
+    assert_eq!(preview["diagnostics"][0]["code"], "unsupported_bond");
+    assert!(preview["result"].is_null());
+    let create = call(
+        &application,
+        "dative-create",
+        "document.import",
+        json!({"mode":"create","format":"cdxml","source":source,"title":"Dative","page_id":1,"fragment_id":2,"preview_digest":"unavailable","accept_loss":true}),
+    );
+    assert_eq!(create["diagnostics"][0]["code"], "unsupported_bond");
+    assert!(create["result"].is_null());
+    assert_eq!(count(&application), 0);
+}

@@ -363,7 +363,16 @@ fn bond(
         )
     })?;
     let order = integer(object, &PropertyKind::BondOrder, 1)?;
-    if ![1, 2, 4, 128, 4096].contains(&order) {
+    if order == 4096 {
+        return Err(fail(
+            "unsupported_bond",
+            format!(
+                "{} has a dative bond whose positive endpoint cannot be mapped confidently to the editor's donor endpoint.",
+                path(indices)
+            ),
+        ));
+    }
+    if ![1, 2, 4, 128].contains(&order) {
         return Err(fail(
             "unsupported_bond",
             format!(
@@ -589,7 +598,6 @@ impl Projection {
                 2 => BondOrder::Double,
                 4 => BondOrder::Triple,
                 128 => BondOrder::Aromatic,
-                4096 => BondOrder::Dative,
                 _ => return Err(fail("unsupported_bond", "Bond order is invalid.")),
             };
             commands.push(Command::AddBond {
