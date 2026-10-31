@@ -122,7 +122,7 @@
         },
         {
           "id": "MODEL-02.3",
-          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Representation only: no query is matched and no aromaticity is perceived.",
+          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Recording is separate from the bounded aromaticity interpretation; no query is matched.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/states.rs",
@@ -145,19 +145,36 @@
           "id": "MODEL-02.4",
           "summary": "A bounded named valence policy reports additional hydrogens and uncertain states without changing the drawing.",
           "status": "partial",
-          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs", "apps/web/src/components/document-workspace.tsx"],
-          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P16", "P17"]
+          "implementation": [
+            "crates/domain/src/chemistry.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "case:valence-snapshot",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
+        },
+        {
+          "id": "MODEL-02.5",
+          "summary": "A named bounded policy interprets cyclic systems and converts supported aromatic and Kekule representations without changing the input during inspection.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/rings.rs", "crates/domain/src/aromaticity.rs", "crates/application/src/operations.rs", "apps/web/src/components/aromaticity-panel.tsx"],
+          "evidence": ["case:aromaticity-conversion", "check:check:rust", "check:test:contracts"],
+          "followups": ["P17"]
         },
         {
           "id": "MODEL-02.rest",
-          "summary": "Broader valence models, aromaticity perception and Kekule forms, and query matching.",
+          "summary": "Broader valence and aromaticity models, additional fused and charged systems, and query matching.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P16",
             "P17",
             "P18",
             "P24",
@@ -237,11 +254,27 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-01.cdxml-rich",
+          "summary": "Bounded CDXML rich read/write of ordered pages, graphs, styles, Unicode text, IDs and known references, with a consented loss-accounted single-graph editor projection.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/cdxml.rs",
+            "crates/application/src/interchange_projection.rs",
+            "crates/application/src/operations/interchange.rs"
+          ],
+          "evidence": [
+            "case:cdxml-rich-projection",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Advanced CDXML objects, editor rendering and full-format interoperability remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -289,11 +322,27 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-03.v2000-basic",
+          "summary": "Bounded V2000 MOL/SDF element graph and SD data conversion, with atomic preview/import and source-index maps. Query, stereo and V3000 remain outside this part.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/ctfile.rs",
+            "crates/application/src/ct_projection.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:molfile-round-trip",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-03.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "V3000, query/stereo semantics and advanced MOL/SDF features remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -372,11 +421,40 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-06.v2000-policy",
+          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/ctfile.rs",
+            "crates/application/src/ct_projection.rs"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
+          "id": "CODEC-06.cdxml-policy",
+          "summary": "For bounded CDXML, unchanged opaque content is preserved; unsafe edits require explicit discard, and uninterpreted selected chemistry is refused.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/interchange.rs",
+            "crates/providers/src/interchange_codec.rs",
+            "crates/application/src/interchange_projection.rs"
+          ],
+          "evidence": [
+            "case:cdxml-rich-projection",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Advanced unknown and unsupported objects across formats remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -593,11 +671,19 @@
       "operations": [
         "chem.properties"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CHEM-01.1",
+          "summary": "A bounded model computes a Hill formula and, with an explicitly selected checked external dataset, average and exact-profile mass and isotope peaks for the graph, selection or components. Results name the data, charge convention and display precision; unsupported or incomplete input has no invented numeric result.",
+          "status": "implemented",
+          "implementation": ["crates/domain/src/mass.rs", "crates/application/src/mass_data.rs", "crates/application/src/properties.rs", "apps/web/src/components/properties-panel.tsx"],
+          "evidence": ["case:formula-and-mass", "check:check:rust", "check:test:contracts", "check:test:client"],
+          "followups": []
+        },
+        {
           "id": "CHEM-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Further chemical property models, broader data conventions, uncertainty propagation and other operation families.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -628,19 +714,35 @@
           "id": "CHEM-02.1",
           "summary": "The bounded valence inspector distinguishes invalid and unsupported atom states with structured warnings and preserves the source graph and history.",
           "status": "partial",
-          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs"],
-          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P16", "P17"]
+          "implementation": [
+            "crates/domain/src/chemistry.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:valence-snapshot",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
+        },
+        {
+          "id": "CHEM-02.2",
+          "summary": "Ring inspection reports unsupported systems, and a failed aromaticity conversion preserves the graph, selection and history.",
+          "status": "partial",
+          "implementation": ["crates/domain/src/aromaticity.rs", "crates/application/src/documents.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:aromaticity-conversion", "check:check:rust", "check:test:contracts"],
+          "followups": ["P17"]
         },
         {
           "id": "CHEM-02.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Other chemical warnings, parser errors and opaque values across the full requirement.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P16",
             "P17",
             "P24",
             "P26",
@@ -1040,7 +1142,7 @@
         },
         {
           "id": "STYLE-01.2",
-          "summary": "Application preferences (the interface theme and the settings new documents start from) are kept per data directory, apart from every document, and written atomically with a revision checked across processes. A new document copies the preferred settings once when it is created; later preference changes never alter an existing document, its file or its history. Computation preferences (NMR, numeric precision) are reported as owned by preferences and not implemented, and setting one is refused without storing it.",
+          "summary": "Application preferences (the interface theme and the settings new documents start from) are kept per data directory, apart from every document, and written atomically with a revision checked across processes. A new document copies the preferred settings once when it is created; later preference changes never alter an existing document, its file or its history. NMR and general numeric precision remain unavailable.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/preferences.rs",
@@ -1058,16 +1160,24 @@
           "followups": []
         },
         {
+          "id": "STYLE-01.3",
+          "summary": "A separate persisted mass display precision is captured by each new calculation; omitted fields in older clients preserve it, reset restores the default, and changes do not alter existing documents or prior results.",
+          "status": "implemented",
+          "implementation": ["crates/application/src/preferences.rs", "crates/providers/src/preference_store.rs", "apps/web/src/components/style-settings.tsx"],
+          "evidence": ["check:check:rust", "check:test:contracts", "check:test:client"],
+          "followups": []
+        },
+        {
           "id": "STYLE-01.rest",
-          "summary": "Computation preferences themselves (NMR solvent and corrections, numeric precision and decimals), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
+          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P19",
             "P35",
             "P40",
+            "P60",
             "P66",
             "P80"
           ]

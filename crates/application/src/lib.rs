@@ -3,6 +3,8 @@
 mod active_data;
 mod active_registry;
 mod contract;
+mod ct_projection;
+pub mod ctfile;
 mod data;
 mod data_formats;
 mod data_profiles;
@@ -16,6 +18,7 @@ pub mod interchange_contract;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
+mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
@@ -40,6 +43,7 @@ pub mod prediction_wire;
 mod preferences;
 pub mod prepared_f32;
 pub mod prepared_xlogp;
+mod properties;
 mod repository;
 mod turns;
 
@@ -93,15 +97,19 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    ClosedResult, Diagnostic, DocumentResult, Envelope, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
-    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
+    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
+    Loss, LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse,
+    OperationResult, Outcome, ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
-    MemoryPreferences, PreferenceRepository, Preferences, PreferencesChange, PreferencesRequest,
-    PreferencesResponse, Theme, UiPreferencesDto,
+    MassPrecision, MassPrecisionView, MemoryPreferences, PreferenceRepository, Preferences,
+    PreferencesChange, PreferencesRequest, PreferencesResponse, Theme, UiPreferencesDto,
+};
+pub use properties::{
+    AbundanceSum, AverageBasisView, ComponentView, ExactSelectionView, MassDataView, MassView,
+    OmittedAbundance, PeakView, PropertiesScope, PropertyKind,
 };
 pub use repository::{
     DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
@@ -128,6 +136,11 @@ pub struct Application<C, R> {
     data_registry: DataRegistry,
     interchange_codec: Option<Arc<dyn interchange_codec::InterchangeCodec>>,
     interchange_generation: Option<[u8; 16]>,
+    ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
+    /// A process-local binding for conversion previews. If entropy is unavailable, previews
+    /// are refused rather than accepting a token from an earlier service instance.
+    ctfile_generation: Option<[u8; 16]>,
+    property_data_readiness: properties::DataReadiness,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -144,6 +157,21 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
+            ctfile_codec: None,
+            ctfile_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
+            property_data_readiness: properties::DataReadiness::default(),
+        }
+    }
+
+    /// Connects the independently implemented MOL/SDF provider for every entry adapter.
+    #[must_use]
+    pub fn with_ctfile_codec(self, codec: impl ctfile::CtCodec + 'static) -> Self {
+        Self {
+            ctfile_codec: Some(Arc::new(codec)),
+            ..self
         }
     }
 
@@ -162,8 +190,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// Retains the checked data generation for the application lifetime.
     #[must_use]
     pub fn with_data_registry(self, data_registry: DataRegistry) -> Self {
+        let property_data_readiness = properties::data_readiness(&data_registry);
         Self {
             data_registry,
+            property_data_readiness,
             ..self
         }
     }
@@ -211,10 +241,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .capabilities()
                 .into_iter()
                 .map(|mut capability| {
-                    if capability.id == chemifree_domain::CapabilityId::FormatConversion && self.interchange_codec.is_some() {
-                        capability.label = "CDXML subset";
-                        capability.status = chemifree_domain::ImplementationStatus::Available;
-                        capability.description = "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.";
+                    if capability.id == chemifree_domain::CapabilityId::FormatConversion {
+                        let supported = match (self.ctfile_codec.is_some(), self.interchange_codec.is_some()) {
+                            (true, true) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
+                            (true, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
+                            (false, true) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
+                            (false, false) => None,
+                        };
+                        if let Some((label, description)) = supported {
+                            capability.label = label;
+                            capability.status = chemifree_domain::ImplementationStatus::Available;
+                            capability.description = description;
+                        }
                     }
                     CapabilityResponse {
                     id: capability.id.as_str(),

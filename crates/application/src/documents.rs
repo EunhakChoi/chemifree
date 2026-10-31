@@ -1,16 +1,17 @@
 //! Document editing sessions: working copies, revisions, idempotent replays, saves, recovery
 //! drafts, and copies.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
 use chemifree_domain::document::{
-    Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted, TransactionError, validated_title,
+    BondOrder, Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering,
+    Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
+use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
 use crate::contract::{
@@ -46,6 +47,14 @@ enum Mutation {
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
+        selection: TransactionSelections,
+    },
+    ImportCtfile {
+        fingerprint: String,
+    },
+    AromaticityConversion {
+        expected_revision: u64,
+        conversion: AromaticityConversion,
         selection: TransactionSelections,
     },
     ResetSettings {
@@ -99,6 +108,13 @@ enum Mutation {
     Restore {
         document: DocumentId,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AromaticityConversion {
+    Aromatic,
+    Kekule,
 }
 
 /// Where replaced settings come from, as a request names it.
@@ -747,6 +763,100 @@ impl<R: DocumentRepository> Documents<R> {
         Ok((self.respond(session), findings))
     }
 
+    /// The view and graph are taken under the same lock, so later computation can be checked
+    /// against the exact analyzed snapshot even after a service restart or concurrent edit.
+    pub(crate) fn analysis_snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(DocumentResponse, Document), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((self.respond(session), session.document.clone()))
+    }
+
+    /// Captures graph and document view under the same lock; the read-only interpretation
+    /// runs after the copy is made so its result remains tied to these exact atoms and bonds.
+    pub(crate) fn graph_snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(DocumentResponse, MoleculeGraph), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((
+            self.respond(session),
+            MoleculeGraph::from_document(&session.document),
+        ))
+    }
+
+    /// Convert an entire graph as one ordinary undoable edit. A replay is checked before
+    /// interpreting again, and a failed assignment never reaches the document's history.
+    pub(crate) fn convert_aromaticity(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        conversion: AromaticityConversion,
+        selection: TransactionSelections,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let domain_selection = contract::to_selection(&selection)?;
+        let mutation = Mutation::AromaticityConversion {
+            expected_revision,
+            conversion,
+            selection,
+        };
+        self.mutate(id, request_id, expected_revision, mutation, |session| {
+            let graph = MoleculeGraph::from_document(&session.document);
+            let interpretation = aromaticity::perceive(&graph);
+            let changes: Vec<_> = match conversion {
+                AromaticityConversion::Aromatic => interpretation.aromatize().map(|ids| {
+                    ids.into_iter()
+                        .map(|id| (id, BondOrder::Aromatic))
+                        .collect()
+                }),
+                AromaticityConversion::Kekule => interpretation.kekulize().map(|pairs| {
+                    pairs
+                        .into_iter()
+                        .map(|(id, order)| {
+                            let order = match order {
+                                aromaticity::KekuleOrder::Single => BondOrder::Single,
+                                aromaticity::KekuleOrder::Double => BondOrder::Double,
+                            };
+                            (id, order)
+                        })
+                        .collect()
+                }),
+            }
+            .map_err(|reason| ApplicationError {
+                invalid_aromaticity: Some(reason),
+                ..ApplicationError::new(
+                    ErrorCode::InvalidCommand,
+                    "Aromaticity conversion could not be completed under the selected model.",
+                )
+            })?;
+            let existing: BTreeMap<_, _> = graph.bonds().collect();
+            let mut commands = Vec::new();
+            for (bond, order) in changes {
+                let Some(current) = existing.get(&bond) else {
+                    return Err(ApplicationError::new(
+                        ErrorCode::InvalidCommand,
+                        "Conversion named a bond outside the inspected graph.",
+                    ));
+                };
+                if current.order != order {
+                    commands.push(Command::UpdateBond { bond, order });
+                }
+            }
+            if commands.is_empty() {
+                return Ok(());
+            }
+            session
+                .document
+                .apply_selecting(&commands, &domain_selection)
+                .map(|_: Outcome| ())
+                .map_err(rejected_edit)
+        })
+    }
+
     pub(crate) fn transact(
         &self,
         id: &str,
@@ -768,6 +878,71 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_selecting(&domain_commands, &domain_selection)
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
+        })
+    }
+
+    /// Check a previously completed import before looking at the document's current revision.
+    pub(crate) fn replay_import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        fingerprint: &str,
+    ) -> Result<Option<DocumentResponse>, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::ImportCtfile {
+            fingerprint: fingerprint.to_owned(),
+        };
+        self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })
+    }
+
+    /// Apply the complete graph to a copy for preview. This performs the very same domain
+    /// validation as a real transaction without changing the working document or its history.
+    pub(crate) fn preview_import(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        commands: &[Command],
+    ) -> Result<(DocumentResponse, DocumentResponse), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        session.expect_revision(expected_revision)?;
+        let before = self.respond(session);
+        let mut candidate = session.document.clone();
+        if !commands.is_empty() {
+            candidate.apply(commands).map_err(rejected_edit)?;
+        }
+        let after =
+            DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+        Ok((before, after))
+    }
+
+    /// Recheck the consented candidate under the session lock and commit it atomically.
+    pub(crate) fn import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        fingerprint: String,
+        commands: &[Command],
+        verify: impl FnOnce(&DocumentView, &DocumentView) -> Result<(), ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let mutation = Mutation::ImportCtfile { fingerprint };
+        self.mutate(id, request_id, expected_revision, mutation, |session| {
+            let before = session.response();
+            let mut candidate = session.document.clone();
+            if !commands.is_empty() {
+                candidate.apply(commands).map_err(rejected_edit)?;
+            }
+            let projected =
+                DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+            verify(&before.document, &projected.document)?;
+            session.document = candidate;
+            Ok(())
         })
     }
 

@@ -18,6 +18,8 @@ const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suff
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const dataDir = mkdtempSync(join(tmpdir(), 'chemifree-contract-'))
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
+delete env.CHEMIFREE_MODEL_DATA_ROOT
+delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
 const running = new Set()
 
 async function startApi(extraEnv = {}) {
@@ -961,6 +963,15 @@ try {
       assert.equal(result.result.interchange_mapping.atoms[0].source_id, 3)
       assert.deepEqual(await send(createRich), result, 'a repeated projection creation replays the first result')
     }
+    const propertiesSupport = catalog.result.operations.find((operation) => operation.id === 'chem.properties')
+    assert.deepEqual(propertiesSupport.sub_operations.map(({ id, execution }) => [id, execution]), [
+      ['formula', 'executable'], ['mass', 'requires_data'], ['isotope_distribution', 'requires_data'],
+    ], 'HTTP and CLI distinguish formula from data-backed properties with no DATA')
+    const textCatalog = spawnSync(cliPath, ['capabilities'], { env, encoding: 'utf8' })
+    assert.equal(textCatalog.status, 0)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/formula: executable$/m)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/mass: requires_data$/m)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/isotope_distribution: requires_data$/m)
     const create = request('op-create', 'document.create', { title: 'Operations parity' })
     httpDoc = (await viaHttp(create)).body.result.document.id
     cliDoc = (await viaCli(create)).result.document.id
@@ -977,15 +988,61 @@ try {
     assert.deepEqual(valence.result.atoms, [{ atom_id: 'a1', bond_order_sum: 0, hydrogens: 4, status: 'valid', reason: null }])
     assert.equal(valence.result.snapshot.document.atoms[0].element, 'C')
     assert.equal(valence.result.snapshot.session.undo_depth, 1)
+    const rings = await both((id) => request('op-rings', 'chem.aromaticity', { document_id: id }))
+    assert.equal(rings.model_id, 'chemifree-aromaticity-1')
+    assert.deepEqual(rings.result.systems, [])
+    assert.equal(rings.result.snapshot.document.atoms[0].element, 'C')
+    const unchanged = await both((id) => request('op-kekule', 'chem.aromaticity_convert', { document_id: id, expected_revision: 1, to: 'kekule' }))
+    assert.equal(unchanged.model_id, 'chemifree-aromaticity-1')
+    assert.equal(unchanged.document_revision, 1, 'a conversion with no aromatic bonds is a no-op')
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
-    const unsupported = await both(() => request('op-props', 'chem.properties', {}))
-    assert.deepEqual([unsupported.outcome, unsupported.result], ['unsupported', null])
+    const beforeProperties = await both((id) => request('op-before-properties', 'document.snapshot', { document_id: id }))
+    const formula = await both((id) => request('op-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
+    assert.equal(formula.model_id, 'chemifree-properties-1')
+    assert.equal(formula.result.components[0].formula, 'CH4')
+    assert.equal(formula.result.snapshot.document.revision, 1)
+    const missingMass = await both((id) => request('op-mass', 'chem.properties', { document_id: id, scope: 'molecule', property: 'masses' }))
+    assert.deepEqual([missingMass.outcome, missingMass.diagnostics[0].code, missingMass.result], ['unsupported', 'mass_data_unavailable', null])
+    const afterProperties = await both((id) => request('op-after-properties', 'document.snapshot', { document_id: id }))
+    assert.deepEqual(afterProperties.result, beforeProperties.result, 'property inspection changes neither graph nor history')
     await both(() => request('op-x', 'chem.teleport', {}), 400)
     const malformed = await both(() => '{"contract": 1,', 400)
     assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
     const saved = await both((id) => request('op-save', 'document.save', { document_id: id, expected_revision: 1 }))
     assert.equal(saved.result.session.unsaved_changes, false)
+    const exported = await both((id) => request('op-export', 'document.export', {
+      format: 'mol', records: [{ document_id: id }],
+    }))
+    assert.equal(exported.outcome, 'partial')
+    assert.match(exported.result.content, /V2000/)
+    const preview = (id) => request('op-import-preview', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content, record: 1, preview: true,
+    })
+    const httpPreview = (await viaHttp(preview(httpDoc))).body
+    const cliPreview = await viaCli(preview(cliDoc))
+    assert.equal(httpPreview.outcome, 'partial')
+    assert.equal(cliPreview.outcome, 'partial')
+    assert.ok(httpPreview.loss_report.some((loss) => loss.feature === 'default_hydrogen_interpretation' && loss.disposition === 'unknown'))
+    assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
+    assert.deepEqual(httpPreview.result.records, cliPreview.result.records)
+    const commit = (id, digest) => request('op-import', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content,
+      record: 1, preview_digest: digest, accept_loss: true,
+    })
+    const httpImport = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    const cliImport = await viaCli(commit(cliDoc, cliPreview.result.preview_digest))
+    assert.equal(httpImport.document_revision, 2)
+    assert.equal(cliImport.document_revision, 2)
+    assert.deepEqual(httpImport.result.import_mapping, cliImport.result.import_mapping)
+    assert.deepEqual(httpImport.result.document.atoms, cliImport.result.document.atoms)
+    const importedFormula = await both((id) => request('op-formula-after-import', 'chem.properties', {
+      document_id: id, scope: 'molecule', property: 'formula',
+    }))
+    assert.equal(importedFormula.result.components[0].formula, 'C2H8', 'formula inspection sees the imported graph')
+    const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
+    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
@@ -1014,7 +1071,9 @@ try {
     running.delete(operations)
     assert.equal(exitStatus, 0)
     assert.deepEqual(replies, [], 'one reply per request')
-    assert.equal(cli('documents', 'show', cliDoc, '--json').body.document.atoms.length, 1, 'the CLI process saved its edit')
+    const storedImport = cli('documents', 'show', cliDoc, '--json').body.document
+    assert.equal(storedImport.revision, 2, 'the CLI process saved the imported revision')
+    assert.deepEqual(storedImport.atoms, cliImport.result.document.atoms, 'the CLI saved both the original and imported atoms')
 
     // The HTTP adapter keeps the write guards, and answers what it cannot read in the envelope.
     const unguarded = await viaHttp(request('op-guard', 'document.create', {}), {})
@@ -1095,7 +1154,8 @@ try {
       [shown.body.revision, shown.body.computation.nmr.status, shown.body.computation.numeric_precision.status],
       [0, 'not_implemented', 'not_implemented'],
     )
-    assert.equal(shown.body.computation.numeric_precision.followup, 'P19')
+    assert.equal(shown.body.computation.numeric_precision.followup, 'P60')
+    assert.deepEqual(shown.body.computation.mass_precision, { status: 'available', owner: 'preferences', decimals: 2 })
     const before = (await write('/api/v1/documents', { request_id: 'style-before', title: 'Before preferences' })).body.document
     assert.equal(before.settings.label_font, 'sans-serif')
     assert.equal((await write(`/api/v1/documents/${before.id}/save`, { request_id: 'style-before-save', expected_revision: 0 })).status, 200)
@@ -1124,7 +1184,7 @@ try {
     const precision = { ...change, computation: { numeric_precision: null } }
     const precisionHttp = await put({ request_id: 'prefs-precision', expected_revision: 1, ...precision })
     assert.deepEqual([precisionHttp.status, precisionHttp.body.code], [501, 'setting_not_implemented'])
-    assert.match(precisionHttp.body.message, /\(P19\)/)
+    assert.match(precisionHttp.body.message, /\(P60\)/)
     const precisionCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(precision))
     assert.deepEqual([precisionCli.status, precisionCli.body.code, precisionCli.body.message], [1, 'setting_not_implemented', precisionHttp.body.message])
     assert.equal((await call('/api/v1/preferences')).body.revision, 1, 'refused computation settings store nothing')

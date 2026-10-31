@@ -27,9 +27,14 @@ use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
     TransactionSelections,
 };
-use crate::documents::validate_request_id;
+use crate::ct_projection;
+use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
+use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
+use crate::properties::{
+    self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
+};
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 
 /// The operation contract version this service speaks.
@@ -55,7 +60,7 @@ pub enum Envelope {
 pub enum Outcome {
     /// The operation ran to completion. This says nothing about chemical correctness.
     Ok,
-    /// It ran, and `loss_report` lists what it could not keep. No operation reports loss yet.
+    /// It ran, and `loss_report` lists what it could not keep or validate.
     Partial,
     Error,
     Unsupported,
@@ -129,8 +134,7 @@ pub struct OperationResponse {
     pub document_revision: Option<u64>,
     /// The operation's typed result; null unless the outcome is `ok` or `partial`.
     pub result: Option<OperationResult>,
-    /// The model or method that produced the result; null when it needs none, as every result
-    /// so far does.
+    /// The model or method that produced the result; null when none was used.
     pub model_id: Option<String>,
     pub diagnostics: Vec<Diagnostic>,
     pub loss_report: Vec<Loss>,
@@ -169,8 +173,30 @@ pub enum OperationResult {
     InterchangeRead(Box<InterchangeReadResult>),
     InterchangePreview(Box<InterchangePreviewResult>),
     InterchangeExport(Box<InterchangeExportResult>),
+    CtPreview(Box<CtPreviewResult>),
+    CtExport(CtExportResult),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
+    /// `chem.properties` over one immutable document snapshot.
+    Properties(Box<PropertiesResult>),
+    /// `chem.aromaticity`: cyclic systems and their model-specific interpretations.
+    Aromaticity(Box<AromaticityResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AromaticityResult {
+    pub snapshot: DocumentResult,
+    pub systems: Vec<AromaticitySystem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AromaticitySystem {
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
+    pub cycle_rank: usize,
+    pub classification: &'static str,
+    pub electrons: Option<u16>,
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -189,12 +215,36 @@ pub struct ValenceAtom {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropertiesResult {
+    pub snapshot: DocumentResult,
+    pub scope: &'static str,
+    pub selection: Option<SelectionDto>,
+    pub property: &'static str,
+    pub valence_model: &'static str,
+    pub arithmetic: &'static str,
+    pub mass_unit: Option<&'static str>,
+    pub display_decimals: u8,
+    pub data: Option<MassDataView>,
+    pub valence_warnings: Vec<PropertyValenceWarning>,
+    pub components: Vec<ComponentView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropertyValenceWarning {
+    pub atom: String,
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DocumentResult {
     pub document: DocumentView,
     pub session: SessionView,
     pub recovery: Option<RecoveryView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interchange_mapping: Option<InterchangeMapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub import_mapping: Option<CtMapping>,
 }
 
 impl From<DocumentResponse> for DocumentResult {
@@ -204,8 +254,40 @@ impl From<DocumentResponse> for DocumentResult {
             session: response.session,
             recovery: response.recovery,
             interchange_mapping: None,
+            import_mapping: None,
         }
     }
+}
+
+/// One-based file indices and their corresponding native identifiers.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtMapping {
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtPreviewResult {
+    pub selected_record: usize,
+    pub records: Vec<CtRecord>,
+    /// Exact working snapshot captured under the same lock as the candidate.
+    pub snapshot: DocumentResult,
+    pub document: DocumentView,
+    pub preview_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtExportResult {
+    pub content: String,
+    pub records: Vec<CtExportMapping>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtExportMapping {
+    /// The exact working copy used for this record, including its revision.
+    pub snapshot: DocumentResult,
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -279,6 +361,17 @@ const fn missing(id: &'static str, followup: &'static str, note: &'static str) -
         representation: Representation::NotSupported,
         execution: Execution::NotImplemented,
         followup: Some(followup),
+        note,
+        commands: None,
+    }
+}
+
+const fn needs_data(id: &'static str, note: &'static str) -> Entry {
+    Entry {
+        id,
+        representation: Representation::Supported,
+        execution: Execution::RequiresData,
+        followup: None,
         note,
         commands: None,
     }
@@ -395,7 +488,7 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "aromatic_or_dative_bond",
         "Records aromatic, dative (from its begin atom, the donor), and unknown bonds. \
-         Representation only: aromaticity is not perceived and no Kekulé form is computed.",
+         Recording is separate from the bounded aromaticity and conversion operations.",
     )
     .carried_out_by(&["add_atom", "add_bond", "update_bond"]),
     runs(
@@ -430,9 +523,19 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     .carried_out_by(&["update_settings"]),
 ];
 
-const PROPERTY_PARTS: [Entry; 2] = [
-    missing("formula", "P19", "No molecular formula is computed."),
-    missing("mass", "P19", "No average or exact mass is computed."),
+const PROPERTY_PARTS: [Entry; 3] = [
+    runs(
+        "formula",
+        "Hill formula and charge for a molecule, selection, or graph components under the bounded valence model.",
+    ),
+    needs_data(
+        "mass",
+        "A compatible checked mass registration is required; individual elements or isotopes may still be unavailable.",
+    ),
+    needs_data(
+        "isotope_distribution",
+        "A compatible checked isotope mass is required; natural distributions also need suitable abundances.",
+    ),
 ];
 
 fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
@@ -486,8 +589,25 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             ),
             &[],
         ),
+        Op::ChemAromaticity => (
+            runs(
+                id,
+                "Read-only topological ring systems and a named bounded aromaticity interpretation.",
+            ),
+            &[],
+        ),
+        Op::ChemAromaticityConvert => (
+            runs(
+                id,
+                "Converts supported aromatic or Kekule bonds as one atomic undoable edit under a named model.",
+            ),
+            &[],
+        ),
         Op::ChemProperties => (
-            missing(id, "P19", "No chemical property is computed."),
+            runs(
+                id,
+                "Computes bounded formula and, with available external data, mass or isotope distribution from an immutable graph snapshot.",
+            ),
             &PROPERTY_PARTS,
         ),
         Op::ChemNameToStructure => (
@@ -535,7 +655,7 @@ fn profile_support(profile: CompatibilityProfile) -> ProfileSupport {
     let (execution, note) = match profile {
         CompatibilityProfile::PreserveSemantics => (
             Execution::Executable,
-            "Operations report conversion losses and uncertainty; projected imports require consent.",
+            "Operations report conversion losses and uncertainty; imports require consent for reported losses.",
         ),
         CompatibilityProfile::LegacyObserved => (
             Execution::NotImplemented,
@@ -579,6 +699,18 @@ struct SnapshotParameters {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PropertiesParameters {
+    document_id: String,
+    scope: PropertiesScope,
+    property: PropertyKind,
+    #[serde(default)]
+    selection: Option<SelectionDto>,
+    #[serde(default)]
+    data_registration_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TransactionParameters {
     document_id: String,
     expected_revision: u64,
@@ -598,12 +730,94 @@ struct RevisionParameters {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AromaticityConversionParameters {
+    document_id: String,
+    expected_revision: u64,
+    to: AromaticityConversion,
+    #[serde(default)]
+    selection_before: Option<SelectionDto>,
+    #[serde(default)]
+    selection_after: Option<SelectionDto>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CloseParameters {
     document_id: String,
     #[serde(default)]
     discard_unsaved: bool,
     #[serde(default)]
     expected_revision: Option<u64>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct CtImportParameters {
+    document_id: String,
+    expected_revision: u64,
+    format: CtFormat,
+    source: String,
+    /// One-based; every record is validated even when it is not selected.
+    record: usize,
+    #[serde(default)]
+    preview: bool,
+    #[serde(default)]
+    preview_digest: Option<String>,
+    #[serde(default)]
+    accept_loss: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CtExportRecord {
+    document_id: String,
+    #[serde(default)]
+    fields: Vec<CtField>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CtExportParameters {
+    format: CtFormat,
+    records: Vec<CtExportRecord>,
+}
+
+fn ct_failure(error: CtError) -> Diagnostic {
+    let mut details = Map::new();
+    details.insert("record".into(), error.record.into());
+    if let Some(line) = error.line {
+        details.insert("line".into(), line.into());
+    }
+    Diagnostic {
+        code: error.code,
+        severity: Severity::Error,
+        message: error.message,
+        path: None,
+        details,
+    }
+}
+
+fn indexed_failure(error: &ApplicationError, record: usize) -> Diagnostic {
+    let mut diagnostic = failure(error);
+    diagnostic.details.insert("record".into(), record.into());
+    diagnostic
+}
+
+fn ct_mapping(document: &DocumentView, atoms: usize, bonds: usize) -> CtMapping {
+    CtMapping {
+        atoms: document
+            .atoms
+            .iter()
+            .skip(document.atoms.len().saturating_sub(atoms))
+            .map(|a| a.id.clone())
+            .collect(),
+        bonds: document
+            .bonds
+            .iter()
+            .skip(document.bonds.len().saturating_sub(bonds))
+            .map(|b| b.id.clone())
+            .collect(),
+    }
 }
 
 /// The same failure as the v1 error envelope reports, as a diagnostic.
@@ -702,6 +916,15 @@ impl Known {
         ))
     }
 
+    fn indexed_error(&self, error: &ApplicationError, record: usize) -> OperationResponse {
+        self.reply(
+            Outcome::Error,
+            error.current_revision,
+            None,
+            vec![indexed_failure(error, record)],
+        )
+    }
+
     fn invalid(&self, diagnostic: Diagnostic) -> OperationResponse {
         self.reply(Outcome::Error, None, None, vec![diagnostic])
     }
@@ -725,6 +948,22 @@ impl Known {
             ),
         }
     }
+}
+
+fn converted(
+    known: &Known,
+    revision: Option<u64>,
+    result: OperationResult,
+    losses: Vec<Loss>,
+) -> OperationResponse {
+    let outcome = if losses.is_empty() {
+        Outcome::Ok
+    } else {
+        Outcome::Partial
+    };
+    let mut response = known.reply(outcome, revision, Some(result), Vec::new());
+    response.loss_report = losses;
+    response
 }
 
 fn protocol_error(
@@ -761,15 +1000,132 @@ fn malformed(
     )
 }
 
+fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
+    use chemifree_domain::mass::{FormulaError, MassError};
+    let mut details = Map::new();
+    let (unsupported, code, message) = match error {
+        PropertiesError::Formula(FormulaError::NoAtoms) => {
+            (false, "empty_scope", "The chosen scope contains no atoms.")
+        }
+        PropertiesError::Formula(
+            FormulaError::MissingSelection | FormulaError::InvalidSelection,
+        ) => (
+            false,
+            "invalid_selection",
+            "The selection is missing or contains unknown identifiers.",
+        ),
+        PropertiesError::Formula(FormulaError::UnknownAtom(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                false,
+                "invalid_selection",
+                "The selection names an unknown atom.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::QueryAtom(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "query_atom",
+                "A query atom does not determine an element for a formula.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::UnknownHydrogens(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "hydrogens_unavailable",
+                "The hydrogen count is not determined by the selected valence model.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::UnknownAttachment(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "attachment_unknown",
+                "An attachment point does not determine a complete formula.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::CountOverflow) => (
+            false,
+            "resource_limit",
+            "Formula counts exceed the supported range.",
+        ),
+        PropertiesError::DataUnavailable => (
+            true,
+            "mass_data_unavailable",
+            "No selected, compatible external mass dataset is available.",
+        ),
+        PropertiesError::DataAmbiguous => (
+            false,
+            "mass_data_ambiguous",
+            "Select one compatible mass data registration.",
+        ),
+        PropertiesError::DataInvalid(reason) => {
+            details.insert("reason".into(), reason.into());
+            (
+                true,
+                "mass_data_invalid",
+                "The selected data cannot supply this mass profile.",
+            )
+        }
+        PropertiesError::Mass(reason) => {
+            let (code, message) = match reason {
+                MassError::MissingElement => (
+                    "missing_element_data",
+                    "The selected dataset lacks an element.",
+                ),
+                MassError::MissingIsotope => (
+                    "isotope_selection_unavailable",
+                    "The selected isotope or an unambiguous default is unavailable.",
+                ),
+                MassError::MissingAverage => (
+                    "average_mass_unavailable",
+                    "A defensible average mass is unavailable for an element.",
+                ),
+                MassError::MissingAbundance => (
+                    "abundance_unavailable",
+                    "The selected dataset cannot determine this isotope distribution.",
+                ),
+                MassError::InvalidData => (
+                    "mass_data_invalid",
+                    "The selected mass data contain an unsupported value.",
+                ),
+                MassError::ResourceLimit => (
+                    "resource_limit",
+                    "The isotope distribution exceeds its work or peak limit.",
+                ),
+                MassError::ProbabilityUnderflow => (
+                    "probability_underflow",
+                    "An isotope probability cannot be represented; no partial distribution is returned.",
+                ),
+            };
+            (reason != MassError::ResourceLimit, code, message)
+        }
+        PropertiesError::Display => (
+            false,
+            "numeric_precision_invalid",
+            "The mass display precision cannot be applied.",
+        ),
+    };
+    (unsupported, diagnostic(code, message, details))
+}
+
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.interchange_codec.is_some() {
+        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
             match operation {
                 OperationId::DocumentImport => {
                     return (
                         runs(
                             operation.as_str(),
-                            "Read CDXML as a rich tree or preview a loss-accounted editor projection.",
+                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
+                                "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses."
+                            } else if self.ctfile_codec.is_some() {
+                                "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
+                            } else {
+                                "Read CDXML as a rich tree or preview a loss-accounted editor projection."
+                            },
                         ),
                         &[],
                     );
@@ -778,7 +1134,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            "Write rich CDXML with opaque-content safety and explicit loss reporting.",
+                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
+                                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
+                            } else if self.ctfile_codec.is_some() {
+                                "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
+                            } else {
+                                "Write rich CDXML with opaque-content safety and explicit loss reporting."
+                            },
                         ),
                         &[],
                     );
@@ -787,6 +1149,222 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             }
         }
         entry(operation)
+    }
+
+    fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
+        let Some(codec) = &self.ctfile_codec else {
+            return known.not_running();
+        };
+        let fingerprint = ct_projection::digest(&p);
+        let replay = if p.preview {
+            None
+        } else {
+            match self.documents.replay_import(
+                &p.document_id,
+                Some(&known.request_id),
+                &fingerprint,
+            ) {
+                Ok(replay) => replay,
+                Err(error) => return known.indexed_error(&error, p.record),
+            }
+        };
+        let input = match codec.read(p.format, p.source.as_bytes()) {
+            Ok(input) => input,
+            Err(error) => return known.invalid(ct_failure(error)),
+        };
+        let Some(record) = p.record.checked_sub(1).and_then(|i| input.value.get(i)) else {
+            return known.invalid(ct_failure(CtError {
+                code: "invalid_record",
+                message: "Selected record does not exist; records are numbered from one.".into(),
+                record: p.record.max(1),
+                line: None,
+            }));
+        };
+        let target = match replay.as_ref() {
+            Some(response) => response.clone(),
+            None => match self.document(&p.document_id) {
+                Ok(response) => response,
+                Err(error) => return known.indexed_error(&error, p.record),
+            },
+        };
+        let mut losses = input.losses;
+        ct_projection::unselected_losses(&input.value, p.record, &mut losses);
+        let commands =
+            match ct_projection::import_commands(record, p.record, &target.document, &mut losses) {
+                Ok(commands) => commands,
+                Err(error) => return known.invalid(ct_failure(error)),
+            };
+        if let Some(response) = replay {
+            let mut result: DocumentResult = response.into();
+            result.import_mapping = Some(ct_mapping(
+                &result.document,
+                record.atoms.len(),
+                record.bonds.len(),
+            ));
+            return converted(
+                known,
+                Some(result.document.revision),
+                OperationResult::Document(Box::new(result)),
+                losses,
+            );
+        }
+        let Some(generation) = self.ctfile_generation else {
+            return known.invalid(ct_failure(CtError {
+                code: "service_identity_unavailable",
+                message: "A service identity could not be created for the preview.".into(),
+                record: p.record,
+                line: None,
+            }));
+        };
+        let (before, candidate) =
+            match self
+                .documents
+                .preview_import(&p.document_id, p.expected_revision, &commands)
+            {
+                Ok(candidate) => candidate,
+                Err(error) => return known.indexed_error(&error, p.record),
+            };
+        if before.document != target.document {
+            return known.invalid(ct_failure(CtError {
+                code: "preview_changed",
+                message: "The drawing changed while the import preview was prepared.".into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        let bind = |snapshot: &DocumentView, document: &DocumentView| {
+            ct_projection::digest(&(
+                generation, p.format, p.record, &p.source, snapshot, document, &losses,
+            ))
+        };
+        let preview_digest = bind(&before.document, &candidate.document);
+        if p.preview {
+            let revision = target.document.revision;
+            return converted(
+                known,
+                Some(revision),
+                OperationResult::CtPreview(Box::new(CtPreviewResult {
+                    selected_record: p.record,
+                    records: input.value,
+                    snapshot: before.into(),
+                    document: candidate.document,
+                    preview_digest,
+                })),
+                losses,
+            );
+        }
+        if p.preview_digest.as_deref() != Some(preview_digest.as_str()) {
+            return known.invalid(ct_failure(CtError {
+                code: "preview_changed",
+                message:
+                    "Preview is missing or does not match the current document, graph and losses."
+                        .into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        if !p.accept_loss && !losses.is_empty() {
+            return known.invalid(ct_failure(CtError {
+                code: "loss_consent_required",
+                message: "Review the reported losses and explicitly accept them before importing."
+                    .into(),
+                record: p.record,
+                line: None,
+            }));
+        }
+        let response = self.documents.import(
+            &p.document_id,
+            Some(&known.request_id),
+            p.expected_revision,
+            fingerprint,
+            &commands,
+            |current, candidate| {
+                if bind(current, candidate) == preview_digest {
+                    Ok(())
+                } else {
+                    Err(ApplicationError::new(
+                        ErrorCode::InvalidRequest,
+                        "The import preview changed before commit.",
+                    ))
+                }
+            },
+        );
+        match response {
+            Ok(response) => {
+                let mut result: DocumentResult = response.into();
+                result.import_mapping = Some(ct_mapping(
+                    &result.document,
+                    record.atoms.len(),
+                    record.bonds.len(),
+                ));
+                converted(
+                    known,
+                    Some(result.document.revision),
+                    OperationResult::Document(Box::new(result)),
+                    losses,
+                )
+            }
+            Err(error) => known.indexed_error(&error, p.record),
+        }
+    }
+
+    fn ct_export(&self, known: &Known, p: CtExportParameters) -> OperationResponse {
+        let Some(codec) = &self.ctfile_codec else {
+            return known.not_running();
+        };
+        if p.records.is_empty() {
+            return known.invalid(ct_failure(CtError {
+                code: "empty_input",
+                message: "At least one source document is required.".into(),
+                record: 1,
+                line: None,
+            }));
+        }
+        if p.records.len() > 128 || (p.format == CtFormat::Mol && p.records.len() != 1) {
+            return known.invalid(ct_failure(CtError {
+                code: "invalid_count",
+                message: "MOL needs one source; SDF supports up to 128.".into(),
+                record: if p.format == CtFormat::Mol { 2 } else { 129 },
+                line: None,
+            }));
+        }
+        let mut records = Vec::with_capacity(p.records.len());
+        let mut mappings = Vec::with_capacity(p.records.len());
+        let mut losses = Vec::new();
+        for (i, source) in p.records.into_iter().enumerate() {
+            let index = i + 1;
+            let snapshot = match self.document(&source.document_id) {
+                Ok(snapshot) => snapshot,
+                Err(error) => return known.indexed_error(&error, index),
+            };
+            let document = &snapshot.document;
+            let record =
+                match ct_projection::export_record(document, index, source.fields, &mut losses) {
+                    Ok(record) => record,
+                    Err(error) => return known.invalid(ct_failure(error)),
+                };
+            mappings.push(CtExportMapping {
+                atoms: document.atoms.iter().map(|atom| atom.id.clone()).collect(),
+                bonds: document.bonds.iter().map(|bond| bond.id.clone()).collect(),
+                snapshot: snapshot.into(),
+            });
+            records.push(record);
+        }
+        match codec.write(p.format, &records) {
+            Ok(output) => {
+                losses.extend(output.losses);
+                converted(
+                    known,
+                    None,
+                    OperationResult::CtExport(CtExportResult {
+                        content: output.value,
+                        records: mappings,
+                    }),
+                    losses,
+                )
+            }
+            Err(error) => known.invalid(ct_failure(error)),
+        }
     }
 
     /// What this service supports of the operation contract, per operation and sub-operation.
@@ -803,7 +1381,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|operation| {
                     let (entry, parts) = self.effective_entry(operation);
-                    entry.view(parts)
+                    let mut support = entry.view(parts);
+                    if operation == OperationId::ChemProperties {
+                        for part in &mut support.sub_operations {
+                            let available = match part.id {
+                                "mass" => self.property_data_readiness.mass,
+                                "isotope_distribution" => self.property_data_readiness.distribution,
+                                _ => continue,
+                            };
+                            if available {
+                                part.execution = Execution::Executable.as_str();
+                            }
+                        }
+                    }
+                    support
                 })
                 .collect(),
         }
@@ -933,6 +1524,154 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.dispatch(&known, parameters_value)
     }
 
+    fn chemical_properties(
+        &self,
+        known: &Known,
+        parameters: PropertiesParameters,
+    ) -> OperationResponse {
+        if (parameters.scope == PropertiesScope::Selection) != parameters.selection.is_some() {
+            return known.invalid(diagnostic(
+                "invalid_selection",
+                "Selection scope requires an explicit selection; other scopes do not accept one.",
+                Map::new(),
+            ));
+        }
+        if parameters.property == PropertyKind::Formula && parameters.data_registration_id.is_some()
+        {
+            return known.invalid(diagnostic(
+                "invalid_request",
+                "Formula-only requests do not select mass data.",
+                Map::new(),
+            ));
+        }
+        let selection = match crate::contract::to_selection(&TransactionSelections {
+            before: parameters.selection.clone(),
+            after: None,
+        }) {
+            Ok(value) => value.before,
+            Err(error) => return known.invalid(failure(&error)),
+        };
+        let (snapshot, document) = match self.documents.analysis_snapshot(&parameters.document_id) {
+            Ok(snapshot) => snapshot,
+            Err(error) => return known.invalid(failure(&error)),
+        };
+        let precision = if parameters.property == PropertyKind::Formula {
+            0
+        } else {
+            match self.preferences.current() {
+                Ok(preferences) => preferences.mass_precision.decimals,
+                Err(error) => return known.invalid(failure(&error)),
+            }
+        };
+        let data = if parameters.property == PropertyKind::Formula {
+            None
+        } else {
+            match properties::select_data(
+                &self.data_registry,
+                parameters.data_registration_id.as_deref(),
+            ) {
+                Ok(data) => Some(data),
+                Err(error) => {
+                    let (unsupported, diagnostic) = property_failure(error);
+                    return if unsupported {
+                        known.unsupported(diagnostic)
+                    } else {
+                        known.invalid(diagnostic)
+                    };
+                }
+            }
+        };
+        let assessments = chemifree_domain::chemistry::inspect_valence(&document);
+        let inferred = assessments
+            .iter()
+            .filter(|state| state.finding == chemifree_domain::chemistry::Finding::Valid)
+            .filter_map(|state| state.hydrogen_count.map(|count| (state.atom, count)))
+            .collect();
+        let components = match properties::calculate(
+            &document,
+            parameters.scope.domain(),
+            selection.as_ref(),
+            &inferred,
+            parameters.property,
+            data.as_ref().map(|(_, table)| table),
+            precision,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                let (unsupported, diagnostic) = property_failure(error);
+                return if unsupported {
+                    known.unsupported(diagnostic)
+                } else {
+                    known.invalid(diagnostic)
+                };
+            }
+        };
+        let mut losses = Vec::new();
+        let included: std::collections::BTreeSet<_> = components
+            .iter()
+            .flat_map(|component| component.atoms.iter().map(String::as_str))
+            .collect();
+        let valence_warnings = assessments
+            .iter()
+            .filter(|state| {
+                state.finding != chemifree_domain::chemistry::Finding::Valid
+                    && included.contains(state.atom.to_string().as_str())
+            })
+            .map(|state| PropertyValenceWarning {
+                atom: state.atom.to_string(),
+                status: state.finding.as_str(),
+                reason: state.reason,
+            })
+            .collect();
+        for (index, component) in components.iter().enumerate() {
+            if component.mass.as_ref().is_some_and(|mass| {
+                !mass.average_omitted_abundances.is_empty()
+                    || !mass.exact_omitted_abundances.is_empty()
+            }) || !component.omitted_abundances.is_empty()
+            {
+                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+            }
+            if component
+                .mass
+                .as_ref()
+                .is_some_and(|mass| !mass.exact_natural_weight_fallbacks.is_empty())
+            {
+                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+            }
+        }
+        let revision = snapshot.document.revision;
+        let result = PropertiesResult {
+            snapshot: snapshot.into(),
+            scope: parameters.scope.as_str(),
+            selection: parameters.selection,
+            property: parameters.property.as_str(),
+            valence_model: chemifree_domain::chemistry::VALENCE_MODEL,
+            arithmetic: if parameters.property == PropertyKind::Formula {
+                "integer-composition"
+            } else {
+                "binary64-sequential-species-order; fixed display ties-to-even"
+            },
+            mass_unit: data.as_ref().map(|_| "u"),
+            display_decimals: precision,
+            data: data.map(|(view, _)| view),
+            valence_warnings,
+            components,
+        };
+        let mut response = known.reply(
+            if losses.is_empty() {
+                Outcome::Ok
+            } else {
+                Outcome::Partial
+            },
+            Some(revision),
+            Some(OperationResult::Properties(Box::new(result))),
+            Vec::new(),
+        );
+        response.model_id = Some("chemifree-properties-1".into());
+        response.loss_report = losses;
+        response
+    }
+
     fn dispatch(&self, known: &Known, parameters_value: Value) -> OperationResponse {
         use OperationId as Op;
         if known.profile == CompatibilityProfile::LegacyObserved
@@ -994,6 +1733,45 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
+            Op::ChemAromaticity => match parameters::<SnapshotParameters>(parameters_value) {
+                Ok(p) => match self.documents.graph_snapshot(&p.document_id) {
+                    Ok((snapshot, graph)) => {
+                        let revision = snapshot.document.revision;
+                        let interpretation = chemifree_domain::aromaticity::perceive(&graph);
+                        let systems = interpretation.systems.into_iter().map(|system| {
+                            let classification = match system.classification {
+                                chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
+                                chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
+                                chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
+                            };
+                            AromaticitySystem {
+                                atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
+                                bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
+                                cycle_rank: system.cycle_rank,
+                                classification,
+                                electrons: system.electrons,
+                                reason: system.reason,
+                            }
+                        }).collect();
+                        let mut reply = known.reply(Outcome::Ok, Some(revision),
+                            Some(OperationResult::Aromaticity(Box::new(AromaticityResult { snapshot: snapshot.into(), systems }))), Vec::new());
+                        reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                        reply
+                    }
+                    Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                },
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
+                Ok(p) => {
+                    let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
+                        TransactionSelections { before: p.selection_before, after: p.selection_after });
+                    let mut reply = known.document(outcome);
+                    reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                    reply
+                }
+                Err(invalid) => known.invalid(invalid),
+            },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {
                     Ok(p) => known.document(self.apply_transaction_selecting(
@@ -1043,10 +1821,55 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport => self.dispatch_interchange_import(known, parameters_value),
-            Op::DocumentExport => self.dispatch_interchange_export(known, parameters_value),
-            Op::ChemProperties
-            | Op::ChemNameToStructure
+            Op::DocumentImport => {
+                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                    if self.interchange_codec.is_some() {
+                        self.dispatch_interchange_import(known, parameters_value)
+                    } else {
+                        known.invalid(diagnostic(
+                            "unsupported_format",
+                            "The rich interchange provider is not connected.",
+                            Map::new(),
+                        ))
+                    }
+                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
+                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
+                    self.dispatch_interchange_import(known, parameters_value)
+                } else {
+                    match parameters::<CtImportParameters>(parameters_value) {
+                        Ok(p) => self.ct_import(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
+            },
+            Op::DocumentExport => {
+                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                    if self.interchange_codec.is_some() {
+                        self.dispatch_interchange_export(known, parameters_value)
+                    } else {
+                        known.invalid(diagnostic(
+                            "unsupported_format",
+                            "The rich interchange provider is not connected.",
+                            Map::new(),
+                        ))
+                    }
+                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
+                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
+                    self.dispatch_interchange_export(known, parameters_value)
+                } else {
+                    match parameters::<CtExportParameters>(parameters_value) {
+                        Ok(p) => self.ct_export(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
+            },
+            Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
+                Ok(p) => self.chemical_properties(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemNameToStructure
             | Op::ChemStructureToName
             | Op::LayoutStructure
             | Op::LayoutReaction
@@ -1058,5 +1881,426 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             | Op::IntegrationInvoke
             | Op::ScriptEvaluate => known.not_running(),
         }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::{Draft, DraftRecoveryTarget, DraftStatus, StorageError, TrashEntry};
+    use chemifree_domain::document::{Document, DocumentId};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    struct TestCapabilities;
+    impl CapabilityCatalog for TestCapabilities {
+        fn capabilities(&self) -> Vec<chemifree_domain::Capability> {
+            Vec::new()
+        }
+    }
+    #[derive(Default)]
+    struct TestRepository(Mutex<BTreeMap<DocumentId, Document>>);
+    impl DocumentRepository for TestRepository {
+        fn allocate_id(&self) -> Result<DocumentId, StorageError> {
+            Ok(DocumentId::parse("fixture-document").unwrap())
+        }
+        fn list_ids(&self) -> Result<Vec<DocumentId>, StorageError> {
+            Ok(self.0.lock().unwrap().keys().cloned().collect())
+        }
+        fn load(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
+            Ok(self.0.lock().unwrap().get(id).cloned())
+        }
+        fn save(&self, document: &Document, _base: Option<u64>) -> Result<(), StorageError> {
+            self.0
+                .lock()
+                .unwrap()
+                .insert(document.id().clone(), document.clone());
+            Ok(())
+        }
+        fn draft_status(&self, _id: &DocumentId) -> Result<DraftStatus, StorageError> {
+            Ok(DraftStatus::None)
+        }
+        fn write_draft(&self, _draft: &Draft) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn claim_draft(
+            &self,
+            _id: &DocumentId,
+        ) -> Result<Option<Result<Draft, String>>, StorageError> {
+            unreachable!()
+        }
+        fn prepare_draft_for_recovery(
+            &self,
+            _id: &DocumentId,
+            _target: DraftRecoveryTarget,
+        ) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn release_draft(&self, _id: &DocumentId) {
+            unreachable!()
+        }
+        fn remove_draft(&self, _id: &DocumentId) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn saved_at_ms(&self, _id: &DocumentId) -> Result<Option<u64>, StorageError> {
+            Ok(None)
+        }
+        fn trash(&self, _id: &DocumentId, _base: u64) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn restore(&self, _id: &DocumentId) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn list_trash(&self) -> Result<Vec<TrashEntry>, StorageError> {
+            unreachable!()
+        }
+        fn load_trashed(&self, _id: &DocumentId) -> Result<Option<Document>, StorageError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn catalog_distinguishes_formula_from_data_backed_properties() {
+        let states = |app: &Application<TestCapabilities, TestRepository>| {
+            let catalog = app.operation_catalog();
+            let entry = catalog
+                .operations
+                .iter()
+                .find(|entry| entry.id == "chem.properties")
+                .unwrap();
+            let execution = |id| {
+                entry
+                    .sub_operations
+                    .iter()
+                    .find(|part| part.id == id)
+                    .unwrap()
+                    .execution
+            };
+            (
+                entry.execution,
+                execution("formula"),
+                execution("mass"),
+                execution("isotope_distribution"),
+            )
+        };
+        let empty = Application::new(TestCapabilities, TestRepository::default());
+        assert_eq!(
+            states(&empty),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let snapshot = crate::mass_data::tests::decode(&crate::mass_data::tests::fixture());
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(snapshot)));
+        let ready = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&ready),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut input = crate::mass_data::tests::synthetic_mass_input();
+        input.features.mass_unit = "unknown-unit".into();
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)));
+        let incompatible = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&incompatible),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut sparse = crate::mass_data::tests::fixture();
+        sparse["isotopes"] = json!([]);
+        sparse["isotope_count"] = json!(0);
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&sparse),
+        )));
+        let unusable = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&unusable),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut natural_only = crate::mass_data::tests::synthetic_mass_input();
+        natural_only.isotopes.clear();
+        natural_only.selections.clear();
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(
+            natural_only,
+        )));
+        let natural_only = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&natural_only),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        // P14 permits an exactly positive decimal whose binary64 witness underflows to 0.
+        // Such a table cannot supply a valid numeric mass merely because a row exists.
+        let mut underflow = crate::mass_data::tests::synthetic_mass_input();
+        underflow.isotopes.clear();
+        underflow.selections.clear();
+        for element in &mut underflow.elements {
+            element.natural_atomic_weight.binary64_bits = 0.0_f64.to_bits();
+        }
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(underflow)));
+        let underflow = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&underflow),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let out_of_range = |abundance: f64| {
+            let mut input = crate::mass_data::tests::synthetic_mass_input();
+            input.elements.truncate(1);
+            input.isotopes.truncate(1);
+            input.isotopes[0].mass_number_u32 = 1000;
+            input.isotopes[0].mass.binary64_bits = 1000.0_f64.to_bits();
+            input.isotopes[0].abundance_percent.binary64_bits = abundance.to_bits();
+            input.selections[0].mass_number_u32 = 1000;
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)))
+        };
+        let no_natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(0.0)]));
+        assert_eq!(
+            states(&no_natural_distribution),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        let natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(100.0)]));
+        assert_eq!(
+            states(&natural_distribution),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut zero = crate::mass_data::tests::fixture();
+        zero["isotopes"][0]["isotopic_composition"]["value_decimal"] = json!("0");
+        zero["isotopes"][1]["isotopic_composition"]["value_decimal"] = json!("0");
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&zero),
+        )));
+        let labeled = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&labeled),
+            ("executable", "executable", "executable", "executable")
+        );
+        let id = labeled
+            .create_document(None, Some("Labeled isotope"))
+            .unwrap()
+            .document
+            .id;
+        let call = |request_id: &str, operation: &str, parameters: Value| -> Value {
+            let request = json!({"contract":1,"request_id":request_id,"profile":"preserve-semantics","operation":operation,"parameters":parameters});
+            serde_json::to_value(labeled.execute(request.to_string().as_bytes())).unwrap()
+        };
+        assert_eq!(
+            call(
+                "draw-labeled",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"C","hydrogens":{"mode":"specified","count":0},"position":{"x":0,"y":0}}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        assert_eq!(
+            call(
+                "set-isotope",
+                "document.transaction",
+                json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","isotope":12}]})
+            )["outcome"],
+            "ok"
+        );
+        let fixed = call(
+            "fixed-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(fixed["outcome"], "ok", "{fixed}");
+        assert_eq!(
+            fixed["result"]["components"][0]["isotope_distribution"],
+            json!([{"mass_u":12.0,"mass_display":"12.00","probability":1.0}])
+        );
+        assert_eq!(
+            call(
+                "change-isotope",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":2,"commands":[{"op":"update_atom","atom":"a1","isotope":null}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        let natural = call(
+            "natural-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(natural["outcome"], "unsupported");
+        assert!(natural["result"].is_null());
+
+        let valid = crate::PersonalDataset::named_fixture(
+            "valid",
+            crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                &crate::mass_data::tests::fixture(),
+            ))),
+        );
+        let mut bad = crate::mass_data::tests::synthetic_mass_input();
+        bad.features.mass_unit = "unknown-unit".into();
+        let invalid = crate::PersonalDataset::named_fixture(
+            "invalid",
+            crate::ProfileRecords::MassInput(Box::new(bad)),
+        );
+        let multiple = crate::DataRegistry::fixture(vec![valid, invalid]);
+        assert!(matches!(
+            properties::select_data(&multiple, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&multiple, Some("valid")).is_ok());
+        assert!(matches!(
+            properties::select_data(&multiple, Some("invalid")),
+            Err(properties::PropertiesError::DataInvalid(
+                "unsupported_mass_profile"
+            ))
+        ));
+        let mixed = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(multiple);
+        assert_eq!(
+            states(&mixed),
+            ("executable", "executable", "executable", "executable")
+        );
+        let make_valid = |id| {
+            crate::PersonalDataset::named_fixture(
+                id,
+                crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                    &crate::mass_data::tests::fixture(),
+                ))),
+            )
+        };
+        let both_valid =
+            crate::DataRegistry::fixture(vec![make_valid("first"), make_valid("second")]);
+        assert!(matches!(
+            properties::select_data(&both_valid, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&both_valid, Some("first")).is_ok());
+        assert!(properties::select_data(&both_valid, Some("second")).is_ok());
+    }
+
+    #[test]
+    fn synthetic_external_profile_supplies_mass_with_honest_selection_and_charge_metadata() {
+        let snapshot = crate::mass_data::tests::decode(&crate::mass_data::tests::fixture());
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(snapshot)));
+        let app = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        let id = app
+            .create_document(None, Some("Fixture"))
+            .unwrap()
+            .document
+            .id;
+        let call = |request_id: &str, operation: &str, parameters: Value| -> Value {
+            let body = json!({"contract":1,"request_id":request_id,"profile":"preserve-semantics","operation":operation,"parameters":parameters});
+            serde_json::to_value(app.execute(body.to_string().as_bytes())).unwrap()
+        };
+        let added = call(
+            "add",
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":0,"commands":[
+                {"op":"add_atom","element":"C","hydrogens":{"mode":"specified","count":0},"position":{"x":0,"y":0}}
+            ]}),
+        );
+        assert_eq!(added["outcome"], "ok");
+        let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+        let preferences: crate::PreferencesChange = serde_json::from_value(json!({
+            "ui":{"theme":"system"}, "new_documents":{},
+            "computation":{"mass_precision":{"decimals":5}}
+        }))
+        .unwrap();
+        app.set_preferences(None, 0, preferences).unwrap();
+        let natural = call(
+            "natural",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(natural["outcome"], "partial", "{natural}");
+        assert_eq!(natural["result"]["display_decimals"], 5);
+        assert_eq!(
+            natural["result"]["components"][0]["mass"]["average_display"],
+            "12.01074"
+        );
+        assert_eq!(
+            natural["result"]["data"]["dataset_id"],
+            "synthetic-public-values"
+        );
+        assert_eq!(
+            natural["result"]["data"]["source_schema_id"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            natural["result"]["data"]["calculation_profile"],
+            "chemifree-nist-representative-1"
+        );
+        assert_eq!(natural["result"]["components"][0]["mass"]["exact_u"], 12.0);
+        assert_eq!(
+            natural["result"]["components"][0]["mass"]["exact_selections"][0]["basis"],
+            "maximum_reported_fraction"
+        );
+        assert_eq!(
+            natural["result"]["components"][0]["omitted_abundances"][0]["isotope"],
+            14
+        );
+        assert_eq!(
+            natural["loss_report"][0]["feature"],
+            "unreported_isotope_abundances"
+        );
+        assert_eq!(
+            serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+            before
+        );
+        app.reset_preferences(None, 1).unwrap();
+        let after_reset = call(
+            "natural-after-reset",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(after_reset["outcome"], "partial", "{after_reset}");
+        assert_eq!(after_reset["result"]["display_decimals"], 2);
+        assert_eq!(
+            after_reset["result"]["components"][0]["mass"]["average_display"],
+            "12.01"
+        );
+        assert_eq!(
+            natural["result"]["display_decimals"], 5,
+            "a previous mass result is unchanged"
+        );
+
+        let updated = call(
+            "isotope",
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","isotope":13,"charge":1}]}),
+        );
+        assert_eq!(updated["outcome"], "ok");
+        let labeled = call(
+            "labeled",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"masses","data_registration_id":"synthetic-test"}),
+        );
+        assert_eq!(labeled["outcome"], "ok", "{labeled}");
+        let exact = labeled["result"]["components"][0]["mass"]["exact_u"]
+            .as_f64()
+            .unwrap();
+        assert!(
+            (exact - (13.00335483507 - crate::mass_data::CODATA_2022_ELECTRON_MASS_U)).abs()
+                < 1e-12
+        );
+        assert_eq!(
+            labeled["result"]["components"][0]["mass"]["exact_selections"][0]["basis"],
+            "explicit_isotope"
+        );
     }
 }

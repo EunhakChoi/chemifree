@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 6,
+  "suite_version": 10,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -166,7 +166,7 @@
     },
     {
       "id": "capabilities-report-unimplemented",
-      "title": "The capability list distinguishes bounded valence inspection from unimplemented formats, models and integrations",
+      "title": "Capabilities name bounded formats and valence while unimplemented features stay explicit",
       "requirements": [
         "API-01",
         "QUALITY-01"
@@ -176,39 +176,33 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "88c9157785c418c915c650be774c49462f346bec63c1f4cb3db5a226714644a7"
+      "case_sha256": "4267b5f0616ef78b6975cb6d615b8b81c1f432ba9b09c4cc071e8aee72ccb946"
     },
     {
       "id": "formula-and-mass",
-      "title": "Molecular formula and mass of a drawn structure",
+      "title": "Formula and isotope masses use one unchanged graph and a pinned synthetic public-reference fixture",
       "requirements": [
         "CHEM-01"
       ],
       "axis": "numeric",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P19",
-        "reason": "No formula or mass calculation exists yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "6738f16f609471ff710d71722700dd20ab2fe41ae1e32d7f13fb4272f0a98d4b"
+      "case_sha256": "b044889bc9385ca9c7e46a227da578b185464f5fcebf983e88de1ae9871074cd"
     },
     {
       "id": "molfile-round-trip",
-      "title": "A drawing survives a MOL V2000 write and read",
+      "title": "A C–O drawing is written as MOL, imported into another document, and survives reopening",
       "requirements": [
         "CODEC-03"
       ],
       "axis": "encoding",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P20",
-        "reason": "No MOL reader or writer exists yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "3f651e9fdb22dc3fff872653378f231893e07350cf163bd2a7bec9af4b419756"
+      "case_sha256": "4a4da3bc023704a047d1e2bae08a2d9e8110c50eedab7f8ea09455ca93b7cdf0"
     },
     {
       "id": "graph-scene-separation",
@@ -318,7 +312,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "3c726eec15d45f02ed4b5929f582f8df3ee6858ad10d86660abd3229514acc10"
+      "case_sha256": "2b8e700112d139480918bfb2aeeaed30435e551a12fa2ee18ccfa72fb443ff80"
     },
     {
       "id": "operation-errors-match-v1",
@@ -345,7 +339,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "4f29422a6c96aafa60021555d03039e95bdbf315415cefa9e8184f098d2718d3"
+      "case_sha256": "83f18707d6811f6da8d3a0301aa5242f879b18164c9400258a856d0941591964"
     },
     {
       "id": "operation-version-refused",
@@ -413,13 +407,41 @@
       "pending": null,
       "failure": null,
       "case_sha256": "f588ecb578d7e086cb8be76a4f24c41dfbbd1a16a0b291886dae62f1f05153b7"
+    },
+    {
+      "id": "aromaticity-conversion",
+      "title": "Benzene inspection is read only; conversion is one replayable undoable edit",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "834538b8c592ccdc0f5291e4e16dc77f64b4d1c3e84404e7de48f56862a5d98f"
+    },
+    {
+      "id": "cdxml-rich-projection",
+      "title": "Rich CDXML preserves opaque data and projects a selected molecule only after loss consent",
+      "requirements": [
+        "CODEC-01",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f3f9b36d4621a27d092cf6407767bbd9e6980b8e24ab7f8ca9be27d895dbe18d"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 16,
+      "passed": 20,
       "failed": 0,
-      "not_run": 2
+      "not_run": 0
     },
     "reject": {
       "passed": 12,
@@ -427,9 +449,9 @@
       "not_run": 0
     },
     "total": {
-      "passed": 28,
+      "passed": 32,
       "failed": 0,
-      "not_run": 2
+      "not_run": 0
     }
   }
 }

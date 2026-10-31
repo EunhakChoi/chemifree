@@ -1,6 +1,6 @@
 {
   "id": "capabilities-report-unimplemented",
-  "title": "The capability list distinguishes bounded valence inspection and CDXML from unimplemented models and integrations",
+  "title": "Capabilities name bounded formats and valence while unimplemented features stay explicit",
   "requirements": [
     "API-01",
     "QUALITY-01"
@@ -20,7 +20,8 @@
             },
             {
               "id": "format_conversion",
-              "status": "available"
+              "status": "available",
+              "label": "MOL/SDF and CDXML subsets"
             },
             {
               "id": "local_model_loading",

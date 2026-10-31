@@ -5,8 +5,10 @@ import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapsh
 import {
   ApiError,
   DocumentClient,
+  sameConversionSnapshot,
   type Command,
   type CopyResponse,
+  type CtImport,
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
@@ -304,6 +306,8 @@ export function useDocumentEditor() {
     }, []),
     trash,
     current,
+    serviceGeneration,
+    inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),
     selection,
     /** A snapshot for a command made now, including changes not rendered yet. */
     selectionAtPress: useCallback(() => new Set(selectionRef.current), []),
@@ -321,7 +325,6 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
-    serviceGeneration,
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
     readInterchange: useCallback((source: string) => client.readInterchange(source), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
@@ -334,7 +337,38 @@ export function useDocumentEditor() {
         throw failure
       }
     }), [run, show, refreshList]),
+    isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
+      serviceGenerationRef.current === generation && currentRef.current !== null &&
+      sameConversionSnapshot(currentRef.current.document, snapshot), []),
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
+    previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
+      client.previewCt(id, revision, format, source, record), []),
+    exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
+    importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) => {
+      let committed = false
+      await run(async () => {
+        const shown = currentRef.current
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+        }
+        const response = await client.importCt(input)
+        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+        committed = true
+      })
+      return committed
+    }, [run, setCurrent]),
+    inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
+    convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || generation !== serviceGenerationRef.current ||
+            !sameContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
+        const selected = selectionSnapshot(pressed, document.document)
+        return client.convertAromaticity(inspected.id, inspected.revision, to, selected)
+      })
+    }, [mutate]),
     error,
     autosave,
     copyNotice,

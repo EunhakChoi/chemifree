@@ -3,6 +3,7 @@
 //! explicitly selected external data is checked through an application-owned registry.
 
 pub mod cdxml;
+mod ctfile;
 mod data_directory;
 mod file_format;
 mod file_store;
@@ -12,6 +13,7 @@ mod preference_store;
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
+pub use ctfile::V2000Codec;
 pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };
@@ -47,7 +49,7 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: StructureAnalysis,
                 label: "Valence inspection",
                 status: Available,
-                description: "Read-only valence and non-vertex hydrogen inspection for a bounded model; other chemical calculations and prediction remain unimplemented. See the per-operation catalog.",
+                description: "Read-only valence and non-vertex hydrogen inspection for a bounded model. See the operation catalog for other available analyses and their limits.",
             },
             Capability {
                 id: FormatConversion,

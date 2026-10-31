@@ -244,8 +244,8 @@ pub struct PositionKey {
     pub atom: AtomId,
 }
 
-/// A bond's kind as drawn. Aromatic, dative, query, and unknown bonds are recorded only:
-/// aromaticity is not perceived, no Kekulé form is computed, and no query is matched.
+/// A bond's kind as drawn. Recording an order does not itself perceive aromaticity,
+/// assign a Kekulé form, or match a query; explicit interpretation is separate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BondOrder {
     Single,

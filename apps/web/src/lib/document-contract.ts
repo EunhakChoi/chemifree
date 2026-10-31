@@ -3,7 +3,7 @@ import { API_VERSION } from '@/lib/contract'
 
 /**
  * A bond's kind. `aromatic`, `dative` (from `begin`, the donor), `query`, and `unknown` were
- * added within v1. They are recorded only: aromaticity is not perceived and no query matches.
+ * added within v1. Recording is separate from bounded aromaticity inspection; no query matches.
  */
 export type BondOrder = 'single' | 'double' | 'triple' | 'aromatic' | 'dative' | 'query' | 'unknown'
 /** The kinds a query bond may list. */
@@ -193,12 +193,75 @@ export interface ValenceInspection {
   atoms: ValenceAtom[]
 }
 
+export interface AromaticitySystem {
+  atoms: string[]
+  bonds: string[]
+  cycle_rank: number
+  classification: 'aromatic' | 'non_aromatic' | 'unsupported'
+  electrons: number | null
+  reason: string | null
+}
+
+export interface AromaticityInspection {
+  model: string
+  snapshot: DocumentView
+  systems: AromaticitySystem[]
+}
+
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
  * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
 export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentView): boolean {
   return shown.id === inspected.id && shown.revision === inspected.revision &&
     JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
     JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds)
+}
+
+export type PropertiesScope = 'molecule' | 'selection' | 'components'
+export type PropertyKind = 'formula' | 'masses' | 'distribution'
+
+export interface OmittedIsotopeAbundance { element: string; isotope: number }
+export interface PropertyMass {
+  average_u: number
+  exact_u: number
+  average_display: string
+  exact_display: string
+  exact_natural_weight_fallbacks: string[]
+  average_bases: { element: string; basis: string }[]
+  exact_selections: { element: string; isotope: number; basis: string }[]
+  average_omitted_abundances: OmittedIsotopeAbundance[]
+  exact_omitted_abundances: OmittedIsotopeAbundance[]
+}
+
+export interface PropertyComponent {
+  atoms: string[]
+  formula: string
+  formal_charge: number
+  mass: PropertyMass | null
+  isotope_distribution: null | { mass_u: number; mass_display: string; probability: number }[]
+  omitted_abundances: OmittedIsotopeAbundance[]
+  abundance_sums: { element: string; input_sum: number }[]
+}
+
+export interface PropertiesInspection {
+  model: string
+  snapshot: DocumentView
+  scope: PropertiesScope
+  property: PropertyKind
+  selection: SelectionView | null
+  display_decimals: number
+  valence_model: string
+  arithmetic: string
+  data: null | { registration_id: string; generation: number; dataset_id: string; dataset_version: string; profile_id: string; manifest_sha256: string; source_schema_id?: string | null; calculation_profile: string; charge_correction_u_per_e: number; charge_convention: string; abundance_policy: string; uncertainty: string }
+  components: PropertyComponent[]
+  warnings: string[]
+}
+
+/** Graph content is checked as well as revision, which can be reused after a restart. */
+export function samePropertySnapshot(shown: DocumentView, inspected: DocumentView): boolean {
+  return shown.id === inspected.id && shown.revision === inspected.revision &&
+    JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
+    JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds) &&
+    JSON.stringify(shown.scene) === JSON.stringify(inspected.scene)
 }
 
 /** The document's own style, or built-in defaults for an older service. */
@@ -889,13 +952,19 @@ export interface PreferencesResponse {
   new_documents: SettingsEdit
   /** The settings a document created now starts from. */
   new_document_settings: DocumentSettings
-  computation: { nmr: ComputationSetting; numeric_precision: ComputationSetting }
+  computation: {
+    nmr: ComputationSetting
+    numeric_precision: ComputationSetting
+    /** Added within v1; absent from older services. */
+    mass_precision?: { status: 'available'; owner: 'preferences'; decimals: number }
+  }
 }
 
 /** The preferences a write sets: all of them, replacing what is stored. */
 export interface PreferencesChange {
   ui: { theme: Theme }
   new_documents: SettingsEdit
+  computation?: { mass_precision: { decimals: number } }
 }
 
 /** Where a reset takes a document's settings from. */
@@ -922,7 +991,14 @@ export function isPreferencesResponse(value: unknown): value is PreferencesRespo
     isSettings(value.new_document_settings, true) &&
     isRecord(value.computation) &&
     isComputationSetting(value.computation.nmr) &&
-    isComputationSetting(value.computation.numeric_precision)
+    isComputationSetting(value.computation.numeric_precision) &&
+    (value.computation.mass_precision === undefined || (
+      isRecord(value.computation.mass_precision) &&
+      value.computation.mass_precision.status === 'available' &&
+      value.computation.mass_precision.owner === 'preferences' &&
+      isCount(value.computation.mass_precision.decimals) &&
+      value.computation.mass_precision.decimals <= 8
+    ))
   )
 }
 
@@ -1028,6 +1104,75 @@ function interchangeReply(value: unknown): { result: Record<string, unknown>; lo
   return { result: value.result, losses: value.loss_report }
 }
 
+export type CtFormat = 'mol' | 'sdf'
+
+export interface CtLoss {
+  feature: string
+  source_path: string
+  disposition: string
+  reason: string
+  semantic_impact: string
+}
+
+export interface CtPreview {
+  digest: string
+  snapshot: DocumentView
+  records: Array<{ title: string; atoms: number; bonds: number; fields: Array<{ name: string; value: string }> }>
+  losses: CtLoss[]
+}
+
+export interface CtImport {
+  documentId: string
+  revision: number
+  format: CtFormat
+  source: string
+  record: number
+  digest: string
+}
+
+/** Full drawing comparison for conversion previews, including scene and settings. */
+export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+interface CtSourceRecord {
+  title: string
+  atoms: unknown[]
+  bonds: unknown[]
+  fields: Array<{ name: string; value: string }>
+}
+
+function isCtSourceRecord(item: unknown): item is CtSourceRecord {
+  return isRecord(item) && typeof item.title === 'string' && Array.isArray(item.atoms) &&
+    Array.isArray(item.bonds) && Array.isArray(item.fields) && item.fields.every((field: unknown) =>
+      isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
+}
+
+function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const diagnostic: unknown = value.diagnostics[0]
+    if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
+      const details = isRecord(diagnostic.details) ? diagnostic.details : {}
+      const record = isCount(details.record) ? ` Record ${details.record}.` : ''
+      const line = isCount(details.line) ? ` Line ${details.line}.` : ''
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+      })
+    }
+    throw new ApiError('conversion_failed', 'The conversion failed.', 200)
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is CtLoss =>
+        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  return { result: value.result, losses: value.loss_report }
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -1044,6 +1189,7 @@ export class DocumentClient {
   private unconfirmed = new Map<string, Unconfirmed>()
   /** Saves whose outcome is unknown, by document and revision. */
   private unconfirmedSaves = new Map<string, Unconfirmed>()
+  private unconfirmedImports = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -1237,6 +1383,207 @@ export class DocumentClient {
       }
       throw error
     }
+  }
+
+  async previewCt(documentId: string, revision: number, format: CtFormat, source: string, record: number): Promise<CtPreview> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { document_id: documentId, expected_revision: revision, format, source, record, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        result.selected_record !== record || !Array.isArray(result.records) ||
+        !result.records.every(isCtSourceRecord) || !isRecord(result.snapshot) ||
+        !isRecord(result.document) || result.document.id !== documentId || !Array.isArray(result.document.atoms) ||
+        !Array.isArray(result.document.bonds)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible import preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The import preview used a different drawing or revision.', 200)
+    }
+    const records = result.records.map((item) => ({
+      title: item.title, atoms: item.atoms.length, bonds: item.bonds.length, fields: item.fields,
+    }))
+    return { digest: result.preview_digest, snapshot, records, losses: reply.losses }
+  }
+
+  async importCt(input: CtImport): Promise<DocumentResponse> {
+    // An unanswered request might have committed. Reuse its ID only against the same service.
+    const key = JSON.stringify(input)
+    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
+    this.unconfirmedImports.set(key, pending)
+    let sentTo: string | undefined
+    try {
+      const reply = ctReply(await this.write('/api/v1/operations', {
+        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
+        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
+          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+      }, 'reload', (token) => {
+        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
+        sentTo = token
+      }))
+      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
+      if (response.document.id !== input.documentId) {
+        throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
+      }
+      this.unconfirmedImports.delete(key)
+      return response
+    } catch (error) {
+      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
+        pending.sentTo = sentTo
+        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
+      }
+      this.unconfirmedImports.delete(key)
+      throw error
+    }
+  }
+
+  async exportCt(documentId: string, format: CtFormat): Promise<{ content: string; losses: CtLoss[]; snapshot: DocumentView }> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: { format, records: [{ document_id: documentId }] },
+    }, 'reload'))
+    if (typeof reply.result.content !== 'string' || !Array.isArray(reply.result.records) ||
+        reply.result.records.length !== 1 || !isRecord(reply.result.records[0]) || !isRecord(reply.result.records[0].snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned invalid export content.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.records[0].snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
+    return { content: reply.result.content, losses: reply.losses, snapshot }
+  }
+
+  /** Read-only properties are tied to the returned document snapshot and source profile. */
+  async inspectProperties(
+    id: string,
+    scope: PropertiesScope,
+    property: PropertyKind,
+    selection: SelectionView | null,
+    dataRegistrationId: string | null,
+  ): Promise<PropertiesInspection> {
+    const parameters = {
+      document_id: id, scope, property,
+      ...(selection === null ? {} : { selection }),
+      ...(dataRegistrationId === null ? {} : { data_registration_id: dataRegistrationId }),
+    }
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.properties', parameters,
+    }, 'reload')
+    if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not calculate these properties.'
+      throw new ApiError('properties_unavailable', message, 200)
+    }
+    if (value.model_id !== 'chemifree-properties-1' || !isRecord(value.result) || !Array.isArray(value.loss_report)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    const result = value.result
+    if (!isRecord(result.snapshot) || !Array.isArray(result.components) || !Array.isArray(result.valence_warnings)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    const validOmitted = (rows: unknown) => Array.isArray(rows) && rows.every((row) => isRecord(row) &&
+      typeof row.element === 'string' && isCount(row.isotope) && row.isotope > 0)
+    const validMass = (mass: unknown) => isRecord(mass) && isFiniteNumber(mass.average_u) &&
+      isFiniteNumber(mass.exact_u) && typeof mass.average_display === 'string' && typeof mass.exact_display === 'string' &&
+      Array.isArray(mass.exact_natural_weight_fallbacks) && mass.exact_natural_weight_fallbacks.every((item) => typeof item === 'string') &&
+      Array.isArray(mass.average_bases) && mass.average_bases.every((row) => isRecord(row) && typeof row.element === 'string' && typeof row.basis === 'string') &&
+      Array.isArray(mass.exact_selections) && mass.exact_selections.every((row) => isRecord(row) && typeof row.element === 'string' && isCount(row.isotope) && row.isotope > 0 && typeof row.basis === 'string') &&
+      validOmitted(mass.average_omitted_abundances) && validOmitted(mass.exact_omitted_abundances)
+    const validPeaks = (peaks: unknown) => Array.isArray(peaks) && peaks.every((peak) => isRecord(peak) &&
+      isFiniteNumber(peak.mass_u) && typeof peak.mass_display === 'string' && isFiniteNumber(peak.probability) &&
+      peak.probability >= 0 && peak.probability <= 1)
+    const components = result.components
+    const componentValid = (component: unknown): component is PropertyComponent => (
+      isRecord(component) && typeof component.formula === 'string' &&
+      Number.isSafeInteger(component.formal_charge) && Array.isArray(component.atoms) &&
+      component.atoms.length > 0 && component.atoms.every((atom: unknown) => typeof atom === 'string' && snapshot.atoms.some((shown) => shown.id === atom)) &&
+      validOmitted(component.omitted_abundances) && Array.isArray(component.abundance_sums) &&
+      component.abundance_sums.every((row) => isRecord(row) && typeof row.element === 'string' && isFiniteNumber(row.input_sum)) &&
+      (property === 'formula' ? component.mass === null && component.isotope_distribution === null :
+        validMass(component.mass) && (property === 'distribution' ? validPeaks(component.isotope_distribution) : component.isotope_distribution === null))
+    )
+    const data = result.data
+    const dataValid = property === 'formula' ? data === null : isRecord(data) &&
+      typeof data.registration_id === 'string' && isCount(data.generation) && typeof data.profile_id === 'string' &&
+      typeof data.manifest_sha256 === 'string' &&
+      (data.source_schema_id === undefined || data.source_schema_id === null || typeof data.source_schema_id === 'string') &&
+      isFiniteNumber(data.charge_correction_u_per_e) &&
+      typeof data.dataset_id === 'string' && typeof data.dataset_version === 'string' &&
+      typeof data.calculation_profile === 'string' && typeof data.charge_convention === 'string' &&
+      typeof data.abundance_policy === 'string' && typeof data.uncertainty === 'string' && result.mass_unit === 'u'
+    const losses = value.loss_report
+    const valence = result.valence_warnings
+    const atomIds: unknown[] = components.flatMap((component) => isRecord(component) && Array.isArray(component.atoms) ? component.atoms : [])
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision || result.scope !== scope || result.property !== property ||
+        !(result.selection === null || isSelection(result.selection)) || JSON.stringify(result.selection) !== JSON.stringify(selection) ||
+        !isCount(result.display_decimals) || result.display_decimals > 8 || typeof result.valence_model !== 'string' || typeof result.arithmetic !== 'string' ||
+        components.length === 0 || !components.every(componentValid) || new Set(atomIds).size !== atomIds.length || !dataValid ||
+        !losses.every((loss) => isRecord(loss) && typeof loss.reason === 'string') ||
+        (value.outcome === 'partial' && losses.length === 0) ||
+        !valence.every((warning) => isRecord(warning) && typeof warning.atom === 'string' &&
+          (warning.status === 'invalid' || warning.status === 'unsupported') && (warning.reason === null || typeof warning.reason === 'string'))) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    return {
+      model: value.model_id, snapshot, scope, property, selection, display_decimals: result.display_decimals,
+      valence_model: result.valence_model, arithmetic: result.arithmetic, data: data as PropertiesInspection['data'], components: components as PropertyComponent[],
+      warnings: [
+        ...losses.map((loss) => (loss as { reason: string }).reason),
+        ...valence.map((warning) => `${(warning as { atom: string }).atom}: valence ${(warning as { status: string }).status}`),
+      ],
+    }
+  }
+
+  async inspectAromaticity(id: string): Promise<AromaticityInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics',
+      operation: 'chem.aromaticity', parameters: { document_id: id },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || value.model_id !== 'chemifree-aromaticity-1' ||
+        !isRecord(value.result) || !isRecord(value.result.snapshot) || !Array.isArray(value.result.systems)) {
+      throw new ApiError('analysis_unavailable', 'The local service could not inspect aromaticity.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const systems = value.result.systems
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision ||
+        !systems.every((item): item is AromaticitySystem => isRecord(item) &&
+          Array.isArray(item.atoms) && item.atoms.length >= 3 && new Set(item.atoms).size === item.atoms.length &&
+          item.atoms.every((atom: unknown) => typeof atom === 'string' && snapshot.atoms.some((shown) => shown.id === atom)) &&
+          Array.isArray(item.bonds) && item.bonds.length >= 3 && new Set(item.bonds).size === item.bonds.length &&
+          item.bonds.every((bond: unknown) => typeof bond === 'string' && snapshot.bonds.some((shown) => shown.id === bond)) &&
+          isCount(item.cycle_rank) && item.cycle_rank > 0 &&
+          (item.classification === 'aromatic' || item.classification === 'non_aromatic' || item.classification === 'unsupported') &&
+          (item.electrons === null || isCount(item.electrons)) && (item.reason === null || typeof item.reason === 'string'))) {
+      throw new ApiError('analysis_unavailable', 'The local service returned an incompatible aromaticity inspection.', 200)
+    }
+    return { model: value.model_id, snapshot, systems }
+  }
+
+  /** Apply one model conversion under the revision the user inspected, with history selection. */
+  async convertAromaticity(id: string, expectedRevision: number, to: 'aromatic' | 'kekule', selection: SelectionView) {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.aromaticity_convert',
+      parameters: { document_id: id, expected_revision: expectedRevision, to, selection_before: selection, selection_after: selection },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const code = isRecord(first) && typeof first.code === 'string' ? first.code : 'analysis_unavailable'
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not convert aromaticity.'
+      const details = isRecord(first) && isRecord(first.details) ? first.details : null
+      throw new ApiError(code, message, 200, {
+        currentRevision: details && isCount(details.current_revision) ? details.current_revision : undefined,
+        stateReason: details && typeof details.reason === 'string' ? details.reason : undefined,
+      })
+    }
+    if (value.model_id !== 'chemifree-aromaticity-1') {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
+    }
+    const response = DocumentClient.document({ api_version: API_VERSION, ...value.result })
+    if (response.document.id !== id || response.document.revision !== value.document_revision) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
+    }
+    return response
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

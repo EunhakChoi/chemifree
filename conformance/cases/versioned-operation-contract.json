@@ -230,9 +230,15 @@
               },
               {
                 "id": "chem.properties",
-                "representation": "not_supported",
-                "execution": "not_implemented",
-                "followup": "P19"
+                "representation": "supported",
+                "execution": "executable",
+                "sub_operations": {
+                  "$contains": [
+                    {"id": "formula", "execution": "executable"},
+                    {"id": "mass", "execution": "requires_data"},
+                    {"id": "isotope_distribution", "execution": "requires_data"}
+                  ]
+                }
               }
             ]
           }

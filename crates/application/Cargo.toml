@@ -7,9 +7,15 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# Compiled only for the conformance runner. It can inject a dataset that is explicitly
+# identified as synthetic; production hosts still load their selected external registry.
+conformance-fixtures = []
+
 [dependencies]
 chemifree-domain.workspace = true
 getrandom.workspace = true
+chemifree-numerics.workspace = true
 num-bigint = "0.5.1"
 roxmltree = "0.21.1"
 serde.workspace = true

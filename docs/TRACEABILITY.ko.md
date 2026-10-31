@@ -2,9 +2,13 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NMR 연산을 구현하지 않는다. 이 요구사항의 미구현 부분은 각각 후속 엔진에 남고, 아직 저장하거나 적용하지 않는 계산 정밀도 환경 설정은 첫 소비 단계 P19로 추적한다.
+P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계산과 별도의 질량 표시 자릿수 환경 설정을 연결한다. 일반 수치 정밀도, 배치·예측·NMR 등은 후속 작업이다.
 
-현재 집계: 요구사항 33개(partial 10, not_implemented 23) · 부분 60개(implemented 21, partial 4, unverified 2, not_implemented 33) · conformance 사례 30개(passed 28: accept 16·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
+
+P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. 고급 객체와 일반 장면 렌더링은 후속 범위다.
+
+현재 집계: 요구사항 33개(partial 14, not_implemented 19) · 부분 68개(implemented 27, partial 6, unverified 2, not_implemented 33) · conformance 사례 32개(passed 32: accept 20·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
@@ -53,7 +57,7 @@ P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NM
 
 ## conformance runner
 
-사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 단계는 공유 Application을 HTTP 핸들러와 같은 요청 타입(같은 DTO로 본문을 역직렬화)과 같은 인자로 호출하고, 모든 쓰기에 `request_id`를 보낸다. HTTP 계층(상태 코드, Host·Origin·토큰 검사, JSON 거절 응답)은 거치지 않으며 상태 코드는 비교하지 않는다. 호출: `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
+사례 하나는 `id`, `title`, `requirements`, `axis`, `kind`(`accept`|`reject`)와 `steps` 또는 `pending {followup, reason}` 중 하나를 가진다. 선택적인 `data_fixture`는 conformance 전용 합성 자료의 이름과 SHA-256을 고정하며 runner가 실제 내장 fixture의 바이트를 대조한다. 이 경로는 제품 API나 CLI의 DATA 주입 기능이 아니고 결과에도 합성 자료라고 표시된다. 단계는 공유 Application을 HTTP 핸들러와 같은 요청 타입(같은 DTO로 본문을 역직렬화)과 같은 인자로 호출하고, 모든 쓰기에 `request_id`를 보낸다. HTTP 계층(상태 코드, Host·Origin·토큰 검사, JSON 거절 응답)은 거치지 않으며 상태 코드는 비교하지 않는다. 호출: `create`, `get`, `transact`, `undo`, `redo`, `save`, `autosave`, `recover`, `close`, `capabilities`, `restart`.
 
 - 모든 쓰기는 `request_id`를 보낸다. 단계에 없으면 `step-<단계 번호>`를 만든다(`[A-Za-z0-9_-]`만 사용). `get`·`capabilities`·`restart`에 `request_id`가 있으면 거절한다.
 - 문서는 `create`의 `bind` 이름으로 가리킨다. 바인딩 전 사용, 두 번 바인딩, 오류를 기대하는 `create`의 바인딩은 거절한다.
@@ -64,6 +68,7 @@ P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NM
 - 기대값: `expect`는 JSON 객체, `expect_error`는 문자열 `code`를 가진 객체. 어느 깊이에서든 빈 객체, 비었거나 목록이 아닌 `$contains`, 알 수 없는 `$` 연산자, 옆에 다른 키가 있는 `$contains`를 거절한다. `api_version` 말고 비교하는 값이 하나 이상 있어야 한다(`null`과 `[]`도 값). 크기 2^53 이상의 실수는 정수가 반올림됐을 수 있으므로 거절한다.
 - 일치 규칙: 객체는 부분집합, 배열은 같은 길이로 원소별, `$contains`는 서로 다른 원소에 대응(최대 이분 매칭, 원소 재사용 없음), 정수는 반올림 없이 정확히, 실수와 정수는 정확히 같은 값일 때만 같다. 잘못된 기대값은 실행 중에도 일치하지 않는다.
 - `operation` 단계는 연산 계약 1의 요청(`request`, JSON 객체 또는 바이트 그대로 보낼 문자열)을 HTTP·CLI와 같은 `Application::execute`에 넘긴다. `document`가 있으면 묶인 문서 ID를 `parameters.document_id`에 넣고(요청에 `parameters` 객체가 있어야 함), `bind`가 있으면 결과 문서를 그 이름에 묶는다. 요청이 자기 `request_id`를 가지므로 단계의 `request_id`는 거절한다. 연산은 결과가 무엇이든 연산 응답으로 답하므로 `expect_error`는 거절하고, `expect`에 문자열 `outcome`이 있어야 한다.
+- `operation`의 `capture`는 응답 JSON 포인터의 값을 이름으로 보관하고, 다음 `substitute`는 기존 `parameters` JSON 포인터에 그 값을 넣는다. 이름 중복·선언 전 사용·없는 입력 위치는 로드 때, 없는 응답 위치는 실행 때 실패한다. 파일 바이트와 동의 digest를 실제 응답에서 다음 요청으로 넘기는 데 쓴다.
 - kind 규칙: 실행 가능한 `reject` 사례는 `expect_error` 단계가, `accept` 사례는 (`restart`가 아닌 호출의) `expect` 단계가 하나 이상 있어야 한다. `operation` 단계는 기대하는 `outcome`으로 센다: `ok`·`partial`은 결과, `error`·`unsupported`는 거절. 결과는 kind별로 센다.
 - 사례 경로는 묶음 파일 기준 상대 경로이며, 원래 문자열을 `/`와 `\`로 나눠 빈 조각·`.`·`..`가 있거나, 절대 경로이거나, 드라이브 접두(`C:`)가 있으면 거절한다. Rust와 JS가 같은 규칙을 쓴다.
 - 실행 파일: `chemifree-conformance [--out PATH] SUITE`. 값 없는(또는 `-`로 시작하는 값의) `--out`, 두 번째 `--out`, 알 수 없는 옵션, 묶음 없음·두 번째 묶음은 실행 없이 사용법 오류(종료 2). 실패한 사례가 있으면 종료 1(기록은 씀), 묶음을 불러오지 못하면 종료 1(기록 없음). `--out`이 없으면 기록을 표준 출력에 쓴다.

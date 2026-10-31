@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -809,6 +809,60 @@ const atomWith = (id, element, x, y, states = {}) => ({
 })
 const bondWith = (id, begin, end, order = 'single', query = null) => ({ id, begin, end, order, query })
 
+test('property results validate the analyzed snapshot and refuse incompatible or stale graphs', async () => {
+  const shown = document('doc-properties', 1)
+  shown.document.atoms = [atomWith('a1', 'C', 0, 0)]
+  const result = {
+    envelope: 'operation_result', contract: 1, outcome: 'ok', model_id: 'chemifree-properties-1',
+    document_revision: 1, loss_report: [],
+    result: {
+      snapshot: { document: shown.document, session: shown.session, recovery: null },
+      scope: 'molecule', property: 'formula', selection: null, display_decimals: 0,
+      valence_model: 'chemifree-valence-2', arithmetic: 'binary64', data: null, valence_warnings: [],
+      components: [{ atoms: ['a1'], formula: 'CH4', formal_charge: 0, mass: null, isotope_distribution: null, omitted_abundances: [], abundance_sums: [] }],
+    },
+  }
+  const legacy = structuredClone(result)
+  legacy.result.display_decimals = 2
+  const invalid = structuredClone(result)
+  invalid.result.components[0].atoms = ['a1', 'a1']
+  service({ '/api/v1/operations': [() => json(200, result), () => json(200, legacy), () => json(200, invalid)] })
+  const client = new DocumentClient()
+  const inspection = await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)
+  assert.equal(inspection.components[0].formula, 'CH4')
+  assert.equal(inspection.display_decimals, 0)
+  assert.equal((await client.inspectProperties('doc-properties', 'molecule', 'formula', null, null)).display_decimals, 2, 'earlier numeric formula replies remain readable')
+  assert.equal(samePropertySnapshot(shown.document, inspection.snapshot), true)
+  const replaced = { ...shown.document, atoms: [atomWith('a1', 'O', 0, 0)] }
+  assert.equal(samePropertySnapshot(replaced, inspection.snapshot), false, 'same ID and revision cannot hide different atom content')
+  assert.equal(samePropertySnapshot({ ...shown.document, scene: { changed: true } }, inspection.snapshot), false)
+  await assert.rejects(client.inspectProperties('doc-properties', 'molecule', 'formula', null, null), { code: 'incompatible_response' })
+})
+
+test('aromaticity inspection checks the returned snapshot and its ring references', async () => {
+  const shown = document('ring-doc', 1)
+  shown.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 1, 0), atomWith('a3', 'C', 0, 1)]
+  shown.document.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3'), bondWith('b3', 'a3', 'a1')]
+  const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 1,
+    model_id: 'chemifree-aromaticity-1', result: { snapshot: { document: shown.document, session: shown.session, recovery: null },
+      systems: [{ atoms: ['a1', 'a2', 'a3'], bonds: ['b1', 'b2', 'b3'], cycle_rank: 1, classification: 'non_aromatic', electrons: 3, reason: 'electron_count' }] } }
+  const invalid = structuredClone(reply)
+  invalid.result.systems[0].bonds[0] = 'b99'
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, invalid)] })
+  const client = new DocumentClient()
+  const result = await client.inspectAromaticity('ring-doc')
+  assert.equal(result.systems[0].classification, 'non_aromatic')
+  assert.equal(sameInspectionSnapshot(shown.document, result.snapshot), true)
+  await assert.rejects(client.inspectAromaticity('ring-doc'), { code: 'analysis_unavailable' })
+})
+
+test('aromaticity conversion exposes a model refusal rather than a document', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', diagnostics: [{ code: 'invalid_command', message: 'Conversion refused', details: { reason: 'aromatic_bond_outside_ring' } }] })] })
+  const selection = { atoms: [], bonds: [], objects: [] }
+  await assert.rejects(new DocumentClient().convertAromaticity('ring-doc', 1, 'kekule', selection),
+    { code: 'invalid_command', stateReason: 'aromatic_bond_outside_ring' })
+})
+
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
 function recorded() {
   return {
@@ -1550,6 +1604,14 @@ function preferences(overrides = {}) {
 
 test('a preferences reply is checked whole, computation included', () => {
   assert.ok(isPreferencesResponse(preferences()))
+  const withMass = (decimals) => preferences({ computation: {
+    ...preferences().computation,
+    mass_precision: { status: 'available', owner: 'preferences', decimals },
+  } })
+  assert.ok(isPreferencesResponse(withMass(0)))
+  assert.ok(isPreferencesResponse(withMass(8)))
+  assert.equal(isPreferencesResponse(withMass(9)), false)
+  assert.equal(isPreferencesResponse(withMass(1.5)), false)
   for (const [name, bad] of [
     ['an unknown theme', preferences({ ui: { theme: 'sepia' } })],
     ['a negative revision', preferences({ revision: -1 })],
@@ -1742,4 +1804,43 @@ test('new-document preferences are built from the latest preferences and store w
   assert.deepEqual(preferenceStep(latest, 'bond_length_pt', 1), { ui: { theme: 'dark' }, new_documents: { bond_length_pt: 41 } })
   const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
   assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
+})
+
+
+test('an unanswered import reuses the request ID against the same service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, format: 'mol', source: 'source', record: 1, digest: 'a'.repeat(64) }
+  await assert.rejects(client.importCt(input), { code: 'unreachable' })
+  const result = await client.importCt(input)
+  assert.equal(result.document.revision, 1)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('conversion failures retain their record and line context', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null,
+    diagnostics: [{ code: 'data_line_too_long', message: 'Too long.', details: { record: 2, line: 13 } }], loss_report: [] })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewCt('doc-1', 0, 'sdf', 'source', 1), {
+    code: 'data_line_too_long', message: 'Too long. Record 2. Line 13.',
+  })
+})
+
+
+test('an import preview exposes the actual graph even when a revision is reused', async () => {
+  const actual = document('doc-1', 1)
+  actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [],
+    result: { selected_record: 1, preview_digest: 'a'.repeat(64), records: [{ title: '', atoms: [], bonds: [], fields: [] }],
+      snapshot: actual, document: actual.document } })] })
+  const client = new DocumentClient()
+  const preview = await client.previewCt('doc-1', 1, 'mol', 'source', 1)
+  const shown = structuredClone(preview.snapshot)
+  shown.atoms[0].element = 'C'
+  assert.equal(shown.id, preview.snapshot.id)
+  assert.equal(shown.revision, preview.snapshot.revision)
+  assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })

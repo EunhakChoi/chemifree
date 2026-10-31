@@ -118,6 +118,8 @@ const suffix = process.platform === 'win32' ? '.exe' : ''
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
+delete env.CHEMIFREE_MODEL_DATA_ROOT
+delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
 
 /**
  * Starts a process and resolves once its output matches `ready`. The match ignores terminal
@@ -312,6 +314,52 @@ results.preferences_read_can_be_retried = true
     assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused preview creates no drawing')
   }
 }
+// A preview from an unmounted picker cannot replace a newer file's preview.
+{
+  step = 'CDXML delayed preview after picker changes'
+  const first = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment></page></CDXML>'
+  const second = '<CDXML><page id="5"><fragment id="6"><n id="7" p="3 4" Element="8"/></fragment></page></CDXML>'
+  const before = (await api('/api/v1/documents')).documents.length
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'old.cdxml', mimeType: 'application/xml', buffer: Buffer.from(first) })
+  await page.getByLabel('Page and molecule').waitFor()
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  let finished
+  const responseFinished = new Promise((resolve) => { finished = resolve })
+  let intercepted = false
+  const holdPreview = async (route) => {
+    const request = route.request().postDataJSON()
+    if (intercepted || request?.operation !== 'document.import' || request.parameters?.mode !== 'preview') return route.continue()
+    intercepted = true
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+    finished()
+  }
+  await page.route('**/api/v1/operations', holdPreview)
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  await responseArrived
+  await page.getByRole('button', { name: 'New document' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await page.getByRole('button', { name: 'Close document' }).click()
+  await page.getByText('No document open').waitFor()
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'new.cdxml', mimeType: 'application/xml', buffer: Buffer.from(second) })
+  await page.getByLabel('Page and molecule').waitFor()
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  const currentPreview = page.getByTestId('cdxml-preview')
+  await currentPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  release()
+  await responseFinished
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+  await currentPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  assert.equal(await currentPreview.getByText('Preview: 1 atoms (C), 0 bonds.').count(), 0)
+  assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'only the deliberately created document exists')
+  await page.unroute('**/api/v1/operations', holdPreview)
+  results.cdxml_delayed_preview_is_stale = true
+}
 results.cdxml_projection_with_loss_consent = true
 results.cdxml_unsafe_projection_refused = true
 
@@ -357,17 +405,63 @@ assert.ok(Math.abs(Math.hypot(a4.position.x - a3pos.x, a4.position.y - a3pos.y) 
 results.add_atoms_and_bonds = true
 step = 'after add_atoms_and_bonds'
 
+// The property panel reads the same graph without editing it, and invalidates an answer
+// when that graph changes. The service has no external mass data in this smoke run.
+const properties = page.getByRole('region', { name: 'Molecular properties' })
+const beforeFormula = await openDoc()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+assert.deepEqual(await openDoc(), beforeFormula, 'calculation does not change document or history')
+await properties.getByText('Method and data', { exact: true }).click()
+assert.equal(await properties.getByText(/display: .* decimal places/).count(), 0, 'formula does not claim a mass precision')
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+const propertyPreferences = page.getByRole('dialog', { name: 'Preferences' })
+await propertyPreferences.waitFor()
+let propertyPreferenceWrite = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/preferences' && response.request().method() === 'PUT')
+await propertyPreferences.getByLabel('Mass display decimal places').click()
+await page.getByRole('option', { name: '5', exact: true }).click()
+assert.equal((await propertyPreferenceWrite).status(), 200)
+await propertyPreferences.getByRole('button', { name: 'Done' }).click()
+await propertyPreferences.waitFor({ state: 'hidden' })
+assert.equal((await api('/api/v1/preferences')).computation.mass_precision.decimals, 5)
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+await properties.getByText('Method and data', { exact: true }).click()
+assert.equal(await properties.getByText(/display: .* decimal places/).count(), 0, 'a new formula also has no mass precision')
+await properties.screenshot({ path: join(outDir, 'editor-properties.png') })
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+await propertyPreferences.waitFor()
+propertyPreferenceWrite = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences/reset'))
+await propertyPreferences.getByRole('button', { name: 'Reset preferences' }).click()
+assert.equal((await propertyPreferenceWrite).status(), 200)
+await propertyPreferences.getByRole('button', { name: 'Done' }).click()
+await propertyPreferences.waitFor({ state: 'hidden' })
+
 // Atom tool: O element, click a4 to relabel it.
 await page.getByRole('button', { name: 'Element O' }).click()
+await canvas.scrollIntoViewIfNeeded()
 let a4s = await atomScreen(doc, 'a4')
 await page.mouse.click(a4s.x, a4s.y)
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.find((atom) => atom.id === 'a4').element, 'O')
 await page.locator('[data-atom-label="a4"]').waitFor()
+assert.equal(await properties.getByTestId('properties-result').count(), 0, 'a changed graph hides the earlier formula')
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C3H8O', { exact: false }).waitFor()
+await properties.getByLabel('Result').click()
+await page.getByRole('option', { name: 'Formula and mass', exact: true }).click()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByText('No selected, compatible external mass dataset is available.', { exact: true }).waitFor()
+await properties.getByLabel('Result').click()
+await page.getByRole('option', { name: 'Formula', exact: true }).click()
+results.property_formula_and_missing_data = true
 
 // Select a4, set charge and isotope in the inspector.
 await tool('Select and move')
+await canvas.scrollIntoViewIfNeeded()
+a4s = await atomScreen(doc, 'a4')
 await page.mouse.click(a4s.x, a4s.y)
 await page.getByRole('heading', { name: 'Atom a4' }).waitFor()
 await page.getByRole('button', { name: 'Decrease charge' }).click()
@@ -1555,16 +1649,18 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '11 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '14 of 23 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19']]) {
-  const row = operationRow(id)
-  assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
-  assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
+assert.equal(await operationRow('chem.properties').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.properties/formula').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution']) {
+  assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'requires_data', `${id} needs compatible data`)
 }
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2421,9 +2517,14 @@ step = 'after scene_group_and_queued_delete_selection'
   await prefs.getByLabel('Theme').click()
   await page.getByRole('option', { name: 'Dark', exact: true }).click()
   assert.equal((await written).status(), 200)
+  written = preferenceWrite()
+  await prefs.getByLabel('Mass display decimal places').click()
+  await page.getByRole('option', { name: '5', exact: true }).click()
+  assert.equal((await written).status(), 200)
   await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
   const stored = await api('/api/v1/preferences')
   assert.deepEqual([stored.ui.theme, stored.new_documents], ['dark', { label_font: 'monospace' }])
+  assert.equal(stored.computation.mass_precision.decimals, 5)
   await prefs.getByRole('button', { name: 'Done' }).click()
   await prefs.waitFor({ state: 'hidden' })
   assert.deepEqual((await styledDoc()).settings, edited, 'preferences never change an open document')
@@ -2452,6 +2553,7 @@ step = 'after scene_group_and_queued_delete_selection'
   await prefs.getByRole('button', { name: 'Done' }).click()
   await prefs.waitFor({ state: 'hidden' })
   assert.deepEqual((await api('/api/v1/preferences')).new_documents, {})
+  assert.equal((await api('/api/v1/preferences')).computation.mass_precision.decimals, 2)
 }
 results.document_style_and_preferences = true
 step = 'after document_style_and_preferences'
@@ -2539,6 +2641,173 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByText('a1: valid; hydrogens 2', { exact: true }).waitFor()
   await page.screenshot({ path: join(outDir, 'editor-valence.png') })
   results.valence_snapshot_after_restart = true
+}
+
+// A verified export response can arrive after an editor transaction has completed. Its
+// bytes belong to the older drawing and must not trigger a download of that stale preview.
+{
+  step = 'MOL export delayed response after edit'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-export-race-create', title: 'Export race' })
+  const id = created.body.document.id
+  const carbon = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-export-race-carbon', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }],
+  })
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const holdExport = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.export') return route.continue()
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdExport)
+  let downloads = 0
+  const countDownload = () => { downloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await responseArrived
+  await tool('Select and move')
+  const position = await atomScreen(carbon.body, 'a1')
+  await page.mouse.click(position.x, position.y)
+  const edit = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  assert.equal((await edit).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const settled = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    panel.getByText('The export preview changed. Preview the export again.', { exact: true }).waitFor().then(() => 'refused'),
+  ])
+  release()
+  assert.equal(await settled, 'refused', 'a stale verified export is refused after the edit')
+  assert.equal(downloads, 0, 'an export from before the edit is not downloaded')
+  await page.unroute('**/api/v1/operations', holdExport)
+  page.off('download', countDownload)
+  results.ctfile_export_response_race = true
+}
+
+// Import previews a selected record and its losses before one atomic edit. Export gives a
+// separate preview and download containing the resulting graph.
+{
+  step = 'MOL preview, import and export'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-browser-create', title: 'CT browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  const mol = 'Carbon\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n' +
+    '    0.0000    1.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n'
+  await panel.getByLabel('Import file').setInputFiles({ name: 'carbon.mol', mimeType: 'text/plain', buffer: Buffer.from(mol) })
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
+  await panel.getByText(/does not replace its title/).waitFor()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(imported.document.atoms.map((atom) => [atom.element, atom.position.x, atom.position.y]), [['C', 0, -20]])
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByText(/Native atom and bond IDs/).waitFor()
+  const downloadPromise = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  const download = await downloadPromise
+  const path = join(work, 'ct-browser.mol')
+  await download.saveAs(path)
+  const written = readFileSync(path, 'utf8')
+  assert.match(written, /V2000/)
+  assert.match(written, /M  END/)
+
+  // The page still shows the imported carbon at revision 1. A restarted service can reuse
+  // that revision for a different unsaved graph. First check an old export cannot download;
+  // then the refreshed token must not make the oxygen snapshot look like the carbon preview.
+  await crashApi()
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-browser-replacement', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(replacement.body.document.revision, 1)
+  assert.equal(replacement.body.document.atoms[0].element, 'O')
+  let extraDownloads = 0
+  const countDownload = () => { extraDownloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await panel.getByText(/The local service restarted/).waitFor()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
+  assert.equal(extraDownloads, 0, 'an old export is not downloaded after restart')
+  page.off('download', countDownload)
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('The service previewed a different drawing. Reload and preview again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
+  results.ctfile_preview_import_export = true
+}
+
+// Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
+{
+  const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })
+  const id = created.body.document.id
+  const commands = []
+  for (let i = 0; i < 6; i += 1) commands.push({ op: 'add_atom', element: 'C', position: { x: 40 * Math.cos(i * Math.PI / 3), y: 40 * Math.sin(i * Math.PI / 3) } })
+  for (let i = 0; i < 6; i += 1) commands.push({ op: 'add_bond', begin: `$${i}`, end: `$${(i + 1) % 6}`, order: i % 2 === 0 ? 'double' : 'single' })
+  const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-draw', expected_revision: 0, commands })
+  assert.equal(drawn.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('region', { name: 'Rings and aromaticity' })
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, drawn.body.document, 'inspection leaves every recorded bond unchanged')
+  await crashApi()
+  const identical = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-identical', expected_revision: 0, commands })
+  assert.equal(identical.status, 200)
+  assert.deepEqual(identical.body.document, drawn.body.document, 'the restarted service recreated the same ID, revision and graph')
+  const valencePanel = page.getByRole('complementary', { name: 'Valence inspection' })
+  await valencePanel.getByRole('button', { name: 'Inspect valence' }).click()
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('aromaticity-result').count(), 0, 'a restart invalidates even an identical snapshot')
+  const afterValence = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterValence.document, identical.body.document, 'the restart check does not change the drawing')
+  assert.equal(afterValence.session.undo_depth, identical.body.session.undo_depth, 'the restart check does not change history')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  await crashApi()
+  const replacementCommands = commands.map((command, index) => index === 0 ? { ...command, element: 'N' } : command)
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-replacement', expected_revision: 0, commands: replacementCommands })
+  assert.equal(replacement.status, 200)
+  assert.equal(replacement.body.document.revision, drawn.body.document.revision, 'the restarted service reused the revision')
+  await tool('Select and move')
+  await canvas.scrollIntoViewIfNeeded()
+  const oldAtom = await atomScreen(drawn.body, 'a1')
+  await page.mouse.click(oldAtom.x, oldAtom.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await page.getByText('Local service restarted', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('aromaticity-result').count(), 0, 'the old same-revision result is hidden')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  const convertedReply = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postData()?.includes('chem.aromaticity_convert'))
+  await panel.getByRole('button', { name: 'Convert to aromatic' }).click()
+  assert.equal((await convertedReply).status(), 200)
+  await waitIdle()
+  assert.ok((await api(`/api/v1/documents/${id}`)).document.bonds.every((bond) => bond.order === 'aromatic'))
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await waitIdle()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document.bonds, replacement.body.document.bonds, 'one undo restores the original Kekulé bonds')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/6 π electrons/).waitFor()
+  await page.screenshot({ path: join(outDir, 'editor-aromaticity.png') })
+  results.aromaticity_inspection_and_atomic_conversion = true
 }
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.
