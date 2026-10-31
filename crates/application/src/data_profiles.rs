@@ -87,6 +87,8 @@ pub enum ProfileRecords {
     Phase4Nmr(Box<crate::phase4_nmr::NmrCarriers>),
     /// Catalog-bound CMR records with their exact raw bytes and number lexemes.
     Phase4Cmr(Box<crate::phase4_cmr::CmrData>),
+    /// Declarative naming inputs and producer reports, without a naming engine.
+    Phase4Declarative(Box<crate::phase4_declarative::DeclarativeData>),
 }
 
 #[derive(PartialEq)]
