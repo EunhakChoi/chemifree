@@ -286,7 +286,7 @@ results.preferences_read_can_be_retried = true
   await page.getByLabel('Page and molecule').selectOption('1')
   await page.getByRole('button', { name: 'Preview import' }).click()
   const preview = page.getByTestId('cdxml-preview')
-  await preview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  await preview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
   await preview.getByText(/#7 → a1/).waitFor()
   await preview.getByText(/not represented in the editor projection/i).first().waitFor()
   await preview.locator('..').screenshot({ path: join(outDir, 'editor-cdxml-preview.png') })
@@ -318,7 +318,7 @@ results.preferences_read_can_be_retried = true
   await page.getByLabel('CDXML or CDX file').setInputFiles({ name: 'oxygen.cdx', mimeType: 'application/octet-stream', buffer: cdx })
   await page.getByRole('button', { name: 'Preview import' }).click()
   const binaryPreview = page.getByTestId('cdxml-preview')
-  await binaryPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  await binaryPreview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
   await binaryPreview.locator('..').screenshot({ path: join(outDir, 'editor-cdx-preview.png') })
   const binaryCreated = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
     response.request().postDataJSON()?.parameters?.format === 'cdx' && response.request().postDataJSON()?.parameters?.mode === 'create')
@@ -364,12 +364,12 @@ results.preferences_read_can_be_retried = true
   await page.getByLabel('Page and molecule').waitFor()
   await page.getByRole('button', { name: 'Preview import' }).click()
   const currentPreview = page.getByTestId('cdxml-preview')
-  await currentPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  await currentPreview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
   release()
   await responseFinished
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
-  await currentPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
-  assert.equal(await currentPreview.getByText('Preview: 1 atoms (C), 0 bonds.').count(), 0)
+  await currentPreview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
+  assert.equal(await currentPreview.getByText('Preview: 1 atom (C), 0 bonds.').count(), 0)
   assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'only the deliberately created document exists')
   await page.unroute('**/api/v1/operations', holdPreview)
   results.cdxml_delayed_preview_is_stale = true
