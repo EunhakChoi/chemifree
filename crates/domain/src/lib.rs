@@ -4,6 +4,7 @@ pub mod chemistry;
 pub mod data;
 pub mod document;
 pub mod element;
+pub mod interchange;
 pub mod operation;
 pub mod scene;
 pub mod settings;
