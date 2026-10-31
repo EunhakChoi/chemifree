@@ -76,7 +76,12 @@ fn discarded_graphic_reports_unknown_binary_content() {
         "document.export",
         json!({"format":"cdx","document":read["result"]["document"],"original":source}),
     );
-    assert_eq!(STANDARD.decode(write["result"]["content"].as_str().unwrap()).unwrap(), bytes);
+    assert_eq!(
+        STANDARD
+            .decode(write["result"]["content"].as_str().unwrap())
+            .unwrap(),
+        bytes
+    );
     let preview = call(
         &app,
         "unknown-graphic-preview",
@@ -84,10 +89,28 @@ fn discarded_graphic_reports_unknown_binary_content() {
         json!({"mode":"preview","format":"cdx","source":source,"title":"Binary","page_id":1,"fragment_id":2}),
     );
     let losses = preview["loss_report"].as_array().unwrap();
-    assert!(losses.iter().any(|loss| loss["feature"] == "graphic" && loss["semantic_impact"] == "rendering"));
-    assert!(losses.iter().any(|loss| loss["feature"] == "unprojected_property" && loss["semantic_impact"] == "unknown"));
-    assert!(losses.iter().any(|loss| loss["feature"] == "opaque_object" && loss["semantic_impact"] == "unknown"));
-    assert!(app.list_documents(&Default::default()).unwrap().documents.is_empty());
+    assert!(
+        losses
+            .iter()
+            .any(|loss| loss["feature"] == "graphic" && loss["semantic_impact"] == "rendering")
+    );
+    assert!(
+        losses
+            .iter()
+            .any(|loss| loss["feature"] == "unprojected_property"
+                && loss["semantic_impact"] == "unknown")
+    );
+    assert!(
+        losses
+            .iter()
+            .any(|loss| loss["feature"] == "opaque_object" && loss["semantic_impact"] == "unknown")
+    );
+    assert!(
+        app.list_documents(&Default::default())
+            .unwrap()
+            .documents
+            .is_empty()
+    );
 }
 
 #[test]
