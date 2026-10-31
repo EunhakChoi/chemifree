@@ -38,6 +38,73 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
+    pub(super) fn set_identity(&mut self, dataset_id: &str, dataset_version: &str) {
+        let mut manifest: Value = serde_json::from_slice(&self.manifest).unwrap();
+        manifest["dataset_id"] = dataset_id.into();
+        manifest["dataset_version"] = dataset_version.into();
+        let mut review: Value = serde_json::from_slice(&self.review).unwrap();
+        review["dataset_id"] = dataset_id.into();
+        review["dataset_version"] = dataset_version.into();
+        self.manifest = serde_json::to_vec(&manifest).unwrap();
+        self.review = serde_json::to_vec(&review).unwrap();
+        let identity = validate_active_manifest(&self.manifest).unwrap();
+        self.trust.dataset_id = dataset_id.into();
+        self.trust.dataset_version = dataset_version.into();
+        self.trust.manifest_sha256 = identity.canonical_sha256;
+        self.trust.manifest_file_sha256 = identity.exact_sha256;
+        self.trust.review_sha256 = hash(&self.review);
+    }
+
+    pub(super) fn load_layout(
+        &self,
+        reader: crate::layout_data_binding::LayoutReader,
+    ) -> Result<PersonalDataset, ActiveDataError> {
+        let registry_hash = hash(&self.registry);
+        let profile_hash = hash(&self.profile);
+        let identity = phase6_profiles::CatalogIdentity {
+            dataset_id: &self.trust.dataset_id,
+            dataset_version: &self.trust.dataset_version,
+            registry_sha256: &registry_hash,
+            profile_sha256: &profile_hash,
+            manifest_file_sha256: &self.trust.manifest_file_sha256,
+        };
+        let files = ProfileIdentityFiles {
+            registry: &self.registry,
+            profile: &self.profile,
+        };
+        load_personal_impl_selected(
+            &self.source,
+            &self.trust,
+            &self.manifest,
+            &self.review,
+            CONTEXT,
+            LoadOptions {
+                metadata: Some(&files),
+                review_trust: ReviewTrust::SyntheticCatalog((&identity).into()),
+                layout_reader: Some(reader),
+            },
+        )
+    }
+
+    pub(super) fn load_layout_production(
+        &self,
+        reader: crate::layout_data_binding::LayoutReader,
+    ) -> Result<PersonalDataset, ActiveDataError> {
+        let files = ProfileIdentityFiles {
+            registry: &self.registry,
+            profile: &self.profile,
+        };
+        load_personal_layout_dataset(
+            &self.source,
+            &self.trust,
+            &self.manifest,
+            &self.review,
+            CONTEXT,
+            &files,
+            reader,
+        )
+    }
+
     pub(super) fn load(&self) -> Result<PersonalDataset, ActiveDataError> {
         let registry_hash = hash(&self.registry);
         let profile_hash = hash(&self.profile);

@@ -246,6 +246,7 @@ pub fn validate_model_binding(
             || matches!(
                 &dataset.records,
                 ProfileRecords::PreparedXlogp(_)
+                    | ProfileRecords::LayoutContours(_)
                     | ProfileRecords::NamingPatterns(_)
                     | ProfileRecords::NamingLexicon(_)
                     | ProfileRecords::NicknameData(_)
@@ -386,6 +387,7 @@ fn load_personal_impl(
 #[derive(Clone, Copy)]
 enum SelectedProfile {
     Phase7(DataProfile),
+    Layout(crate::layout_data_binding::LayoutReader),
     Phase6(phase6_profiles::Profile),
     NamingLabels,
     NamingLexicon,
@@ -795,7 +797,11 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
         }
     };
     let (profile, family, path) = phase7;
-    if manifest.family_id != family
+    if (profile == DataProfile::ElementEndpoint
+        && (manifest.dataset_id != "legacy-naming-element-priority-endpoint-operands"
+            || manifest.dataset_version
+                != "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc"))
+        || manifest.family_id != family
         || manifest.files.len() != 1
         || manifest.feature_schema_sha256.is_some()
     {
@@ -812,6 +818,58 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
     Ok(SelectedProfile::Phase7(profile))
 }
 
+fn select_layout_profile(
+    manifest: &Manifest,
+    reader: crate::layout_data_binding::LayoutReader,
+) -> Result<SelectedProfile, ActiveDataError> {
+    use crate::layout_data_binding::LayoutReader;
+    if manifest.files.len() != 1
+        || !manifest.files[0].required
+        || manifest.feature_schema_sha256.is_some()
+        || !matches!(
+            manifest.files[0].declared_content_class.as_str(),
+            "declarative_data" | "model_parameters" | "document_resource"
+        )
+        || (reader == LayoutReader::LargeTwentySeed
+            && (manifest.dataset_id != "legacy-drawing-ring-large-seed-operands"
+                || manifest.dataset_version
+                    != "sha256-set-e0313b4ee9f29cd9283a2947b72366d342320e751b340a39690588a3ffaf1993"))
+    {
+        return Err(ActiveDataError::ProfileUnsupported);
+    }
+    Ok(SelectedProfile::Layout(reader))
+}
+
+struct LoadOptions<'a> {
+    metadata: Option<&'a ProfileIdentityFiles<'a>>,
+    review_trust: ReviewTrust,
+    layout_reader: Option<crate::layout_data_binding::LayoutReader>,
+}
+
+/// Load the host-selected layout role after checking separate metadata anchors.
+pub(crate) fn load_personal_layout_dataset(
+    source: &dyn DataSource,
+    trust: &TrustedPersonalRegistration,
+    manifest: &[u8],
+    review: &[u8],
+    context: &[u8],
+    files: &ProfileIdentityFiles<'_>,
+    reader: crate::layout_data_binding::LayoutReader,
+) -> Result<PersonalDataset, ActiveDataError> {
+    load_personal_impl_selected(
+        source,
+        trust,
+        manifest,
+        review,
+        context,
+        LoadOptions {
+            metadata: Some(files),
+            review_trust: ReviewTrust::Production,
+            layout_reader: Some(reader),
+        },
+    )
+}
+
 fn load_personal_impl_with_metadata(
     source: &dyn DataSource,
     trust: &TrustedPersonalRegistration,
@@ -821,6 +879,33 @@ fn load_personal_impl_with_metadata(
     metadata: Option<&ProfileIdentityFiles<'_>>,
     review_trust: ReviewTrust,
 ) -> Result<PersonalDataset, ActiveDataError> {
+    load_personal_impl_selected(
+        source,
+        trust,
+        manifest_bytes,
+        review_bytes,
+        context,
+        LoadOptions {
+            metadata,
+            review_trust,
+            layout_reader: None,
+        },
+    )
+}
+
+fn load_personal_impl_selected(
+    source: &dyn DataSource,
+    trust: &TrustedPersonalRegistration,
+    manifest_bytes: &[u8],
+    review_bytes: &[u8],
+    context: &[u8],
+    options: LoadOptions<'_>,
+) -> Result<PersonalDataset, ActiveDataError> {
+    let LoadOptions {
+        metadata,
+        review_trust,
+        layout_reader,
+    } = options;
     let (manifest, identity) = parse_manifest(manifest_bytes)?;
     if trust.registration_id.is_empty()
         || identity.exact_sha256 != trust.manifest_file_sha256
@@ -833,7 +918,10 @@ fn load_personal_impl_with_metadata(
     {
         return Err(ActiveDataError::RegistrationMismatch);
     }
-    let selected = select_profile(&manifest)?;
+    let selected = match layout_reader {
+        Some(reader) => select_layout_profile(&manifest, reader)?,
+        None => select_profile(&manifest)?,
+    };
     if metadata.is_some() && matches!(selected, SelectedProfile::Phase7(_)) {
         return Err(ActiveDataError::ProfileUnsupported);
     }
@@ -903,6 +991,10 @@ fn load_personal_impl_with_metadata(
         payloads.push((file.relative_path.as_str(), bytes));
     }
     let records = match selected {
+        SelectedProfile::Layout(reader) => ProfileRecords::LayoutContours(Box::new(
+            crate::layout_data_binding::decode_selected(reader, &payloads[0].1)
+                .map_err(|_| ActiveDataError::ContentInvalid)?,
+        )),
         SelectedProfile::Phase7(profile) => {
             decode_profile(profile, &payloads[0].1).map_err(|_| ActiveDataError::ContentInvalid)?
         }
@@ -1098,6 +1190,10 @@ fn verify_catalog(
     proof: &ProfileIdentityFiles<'_>,
 ) -> Result<(), ActiveDataError> {
     match selected {
+        SelectedProfile::Layout(reader) => {
+            crate::layout_data_binding::verify_identity(reader, proof.registry, proof.profile)
+                .map_err(|_| ActiveDataError::RegistrationMismatch)
+        }
         SelectedProfile::Phase6(profile) => profile
             .verify_files(
                 &manifest.dataset_id,
@@ -1590,7 +1686,7 @@ mod tests {
         };
         let data_hash = hash(&source.bytes);
         let manifest = json!({
-            "manifest_version": 1, "dataset_id": "synthetic-endpoint", "dataset_version": "1",
+            "manifest_version": 1, "dataset_id": "legacy-naming-element-priority-endpoint-operands", "dataset_version": "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc",
             "family_id": "naming-element-rank-endpoint-operands", "format_profile_id": "private-naming-element-endpoint-v1",
             "independent_engine_contract_id": "synthetic-contract", "source_category": "independent_synthetic",
             "files": [{"file_id": "endpoint", "relative_path": "normalized/element-order-a-hydrogen.jsonl", "sha256": data_hash, "bytes": source.bytes.len(), "role": "dictionary_entries", "required": true, "declared_content_class": "declarative_data"}],
@@ -1599,7 +1695,7 @@ mod tests {
         });
         let manifest = serde_json::to_vec(&manifest).unwrap();
         let review = json!({
-            "review_version": 2, "review_id": "fixture-review", "dataset_id": "synthetic-endpoint", "dataset_version": "1",
+            "review_version": 2, "review_id": "fixture-review", "dataset_id": "legacy-naming-element-priority-endpoint-operands", "dataset_version": "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc",
             "context_id": "personal-local-user-attested-v1", "context_sha256": hash(CONTEXT),
             "approval_basis": "user_attested_personal_permission", "attestation_reference_id": "fixture-only",
             "authorization_status": "approved_personal_local", "source_registry_binding_id": "fixture-registry",
@@ -1611,8 +1707,9 @@ mod tests {
         let trust = TrustedPersonalRegistration {
             registration_id: "fixture-registration".into(),
             generation: 3,
-            dataset_id: "synthetic-endpoint".into(),
-            dataset_version: "1".into(),
+            dataset_id: "legacy-naming-element-priority-endpoint-operands".into(),
+            dataset_version:
+                "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc".into(),
             family_id: "naming-element-rank-endpoint-operands".into(),
             profile_id: "private-naming-element-endpoint-v1".into(),
             engine_contract_id: "synthetic-contract".into(),
@@ -1625,6 +1722,53 @@ mod tests {
             private_root_binding_id: "fixture-root".into(),
         };
         (source, trust, manifest, review)
+    }
+
+    fn reject_endpoint_identity(dataset_id: &str, dataset_version: &str) {
+        let (source, mut trust, manifest, mut review) = synthetic_registration();
+        let mut unrelated: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
+        unrelated["dataset_id"] = dataset_id.into();
+        unrelated["dataset_version"] = dataset_version.into();
+        let unrelated = serde_json::to_vec(&unrelated).unwrap();
+        trust.dataset_id = dataset_id.into();
+        trust.dataset_version = dataset_version.into();
+        trust.manifest_sha256 = validate_active_manifest(&unrelated)
+            .unwrap()
+            .canonical_sha256;
+        trust.manifest_file_sha256 = hash(&unrelated);
+        review["dataset_id"] = trust.dataset_id.clone().into();
+        review["dataset_version"] = trust.dataset_version.clone().into();
+        let review = serde_json::to_vec(&review).unwrap();
+        trust.review_sha256 = hash(&review);
+
+        match load_personal_impl(
+            &source,
+            &trust,
+            &unrelated,
+            &review,
+            CONTEXT,
+            ReviewTrust::SyntheticFixture,
+        ) {
+            Ok(_) => panic!("the unrelated trusted dataset was accepted"),
+            Err(error) => assert_eq!(error, ActiveDataError::ProfileUnsupported),
+        }
+        assert_eq!(source.reads.get(), 0);
+    }
+
+    #[test]
+    fn endpoint_profile_rejects_an_unrelated_trusted_dataset_id() {
+        reject_endpoint_identity(
+            "unrelated-fixture",
+            "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc",
+        );
+    }
+
+    #[test]
+    fn endpoint_profile_rejects_an_unrelated_trusted_dataset_version() {
+        reject_endpoint_identity(
+            "legacy-naming-element-priority-endpoint-operands",
+            "unrelated-version",
+        );
     }
 
     #[test]
@@ -2574,3 +2718,7 @@ mod phase4_nist_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_aqsoldb_tests.rs"]
 mod phase4_aqsoldb_tests;
+
+#[cfg(test)]
+#[path = "active_data/layout_tests.rs"]
+mod layout_tests;

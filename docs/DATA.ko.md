@@ -42,7 +42,7 @@ HELM, 템플릿 프레이밍, phase 4 명명 및 CMR 입력의 정수 필드는 
 
 `private-data-molnet-xlogp-100-f64-data-v1`은 manifest의 명시적인 두 file ID로 원시 800바이트와 정규화 100행을 짝지어 검증한다. 각 저장 인덱스와 원시 binary64 비트, 별도로 파싱한 JSON 숫자를 보존한다. phase 4의 빈 물리적 줄·CRLF·대문자 hex 허용 규칙을 따른다. 파일 배열 순서로 화학 feature를 추론하지 않으며 독립 분류기와 XLogP 모델은 미구현이다. 세 프로필 모두 개인 DATA 대신 독립 fixture로 검증했다.
 
-윤곽의 고정 158행·대형 고리 2행에 대한 독립 디코더는 binary64 원시 비트와 부호 있는 0을 보존하지만 아직 등록 프로필과 연결하지 않았다. 나머지 활성 DATA 프로필과 feature-schema·의존 모델이 있는 바인딩은 지원하지 않고 거절한다. 현재 활성 계약의 29개 데이터셋 전체를 읽는 로더가 완성된 것은 아니다. 공통 scalar 디코더는 U64, binary64 비트·단위, 원문 십진수와 ASCII·Latin-1 바이트 쌍을 보존하지만, 이를 제공하는 것만으로 다른 프로필의 등록이나 과학 계산이 구현된 것은 아니다.
+고정 윤곽 158행과 대형 고리 seed 2행은 호스트가 신뢰하는 등록에서 `layout_reader`를 각각 `fixed_contours` 또는 `large_twenty_seed`로 명시해야 한다. 두 역할 모두 원본 registry와 공개 schema의 고정 바이트 해시를 검증하며 대형 고리는 공개된 데이터셋 ID·버전과 두 operand ID, 20개 원소를 확인한다. binary64 원시 비트와 부호 있는 0 및 역할은 타입 값으로 보존한다. registry 해시 검증만으로 불투명한 aggregate registry에서 manifest의 소속을 증명하지 않으며, 그 연결과 권리는 별도 신뢰된 호스트 등록과 검토에 의존한다. 빈 행·중복 키·손상된 레코드는 거절하고 JSON Lines 마지막 개행은 선택이다. layout schema의 정수는 값이 정확히 정수인 소수·지수 표기도 허용한다. 레이아웃 엔진과 이 자료를 사용하는 모델 바인딩은 미구현이다. 다른 프로필의 정수 입력 경계와 의존 모델 바인딩은 추가 검증이 필요하다. 공통 scalar 디코더를 제공하는 것만으로 과학 계산이 구현된 것은 아니다.
 
 데이터 검증과 모델 실행은 별개다. 타입 값은 후속 application 계층에서 `DataRegistry::datasets`와 각 세대의 `records`로 읽을 수 있지만, 이를 사용할 화학 엔진은 없다. `prediction.evaluate`는 `model_unavailable`을 반환하며 결과를 만들지 않는다. 현재 코드에는 원본 실행 파일·벤더 엔진·개인 데이터·화학 모델 계수가 들어 있지 않다.
 
@@ -52,7 +52,7 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
 
 기술서는 독립적으로 정의한 로컬 선택 wrapper다. 공개 명세의 active-contract 원문이나 aggregate registry와 같은 파일 형식이라고 주장하지 않는다. `registry_version: 1`, `root_binding_id`, `registrations` 배열이 필요하다. 각 항목은 `manifest_path`, `review_path`(DATA 디렉터리 아래 상대 경로)와 `trust` 객체를 가진다. `trust`에는 `registration_id`, 정수 `generation`, `dataset_id`, `dataset_version`, `family_id`, `profile_id`, `engine_contract_id`, 정규화 `manifest_sha256`, 원문 `manifest_file_sha256`, 원문 `review_sha256`, `source_registry_binding_id`, `private_root_binding_id`가 필요하다. 모든 해시는 소문자 SHA-256 64자리이고 마지막 root ID는 wrapper의 root ID와 같아야 한다. 등록 기술서와 검토 기록의 신뢰성은 기술서를 선택한 호스트가 제공한다. 검증기는 데이터셋이 제공한 자기 주장으로 신뢰를 만들지 않는다.
 
-서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 열한 프로필과 phase 4의 열세 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 프로필은 이 두 필드를 사용하지 않는다.
+서로 다른 데이터셋에서 같은 상대 파일명을 쓸 수 있으므로 각 등록에 선택적으로 `data_root`를 지정한다. manifest의 payload 경로만 이 하위 디렉터리 기준으로 읽으며, `manifest_path`와 `review_path`는 선택한 DATA 디렉터리 기준이다. 하위 디렉터리도 파일 기술자로 열어 해당 등록의 모든 파일에 고정하고, 그 밖으로 나가는 심볼릭 링크를 거절한다. 이 보장을 제공하지 못하는 provider는 하위 디렉터리 등록을 거절한다. phase 6의 열한 프로필과 phase 4의 열세 프로필에는 `source_registry_path`와 `format_profile_path`도 함께 지정한다. 두 경로는 선택한 DATA 디렉터리 기준이며, 이 파일들의 바이트를 공개 형식 목록에 고정된 해시와 대조한다. 둘 중 하나만 있거나 안전하지 않은 상대 경로는 거절한다. 처음 세 phase 7 명명 프로필은 이 두 필드를 사용하지 않는다. 레이아웃 역할은 두 경로와 `layout_reader`를 모두 지정해야 한다.
 
 별도의 일반 JSON/JSONL 로더는 독립 fixture와 범용 타입 검증에 사용하며 과학 데이터 프로필을 활성화하지 않는다. 이 경로도 별도로 신뢰한 공개 manifest 원문 해시가 필요하다. manifest 자체의 `public` 표시나 자유 형식 권리 설명으로 허용 범위를 판단하지 않고, 개인 데이터를 이 일반 경로로 승인하지 않는다.
 
@@ -68,8 +68,8 @@ API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-regis
     "trust": {
       "registration_id": "local-registration",
       "generation": 1,
-      "dataset_id": "dataset-id-from-trusted-registry",
-      "dataset_version": "dataset-version-from-trusted-registry",
+      "dataset_id": "legacy-naming-element-priority-endpoint-operands",
+      "dataset_version": "sha256-set-e2083d6c9d2f0e780e171b83caf9d839688c53e25f470248544206bea79bb7bc",
       "family_id": "naming-element-rank-endpoint-operands",
       "profile_id": "private-naming-element-endpoint-v1",
       "engine_contract_id": "independent-contract-id",

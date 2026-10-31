@@ -12,6 +12,7 @@ mod draft_schedule;
 mod draft_writer;
 mod error;
 pub mod json;
+pub mod layout_data_binding;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;

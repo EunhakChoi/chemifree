@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use chemifree_domain::data;
 use serde::{Deserialize, Serialize};
 
+use crate::active_data::load_personal_layout_dataset;
+use crate::layout_data_binding::LayoutReader;
 use crate::{
     ActiveDataError, DataSource, PersonalDataset, ProfileIdentityFiles, ProfileRecords,
     TrustedPersonalRegistration, load_personal_dataset, load_personal_dataset_with_profile_files,
@@ -31,6 +33,8 @@ struct RegistryEntry {
     source_registry_path: Option<String>,
     #[serde(default)]
     format_profile_path: Option<String>,
+    #[serde(default)]
+    layout_reader: Option<LayoutReader>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -204,6 +208,7 @@ impl TrustedRegistry {
                     .as_deref()
                     .is_some_and(|path| data::check_relative_path(path).is_err())
                 || entry.source_registry_path.is_some() != entry.format_profile_path.is_some()
+                || entry.layout_reader.is_some() && entry.source_registry_path.is_none()
                 || entry.source_registry_path.as_deref().is_some_and(|path| {
                     data::check_relative_path(path).is_err() || data::has_executable_extension(path)
                 })
@@ -256,17 +261,29 @@ impl TrustedRegistry {
                         let profile = source
                             .read(profile_path, crate::MAX_MANIFEST_BYTES)
                             .map_err(|_| ActiveDataError::DataUnavailable)?;
-                        load_personal_dataset_with_profile_files(
-                            data_source,
-                            &entry.trust,
-                            &manifest,
-                            &review,
-                            context,
-                            &ProfileIdentityFiles {
-                                registry: &registry,
-                                profile: &profile,
-                            },
-                        )
+                        let files = ProfileIdentityFiles {
+                            registry: &registry,
+                            profile: &profile,
+                        };
+                        match entry.layout_reader {
+                            Some(reader) => load_personal_layout_dataset(
+                                data_source,
+                                &entry.trust,
+                                &manifest,
+                                &review,
+                                context,
+                                &files,
+                                reader,
+                            ),
+                            None => load_personal_dataset_with_profile_files(
+                                data_source,
+                                &entry.trust,
+                                &manifest,
+                                &review,
+                                context,
+                                &files,
+                            ),
+                        }
                     }
                     (None, None) => load_personal_dataset(
                         data_source,
@@ -327,6 +344,31 @@ mod tests {
     fn descriptor() -> serde_json::Value {
         let entry = json!({"trust": {"registration_id": "independent-fixture", "generation": 0, "dataset_id": "fixture", "dataset_version": "1", "family_id": "fixture", "profile_id": "fixture", "engine_contract_id": "fixture", "manifest_sha256": "0".repeat(64), "manifest_file_sha256": "0".repeat(64), "review_sha256": "0".repeat(64), "source_registry_binding_id": "fixture-registry", "private_root_binding_id": "fixture-root"}, "manifest_path": "manifest.json", "review_path": "review.json"});
         json!({"registry_version": 1, "root_binding_id": "fixture-root", "registrations": [entry]})
+    }
+
+    #[test]
+    fn selected_layout_role_requires_both_metadata_files_and_a_known_role() {
+        let mut value = descriptor();
+        let entry = &mut value["registrations"][0];
+        entry["layout_reader"] = "large_twenty_seed".into();
+        entry["source_registry_path"] = "catalog/registry.json".into();
+        entry["format_profile_path"] = "catalog/schema.json".into();
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+
+        let mut missing = value.clone();
+        missing["registrations"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("format_profile_path");
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&missing).unwrap()).is_err());
+        let mut no_metadata = value.clone();
+        let entry = no_metadata["registrations"][0].as_object_mut().unwrap();
+        entry.remove("source_registry_path");
+        entry.remove("format_profile_path");
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&no_metadata).unwrap()).is_err());
+        let mut unknown = value;
+        unknown["registrations"][0]["layout_reader"] = "unknown".into();
+        assert!(TrustedRegistry::parse(&serde_json::to_vec(&unknown).unwrap()).is_err());
     }
 
     #[test]
