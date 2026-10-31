@@ -30,8 +30,8 @@ fn typed_records_preserve_source_order_byte_pairs_and_separate_contexts() {
         rows.entries[0].graph.valence_override[0].explicit_valence(),
         Some(0)
     );
-    assert_eq!(rows.primary[0].partition, 0);
-    assert_eq!(rows.primary[1].partition, 1);
+    assert_eq!(rows.primary[0].partition.to_string(), "0");
+    assert_eq!(rows.primary[1].partition.to_string(), "1");
     assert!(rows.primary[1].divider_marker);
     assert!(rows.secondary[0].replacement.bytes.is_empty());
 }
@@ -91,9 +91,10 @@ fn record_shape_framing_and_latin1_pairs_are_not_interchangeable() {
         "\"source_file_offset\":18446744073709551615",
         1,
     );
+    let data = decode_dataset(&files(&overflow, PRIMARY, SECONDARY)).unwrap();
     assert_eq!(
-        decode_dataset(&files(&overflow, PRIMARY, SECONDARY)).err(),
-        Some(LexiconError::Inconsistent)
+        data.entries[0].source.file_offset.to_string(),
+        u64::MAX.to_string()
     );
     let unknown = PRIMARY.replacen("\"partition\":0", "\"partition\":0,\"extra\":0", 1);
     assert_eq!(

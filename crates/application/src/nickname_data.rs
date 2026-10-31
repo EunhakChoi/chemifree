@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use num_bigint::BigUint;
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
@@ -82,8 +83,11 @@ pub struct XmlNode {
 pub struct NicknameGraph {
     pub name: String,
     pub source_sha256: String,
-    pub source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_bytes: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub nodes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub bonds: u64,
     pub xml_tree: XmlNode,
 }
@@ -93,7 +97,8 @@ pub struct NicknameGraph {
 #[serde(deny_unknown_fields)]
 pub struct AlphabetEntry {
     pub alphabet: String,
-    pub source_ordinal_0based: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_ordinal_0based: BigUint,
     pub key: String,
     pub display_value: String,
     pub nickname_names: Vec<String>,
@@ -142,7 +147,7 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<NicknameData, NicknameE
             return Err(NicknameError::Record);
         }
         if !alphabet_keys.insert((entry.alphabet.as_str(), entry.key.as_str()))
-            || !alphabet_ordinals.insert((entry.alphabet.as_str(), entry.source_ordinal_0based))
+            || !alphabet_ordinals.insert((entry.alphabet.as_str(), &entry.source_ordinal_0based))
             || entry
                 .nickname_names
                 .iter()
@@ -182,7 +187,7 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<NicknameData, NicknameE
             let digest = format!("{:x}", Sha256::digest(bytes));
             let Some(index) = graphs.iter().enumerate().position(|(index, graph)| {
                 !used[index]
-                    && graph.source_bytes == bytes.len() as u64
+                    && graph.source_bytes == BigUint::from(bytes.len())
                     && graph.source_sha256 == digest
                     && graph.xml_tree.tail.is_none()
                     && same_xml_tree(&graph.xml_tree, xml.root_element())
@@ -355,9 +360,8 @@ fn decode_rows<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, NicknameErro
             if line.trim().is_empty() {
                 return Err(NicknameError::Framing);
             }
-            let value = json::parse_integer_zero_strict(line.as_bytes())
-                .map_err(|_| NicknameError::Record)?;
-            serde_json::from_value(value).map_err(|_| NicknameError::Record)
+            json::validate_raw_strict(line.as_bytes()).map_err(|_| NicknameError::Record)?;
+            serde_json::from_str(line).map_err(|_| NicknameError::Record)
         })
         .collect()
 }
