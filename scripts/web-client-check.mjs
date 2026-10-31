@@ -1726,3 +1726,26 @@ test('new-document preferences are built from the latest preferences and store w
   const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
   assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
 })
+
+
+test('an unanswered import reuses the request ID against the same service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, format: 'mol', source: 'source', record: 1, digest: 'a'.repeat(64) }
+  await assert.rejects(client.importCt(input), { code: 'unreachable' })
+  const result = await client.importCt(input)
+  assert.equal(result.document.revision, 1)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('conversion failures retain their record and line context', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null,
+    diagnostics: [{ code: 'data_line_too_long', message: 'Too long.', details: { record: 2, line: 13 } }], loss_report: [] })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewCt('doc-1', 0, 'sdf', 'source', 1), {
+    code: 'data_line_too_long', message: 'Too long. Record 2. Line 13.',
+  })
+})

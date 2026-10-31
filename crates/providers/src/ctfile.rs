@@ -566,7 +566,13 @@ fn parse_record(
             ));
         }
     }
-    let _property_count = number(counts, 30, 33, record, lines.line())?;
+    let property_count = number(counts, 30, 33, record, lines.line())?;
+    if !(0..=999).contains(&property_count) {
+        return Err(error("invalid_counts", record, lines.line(), "The obsolete property count must be nonnegative."));
+    }
+    if property_count != 0 && property_count != 999 {
+        losses.push(loss(record, ".counts.property_count", "obsolete_property_count", LossDisposition::Dropped, SemanticImpact::Document, "The obsolete count of property lines is not retained."));
+    }
     let mut atoms = Vec::with_capacity(atom_count);
     let mut masses = Vec::with_capacity(atom_count);
     for _ in 0..atom_count {
@@ -601,11 +607,27 @@ fn parse_record(
         let line = lines.next(record)?;
         ascii_line(line, record, lines.line())?;
         let parts: Vec<_> = line.split_whitespace().collect();
-        if parts.len() == 2
+        if line.starts_with("$$$$") {
+            return Err(error(
+                "missing_m_end",
+                record,
+                lines.line(),
+                "Record separator occurred before M END.",
+            ));
+        }
+        if parts.len() >= 2
             && parts[0].eq_ignore_ascii_case("M")
             && parts[1].eq_ignore_ascii_case("END")
         {
-            break;
+            if parts.len() == 2 {
+                break;
+            }
+            return Err(error(
+                "invalid_m_end",
+                record,
+                lines.line(),
+                "M END may contain only trailing whitespace.",
+            ));
         }
         let kind = parse_property(
             line,
@@ -679,6 +701,30 @@ fn valid_field_name(name: &str) -> bool {
         && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+// A DT-numbered field may be accompanied by a registry number in parentheses. Do not
+// mistake the contents of that registry number for the data-field identifier.
+fn has_dt_number(header: &str) -> bool {
+    let bytes = header.as_bytes();
+    let mut depth = 0_usize;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        match byte {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && byte.eq_ignore_ascii_case(&b'D') => {
+                let next = bytes.get(index + 1).copied();
+                let digit = bytes.get(index + 2).copied();
+                if next.is_some_and(|b| b.eq_ignore_ascii_case(&b'T'))
+                    && digit.is_some_and(|b| b.is_ascii_digit())
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 fn parse_data(
     lines: &mut Lines<'_>,
     record: usize,
@@ -709,11 +755,7 @@ fn parse_data(
             ));
         }
         let Some(start) = line.find('<') else {
-            let upper = line.to_ascii_uppercase();
-            let numbered = upper
-                .as_bytes()
-                .windows(3)
-                .any(|w| &w[..2] == b"DT" && w[2].is_ascii_digit());
+            let numbered = has_dt_number(line);
             return Err(error(
                 if numbered {
                     "unsupported_dt_field"
@@ -796,6 +838,9 @@ fn parse_data(
 
 impl CtCodec for V2000Codec {
     fn read(&self, format: CtFormat, input: &[u8]) -> Result<CtResult<Vec<CtRecord>>, CtError> {
+        if input.is_empty() {
+            return Err(error("empty_input", 1, None, "No MOL record was supplied."));
+        }
         if input.len() > MAX_BYTES {
             return Err(error("resource_limit", 1, None, "Input exceeds 4 MiB."));
         }

@@ -75,6 +75,7 @@ import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
+import { CtfilePanel } from '@/components/ctfile-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
@@ -712,6 +713,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
           <ValenceInspector document={document} editor={editor} />
+          <CtfilePanel key={document.id} document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>

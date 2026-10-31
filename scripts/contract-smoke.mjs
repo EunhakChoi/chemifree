@@ -963,6 +963,33 @@ try {
     assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
     const saved = await both((id) => request('op-save', 'document.save', { document_id: id, expected_revision: 1 }))
     assert.equal(saved.result.session.unsaved_changes, false)
+    const exported = await both((id) => request('op-export', 'document.export', {
+      format: 'mol', records: [{ document_id: id }],
+    }))
+    assert.equal(exported.outcome, 'partial')
+    assert.match(exported.result.content, /V2000/)
+    const preview = (id) => request('op-import-preview', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content, record: 1, preview: true,
+    })
+    const httpPreview = (await viaHttp(preview(httpDoc))).body
+    const cliPreview = await viaCli(preview(cliDoc))
+    assert.equal(httpPreview.outcome, 'ok')
+    assert.equal(cliPreview.outcome, 'ok')
+    assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
+    assert.deepEqual(httpPreview.result.records, cliPreview.result.records)
+    const commit = (id, digest) => request('op-import', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content,
+      record: 1, preview_digest: digest, accept_loss: true,
+    })
+    const httpImport = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    const cliImport = await viaCli(commit(cliDoc, cliPreview.result.preview_digest))
+    assert.equal(httpImport.document_revision, 2)
+    assert.equal(cliImport.document_revision, 2)
+    assert.deepEqual(httpImport.result.import_mapping, cliImport.result.import_mapping)
+    assert.deepEqual(httpImport.result.document.atoms, cliImport.result.document.atoms)
+    const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
+    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.

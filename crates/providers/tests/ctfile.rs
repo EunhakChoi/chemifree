@@ -216,3 +216,78 @@ fn writer_rejects_bad_later_records_without_returning_partial_bytes() {
         .unwrap_err();
     assert_eq!((error.code, error.record), ("invalid_bond", 2));
 }
+
+#[test]
+fn truncated_and_invalid_tables_fail_at_the_offending_record() {
+    let valid_first = format!("{MOL}$$$$\n");
+    let variants = [
+        ("\n\n".to_owned(), "truncated"),
+        ("Title\n\n\n  1".to_owned(), "truncated_counts"),
+        (
+            MOL.replace(
+                "    1.0000    0.0000    0.0000 O",
+                "    1.0000    0.0000    0.0000 Xx",
+            ),
+            "unsupported_atom",
+        ),
+        (
+            MOL.replace(
+                "    0.0000    0.0000    0.0000 C",
+                "       nan    0.0000    0.0000 C",
+            ),
+            "invalid_coordinate",
+        ),
+        (MOL.replace("  2  3  2  0", "  2  9  2  0"), "invalid_bond"),
+        (
+            MOL.replace("  2  3  2  0", "  2  3  5  0"),
+            "unsupported_bond",
+        ),
+        (MOL.replace("M  END\n", ""), "missing_m_end"),
+        (
+            MOL.replace("M  END", "M  CHG  1   9   1\nM  END"),
+            "invalid_property",
+        ),
+    ];
+    for (variant, expected) in variants {
+        let input = format!("{valid_first}{variant}$$$$\n");
+        let error = V2000Codec
+            .read(CtFormat::Sdf, input.as_bytes())
+            .unwrap_err();
+        assert_eq!((error.code, error.record), (expected, 2), "{variant:?}");
+    }
+}
+
+#[test]
+fn numbered_fields_and_registry_text_are_distinguished() {
+    let numbered = format!("{MOL}> (MD-123) dt42\nvalue\n\n$$$$\n");
+    assert_eq!(
+        V2000Codec
+            .read(CtFormat::Sdf, numbered.as_bytes())
+            .unwrap_err()
+            .code,
+        "unsupported_dt_field"
+    );
+    let registry_only = format!("{MOL}> (DT42)\nvalue\n\n$$$$\n");
+    assert_eq!(
+        V2000Codec
+            .read(CtFormat::Sdf, registry_only.as_bytes())
+            .unwrap_err()
+            .code,
+        "invalid_data_header"
+    );
+    let named = format!("{MOL}> (MD-123)<Label>FROM ARCHIVE\nvalue\n\n$$$$\n");
+    let result = V2000Codec.read(CtFormat::Sdf, named.as_bytes()).unwrap();
+    assert_eq!(
+        result.value[0].fields[0],
+        CtField {
+            name: "Label".into(),
+            value: "value".into()
+        }
+    );
+    assert!(
+        result
+            .losses
+            .iter()
+            .any(|item| item.feature == "data_header_metadata")
+    );
+}

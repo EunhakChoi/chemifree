@@ -2504,6 +2504,39 @@ step = 'after short_wide_bond_is_selectable'
   results.valence_snapshot_after_restart = true
 }
 
+// Import previews a selected record and its losses before one atomic edit. Export gives a
+// separate preview and download containing the resulting graph.
+{
+  step = 'MOL preview, import and export'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-browser-create', title: 'CT browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  const mol = 'Carbon\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n' +
+    '    0.0000    1.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n'
+  await panel.getByLabel('Import file').setInputFiles({ name: 'carbon.mol', mimeType: 'text/plain', buffer: Buffer.from(mol) })
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
+  await panel.getByText(/does not replace its title/).waitFor()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(imported.document.atoms.map((atom) => [atom.element, atom.position.x, atom.position.y]), [['C', 0, -20]])
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByText(/Native atom and bond IDs/).waitFor()
+  const downloadPromise = page.waitForEvent('download')
+  await panel.getByRole('link', { name: 'Download MOL' }).click()
+  const download = await downloadPromise
+  const path = join(work, 'ct-browser.mol')
+  await download.saveAs(path)
+  const written = readFileSync(path, 'utf8')
+  assert.match(written, /V2000/)
+  assert.match(written, /M  END/)
+  results.ctfile_preview_import_export = true
+}
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

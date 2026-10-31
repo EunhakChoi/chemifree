@@ -953,6 +953,69 @@ function restarted(status: number) {
   )
 }
 
+export type CtFormat = 'mol' | 'sdf'
+
+export interface CtLoss {
+  feature: string
+  source_path: string
+  disposition: string
+  reason: string
+  semantic_impact: string
+}
+
+export interface CtPreview {
+  digest: string
+  records: Array<{ title: string; atoms: number; bonds: number; fields: Array<{ name: string; value: string }> }>
+  losses: CtLoss[]
+}
+
+export interface CtImport {
+  documentId: string
+  revision: number
+  format: CtFormat
+  source: string
+  record: number
+  digest: string
+}
+
+interface CtSourceRecord {
+  title: string
+  atoms: unknown[]
+  bonds: unknown[]
+  fields: Array<{ name: string; value: string }>
+}
+
+function isCtSourceRecord(item: unknown): item is CtSourceRecord {
+  return isRecord(item) && typeof item.title === 'string' && Array.isArray(item.atoms) &&
+    Array.isArray(item.bonds) && Array.isArray(item.fields) && item.fields.every((field: unknown) =>
+      isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
+}
+
+function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const diagnostic: unknown = value.diagnostics[0]
+    if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
+      const details = isRecord(diagnostic.details) ? diagnostic.details : {}
+      const record = isCount(details.record) ? ` Record ${details.record}.` : ''
+      const line = isCount(details.line) ? ` Line ${details.line}.` : ''
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+      })
+    }
+    throw new ApiError('conversion_failed', 'The conversion failed.', 200)
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is CtLoss =>
+        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  return { result: value.result, losses: value.loss_report }
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -969,6 +1032,7 @@ export class DocumentClient {
   private unconfirmed = new Map<string, Unconfirmed>()
   /** Saves whose outcome is unknown, by document and revision. */
   private unconfirmedSaves = new Map<string, Unconfirmed>()
+  private unconfirmedImports = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -1107,6 +1171,70 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible inspection.', 200)
     }
     return { model: value.model_id, snapshot, atoms }
+  }
+
+  async previewCt(documentId: string, revision: number, format: CtFormat, source: string, record: number): Promise<CtPreview> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { document_id: documentId, expected_revision: revision, format, source, record, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        result.selected_record !== record || !Array.isArray(result.records) ||
+        !result.records.every(isCtSourceRecord) ||
+        !isRecord(result.document) || result.document.id !== documentId || !Array.isArray(result.document.atoms) ||
+        !Array.isArray(result.document.bonds)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible import preview.', 200)
+    }
+    const records = result.records.map((item) => ({
+      title: item.title, atoms: item.atoms.length, bonds: item.bonds.length, fields: item.fields,
+    }))
+    return { digest: result.preview_digest, records, losses: reply.losses }
+  }
+
+  async importCt(input: CtImport): Promise<DocumentResponse> {
+    // An unanswered request might have committed. Reuse its ID only against the same service.
+    const key = JSON.stringify(input)
+    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
+    this.unconfirmedImports.set(key, pending)
+    let sentTo: string | undefined
+    try {
+      const reply = ctReply(await this.write('/api/v1/operations', {
+        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
+        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
+          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+      }, 'reload', (token) => {
+        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
+        sentTo = token
+      }))
+      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
+      if (response.document.id !== input.documentId) {
+        throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
+      }
+      this.unconfirmedImports.delete(key)
+      return response
+    } catch (error) {
+      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
+        pending.sentTo = sentTo
+        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
+      }
+      this.unconfirmedImports.delete(key)
+      throw error
+    }
+  }
+
+  async exportCt(documentId: string, format: CtFormat): Promise<{ content: string; losses: CtLoss[]; snapshot: DocumentView }> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: { format, records: [{ document_id: documentId }] },
+    }, 'reload'))
+    if (typeof reply.result.content !== 'string' || !Array.isArray(reply.result.records) ||
+        reply.result.records.length !== 1 || !isRecord(reply.result.records[0]) || !isRecord(reply.result.records[0].snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned invalid export content.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.records[0].snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
+    return { content: reply.result.content, losses: reply.losses, snapshot }
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

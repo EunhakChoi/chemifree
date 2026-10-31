@@ -222,7 +222,15 @@ pub struct CtPreviewResult {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CtExportResult {
     pub content: String,
-    pub records: Vec<CtMapping>,
+    pub records: Vec<CtExportMapping>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CtExportMapping {
+    /// The exact working copy used for this record, including its revision.
+    pub snapshot: DocumentResult,
+    pub atoms: Vec<String>,
+    pub bonds: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -552,7 +560,7 @@ fn profile_support(profile: CompatibilityProfile) -> ProfileSupport {
     let (execution, note) = match profile {
         CompatibilityProfile::PreserveSemantics => (
             Execution::Executable,
-            "Operations keep document meaning as stored; none drops or converts content.",
+            "Operations report conversion losses and uncertainty; imports require consent for reported losses.",
         ),
         CompatibilityProfile::LegacyObserved => (
             Execution::NotImplemented,
@@ -1064,18 +1072,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let mut losses = Vec::new();
         for (i, source) in p.records.into_iter().enumerate() {
             let index = i + 1;
-            let document = match self.document(&source.document_id) {
-                Ok(document) => document.document,
+            let snapshot = match self.document(&source.document_id) {
+                Ok(snapshot) => snapshot,
                 Err(error) => return known.indexed_error(&error, index),
             };
+            let document = &snapshot.document;
             let record =
-                match ct_projection::export_record(&document, index, source.fields, &mut losses) {
+                match ct_projection::export_record(document, index, source.fields, &mut losses) {
                     Ok(record) => record,
                     Err(error) => return known.invalid(ct_failure(error)),
                 };
-            mappings.push(CtMapping {
+            mappings.push(CtExportMapping {
                 atoms: document.atoms.iter().map(|atom| atom.id.clone()).collect(),
                 bonds: document.bonds.iter().map(|bond| bond.id.clone()).collect(),
+                snapshot: snapshot.into(),
             });
             records.push(record);
         }

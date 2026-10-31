@@ -313,3 +313,25 @@ fn cumulative_export_limit_points_to_the_record_that_crosses_it() {
     assert!(result["result"].is_null());
     assert_eq!(snapshot(&application, &id)["revision"], 0);
 }
+
+#[test]
+fn preview_and_export_are_bound_to_graph_when_restart_reuses_revision() {
+    let (application, directory, id) = setup();
+    let edit = |element: &str| json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":element,"position":{"x":0,"y":0}}]});
+    assert_eq!(call(&application, "edit-carbon", "document.transaction", edit("C"))["document_revision"], 1);
+    let previewed = preview(&application, &id, MOL, "mol", 1, 1);
+    let digest = previewed["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let old = snapshot(&application, &id);
+    drop(application);
+
+    let restarted = app(directory.path());
+    assert_eq!(call(&restarted, "edit-oxygen", "document.transaction", edit("O"))["document_revision"], 1);
+    let current = snapshot(&restarted, &id);
+    assert_eq!(old["revision"], current["revision"]);
+    assert_eq!((old["atoms"][0]["element"].as_str(), current["atoms"][0]["element"].as_str()), (Some("C"), Some("O")));
+    let commit = call(&restarted, "stale-import", "document.import", json!({"document_id":id,"expected_revision":1,"format":"mol","source":MOL,"record":1,"preview_digest":digest,"accept_loss":true}));
+    assert_eq!(commit["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(snapshot(&restarted, &id), current);
+    let export = call(&restarted, "export-current", "document.export", json!({"format":"mol","records":[{"document_id":id}]}));
+    assert_eq!(export["result"]["records"][0]["snapshot"]["document"], current);
+}

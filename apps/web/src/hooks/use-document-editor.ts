@@ -7,6 +7,7 @@ import {
   DocumentClient,
   type Command,
   type CopyResponse,
+  type CtImport,
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
@@ -315,6 +316,22 @@ export function useDocumentEditor() {
     }, [run]),
     busy: pending > 0,
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
+    previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
+      client.previewCt(id, revision, format, source, record), []),
+    exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
+    importCt: useCallback(async (input: CtImport) => {
+      let committed = false
+      await run(async () => {
+        const shown = currentRef.current
+        if (!shown || shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+        }
+        const response = await client.importCt(input)
+        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+        committed = true
+      })
+      return committed
+    }, [run, setCurrent]),
     error,
     autosave,
     copyNotice,

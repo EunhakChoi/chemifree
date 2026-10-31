@@ -50,7 +50,7 @@ pub(crate) fn import_commands(
             "Import requires exactly one molecule placement.",
         ));
     }
-    if !record.title.is_empty() {
+    if !record.title.is_empty() && record.title != doc.title {
         losses.push(loss(
             index,
             ".title",
@@ -249,6 +249,12 @@ pub(crate) fn export_record(
             SemanticImpact::Document,
             "Native atom and bond IDs are mapped to file indices and are not embedded in V2000.",
         ));
+    }
+    if let Some(first) = doc.scene.instances.first() {
+        losses.push(loss(index, &format!(".scene.instances[{}]", first.id), "placement_id", SemanticImpact::Document, "The placement ID is not embedded in V2000."));
+    }
+    if !doc.selection.atoms.is_empty() || !doc.selection.bonds.is_empty() || !doc.selection.objects.is_empty() {
+        losses.push(loss(index, ".selection", "selection", SemanticImpact::Document, "The editor selection is not written."));
     }
     for instance in doc.scene.instances.iter().skip(1) {
         losses.push(loss(
