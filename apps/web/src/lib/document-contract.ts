@@ -14,12 +14,12 @@ export interface Position {
   y: number
 }
 
-/** What a query atom stands for. Nothing matches it. */
+/** What a query atom stands for; matching is a separate bounded operation. */
 export type QueryAtom =
   | { kind: 'any' | 'any_heavy' | 'heteroatom' | 'halogen' }
   | { kind: 'list'; elements: string[]; negated: boolean }
 
-/** What a query bond stands for. Nothing matches it. */
+/** What a query bond stands for; matching is a separate bounded operation. */
 export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
 
 /**
@@ -222,6 +222,27 @@ export interface IdentityInspection {
   snapshot: DocumentView
   identity: CanonicalIdentity
   comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
+}
+
+export type QueryMatchMode = 'recorded' | 'aromatic_target'
+export interface QueryAtomPredicate {
+  atom: string
+  ring?: boolean
+  min_neighbors?: number
+  max_neighbors?: number
+  charge?: number
+}
+export interface QueryAtomMapping { query_atom: string; target_atom: string }
+export interface QueryInspection {
+  model: string
+  querySnapshot: DocumentView
+  queryRecovery: RecoveryView | null
+  targetSnapshot: DocumentView
+  targetRecovery: RecoveryView | null
+  mappings: QueryAtomMapping[][]
+  complete: boolean
+  states: number
+  limit: 'mappings' | 'states' | null
 }
 
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
@@ -1383,6 +1404,81 @@ export class DocumentClient {
       comparison = { snapshot: otherSnapshot, recovery: otherResponse.recovery, identity: other.identity, equivalent: other.equivalent }
     }
     return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
+  }
+
+  /** Search bounded query-to-target mappings on the actual returned snapshots. */
+  async matchQuery(id: string, targetId: string, mode: QueryMatchMode, predicates: QueryAtomPredicate[], maxMatches: number, maxStates: number): Promise<QueryInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.query_match',
+      parameters: { document_id: id, target_document_id: targetId, mode, predicates, max_matches: maxMatches, max_states: maxStates },
+    }, 'reload')
+    const model = mode === 'recorded' ? 'chemifree-query-recorded-1' : 'chemifree-query-aromatic-target-1'
+    if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const details = isRecord(first) && isRecord(first.details) ? first.details : null
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not search these graphs.'
+      const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
+      if (reason && (details?.side === 'query' || details?.side === 'target')) {
+        if (!isRecord(value) || value.model_id !== model || value.result !== null || !isRecord(details.snapshot)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible query failure.', 200)
+        }
+        const snapshot = DocumentClient.document({ api_version: API_VERSION, ...details.snapshot }).document
+        const target = details.side === 'target'
+        if (snapshot.id !== (target ? targetId : id) || (!target && snapshot.revision !== value.document_revision)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible query failure.', 200)
+        }
+        throw new ApiError('query_unavailable', `${message} ${target ? 'Target' : 'Query'} snapshot ${snapshot.id}, revision ${snapshot.revision}: ${reason}. Search again to include later edits.`, 200)
+      }
+      throw new ApiError('query_unavailable', reason ? `${message} ${reason}.` : message, 200)
+    }
+    if (value.model_id !== model || !isRecord(value.result) || !isRecord(value.result.query_snapshot) ||
+        !isRecord(value.result.target_snapshot) || !Array.isArray(value.result.mappings) ||
+        typeof value.result.complete !== 'boolean' || !isCount(value.result.states) || value.result.states > maxStates ||
+        value.result.mappings.length > maxMatches ||
+        (value.result.limit !== null && value.result.limit !== 'mappings' && value.result.limit !== 'states') ||
+        (value.result.complete !== (value.result.limit === null)) ||
+        (value.outcome === 'ok') !== value.result.complete || !Array.isArray(value.loss_report) ||
+        (value.outcome === 'partial' && !value.loss_report.some((loss: unknown) => isRecord(loss) && loss.feature === 'additional_mappings' && loss.disposition === 'unknown'))) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible query results.', 200)
+    }
+    const queryResponse = DocumentClient.document({ api_version: API_VERSION, ...value.result.query_snapshot })
+    const query = queryResponse.document
+    const targetResponse = DocumentClient.document({ api_version: API_VERSION, ...value.result.target_snapshot })
+    const target = targetResponse.document
+    if (query.id !== id || query.revision !== value.document_revision || target.id !== targetId ||
+        (id === targetId && !sameInspectionSnapshot(query, target))) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible query snapshots.', 200)
+    }
+    const queryIds = new Set(query.atoms.map((atom) => atom.id))
+    const targetIds = new Set(target.atoms.map((atom) => atom.id))
+    if (queryIds.size === 0) throw new ApiError('incompatible_response', 'The local service returned an empty query.', 200)
+    const unique = new Set<string>()
+    const mappings: QueryAtomMapping[][] = []
+    for (const mapping of value.result.mappings) {
+      if (!Array.isArray(mapping) || mapping.length !== queryIds.size) {
+        throw new ApiError('incompatible_response', 'The local service returned an incomplete atom mapping.', 200)
+      }
+      const sourceIds = new Set<string>()
+      const destinationIds = new Set<string>()
+      const checked: QueryAtomMapping[] = []
+      for (const pair of mapping) {
+        if (!isRecord(pair) || typeof pair.query_atom !== 'string' || typeof pair.target_atom !== 'string' ||
+            !queryIds.has(pair.query_atom) || !targetIds.has(pair.target_atom) ||
+            sourceIds.has(pair.query_atom) || destinationIds.has(pair.target_atom)) {
+          throw new ApiError('incompatible_response', 'The local service returned an invalid atom mapping.', 200)
+        }
+        sourceIds.add(pair.query_atom)
+        destinationIds.add(pair.target_atom)
+        checked.push({ query_atom: pair.query_atom, target_atom: pair.target_atom })
+      }
+      const key = JSON.stringify(checked.map((pair) => [pair.query_atom, pair.target_atom]).sort())
+      if (unique.has(key)) throw new ApiError('incompatible_response', 'The local service repeated an atom mapping.', 200)
+      unique.add(key)
+      mappings.push(checked)
+    }
+    return { model, querySnapshot: query, queryRecovery: queryResponse.recovery, targetSnapshot: target, targetRecovery: targetResponse.recovery,
+      mappings, complete: value.result.complete,
+      states: value.result.states, limit: value.result.limit }
   }
 
   /** Apply one model conversion under the revision the user inspected, with history selection. */

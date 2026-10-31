@@ -14,7 +14,7 @@
 //! executable.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
-use chemifree_domain::{graph::MoleculeGraph, identity};
+use chemifree_domain::{document::AtomId, graph::MoleculeGraph, identity, query};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -172,6 +172,24 @@ pub enum OperationResult {
     Aromaticity(Box<AromaticityResult>),
     /// `chem.identity`: canonical graph identity and an optional second snapshot comparison.
     Identity(Box<IdentityResult>),
+    /// `chem.query_match`: bounded injective mappings between captured graphs.
+    QueryMatch(Box<QueryMatchResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct QueryMatchResult {
+    pub query_snapshot: DocumentResult,
+    pub target_snapshot: DocumentResult,
+    pub mappings: Vec<Vec<QueryAtomMapping>>,
+    pub complete: bool,
+    pub states: usize,
+    pub limit: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct QueryAtomMapping {
+    pub query_atom: String,
+    pub target_atom: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -452,7 +470,7 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
-         default). Representation only: no hydrogen count is computed from valence.",
+         default). Recording does not compute a count; valence inspection is a separate operation.",
     )
     .carried_out_by(&["add_atom", "update_atom"]),
     runs(
@@ -463,8 +481,8 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "query_atom_or_bond",
         "Records query atoms (any, any heavy, heteroatom, halogen, or a possibly negated list of \
-         1–10 elements) and query bonds (any, or a list of kinds). Representation only: nothing \
-         matches a query.",
+         1–10 elements) and query bonds (any, or a list of kinds). The separate query operation \
+         matches the supported recorded predicates.",
     )
     .carried_out_by(&["add_atom", "update_atom", "add_bond", "update_bond"]),
     runs(
@@ -592,6 +610,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             ),
             &[],
         ),
+        Op::ChemQueryMatch => (
+            runs(
+                id,
+                "Finds bounded, injective query-to-target atom mappings with explicit completeness and target aromaticity policy.",
+            ),
+            &[],
+        ),
         Op::ChemProperties => (
             runs(
                 id,
@@ -709,6 +734,64 @@ struct IdentityParameters {
     mode: IdentityMode,
     #[serde(default)]
     other_document_id: Option<String>,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum QueryMode {
+    Recorded,
+    AromaticTarget,
+}
+
+impl QueryMode {
+    fn model_id(self) -> &'static str {
+        match self {
+            Self::Recorded => query::MATCH_MODEL,
+            Self::AromaticTarget => query::AROMATIC_TARGET_MODEL,
+        }
+    }
+
+    fn domain(self) -> query::MatchModel {
+        match self {
+            Self::Recorded => query::MatchModel::Recorded,
+            Self::AromaticTarget => query::MatchModel::AromaticTarget,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueryPredicateParameters {
+    atom: String,
+    #[serde(default)]
+    ring: Option<bool>,
+    #[serde(default)]
+    min_neighbors: Option<usize>,
+    #[serde(default)]
+    max_neighbors: Option<usize>,
+    #[serde(default)]
+    charge: Option<i8>,
+}
+
+fn default_query_matches() -> usize {
+    100
+}
+fn default_query_states() -> usize {
+    100_000
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QueryParameters {
+    document_id: String,
+    target_document_id: String,
+    mode: QueryMode,
+    #[serde(default)]
+    predicates: Vec<QueryPredicateParameters>,
+    #[serde(default = "default_query_matches")]
+    max_matches: usize,
+    #[serde(default = "default_query_states")]
+    max_states: usize,
 }
 
 fn identity_view(
@@ -945,6 +1028,81 @@ fn identity_failure(
         vec![diagnostic(
             code,
             "Graph identity was not determined under this model.",
+            details,
+        )],
+    );
+    response.model_id = Some(mode.model_id().into());
+    response
+}
+
+fn query_failure(
+    known: &Known,
+    revision: u64,
+    mode: QueryMode,
+    error: query::QueryError,
+    query_snapshot: DocumentResponse,
+    target_snapshot: DocumentResponse,
+) -> OperationResponse {
+    let (outcome, code, reason, side) = match error {
+        query::QueryError::EmptyQuery => (Outcome::Error, "invalid_query", "empty_query", None),
+        query::QueryError::QueryLimit => (
+            Outcome::Error,
+            "query_limit",
+            "query_atom_limit",
+            Some("query"),
+        ),
+        query::QueryError::InvalidBounds => {
+            (Outcome::Error, "invalid_query", "invalid_bounds", None)
+        }
+        query::QueryError::InvalidPredicate => (
+            Outcome::Error,
+            "invalid_query",
+            "invalid_predicate",
+            Some("query"),
+        ),
+        query::QueryError::UnsupportedQuery => (
+            Outcome::Unsupported,
+            "query_unsupported",
+            "unsupported_query_state",
+            Some("query"),
+        ),
+        query::QueryError::UnsupportedTarget => (
+            Outcome::Unsupported,
+            "query_unsupported",
+            "unsupported_target_state",
+            Some("target"),
+        ),
+        query::QueryError::AromaticTargetUnsupported(reason) => {
+            let outcome = if matches!(reason, "search_limit" | "system_limit") {
+                Outcome::Error
+            } else {
+                Outcome::Unsupported
+            };
+            (outcome, "query_target_aromaticity", reason, Some("target"))
+        }
+    };
+    let mut details = Map::new();
+    details.insert("reason".into(), reason.into());
+    if let Some(side) = side {
+        details.insert("side".into(), side.into());
+        let snapshot = if side == "query" {
+            query_snapshot
+        } else {
+            target_snapshot
+        };
+        details.insert(
+            "snapshot".into(),
+            serde_json::to_value(DocumentResult::from(snapshot))
+                .expect("validated snapshot serializes"),
+        );
+    }
+    let mut response = known.reply(
+        outcome,
+        Some(revision),
+        None,
+        vec![diagnostic(
+            code,
+            "Query matching was not determined.",
             details,
         )],
     );
@@ -1541,6 +1699,62 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Vec::new(),
                     );
                     response.model_id = Some(p.mode.model_id().into());
+                    response
+                }
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemQueryMatch => match parameters::<QueryParameters>(parameters_value) {
+                Ok(p) => {
+                    let predicates = p.predicates.iter().map(|p| {
+                        AtomId::parse(&p.atom).map(|atom| query::AtomPredicate {
+                            atom,
+                            ring: p.ring,
+                            min_neighbors: p.min_neighbors,
+                            max_neighbors: p.max_neighbors,
+                            charge: p.charge,
+                        })
+                    }).collect::<Option<Vec<_>>>();
+                    let Some(predicates) = predicates else {
+                        return known.invalid(diagnostic("invalid_query", "A predicate names an invalid query atom ID.", Map::new()));
+                    };
+                    let ((query_snapshot, query_graph), target) = match self.documents.graph_pair_snapshot(&p.document_id, Some(&p.target_document_id)) {
+                        Ok(pair) => pair,
+                        Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                    };
+                    let (target_snapshot, target_graph) = target.expect("requested target snapshot");
+                    let revision = query_snapshot.document.revision;
+                    let result = match query::find_graphs(&query_graph, &target_graph, &predicates, p.max_matches, p.max_states, p.mode.domain()) {
+                        Ok(result) => result,
+                        Err(error) => return query_failure(known, revision, p.mode, error, query_snapshot, target_snapshot),
+                    };
+                    let limit = result.limit.map(|limit| match limit {
+                        query::SearchLimit::Mappings => "mappings",
+                        query::SearchLimit::States => "states",
+                    });
+                    let mappings = result.mappings.into_iter().map(|mapping| mapping.into_iter().map(|(source, target)| QueryAtomMapping {
+                        query_atom: source.to_string(),
+                        target_atom: target.to_string(),
+                    }).collect()).collect();
+                    let complete = result.complete;
+                    let mut response = known.reply(
+                        if complete { Outcome::Ok } else { Outcome::Partial },
+                        Some(revision),
+                        Some(OperationResult::QueryMatch(Box::new(QueryMatchResult {
+                            query_snapshot: query_snapshot.into(), target_snapshot: target_snapshot.into(),
+                            mappings, complete, states: result.states, limit,
+                        }))),
+                        Vec::new(),
+                    );
+                    response.model_id = Some(p.mode.model_id().into());
+                    if !complete {
+                        response.loss_report.push(Loss {
+                            feature: "additional_mappings".into(),
+                            source_path: (if limit == Some("mappings") { "parameters.max_matches" } else { "parameters.max_states" }).into(),
+                            disposition: LossDisposition::Unknown,
+                            reason: "The search reached its declared bound; further mappings may exist.".into(),
+                            semantic_impact: SemanticImpact::Chemistry,
+                        });
+                    }
                     response
                 }
                 Err(invalid) => known.invalid(invalid),

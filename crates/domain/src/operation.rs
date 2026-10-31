@@ -23,6 +23,7 @@ pub enum OperationId {
     ChemAromaticity,
     ChemAromaticityConvert,
     ChemIdentity,
+    ChemQueryMatch,
     ChemProperties,
     ChemNameToStructure,
     ChemStructureToName,
@@ -37,7 +38,7 @@ pub enum OperationId {
 
 impl OperationId {
     /// Every operation, in catalog order.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::CapabilitiesInspect,
         Self::DocumentCreate,
         Self::DocumentSnapshot,
@@ -52,6 +53,7 @@ impl OperationId {
         Self::ChemAromaticity,
         Self::ChemAromaticityConvert,
         Self::ChemIdentity,
+        Self::ChemQueryMatch,
         Self::ChemProperties,
         Self::ChemNameToStructure,
         Self::ChemStructureToName,
@@ -80,6 +82,7 @@ impl OperationId {
             Self::ChemAromaticity => "chem.aromaticity",
             Self::ChemAromaticityConvert => "chem.aromaticity_convert",
             Self::ChemIdentity => "chem.identity",
+            Self::ChemQueryMatch => "chem.query_match",
             Self::ChemProperties => "chem.properties",
             Self::ChemNameToStructure => "chem.name_to_structure",
             Self::ChemStructureToName => "chem.structure_to_name",

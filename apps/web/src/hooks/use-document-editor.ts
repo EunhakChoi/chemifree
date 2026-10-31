@@ -306,6 +306,7 @@ export function useDocumentEditor() {
     serviceGeneration,
     inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),
     inspectIdentity: useCallback((...args: Parameters<DocumentClient['inspectIdentity']>) => client.inspectIdentity(...args), []),
+    matchQuery: useCallback((...args: Parameters<DocumentClient['matchQuery']>) => client.matchQuery(...args), []),
     selection,
     /** A snapshot for a command made now, including changes not rendered yet. */
     selectionAtPress: useCallback(() => new Set(selectionRef.current), []),

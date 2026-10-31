@@ -78,6 +78,7 @@ import { DocumentStyleButton, PreferencesButton } from '@/components/style-setti
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { IdentityPanel } from '@/components/identity-panel'
+import { QueryPanel } from '@/components/query-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
@@ -718,6 +719,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
           <IdentityPanel document={document} editor={editor} />
+          <QueryPanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
@@ -1322,7 +1324,7 @@ function AtomInspector({ atom, editor }: { atom: AtomView; editor: DocumentEdito
       <QueryListField key={`list-${atom.id}-${JSON.stringify(query)}`} atom={atom} editor={editor} />
       {query && (
         <p className="text-xs leading-relaxed text-muted-foreground" data-testid="query-expression">
-          Query {queryLabel(query)}: {queryDescription(query)}. Recorded only; nothing is matched.
+          Query {queryLabel(query)}: {queryDescription(query)}. Use Substructure search to match supported predicates.
         </p>
       )}
       <Field data-disabled={query ? true : undefined}>
@@ -1501,7 +1503,7 @@ function BondInspector({ bond, editor }: { bond: BondView; editor: DocumentEdito
             ))}
           </div>
           <p className="text-xs text-muted-foreground" data-testid="bond-query-expression">
-            {listed.length > 0 ? `One of: ${listed.join(', ')}.` : 'Any kind.'} Recorded only; nothing is matched.
+            {listed.length > 0 ? `One of: ${listed.join(', ')}.` : 'Any kind.'} Use Substructure search to match supported predicates.
           </p>
         </Choice>
       )}

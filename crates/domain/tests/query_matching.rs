@@ -114,6 +114,81 @@ fn state_bound_also_counts_checks_of_mapped_edges() {
 }
 
 #[test]
+fn ring_condition_handles_spiro_fused_and_disconnected_atoms() {
+    let query = graph("ring-query", vec![atom("C")], &[]);
+    // Two triangles meet at a1; a6--a7 is an acyclic branch and a8 is separate.
+    let target = graph(
+        "spiro",
+        vec![atom("C"); 8],
+        &[
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Single),
+            (2, 0, BondOrder::Single),
+            (0, 3, BondOrder::Single),
+            (3, 4, BondOrder::Single),
+            (4, 0, BondOrder::Single),
+            (0, 5, BondOrder::Single),
+            (5, 6, BondOrder::Single),
+        ],
+    );
+    let predicate = |ring, min_neighbors| AtomPredicate {
+        atom: id(1),
+        ring: Some(ring),
+        min_neighbors,
+        max_neighbors: None,
+        charge: None,
+    };
+    let in_ring = find(&query, &target, &[predicate(true, None)], 20, 1_000).unwrap();
+    assert_eq!(
+        in_ring.mappings.iter().map(|m| m[0].1).collect::<Vec<_>>(),
+        vec![id(1), id(2), id(3), id(4), id(5)]
+    );
+    let outside = find(&query, &target, &[predicate(false, None)], 20, 1_000).unwrap();
+    assert_eq!(
+        outside.mappings.iter().map(|m| m[0].1).collect::<Vec<_>>(),
+        vec![id(6), id(7), id(8)]
+    );
+    let junction = find(&query, &target, &[predicate(true, Some(5))], 20, 1_000).unwrap();
+    assert_eq!(junction.mappings, vec![vec![(id(1), id(1))]]);
+    let fused = graph(
+        "fused",
+        vec![atom("C"); 4],
+        &[
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Single),
+            (2, 0, BondOrder::Single),
+            (1, 3, BondOrder::Single),
+            (3, 2, BondOrder::Single),
+        ],
+    );
+    assert_eq!(
+        find(&query, &fused, &[predicate(true, None)], 20, 1_000)
+            .unwrap()
+            .mappings
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn exactly_full_mapping_limit_can_still_be_complete() {
+    let query = graph(
+        "edge-query",
+        vec![atom("C"), atom("C")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    let target = graph(
+        "edge-target",
+        vec![atom("C"), atom("C")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    let found = find(&query, &target, &[], 2, 1_000).unwrap();
+    assert_eq!(found.mappings.len(), 2);
+    assert!(found.complete);
+    assert_eq!(found.limit, None);
+}
+
+#[test]
 fn query_bond_alternatives_charge_and_dative_direction_are_preserved() {
     let mut n_plus = atom("N");
     n_plus.charge = 1;

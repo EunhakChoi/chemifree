@@ -1566,7 +1566,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '13 of 24 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '14 of 25 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1579,6 +1579,7 @@ assert.equal(await operationRow('chem.validate').locator('[data-execution]').get
 assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.query_match').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2655,6 +2656,63 @@ step = 'after short_wide_bond_is_selectable'
   await identity.getByText('The drawing, model, comparison or service changed. Inspect again.', { exact: true }).waitFor()
   assert.equal(await identity.getByTestId('identity-result').count(), 0, 'an edit hides the earlier identity')
   results.graph_identity_snapshots_and_comparison = true
+}
+
+// Match the current query drawing against a separate target, including a bounded result.
+{
+  const source = await apiWrite('/api/v1/documents', { request_id: 'query-source-create', title: 'Substructure query' })
+  const target = await apiWrite('/api/v1/documents', { request_id: 'query-target-create', title: 'Substructure target' })
+  const id = source.body.document.id
+  const targetId = target.body.document.id
+  const sourceDraw = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'query-source-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', query: { kind: 'any_heavy' }, position: { x: 0, y: 0 } },
+      { op: 'add_atom', element: 'C', position: { x: 30, y: 0 }, bond_to: { atom: '$0', order: 'single' } }] })
+  const targetDraw = await apiWrite(`/api/v1/documents/${targetId}/transactions`, { request_id: 'query-target-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } },
+      { op: 'add_atom', element: 'C', position: { x: 30, y: 0 } },
+      { op: 'add_atom', element: 'C', position: { x: 15, y: 25 } },
+      { op: 'add_bond', begin: '$0', end: '$1', order: 'single' },
+      { op: 'add_bond', begin: '$1', end: '$2', order: 'single' },
+      { op: 'add_bond', begin: '$2', end: '$0', order: 'single' }] })
+  assert.equal(sourceDraw.status, 200)
+  assert.equal(targetDraw.status, 200)
+  for (const [name, documentId] of [['query', id], ['target', targetId]]) {
+    const saved = await apiWrite(`/api/v1/documents/${documentId}/save`, { request_id: `query-${name}-save`, expected_revision: 1 })
+    assert.equal(saved.status, 200)
+    const extraAtom = name === 'query'
+      ? { op: 'add_atom', element: 'O', position: { x: 60, y: 0 } }
+      : { op: 'add_atom', element: 'C', position: { x: 60, y: 0 }, bond_to: { atom: 'a1', order: 'single' } }
+    const edited = await apiWrite(`/api/v1/documents/${documentId}/transactions`, { request_id: `query-${name}-edit`, expected_revision: 1,
+      commands: [extraAtom] })
+    assert.equal(edited.status, 200)
+    const drafted = await apiWrite(`/api/v1/documents/${documentId}/autosave`, { request_id: `query-${name}-draft` })
+    assert.equal(drafted.status, 200)
+  }
+  await crashApi()
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('region', { name: 'Substructure search' })
+  await panel.getByLabel('Target drawing').click()
+  await page.getByRole('option', { name: `Substructure target (${targetId})`, exact: true }).click()
+  await panel.getByLabel('Ring', { exact: true }).click()
+  await page.getByRole('option', { name: 'In a ring', exact: true }).click()
+  await panel.getByLabel('Minimum neighbors').fill('2')
+  await panel.getByLabel('Maximum neighbors').fill('2')
+  await panel.getByLabel('Target charge').fill('0')
+  const beforeSource = await api(`/api/v1/documents/${id}`)
+  await panel.getByRole('button', { name: 'Search substructure' }).click()
+  await panel.getByTestId('query-result').getByText('Complete: 6 mappings.', { exact: true }).waitFor()
+  await panel.getByTestId('query-result').getByText('A recovery draft was reported for the query and was not included.', { exact: true }).waitFor()
+  await panel.getByTestId('query-result').getByText('A recovery draft was reported for the target and was not included.', { exact: true }).waitFor()
+  await panel.getByTestId('query-result').getByText('1. a1→a1, a2→a2', { exact: true }).waitFor()
+  await page.screenshot({ path: join(outDir, 'editor-query.png') })
+  await panel.getByLabel('Maximum mappings').fill('2')
+  await panel.getByRole('button', { name: 'Search substructure' }).click()
+  await panel.getByTestId('query-result').getByText('Stopped at the mappings limit: further mappings may exist.', { exact: true }).waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, beforeSource.document)
+  assert.deepEqual((await api(`/api/v1/documents/${targetId}`)).document, targetDraw.body.document)
+  assert.equal((await api(`/api/v1/documents/${id}`)).session.undo_depth, beforeSource.session.undo_depth)
+  results.query_mappings_and_limits = true
 }
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.

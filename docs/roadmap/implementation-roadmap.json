@@ -1021,7 +1021,7 @@
    "acceptance": "다중 대응·대칭·아로마틱 표현·질의 실패·탐색 한도를 검사하고 source/target 원자 ID를 명확히 반환한다.",
    "kind": "core",
    "id": "P24",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",

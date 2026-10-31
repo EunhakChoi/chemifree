@@ -887,6 +887,52 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   })
 })
 
+test('query matching validates source and target IDs, injection and explicit limits', async () => {
+  const source = document('query-source', 2)
+  source.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 1, 0)]
+  source.document.bonds = [bondWith('b1', 'a1', 'a2')]
+  const target = document('query-target', 3)
+  target.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 1, 0), atomWith('a3', 'C', 2, 0)]
+  target.document.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3')]
+  const reply = { outcome: 'ok', model_id: 'chemifree-query-recorded-1', document_revision: 2, loss_report: [], result: {
+    query_snapshot: { document: source.document, session: source.session, recovery: { state: 'recoverable', revision: 3, base_revision: 2, saved_at_ms: 0, message: null } },
+    target_snapshot: { document: target.document, session: target.session, recovery: { state: 'outdated', revision: 4, base_revision: 2, saved_at_ms: 0, message: 'A newer version was saved.' } },
+    mappings: [[{ query_atom: 'a1', target_atom: 'a1' }, { query_atom: 'a2', target_atom: 'a2' }]],
+    complete: true, states: 7, limit: null,
+  } }
+  const duplicateTarget = structuredClone(reply)
+  duplicateTarget.result.mappings[0][1].target_atom = 'a1'
+  const wrongTarget = structuredClone(reply)
+  wrongTarget.result.target_snapshot.document.id = 'other-document'
+  const repeated = structuredClone(reply)
+  repeated.result.mappings.push(structuredClone(repeated.result.mappings[0]).reverse())
+  const partial = structuredClone(reply)
+  partial.outcome = 'partial'
+  partial.result.complete = false
+  partial.result.limit = 'states'
+  partial.result.states = 10
+  partial.loss_report = [{ feature: 'additional_mappings', disposition: 'unknown' }]
+  const failure = { outcome: 'unsupported', result: null, model_id: 'chemifree-query-recorded-1', diagnostics: [{
+    message: 'Query matching was not determined.', details: { side: 'target', reason: 'unsupported_target_state',
+      snapshot: { document: target.document, session: target.session, recovery: null } },
+  }] }
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, duplicateTarget), () => json(200, wrongTarget),
+    () => json(200, repeated), () => json(200, partial), () => json(200, failure)] })
+  const client = new DocumentClient()
+  const found = await client.matchQuery('query-source', 'query-target', 'recorded', [], 10, 10)
+  assert.equal(found.complete, true)
+  assert.equal(found.queryRecovery.state, 'recoverable')
+  assert.equal(found.targetRecovery.state, 'outdated')
+  assert.deepEqual(found.mappings[0], [{ query_atom: 'a1', target_atom: 'a1' }, { query_atom: 'a2', target_atom: 'a2' }])
+  for (let i = 0; i < 3; i++) await assert.rejects(client.matchQuery('query-source', 'query-target', 'recorded', [], 10, 10), { code: 'incompatible_response' })
+  const bounded = await client.matchQuery('query-source', 'query-target', 'recorded', [], 10, 10)
+  assert.equal(bounded.complete, false)
+  assert.equal(bounded.limit, 'states')
+  await assert.rejects(client.matchQuery('query-source', 'query-target', 'recorded', [], 10, 10), {
+    code: 'query_unavailable', message: 'Query matching was not determined. Target snapshot query-target, revision 3: unsupported target state. Search again to include later edits.',
+  })
+})
+
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
 function recorded() {
   return {

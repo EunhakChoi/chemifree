@@ -95,7 +95,7 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, Loss, LossDisposition,
     OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    ProfileSupport, QueryAtomMapping, QueryMatchResult, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
