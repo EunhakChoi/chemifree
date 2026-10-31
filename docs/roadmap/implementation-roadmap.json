@@ -971,7 +971,7 @@
    "acceptance": "Unicode·참조 오류·중복 ID·unknown·잘못된 XML을 검사한다. 그래프·장면·텍스트·스타일의 보존과 손실을 별도 비교한다.",
    "kind": "core",
    "id": "P22",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3652,7 +3652,7 @@
     "public-format-observations.json",
     "integration-long-caption-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P22",
     "P29",

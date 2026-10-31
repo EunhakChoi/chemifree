@@ -12,6 +12,7 @@ import {
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
+  type InterchangeInput,
   type ListQuery,
   type SettingsSource,
   type TrashListResponse,
@@ -325,6 +326,18 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
+    currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
+    readInterchange: useCallback((source: string) => client.readInterchange(source), []),
+    previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
+    createInterchange: useCallback((input: InterchangeInput, digest: string) => run(async () => {
+      try {
+        await show(() => client.createInterchange(input, digest))
+        refreshList()
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
+        throw failure
+      }
+    }), [run, show, refreshList]),
     isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
       serviceGenerationRef.current === generation && currentRef.current !== null &&
       sameConversionSnapshot(currentRef.current.document, snapshot), []),

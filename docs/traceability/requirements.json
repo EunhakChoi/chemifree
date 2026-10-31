@@ -262,11 +262,27 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-01.cdxml-rich",
+          "summary": "Bounded CDXML rich read/write of ordered pages, graphs, styles, Unicode text, IDs and known references, with a consented loss-accounted single-graph editor projection.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/cdxml.rs",
+            "crates/application/src/interchange_projection.rs",
+            "crates/application/src/operations/interchange.rs"
+          ],
+          "evidence": [
+            "case:cdxml-rich-projection",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Advanced CDXML objects, editor rendering and full-format interoperability remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -430,8 +446,23 @@
           "followups": []
         },
         {
+          "id": "CODEC-06.cdxml-policy",
+          "summary": "For bounded CDXML, unchanged opaque content is preserved; unsafe edits require explicit discard, and uninterpreted selected chemistry is refused.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/interchange.rs",
+            "crates/providers/src/interchange_codec.rs",
+            "crates/application/src/interchange_projection.rs"
+          ],
+          "evidence": [
+            "case:cdxml-rich-projection",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
-          "summary": "Unknown and unsupported objects in other formats remain open.",
+          "summary": "Advanced unknown and unsupported objects across formats remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

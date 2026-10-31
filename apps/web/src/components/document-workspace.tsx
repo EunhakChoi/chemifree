@@ -75,6 +75,7 @@ import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
+import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
@@ -308,6 +309,7 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
           </Button>
         </EmptyContent>
       </Empty>
+      <CdxmlImport editor={editor} />
       <section aria-labelledby="saved-documents" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
           <h3 id="saved-documents" className="text-sm font-medium">Saved documents</h3>

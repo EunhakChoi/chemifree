@@ -219,6 +219,7 @@ dependencies = [
  "chemifree-application",
  "chemifree-domain",
  "getrandom",
+ "roxmltree",
  "rustix",
  "serde",
  "serde_json",

@@ -43,6 +43,9 @@ enum Mutation {
     Create {
         title: Option<String>,
     },
+    CreateInterchange {
+        fingerprint: String,
+    },
     Transaction {
         expected_revision: u64,
         commands: Vec<CommandDto>,
@@ -655,6 +658,82 @@ impl<R: DocumentRepository> Documents<R> {
             sessions.remove(&evicted);
         }
         let session = Session::new(document);
+        let response = session.response();
+        sessions.created.record(request_id, mutation, &response);
+        sessions.open.insert(id, session);
+        Ok(response)
+    }
+
+    /// A previously acknowledged format creation is replayed before reading preferences.
+    pub(crate) fn replay_interchange_create(
+        &self,
+        request_id: Option<&str>,
+        fingerprint: &str,
+    ) -> Result<Option<DocumentResponse>, ApplicationError> {
+        validate_request_id(request_id)?;
+        let mutation = Mutation::CreateInterchange {
+            fingerprint: fingerprint.to_owned(),
+        };
+        self.replayed(request_id, |sessions| {
+            sessions.created.find(request_id, &mutation)
+        })
+    }
+
+    /// Build the same validated graph as creation, without allocating or saving a document.
+    pub(crate) fn preview_interchange_create(
+        title: &str,
+        settings: Settings,
+        commands: &[Command],
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let id = DocumentId::parse("preview").expect("preview identifier is valid");
+        let mut candidate = Document::new_with_settings(id, title, settings).map_err(|error| {
+            ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
+        })?;
+        if !commands.is_empty() {
+            candidate.apply(commands).map_err(rejected_edit)?;
+        }
+        Ok(DocumentResponse::new(&candidate, 0, None))
+    }
+
+    /// Validate, verify consent and durably create the complete graph before acknowledging it.
+    pub(crate) fn create_interchange(
+        &self,
+        request_id: Option<&str>,
+        fingerprint: String,
+        title: &str,
+        commands: &[Command],
+        settings: impl FnOnce() -> Result<Settings, ApplicationError>,
+        verify: impl FnOnce(&DocumentView) -> Result<(), ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let mutation = Mutation::CreateInterchange { fingerprint };
+        let _running = self.start(None, request_id)?;
+        {
+            let sessions = self.lock();
+            if let Some(response) = sessions.created.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+        }
+        let settings = settings()?;
+        let mut sessions = self.lock();
+        let id = self.repository.allocate_id().map_err(storage_error)?;
+        let mut candidate =
+            Document::new_with_settings(id.clone(), title, settings).map_err(|error| {
+                ApplicationError::new(ErrorCode::InvalidRequest, format!("title: {error}"))
+            })?;
+        if !commands.is_empty() {
+            candidate.apply(commands).map_err(rejected_edit)?;
+        }
+        let projected = DocumentResponse::new(&candidate, 0, None);
+        verify(&projected.document)?;
+        let eviction = sessions.eviction(None)?;
+        self.repository
+            .save(&candidate, None)
+            .map_err(storage_error)?;
+        if let Some(evicted) = eviction {
+            sessions.remove(&evicted);
+        }
+        let session = Session::new(candidate);
         let response = session.response();
         sessions.created.record(request_id, mutation, &response);
         sessions.open.insert(id, session);

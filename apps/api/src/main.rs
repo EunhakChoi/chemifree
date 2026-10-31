@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
+use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
     configure_selected_registry, default_data_dir,
@@ -55,6 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.model_trusted_registry.as_deref(),
     );
     let application = LocalApplication::new(LocalCapabilities, repository)
+        .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_preferences(preferences)
         .with_data_registry(registry);

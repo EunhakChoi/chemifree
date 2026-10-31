@@ -13,8 +13,13 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod interchange;
+
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
+pub use interchange::{
+    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -166,6 +171,9 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
+    InterchangeRead(Box<InterchangeReadResult>),
+    InterchangePreview(Box<InterchangePreviewResult>),
+    InterchangeExport(Box<InterchangeExportResult>),
     CtPreview(Box<CtPreviewResult>),
     CtExport(CtExportResult),
     /// `chem.validate`: inspection and the exact document snapshot it used.
@@ -265,6 +273,8 @@ pub struct DocumentResult {
     pub session: SessionView,
     pub recovery: Option<RecoveryView>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub interchange_mapping: Option<InterchangeMapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub import_mapping: Option<CtMapping>,
 }
 
@@ -274,6 +284,7 @@ impl From<DocumentResponse> for DocumentResult {
             document: response.document,
             session: response.session,
             recovery: response.recovery,
+            interchange_mapping: None,
             import_mapping: None,
         }
     }
@@ -1232,13 +1243,19 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.ctfile_codec.is_some() {
+        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
             match operation {
                 OperationId::DocumentImport => {
                     return (
                         runs(
                             operation.as_str(),
-                            "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent.",
+                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
+                                "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses."
+                            } else if self.ctfile_codec.is_some() {
+                                "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
+                            } else {
+                                "Read CDXML as a rich tree or preview a loss-accounted editor projection."
+                            },
                         ),
                         &[],
                     );
@@ -1247,7 +1264,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported.",
+                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
+                                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
+                            } else if self.ctfile_codec.is_some() {
+                                "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
+                            } else {
+                                "Write rich CDXML with opaque-content safety and explicit loss reporting."
+                            },
                         ),
                         &[],
                     );
@@ -1970,13 +1993,49 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport => match parameters::<CtImportParameters>(parameters_value) {
-                Ok(p) => self.ct_import(known, p),
-                Err(invalid) => known.invalid(invalid),
+            Op::DocumentImport => {
+                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                    if self.interchange_codec.is_some() {
+                        self.dispatch_interchange_import(known, parameters_value)
+                    } else {
+                        known.invalid(diagnostic(
+                            "unsupported_format",
+                            "The rich interchange provider is not connected.",
+                            Map::new(),
+                        ))
+                    }
+                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
+                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
+                    self.dispatch_interchange_import(known, parameters_value)
+                } else {
+                    match parameters::<CtImportParameters>(parameters_value) {
+                        Ok(p) => self.ct_import(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
             },
-            Op::DocumentExport => match parameters::<CtExportParameters>(parameters_value) {
-                Ok(p) => self.ct_export(known, p),
-                Err(invalid) => known.invalid(invalid),
+            Op::DocumentExport => {
+                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                    if self.interchange_codec.is_some() {
+                        self.dispatch_interchange_export(known, parameters_value)
+                    } else {
+                        known.invalid(diagnostic(
+                            "unsupported_format",
+                            "The rich interchange provider is not connected.",
+                            Map::new(),
+                        ))
+                    }
+                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
+                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
+                    self.dispatch_interchange_export(known, parameters_value)
+                } else {
+                    match parameters::<CtExportParameters>(parameters_value) {
+                        Ok(p) => self.ct_export(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
                 Ok(p) => self.chemical_properties(known, p),

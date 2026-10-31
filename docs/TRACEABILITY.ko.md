@@ -6,7 +6,9 @@ P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계
 
 P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 13, not_implemented 20) · 부분 68개(implemented 25, partial 8, unverified 2, not_implemented 33) · conformance 사례 32개(passed 32: accept 20·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. 고급 객체와 일반 장면 렌더링은 후속 범위다.
+
+현재 집계: 요구사항 33개(partial 14, not_implemented 19) · 부분 70개(implemented 27, partial 8, unverified 2, not_implemented 33) · conformance 사례 33개(passed 33: accept 21·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
