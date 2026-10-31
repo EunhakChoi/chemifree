@@ -78,6 +78,7 @@ import { DocumentStyleButton, PreferencesButton } from '@/components/style-setti
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
+import { IdentityPanel } from '@/components/identity-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
@@ -718,6 +719,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <CtfilePanel key={document.id} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
+          <IdentityPanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>

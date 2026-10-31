@@ -421,11 +421,25 @@
       "pending": null,
       "failure": null,
       "case_sha256": "834538b8c592ccdc0f5291e4e16dc77f64b4d1c3e84404e7de48f56862a5d98f"
+    },
+    {
+      "id": "graph-identity",
+      "title": "Benzene identity reports its symmetric atom orbit without editing the graph",
+      "requirements": [
+        "MODEL-02",
+        "QUALITY-01"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "b3e941cc09fcc17e438b4e3a95729476030a2074b17a88c441ae2d4307cd48b8"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 19,
+      "passed": 20,
       "failed": 0,
       "not_run": 0
     },
@@ -435,7 +449,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 31,
+      "passed": 32,
       "failed": 0,
       "not_run": 0
     }

@@ -400,11 +400,12 @@ fn the_catalog_says_exactly_which_operations_run() {
     let id = created(&app);
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
-    assert_eq!(operations.len(), 23);
+    assert_eq!(operations.len(), 24);
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
         "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
+        "chem.identity" => json!({"document_id": id, "mode": "recorded"}),
         "document.snapshot" | "document.close" | "chem.validate" | "chem.aromaticity" => {
             json!({"document_id": id})
         }
@@ -470,6 +471,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "chem.validate",
             "chem.aromaticity",
             "chem.aromaticity_convert",
+            "chem.identity",
             "chem.properties",
         ]
     );

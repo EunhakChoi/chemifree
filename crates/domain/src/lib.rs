@@ -6,6 +6,7 @@ pub mod data;
 pub mod document;
 pub mod element;
 pub mod graph;
+pub mod identity;
 pub mod mass;
 pub mod operation;
 pub mod rings;

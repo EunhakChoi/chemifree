@@ -14,6 +14,7 @@
 //! executable.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
+use chemifree_domain::{graph::MoleculeGraph, identity};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -173,6 +174,36 @@ pub enum OperationResult {
     Properties(Box<PropertiesResult>),
     /// `chem.aromaticity`: cyclic systems and their model-specific interpretations.
     Aromaticity(Box<AromaticityResult>),
+    /// `chem.identity`: canonical graph identity and an optional second snapshot comparison.
+    Identity(Box<IdentityResult>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct IdentityResult {
+    pub snapshot: DocumentResult,
+    pub identity: IdentityView,
+    pub comparison: Option<IdentityComparison>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct IdentityView {
+    pub code: String,
+    pub numbering: Vec<String>,
+    pub symmetry: Vec<Vec<String>>,
+    pub folded_hydrogens: Vec<FoldedHydrogen>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FoldedHydrogen {
+    pub hydrogen: String,
+    pub attached_to: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct IdentityComparison {
+    pub snapshot: DocumentResult,
+    pub identity: IdentityView,
+    pub equivalent: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -592,6 +623,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             ),
             &[],
         ),
+        Op::ChemIdentity => (
+            runs(
+                id,
+                "Compares bounded recorded or model-normalized graphs and reports canonical numbering and symmetry.",
+            ),
+            &[],
+        ),
         Op::ChemProperties => (
             runs(
                 id,
@@ -684,6 +722,62 @@ struct CreateParameters {
 #[serde(deny_unknown_fields)]
 struct SnapshotParameters {
     document_id: String,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum IdentityMode {
+    Recorded,
+    Chemical,
+}
+
+impl IdentityMode {
+    fn model_id(self) -> &'static str {
+        match self {
+            Self::Recorded => identity::MODEL_ID,
+            Self::Chemical => identity::CHEMICAL_MODEL_ID,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdentityParameters {
+    document_id: String,
+    mode: IdentityMode,
+    #[serde(default)]
+    other_document_id: Option<String>,
+}
+
+fn identity_view(
+    graph: &MoleculeGraph,
+    mode: IdentityMode,
+) -> Result<IdentityView, identity::IdentityError> {
+    let result = match mode {
+        IdentityMode::Recorded => identity::canonicalize(graph),
+        IdentityMode::Chemical => identity::canonicalize_chemical(graph),
+    }?;
+    Ok(IdentityView {
+        code: result.code,
+        numbering: result
+            .numbering
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect(),
+        symmetry: result
+            .symmetry
+            .into_iter()
+            .map(|orbit| orbit.into_iter().map(|id| id.to_string()).collect())
+            .collect(),
+        folded_hydrogens: result
+            .folded_hydrogens
+            .into_iter()
+            .map(|(hydrogen, attached_to)| FoldedHydrogen {
+                hydrogen: hydrogen.to_string(),
+                attached_to: attached_to.to_string(),
+            })
+            .collect(),
+    })
 }
 
 #[derive(serde::Deserialize)]
@@ -937,6 +1031,42 @@ impl Known {
             ),
         }
     }
+}
+
+fn identity_failure(
+    known: &Known,
+    revision: u64,
+    mode: IdentityMode,
+    side: &'static str,
+    snapshot: DocumentResponse,
+    error: identity::IdentityError,
+) -> OperationResponse {
+    let mut details = Map::new();
+    details.insert("side".into(), side.into());
+    details.insert("reason".into(), error.code().into());
+    details.insert(
+        "snapshot".into(),
+        serde_json::to_value(DocumentResult::from(snapshot))
+            .expect("validated document snapshots serialize to JSON"),
+    );
+    let (outcome, code) = match error {
+        identity::IdentityError::Unsupported(_) => (Outcome::Unsupported, "identity_unsupported"),
+        identity::IdentityError::AtomLimit | identity::IdentityError::SearchLimit => {
+            (Outcome::Error, "identity_limit")
+        }
+    };
+    let mut response = known.reply(
+        outcome,
+        Some(revision),
+        None,
+        vec![diagnostic(
+            code,
+            "Graph identity was not determined under this model.",
+            details,
+        )],
+    );
+    response.model_id = Some(mode.model_id().into());
+    response
 }
 
 fn converted(
@@ -1746,6 +1876,48 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     let mut reply = known.document(outcome);
                     reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
                     reply
+                }
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemIdentity => match parameters::<IdentityParameters>(parameters_value) {
+                Ok(p) => {
+                    let ((snapshot, graph), other) = match self.documents.graph_pair_snapshot(
+                        &p.document_id,
+                        p.other_document_id.as_deref(),
+                    ) {
+                        Ok(pair) => pair,
+                        Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                    };
+                    let revision = snapshot.document.revision;
+                    let identity = match identity_view(&graph, p.mode) {
+                        Ok(value) => value,
+                        Err(error) => return identity_failure(known, revision, p.mode, "source", snapshot, error),
+                    };
+                    let comparison = if let Some((other_snapshot, other_graph)) = other {
+                        let other_identity = match identity_view(&other_graph, p.mode) {
+                            Ok(value) => value,
+                            Err(error) => return identity_failure(known, revision, p.mode, "target", other_snapshot, error),
+                        };
+                        Some(IdentityComparison {
+                            equivalent: identity.code == other_identity.code,
+                            snapshot: other_snapshot.into(),
+                            identity: other_identity,
+                        })
+                    } else {
+                        None
+                    };
+                    let mut response = known.reply(
+                        Outcome::Ok,
+                        Some(revision),
+                        Some(OperationResult::Identity(Box::new(IdentityResult {
+                            snapshot: snapshot.into(),
+                            identity,
+                            comparison,
+                        }))),
+                        Vec::new(),
+                    );
+                    response.model_id = Some(p.mode.model_id().into());
+                    response
                 }
                 Err(invalid) => known.invalid(invalid),
             },
