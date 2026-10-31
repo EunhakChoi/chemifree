@@ -956,8 +956,15 @@ try {
     assert.equal(valence.result.snapshot.session.undo_depth, 1)
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
-    const unsupported = await both(() => request('op-props', 'chem.properties', {}))
-    assert.deepEqual([unsupported.outcome, unsupported.result], ['unsupported', null])
+    const beforeProperties = await both((id) => request('op-before-properties', 'document.snapshot', { document_id: id }))
+    const formula = await both((id) => request('op-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
+    assert.equal(formula.model_id, 'chemifree-properties-1')
+    assert.equal(formula.result.components[0].formula, 'CH4')
+    assert.equal(formula.result.snapshot.document.revision, 1)
+    const missingMass = await both((id) => request('op-mass', 'chem.properties', { document_id: id, scope: 'molecule', property: 'masses' }))
+    assert.deepEqual([missingMass.outcome, missingMass.diagnostics[0].code, missingMass.result], ['unsupported', 'mass_data_unavailable', null])
+    const afterProperties = await both((id) => request('op-after-properties', 'document.snapshot', { document_id: id }))
+    assert.deepEqual(afterProperties.result, beforeProperties.result, 'property inspection changes neither graph nor history')
     await both(() => request('op-x', 'chem.teleport', {}), 400)
     const malformed = await both(() => '{"contract": 1,', 400)
     assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
@@ -1072,7 +1079,8 @@ try {
       [shown.body.revision, shown.body.computation.nmr.status, shown.body.computation.numeric_precision.status],
       [0, 'not_implemented', 'not_implemented'],
     )
-    assert.equal(shown.body.computation.numeric_precision.followup, 'P19')
+    assert.equal(shown.body.computation.numeric_precision.followup, 'P60')
+    assert.deepEqual(shown.body.computation.mass_precision, { status: 'available', owner: 'preferences', decimals: 2 })
     const before = (await write('/api/v1/documents', { request_id: 'style-before', title: 'Before preferences' })).body.document
     assert.equal(before.settings.label_font, 'sans-serif')
     assert.equal((await write(`/api/v1/documents/${before.id}/save`, { request_id: 'style-before-save', expected_revision: 0 })).status, 200)
@@ -1101,7 +1109,7 @@ try {
     const precision = { ...change, computation: { numeric_precision: null } }
     const precisionHttp = await put({ request_id: 'prefs-precision', expected_revision: 1, ...precision })
     assert.deepEqual([precisionHttp.status, precisionHttp.body.code], [501, 'setting_not_implemented'])
-    assert.match(precisionHttp.body.message, /\(P19\)/)
+    assert.match(precisionHttp.body.message, /\(P60\)/)
     const precisionCli = cli('preferences', 'set', '--expected-revision', '1', '--json', '--preferences', JSON.stringify(precision))
     assert.deepEqual([precisionCli.status, precisionCli.body.code, precisionCli.body.message], [1, 'setting_not_implemented', precisionHttp.body.message])
     assert.equal((await call('/api/v1/preferences')).body.revision, 1, 'refused computation settings store nothing')

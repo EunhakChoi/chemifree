@@ -852,7 +852,7 @@ fn settings_text(settings: &SettingsDto) -> String {
 }
 
 /// The theme, the settings new documents start from (and which of them preferences set), and
-/// the computation preferences, which are not implemented.
+/// mass display decimals and unavailable general computation preferences.
 fn preferences_text(response: &PreferencesResponse) -> String {
     let mut lines = vec![
         format!("Preferences · revision {}", response.revision),
@@ -880,6 +880,10 @@ fn preferences_text(response: &PreferencesResponse) -> String {
             setting.followup
         ));
     }
+    lines.push(format!(
+        "  computation.mass_precision  {} display decimal places",
+        response.computation.mass_precision.decimals
+    ));
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
@@ -1081,7 +1085,8 @@ mod tests {
              carbon labels default · display unit pt\n\
              \x20   set: line_width_pt\n\
              \x20 computation.nmr  not implemented (P66)\n\
-             \x20 computation.numeric_precision  not implemented (P19)\n"
+             \x20 computation.numeric_precision  not implemented (P60)\n\
+             \x20 computation.mass_precision  2 display decimal places\n"
         );
     }
 }

@@ -230,9 +230,8 @@
               },
               {
                 "id": "chem.properties",
-                "representation": "not_supported",
-                "execution": "not_implemented",
-                "followup": "P19"
+                "representation": "supported",
+                "execution": "executable"
               }
             ]
           }

@@ -1,13 +1,32 @@
 {
   "id": "formula-and-mass",
-  "title": "Molecular formula and mass of a drawn structure",
-  "requirements": [
-    "CHEM-01"
-  ],
+  "title": "Formula and isotope masses use one unchanged graph and a pinned synthetic public-reference fixture",
+  "requirements": ["CHEM-01"],
   "axis": "numeric",
   "kind": "accept",
-  "pending": {
-    "followup": "P19",
-    "reason": "No formula or mass calculation exists yet."
-  }
+  "data_fixture": {
+    "id": "synthetic-carbon-nist-1",
+    "sha256": "2170931c87afeca42be2f1757043a3b47523c3f6f4564d85bc588faf4d638e20"
+  },
+  "steps": [
+    {"call": "create", "bind": "d"},
+    {"call": "transact", "document": "d", "expected_revision": 0,
+     "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}],
+     "expect": {"document": {"revision": 1}}},
+    {"call": "operation", "document": "d", "request": {"contract": 1, "request_id": "formula", "profile": "preserve-semantics", "operation": "chem.properties", "parameters": {"scope": "molecule", "property": "formula"}},
+     "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-properties-1", "result": {"components": [{"formula": "CH4", "formal_charge": 0}], "snapshot": {"document": {"revision": 1}}}}},
+    {"call": "transact", "document": "d", "expected_revision": 1,
+     "commands": [{"op": "update_atom", "atom": "a1", "hydrogens": {"mode": "specified", "count": 0}}],
+     "expect": {"document": {"revision": 2}}},
+    {"call": "set_preferences", "expected_revision": 0, "ui": {"theme": "system"}, "new_documents": {}, "computation": {"mass_precision": {"decimals": 5}},
+     "expect": {"revision": 1, "computation": {"mass_precision": {"decimals": 5}}}},
+    {"call": "operation", "document": "d", "request": {"contract": 1, "request_id": "distribution", "profile": "preserve-semantics", "operation": "chem.properties", "parameters": {"scope": "molecule", "property": "distribution"}},
+     "expect": {"outcome": "partial", "document_revision": 2, "loss_report": [{"feature": "unreported_isotope_abundances"}], "result": {"display_decimals": 5, "mass_unit": "u", "data": {"dataset_id": "synthetic-public-values", "dataset_version": "fixture-v1"}, "components": [{"formula": "C", "formal_charge": 0, "mass": {"average_display": "12.01074", "exact_display": "12.00000"}, "isotope_distribution": [{"mass_display": "12.00000", "probability": 0.9893}, {"mass_display": "13.00335", "probability": 0.0107}], "omitted_abundances": [{"element": "C", "isotope": 14}]}]}}},
+    {"call": "transact", "document": "d", "expected_revision": 2,
+     "commands": [{"op": "update_atom", "atom": "a1", "isotope": 13, "charge": 1}],
+     "expect": {"document": {"revision": 3}}},
+    {"call": "operation", "document": "d", "request": {"contract": 1, "request_id": "labeled-ion", "profile": "preserve-semantics", "operation": "chem.properties", "parameters": {"scope": "molecule", "property": "masses"}},
+     "expect": {"outcome": "ok", "document_revision": 3, "result": {"components": [{"formula": "[13C]+", "formal_charge": 1, "mass": {"average_display": "13.00281", "exact_display": "13.00281", "exact_selections": [{"element": "C", "isotope": 13, "basis": "explicit_isotope"}]}}]}}},
+    {"call": "get", "document": "d", "expect": {"document": {"revision": 3, "atoms": [{"id": "a1", "element": "C", "isotope": 13, "charge": 1}]}}}
+  ]
 }

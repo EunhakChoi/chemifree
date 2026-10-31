@@ -117,6 +117,29 @@ pub struct DataRegistry {
 }
 
 impl DataRegistry {
+    /// Synthetic test registry, compiled only for tests or the conformance feature.
+    #[cfg(any(test, feature = "conformance-fixtures"))]
+    pub(crate) fn fixture(datasets: Vec<PersonalDataset>) -> Self {
+        let registrations = datasets.iter().map(RegistryEntryStatus::loaded).collect();
+        Self {
+            status: RegistryStatus {
+                state: RegistryState::Checked,
+                reason: None,
+                registrations,
+                engine: EngineState::NotImplemented,
+            },
+            datasets,
+        }
+    }
+
+    /// Creates a clearly labeled synthetic registry for the conformance executable only.
+    /// This feature does not add an HTTP/CLI input for untrusted mass data.
+    #[cfg(feature = "conformance-fixtures")]
+    #[must_use]
+    pub fn synthetic_conformance(records: ProfileRecords) -> Self {
+        Self::fixture(vec![PersonalDataset::fixture(records)])
+    }
+
     #[must_use]
     pub fn not_configured() -> Self {
         Self {

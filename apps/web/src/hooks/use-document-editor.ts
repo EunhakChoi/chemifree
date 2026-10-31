@@ -98,6 +98,7 @@ export function useDocumentEditor() {
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
+  const [serviceGeneration, setServiceGeneration] = useState(0)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
@@ -125,7 +126,10 @@ export function useDocumentEditor() {
   }, [adoptSelection])
 
   // A restarted service no longer holds the session the notice describes.
-  useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
+  useEffect(() => client.onRestart(() => {
+    setCopyNotice(null)
+    setServiceGeneration((generation) => generation + 1)
+  }), [])
 
   const [listRequest, setListRequest] = useState(0)
   const [listQuery, setListQuery] = useState<ListQuery>({ query: '', sort: 'title' })
@@ -297,6 +301,8 @@ export function useDocumentEditor() {
     }, []),
     trash,
     current,
+    serviceGeneration,
+    inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),
     selection,
     /** A snapshot for a command made now, including changes not rendered yet. */
     selectionAtPress: useCallback(() => new Set(selectionRef.current), []),
