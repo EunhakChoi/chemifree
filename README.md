@@ -25,7 +25,7 @@ If preferences could not be read when the page started, open **Preferences** and
 
 Version 5 documents and drafts retain the scene, selection, and style; versions 1–4 are read in memory with default style. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
-Optional external DATA stays in a separately selected local directory and requires a trusted registration and review. The supported profiles and remaining gaps are described in [the DATA handoff](docs/DATA.ko.md). No data or registry is needed for drawing; inspecting or decoding it does not enable a chemistry engine.
+Optional external DATA stays in a separately selected local directory and requires a trusted registration and review. Typed readers cover the selected active DATA roles, with public checks using independent fixtures; private payloads have not been tested here. The host selects individual registrations, and an aggregate registry hash alone does not prove a manifest belongs to it. See [the DATA handoff](docs/DATA.ko.md) for profiles and limits. No data or registry is needed for drawing; inspecting or decoding it does not enable a chemistry engine.
 
 The first API launch compiles Rust dependencies. If that takes longer than the UI's five-second request timeout, use **Retry connection** once the API is listening. Both development ports must be available.
 

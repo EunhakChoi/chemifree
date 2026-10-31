@@ -88,7 +88,7 @@
 - 상태 판단이 옳은지. 예를 들어 `implemented` 부분의 요약이 사례가 실제로 비교하는 것보다 넓을 수 있다. 근거 연결은 실행 여부만 보장한다.
 - `check:` 스크립트가 올바른 것을 검사하는지, 이 부분과 관련된 테스트를 포함하는지.
 - 사례가 다른 프로그램의 코드나 자료와 독립적으로 작성됐는지(QUALITY-01.2는 `unverified`).
-- 공개 저장소에 개인 자료, 공급자 자료, 실행 엔진, 명세 사본이 없는지. 정책(AGENTS.md)과 .gitignore가 있을 뿐 이를 증명하는 자동 검사는 없다(CLEANROOM-01.2는 `unverified`, 후속 P14·P88·P89).
+- 공개 저장소에 개인 자료, 공급자 자료, 실행 엔진, 명세 사본이 없는지. 정책(AGENTS.md)과 .gitignore가 있을 뿐 이를 증명하는 자동 검사는 없다(CLEANROOM-01.2는 `unverified`, 후속 P88·P89).
 - `CHEMIFREE_SPEC_DIR` 없이는(CI와 `npm run check` 기본값) 출처 해시·요구사항 ID·연산 이름·선언 수가 명세와 같은지. 그래서 CLEANROOM-01.1은 `partial`이다.
 - 단독으로 실행한 `test:traceability`는 runner를 실행하지 않는다. 있는 새 실행 파일을 비교할 뿐이며, `npm run check`가 그 직전에 `test:conformance`를 실행한다.
 - 화학, 형식 변환, 다른 프로그램과의 동등성, 완성도.
