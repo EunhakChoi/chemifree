@@ -1,17 +1,20 @@
 //! Inert provenance checks for the mass profile. No source executable is opened.
 
 use std::collections::{HashMap, HashSet};
-use std::num::NonZeroU64;
 
+use num_bigint::BigUint;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+use crate::json;
 
 /// A source identity recorded by the separately supplied dataset.
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FileIdentity {
     pub file_name: String,
-    pub bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub bytes: BigUint,
     pub sha256: String,
 }
 
@@ -19,8 +22,10 @@ pub struct FileIdentity {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceSpan {
-    pub source_file_offset: u64,
-    pub bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub bytes: BigUint,
     pub sha256: String,
 }
 
@@ -36,10 +41,14 @@ pub enum SourceRowKind {
 #[serde(deny_unknown_fields)]
 pub struct SourceLine {
     pub kind: SourceRowKind,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub row_ordinal: u64,
-    pub source_line_1based: u64,
-    pub source_file_offset: u64,
-    pub source_bytes_including_newline: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_line_1based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub source_bytes_including_newline: BigUint,
     pub source_line_sha256: String,
 }
 
@@ -71,26 +80,22 @@ pub struct MassSources {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct InvalidSource;
 
-#[derive(Clone, Copy)]
-struct BoundedSpan {
-    start: u64,
-    length: NonZeroU64,
+struct BoundedSpan<'a> {
+    start: &'a BigUint,
+    end: BigUint,
 }
 
-impl BoundedSpan {
-    fn admit(start: u64, length: u64, parent_size: u64) -> Result<Self, InvalidSource> {
-        let length = NonZeroU64::new(length).ok_or(InvalidSource)?;
-        if start
-            .checked_add(length.get())
-            .is_none_or(|end| end > parent_size)
-        {
+impl<'a> BoundedSpan<'a> {
+    fn admit(
+        start: &'a BigUint,
+        length: &BigUint,
+        parent_size: &BigUint,
+    ) -> Result<Self, InvalidSource> {
+        let end = start + length;
+        if length == &BigUint::from(0_u8) || &end > parent_size {
             return Err(InvalidSource);
         }
-        Ok(Self { start, length })
-    }
-
-    fn end(self) -> u64 {
-        self.start + self.length.get()
+        Ok(Self { start, end })
     }
 }
 
@@ -102,7 +107,9 @@ fn is_digest(value: &str) -> bool {
 }
 
 fn valid_identity(identity: &FileIdentity) -> bool {
-    !identity.file_name.trim().is_empty() && identity.bytes > 0 && is_digest(&identity.sha256)
+    !identity.file_name.trim().is_empty()
+        && identity.bytes != BigUint::from(0_u8)
+        && is_digest(&identity.sha256)
 }
 
 impl MassSources {
@@ -126,38 +133,43 @@ impl MassSources {
             return Err(InvalidSource);
         }
         BoundedSpan::admit(
-            self.signed_charge_coefficient.source_file_offset,
-            self.signed_charge_coefficient.bytes,
-            self.consumer_source.bytes,
+            &self.signed_charge_coefficient.source_file_offset,
+            &self.signed_charge_coefficient.bytes,
+            &self.consumer_source.bytes,
         )?;
         let mut targets = HashSet::new();
         let mut physical = Vec::with_capacity(self.row_source_spans.len());
+        let zero = BigUint::from(0_u8);
+        let one = BigUint::from(1_u8);
         for row in &self.row_source_spans {
             let row_count = match row.kind {
                 SourceRowKind::Element => elements,
                 SourceRowKind::Isotope => isotopes,
             };
             let ordinal = usize::try_from(row.row_ordinal).map_err(|_| InvalidSource)?;
-            let line = NonZeroU64::new(row.source_line_1based).ok_or(InvalidSource)?;
+            let line = &row.source_line_1based;
+            if line == &zero {
+                return Err(InvalidSource);
+            }
             if ordinal >= row_count
-                || (line.get() == 1 && row.source_file_offset != 0)
-                || row.source_file_offset < line.get() - 1
+                || (line == &one && row.source_file_offset != zero)
+                || row.source_file_offset < line - &one
                 || !targets.insert((row.kind, ordinal))
                 || !is_digest(&row.source_line_sha256)
             {
                 return Err(InvalidSource);
             }
             let range = BoundedSpan::admit(
-                row.source_file_offset,
-                row.source_bytes_including_newline,
-                self.text_source.bytes,
+                &row.source_file_offset,
+                &row.source_bytes_including_newline,
+                &self.text_source.bytes,
             )?;
             physical.push((line, range));
         }
-        physical.sort_unstable_by_key(|(line, _)| *line);
+        physical.sort_unstable_by(|left, right| left.0.cmp(right.0));
         if physical
             .windows(2)
-            .any(|pair| pair[0].0 == pair[1].0 || pair[0].1.end() > pair[1].1.start)
+            .any(|pair| pair[0].0 == pair[1].0 || &pair[0].1.end > pair[1].1.start)
         {
             return Err(InvalidSource);
         }
@@ -171,7 +183,7 @@ impl MassSources {
     /// Returns a payload-free error for a changed file or a contradictory line witness.
     pub(crate) fn verify_text(&self, raw: &[u8]) -> Result<(), InvalidSource> {
         if raw.len() as u64 > crate::MAX_DATA_FILE_BYTES
-            || raw.len() as u64 != self.text_source.bytes
+            || BigUint::from(raw.len()) != self.text_source.bytes
             || format!("{:x}", Sha256::digest(raw)) != self.text_source.sha256
         {
             return Err(InvalidSource);
@@ -179,15 +191,20 @@ impl MassSources {
         let wanted: HashMap<_, _> = self
             .row_source_spans
             .iter()
-            .map(|row| (row.source_line_1based, row))
-            .collect();
+            .map(|row| {
+                Ok((
+                    u64::try_from(&row.source_line_1based).map_err(|_| InvalidSource)?,
+                    row,
+                ))
+            })
+            .collect::<Result<_, InvalidSource>>()?;
         let mut found = 0_usize;
         let mut offset = 0_u64;
         for (index, line) in raw.split_inclusive(|byte| *byte == b'\n').enumerate() {
             let number = index as u64 + 1;
             if let Some(row) = wanted.get(&number) {
-                if row.source_file_offset != offset
-                    || row.source_bytes_including_newline != line.len() as u64
+                if row.source_file_offset != BigUint::from(offset)
+                    || row.source_bytes_including_newline != BigUint::from(line.len())
                     || row.source_line_sha256 != format!("{:x}", Sha256::digest(line))
                 {
                     return Err(InvalidSource);
@@ -209,9 +226,10 @@ mod tests {
 
     #[test]
     fn any_source_span_must_be_nonempty_and_fit_without_overflow() {
-        assert!(BoundedSpan::admit(3, 2, 5).is_ok());
-        assert!(BoundedSpan::admit(3, 0, 5).is_err());
-        assert!(BoundedSpan::admit(4, 2, 5).is_err());
-        assert!(BoundedSpan::admit(u64::MAX, 1, u64::MAX).is_err());
+        let n = BigUint::from;
+        assert!(BoundedSpan::admit(&n(3_u64), &n(2_u64), &n(5_u64)).is_ok());
+        assert!(BoundedSpan::admit(&n(3_u64), &n(0_u64), &n(5_u64)).is_err());
+        assert!(BoundedSpan::admit(&n(4_u64), &n(2_u64), &n(5_u64)).is_err());
+        assert!(BoundedSpan::admit(&n(u64::MAX), &n(1_u64), &n(u64::MAX)).is_err());
     }
 }

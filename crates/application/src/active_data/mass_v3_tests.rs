@@ -53,10 +53,28 @@ impl MassFixture {
             include_bytes!("../../tests/data/mass-independent-v3/sources.json"),
         ];
         let mut encoded: Vec<Vec<u8>> = content.into_iter().map(<[u8]>::to_vec).collect();
+        encoded[0] = std::str::from_utf8(&encoded[0])
+            .unwrap()
+            .replacen("\"atomic_number_u32\":31", "\"atomic_number_u32\":31e0", 1)
+            .into_bytes();
         if invalid_coefficient_span {
             let mut sources: Value = serde_json::from_slice(&encoded[6]).unwrap();
             sources["signed_charge_coefficient"]["bytes"] = 0.into();
             encoded[6] = serde_json::to_vec(&sources).unwrap();
+        } else {
+            let maximum = format!("1{}", "0".repeat(400));
+            let offset = "9".repeat(399);
+            encoded[6] = std::str::from_utf8(&encoded[6])
+                .unwrap()
+                .replace(
+                    "\"file_name\":\"fictional-consumer\",\"bytes\":128",
+                    &format!("\"file_name\":\"fictional-consumer\",\"bytes\":{maximum}"),
+                )
+                .replace(
+                    "\"signed_charge_coefficient\":{\"source_file_offset\":8",
+                    &format!("\"signed_charge_coefficient\":{{\"source_file_offset\":{offset}"),
+                )
+                .into_bytes();
         }
         let files: Vec<Value> = mass_input::NORMALIZED_PATHS.iter().zip(&encoded).enumerate()
             .map(|(index, (path, bytes))| json!({
@@ -217,7 +235,22 @@ fn absent_optional_raw_file_does_not_prevent_complete_normalized_generation() {
 #[test]
 fn supplied_optional_raw_is_verified_and_other_read_failures_remain_errors() {
     let mut present = MassFixture::new(false).with_raw_file(RawFile::OptionalPresent);
-    assert!(present.load_test_authorized().is_ok());
+    let loaded = present.load_test_authorized().unwrap();
+    let ProfileRecords::MassInput(data) = loaded.records() else {
+        panic!("wrong dataset type")
+    };
+    assert_eq!(data.elements[0].atomic_number_u32, 31);
+    assert_eq!(
+        data.sources.consumer_source.bytes.to_string(),
+        format!("1{}", "0".repeat(400))
+    );
+    assert_eq!(
+        data.sources
+            .signed_charge_coefficient
+            .source_file_offset
+            .to_string(),
+        "9".repeat(399)
+    );
     present
         .source
         .files
