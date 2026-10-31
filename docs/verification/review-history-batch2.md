@@ -486,3 +486,13 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41179387528)는 check·browser 모두 성공했다. 2026-10-31 07:13:21에 `27188130cec4b4855bdb0e23043ee9d98d4f4568`로 병합했다.
 
 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41179747069)도 check·browser 모두 성공했다.
+
+### P15 Real48·IEEE 저장 프로필 — [#71](https://github.com/EunhakChoi/chemifree/pull/71)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-31 07:37:44 | `fdf368af4a5dd0b2b5f849b4f790259901e914c9` | 07:39:20 | 통과: 실제 리뷰 완료, 지적과 미해결 스레드 없음. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/71#issuecomment-6540701563) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41181362058)는 check·browser 모두 성공했다. 2026-10-31 07:43:06에 `0e9ebf0517c72cfbfeaa0da10c21ab42814a2d6b`로 병합했다.
+
+병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41181701502)도 check·browser 모두 성공했다.

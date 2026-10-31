@@ -1,15 +1,19 @@
 //! Explicit numeric storage profiles for future independent calculation engines.
 //!
 //! Stored bits and exact values are separate. Conversion here never substitutes an
-//! ordinary host float for a requested profile. Arithmetic, unit and display policies
-//! are separate contracts and are not supplied by these storage types yet.
+//! ordinary host float for a requested profile. Finite arithmetic stores each result
+//! in the selected profile; ordered expressions, units and display policies are
+//! separate contracts and are not supplied yet.
 
+mod arithmetic;
 mod exact;
+mod extended;
 mod ieee;
 mod quantize;
 mod real48;
 
 pub use exact::{Exact, Sign};
+pub use extended::{Extended80, ExtendedClass};
 pub use ieee::{Binary32, Binary64, FloatClass};
 pub use real48::Real48;
 
@@ -20,6 +24,8 @@ pub enum NumericError {
     ResourceLimit,
     NonFinite,
     Overflow,
+    DivisionByZero,
+    UnsupportedEncoding,
 }
 
 impl std::fmt::Display for NumericError {
@@ -29,6 +35,8 @@ impl std::fmt::Display for NumericError {
             Self::ResourceLimit => "numeric_resource_limit",
             Self::NonFinite => "nonfinite_value",
             Self::Overflow => "numeric_overflow",
+            Self::DivisionByZero => "division_by_zero",
+            Self::UnsupportedEncoding => "unsupported_encoding",
         })
     }
 }

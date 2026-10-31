@@ -1,6 +1,8 @@
 //! Authored mathematical boundary cases; no model coefficients or private inputs.
 
-use chemifree_numerics::{Binary32, Binary64, Exact, FloatClass, NumericError, Real48, Sign};
+use chemifree_numerics::{
+    Binary32, Binary64, Exact, Extended80, FloatClass, NumericError, Real48, Sign,
+};
 use num_bigint::BigUint;
 
 fn ratio(negative: bool, numerator: BigUint, denominator: BigUint) -> Exact {
@@ -361,11 +363,12 @@ fn independent_fraction_vectors_cover_both_signs_and_tie_rules() {
                 .bits()
                 .to_le_bytes()
                 .to_vec(),
+            "extended80" => Extended80::from_exact(&value).unwrap().bytes().to_vec(),
             _ => panic!("invalid profile on vector line {index}"),
         };
         let encoded: String = actual.iter().map(|byte| format!("{byte:02x}")).collect();
         assert_eq!(encoded, expected, "{} vector line {index}", fields[0]);
         count += 1;
     }
-    assert_eq!(count, 850);
+    assert_eq!(count, 1178);
 }
