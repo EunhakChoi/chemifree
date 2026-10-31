@@ -1,0 +1,15 @@
+[package]
+name = "chemifree-numerics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+num-bigint = "0.5.1"
+num-integer = "0.1.47"
+
+[lints]
+workspace = true
