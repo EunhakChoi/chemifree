@@ -322,6 +322,13 @@ fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
             at + c.at,
         ));
     }
+    if count == 0 {
+        return Err(fail(
+            "unsupported_empty_table",
+            "This interchange profile does not interpret a CDX font table with zero entries.",
+            at + 2,
+        ));
+    }
     Ok(table)
 }
 fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
@@ -348,6 +355,13 @@ fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
             "invalid_color_table",
             "Trailing bytes in the CDX color table.",
             at + c.at,
+        ));
+    }
+    if count == 0 {
+        return Err(fail(
+            "unsupported_empty_table",
+            "This interchange profile does not interpret a CDX color table with zero entries.",
+            at,
         ));
     }
     Ok(table)

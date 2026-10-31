@@ -94,6 +94,11 @@ objects are refused because the public [string](https://iupac.github.io/IUPAC-FA
 and [color table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/ColorTable.htm)
 descriptions allow references to tables in an object or its ancestors. Unknown
 objects remain opaque, including any tags inside them.
+The common interchange model requires at least one entry in a table, following
+the CDXML table-object requirements. This CDX profile therefore refuses a binary
+font or color table with count zero as `unsupported_empty_table`; the binary
+datatype descriptions do not establish that every such CDX file is invalid.
+No table remains distinct from an empty table and is supported.
 Non-ASCII font names and other encodings are refused rather than guessed. The font platform is not represented in the common tree and is reported;
 supplying an unchanged original preserves the bytes. Unknown binary objects and
 properties are retained as opaque, with no assumption about their references;

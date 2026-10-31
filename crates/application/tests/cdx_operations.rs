@@ -171,6 +171,69 @@ fn scoped_tables_refuse_preview_and_creation_without_changing_documents() {
 }
 
 #[test]
+fn zero_entry_tables_are_profile_refusals_without_partial_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    let existing = call(
+        &app,
+        "existing-empty",
+        "document.create",
+        json!({"title":"Existing"}),
+    );
+    let id = existing["result"]["document"]["id"].as_str().unwrap();
+    let before = call(
+        &app,
+        "before-empty",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+
+    for (table, offset) in [
+        (vec![0x00, 0x01, 4, 0, 1, 0, 0, 0], 34),
+        (vec![0x00, 0x03, 2, 0, 0, 0], 32),
+    ] {
+        let mut bytes = example();
+        bytes.splice(28..28, table);
+        let source = STANDARD.encode(bytes);
+        for mode in ["read", "preview", "create"] {
+            let mut parameters = if mode == "read" {
+                json!({"mode":mode,"format":"cdx","source":source})
+            } else {
+                json!({"mode":mode,"format":"cdx","source":source,"title":"Binary","page_id":1,"fragment_id":2})
+            };
+            if mode == "create" {
+                parameters["preview_digest"] = json!("unavailable");
+                parameters["accept_loss"] = json!(true);
+            }
+            let result = call(
+                &app,
+                &format!("empty-{offset}-{mode}"),
+                "document.import",
+                parameters,
+            );
+            assert_eq!(result["diagnostics"][0]["code"], "unsupported_empty_table");
+            assert_eq!(result["diagnostics"][0]["details"]["byte_offset"], offset);
+            assert!(result["result"].is_null());
+            assert_eq!(
+                app.list_documents(&Default::default())
+                    .unwrap()
+                    .documents
+                    .len(),
+                1
+            );
+            let after = call(
+                &app,
+                &format!("after-empty-{offset}-{mode}"),
+                "document.snapshot",
+                json!({"document_id":id}),
+            );
+            assert_eq!(after["result"], before["result"]);
+        }
+    }
+}
+
+#[test]
 fn cdx_base64_read_write_projection_and_xml_transcode_use_real_operations() {
     let dir = tempfile::tempdir().unwrap();
     let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
