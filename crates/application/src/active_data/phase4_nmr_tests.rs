@@ -25,9 +25,14 @@ fn nmr_fixture(invalid_first_row: bool) -> Fixture {
         } else {
             "{\"line\":1,\"kind\":\"fixture\"}\n"
         };
+        let mut normalized = row.repeat(count);
+        if index == 1 && !invalid_first_row {
+            normalized =
+                normalized.replacen("\"line\":1", &format!("\"line\":{}", "9".repeat(400)), 1);
+        }
         owned.push((
             format!("P4-NMR-CARRIERS-{index:03}-normalized"),
-            row.repeat(count).into_bytes(),
+            normalized.into_bytes(),
         ));
     }
     let entries = owned
@@ -63,6 +68,10 @@ fn a_complete_generation_is_typed_and_does_not_enable_nmr() {
         panic!("wrong dataset type")
     };
     assert_eq!(data.tables.len(), 19);
+    let super::phase4_nmr::CarrierRow::Commented(first) = &data.tables[0].rows[0] else {
+        panic!("wrong carrier shape")
+    };
+    assert_eq!(first.line.to_string(), "9".repeat(400));
     assert_eq!(
         data.tables
             .iter()
