@@ -15,6 +15,8 @@ import xml.etree.ElementTree
 
 NodeAxis: TypeAlias = tuple[int, int, int, str | None]
 BondAxis: TypeAlias = tuple[int, int, int, str]
+TextAxis: TypeAlias = tuple[int, int, float, int, str]
+FontAxis: TypeAlias = tuple[int, str, str]
 
 
 def _object(tag: int, ident: int, body: bytes) -> bytes:
@@ -41,8 +43,15 @@ def _fixture(explicit: bool) -> bytes:
         + _property(0x0605, struct.pack("<I", 4))
         + _property(0x0600, struct.pack("<H", 2)),
     )
-    page = _object(0x8001, 1, _object(0x8003, 2, carbon + oxygen + bond))
-    document = _object(0x8000, 9, page) if explicit else page
+    # Public CDX font table and styled-string fields, including Latin-1 é.
+    fonts = _property(
+        0x0100, struct.pack("<HHHHH", 1, 1, 3, 1252, 5) + b"Arial"
+    )
+    styled = struct.pack("<HHHHHH", 1, 0, 3, 1, 240, 2) + b"Caf\xe9"
+    text = _object(0x8006, 6, _property(0x0700, styled))
+    page = _object(0x8001, 1, _object(0x8003, 2, carbon + oxygen + bond) + text)
+    body = fonts + page
+    document = _object(0x8000, 9, body) if explicit else body
     return b"VjCD0100\x04\x03\x02\x01" + bytes(16) + document + b"\0\0"
 
 
@@ -90,7 +99,9 @@ def _check_framing(data: bytes, explicit: bool) -> None:
         raise AssertionError("trailing CDX bytes")
 
 
-def _axes(text: bytes) -> tuple[list[NodeAxis], list[BondAxis]]:
+def _axes(
+    text: bytes,
+) -> tuple[list[NodeAxis], list[BondAxis], list[TextAxis], list[FontAxis]]:
     # This XML is produced from the local authored fixture by the local codec.
     root = xml.etree.ElementTree.fromstring(text)  # noqa: S314
     nodes = root.findall("./page/fragment/n")
@@ -113,6 +124,24 @@ def _axes(text: bytes) -> tuple[list[NodeAxis], list[BondAxis]]:
                 bond.get("Order", "1"),
             )
             for bond in bonds
+        ],
+        [
+            (
+                int(run.attrib["font"]),
+                int(run.attrib["face"]),
+                float(run.attrib["size"]),
+                int(run.attrib["color"]),
+                run.text or "",
+            )
+            for run in root.findall("./page/t/s")
+        ],
+        [
+            (
+                int(font.attrib["id"]),
+                font.attrib["name"],
+                font.attrib["charset"],
+            )
+            for font in root.findall("./fonttable/font")
         ],
     )
 
@@ -139,9 +168,13 @@ def main() -> None:
     binary = pathlib.Path(sys.argv[1]).resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix="chemifree-cdx-") as tmp:
         root = pathlib.Path(tmp)
-        expected: tuple[list[NodeAxis], list[BondAxis]] = (
+        expected: tuple[
+            list[NodeAxis], list[BondAxis], list[TextAxis], list[FontAxis]
+        ] = (
             [(3, 6, -1, "2 -1"), (4, 8, 0, None)],
             [(5, 3, 4, "2")],
+            [(3, 1, 12.0, 2, "Café")],
+            [(3, "Arial", "iso-8859-1")],
         )
         for explicit in (False, True):
             cdx = root / "independent.cdx"
@@ -172,7 +205,9 @@ def main() -> None:
                         "accepted an explicit document without its "
                         "file terminator"
                     )
-    print("Independent CDX framing and CDXML graph comparison passed")  # noqa: T201
+    sys.stdout.write(
+        "Independent CDX framing and CDXML graph/text/style comparison passed\n"
+    )
 
 
 if __name__ == "__main__":

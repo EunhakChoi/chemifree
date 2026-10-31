@@ -109,8 +109,10 @@ objects, 100,000 properties, and 512 properties per object. Malformed, truncated
 ambiguous, or out-of-
 scope values produce errors without partial results.
 `scripts/verify-cdx-semantics.py` constructs an independent binary fixture from the
-published framing and checks the resulting CDXML graph with Python's XML reader in
-both conversion directions. This checks that fixture only.
+published framing and checks the resulting CDXML with Python's XML reader in both
+conversion directions. It compares node and bond IDs, elements, signed charge,
+positions, bond endpoints and order, plus a Latin-1 styled `Café` text run's font,
+face, size, color and font-table mapping. This checks that fixture only.
 
 Public format references: [CDXML introduction](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/IntroCDXML.htm),
 [node types](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Node_Type.htm),
