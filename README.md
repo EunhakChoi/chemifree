@@ -25,7 +25,7 @@ If preferences could not be read when the page started, open **Preferences** and
 
 Version 5 documents and drafts retain the scene, selection, and style; versions 1–4 are read in memory with default style. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
-The P15 numeric library currently provides exact Real48, binary32, binary64, and 80-bit extended storage conversions, with finite arithmetic and explicit intermediate rounding. Ordered expressions, units, and display policies are still in progress; no chemistry engine is enabled. See [the numeric boundaries](docs/NUMERICS.ko.md).
+The P15 numeric library currently provides exact Real48, binary32, binary64, and 80-bit extended storage conversions, finite arithmetic, and the selected ordered heading and deviation boundaries. Units and display policies are still in progress; no chemistry engine is enabled. See [the numeric boundaries](docs/NUMERICS.ko.md).
 
 Optional external DATA stays in a separately selected local directory and requires a trusted registration and review. Typed readers cover the selected active DATA roles, with public checks using independent fixtures; private payloads have not been tested here. The host selects individual registrations, and an aggregate registry hash alone does not prove a manifest belongs to it. See [the DATA handoff](docs/DATA.ko.md) for profiles and limits. No data or registry is needed for drawing; inspecting or decoding it does not enable a chemistry engine.
 

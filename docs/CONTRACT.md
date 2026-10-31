@@ -78,7 +78,7 @@ Unknown parameters are `invalid_request` (`path: "parameters"`). Every other ope
 
 ## Numeric foundation (P15 in progress)
 
-The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32, binary64 and 80-bit extended raw storage. Finite conversions and basic arithmetic use each documented rounding rule at explicit intermediate stores, and report nonfinite input, invalid encodings, division by zero, overflow or resource limits. These types do not add an HTTP or CLI chemistry operation. Specific ordered expressions, unit conversions and output formatting remain unimplemented; the exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
+The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32, binary64 and 80-bit extended raw storage. Finite conversions and basic arithmetic use each documented rounding rule at explicit intermediate stores, and report nonfinite input, invalid encodings, division by zero, overflow or resource limits. The selected heading step uses explicit extended intermediate operations and a binary64 final store; the deviation boundary rounds nonnegative half-integers upward. These types do not add an HTTP or CLI chemistry operation. Unit conversions and output formatting remain unimplemented; the exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
 
 ## External DATA status
 
