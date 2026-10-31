@@ -367,7 +367,9 @@ fn xlogp_files(wrong_value: bool) -> Vec<(&'static str, &'static str, Vec<u8>)> 
     let raw = vec![0_u8; 800];
     let rows = (0..100).map(|index| {
         let value = if wrong_value && index == 1 { 1 } else { 0 };
-        format!("{{\"storage_index_0based\":{index},\"bin_family\":\"fixture\",\"family_index_0based\":{index},\"ieee754_f64_le_hex\":\"0000000000000000\",\"value\":{value}}}\n")
+        let storage = if index == 1 { "1.0".into() } else { index.to_string() };
+        let family = if index == 1 { "9".repeat(400) } else { index.to_string() };
+        format!("{{\"storage_index_0based\":{storage},\"bin_family\":\"fixture\",\"family_index_0based\":{family},\"ieee754_f64_le_hex\":\"0000000000000000\",\"value\":{value}}}\n")
     }).collect::<String>();
     vec![
         (prepared_xlogp::RAW_FILE_ID, "renamed/raw.bin", raw),
@@ -403,7 +405,7 @@ fn prepared_numeric_dispatches_by_id_and_exposes_one_atomic_dataset() {
         panic!("wrong dataset type")
     };
     assert_eq!(rows.rows.len(), 100);
-    assert_eq!(rows.rows[1].family_index, 1);
+    assert_eq!(rows.rows[1].family_index.to_string(), "9".repeat(400));
     assert_eq!(source_fixture.source.reads.get(), 2);
     assert_binding_unavailable(&source_fixture, &loaded);
     source_fixture

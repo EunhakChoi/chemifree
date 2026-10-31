@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::BigUint;
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 
 use crate::{json, phase6_profiles};
@@ -136,7 +137,8 @@ pub struct CompositeToken {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CommentedRow {
-    pub line: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub line: BigUint,
     pub kind: String,
     #[serde(default, deserialize_with = "present_value")]
     pub tokens: Option<Vec<Token>>,
@@ -150,7 +152,8 @@ pub struct CommentedRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LabelRow {
-    pub line: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub line: BigUint,
     pub kind: String,
     #[serde(default, deserialize_with = "present_value")]
     pub label: Option<String>,
@@ -162,7 +165,8 @@ pub struct LabelRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LexicalRow {
-    pub line: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub line: BigUint,
     pub kind: String,
     #[serde(default, deserialize_with = "present_value")]
     pub lexemes: Option<Vec<String>>,
@@ -176,7 +180,8 @@ pub struct LexicalRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct KeyedRow {
-    pub line: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub line: BigUint,
     pub kind: String,
     pub tokens: Vec<Token>,
     pub key_lexeme: String,
@@ -186,7 +191,8 @@ pub struct KeyedRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CompositeRow {
-    pub line: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    pub line: BigUint,
     pub kind: String,
     #[serde(default, deserialize_with = "present_value")]
     pub lexemes: Option<Vec<String>>,
@@ -207,13 +213,13 @@ pub enum CarrierRow {
 }
 
 impl CarrierRow {
-    const fn line(&self) -> u64 {
+    fn line(&self) -> &BigUint {
         match self {
-            Self::Commented(row) => row.line,
-            Self::Label(row) => row.line,
-            Self::Lexical(row) => row.line,
-            Self::Keyed(row) => row.line,
-            Self::Composite(row) => row.line,
+            Self::Commented(row) => &row.line,
+            Self::Label(row) => &row.line,
+            Self::Lexical(row) => &row.line,
+            Self::Keyed(row) => &row.line,
+            Self::Composite(row) => &row.line,
         }
     }
 }
@@ -267,8 +273,8 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
-fn from_value<T: DeserializeOwned>(value: serde_json::Value) -> Result<T, CarrierError> {
-    serde_json::from_value(value).map_err(|_| CarrierError::Record)
+fn from_line<T: DeserializeOwned>(line: &str) -> Result<T, CarrierError> {
+    serde_json::from_str(line).map_err(|_| CarrierError::Record)
 }
 
 fn decode_rows(
@@ -288,16 +294,15 @@ fn decode_rows(
         if rows.len() == expected {
             return Err(CarrierError::RecordCount);
         }
-        let value =
-            json::parse_integer_zero_strict(line.as_bytes()).map_err(|_| CarrierError::Record)?;
+        json::validate_raw_strict(line.as_bytes()).map_err(|_| CarrierError::Record)?;
         let row = match shape {
-            Shape::Commented => CarrierRow::Commented(from_value(value)?),
-            Shape::Label => CarrierRow::Label(from_value(value)?),
-            Shape::Lexical => CarrierRow::Lexical(from_value(value)?),
-            Shape::Keyed => CarrierRow::Keyed(from_value(value)?),
-            Shape::Composite => CarrierRow::Composite(from_value(value)?),
+            Shape::Commented => CarrierRow::Commented(from_line(line)?),
+            Shape::Label => CarrierRow::Label(from_line(line)?),
+            Shape::Lexical => CarrierRow::Lexical(from_line(line)?),
+            Shape::Keyed => CarrierRow::Keyed(from_line(line)?),
+            Shape::Composite => CarrierRow::Composite(from_line(line)?),
         };
-        if row.line() == 0 {
+        if row.line() == &BigUint::from(0_u8) {
             return Err(CarrierError::LineNumber);
         }
         rows.push(row);
@@ -419,6 +424,52 @@ mod tests {
     }
 
     #[test]
+    fn each_carrier_shape_keeps_exact_large_and_decimal_source_lines() {
+        let line = "9".repeat(400);
+        let cases = [
+            (Shape::Commented, ""),
+            (Shape::Label, ""),
+            (Shape::Lexical, ""),
+            (Shape::Keyed, ",\"tokens\":[],\"key_lexeme\":\"x\""),
+            (Shape::Composite, ""),
+        ];
+        for (shape, extra) in cases {
+            let text = format!("{{\"line\":{line},\"kind\":\"fixture\"{extra}}}");
+            let rows = decode_rows(text.as_bytes(), shape, 1).unwrap();
+            assert_eq!(rows[0].line().to_string(), line);
+            let decimal = format!("{{\"line\":1.0,\"kind\":\"fixture\"{extra}}}");
+            assert_eq!(
+                decode_rows(decimal.as_bytes(), shape, 1).unwrap()[0]
+                    .line()
+                    .to_string(),
+                "1"
+            );
+            let exponent = format!("{{\"line\":1e0,\"kind\":\"fixture\"{extra}}}");
+            assert_eq!(
+                decode_rows(exponent.as_bytes(), shape, 1).unwrap()[0]
+                    .line()
+                    .to_string(),
+                "1"
+            );
+            let fraction =
+                format!("{{\"line\":1.00000000000000000001,\"kind\":\"fixture\"{extra}}}");
+            assert_eq!(
+                decode_rows(fraction.as_bytes(), shape, 1).err(),
+                Some(CarrierError::Record)
+            );
+        }
+        assert_eq!(
+            decode_rows(br#"{"line":0.0,"kind":"fixture"}"#, Shape::Label, 1).err(),
+            Some(CarrierError::LineNumber)
+        );
+        let overlong = format!("{{\"line\":{},\"kind\":\"fixture\"}}", "9".repeat(4097));
+        assert_eq!(
+            decode_rows(overlong.as_bytes(), Shape::Label, 1).err(),
+            Some(CarrierError::Record)
+        );
+    }
+
+    #[test]
     fn each_catalog_shape_keeps_its_distinct_lexical_fields() {
         let examples: [(Shape, &[u8]); 5] = [
             (Shape::Commented, r#"{"line":1,"kind":"comment","comment":"independent","tokens":[{"kind":"word","raw":"α"}]}"#.as_bytes()),
@@ -430,7 +481,7 @@ mod tests {
         for (shape, example) in examples {
             let rows = decode_rows(example, shape, 1).unwrap();
             assert_eq!(rows.len(), 1);
-            assert_eq!(rows[0].line(), 1);
+            assert_eq!(rows[0].line().to_string(), "1");
         }
         let rows = decode_rows(examples[4].1, Shape::Composite, 1).unwrap();
         let CarrierRow::Composite(row) = &rows[0] else {
@@ -451,8 +502,11 @@ mod tests {
         let rows = b"\r\n{\"line\":3,\"kind\":\"a\"}\r\n\r\n{\"line\":3,\"kind\":\"b\"}\r\n";
         let decoded = decode_rows(rows, Shape::Label, 2).unwrap();
         assert_eq!(
-            decoded.iter().map(CarrierRow::line).collect::<Vec<_>>(),
-            [3, 3]
+            decoded
+                .iter()
+                .map(|row| row.line().to_string())
+                .collect::<Vec<_>>(),
+            ["3", "3"]
         );
         assert_eq!(
             decode_rows(b"{\"line\":0,\"kind\":\"a\"}", Shape::Label, 1).err(),

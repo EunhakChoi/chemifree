@@ -1,9 +1,6 @@
-use chemifree_application::{MAX_DATA_FILE_BYTES, json, phase6_profiles};
-
-#[path = "../src/prepared_xlogp.rs"]
-mod prepared_xlogp;
-
-use prepared_xlogp::{PreparedError, decode_dataset, decode_weights, verify_catalog_files};
+use chemifree_application::prepared_xlogp::{
+    PreparedError, decode_dataset, decode_weights, verify_catalog_files,
+};
 
 // Invented values exercise storage shape only and do not represent chemical parameters.
 fn synthetic_files() -> (Vec<u8>, String) {
@@ -38,7 +35,7 @@ fn paired_raw_and_normalized_rows_preserve_context_and_exact_binary64_bits() {
     assert_eq!(data.rows[1].bits, 0x8000000000000000);
     assert_eq!(data.rows[2].bits, 0xc002000000000000);
     assert_eq!(data.rows[3].bits, 0x0010000000000000);
-    assert_eq!(data.rows[99].family_index, 99);
+    assert_eq!(data.rows[99].family_index.to_string(), "99");
     assert_eq!(data.rows[0].bin_family, "fixture");
 }
 
@@ -49,6 +46,50 @@ fn parsed_value_and_original_bits_remain_separate_witnesses() {
     let data = decode_weights(&raw, normalized.as_bytes()).unwrap();
     assert_eq!(data.rows[1].bits, 0x8000000000000000);
     assert_eq!(data.rows[1].value.as_f64().unwrap().to_bits(), 0);
+}
+
+#[test]
+fn integer_storage_and_family_indices_are_read_exactly() {
+    let (raw, normalized) = synthetic_files();
+    let family = "9".repeat(400);
+    let input = normalized
+        .replacen(
+            "\"storage_index_0based\":1,",
+            "\"storage_index_0based\":1.0,",
+            1,
+        )
+        .replacen(
+            "\"family_index_0based\":2,",
+            &format!("\"family_index_0based\":{family},"),
+            1,
+        );
+    assert!(input.contains("\"storage_index_0based\":1.0,"));
+    assert!(input.contains(&format!("\"family_index_0based\":{family},")));
+    let data = decode_weights(&raw, input.as_bytes()).unwrap();
+    assert_eq!(data.rows[1].storage_index, 1);
+    assert_eq!(data.rows[1].bits, (-0.0_f64).to_bits());
+    assert_eq!(data.rows[2].family_index.to_string(), family);
+    let exponent = input.replacen(
+        "\"storage_index_0based\":1.0,",
+        "\"storage_index_0based\":1e0,",
+        1,
+    );
+    assert!(exponent.contains("\"storage_index_0based\":1e0,"));
+    assert!(decode_weights(&raw, exponent.as_bytes()).is_ok());
+    let fraction = input.replacen(
+        "\"storage_index_0based\":1.0,",
+        "\"storage_index_0based\":1.0000000000000000001,",
+        1,
+    );
+    assert_eq!(
+        decode_weights(&raw, fraction.as_bytes()).err(),
+        Some(PreparedError::Record)
+    );
+    let overflow = input.replacen(&family, &"9".repeat(4097), 1);
+    assert_eq!(
+        decode_weights(&raw, overflow.as_bytes()).err(),
+        Some(PreparedError::Record)
+    );
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! Verified prepared binary64 operands, without an XLogP calculation engine.
 
 use crate::{json, phase6_profiles};
+use num_bigint::BigUint;
 use serde::Deserialize;
 use serde_json::Number;
 
@@ -36,7 +37,7 @@ impl std::error::Error for PreparedError {}
 pub struct Weight {
     pub storage_index: u64,
     pub bin_family: String,
-    pub family_index: u64,
+    pub family_index: BigUint,
     pub bits: u64,
     /// Parsed JSON number, retained separately from the raw binary witness.
     pub value: Number,
@@ -120,9 +121,8 @@ pub fn decode_weights(raw: &[u8], normalized: &[u8]) -> Result<Weights, Prepared
         if rows.len() == ROWS {
             return Err(PreparedError::Inconsistent);
         }
-        let parsed =
-            json::parse_integer_zero_strict(line.as_bytes()).map_err(|_| PreparedError::Record)?;
-        let wire: WeightWire = serde_json::from_value(parsed).map_err(|_| PreparedError::Record)?;
+        json::validate_raw_strict(line.as_bytes()).map_err(|_| PreparedError::Record)?;
+        let wire: WeightWire = serde_json::from_str(line).map_err(|_| PreparedError::Record)?;
         let index =
             usize::try_from(wire.storage_index_0based).map_err(|_| PreparedError::Inconsistent)?;
         let slot = seen.get_mut(index).ok_or(PreparedError::Inconsistent)?;
@@ -178,9 +178,11 @@ fn decode_f64_bytes(hex: &str) -> Result<[u8; 8], PreparedError> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WeightWire {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     storage_index_0based: u64,
     bin_family: String,
-    family_index_0based: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    family_index_0based: BigUint,
     ieee754_f64_le_hex: String,
     value: Number,
 }

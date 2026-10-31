@@ -1,5 +1,6 @@
 //! Typed NIST snapshot input. No formula, mass or isotope calculation is implemented here.
 
+use num_bigint::BigInt;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 
@@ -116,7 +117,7 @@ where
 pub struct SourceIdentity {
     pub path: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub bytes: i64,
+    pub bytes: BigInt,
     pub sha256: String,
 }
 /// Reported source epochs, preserved without scientific interpretation.
@@ -173,7 +174,7 @@ pub struct AtomicWeight {
     #[serde(default, deserialize_with = "present")]
     pub reported: Option<ReportedNumber>,
     #[serde(default, deserialize_with = "json::deserialize_optional_integer")]
-    pub mass_number: Option<i64>,
+    pub mass_number: Option<BigInt>,
     #[serde(default, deserialize_with = "present_null")]
     pub standard_atomic_weight_value: OptionalNull,
     #[serde(default, deserialize_with = "present")]
@@ -184,7 +185,7 @@ pub struct AtomicWeight {
 #[serde(deny_unknown_fields)]
 pub struct Element {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub atomic_number: i64,
+    pub atomic_number: BigInt,
     pub symbol_as_served: String,
     pub standard_atomic_weight: AtomicWeight,
     #[serde(deserialize_with = "required_nullable")]
@@ -207,17 +208,17 @@ pub struct Composition {
 #[serde(deny_unknown_fields)]
 pub struct Isotope {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub atomic_number: i64,
+    pub atomic_number: BigInt,
     pub element_symbol: String,
     #[serde(deserialize_with = "required_nullable")]
     pub isotope_symbol_as_printed: Option<String>,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub mass_number: i64,
+    pub mass_number: BigInt,
     pub relative_atomic_mass: ReportedNumber,
     #[serde(deserialize_with = "required_nullable")]
     pub isotopic_composition: Option<Composition>,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub source_preformatted_line: i64,
+    pub source_preformatted_line: BigInt,
 }
 
 #[derive(Deserialize)]
@@ -285,6 +286,7 @@ pub fn decode_dataset(files: &[(&str, &[u8])]) -> Result<NistSnapshot, NistError
     {
         return Err(NistError::Framing);
     }
+    json::validate_raw_strict(bytes).map_err(|_| NistError::Record)?;
     let row: SnapshotWire = serde_json::from_slice(bytes).map_err(|_| NistError::Record)?;
     if row.element_count != row.elements.len() as u64
         || row.isotope_count != row.isotopes.len() as u64
@@ -362,6 +364,86 @@ mod tests {
     }
 
     #[test]
+    fn unbounded_source_and_entry_integers_are_preserved_without_interpretation() {
+        let mut fixture = fixture();
+        fixture["elements"][0]["standard_atomic_weight"]["mass_number"] = json!(2);
+        let magnitude = "9".repeat(400);
+        let negative = format!("-{magnitude}");
+        let input = String::from_utf8(bytes(&fixture))
+            .unwrap()
+            .replace("\"bytes\":1", &format!("\"bytes\":{negative}"))
+            .replace(
+                "\"atomic_number\":1",
+                &format!("\"atomic_number\":{magnitude}"),
+            )
+            .replace("\"mass_number\":2", &format!("\"mass_number\":{negative}"))
+            .replace("\"mass_number\":1", &format!("\"mass_number\":{magnitude}"))
+            .replace(
+                "\"source_preformatted_line\":1",
+                &format!("\"source_preformatted_line\":{negative}"),
+            );
+        for token in [
+            format!("\"bytes\":{negative}"),
+            format!("\"atomic_number\":{magnitude}"),
+            format!("\"mass_number\":{negative}"),
+            format!("\"source_preformatted_line\":{negative}"),
+        ] {
+            assert!(input.contains(&token));
+        }
+        let data = decode_dataset(&[(FILE_ID, input.as_bytes())]).unwrap();
+        assert_eq!(data.source.bytes.to_string(), negative);
+        assert_eq!(data.elements[0].atomic_number.to_string(), magnitude);
+        assert_eq!(
+            data.elements[0]
+                .standard_atomic_weight
+                .mass_number
+                .as_ref()
+                .unwrap()
+                .to_string(),
+            negative
+        );
+        assert_eq!(data.isotopes[0].mass_number.to_string(), magnitude);
+        assert_eq!(
+            data.isotopes[0].source_preformatted_line.to_string(),
+            negative
+        );
+        assert_eq!(
+            data.reported_composition_sums_decimal.as_str(),
+            r#"{"opaque_fraction":0.1000000000000000000000001}"#
+        );
+        let overlong = input.replace(
+            &format!("\"source_preformatted_line\":{negative}"),
+            &format!("\"source_preformatted_line\":-{}", "9".repeat(4097)),
+        );
+        assert_eq!(
+            decode_dataset(&[(FILE_ID, overlong.as_bytes())]).err(),
+            Some(NistError::Record)
+        );
+    }
+
+    #[test]
+    fn opaque_sums_preserve_numbers_but_refuse_ambiguous_duplicate_keys() {
+        let input = String::from_utf8(bytes(&fixture())).unwrap();
+        let large = input.replace(
+            "\"opaque_fraction\":0.1000000000000000000000001",
+            "\"opaque_fraction\":1e9999",
+        );
+        let data = decode_dataset(&[(FILE_ID, large.as_bytes())]).unwrap();
+        assert_eq!(
+            data.reported_composition_sums_decimal.as_str(),
+            r#"{"opaque_fraction":1e9999}"#
+        );
+        let duplicate = input.replace(
+            "\"opaque_fraction\":0.1000000000000000000000001",
+            "\"opaque_fraction\":0,\"opaque_fraction\":1",
+        );
+        assert_eq!(
+            decode_dataset(&[(FILE_ID, duplicate.as_bytes())]).err(),
+            Some(NistError::Record)
+        );
+    }
+
+    #[test]
     fn schema_integer_values_preserve_opaque_composition_and_optional_fields() {
         let mut value = fixture();
         value["source"]["bytes"] = json!(1.0);
@@ -380,14 +462,25 @@ mod tests {
             "\"opaque_fraction\":-0.0",
         );
         let data = decode_dataset(&[(FILE_ID, text.as_bytes())]).unwrap();
-        assert_eq!(data.source.bytes, 1);
-        assert_eq!(data.elements[0].atomic_number, 1);
-        assert_eq!(data.elements[0].standard_atomic_weight.mass_number, Some(1));
-        assert_eq!(data.isotopes[0].mass_number, 1);
+        assert_eq!(data.source.bytes.to_string(), "1");
+        assert_eq!(data.elements[0].atomic_number.to_string(), "1");
+        assert_eq!(
+            data.elements[0]
+                .standard_atomic_weight
+                .mass_number
+                .as_ref()
+                .unwrap()
+                .to_string(),
+            "1"
+        );
+        assert_eq!(data.isotopes[0].mass_number.to_string(), "1");
         assert_eq!(
             data.reported_composition_sums_decimal.as_str(),
             r#"{"opaque_fraction":-0.0}"#
         );
+        let exponent = text.replace("\"element_count\":1.0", "\"element_count\":1e0");
+        assert!(exponent.contains("\"element_count\":1e0"));
+        assert!(decode_dataset(&[(FILE_ID, exponent.as_bytes())]).is_ok());
         let invalid = text.replace(
             "\"element_count\":1.0",
             "\"element_count\":1.00000000000000000001",

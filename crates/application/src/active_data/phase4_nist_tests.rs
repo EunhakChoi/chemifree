@@ -19,6 +19,7 @@ fn nist_fixture(invalid: bool) -> Fixture {
     });
     let bytes = serde_json::to_string(&value)
         .unwrap()
+        .replace("\"bytes\":1", &format!("\"bytes\":-{}", "9".repeat(400)))
         .replace(
             "\"synthetic\":\"marker\"",
             "\"synthetic\":0.1000000000000000000000001",
@@ -50,6 +51,10 @@ fn complete_snapshot_is_typed_without_a_mass_engine() {
     assert_eq!(data.elements.len(), 1);
     assert_eq!(data.isotopes.len(), 1);
     assert_eq!(data.isotopes[0].relative_atomic_mass.value_decimal, "1.0");
+    assert_eq!(
+        data.source.bytes.to_string(),
+        format!("-{}", "9".repeat(400))
+    );
     assert_eq!(
         data.reported_composition_sums_decimal.as_str(),
         r#"{"synthetic":0.1000000000000000000000001}"#
