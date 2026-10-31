@@ -299,8 +299,20 @@ results.preferences_read_can_be_retried = true
   assert.equal((await api('/api/v1/documents')).documents.length, before + 1)
   await page.getByRole('button', { name: 'Close document' }).click()
   await page.getByText('No document open').waitFor()
+  for (const [name, unsafe, message] of [
+    ['missing.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3"/></fragment></page></CDXML>', /has no position/],
+    ['label.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3" p="0 0"><t id="4"><s>O</s></t></n></fragment></page></CDXML>', /has a label or child object/],
+  ]) {
+    await page.getByLabel('CDXML file').setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
+    await page.getByLabel('Page and molecule').waitFor()
+    await page.getByRole('button', { name: 'Preview import' }).click()
+    await page.getByRole('alert').filter({ hasText: message }).waitFor()
+    assert.equal(await page.getByTestId('cdxml-preview').count(), 0, 'unsafe chemistry is not previewed as a different graph')
+    assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused preview creates no drawing')
+  }
 }
 results.cdxml_projection_with_loss_consent = true
+results.cdxml_unsafe_projection_refused = true
 
 // Create.
 const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')

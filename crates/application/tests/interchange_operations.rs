@@ -287,6 +287,10 @@ fn unsafe_editor_projection_never_creates_or_changes_documents() {
             "missing_position",
         ),
         (
+            "<fragment id=\"2\"><n id=\"3\" p=\"100001 0\"/></fragment>",
+            "coordinate_out_of_range",
+        ),
+        (
             "<fragment id=\"2\"><n id=\"3\" p=\"0 0\" future=\"opaque\"/></fragment>",
             "unsupported_node",
         ),
