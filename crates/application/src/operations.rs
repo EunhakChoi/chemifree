@@ -1441,6 +1441,10 @@ mod property_tests {
             "synthetic-public-values"
         );
         assert_eq!(
+            natural["result"]["data"]["source_schema_id"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
             natural["result"]["data"]["calculation_profile"],
             "chemifree-nist-representative-1"
         );

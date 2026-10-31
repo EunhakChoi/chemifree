@@ -17,8 +17,20 @@ pub(crate) const CODATA_2022_ELECTRON_MASS_U: f64 = 0.000_548_579_909_044_1;
 
 /// This adapter is selected only for the catalog-pinned mass input profile. The public
 /// functional contract defines an absent abundance token as zero; the original token flag
-/// remains in the retained source data. Percentages are converted to fractions here.
+/// remains in the retained source data. Percentages are converted to fractions here. The
+/// schema ID is opaque provenance; the catalog-bound structural profile determines the
+/// meaning of its fields, and units must be recognized before any value is interpreted.
 pub(crate) fn bind(input: &MassInput) -> Result<MassTable, &'static str> {
+    if !matches!(input.features.mass_unit.as_str(), "u" | "Da")
+        || !matches!(
+            input.features.natural_atomic_weight_unit.as_str(),
+            "u" | "Da"
+        )
+        || !matches!(input.features.abundance_unit.as_str(), "%" | "percent")
+        || !matches!(input.signed_charge_mass.unit.as_str(), "u/e" | "Da/e")
+    {
+        return Err("unsupported_mass_profile");
+    }
     let mut elements = BTreeMap::new();
     for row in &input.elements {
         let number = u8::try_from(row.atomic_number_u32).map_err(|_| "element_identity")?;
@@ -68,13 +80,12 @@ pub(crate) fn bind(input: &MassInput) -> Result<MassTable, &'static str> {
 }
 
 /// Bind a catalog-verified NIST snapshot to an explicitly conditional representative profile.
-/// Standard atomic-weight intervals are not turned into fabricated scalar values: when
-/// complete reported fractions sum near one, the mean is their normalized isotope-weighted
-/// mass; otherwise a separately reported scalar weight is used if present. An isotope whose
-/// fraction is missing remains unknown, and conditional results list each omitted isotope.
+/// When reported fractions sum near one, the mean is their normalized isotope-weighted
+/// mass. The input's free-form standard-weight kind has no published scalar vocabulary,
+/// so no reported standard-weight value is interpreted as a scalar fallback. An isotope
+/// whose fraction is missing remains unknown, and conditional results list each omission.
 pub(crate) fn bind_nist(input: &NistSnapshot) -> Result<MassTable, &'static str> {
     let mut elements = BTreeMap::new();
-    let mut reported_weights = BTreeMap::new();
     for row in &input.elements {
         let number = row
             .atomic_number
@@ -85,21 +96,6 @@ pub(crate) fn bind_nist(input: &NistSnapshot) -> Result<MassTable, &'static str>
         if element.symbol() != row.symbol_as_served || elements.contains_key(&element) {
             return Err("element_identity");
         }
-        let weight = row
-            .standard_atomic_weight
-            .reported
-            .as_ref()
-            .map(|value| {
-                value
-                    .value_decimal
-                    .parse::<f64>()
-                    .map_err(|_| "average_mass")
-            })
-            .transpose()?;
-        if weight.is_some_and(|value| !value.is_finite() || value <= 0.0) {
-            return Err("average_mass");
-        }
-        reported_weights.insert(element, weight);
         elements.insert(
             element,
             ElementMass {
@@ -164,7 +160,7 @@ pub(crate) fn bind_nist(input: &NistSnapshot) -> Result<MassTable, &'static str>
             abundance,
         });
     }
-    for (&element, row) in &mut elements {
+    for row in elements.values_mut() {
         let mut sum = 0.0;
         let mut weighted = 0.0;
         let mut best: Option<(u16, f64)> = None;
@@ -191,9 +187,6 @@ pub(crate) fn bind_nist(input: &NistSnapshot) -> Result<MassTable, &'static str>
             }
             row.average = Some(weighted / sum);
             row.average_basis = AverageBasis::ReportedIsotopeComposition;
-        } else if let Some(weight) = reported_weights[&element] {
-            row.average = Some(weight);
-            row.average_basis = AverageBasis::ReportedStandardAtomicWeight;
         }
     }
     Ok(MassTable {
@@ -235,6 +228,77 @@ pub(crate) mod tests {
     pub(crate) fn decode(value: &Value) -> NistSnapshot {
         let bytes = serde_json::to_vec(value).unwrap();
         crate::phase4_nist::decode_dataset(&[(crate::phase4_nist::FILE_ID, &bytes)]).unwrap()
+    }
+
+    pub(crate) fn synthetic_mass_input() -> MassInput {
+        let bytes: [&[u8]; 7] = [
+            include_bytes!("../tests/data/mass-independent-v3/elements.json"),
+            include_bytes!("../tests/data/mass-independent-v3/isotopes.json"),
+            include_bytes!("../tests/data/mass-independent-v3/selection.json"),
+            include_bytes!("../tests/data/mass-independent-v3/aliases.json"),
+            include_bytes!("../tests/data/mass-independent-v3/constants.json"),
+            include_bytes!("../tests/data/mass-independent-v3/features.json"),
+            include_bytes!("../tests/data/mass-independent-v3/sources.json"),
+        ];
+        let files: Vec<_> = crate::mass_input::NORMALIZED_PATHS
+            .into_iter()
+            .zip(bytes)
+            .collect();
+        let mut input = crate::mass_input::decode(&files).unwrap();
+        // These arbitrary fixture masses are not scientific data. Use valid element
+        // identities only to exercise the calculation adapter's metadata checks.
+        input.elements[0].symbol = "Ga".into();
+        input.elements[1].symbol = "Ag".into();
+        input.features.mass_unit = "u".into();
+        input.features.natural_atomic_weight_unit = "u".into();
+        input.features.abundance_unit = "%".into();
+        input.signed_charge_mass.unit = "u/e".into();
+        input
+    }
+
+    #[test]
+    fn mass_binding_refuses_unknown_units() {
+        let input = synthetic_mass_input();
+        assert!(bind(&input).is_ok());
+        let mut aliases = synthetic_mass_input();
+        aliases.features.schema_id = "other-opaque-source-id".into();
+        aliases.features.mass_unit = "Da".into();
+        aliases.features.natural_atomic_weight_unit = "Da".into();
+        aliases.features.abundance_unit = "percent".into();
+        aliases.signed_charge_mass.unit = "Da/e".into();
+        assert_eq!(bind(&input), bind(&aliases));
+        for field in 0..4 {
+            let mut input = synthetic_mass_input();
+            match field {
+                0 => input.features.mass_unit = "kg".into(),
+                1 => input.features.natural_atomic_weight_unit = "kg".into(),
+                2 => input.features.abundance_unit = "fraction".into(),
+                3 => input.signed_charge_mass.unit = "kg/C".into(),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                bind(&input),
+                Err("unsupported_mass_profile"),
+                "field {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn nist_interval_cannot_supply_a_contradictory_scalar_fallback() {
+        let mut value = fixture();
+        value["isotopes"][0]["isotopic_composition"]["value_decimal"] = json!("0.1");
+        value["isotopes"][1]["isotopic_composition"]["value_decimal"] = json!("0.1");
+        value["elements"][0]["standard_atomic_weight"]["reported"] = json!({
+            "raw":"42", "value_decimal":"42", "uncertainty_digits":"1",
+            "absolute_uncertainty_decimal":"0.1", "estimated_marker_present":false
+        });
+        let table = bind_nist(&decode(&value)).unwrap();
+        assert_eq!(table.elements[&Element::CARBON].average, None);
+        assert_eq!(
+            table.elements[&Element::CARBON].average_basis,
+            AverageBasis::Unavailable
+        );
     }
 
     #[test]

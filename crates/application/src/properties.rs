@@ -73,6 +73,8 @@ pub struct MassDataView {
     pub dataset_version: String,
     pub profile_id: String,
     pub manifest_sha256: String,
+    /// Opaque input provenance; not a separate chemistry policy or unit declaration.
+    pub source_schema_id: Option<String>,
     pub calculation_profile: &'static str,
     pub charge_correction_u_per_e: f64,
     pub charge_convention: &'static str,
@@ -124,6 +126,10 @@ pub(crate) fn select_data(
             dataset_version: selected.dataset_version().into(),
             profile_id: selected.profile_id().into(),
             manifest_sha256: selected.manifest_sha256().into(),
+            source_schema_id: match selected.records() {
+                ProfileRecords::MassInput(input) => Some(input.features.schema_id.clone()),
+                _ => None,
+            },
             calculation_profile,
             charge_correction_u_per_e: table.charge_correction,
             charge_convention,
@@ -321,6 +327,28 @@ mod tests {
         AverageBasis, ElementMass, ExactBasis, Isotope, MissingAbundancePolicy,
     };
     use chemifree_domain::states::Hydrogens;
+
+    #[test]
+    fn selected_mass_profile_reports_opaque_schema_and_refuses_unknown_units() {
+        let input = crate::mass_data::tests::synthetic_mass_input();
+        let dataset = crate::PersonalDataset::fixture(ProfileRecords::MassInput(Box::new(input)));
+        let registry = DataRegistry::fixture(vec![dataset]);
+        let (source, _) = select_data(&registry, None).unwrap();
+        assert_eq!(
+            source.source_schema_id.as_deref(),
+            Some("independent-test-v3")
+        );
+        assert_eq!(source.calculation_profile, "chemifree-mass-input-1");
+
+        let mut input = crate::mass_data::tests::synthetic_mass_input();
+        input.signed_charge_mass.unit = "kg/C".into();
+        let dataset = crate::PersonalDataset::fixture(ProfileRecords::MassInput(Box::new(input)));
+        let registry = DataRegistry::fixture(vec![dataset]);
+        assert!(matches!(
+            select_data(&registry, None),
+            Err(PropertiesError::DataInvalid("unsupported_mass_profile"))
+        ));
+    }
 
     fn methane() -> Document {
         let mut document = Document::new(DocumentId::parse("methane").unwrap(), "Methane").unwrap();

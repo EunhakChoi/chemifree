@@ -147,7 +147,7 @@
           "status": "partial",
           "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs", "apps/web/src/components/document-workspace.tsx"],
           "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P16", "P17"]
+          "followups": ["P17"]
         },
         {
           "id": "MODEL-02.rest",
@@ -157,7 +157,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P16",
             "P17",
             "P18",
             "P24",
@@ -593,11 +592,19 @@
       "operations": [
         "chem.properties"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CHEM-01.1",
+          "summary": "A bounded model computes a Hill formula and, with an explicitly selected checked external dataset, average and exact-profile mass and isotope peaks for the graph, selection or components. Results name the data, charge convention and display precision; unsupported or incomplete input has no invented numeric result.",
+          "status": "implemented",
+          "implementation": ["crates/domain/src/mass.rs", "crates/application/src/mass_data.rs", "crates/application/src/properties.rs", "apps/web/src/components/properties-panel.tsx"],
+          "evidence": ["case:formula-and-mass", "check:check:rust", "check:test:contracts", "check:test:client"],
+          "followups": []
+        },
+        {
           "id": "CHEM-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Further chemical property models, broader data conventions, uncertainty propagation and other operation families.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -630,7 +637,7 @@
           "status": "partial",
           "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs"],
           "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P16", "P17"]
+          "followups": ["P17"]
         },
         {
           "id": "CHEM-02.rest",
@@ -640,7 +647,6 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P16",
             "P17",
             "P24",
             "P26",
@@ -1040,7 +1046,7 @@
         },
         {
           "id": "STYLE-01.2",
-          "summary": "Application preferences (the interface theme and the settings new documents start from) are kept per data directory, apart from every document, and written atomically with a revision checked across processes. A new document copies the preferred settings once when it is created; later preference changes never alter an existing document, its file or its history. Computation preferences (NMR, numeric precision) are reported as owned by preferences and not implemented, and setting one is refused without storing it.",
+          "summary": "Application preferences (the interface theme and the settings new documents start from) are kept per data directory, apart from every document, and written atomically with a revision checked across processes. A new document copies the preferred settings once when it is created; later preference changes never alter an existing document, its file or its history. NMR and general numeric precision remain unavailable.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/preferences.rs",
@@ -1058,16 +1064,24 @@
           "followups": []
         },
         {
+          "id": "STYLE-01.3",
+          "summary": "A separate persisted mass display precision is captured by each new calculation; omitted fields in older clients preserve it, reset restores the default, and changes do not alter existing documents or prior results.",
+          "status": "implemented",
+          "implementation": ["crates/application/src/preferences.rs", "crates/providers/src/preference_store.rs", "apps/web/src/components/style-settings.tsx"],
+          "evidence": ["check:check:rust", "check:test:contracts", "check:test:client"],
+          "followups": []
+        },
+        {
           "id": "STYLE-01.rest",
-          "summary": "Computation preferences themselves (NMR solvent and corrections, numeric precision and decimals), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
+          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P19",
             "P35",
             "P40",
+            "P60",
             "P66",
             "P80"
           ]

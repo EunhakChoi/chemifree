@@ -122,6 +122,7 @@ export function PropertiesPanel({ document, editor }: { document: DocumentView; 
             {current.data && <>
               <p>Data: {current.data.dataset_id} · {current.data.dataset_version} · {current.data.calculation_profile}</p>
               <p>Registration: {current.data.registration_id}, generation {current.data.generation}, profile {current.data.profile_id}, manifest {current.data.manifest_sha256}</p>
+              {current.data.source_schema_id && <p>Source schema: {current.data.source_schema_id}</p>}
               <p>Charge correction: {current.data.charge_correction_u_per_e} u per elementary charge</p>
               <p>{current.data.charge_convention}</p>
               <p>{current.data.abundance_policy}</p>

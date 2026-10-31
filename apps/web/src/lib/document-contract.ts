@@ -236,7 +236,7 @@ export interface PropertiesInspection {
   display_decimals: number
   valence_model: string
   arithmetic: string
-  data: null | { registration_id: string; generation: number; dataset_id: string; dataset_version: string; profile_id: string; manifest_sha256: string; calculation_profile: string; charge_correction_u_per_e: number; charge_convention: string; abundance_policy: string; uncertainty: string }
+  data: null | { registration_id: string; generation: number; dataset_id: string; dataset_version: string; profile_id: string; manifest_sha256: string; source_schema_id?: string | null; calculation_profile: string; charge_correction_u_per_e: number; charge_convention: string; abundance_policy: string; uncertainty: string }
   components: PropertyComponent[]
   warnings: string[]
 }
@@ -1223,7 +1223,9 @@ export class DocumentClient {
     const data = result.data
     const dataValid = property === 'formula' ? data === null : isRecord(data) &&
       typeof data.registration_id === 'string' && isCount(data.generation) && typeof data.profile_id === 'string' &&
-      typeof data.manifest_sha256 === 'string' && isFiniteNumber(data.charge_correction_u_per_e) &&
+      typeof data.manifest_sha256 === 'string' &&
+      (data.source_schema_id === undefined || data.source_schema_id === null || typeof data.source_schema_id === 'string') &&
+      isFiniteNumber(data.charge_correction_u_per_e) &&
       typeof data.dataset_id === 'string' && typeof data.dataset_version === 'string' &&
       typeof data.calculation_profile === 'string' && typeof data.charge_convention === 'string' &&
       typeof data.abundance_policy === 'string' && typeof data.uncertainty === 'string' && result.mass_unit === 'u'
