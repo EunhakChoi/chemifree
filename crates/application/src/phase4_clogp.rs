@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 use serde_json::value::RawValue;
 
@@ -117,7 +118,7 @@ fn latin1(text: &str) -> bool {
 #[serde(deny_unknown_fields)]
 pub struct TextRow {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub line: u64,
+    pub line: BigUint,
     pub text: String,
 }
 /// A tagged line with ordered lexical fields.
@@ -125,7 +126,7 @@ pub struct TextRow {
 #[serde(deny_unknown_fields)]
 pub struct TaggedRow {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub line: u64,
+    pub line: BigUint,
     pub tag: String,
     pub fields: Vec<String>,
 }
@@ -150,19 +151,19 @@ impl FloatWire {
 /// An explicitly typed integer or finite F32 witness from a parameter array.
 #[derive(PartialEq)]
 pub enum ParameterValue {
-    Integer(i64),
+    Integer(BigInt),
     F32(F32Witness),
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ParameterWire {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    ordinal: u64,
+    ordinal: BigUint,
     data_role: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    count: u64,
+    count: BigUint,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    element_bytes: u64,
+    element_bytes: BigUint,
     raw_payload_hex: String,
     storage_kind: String,
     #[serde(default, deserialize_with = "present")]
@@ -171,10 +172,10 @@ struct ParameterWire {
 /// Array framing and optional values; storage meaning and feature binding remain unresolved.
 #[derive(PartialEq)]
 pub struct ParameterRow {
-    pub ordinal: u64,
+    pub ordinal: BigUint,
     pub data_role: String,
-    pub count: u64,
-    pub element_bytes: u64,
+    pub count: BigUint,
+    pub element_bytes: BigUint,
     pub raw_payload_hex: String,
     pub storage_kind: String,
     pub values: Option<Vec<ParameterValue>>,
@@ -197,8 +198,8 @@ impl TryFrom<ParameterWire> for ParameterRow {
                                 serde_json::from_str(raw).map_err(|_| ClogpError::Record)?;
                             Ok(ParameterValue::F32(float.decode()?))
                         } else {
-                            let value =
-                                json::parse_integer_raw::<i64>(&item).ok_or(ClogpError::Record)?;
+                            let value = json::parse_integer_raw::<BigInt>(&item)
+                                .ok_or(ClogpError::Record)?;
                             Ok(ParameterValue::Integer(value))
                         }
                     })
@@ -221,11 +222,11 @@ impl TryFrom<ParameterWire> for ParameterRow {
 #[serde(deny_unknown_fields)]
 struct ActiveWire {
     #[serde(deserialize_with = "json::deserialize_integer")]
-    fragment_storage_index_0based: u64,
+    fragment_storage_index_0based: BigUint,
     key_latin1: String,
     key_hex: String,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    value_slot_1based: u64,
+    value_slot_1based: BigUint,
     environment_raw_hex: String,
     environment_trimmed_latin1: String,
     #[serde(rename = "FVALUE_f32_le_hex")]
@@ -233,27 +234,27 @@ struct ActiveWire {
     #[serde(rename = "FVALUE")]
     fvalue: Box<RawValue>,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    quality_integer: i64,
+    quality_integer: BigInt,
     #[serde(deserialize_with = "json::deserialize_integer")]
-    zwitter_category: i64,
+    zwitter_category: BigInt,
 }
 /// A source fragment record with separately retained text, bytes and finite F32 witness.
 #[derive(PartialEq)]
 pub struct ActiveRow {
-    pub fragment_storage_index_0based: u64,
+    pub fragment_storage_index_0based: BigUint,
     pub key_latin1: String,
     pub key_hex: String,
-    pub value_slot_1based: u64,
+    pub value_slot_1based: BigUint,
     pub environment_raw_hex: String,
     pub environment_trimmed_latin1: String,
     pub fvalue: F32Witness,
-    pub quality_integer: i64,
-    pub zwitter_category: i64,
+    pub quality_integer: BigInt,
+    pub zwitter_category: BigInt,
 }
 impl TryFrom<ActiveWire> for ActiveRow {
     type Error = ClogpError;
     fn try_from(row: ActiveWire) -> Result<Self, Self::Error> {
-        if row.value_slot_1based == 0
+        if row.value_slot_1based == BigUint::from(0_u8)
             || !latin1(&row.key_latin1)
             || !latin1(&row.environment_trimmed_latin1)
             || !hex_valid(&row.key_hex)
@@ -330,14 +331,14 @@ fn lines<T: DeserializeOwned, U>(
     Ok(result)
 }
 fn text_row(row: TextRow) -> Result<TextRow, ClogpError> {
-    if row.line == 0 {
+    if row.line == BigUint::from(0_u8) {
         Err(ClogpError::Record)
     } else {
         Ok(row)
     }
 }
 fn tagged_row(row: TaggedRow) -> Result<TaggedRow, ClogpError> {
-    if row.line == 0 {
+    if row.line == BigUint::from(0_u8) {
         Err(ClogpError::Record)
     } else {
         Ok(row)
@@ -427,13 +428,13 @@ mod tests {
     fn schema_integer_variants_preserve_f32_values_and_source_text() {
         let text = br#"{"line":1.0,"text":"-0.0"}"#;
         let rows = lines::<TextRow, _>(text, 1, text_row).unwrap();
-        assert_eq!(rows[0].line, 1);
+        assert_eq!(rows[0].line, BigUint::from(1_u8));
         assert_eq!(rows[0].text, "-0.0");
         let parameter = br#"{"ordinal":-0.0,"data_role":"1.0","count":1e0,"element_bytes":0.0,"raw_payload_hex":"00","storage_kind":"synthetic","values":[1.0,{"ieee754_f32_le_hex":"00000080","value":-0,"finite":true}]}"#;
         let rows = lines::<ParameterWire, _>(parameter, 1, ParameterRow::try_from).unwrap();
-        assert_eq!(rows[0].ordinal, 0);
+        assert_eq!(rows[0].ordinal, BigUint::from(0_u8));
         let values = rows[0].values.as_ref().unwrap();
-        assert!(matches!(&values[0], ParameterValue::Integer(1)));
+        assert!(matches!(&values[0], ParameterValue::Integer(value) if value == &BigInt::from(1)));
         let ParameterValue::F32(witness) = &values[1] else {
             panic!("expected F32")
         };
@@ -441,9 +442,9 @@ mod tests {
         assert_eq!(witness.decimal(), "-0");
         let active = br#"{"fragment_storage_index_0based":-0.0,"key_latin1":"a","key_hex":"61","value_slot_1based":1.0,"environment_raw_hex":"","environment_trimmed_latin1":"","FVALUE_f32_le_hex":"00000080","FVALUE":-0,"quality_integer":-1e0,"zwitter_category":-0.0}"#;
         let rows = lines::<ActiveWire, _>(active, 1, ActiveRow::try_from).unwrap();
-        assert_eq!(rows[0].value_slot_1based, 1);
-        assert_eq!(rows[0].quality_integer, -1);
-        assert_eq!(rows[0].zwitter_category, 0);
+        assert_eq!(rows[0].value_slot_1based, BigUint::from(1_u8));
+        assert_eq!(rows[0].quality_integer, BigInt::from(-1));
+        assert_eq!(rows[0].zwitter_category, BigInt::from(0));
         assert_eq!(rows[0].fvalue.decimal(), "-0");
         for token in ["0.00000000000000000001", "1.00000000000000000001"] {
             let invalid = std::str::from_utf8(parameter)
@@ -454,6 +455,85 @@ mod tests {
                 Some(ClogpError::Record)
             );
         }
+    }
+
+    #[test]
+    fn large_source_line_numbers_are_retained_without_reindexing() {
+        let large = format!("1{}", "0".repeat(200));
+        let input = format!(r#"{{"line":{large}.0,"text":"synthetic"}}"#);
+        let rows = lines::<TextRow, _>(input.as_bytes(), 1, text_row).unwrap();
+        assert_eq!(rows[0].line.to_string(), large);
+        let tagged = TAGGED.replace("\"line\":1", &format!("\"line\":{large}.0"));
+        let rows = lines::<TaggedRow, _>(tagged.as_bytes(), 1, tagged_row).unwrap();
+        assert_eq!(rows[0].line.to_string(), large);
+        let too_long = format!(r#"{{"line":{},"text":"synthetic"}}"#, "9".repeat(4097));
+        assert_eq!(
+            lines::<TextRow, _>(too_long.as_bytes(), 1, text_row).err(),
+            Some(ClogpError::Record)
+        );
+    }
+
+    #[test]
+    fn large_parameter_values_and_f32_witness_are_retained_separately() {
+        let large = format!("1{}", "0".repeat(200));
+        let negative = format!("-{large}");
+        let input = PARAMETER
+            .replace("\"ordinal\":0", &format!("\"ordinal\":{large}.0"))
+            .replace("\"count\":0", &format!("\"count\":{large}"))
+            .replace("\"element_bytes\":0", &format!("\"element_bytes\":{large}"))
+            .replace("\"values\":[42,", &format!("\"values\":[{negative}.0,"));
+        assert!(input.contains(&format!("\"values\":[{negative}.0,")));
+        let rows = lines::<ParameterWire, _>(input.as_bytes(), 1, ParameterRow::try_from).unwrap();
+        assert_eq!(rows[0].ordinal.to_string(), large);
+        assert_eq!(rows[0].count.to_string(), large);
+        assert_eq!(rows[0].element_bytes.to_string(), large);
+        let values = rows[0].values.as_ref().unwrap();
+        let ParameterValue::Integer(integer) = &values[0] else {
+            panic!("wrong variant")
+        };
+        assert_eq!(integer.to_string(), negative);
+        let ParameterValue::F32(witness) = &values[1] else {
+            panic!("wrong variant")
+        };
+        assert_eq!(witness.bits(), 0x3f80_0001);
+    }
+
+    #[test]
+    fn large_active_source_numbers_keep_one_based_and_signed_fields() {
+        let large = format!("1{}", "0".repeat(200));
+        let negative = format!("-{large}");
+        let input = ACTIVE
+            .replace(
+                "\"fragment_storage_index_0based\":0",
+                &format!("\"fragment_storage_index_0based\":{large}"),
+            )
+            .replace(
+                "\"value_slot_1based\":1",
+                &format!("\"value_slot_1based\":{large}"),
+            )
+            .replace(
+                "\"quality_integer\":0",
+                &format!("\"quality_integer\":{negative}"),
+            )
+            .replace(
+                "\"zwitter_category\":0",
+                &format!("\"zwitter_category\":{large}"),
+            );
+        assert!(input.contains(&format!("\"quality_integer\":{negative}")));
+        let rows = lines::<ActiveWire, _>(input.as_bytes(), 1, ActiveRow::try_from).unwrap();
+        assert_eq!(rows[0].fragment_storage_index_0based.to_string(), large);
+        assert_eq!(rows[0].value_slot_1based.to_string(), large);
+        assert_eq!(rows[0].quality_integer.to_string(), negative);
+        assert_eq!(rows[0].zwitter_category.to_string(), large);
+        assert_eq!(rows[0].fvalue.bits(), 0x8000_0000);
+        let zero_slot = input.replace(
+            &format!("\"value_slot_1based\":{large}"),
+            "\"value_slot_1based\":0",
+        );
+        assert_eq!(
+            lines::<ActiveWire, _>(zero_slot.as_bytes(), 1, ActiveRow::try_from).err(),
+            Some(ClogpError::Record)
+        );
     }
 
     #[test]
@@ -470,7 +550,7 @@ mod tests {
         let ParameterValue::Integer(integer) = &values[0] else {
             panic!("wrong value")
         };
-        assert_eq!(*integer, 42);
+        assert_eq!(integer, &BigInt::from(42));
         let ParameterValue::F32(float) = &values[1] else {
             panic!("wrong value")
         };

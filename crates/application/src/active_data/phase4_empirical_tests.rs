@@ -26,6 +26,10 @@ const MEASUREMENT: &str = r#"{"molecule_id":7,"DAT_field_id":2,"source_offset":0
 const GRAPH: &str = r#"{"molecule_id":7,"atomic_numbers":[6,8],"header_H_count":0,"bonds":[{"a_1based":1,"b_1based":2,"source_bond_code":1}],"unresolved_indexed_annotations":{"unknown_decimal":0.1000000000000000000000001},"header_raw_hex":"AA00","COS_row_raw_hex":"bb"}"#;
 
 fn empirical_fixture(invalid: bool) -> Fixture {
+    empirical_fixture_with(invalid, None)
+}
+
+fn empirical_fixture_with(invalid: bool, replacement: Option<(&str, &str)>) -> Fixture {
     let mut entries = Vec::new();
     for (index, id) in RAW.into_iter().enumerate() {
         entries.push((id, id, format!("synthetic raw {index}").into_bytes()));
@@ -40,7 +44,11 @@ fn empirical_fixture(invalid: bool) -> Fixture {
         } else {
             r#"{"ordinal":0,"text":"synthetic"}"#.to_owned()
         };
-        entries.push((id, id, format!("{row}\n").repeat(count).into_bytes()));
+        let first = replacement
+            .filter(|(file, _)| *file == id)
+            .map_or(row.as_str(), |(_, row)| row);
+        let bytes = format!("{first}\n{}", format!("{row}\n").repeat(count - 1)).into_bytes();
+        entries.push((id, id, bytes));
     }
     fixture("private-data-chemprop-empirical-v1", entries)
 }
@@ -71,6 +79,36 @@ fn complete_empirical_rows_are_typed_without_a_property_engine() {
     );
     assert_eq!(data.graphs[0].bonds[0].b_1based, 2);
     assert_binding_unavailable(&test_fixture, &loaded);
+}
+
+#[test]
+fn registered_empirical_source_numbers_are_exact_and_duplicate_opaque_keys_refused() {
+    let large = format!("1{}", "0".repeat(200));
+    let row = MEASUREMENT.replace("\"molecule_id\":7", &format!("\"molecule_id\":-{large}.0"));
+    let test_fixture = empirical_fixture_with(false, Some((NORMALIZED[3].0, &row)));
+    let loaded = test_fixture.load().unwrap();
+    let ProfileRecords::Phase4Empirical(data) = loaded.records() else {
+        panic!("wrong dataset type")
+    };
+    assert_eq!(
+        data.measurements[0].molecule_id.to_string(),
+        format!("-{large}")
+    );
+    assert_eq!(
+        data.measurements[0].primary.as_ref().unwrap().bits(),
+        0x3f80_0001
+    );
+    assert_binding_unavailable(&test_fixture, &loaded);
+
+    let invalid = GRAPH.replace(
+        "\"unknown_decimal\":0.1000000000000000000000001",
+        "\"x\":1,\"\\u0078\":2",
+    );
+    let invalid_fixture = empirical_fixture_with(false, Some((NORMALIZED[4].0, &invalid)));
+    assert!(matches!(
+        invalid_fixture.load(),
+        Err(ActiveDataError::ContentInvalid)
+    ));
 }
 
 #[test]
