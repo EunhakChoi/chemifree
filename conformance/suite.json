@@ -1,5 +1,5 @@
 {
-  "suite_version": 8,
+  "suite_version": 9,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -30,6 +30,7 @@
     "cases/settings-persist-across-reopen.json",
     "cases/preferences-do-not-leak.json",
     "cases/settings-and-preferences-refused.json",
-    "cases/valence-snapshot.json"
+    "cases/valence-snapshot.json",
+    "cases/aromaticity-conversion.json"
   ]
 }

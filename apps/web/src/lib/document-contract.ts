@@ -3,7 +3,7 @@ import { API_VERSION } from '@/lib/contract'
 
 /**
  * A bond's kind. `aromatic`, `dative` (from `begin`, the donor), `query`, and `unknown` were
- * added within v1. They are recorded only: aromaticity is not perceived and no query matches.
+ * added within v1. Recording is separate from bounded aromaticity inspection; no query matches.
  */
 export type BondOrder = 'single' | 'double' | 'triple' | 'aromatic' | 'dative' | 'query' | 'unknown'
 /** The kinds a query bond may list. */
@@ -191,6 +191,21 @@ export interface ValenceInspection {
   model: string
   snapshot: DocumentView
   atoms: ValenceAtom[]
+}
+
+export interface AromaticitySystem {
+  atoms: string[]
+  bonds: string[]
+  cycle_rank: number
+  classification: 'aromatic' | 'non_aromatic' | 'unsupported'
+  electrons: number | null
+  reason: string | null
+}
+
+export interface AromaticityInspection {
+  model: string
+  snapshot: DocumentView
+  systems: AromaticitySystem[]
 }
 
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
@@ -1388,6 +1403,57 @@ export class DocumentClient {
         ...valence.map((warning) => `${(warning as { atom: string }).atom}: valence ${(warning as { status: string }).status}`),
       ],
     }
+  }
+
+  async inspectAromaticity(id: string): Promise<AromaticityInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics',
+      operation: 'chem.aromaticity', parameters: { document_id: id },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || value.model_id !== 'chemifree-aromaticity-1' ||
+        !isRecord(value.result) || !isRecord(value.result.snapshot) || !Array.isArray(value.result.systems)) {
+      throw new ApiError('analysis_unavailable', 'The local service could not inspect aromaticity.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const systems = value.result.systems
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision ||
+        !systems.every((item): item is AromaticitySystem => isRecord(item) &&
+          Array.isArray(item.atoms) && item.atoms.length >= 3 && new Set(item.atoms).size === item.atoms.length &&
+          item.atoms.every((atom: unknown) => typeof atom === 'string' && snapshot.atoms.some((shown) => shown.id === atom)) &&
+          Array.isArray(item.bonds) && item.bonds.length >= 3 && new Set(item.bonds).size === item.bonds.length &&
+          item.bonds.every((bond: unknown) => typeof bond === 'string' && snapshot.bonds.some((shown) => shown.id === bond)) &&
+          isCount(item.cycle_rank) && item.cycle_rank > 0 &&
+          (item.classification === 'aromatic' || item.classification === 'non_aromatic' || item.classification === 'unsupported') &&
+          (item.electrons === null || isCount(item.electrons)) && (item.reason === null || typeof item.reason === 'string'))) {
+      throw new ApiError('analysis_unavailable', 'The local service returned an incompatible aromaticity inspection.', 200)
+    }
+    return { model: value.model_id, snapshot, systems }
+  }
+
+  /** Apply one model conversion under the revision the user inspected, with history selection. */
+  async convertAromaticity(id: string, expectedRevision: number, to: 'aromatic' | 'kekule', selection: SelectionView) {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.aromaticity_convert',
+      parameters: { document_id: id, expected_revision: expectedRevision, to, selection_before: selection, selection_after: selection },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const code = isRecord(first) && typeof first.code === 'string' ? first.code : 'analysis_unavailable'
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not convert aromaticity.'
+      const details = isRecord(first) && isRecord(first.details) ? first.details : null
+      throw new ApiError(code, message, 200, {
+        currentRevision: details && isCount(details.current_revision) ? details.current_revision : undefined,
+        stateReason: details && typeof details.reason === 'string' ? details.reason : undefined,
+      })
+    }
+    if (value.model_id !== 'chemifree-aromaticity-1') {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
+    }
+    const response = DocumentClient.document({ api_version: API_VERSION, ...value.result })
+    if (response.document.id !== id || response.document.revision !== value.document_revision) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
+    }
+    return response
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

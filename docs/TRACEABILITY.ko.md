@@ -4,7 +4,7 @@
 
 P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계산과 별도의 질량 표시 자릿수 환경 설정을 연결한다. 일반 수치 정밀도, 배치·예측·NMR 등은 후속 작업이다.
 
-현재 집계: 요구사항 33개(partial 13, not_implemented 20) · 부분 64개(implemented 25, partial 4, unverified 2, not_implemented 33) · conformance 사례 30개(passed 30: accept 18·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 13, not_implemented 20) · 부분 66개(implemented 25, partial 6, unverified 2, not_implemented 33) · conformance 사례 31개(passed 31: accept 19·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

@@ -822,6 +822,30 @@ test('property results validate the analyzed snapshot and refuse incompatible or
   await assert.rejects(client.inspectProperties('doc-properties', 'molecule', 'formula', null, null), { code: 'incompatible_response' })
 })
 
+test('aromaticity inspection checks the returned snapshot and its ring references', async () => {
+  const shown = document('ring-doc', 1)
+  shown.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 1, 0), atomWith('a3', 'C', 0, 1)]
+  shown.document.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3'), bondWith('b3', 'a3', 'a1')]
+  const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 1,
+    model_id: 'chemifree-aromaticity-1', result: { snapshot: { document: shown.document, session: shown.session, recovery: null },
+      systems: [{ atoms: ['a1', 'a2', 'a3'], bonds: ['b1', 'b2', 'b3'], cycle_rank: 1, classification: 'non_aromatic', electrons: 3, reason: 'electron_count' }] } }
+  const invalid = structuredClone(reply)
+  invalid.result.systems[0].bonds[0] = 'b99'
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, invalid)] })
+  const client = new DocumentClient()
+  const result = await client.inspectAromaticity('ring-doc')
+  assert.equal(result.systems[0].classification, 'non_aromatic')
+  assert.equal(sameInspectionSnapshot(shown.document, result.snapshot), true)
+  await assert.rejects(client.inspectAromaticity('ring-doc'), { code: 'analysis_unavailable' })
+})
+
+test('aromaticity conversion exposes a model refusal rather than a document', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', diagnostics: [{ code: 'invalid_command', message: 'Conversion refused', details: { reason: 'aromatic_bond_outside_ring' } }] })] })
+  const selection = { atoms: [], bonds: [], objects: [] }
+  await assert.rejects(new DocumentClient().convertAromaticity('ring-doc', 1, 'kekule', selection),
+    { code: 'invalid_command', stateReason: 'aromatic_bond_outside_ring' })
+})
+
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
 function recorded() {
   return {

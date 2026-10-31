@@ -1566,7 +1566,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '12 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '14 of 23 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1576,6 +1576,8 @@ for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution'
   assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'requires_data', `${id} needs compatible data`)
 }
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2664,6 +2666,65 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
   results.ctfile_preview_import_export = true
+}
+
+// Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
+{
+  const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })
+  const id = created.body.document.id
+  const commands = []
+  for (let i = 0; i < 6; i += 1) commands.push({ op: 'add_atom', element: 'C', position: { x: 40 * Math.cos(i * Math.PI / 3), y: 40 * Math.sin(i * Math.PI / 3) } })
+  for (let i = 0; i < 6; i += 1) commands.push({ op: 'add_bond', begin: `$${i}`, end: `$${(i + 1) % 6}`, order: i % 2 === 0 ? 'double' : 'single' })
+  const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-draw', expected_revision: 0, commands })
+  assert.equal(drawn.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('region', { name: 'Rings and aromaticity' })
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, drawn.body.document, 'inspection leaves every recorded bond unchanged')
+  await crashApi()
+  const identical = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-identical', expected_revision: 0, commands })
+  assert.equal(identical.status, 200)
+  assert.deepEqual(identical.body.document, drawn.body.document, 'the restarted service recreated the same ID, revision and graph')
+  const valencePanel = page.getByRole('complementary', { name: 'Valence inspection' })
+  await valencePanel.getByRole('button', { name: 'Inspect valence' }).click()
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('aromaticity-result').count(), 0, 'a restart invalidates even an identical snapshot')
+  const afterValence = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterValence.document, identical.body.document, 'the restart check does not change the drawing')
+  assert.equal(afterValence.session.undo_depth, identical.body.session.undo_depth, 'the restart check does not change history')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  await crashApi()
+  const replacementCommands = commands.map((command, index) => index === 0 ? { ...command, element: 'N' } : command)
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'aromatic-replacement', expected_revision: 0, commands: replacementCommands })
+  assert.equal(replacement.status, 200)
+  assert.equal(replacement.body.document.revision, drawn.body.document.revision, 'the restarted service reused the revision')
+  await tool('Select and move')
+  await canvas.scrollIntoViewIfNeeded()
+  const oldAtom = await atomScreen(drawn.body, 'a1')
+  await page.mouse.click(oldAtom.x, oldAtom.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await page.getByText('Local service restarted', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('aromaticity-result').count(), 0, 'the old same-revision result is hidden')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/aromatic; cycle rank 1; 6 π electrons/).waitFor()
+  const convertedReply = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postData()?.includes('chem.aromaticity_convert'))
+  await panel.getByRole('button', { name: 'Convert to aromatic' }).click()
+  assert.equal((await convertedReply).status(), 200)
+  await waitIdle()
+  assert.ok((await api(`/api/v1/documents/${id}`)).document.bonds.every((bond) => bond.order === 'aromatic'))
+  await panel.getByText('The drawing or service changed. Inspect again.', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await waitIdle()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document.bonds, replacement.body.document.bonds, 'one undo restores the original Kekulé bonds')
+  await panel.getByRole('button', { name: 'Inspect rings' }).click()
+  await panel.getByTestId('aromaticity-result').getByText(/6 π electrons/).waitFor()
+  await page.screenshot({ path: join(outDir, 'editor-aromaticity.png') })
+  results.aromaticity_inspection_and_atomic_conversion = true
 }
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.

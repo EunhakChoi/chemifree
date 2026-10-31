@@ -20,6 +20,8 @@ pub enum OperationId {
     DocumentImport,
     DocumentExport,
     ChemValidate,
+    ChemAromaticity,
+    ChemAromaticityConvert,
     ChemProperties,
     ChemNameToStructure,
     ChemStructureToName,
@@ -34,7 +36,7 @@ pub enum OperationId {
 
 impl OperationId {
     /// Every operation, in catalog order.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 23] = [
         Self::CapabilitiesInspect,
         Self::DocumentCreate,
         Self::DocumentSnapshot,
@@ -46,6 +48,8 @@ impl OperationId {
         Self::DocumentImport,
         Self::DocumentExport,
         Self::ChemValidate,
+        Self::ChemAromaticity,
+        Self::ChemAromaticityConvert,
         Self::ChemProperties,
         Self::ChemNameToStructure,
         Self::ChemStructureToName,
@@ -71,6 +75,8 @@ impl OperationId {
             Self::DocumentImport => "document.import",
             Self::DocumentExport => "document.export",
             Self::ChemValidate => "chem.validate",
+            Self::ChemAromaticity => "chem.aromaticity",
+            Self::ChemAromaticityConvert => "chem.aromaticity_convert",
             Self::ChemProperties => "chem.properties",
             Self::ChemNameToStructure => "chem.name_to_structure",
             Self::ChemStructureToName => "chem.structure_to_name",

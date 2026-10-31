@@ -346,6 +346,16 @@ export function useDocumentEditor() {
       })
       return committed
     }, [run, setCurrent]),
+    inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
+    convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || generation !== serviceGenerationRef.current ||
+            !sameContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
+        const selected = selectionSnapshot(pressed, document.document)
+        return client.convertAromaticity(inspected.id, inspected.revision, to, selected)
+      })
+    }, [mutate]),
     error,
     autosave,
     copyNotice,
