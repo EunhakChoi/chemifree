@@ -832,7 +832,7 @@ impl<R: DocumentRepository> Documents<R> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         session.expect_revision(expected_revision)?;
-        let before = session.response();
+        let before = self.respond(session);
         let mut candidate = session.document.clone();
         if !commands.is_empty() {
             candidate.apply(commands).map_err(rejected_edit)?;

@@ -57,6 +57,42 @@ fn preview(
 }
 
 #[test]
+fn preview_snapshot_includes_the_same_abandoned_draft_as_a_document_read() {
+    let (application, directory, id) = setup();
+    let edit = call(
+        &application,
+        "draft-edit",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"C","position":{"x":0,"y":0}}]}),
+    );
+    assert_eq!(edit["document_revision"], 1);
+    application.autosave(&id, Some("draft-write")).unwrap();
+    drop(application);
+
+    let restarted = app(directory.path());
+    let ordinary = call(
+        &restarted,
+        "ordinary-snapshot",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    assert_eq!(ordinary["result"]["recovery"]["state"], "recoverable");
+    let report = preview(&restarted, &id, MOL, "mol", 1, 0);
+    assert_eq!(report["outcome"], "partial");
+    assert_eq!(
+        report["result"]["snapshot"], ordinary["result"],
+        "preview must include the complete pre-import snapshot"
+    );
+    let after = call(
+        &restarted,
+        "after-preview",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    assert_eq!(after["result"], ordinary["result"]);
+}
+
+#[test]
 fn charged_and_radical_default_hydrogens_have_explicit_reader_uncertainty() {
     let (application, _directory, id) = setup();
     let source = "Defaults\n\n\n  3  0  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\nM  CHG  1   1   1\nM  RAD  1   2   2\nM  END\n";
