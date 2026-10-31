@@ -404,7 +404,6 @@ fn the_catalog_says_exactly_which_operations_run() {
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
-        "document.snapshot" | "document.close" | "chem.validate" => json!({"document_id": id}),
         "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
         "document.snapshot" | "document.close" | "chem.validate" | "chem.aromaticity" => {
             json!({"document_id": id})
