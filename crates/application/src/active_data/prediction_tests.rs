@@ -110,6 +110,21 @@ fn complete_prediction_inputs_are_typed_and_do_not_enable_a_model() {
 }
 
 #[test]
+fn registered_prediction_metadata_preserves_large_exact_integer_values() {
+    let original = include_str!("../../tests/data/prediction-independent/features.json");
+    let large = format!("1{}", "0".repeat(400));
+    let features = original.replace("\"version\":1", &format!("\"version\":{large}.0"));
+    assert_ne!(features, original);
+    let fixture = prediction_fixture_with(Some(("feature-schema.json", features.as_bytes())));
+    let dataset = fixture.load().unwrap();
+    let ProfileRecords::PredictionInputs(records) = dataset.records() else {
+        panic!("wrong dataset type")
+    };
+    assert_eq!(records.features.version.to_string(), large);
+    assert_binding_unavailable(&fixture, &dataset);
+}
+
+#[test]
 fn missing_or_corrupt_members_never_expose_a_partial_dataset() {
     let mut missing = prediction_fixture();
     missing.remove("parameters/pka.json");
