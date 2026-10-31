@@ -17,7 +17,9 @@ use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
+use crate::chemical_codec::{ChemicalFormat, CodecError, DataField};
 use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
     TransactionSelections,
@@ -50,7 +52,7 @@ pub enum Envelope {
 pub enum Outcome {
     /// The operation ran to completion. This says nothing about chemical correctness.
     Ok,
-    /// It ran, and `loss_report` lists what it could not keep. No operation reports loss yet.
+    /// It ran, and `loss_report` lists what it could not keep.
     Partial,
     Error,
     Unsupported,
@@ -161,6 +163,27 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
+    /// A newly imported document and the selected record's detached data fields.
+    Import(Box<ImportResult>),
+    /// Encoded MOL or SDF text.
+    Export(ExportResult),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ImportResult {
+    pub document: DocumentView,
+    pub session: SessionView,
+    pub recovery: Option<RecoveryView>,
+    pub record: usize,
+    pub record_count: usize,
+    pub fields: Vec<DataField>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ExportResult {
+    pub format: ChemicalFormat,
+    pub text: String,
+    pub record_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -407,7 +430,7 @@ const PROPERTY_PARTS: [Entry; 2] = [
     missing("mass", "P19", "No average or exact mass is computed."),
 ];
 
-fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
+fn entry(operation: OperationId, has_codec: bool) -> (Entry, &'static [Entry]) {
     use OperationId as Op;
     let id = operation.as_str();
     match operation {
@@ -443,12 +466,15 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             ),
             &[],
         ),
-        Op::DocumentImport => (
-            missing(id, "P20", "No chemical file reader is implemented."),
+        Op::DocumentImport | Op::DocumentExport if has_codec => (
+            runs(
+                id,
+                "MOL V2000 and SDF; unsupported content is rejected or reported as loss.",
+            ),
             &[],
         ),
-        Op::DocumentExport => (
-            missing(id, "P20", "No chemical file writer is implemented."),
+        Op::DocumentImport | Op::DocumentExport => (
+            missing(id, "P20", "No chemical file codec is connected."),
             &[],
         ),
         Op::ChemValidate => (
@@ -508,7 +534,7 @@ fn profile_support(profile: CompatibilityProfile) -> ProfileSupport {
     let (execution, note) = match profile {
         CompatibilityProfile::PreserveSemantics => (
             Execution::Executable,
-            "Operations keep document meaning as stored; none drops or converts content.",
+            "Operations report changes in meaning when conversion cannot retain content.",
         ),
         CompatibilityProfile::LegacyObserved => (
             Execution::NotImplemented,
@@ -577,6 +603,55 @@ struct CloseParameters {
     discard_unsaved: bool,
     #[serde(default)]
     expected_revision: Option<u64>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportParameters {
+    format: ChemicalFormat,
+    text: String,
+    #[serde(default)]
+    record: Option<usize>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExportParameters {
+    format: ChemicalFormat,
+    #[serde(default)]
+    document_id: Option<String>,
+    #[serde(default)]
+    fields: Vec<DataField>,
+    #[serde(default)]
+    documents: Option<Vec<ExportDocument>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExportDocument {
+    document_id: String,
+    #[serde(default)]
+    fields: Vec<DataField>,
+}
+
+fn codec_failure(error: CodecError) -> Diagnostic {
+    let mut details = Map::new();
+    if let Some(record) = error.record {
+        details.insert("record".into(), record.into());
+    }
+    if let Some(line) = error.line {
+        details.insert("line".into(), line.into());
+    }
+    if let Some(field) = error.field {
+        details.insert("field".into(), field.into());
+    }
+    Diagnostic {
+        code: error.code,
+        severity: Severity::Error,
+        message: error.message,
+        path: None,
+        details,
+    }
 }
 
 /// The same failure as the v1 error envelope reports, as a diagnostic.
@@ -652,8 +727,8 @@ impl Known {
 
     /// The reply to an operation the catalog does not mark executable: unsupported, with its
     /// execution state and follow-up, and no result.
-    fn not_running(&self) -> OperationResponse {
-        let (entry, _) = entry(self.operation);
+    fn not_running(&self, has_codec: bool) -> OperationResponse {
+        let (entry, _) = entry(self.operation, has_codec);
         let mut details = Map::new();
         details.insert("execution".into(), entry.execution.as_str().into());
         if let Some(followup) = entry.followup {
@@ -735,6 +810,139 @@ fn malformed(
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    fn import_chemical(&self, known: &Known, parameters: ImportParameters) -> OperationResponse {
+        let Some(codec) = self.catalog.chemical_codec() else {
+            return known.not_running(false);
+        };
+        let records = match codec.read(parameters.format, &parameters.text) {
+            Ok(records) => records,
+            Err(error) => return known.invalid(codec_failure(error)),
+        };
+        let count = records.len();
+        let selected = match parameters.record {
+            Some(number) if number > 0 && number <= count => number,
+            None if count == 1 => 1,
+            _ => return known.invalid(diagnostic("invalid_record", "Choose a one-based record within the input; selection is required for multiple records.", Map::new())),
+        };
+        let record = &records[selected - 1];
+        let mut losses = record.losses.clone();
+        if record.title.trim() != record.title || record.title.trim().is_empty() {
+            losses.push(Loss {
+                feature: "title".into(),
+                source_path: format!("records[{selected}].title"),
+                disposition: LossDisposition::Normalized,
+                reason: "Document titles are trimmed and blank titles become Untitled.".into(),
+                semantic_impact: SemanticImpact::Document,
+            });
+        }
+        let hash: [u8; 32] = Sha256::digest(parameters.text.as_bytes()).into();
+        let response = match self.documents.import(
+            Some(&known.request_id),
+            parameters.format,
+            hash,
+            parameters.record,
+            record,
+            || self.preferences.current()?.new_document_settings(),
+        ) {
+            Ok(response) => response,
+            Err(error) => return known.invalid(failure(&error)),
+        };
+        let revision = response.document.revision;
+        let result = ImportResult {
+            document: response.document,
+            session: response.session,
+            recovery: response.recovery,
+            record: selected,
+            record_count: count,
+            fields: record.fields.clone(),
+        };
+        let outcome = if losses.is_empty() {
+            Outcome::Ok
+        } else {
+            Outcome::Partial
+        };
+        let mut reply = known.reply(
+            outcome,
+            Some(revision),
+            Some(OperationResult::Import(Box::new(result))),
+            Vec::new(),
+        );
+        reply.loss_report = losses;
+        reply
+    }
+
+    fn export_chemical(&self, known: &Known, parameters: ExportParameters) -> OperationResponse {
+        let Some(codec) = self.catalog.chemical_codec() else {
+            return known.not_running(false);
+        };
+        let documents = match (parameters.document_id, parameters.documents) {
+            (Some(document_id), None) => vec![ExportDocument {
+                document_id,
+                fields: parameters.fields,
+            }],
+            (None, Some(documents)) if parameters.fields.is_empty() => documents,
+            _ => return known.invalid(diagnostic(
+                "invalid_request",
+                "Give either document_id with optional fields or documents with per-record fields.",
+                Map::new(),
+            )),
+        };
+        let count = documents.len();
+        if count == 0 || count > 999 || (parameters.format == ChemicalFormat::Mol && count != 1) {
+            return known.invalid(diagnostic(
+                "invalid_request",
+                "Export needs one document for MOL or 1 to 999 documents for SDF.",
+                Map::new(),
+            ));
+        }
+        let mut text = String::new();
+        let mut losses = Vec::new();
+        let mut revision = None;
+        for (index, item) in documents.iter().enumerate() {
+            let document = match self.documents.export_snapshot(&item.document_id) {
+                Ok(document) => document,
+                Err(error) => return known.invalid(failure(&error)),
+            };
+            if count == 1 {
+                revision = Some(document.revision());
+            }
+            let converted = match codec.write(parameters.format, &document, &item.fields) {
+                Ok(converted) => converted,
+                Err(error) => return known.invalid(codec_failure(error)),
+            };
+            if text.len().saturating_add(converted.text.len()) > 1024 * 1024 {
+                return known.invalid(diagnostic(
+                    "resource_limit",
+                    "Encoded output exceeds 1 MiB.",
+                    Map::new(),
+                ));
+            }
+            text.push_str(&converted.text);
+            losses.extend(converted.losses.into_iter().map(|mut loss| {
+                loss.source_path = format!("records[{}].{}", index + 1, loss.source_path);
+                loss
+            }));
+        }
+        let outcome = if losses.is_empty() {
+            Outcome::Ok
+        } else {
+            Outcome::Partial
+        };
+        let result = ExportResult {
+            format: parameters.format,
+            text,
+            record_count: count,
+        };
+        let mut reply = known.reply(
+            outcome,
+            revision,
+            Some(OperationResult::Export(result)),
+            Vec::new(),
+        );
+        reply.loss_report = losses;
+        reply
+    }
+
     /// What this service supports of the operation contract, per operation and sub-operation.
     pub fn operation_catalog(&self) -> OperationCatalog {
         OperationCatalog {
@@ -748,7 +956,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = entry(operation);
+                    let (entry, parts) = entry(operation, self.catalog.chemical_codec().is_some());
                     entry.view(parts)
                 })
                 .collect(),
@@ -892,8 +1100,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if entry(known.operation).0.execution != Execution::Executable {
-            return known.not_running();
+        if entry(known.operation, self.catalog.chemical_codec().is_some())
+            .0
+            .execution
+            != Execution::Executable
+        {
+            return known.not_running(self.catalog.chemical_codec().is_some());
         }
         let request_id = Some(known.request_id.as_str());
         match known.operation {
@@ -963,9 +1175,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport
-            | Op::DocumentExport
-            | Op::ChemValidate
+            Op::DocumentImport => match parameters::<ImportParameters>(parameters_value) {
+                Ok(p) => self.import_chemical(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::DocumentExport => match parameters::<ExportParameters>(parameters_value) {
+                Ok(p) => self.export_chemical(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemValidate
             | Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName
@@ -977,7 +1195,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             // The catalog marks these not executable, so they were answered above; answering
             // the same here keeps a catalog that drifts from this match from panicking.
             | Op::IntegrationInvoke
-            | Op::ScriptEvaluate => known.not_running(),
+            | Op::ScriptEvaluate => known.not_running(self.catalog.chemical_codec().is_some()),
         }
     }
 }

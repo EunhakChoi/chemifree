@@ -281,17 +281,24 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-03.1",
+          "summary": "MOL V2000 and SDF read and write the supported atom and bond graph, selected atom properties and ordered SDF records with explicit conversion loss.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/molfile.rs", "crates/application/src/chemical_codec.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:molfile-round-trip", "check:check:rust"],
+          "followups": []
+        },
+        {
           "id": "CODEC-03.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "V3000, additional queries and advanced stereo, Sgroups and other unsupported format content.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P20",
             "P24",
             "P28",
             "P29",
@@ -364,17 +371,24 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-06.1",
+          "summary": "Unknown V2000 M properties are reported as loss, and unsupported continuation records are rejected.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/molfile.rs", "crates/application/src/operations.rs"],
+          "evidence": ["case:molfile-round-trip", "check:check:rust"],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Unknown carriers and references in other formats and richer objects.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P20",
             "P21",
             "P22",
             "P23",

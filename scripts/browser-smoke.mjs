@@ -1518,7 +1518,8 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '8 of 21 operations run' }).waitFor()
+await operations.getByRole('heading', { name: 'MOL and SDF import/export', exact: true }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '10 of 21 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1528,6 +1529,8 @@ for (const [id, followup] of [['chem.properties', 'P19'], ['chem.validate', 'P16
   assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
 }
 for (const id of [
+  'document.import',
+  'document.export',
   'document.transaction/scene_placement',
   'document.transaction/add_instance',
   'document.transaction/hydrogen_state',

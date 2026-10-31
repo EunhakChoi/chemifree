@@ -131,7 +131,7 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'format_conversion', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
 
@@ -949,6 +949,10 @@ try {
       })
     assert.equal((await both(edit)).document_revision, 1)
     assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
+    const mol = await both((id) => request('op-mol', 'document.export', { format: 'mol', document_id: id }))
+    assert.equal(mol.outcome, 'partial')
+    assert.match(mol.result.text, /\bV2000\n/)
+    assert.ok(mol.loss_report.some((loss) => loss.feature === 'document_settings'))
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const unsupported = await both(() => request('op-props', 'chem.properties', {}))

@@ -1,6 +1,6 @@
 {
   "id": "capabilities-report-unimplemented",
-  "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+  "title": "The capability list reports format conversion available and chemistry, models, authentication and Windows integration as not implemented",
   "requirements": [
     "API-01",
     "QUALITY-01"
@@ -19,7 +19,8 @@
             },
             {
               "id": "format_conversion",
-              "status": "not_implemented"
+              "label": "MOL and SDF import/export",
+              "status": "available"
             },
             {
               "id": "local_model_loading",

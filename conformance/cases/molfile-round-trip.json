@@ -1,13 +1,82 @@
 {
   "id": "molfile-round-trip",
-  "title": "A drawing survives a MOL V2000 write and read",
-  "requirements": [
-    "CODEC-03"
-  ],
+  "title": "A drawing is written and read as MOL V2000 with graph, coordinates and a reported unknown property",
+  "requirements": ["CODEC-03", "CODEC-06"],
   "axis": "encoding",
   "kind": "accept",
-  "pending": {
-    "followup": "P20",
-    "reason": "No MOL reader or writer exists yet."
-  }
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-create", "profile": "preserve-semantics",
+        "operation": "document.create", "parameters": {"title": "MOL sample"}
+      },
+      "expect": {"outcome": "ok", "result": {"document": {"title": "MOL sample"}}},
+      "bind": "source"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-draw", "profile": "preserve-semantics",
+        "operation": "document.transaction",
+        "parameters": {"expected_revision": 0, "commands": [
+          {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+          {"op": "add_atom", "element": "O", "position": {"x": 24, "y": -16}, "bond_to": {"atom": "$0", "order": "double"}}
+        ]}
+      },
+      "document": "source",
+      "expect": {"outcome": "ok", "result": {"document": {"revision": 1}}}
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-write", "profile": "preserve-semantics",
+        "operation": "document.export", "parameters": {"format": "mol"}
+      },
+      "document": "source",
+      "expect": {
+        "outcome": "partial",
+        "result": {"format": "mol", "record_count": 1, "text": "MOL sample\n  Chemifree\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000   -0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.5000    1.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  2  0  0  0  0\nM  END\n"},
+        "loss_report": {"$contains": [{"feature": "document_settings", "semantic_impact": "rendering"}]}
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-read", "profile": "preserve-semantics",
+        "operation": "document.import", "parameters": {"format": "mol", "text": "MOL sample\n  Chemifree\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000   -0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.5000    1.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  2  0  0  0  0\nM  END\n"}
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {"record_count": 1, "document": {"title": "MOL sample", "atoms": [
+          {"id": "a1", "element": "C", "position": {"x": 0, "y": 0}},
+          {"id": "a2", "element": "O", "position": {"x": 24, "y": -16}}
+        ], "bonds": [{"begin": "a1", "end": "a2", "order": "double"}]}},
+        "loss_report": {"$contains": [{"feature": "mol_header", "disposition": "dropped"}]}
+      },
+      "bind": "imported"
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-reopen", "profile": "preserve-semantics",
+        "operation": "document.snapshot", "parameters": {}
+      },
+      "document": "imported",
+      "expect": {"outcome": "ok", "result": {"document": {"title": "MOL sample", "atoms": [
+        {"id": "a1", "element": "C"}, {"id": "a2", "element": "O"}
+      ], "bonds": [{"order": "double"}]}}}
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1, "request_id": "mol-unknown", "profile": "preserve-semantics",
+        "operation": "document.import", "parameters": {"format": "mol", "text": "MOL sample\n\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    1.5000    1.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  2  0  0  0  0\nM  XYZ  1   1   5\nM  END\n"}
+      },
+      "expect": {"outcome": "partial", "loss_report": {"$contains": [{"feature": "unknown_property", "disposition": "dropped", "semantic_impact": "unknown"}]}}
+    }
+  ]
 }

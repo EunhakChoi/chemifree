@@ -146,7 +146,48 @@ async fn capabilities_report_connected_operations() {
         .collect();
     assert_eq!(
         available,
-        ["runtime_inspection", "document_editing", "persistence"]
+        [
+            "runtime_inspection",
+            "document_editing",
+            "format_conversion",
+            "persistence"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn mol_import_and_export_use_the_shared_operation_contract_over_http() {
+    let api = api();
+    let text = include_str!("../../../crates/providers/tests/data/molfile/sodium-acetate.mol");
+    let (status, imported) = api
+        .post(
+            "/api/v1/operations",
+            json!({
+                "contract": 1, "request_id": "mol-in", "profile": "preserve-semantics",
+                "operation": "document.import", "parameters": {"format": "mol", "text": text}
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(imported["outcome"], "ok", "{imported}");
+    assert_eq!(imported["result"]["document"]["atoms"][3]["charge"], -1);
+    let id = imported["result"]["document"]["id"].as_str().unwrap();
+    let (status, exported) = api
+        .post(
+            "/api/v1/operations",
+            json!({
+                "contract": 1, "request_id": "mol-out", "profile": "preserve-semantics",
+                "operation": "document.export", "parameters": {"format": "mol", "document_id": id}
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(exported["outcome"], "partial");
+    assert!(
+        exported["result"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("M  CHG  2   4  -1   5   1\n")
     );
 }
 

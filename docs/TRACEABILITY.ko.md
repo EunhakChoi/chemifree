@@ -4,7 +4,7 @@
 
 P15의 수치 기반은 완료됐지만 그 자체로 질량·배치·예측·NMR 연산을 구현하지 않는다. 이 요구사항의 미구현 부분은 각각 후속 엔진에 남고, 아직 저장하거나 적용하지 않는 계산 정밀도 환경 설정은 첫 소비 단계 P19로 추적한다.
 
-현재 집계: 요구사항 33개(partial 9, not_implemented 24) · 부분 58개(implemented 21, partial 2, unverified 2, not_implemented 33) · conformance 사례 29개(passed 27: accept 15·reject 12, not_run 2, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 11, not_implemented 22) · 부분 60개(implemented 23, partial 2, unverified 2, not_implemented 33) · conformance 사례 29개(passed 28: accept 16·reject 12, not_run 1, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

@@ -7,12 +7,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
 use chemifree_domain::document::{
-    Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted, TransactionError, validated_title,
+    AtomId, Bond, BondId, Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS,
+    Numbering, Outcome, PositionKey, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
 
 use crate::API_VERSION;
+use crate::chemical_codec::{ChemicalFormat, ChemicalRecord};
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
@@ -39,6 +40,11 @@ pub const MAX_LISTED_DOCUMENTS: usize = 1_000;
 enum Mutation {
     Create {
         title: Option<String>,
+    },
+    Import {
+        format: ChemicalFormat,
+        input_hash: [u8; 32],
+        record: Option<usize>,
     },
     Transaction {
         expected_revision: u64,
@@ -648,6 +654,53 @@ impl<R: DocumentRepository> Documents<R> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         Ok(self.respond(session))
+    }
+
+    /// Creates and commits one completely decoded record under the same replay rules as create.
+    pub(crate) fn import(
+        &self,
+        request_id: Option<&str>,
+        format: ChemicalFormat,
+        input_hash: [u8; 32],
+        record_number: Option<usize>,
+        record: &ChemicalRecord,
+        settings: impl FnOnce() -> Result<Settings, ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        validate_request_id(request_id)?;
+        let mutation = Mutation::Import {
+            format,
+            input_hash,
+            record: record_number,
+        };
+        let _running = self.start(None, request_id)?;
+        {
+            let sessions = self.lock();
+            if let Some(response) = sessions.created.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+        }
+        let settings = settings()?;
+        let mut sessions = self.lock();
+        let id = self.repository.allocate_id().map_err(storage_error)?;
+        let document = imported_document(id.clone(), record, settings)?;
+        let eviction = sessions.eviction(None)?;
+        self.repository
+            .save(&document, None)
+            .map_err(storage_error)?;
+        if let Some(evicted) = eviction {
+            sessions.remove(&evicted);
+        }
+        let session = Session::new(document);
+        let response = session.response();
+        sessions.created.record(request_id, mutation, &response);
+        sessions.open.insert(id, session);
+        Ok(response)
+    }
+
+    /// Captures the working copy for export without holding the session lock during encoding.
+    pub(crate) fn export_snapshot(&self, id: &str) -> Result<Document, ApplicationError> {
+        let mut sessions = self.lock();
+        Ok(self.session(&mut sessions, id)?.document.clone())
     }
 
     pub(crate) fn transact(
@@ -2145,4 +2198,63 @@ fn refused(refusal: Refusal) -> ApplicationError {
             ),
         ),
     }
+}
+
+/// Converts a codec record into a fresh, fully validated document before any storage write.
+fn imported_document(
+    id: DocumentId,
+    record: &ChemicalRecord,
+    settings: Settings,
+) -> Result<Document, ApplicationError> {
+    let invalid = |message: String| ApplicationError::new(ErrorCode::InvalidRequest, message);
+    let title = if record.title.trim().is_empty() {
+        DEFAULT_TITLE
+    } else {
+        record.title.trim()
+    };
+    let initial = Document::new_with_settings(id, title, settings)
+        .map_err(|error| invalid(format!("Imported title: {error}")))?;
+    let instance = initial.first_instance();
+    let mut parts = initial.to_parts();
+    let mut ids = Vec::with_capacity(record.atoms.len());
+    for (index, atom) in record.atoms.iter().enumerate() {
+        let serial =
+            u32::try_from(index + 1).map_err(|_| invalid("Too many imported atoms.".into()))?;
+        let atom_id = AtomId::from_serial(serial)
+            .ok_or_else(|| invalid("Invalid imported atom identifier.".into()))?;
+        ids.push(atom_id);
+        parts.atoms.push((atom_id, atom.atom.clone()));
+        parts.positions.push((
+            PositionKey {
+                instance,
+                atom: atom_id,
+            },
+            atom.position,
+        ));
+    }
+    for (index, bond) in record.bonds.iter().enumerate() {
+        let serial =
+            u32::try_from(index + 1).map_err(|_| invalid("Too many imported bonds.".into()))?;
+        let bond_id = BondId::from_serial(serial)
+            .ok_or_else(|| invalid("Invalid imported bond identifier.".into()))?;
+        let begin = *ids
+            .get(bond.begin)
+            .ok_or_else(|| invalid("Imported bond begins at a missing atom.".into()))?;
+        let end = *ids
+            .get(bond.end)
+            .ok_or_else(|| invalid("Imported bond ends at a missing atom.".into()))?;
+        parts.bonds.push((
+            bond_id,
+            Bond {
+                begin,
+                end,
+                order: bond.order.clone(),
+            },
+        ));
+    }
+    parts.next_atom = u32::try_from(record.atoms.len() + 1)
+        .map_err(|_| invalid("Too many imported atoms.".into()))?;
+    parts.next_bond = u32::try_from(record.bonds.len() + 1)
+        .map_err(|_| invalid("Too many imported bonds.".into()))?;
+    Document::restore(parts).map_err(|error| invalid(format!("Invalid imported graph: {error}")))
 }

@@ -889,7 +889,7 @@
    "acceptance": "독립 리더로 그래프를 대조하고 잘린 파일·잘못된 원자·결합·필드 길이와 다중 레코드를 검사한다. 입체·고급 객체 미지원은 명시한다.",
    "kind": "core",
    "id": "P20",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3671,9 +3671,8 @@
     "phase3-stereo-default-contracts.md",
     "phase2-stereo-signedness-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
-    "P20",
     "P24",
     "P28",
     "P29",
@@ -3735,9 +3734,8 @@
     "deep-format-contracts.md",
     "format-boundary-observations.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
-    "P20",
     "P21",
     "P22",
     "P23",

@@ -5,15 +5,17 @@
 mod data_directory;
 mod file_format;
 mod file_store;
+mod molfile;
 mod preference_store;
 
-use chemifree_application::CapabilityCatalog;
+use chemifree_application::{CapabilityCatalog, ChemicalCodec};
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
 pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
+pub use molfile::MolfileCodec;
 pub use preference_store::FilePreferenceStore;
 
 /// Actual implementation status. Change an entry only together with its real operation.
@@ -21,6 +23,10 @@ pub use preference_store::FilePreferenceStore;
 pub struct LocalCapabilities;
 
 impl CapabilityCatalog for LocalCapabilities {
+    fn chemical_codec(&self) -> Option<&dyn ChemicalCodec> {
+        Some(&MolfileCodec)
+    }
+
     fn capabilities(&self) -> Vec<Capability> {
         use CapabilityId::{
             Authentication, DocumentEditing, FormatConversion, LocalModelLoading, Persistence,
@@ -49,9 +55,9 @@ impl CapabilityCatalog for LocalCapabilities {
             },
             Capability {
                 id: FormatConversion,
-                label: "Import and export",
-                status: NotImplemented,
-                description: "No chemical file readers, writers, or format conversion are connected.",
+                label: "MOL and SDF import/export",
+                status: Available,
+                description: "MOL V2000 and SDF import/export are available with explicit conversion losses; stereo and advanced objects remain unsupported.",
             },
             Capability {
                 id: LocalModelLoading,
@@ -99,6 +105,7 @@ mod tests {
             [
                 CapabilityId::RuntimeInspection,
                 CapabilityId::DocumentEditing,
+                CapabilityId::FormatConversion,
                 CapabilityId::Persistence
             ]
         );

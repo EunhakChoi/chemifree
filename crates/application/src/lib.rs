@@ -2,6 +2,7 @@
 
 mod active_data;
 mod active_registry;
+mod chemical_codec;
 mod contract;
 mod data;
 mod data_formats;
@@ -58,6 +59,10 @@ pub use active_registry::{
     RegistryStatus, TrustedRegistry,
 };
 
+pub use chemical_codec::{
+    ChemicalAtom, ChemicalBond, ChemicalCodec, ChemicalFormat, ChemicalRecord, CodecError,
+    DataField, WrittenChemical,
+};
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
     CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
@@ -90,9 +95,9 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    ClosedResult, Diagnostic, DocumentResult, Envelope, Loss, LossDisposition, OPERATION_CONTRACT,
-    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
-    Severity, Support,
+    ClosedResult, Diagnostic, DocumentResult, Envelope, ExportResult, ImportResult, Loss,
+    LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
+    Outcome, ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -113,6 +118,11 @@ pub const API_VERSION: &str = "v1";
 /// An application-owned port implemented by infrastructure providers.
 pub trait CapabilityCatalog: Send + Sync {
     fn capabilities(&self) -> Vec<Capability>;
+
+    /// The chemical format provider, when one is connected.
+    fn chemical_codec(&self) -> Option<&dyn ChemicalCodec> {
+        None
+    }
 }
 
 /// The single application service. Entry adapters translate transport details only;

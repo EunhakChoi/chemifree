@@ -166,7 +166,7 @@
     },
     {
       "id": "capabilities-report-unimplemented",
-      "title": "The capability list reports chemistry, formats, models, authentication and Windows integration as not implemented",
+      "title": "The capability list reports format conversion available and chemistry, models, authentication and Windows integration as not implemented",
       "requirements": [
         "API-01",
         "QUALITY-01"
@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f40acc5ffb2f0e3e042f89fc6eed5f72f2ca1ebf2cd0cbed92942391dbb19f75"
+      "case_sha256": "1e1a1e1c3a3ec9d68ba5cb155ce2b015b092a4fb4ed2dc52dfe582015777e72b"
     },
     {
       "id": "formula-and-mass",
@@ -196,19 +196,17 @@
     },
     {
       "id": "molfile-round-trip",
-      "title": "A drawing survives a MOL V2000 write and read",
+      "title": "A drawing is written and read as MOL V2000 with graph, coordinates and a reported unknown property",
       "requirements": [
-        "CODEC-03"
+        "CODEC-03",
+        "CODEC-06"
       ],
       "axis": "encoding",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P20",
-        "reason": "No MOL reader or writer exists yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "3f651e9fdb22dc3fff872653378f231893e07350cf163bd2a7bec9af4b419756"
+      "case_sha256": "1f4ea94da273150cb0329c5bcb18b09e0596f4669fffb80ea92b88da19c9e3fe"
     },
     {
       "id": "graph-scene-separation",
@@ -403,9 +401,9 @@
   ],
   "counts": {
     "accept": {
-      "passed": 15,
+      "passed": 16,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     },
     "reject": {
       "passed": 12,
@@ -413,9 +411,9 @@
       "not_run": 0
     },
     "total": {
-      "passed": 27,
+      "passed": 28,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     }
   }
 }

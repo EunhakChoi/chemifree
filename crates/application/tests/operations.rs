@@ -461,6 +461,8 @@ fn the_catalog_says_exactly_which_operations_run() {
             "history.redo",
             "document.save",
             "document.close",
+            "document.import",
+            "document.export",
         ]
     );
     assert_eq!(
