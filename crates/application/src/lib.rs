@@ -26,6 +26,7 @@ pub mod phase4_declarative;
 pub mod phase4_empirical;
 pub mod phase4_helm;
 pub mod phase4_literals;
+pub mod phase4_nist;
 pub mod phase4_nmr;
 pub mod phase4_templates;
 pub mod phase6_profiles;

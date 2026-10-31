@@ -91,6 +91,8 @@ pub enum ProfileRecords {
     Phase4Declarative(Box<crate::phase4_declarative::DeclarativeData>),
     /// Inert template framing records, without a biopolymer or sequence engine.
     Phase4Templates(Box<crate::phase4_templates::TemplateCandidates>),
+    /// Inert, catalog-bound NIST snapshot without a mass calculation.
+    Phase4Nist(Box<crate::phase4_nist::NistSnapshot>),
     /// Source fragment carriers without a CLogP model.
     Phase4Clogp(Box<crate::phase4_clogp::ClogpData>),
     /// Prepared empirical rows and graphs, without a property engine.
