@@ -9,6 +9,7 @@ pub mod graph;
 pub mod identity;
 pub mod mass;
 pub mod operation;
+pub mod query;
 pub mod rings;
 pub mod scene;
 pub mod settings;
