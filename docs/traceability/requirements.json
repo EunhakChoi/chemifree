@@ -180,12 +180,12 @@
           "summary": "A bounded, versioned query matcher reports injective source-to-target mappings and explicit search completeness for supported recorded atom and bond predicates.",
           "status": "partial",
           "implementation": ["crates/domain/src/query.rs", "crates/application/src/operations.rs", "apps/web/src/components/query-panel.tsx"],
-          "evidence": ["check:check:rust", "check:test:contracts", "check:test:browser"],
+          "evidence": ["case:query-matching", "check:check:rust", "check:test:contracts", "check:test:browser"],
           "followups": ["P24"]
         },
         {
           "id": "MODEL-02.rest",
-          "summary": "Broader valence and aromaticity models, additional fused and charged systems, and query matching.",
+          "summary": "Broader valence and aromaticity models, additional fused and charged systems, and broader query matching.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

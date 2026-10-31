@@ -2705,7 +2705,7 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByTestId('query-result').getByText('A recovery draft was reported for the query and was not included.', { exact: true }).waitFor()
   await panel.getByTestId('query-result').getByText('A recovery draft was reported for the target and was not included.', { exact: true }).waitFor()
   await panel.getByTestId('query-result').getByText('1. a1→a1, a2→a2', { exact: true }).waitFor()
-  await page.screenshot({ path: join(outDir, 'editor-query.png') })
+  await panel.screenshot({ path: join(outDir, 'editor-query.png') })
   await panel.getByLabel('Maximum mappings').fill('2')
   await panel.getByRole('button', { name: 'Search substructure' }).click()
   await panel.getByTestId('query-result').getByText('Stopped at the mappings limit: further mappings may exist.', { exact: true }).waitFor()
