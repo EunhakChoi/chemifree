@@ -128,6 +128,7 @@ pub struct Application<C, R> {
     documents: Documents<R>,
     preferences: PreferenceService,
     data_registry: DataRegistry,
+    property_data_readiness: properties::DataReadiness,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -139,14 +140,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             documents: Documents::new(repository),
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
+            property_data_readiness: properties::DataReadiness::default(),
         }
     }
 
     /// Retains the checked data generation for the application lifetime.
     #[must_use]
     pub fn with_data_registry(self, data_registry: DataRegistry) -> Self {
+        let property_data_readiness = properties::data_readiness(&data_registry);
         Self {
             data_registry,
+            property_data_readiness,
             ..self
         }
     }

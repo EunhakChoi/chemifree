@@ -18,6 +18,8 @@ const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suff
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const dataDir = mkdtempSync(join(tmpdir(), 'chemifree-contract-'))
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
+delete env.CHEMIFREE_MODEL_DATA_ROOT
+delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
 const running = new Set()
 
 async function startApi(extraEnv = {}) {
@@ -938,6 +940,15 @@ try {
 
     const catalog = await both(() => request('op-caps', 'capabilities.inspect', {}))
     assert.deepEqual(catalog.result, (await call('/api/v1/capabilities')).body.operation_catalog)
+    const propertiesSupport = catalog.result.operations.find((operation) => operation.id === 'chem.properties')
+    assert.deepEqual(propertiesSupport.sub_operations.map(({ id, execution }) => [id, execution]), [
+      ['formula', 'executable'], ['mass', 'requires_data'], ['isotope_distribution', 'requires_data'],
+    ], 'HTTP and CLI distinguish formula from data-backed properties with no DATA')
+    const textCatalog = spawnSync(cliPath, ['capabilities'], { env, encoding: 'utf8' })
+    assert.equal(textCatalog.status, 0)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/formula: executable$/m)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/mass: requires_data$/m)
+    assert.match(textCatalog.stdout, /^  chem\.properties\/isotope_distribution: requires_data$/m)
     const create = request('op-create', 'document.create', { title: 'Operations parity' })
     httpDoc = (await viaHttp(create)).body.result.document.id
     cliDoc = (await viaCli(create)).result.document.id

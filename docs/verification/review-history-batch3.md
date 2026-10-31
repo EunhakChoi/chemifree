@@ -6,6 +6,8 @@ This file records completed rounds preceding the current delivery. A PR comment 
 
 [#81](https://github.com/EunhakChoi/chemifree/pull/81) opened on 2026-10-31 at 16:38:59 UTC. Automatic round 1 reviewed `fc84150039019acbf4f998725c846fa35daa7fca`, with a 16:53:59 deadline, and completed at 16:41:23.746969 UTC (2m 24.746969s). It failed with [a finding](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432463655): formula-only inspection unnecessarily depended on the availability of mass preferences. The fix and later review rounds are recorded on the PR; [round 1 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546230978).
 
+[Round 2](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546329361) was requested at 16:51:19 UTC on `5549404279ba30592ca55b5360892b063cec51d6`, with a 17:06:19 deadline. It completed at 16:54:23.059388 UTC (3m 4.059388s) and failed: [mass suboperations were advertised as executable without compatible data](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432505526). The following change reports registry-dependent readiness separately for mass and isotope distribution; [round 2 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546382070).
+
 ## P16 first attempt: closed without merge
 
 [#78](https://github.com/EunhakChoi/chemifree/pull/78) was closed on 2026-10-31 after its third round failed. The replacement is independently authored from main; the closed branch is not reused.

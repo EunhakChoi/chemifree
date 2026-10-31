@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use chemifree_domain::document::{AtomId, Document};
+use chemifree_domain::document::{AtomId, Document, MAX_ISOTOPE_MASS_NUMBER};
 use chemifree_domain::mass::{
-    FormulaError, FormulaScope, MassError, MassTable, atom_groups, composition,
+    Composition, FormulaError, FormulaScope, MassError, MassTable, atom_groups, composition,
 };
 use chemifree_domain::scene::Selection;
 use chemifree_numerics::{Binary64, format_fixed};
@@ -63,6 +63,51 @@ pub(crate) enum PropertiesError {
     DataInvalid(&'static str),
     Mass(MassError),
     Display,
+}
+
+/// Whether some checked generation can answer at least one request of each kind.
+/// Per-element coverage and request-specific chemistry are checked when calculating.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DataReadiness {
+    pub mass: bool,
+    pub distribution: bool,
+}
+
+pub(crate) fn data_readiness(registry: &DataRegistry) -> DataReadiness {
+    let mut readiness = DataReadiness::default();
+    for dataset in registry.datasets() {
+        let table = match dataset.records() {
+            ProfileRecords::MassInput(input) => crate::mass_data::bind(input),
+            ProfileRecords::Phase4Nist(input) => crate::mass_data::bind_nist(input),
+            _ => continue,
+        };
+        if let Ok(table) = table {
+            for (&element, row) in &table.elements {
+                // The drawing model can request natural abundance or a recorded isotope
+                // in its 1..=999 range. Check both: an explicit isotope can yield a
+                // single-peak distribution even when natural abundances are unavailable.
+                let explicit = row
+                    .isotopes
+                    .iter()
+                    .find(|item| (1..=MAX_ISOTOPE_MASS_NUMBER).contains(&item.number))
+                    .map(|item| item.number);
+                for isotope in [None, explicit] {
+                    if readiness.mass && readiness.distribution {
+                        break;
+                    }
+                    let probe = Composition {
+                        species: BTreeMap::from([((element, isotope), 1)]),
+                        charge: 0,
+                    };
+                    if probe.masses(&table).is_ok() {
+                        readiness.mass = true;
+                        readiness.distribution |= probe.distribution(&table).is_ok();
+                    }
+                }
+            }
+        }
+    }
+    readiness
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

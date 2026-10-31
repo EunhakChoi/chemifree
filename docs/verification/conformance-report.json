@@ -189,7 +189,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "dae7dd6ca63b7a34243056c90931f46686098b987898bd5985a61a27bb6e97a5"
+      "case_sha256": "b044889bc9385ca9c7e46a227da578b185464f5fcebf983e88de1ae9871074cd"
     },
     {
       "id": "molfile-round-trip",
@@ -315,7 +315,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "3c7049b988b37bcd5b5eb957f7e46c30ad8e16bbb48050c76904d7dc7c85245b"
+      "case_sha256": "2b8e700112d139480918bfb2aeeaed30435e551a12fa2ee18ccfa72fb443ff80"
     },
     {
       "id": "operation-errors-match-v1",

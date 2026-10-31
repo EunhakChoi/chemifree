@@ -9,6 +9,8 @@
     "sha256": "2170931c87afeca42be2f1757043a3b47523c3f6f4564d85bc588faf4d638e20"
   },
   "steps": [
+    {"call": "operation", "request": {"contract": 1, "request_id": "fixture-capabilities", "profile": "preserve-semantics", "operation": "capabilities.inspect", "parameters": {}},
+     "expect": {"outcome": "ok", "result": {"operations": {"$contains": [{"id": "chem.properties", "sub_operations": {"$contains": [{"id": "formula", "execution": "executable"}, {"id": "mass", "execution": "executable"}, {"id": "isotope_distribution", "execution": "executable"}]}}]}}}},
     {"call": "create", "bind": "d"},
     {"call": "transact", "document": "d", "expected_revision": 0,
      "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}],

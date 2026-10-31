@@ -231,7 +231,14 @@
               {
                 "id": "chem.properties",
                 "representation": "supported",
-                "execution": "executable"
+                "execution": "executable",
+                "sub_operations": {
+                  "$contains": [
+                    {"id": "formula", "execution": "executable"},
+                    {"id": "mass", "execution": "requires_data"},
+                    {"id": "isotope_distribution", "execution": "requires_data"}
+                  ]
+                }
               }
             ]
           }

@@ -347,6 +347,9 @@ fn main() -> ExitCode {
                 );
                 for operation in response.operation_catalog.operations {
                     println!("{}: {}", operation.id, operation.execution);
+                    for part in operation.sub_operations {
+                        println!("  {}/{}: {}", operation.id, part.id, part.execution);
+                    }
                 }
             }
             ExitCode::SUCCESS

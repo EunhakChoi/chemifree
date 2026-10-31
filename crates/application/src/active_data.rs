@@ -316,6 +316,13 @@ impl PersonalDataset {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn named_fixture(registration_id: &str, records: ProfileRecords) -> Self {
+        let mut result = Self::fixture(records);
+        result.registration_id = registration_id.to_owned();
+        result
+    }
+
     #[must_use]
     pub fn registration_id(&self) -> &str {
         &self.registration_id

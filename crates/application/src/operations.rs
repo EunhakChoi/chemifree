@@ -300,6 +300,17 @@ const fn missing(id: &'static str, followup: &'static str, note: &'static str) -
     }
 }
 
+const fn needs_data(id: &'static str, note: &'static str) -> Entry {
+    Entry {
+        id,
+        representation: Representation::Supported,
+        execution: Execution::RequiresData,
+        followup: None,
+        note,
+        commands: None,
+    }
+}
+
 impl Entry {
     /// Marks a transaction part as a capability carried out by `commands`, not a command.
     const fn carried_out_by(self, commands: &'static [&'static str]) -> Self {
@@ -451,13 +462,13 @@ const PROPERTY_PARTS: [Entry; 3] = [
         "formula",
         "Hill formula and charge for a molecule, selection, or graph components under the bounded valence model.",
     ),
-    runs(
+    needs_data(
         "mass",
-        "Average and exact-profile mass require an explicitly checked external data registration.",
+        "A compatible checked mass registration is required; individual elements or isotopes may still be unavailable.",
     ),
-    runs(
+    needs_data(
         "isotope_distribution",
-        "A bounded isotope distribution requires checked abundances and reports its data policy.",
+        "A compatible checked isotope mass is required; natural distributions also need suitable abundances.",
     ),
 ];
 
@@ -928,7 +939,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|operation| {
                     let (entry, parts) = entry(operation);
-                    entry.view(parts)
+                    let mut support = entry.view(parts);
+                    if operation == OperationId::ChemProperties {
+                        for part in &mut support.sub_operations {
+                            let available = match part.id {
+                                "mass" => self.property_data_readiness.mass,
+                                "isotope_distribution" => self.property_data_readiness.distribution,
+                                _ => continue,
+                            };
+                            if available {
+                                part.execution = Execution::Executable.as_str();
+                            }
+                        }
+                    }
+                    support
                 })
                 .collect(),
         }
@@ -1411,6 +1435,237 @@ mod property_tests {
         fn load_trashed(&self, _id: &DocumentId) -> Result<Option<Document>, StorageError> {
             unreachable!()
         }
+    }
+
+    #[test]
+    fn catalog_distinguishes_formula_from_data_backed_properties() {
+        let states = |app: &Application<TestCapabilities, TestRepository>| {
+            let catalog = app.operation_catalog();
+            let entry = catalog
+                .operations
+                .iter()
+                .find(|entry| entry.id == "chem.properties")
+                .unwrap();
+            let execution = |id| {
+                entry
+                    .sub_operations
+                    .iter()
+                    .find(|part| part.id == id)
+                    .unwrap()
+                    .execution
+            };
+            (
+                entry.execution,
+                execution("formula"),
+                execution("mass"),
+                execution("isotope_distribution"),
+            )
+        };
+        let empty = Application::new(TestCapabilities, TestRepository::default());
+        assert_eq!(
+            states(&empty),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let snapshot = crate::mass_data::tests::decode(&crate::mass_data::tests::fixture());
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(snapshot)));
+        let ready = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&ready),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut input = crate::mass_data::tests::synthetic_mass_input();
+        input.features.mass_unit = "unknown-unit".into();
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)));
+        let incompatible = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&incompatible),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut sparse = crate::mass_data::tests::fixture();
+        sparse["isotopes"] = json!([]);
+        sparse["isotope_count"] = json!(0);
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&sparse),
+        )));
+        let unusable = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&unusable),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut natural_only = crate::mass_data::tests::synthetic_mass_input();
+        natural_only.isotopes.clear();
+        natural_only.selections.clear();
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(
+            natural_only,
+        )));
+        let natural_only = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&natural_only),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        // P14 permits an exactly positive decimal whose binary64 witness underflows to 0.
+        // Such a table cannot supply a valid numeric mass merely because a row exists.
+        let mut underflow = crate::mass_data::tests::synthetic_mass_input();
+        underflow.isotopes.clear();
+        underflow.selections.clear();
+        for element in &mut underflow.elements {
+            element.natural_atomic_weight.binary64_bits = 0.0_f64.to_bits();
+        }
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(underflow)));
+        let underflow = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&underflow),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let out_of_range = |abundance: f64| {
+            let mut input = crate::mass_data::tests::synthetic_mass_input();
+            input.elements.truncate(1);
+            input.isotopes.truncate(1);
+            input.isotopes[0].mass_number_u32 = 1000;
+            input.isotopes[0].mass.binary64_bits = 1000.0_f64.to_bits();
+            input.isotopes[0].abundance_percent.binary64_bits = abundance.to_bits();
+            input.selections[0].mass_number_u32 = 1000;
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)))
+        };
+        let no_natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(0.0)]));
+        assert_eq!(
+            states(&no_natural_distribution),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        let natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(100.0)]));
+        assert_eq!(
+            states(&natural_distribution),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut zero = crate::mass_data::tests::fixture();
+        zero["isotopes"][0]["isotopic_composition"]["value_decimal"] = json!("0");
+        zero["isotopes"][1]["isotopic_composition"]["value_decimal"] = json!("0");
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&zero),
+        )));
+        let labeled = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&labeled),
+            ("executable", "executable", "executable", "executable")
+        );
+        let id = labeled
+            .create_document(None, Some("Labeled isotope"))
+            .unwrap()
+            .document
+            .id;
+        let call = |request_id: &str, operation: &str, parameters: Value| -> Value {
+            let request = json!({"contract":1,"request_id":request_id,"profile":"preserve-semantics","operation":operation,"parameters":parameters});
+            serde_json::to_value(labeled.execute(request.to_string().as_bytes())).unwrap()
+        };
+        assert_eq!(
+            call(
+                "draw-labeled",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"C","hydrogens":{"mode":"specified","count":0},"position":{"x":0,"y":0}}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        assert_eq!(
+            call(
+                "set-isotope",
+                "document.transaction",
+                json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","isotope":12}]})
+            )["outcome"],
+            "ok"
+        );
+        let fixed = call(
+            "fixed-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(fixed["outcome"], "ok", "{fixed}");
+        assert_eq!(
+            fixed["result"]["components"][0]["isotope_distribution"],
+            json!([{"mass_u":12.0,"mass_display":"12.00","probability":1.0}])
+        );
+        assert_eq!(
+            call(
+                "change-isotope",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":2,"commands":[{"op":"update_atom","atom":"a1","isotope":null}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        let natural = call(
+            "natural-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(natural["outcome"], "unsupported");
+        assert!(natural["result"].is_null());
+
+        let valid = crate::PersonalDataset::named_fixture(
+            "valid",
+            crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                &crate::mass_data::tests::fixture(),
+            ))),
+        );
+        let mut bad = crate::mass_data::tests::synthetic_mass_input();
+        bad.features.mass_unit = "unknown-unit".into();
+        let invalid = crate::PersonalDataset::named_fixture(
+            "invalid",
+            crate::ProfileRecords::MassInput(Box::new(bad)),
+        );
+        let multiple = crate::DataRegistry::fixture(vec![valid, invalid]);
+        assert!(matches!(
+            properties::select_data(&multiple, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&multiple, Some("valid")).is_ok());
+        assert!(matches!(
+            properties::select_data(&multiple, Some("invalid")),
+            Err(properties::PropertiesError::DataInvalid(
+                "unsupported_mass_profile"
+            ))
+        ));
+        let mixed = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(multiple);
+        assert_eq!(
+            states(&mixed),
+            ("executable", "executable", "executable", "executable")
+        );
+        let make_valid = |id| {
+            crate::PersonalDataset::named_fixture(
+                id,
+                crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                    &crate::mass_data::tests::fixture(),
+                ))),
+            )
+        };
+        let both_valid =
+            crate::DataRegistry::fixture(vec![make_valid("first"), make_valid("second")]);
+        assert!(matches!(
+            properties::select_data(&both_valid, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&both_valid, Some("first")).is_ok());
+        assert!(properties::select_data(&both_valid, Some("second")).is_ok());
     }
 
     #[test]

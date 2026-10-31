@@ -118,6 +118,8 @@ const suffix = process.platform === 'win32' ? '.exe' : ''
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
+delete env.CHEMIFREE_MODEL_DATA_ROOT
+delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
 
 /**
  * Starts a process and resolves once its output matches `ready`. The match ignores terminal
@@ -1569,6 +1571,10 @@ await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
 assert.equal(await operationRow('chem.properties').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.properties/formula').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution']) {
+  assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'requires_data', `${id} needs compatible data`)
+}
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
