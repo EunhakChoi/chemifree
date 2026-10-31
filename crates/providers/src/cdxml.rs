@@ -135,7 +135,8 @@ pub fn read(text: &str) -> Result<CdxmlDocument, CdxmlError> {
     let range = root.range();
     let prefix = &text[..range.start];
     let byte_order_mark = prefix.starts_with('\u{feff}');
-    let (declaration, doctype, unsafe_prolog) = prolog(prefix.strip_prefix('\u{feff}').unwrap_or(prefix));
+    let (declaration, doctype, unsafe_prolog) =
+        prolog(prefix.strip_prefix('\u{feff}').unwrap_or(prefix));
     let unsafe_outside_root = unsafe_prolog || !text[range.end..].trim().is_empty();
     let parsed = parse_object(root, namespace, 0, false)?;
     let document = Document::new(parsed.clone())
@@ -665,8 +666,14 @@ pub fn write(file: &CdxmlDocument) -> Result<String, CdxmlError> {
         ));
     }
     let mut result = String::new();
-    if file.byte_order_mark { result.push('\u{feff}'); }
-    result.push_str(file.declaration.as_deref().unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+    if file.byte_order_mark {
+        result.push('\u{feff}');
+    }
+    result.push_str(
+        file.declaration
+            .as_deref()
+            .unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+    );
     result.push('\n');
     if let Some(doctype) = &file.doctype {
         result.push_str(doctype);

@@ -46,7 +46,11 @@ silently emitted as a single bond.
 The editor projection selects one page and a top-level fragment, including one
 inside groups. Element nodes and supported bond orders become an editable graph;
 unsupported chemical node or bond types and explicit unimplemented hydrogen/query
-attributes are refused. Default implicit-hydrogen interpretation is reported as
+attributes are refused. In particular, dative bonds remain in the rich tree but
+are refused by editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
+describes the first endpoint as positive, while the editor's first endpoint is a
+donor. The projection does not infer that these conventions coincide. Default
+implicit-hydrogen interpretation is reported as
 uncertain because the editor's bounded inference need not agree with another
 reader. Double bonds also report uncertainty about stereo another reader may
 interpret from the drawing. Original IDs and source

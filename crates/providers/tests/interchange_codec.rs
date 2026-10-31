@@ -191,14 +191,27 @@ fn opaque_drop_reports_original_and_submitted_sets_separately() {
 #[test]
 fn bom_alone_is_not_reported_as_opaque_and_survives_a_safe_edit() {
     let source = "\u{feff}<?xml version=\"1.0\"?><CDXML><page id=\"1\"/></CDXML>";
-    let mut read = LocalInterchangeCodec.read(InterchangeFormat::Cdxml, source.as_bytes()).unwrap();
+    let mut read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdxml, source.as_bytes())
+        .unwrap();
     assert!(!read.opaque_outside_root);
     assert!(read.loss_report.is_empty());
-    read.document.edit(|root| {
-        let Content::Object(page) = &mut root.children[0] else { panic!("page") };
-        page.id = Some(2);
-    }).unwrap();
-    let changed = LocalInterchangeCodec.write(InterchangeFormat::Cdxml, &read.document, Some(source.as_bytes()), false).unwrap();
+    read.document
+        .edit(|root| {
+            let Content::Object(page) = &mut root.children[0] else {
+                panic!("page")
+            };
+            page.id = Some(2);
+        })
+        .unwrap();
+    let changed = LocalInterchangeCodec
+        .write(
+            InterchangeFormat::Cdxml,
+            &read.document,
+            Some(source.as_bytes()),
+            false,
+        )
+        .unwrap();
     assert!(changed.loss_report.is_empty());
     assert!(changed.bytes.starts_with(&[0xef, 0xbb, 0xbf]));
 }

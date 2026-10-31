@@ -239,7 +239,21 @@ fn atom(
 ) -> Result<ProjectedAtom, InterchangeError> {
     if unknown_named(
         object,
-        &["NodeType", "Element", "Charge", "Isotope", "Radical", "ElementList", "Formula", "NumHydrogens", "ImplicitHydrogens", "FreeSites", "AS", "BondOrdering", "EnhancedStereoType"],
+        &[
+            "NodeType",
+            "Element",
+            "Charge",
+            "Isotope",
+            "Radical",
+            "ElementList",
+            "Formula",
+            "NumHydrogens",
+            "ImplicitHydrogens",
+            "FreeSites",
+            "AS",
+            "BondOrdering",
+            "EnhancedStereoType",
+        ],
     ) {
         return Err(fail(
             "unsupported_node",
@@ -345,7 +359,16 @@ fn bond(
         )
     })?;
     let order = integer(object, &PropertyKind::BondOrder, 1)?;
-    if ![1, 2, 4, 128, 4096].contains(&order) {
+    if order == 4096 {
+        return Err(fail(
+            "unsupported_bond",
+            format!(
+                "{} has a dative bond whose positive endpoint cannot be mapped confidently to the editor's donor endpoint.",
+                path(indices)
+            ),
+        ));
+    }
+    if ![1, 2, 4, 128].contains(&order) {
         return Err(fail(
             "unsupported_bond",
             format!(
@@ -571,7 +594,6 @@ impl Projection {
                 2 => BondOrder::Double,
                 4 => BondOrder::Triple,
                 128 => BondOrder::Aromatic,
-                4096 => BondOrder::Dative,
                 _ => return Err(fail("unsupported_bond", "Bond order is invalid.")),
             };
             commands.push(Command::AddBond {
@@ -728,7 +750,12 @@ mod tests {
                 .iter()
                 .map(|loss| loss.feature.as_str())
                 .collect::<Vec<_>>(),
-            ["double_bond_stereo", "styled_text", "unselected_page", "implicit_hydrogen_interpretation"]
+            [
+                "double_bond_stereo",
+                "styled_text",
+                "unselected_page",
+                "implicit_hydrogen_interpretation"
+            ]
         );
         assert_eq!(projection.commands().unwrap().len(), 3);
     }
