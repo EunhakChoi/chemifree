@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use num_bigint::BigUint;
 use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 
 use crate::{json, phase6_profiles};
@@ -90,9 +91,9 @@ pub struct AsciiText {
 /// Inert source lineage; offsets are not executable addresses or references.
 #[derive(PartialEq)]
 pub struct Source {
-    pub ordinal: u64,
-    pub offset: u64,
-    pub bytes: u64,
+    pub ordinal: BigUint,
+    pub offset: BigUint,
+    pub bytes: BigUint,
     pub sha256: String,
 }
 
@@ -101,7 +102,7 @@ pub struct Source {
 pub struct QueryAnnotation {
     pub subject: String,
     pub selection: String,
-    pub source_index: Option<u64>,
+    pub source_index: Option<BigUint>,
     pub property_or_predicate_id: String,
     pub requires_independent_named_predicate: bool,
 }
@@ -122,7 +123,7 @@ pub struct QueryPattern {
 #[derive(PartialEq)]
 pub struct RetainedAnnotation {
     pub subject: String,
-    pub source_index: Option<u64>,
+    pub source_index: Option<BigUint>,
     pub property: String,
     pub value: Option<AsciiText>,
 }
@@ -173,32 +174,36 @@ pub fn decode_dataset(
 /// Decode one authorized query stream. No predicate or graph evaluation is performed.
 ///
 /// # Errors
-/// Rejects invalid framing, missing fields, byte/text pairs or source-bound overflow.
+/// Rejects invalid framing, missing fields, byte/text pairs or malformed provenance.
 pub fn decode_query(bytes: &[u8]) -> Result<Vec<QueryPattern>, PatternError> {
     let rows = decode_rows::<QueryWire>(bytes)?
         .into_iter()
         .map(QueryWire::convert)
         .collect::<Result<Vec<_>, _>>()?;
-    unique_ordinals(rows, |row| row.source.ordinal)
+    unique_ordinals(rows, |row| &row.source.ordinal)
 }
 
 /// Decode one authorized retained-name stream without interpreting its flags.
 ///
 /// # Errors
-/// Rejects invalid framing, missing fields, byte/text pairs or source-bound overflow.
+/// Rejects invalid framing, missing fields, byte/text pairs or malformed provenance.
 pub fn decode_retained(bytes: &[u8]) -> Result<Vec<RetainedPattern>, PatternError> {
     let rows = decode_rows::<RetainedWire>(bytes)?
         .into_iter()
         .map(RetainedWire::convert)
         .collect::<Result<Vec<_>, _>>()?;
-    unique_ordinals(rows, |row| row.source.ordinal)
+    unique_ordinals(rows, |row| &row.source.ordinal)
 }
 
-fn unique_ordinals<T>(rows: Vec<T>, ordinal: impl Fn(&T) -> u64) -> Result<Vec<T>, PatternError> {
+fn unique_ordinals<T>(
+    rows: Vec<T>,
+    ordinal: impl Fn(&T) -> &BigUint,
+) -> Result<Vec<T>, PatternError> {
     let mut seen = HashSet::with_capacity(rows.len());
     if rows.iter().any(|row| !seen.insert(ordinal(row))) {
         return Err(PatternError::Record);
     }
+    drop(seen);
     Ok(rows)
 }
 
@@ -219,9 +224,8 @@ fn decode_rows<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, PatternError
             if line.trim().is_empty() {
                 return Err(PatternError::Framing);
             }
-            let value = json::parse_integer_zero_strict(line.as_bytes())
-                .map_err(|_| PatternError::Record)?;
-            serde_json::from_value(value).map_err(|_| PatternError::Record)
+            json::validate_raw_strict(line.as_bytes()).map_err(|_| PatternError::Record)?;
+            serde_json::from_str(line).map_err(|_| PatternError::Record)
         })
         .collect()
 }
@@ -252,9 +256,13 @@ fn optional_ascii(
     }
 }
 
-fn source(ordinal: u64, offset: u64, bytes: u64, sha256: String) -> Result<Source, PatternError> {
-    if offset.checked_add(bytes).is_none()
-        || sha256.len() != 64
+fn source(
+    ordinal: BigUint,
+    offset: BigUint,
+    bytes: BigUint,
+    sha256: String,
+) -> Result<Source, PatternError> {
+    if sha256.len() != 64
         || !sha256
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -274,8 +282,8 @@ fn source(ordinal: u64, offset: u64, bytes: u64, sha256: String) -> Result<Sourc
 struct QueryAnnotationWire {
     subject: String,
     selection: String,
-    #[serde(deserialize_with = "required_option")]
-    source_index_0based: Option<u64>,
+    #[serde(deserialize_with = "json::deserialize_nullable_integer")]
+    source_index_0based: Option<BigUint>,
     property_or_predicate_id: String,
     requires_independent_named_predicate: bool,
 }
@@ -283,9 +291,12 @@ struct QueryAnnotationWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QueryWire {
-    entry_ordinal_0based: u64,
-    source_file_offset: u64,
-    source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    entry_ordinal_0based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_bytes: BigUint,
     source_sha256: String,
     raw_definition_bytes_hex: String,
     raw_definition_ascii: String,
@@ -334,8 +345,8 @@ impl QueryWire {
 #[serde(deny_unknown_fields)]
 struct RetainedAnnotationWire {
     subject: String,
-    #[serde(deserialize_with = "required_option")]
-    source_index_0based: Option<u64>,
+    #[serde(deserialize_with = "json::deserialize_nullable_integer")]
+    source_index_0based: Option<BigUint>,
     property: String,
     #[serde(deserialize_with = "required_option")]
     value_bytes_hex: Option<String>,
@@ -357,9 +368,12 @@ impl RetainedAnnotationWire {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RetainedWire {
-    entry_ordinal_0based: u64,
-    source_file_offset: u64,
-    source_bytes: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    entry_ordinal_0based: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_file_offset: BigUint,
+    #[serde(deserialize_with = "json::deserialize_integer")]
+    source_bytes: BigUint,
     source_sha256: String,
     raw_definition_bytes_hex: String,
     raw_definition_ascii: String,

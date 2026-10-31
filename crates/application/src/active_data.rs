@@ -2598,7 +2598,10 @@ mod tests {
         let ProfileRecords::NamingLabels(labels) = loaded.records() else {
             panic!("wrong profile")
         };
-        assert_eq!(labels.kind[0].source_ordinal, u64::MAX);
+        assert_eq!(
+            labels.kind[0].source_ordinal.to_string(),
+            u64::MAX.to_string()
+        );
         assert_eq!(labels.kind[0].label_bytes, b"X\0");
         assert_eq!(labels.kind[1].label_bytes, b"X\0");
         assert_eq!(labels.subtype[0].label_bytes, b"A");
@@ -2722,3 +2725,7 @@ mod phase4_aqsoldb_tests;
 #[cfg(test)]
 #[path = "active_data/layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "active_data/big_naming_tests.rs"]
+mod big_naming_tests;

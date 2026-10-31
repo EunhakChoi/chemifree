@@ -15,11 +15,17 @@ fn files<'a>(kind: &'a str, subtype: &'a str) -> [(&'static str, &'a [u8]); 2] {
 fn contexts_preserve_order_repeated_spelling_and_exact_integer_keys() {
     let labels = decode_labels(&files(KIND, SUBTYPE)).unwrap();
     assert_eq!(labels.kind.len(), 2);
-    assert_eq!(labels.kind[0].source_ordinal, u64::MAX);
+    assert_eq!(
+        labels.kind[0].source_ordinal.to_string(),
+        u64::MAX.to_string()
+    );
     assert_eq!(labels.kind[0].code, u32::MAX);
     assert_eq!(labels.kind[0].label_bytes, b"X\0");
     assert_eq!(labels.kind[1].label_bytes, b"X\0");
-    assert_eq!(labels.kind[1].source_ordinal, u64::MAX - 1);
+    assert_eq!(
+        labels.kind[1].source_ordinal.to_string(),
+        (u64::MAX - 1).to_string()
+    );
     assert_eq!(labels.kind[1].code, 7);
     assert_eq!(labels.subtype[0].label_bytes, b"A");
     let crlf_kind = KIND.replace('\n', "\r\n");
@@ -39,7 +45,7 @@ fn framing_ascii_witness_integer_form_and_closed_shape_are_checked() {
         decode_labels(&files(KIND, &upper)).err(),
         Some(LabelError::Record)
     );
-    let decimal = SUBTYPE.replace("\"code_u32\":3", "\"code_u32\":3.0");
+    let decimal = SUBTYPE.replace("\"code_u32\":3", "\"code_u32\":3.00000000000000000001");
     assert_eq!(
         decode_labels(&files(KIND, &decimal)).err(),
         Some(LabelError::Record)
@@ -66,8 +72,10 @@ fn framing_ascii_witness_integer_form_and_closed_shape_are_checked() {
         "\"source_ordinal_0based\":-0",
     );
     assert_eq!(
-        decode_labels(&files(KIND, &negative_zero)).unwrap().subtype[0].source_ordinal,
-        0
+        decode_labels(&files(KIND, &negative_zero)).unwrap().subtype[0]
+            .source_ordinal
+            .to_string(),
+        "0"
     );
 }
 

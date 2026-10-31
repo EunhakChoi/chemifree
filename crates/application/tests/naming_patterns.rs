@@ -1,9 +1,4 @@
-use chemifree_application::{MAX_DATA_FILE_BYTES, json, phase6_profiles};
-
-#[path = "../src/naming_patterns.rs"]
-mod naming_patterns;
-
-use naming_patterns::{
+use chemifree_application::naming_patterns::{
     PatternError, PatternRows, Profile, decode_dataset, decode_query, decode_retained,
     verify_catalog_files,
 };
@@ -21,7 +16,13 @@ fn query_records_preserve_null_empty_and_unresolved_predicate_requirements() {
         Some("fixture-placeholder")
     );
     assert_eq!(rows[0].annotations[0].source_index, None);
-    assert_eq!(rows[1].annotations[0].source_index, Some(0));
+    assert_eq!(
+        rows[1].annotations[0]
+            .source_index
+            .as_ref()
+            .map(ToString::to_string),
+        Some("0".into())
+    );
     assert_eq!(rows[0].required_predicate_ids, ["fixture-predicate"]);
     assert!(rows[0].annotations[0].requires_independent_named_predicate);
     assert_eq!(rows[1].smiles.as_ref().unwrap().bytes, b"");
@@ -105,8 +106,12 @@ fn framing_closed_fields_and_inert_source_bounds_are_checked() {
         "\"source_file_offset\":18446744073709551615",
         1,
     );
+    let rows = decode_retained(overflow.as_bytes()).unwrap();
+    assert_eq!(rows[0].source.offset.to_string(), u64::MAX.to_string());
+    assert_eq!(rows[0].source.bytes.to_string(), "7");
+    let negative = RETAINED.replacen("\"source_file_offset\":1", "\"source_file_offset\":-1", 1);
     assert_eq!(
-        decode_retained(overflow.as_bytes()).err(),
+        decode_retained(negative.as_bytes()).err(),
         Some(PatternError::Record)
     );
     let digest = QUERY.replacen(&"0".repeat(64), &"F".repeat(64), 1);
