@@ -183,10 +183,10 @@ fn full_u64_and_binary64_witnesses_keep_their_exact_bits() {
     assert_eq!(decode_u64(b"18446744073709551614"), Ok(u64::MAX - 1));
     for invalid in [
         &b"18446744073709551616"[..],
-        b"1.0",
-        b"1e0",
-        b"-0.0",
-        b"-0e0",
+        b"1.00000000000000000001",
+        b"1e-1",
+        b"-0.01",
+        b"18446744073709551616.0",
         b"-1",
         b"true",
     ] {
@@ -323,8 +323,8 @@ fn symbol_rows_preserve_order_repetition_and_exact_hex_bytes() {
     for invalid in [
         &b"{\"atomic_number_u32\":1,\"symbol_hex\":\"0A\"}\n"[..],
         b"{\"atomic_number_u32\":1,\"symbol_hex\":\"0\"}\n",
-        b"{\"atomic_number_u32\":1.0,\"symbol_hex\":\"00\"}\n",
-        b"{\"atomic_number_u32\":1e0,\"symbol_hex\":\"00\"}\n",
+        b"{\"atomic_number_u32\":1.00000000000000000001,\"symbol_hex\":\"00\"}\n",
+        b"{\"atomic_number_u32\":1e-1,\"symbol_hex\":\"00\"}\n",
         b"{\"atomic_number_u32\":-1,\"symbol_hex\":\"00\"}\n",
         b"{\"atomic_number_u32\":null,\"symbol_hex\":\"00\"}\n",
         b"{\"atomic_number_u32\":4294967296,\"symbol_hex\":\"00\"}\n",

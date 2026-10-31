@@ -326,9 +326,13 @@ impl F64Operand {
 /// Decodes one exact unsigned integer without a binary64 intermediary.
 ///
 /// # Errors
-/// Rejects non-integer tokens, negative values, overflow and malformed JSON.
+/// Rejects values that are not exact integers, negative values, overflow and malformed JSON.
 pub fn decode_u64(bytes: &[u8]) -> Result<u64, DecodeError> {
-    parse_document(bytes)?.as_u64().ok_or(DecodeError::Record)
+    // Validate framing first, then use the original token instead of its rounded f64 form.
+    parse_document(bytes)?;
+    let raw: Box<serde_json::value::RawValue> =
+        serde_json::from_slice(bytes).map_err(|_| DecodeError::Record)?;
+    json::parse_integer_raw(&raw).ok_or(DecodeError::Record)
 }
 
 /// Validates a JSON number against its little-endian binary64 witness.
@@ -534,6 +538,7 @@ pub fn decode(kind: FileKind, bytes: &[u8]) -> Result<Records, DecodeError> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     atomic_number_u32: u32,
     symbol_hex: String,
 }
@@ -541,14 +546,18 @@ struct SymbolRow {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TypeRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     internal_type_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     atomic_number_u32: u32,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RankRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     atomic_number_u32: u32,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     source_rank_u32: u32,
 }
 
@@ -569,9 +578,8 @@ fn read_rows<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, DecodeError> {
             if line.trim().is_empty() {
                 return Err(DecodeError::Framing);
             }
-            let value = json::parse_integer_zero_strict(line.as_bytes())
-                .map_err(|_| DecodeError::Record)?;
-            serde_json::from_value(value).map_err(|_| DecodeError::Record)
+            json::parse_integer_zero_strict(line.as_bytes()).map_err(|_| DecodeError::Record)?;
+            serde_json::from_str(line).map_err(|_| DecodeError::Record)
         })
         .collect()
 }
