@@ -322,7 +322,6 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
-    serviceGeneration,
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {

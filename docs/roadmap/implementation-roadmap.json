@@ -876,7 +876,13 @@
     "P16",
     "P14",
     "P15"
-   ]
+   ],
+   "delivered": {
+    "prs": [81],
+    "merge_commit": "3aa8686cc30c0c717bfbe02e94ffd2cc1a3c786d",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41223458088",
+    "note": "분자식·질량 첫 범위의 부분 납품이다. 개인 질량 프로필 호환성과 일반 정밀도는 미완료다."
+   }
   },
   {
    "phase": "chemistry",

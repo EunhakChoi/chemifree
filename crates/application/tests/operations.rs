@@ -469,9 +469,9 @@ fn the_catalog_says_exactly_which_operations_run() {
             "document.save",
             "document.close",
             "chem.validate",
-            "chem.properties",
             "chem.aromaticity",
             "chem.aromaticity_convert",
+            "chem.properties",
         ]
     );
     assert_eq!(

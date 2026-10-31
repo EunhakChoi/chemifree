@@ -410,11 +410,25 @@
       "pending": null,
       "failure": null,
       "case_sha256": "f588ecb578d7e086cb8be76a4f24c41dfbbd1a16a0b291886dae62f1f05153b7"
+    },
+    {
+      "id": "aromaticity-conversion",
+      "title": "Benzene inspection is read only; conversion is one replayable undoable edit",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "834538b8c592ccdc0f5291e4e16dc77f64b4d1c3e84404e7de48f56862a5d98f"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 17,
+      "passed": 18,
       "failed": 0,
       "not_run": 1
     },
@@ -424,7 +438,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 29,
+      "passed": 30,
       "failed": 0,
       "not_run": 1
     }
