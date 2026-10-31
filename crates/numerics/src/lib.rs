@@ -2,10 +2,11 @@
 //!
 //! Stored bits and exact values are separate. Conversion here never substitutes an
 //! ordinary host float for a requested profile. Finite arithmetic stores each result
-//! in the selected profile, and selected ordered and unit policies are explicit.
-//! Display policies are a separate contract and are not supplied yet.
+//! in the selected profile; selected ordered, unit and display policies are
+//! explicit, separate contracts.
 
 mod arithmetic;
+mod display;
 mod exact;
 mod extended;
 mod ieee;
@@ -14,6 +15,7 @@ mod quantize;
 mod real48;
 mod units;
 
+pub use display::{format_default_six, format_fixed, round_three_half_away_to_binary32};
 pub use exact::{Exact, Sign};
 pub use extended::{Extended80, ExtendedClass};
 pub use ieee::{Binary32, Binary64, FloatClass};
@@ -35,6 +37,7 @@ pub enum NumericError {
     NegativeInput,
     MissingAuxiliary,
     NonPositiveAuxiliary,
+    PrecisionOutOfRange,
 }
 
 impl std::fmt::Display for NumericError {
@@ -49,6 +52,7 @@ impl std::fmt::Display for NumericError {
             Self::NegativeInput => "negative_input",
             Self::MissingAuxiliary => "missing_auxiliary",
             Self::NonPositiveAuxiliary => "nonpositive_auxiliary",
+            Self::PrecisionOutOfRange => "precision_out_of_range",
         })
     }
 }
