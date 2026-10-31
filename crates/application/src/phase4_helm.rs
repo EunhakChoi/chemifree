@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Deserializer};
 
-use crate::phase6_profiles;
+use crate::{json, phase6_profiles};
 
 /// The independently published catalog identifies the one source file explicitly.
 pub const FILE_ID: &str = "PRIVATE-HELM-CORE-FECC972";
@@ -100,6 +100,7 @@ pub struct Monomer {
     pub rgroups: Vec<Attachment>,
     #[serde(rename = "createDate")]
     pub create_date: (),
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub id: i64,
     #[serde(rename = "polymerType")]
     pub polymer_type: String,
@@ -143,6 +144,22 @@ mod tests {
 
     fn document(row: &str, count: usize) -> Vec<u8> {
         format!("[{}]", vec![row; count].join(",")).into_bytes()
+    }
+
+    #[test]
+    fn schema_integral_numbers_preserve_monomer_text() {
+        let row = ROW
+            .replace("\"id\":0", "\"id\":1.0")
+            .replace("\"name\":\"synthetic\"", "\"name\":\"-0.0\"");
+        let bytes = document(&row, 705);
+        let data = decode_dataset(&[(FILE_ID, &bytes)]).unwrap();
+        assert_eq!(data.monomers[0].id, 1);
+        assert_eq!(data.monomers[0].name, "-0.0");
+        let invalid = row.replace("\"id\":1.0", "\"id\":1.00000000000000000001");
+        assert_eq!(
+            decode_dataset(&[(FILE_ID, &document(&invalid, 705))]).err(),
+            Some(HelmError::Record)
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, de::DeserializeOwned};
 
-use crate::phase6_profiles;
+use crate::{json, phase6_profiles};
 
 const RAW: [&str; 2] = ["P4-NAMING-DECLARATIVE-001", "P4-NAMING-DECLARATIVE-002"];
 const NORMALIZED: [&str; 3] = [
@@ -83,6 +83,7 @@ pub fn is_normalized(id: &str) -> bool {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TextLine {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub line: u64,
     pub text: String,
 }
@@ -99,6 +100,7 @@ pub struct Attributes {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceRow {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub ordinal: u64,
     pub attributes: Attributes,
 }
@@ -107,13 +109,17 @@ pub struct SourceRow {
 #[derive(Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ParseReport {
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub source_ordinal: u64,
     pub source_attributes: Attributes,
     pub independent_parse_ok: bool,
     pub canonical_isomeric_smiles: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub formal_charge: i64,
     pub formula: String,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub atoms: u64,
+    #[serde(deserialize_with = "json::deserialize_integer")]
     pub bonds: u64,
 }
 
@@ -219,6 +225,27 @@ mod tests {
             .iter()
             .map(|(id, bytes)| (*id, bytes.as_slice()))
             .collect()
+    }
+
+    #[test]
+    fn schema_integral_numbers_preserve_declarative_strings() {
+        let source = br#"{"ordinal":-0.0,"attributes":{"name":"1.0","smiles":"C"}}"#;
+        let decoded = rows::<SourceRow>(source, 1).unwrap();
+        assert_eq!(decoded[0].ordinal, 0);
+        assert_eq!(decoded[0].attributes.name, "1.0");
+        let report = br#"{"source_ordinal":1e0,"source_attributes":{"name":"x","smiles":"C"},"independent_parse_ok":false,"canonical_isomeric_smiles":"","formal_charge":-1.0,"formula":"","atoms":1.0,"bonds":0e0}"#;
+        let decoded = rows::<ParseReport>(report, 1).unwrap();
+        assert_eq!(decoded[0].source_ordinal, 1);
+        assert_eq!(decoded[0].formal_charge, -1);
+        assert_eq!(decoded[0].atoms, 1);
+        assert_eq!(decoded[0].bonds, 0);
+        let invalid = std::str::from_utf8(report)
+            .unwrap()
+            .replace("\"atoms\":1.0", "\"atoms\":1.00000000000000000001");
+        assert_eq!(
+            rows::<ParseReport>(invalid.as_bytes(), 1).err(),
+            Some(DeclarativeError::Record)
+        );
     }
 
     #[test]

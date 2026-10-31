@@ -54,6 +54,17 @@ where
     deserialize_integer(deserializer).map(Some)
 }
 
+/// Reads a nullable integer while requiring its field to be present.
+pub(crate) fn deserialize_nullable_integer<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: IntegerToken,
+{
+    Option::<Integer<T>>::deserialize(deserializer).map(|value| value.map(|value| value.0))
+}
+
 struct Integer<T>(T);
 
 impl<'de, T: IntegerToken> Deserialize<'de> for Integer<T> {
