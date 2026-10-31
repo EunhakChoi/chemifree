@@ -48,8 +48,9 @@ inside groups. Element nodes and supported bond orders become an editable graph;
 unsupported chemical node or bond types are refused. Every selected atom must have
 an in-range position. Uninterpreted properties or unknown child objects on the
 selected fragment, uninterpreted properties on selected nodes or bonds, and labels
-or other child content on selected nodes or bonds are refused
-because their chemical meaning is not established; rich read and unchanged export
+or other child content on selected nodes or bonds are refused because their
+chemical meaning is not established. The [public node specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/Node.htm)
+permits a label to carry the chemical description. Rich read and unchanged export
 remain available. In particular, dative bonds remain in the rich tree but
 are refused by editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
 describes the first endpoint as positive, while the editor's first endpoint is a
