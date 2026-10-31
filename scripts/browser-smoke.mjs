@@ -289,6 +289,7 @@ results.preferences_read_can_be_retried = true
   await preview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
   await preview.getByText(/#7 → a1/).waitFor()
   await preview.getByText(/not represented in the editor projection/i).first().waitFor()
+  await preview.locator('..').screenshot({ path: join(outDir, 'editor-cdxml-preview.png') })
   assert.equal((await api('/api/v1/documents')).documents.length, before, 'preview creates no document')
   const committed = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
     response.request().postDataJSON()?.parameters?.mode === 'create')
@@ -318,6 +319,7 @@ results.preferences_read_can_be_retried = true
   await page.getByRole('button', { name: 'Preview import' }).click()
   const binaryPreview = page.getByTestId('cdxml-preview')
   await binaryPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  await binaryPreview.locator('..').screenshot({ path: join(outDir, 'editor-cdx-preview.png') })
   const binaryCreated = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
     response.request().postDataJSON()?.parameters?.format === 'cdx' && response.request().postDataJSON()?.parameters?.mode === 'create')
   await binaryPreview.getByRole('button', { name: 'Accept losses and create drawing' }).click()
