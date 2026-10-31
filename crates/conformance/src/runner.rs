@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use chemifree_application::{Application, ApplicationError};
+use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
 use serde::Serialize;
 use serde_json::Value;
@@ -190,7 +191,9 @@ fn start(directory: &Path) -> LocalApplication {
     repository.prune_stale_temporaries();
     let preferences = FilePreferenceStore::new(directory);
     preferences.prune_stale_temporaries();
-    Application::new(LocalCapabilities, repository).with_preferences(preferences)
+    Application::new(LocalCapabilities, repository)
+        .with_interchange_codec(LocalInterchangeCodec)
+        .with_preferences(preferences)
 }
 
 /// The response, or the v1 error envelope, as JSON.

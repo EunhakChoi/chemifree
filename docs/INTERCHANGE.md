@@ -1,8 +1,9 @@
 # Interchange document and CDXML codec
 
-This document describes the in-process interchange core. The HTTP, CLI and browser
-operation paths are still being integrated; this core alone does not claim P22 or
-P23 is complete.
+The rich CDXML tree is available through operation contract 1 in the Rust
+application, HTTP and CLI. The browser can preview a selected page and molecule
+and create a new editable drawing after the user accepts its loss report. CDX is
+not yet implemented.
 
 `chemifree_domain::interchange::Document` is an ordered tree independent of the
 editor's single-graph document. It can hold a document with several pages, nested
@@ -39,8 +40,19 @@ graphic type/bounds, represented-property targets, font and color table entries,
 and styled text. Advanced chemistry, additional object properties, external
 resources and CDX are not implemented by this CDXML core. A CDX unspecified bond
 order is refused when it has no unambiguous CDXML representation; it is not
-silently emitted as a single bond. Importing this interchange tree into the editor
-will require a separate projection with a loss report for anything it cannot keep.
+silently emitted as a single bond.
+
+The editor projection selects one page and a top-level fragment, including one
+inside groups. Element nodes and supported bond orders become an editable graph;
+unsupported chemical node or bond types are refused. Original IDs and source
+paths are mapped to new editor IDs. Unselected pages and fragments, styled text,
+graphics, groups, references, unknown properties and outside-root XML that the
+editor cannot store are reported as losses. A preview does not create a document.
+The create operation recomputes the source, selection, losses, settings and graph;
+its digest also binds the preview to the running service. Changed input, settings
+or a restart requires a new preview. Creation commits the complete document
+before acknowledging and replays an already acknowledged request while the
+service's request history is retained. It never overwrites an existing document.
 
 The independently authored `crates/providers/tests/data/cdxml/multi-page.cdxml`
 fixture is checked across graph, pages, graphics, text, styles and references. The

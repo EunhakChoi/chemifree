@@ -1,0 +1,196 @@
+//! Rich CDXML operations and editor projection through the real application and file store.
+use chemifree_application::{Application, ListQuery};
+use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use serde_json::{Value, json};
+
+type App = Application<LocalCapabilities, FileDocumentRepository>;
+const SOURCE: &str = "\u{feff}<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--outside-->\n<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\"/><n id=\"4\" p=\"3 4\" Element=\"8\" Charge=\"-1\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"2\"/></fragment><t id=\"6\"><s>α &amp; β</s></t></page><page id=\"7\"><fragment id=\"8\"><n id=\"9\"/></fragment></page></CDXML>";
+
+fn app(path: &std::path::Path) -> App {
+    Application::new(LocalCapabilities, FileDocumentRepository::new(path))
+        .with_interchange_codec(LocalInterchangeCodec)
+}
+fn call(app: &App, id: &str, op: &str, parameters: Value) -> Value {
+    let request = json!({"contract":1,"request_id":id,"profile":"preserve-semantics","operation":op,"parameters":parameters});
+    serde_json::to_value(app.execute(request.to_string().as_bytes())).unwrap()
+}
+fn preview(app: &App) -> Value {
+    call(
+        app,
+        "preview",
+        "document.import",
+        json!({"mode":"preview","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2}),
+    )
+}
+fn count(app: &App) -> usize {
+    app.list_documents(&ListQuery::default())
+        .unwrap()
+        .documents
+        .len()
+}
+
+#[test]
+fn rich_tree_and_unchanged_bytes_preserve_bom_text_style_and_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let decoded = call(
+        &application,
+        "read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":SOURCE}),
+    );
+    assert_eq!(decoded["outcome"], "ok");
+    assert_eq!(decoded["loss_report"][0]["disposition"], "retained");
+    assert_eq!(decoded["result"]["choices"][0]["page_id"], 1);
+    assert_eq!(decoded["result"]["choices"][0]["fragment_id"], 2);
+    assert_eq!(decoded["result"]["choices"][1]["page_id"], 7);
+    assert_eq!(decoded["result"]["choices"][1]["fragment_id"], 8);
+    let tree = decoded["result"]["document"].clone();
+    let encoded = call(
+        &application,
+        "write",
+        "document.export",
+        json!({"format":"cdxml","document":tree,"original":SOURCE}),
+    );
+    assert_eq!(encoded["outcome"], "ok");
+    assert_eq!(
+        encoded["result"]["content"].as_str().unwrap().as_bytes(),
+        SOURCE.as_bytes()
+    );
+    assert_eq!(count(&application), 0);
+}
+
+#[test]
+fn projected_creation_reports_losses_maps_ids_replays_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let report = preview(&application);
+    assert_eq!(report["outcome"], "partial");
+    assert_eq!(count(&application), 0);
+    let losses = report["loss_report"].as_array().unwrap();
+    assert!(losses.iter().any(|loss| loss["feature"] == "styled_text"));
+    assert!(
+        losses
+            .iter()
+            .any(|loss| loss["feature"] == "unselected_page")
+    );
+    assert!(losses.iter().any(|loss| loss["feature"] == "outside_root"));
+    assert!(!losses.iter().any(|loss| {
+        loss["feature"] == "unprojected_object"
+            && loss["source_path"]
+                .as_str()
+                .unwrap()
+                .ends_with("children[0]")
+    }));
+    let digest = report["result"]["preview_digest"].as_str().unwrap();
+    let mut request = json!({"mode":"create","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":false});
+    assert_eq!(
+        call(
+            &application,
+            "no-consent",
+            "document.import",
+            request.clone()
+        )["diagnostics"][0]["code"],
+        "loss_consent_required"
+    );
+    assert_eq!(count(&application), 0);
+    request["accept_loss"] = json!(true);
+    let result = call(&application, "create", "document.import", request.clone());
+    assert_eq!(result["outcome"], "partial");
+    assert_eq!(result["result"]["document"]["atoms"][1]["element"], "O");
+    assert_eq!(result["result"]["document"]["atoms"][1]["charge"], -1);
+    assert_eq!(
+        result["result"]["interchange_mapping"]["atoms"][0]["source_id"],
+        3
+    );
+    assert_eq!(
+        result["result"]["interchange_mapping"]["atoms"][0]["target_id"],
+        "a1"
+    );
+    assert_eq!(
+        result["result"]["interchange_mapping"]["bonds"][0]["target_id"],
+        "b1"
+    );
+    assert_eq!(count(&application), 1);
+    assert_eq!(
+        call(&application, "create", "document.import", request),
+        result
+    );
+    let id = result["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    drop(application);
+    let restarted = app(dir.path());
+    let reopened = call(
+        &restarted,
+        "get",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    assert_eq!(
+        reopened["result"]["document"]["atoms"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn restart_and_source_change_invalidate_consent_before_creation() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let result = preview(&application);
+    let digest = result["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let changed_source = SOURCE.replace("α &amp; β", "γ &amp; β");
+    let changed = json!({"mode":"create","format":"cdxml","source":changed_source,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
+    assert_eq!(call(&application, "changed-source", "document.import", changed)["diagnostics"][0]["code"], "preview_changed");
+    let preferences = serde_json::from_value(json!({"ui":{"theme":"system"},"new_documents":{"bond_length_pt":40}})).unwrap();
+    application.set_preferences(None, 0, preferences).unwrap();
+    let changed_settings = json!({"mode":"create","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
+    assert_eq!(call(&application, "changed-settings", "document.import", changed_settings)["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(count(&application), 0);
+    drop(application);
+    let restarted = app(dir.path());
+    let request = json!({"mode":"create","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
+    let refused = call(&restarted, "old", "document.import", request);
+    assert_eq!(refused["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(count(&restarted), 0);
+}
+
+#[test]
+fn invalid_references_and_unsafe_opaque_rewrites_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let bad = SOURCE.replace("E=\"4\"", "E=\"99\"");
+    let error = call(
+        &application,
+        "dangling",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":bad}),
+    );
+    assert_eq!(error["diagnostics"][0]["code"], "invalid_document");
+    let opaque = SOURCE.replace("<page id=\"1\">", "<page id=\"1\" future=\"3\">");
+    let read = call(
+        &application,
+        "read-opaque",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":opaque}),
+    );
+    let mut tree = read["result"]["document"].clone();
+    tree["root"]["children"][0]["value"]["id"] = json!(10);
+    let write = call(
+        &application,
+        "unsafe",
+        "document.export",
+        json!({"format":"cdxml","document":tree,"original":opaque,"discard_opaque":false}),
+    );
+    assert_eq!(write["diagnostics"][0]["code"], "unsafe_unknown_rewrite");
+    assert!(write["result"].is_null());
+    assert_eq!(count(&application), 0);
+}

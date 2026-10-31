@@ -94,6 +94,7 @@ impl InterchangeCodec for LocalInterchangeCodec {
         Ok(InterchangeRead {
             document: file.document().clone(),
             loss_report,
+            opaque_outside_root: prolog,
         })
     }
 

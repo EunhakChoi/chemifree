@@ -953,6 +953,81 @@ function restarted(status: number) {
   )
 }
 
+export interface InterchangeLoss {
+  feature: string
+  source_path: string
+  disposition: string
+  reason: string
+  semantic_impact: string
+}
+
+export interface InterchangeChoice {
+  page_id: number
+  fragment_id: number
+  page_path: string
+  fragment_path: string
+}
+
+export interface InterchangeInput {
+  source: string
+  title: string
+  page_id: number
+  fragment_id: number
+}
+
+export interface InterchangePreview {
+  digest: string
+  atomLabels: string[]
+  bonds: number
+  mapping: InterchangeMapping
+  losses: InterchangeLoss[]
+}
+
+interface InterchangeIdMapping {
+  source_path: string
+  source_id: number | null
+  target_id: string
+}
+
+export interface InterchangeMapping {
+  document: InterchangeIdMapping
+  page: InterchangeIdMapping
+  fragment: InterchangeIdMapping
+  atoms: InterchangeIdMapping[]
+  bonds: InterchangeIdMapping[]
+}
+
+function isInterchangeIdMapping(value: unknown): value is InterchangeIdMapping {
+  return isRecord(value) && typeof value.source_path === 'string' &&
+    (value.source_id === null || isCount(value.source_id)) && typeof value.target_id === 'string'
+}
+
+function isInterchangeMapping(value: unknown): value is InterchangeMapping {
+  return isRecord(value) && isInterchangeIdMapping(value.document) && isInterchangeIdMapping(value.page) &&
+    isInterchangeIdMapping(value.fragment) && Array.isArray(value.atoms) && value.atoms.every(isInterchangeIdMapping) &&
+    Array.isArray(value.bonds) && value.bonds.every(isInterchangeIdMapping)
+}
+
+function interchangeReply(value: unknown): { result: Record<string, unknown>; losses: InterchangeLoss[] } {
+  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
+    throw new ApiError('incompatible_response', 'The service returned an invalid interchange response.', 200)
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const problem: unknown = value.diagnostics[0]
+    if (isRecord(problem) && typeof problem.code === 'string' && typeof problem.message === 'string') {
+      throw new ApiError(problem.code, problem.message, 200)
+    }
+    throw new ApiError('conversion_failed', 'The interchange operation failed.', 200)
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is InterchangeLoss =>
+        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
+    throw new ApiError('incompatible_response', 'The service returned an invalid interchange response.', 200)
+  }
+  return { result: value.result, losses: value.loss_report }
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -1107,6 +1182,61 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible inspection.', 200)
     }
     return { model: value.model_id, snapshot, atoms }
+  }
+
+  async readInterchange(source: string): Promise<InterchangeChoice[]> {
+    const { result } = interchangeReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { mode: 'read', format: 'cdxml', source },
+    }, 'reload'))
+    if (!Array.isArray(result.choices) || !result.choices.every((choice): choice is InterchangeChoice =>
+      isRecord(choice) && isCount(choice.page_id) && choice.page_id > 0 &&
+      isCount(choice.fragment_id) && choice.fragment_id > 0 &&
+      typeof choice.page_path === 'string' && typeof choice.fragment_path === 'string')) {
+      throw new ApiError('incompatible_response', 'The service returned invalid page choices.', 200)
+    }
+    return result.choices
+  }
+
+  async previewInterchange(input: InterchangeInput): Promise<InterchangePreview> {
+    const { result, losses } = interchangeReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { mode: 'preview', format: 'cdxml', ...input },
+    }, 'reload'))
+    const document = result.document
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        !isRecord(document) || !Array.isArray(document.atoms) || !Array.isArray(document.bonds) ||
+        !document.atoms.every((atom: unknown) => isRecord(atom) && typeof atom.element === 'string') ||
+        !isInterchangeMapping(result.mapping) || result.mapping.atoms.length !== document.atoms.length ||
+        result.mapping.bonds.length !== document.bonds.length) {
+      throw new ApiError('incompatible_response', 'The service returned an invalid import preview.', 200)
+    }
+    return { digest: result.preview_digest, atomLabels: document.atoms.map((atom: { element: string }) => atom.element),
+      bonds: document.bonds.length, mapping: result.mapping, losses }
+  }
+
+  async createInterchange(input: InterchangeInput, digest: string): Promise<DocumentResponse> {
+    const key = `interchange:${JSON.stringify([input, digest])}`
+    try {
+      return await this.createOnce(
+      key,
+      '/api/v1/operations',
+      { contract: 1, profile: 'preserve-semantics', operation: 'document.import',
+        parameters: { mode: 'create', format: 'cdxml', ...input, preview_digest: digest, accept_loss: true } },
+      new ApiError('create_unconfirmed', 'The service restarted before confirming the imported drawing. Check Saved documents before creating another.', 401),
+      async (value, replayed) => {
+        const result = interchangeReply(value).result
+        const created = DocumentClient.document({ api_version: API_VERSION, ...result })
+        return replayed ? this.get(created.document.id) : created
+      },
+      )
+    } catch (error) {
+      // A structured refusal is a definitive non-commit; an invalid or lost reply may hide a commit.
+      if (error instanceof ApiError && error.status === 200 && error.code !== 'incompatible_response') {
+        this.unconfirmed.delete(key)
+      }
+      throw error
+    }
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

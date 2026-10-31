@@ -13,7 +13,12 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod interchange;
+
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
+pub use interchange::{
+    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -161,6 +166,9 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.close`.
     Closed(ClosedResult),
+    InterchangeRead(Box<InterchangeReadResult>),
+    InterchangePreview(Box<InterchangePreviewResult>),
+    InterchangeExport(Box<InterchangeExportResult>),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
 }
@@ -185,6 +193,8 @@ pub struct DocumentResult {
     pub document: DocumentView,
     pub session: SessionView,
     pub recovery: Option<RecoveryView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interchange_mapping: Option<InterchangeMapping>,
 }
 
 impl From<DocumentResponse> for DocumentResult {
@@ -193,6 +203,7 @@ impl From<DocumentResponse> for DocumentResult {
             document: response.document,
             session: response.session,
             recovery: response.recovery,
+            interchange_mapping: None,
         }
     }
 }
@@ -524,7 +535,7 @@ fn profile_support(profile: CompatibilityProfile) -> ProfileSupport {
     let (execution, note) = match profile {
         CompatibilityProfile::PreserveSemantics => (
             Execution::Executable,
-            "Operations keep document meaning as stored; none drops or converts content.",
+            "Operations report conversion losses and uncertainty; projected imports require consent.",
         ),
         CompatibilityProfile::LegacyObserved => (
             Execution::NotImplemented,
@@ -751,6 +762,33 @@ fn malformed(
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
+        if self.interchange_codec.is_some() {
+            match operation {
+                OperationId::DocumentImport => {
+                    return (
+                        runs(
+                            operation.as_str(),
+                            "Read CDXML as a rich tree or preview a loss-accounted editor projection.",
+                        ),
+                        &[],
+                    );
+                }
+                OperationId::DocumentExport => {
+                    return (
+                        runs(
+                            operation.as_str(),
+                            "Write rich CDXML with opaque-content safety and explicit loss reporting.",
+                        ),
+                        &[],
+                    );
+                }
+                _ => {}
+            }
+        }
+        entry(operation)
+    }
+
     /// What this service supports of the operation contract, per operation and sub-operation.
     pub fn operation_catalog(&self) -> OperationCatalog {
         OperationCatalog {
@@ -764,7 +802,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = entry(operation);
+                    let (entry, parts) = self.effective_entry(operation);
                     entry.view(parts)
                 })
                 .collect(),
@@ -908,7 +946,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if entry(known.operation).0.execution != Execution::Executable {
+        if self.effective_entry(known.operation).0.execution != Execution::Executable {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());
@@ -1005,9 +1043,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport
-            | Op::DocumentExport
-            | Op::ChemProperties
+            Op::DocumentImport => self.dispatch_interchange_import(known, parameters_value),
+            Op::DocumentExport => self.dispatch_interchange_export(known, parameters_value),
+            Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName
             | Op::LayoutStructure

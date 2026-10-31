@@ -10,6 +10,7 @@ import {
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
+  type InterchangeInput,
   type ListQuery,
   type SettingsSource,
   type TrashListResponse,
@@ -98,6 +99,8 @@ export function useDocumentEditor() {
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
+  const [serviceGeneration, setServiceGeneration] = useState(0)
+  const serviceGenerationRef = useRef(0)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
@@ -125,7 +128,11 @@ export function useDocumentEditor() {
   }, [adoptSelection])
 
   // A restarted service no longer holds the session the notice describes.
-  useEffect(() => client.onRestart(() => setCopyNotice(null)), [])
+  useEffect(() => client.onRestart(() => {
+    setCopyNotice(null)
+    serviceGenerationRef.current += 1
+    setServiceGeneration(serviceGenerationRef.current)
+  }), [])
 
   const [listRequest, setListRequest] = useState(0)
   const [listQuery, setListQuery] = useState<ListQuery>({ query: '', sort: 'title' })
@@ -314,6 +321,19 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
+    serviceGeneration,
+    currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
+    readInterchange: useCallback((source: string) => client.readInterchange(source), []),
+    previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
+    createInterchange: useCallback((input: InterchangeInput, digest: string) => run(async () => {
+      try {
+        await show(() => client.createInterchange(input, digest))
+        refreshList()
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
+        throw failure
+      }
+    }), [run, show, refreshList]),
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     error,
     autosave,

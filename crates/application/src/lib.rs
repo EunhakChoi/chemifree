@@ -13,6 +13,7 @@ mod draft_writer;
 mod error;
 pub mod interchange_codec;
 pub mod interchange_contract;
+mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
 pub mod mass_input;
@@ -92,9 +93,10 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    ClosedResult, Diagnostic, DocumentResult, Envelope, Loss, LossDisposition, OPERATION_CONTRACT,
-    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
-    Severity, Support,
+    ClosedResult, Diagnostic, DocumentResult, Envelope, InterchangeExportResult,
+    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
+    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
+    ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -124,6 +126,8 @@ pub struct Application<C, R> {
     documents: Documents<R>,
     preferences: PreferenceService,
     data_registry: DataRegistry,
+    interchange_codec: Option<Arc<dyn interchange_codec::InterchangeCodec>>,
+    interchange_generation: Option<[u8; 16]>,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -135,6 +139,23 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             documents: Documents::new(repository),
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
+            interchange_codec: None,
+            interchange_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
+        }
+    }
+
+    /// Connects a checked, independently implemented rich interchange provider.
+    #[must_use]
+    pub fn with_interchange_codec(
+        self,
+        codec: impl interchange_codec::InterchangeCodec + 'static,
+    ) -> Self {
+        Self {
+            interchange_codec: Some(Arc::new(codec)),
+            ..self
         }
     }
 
@@ -189,12 +210,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .catalog
                 .capabilities()
                 .into_iter()
-                .map(|capability| CapabilityResponse {
+                .map(|mut capability| {
+                    if capability.id == chemifree_domain::CapabilityId::FormatConversion && self.interchange_codec.is_some() {
+                        capability.label = "CDXML subset";
+                        capability.status = chemifree_domain::ImplementationStatus::Available;
+                        capability.description = "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.";
+                    }
+                    CapabilityResponse {
                     id: capability.id.as_str(),
                     label: capability.label,
                     status: capability.status.as_str(),
                     description: capability.description,
-                })
+                }})
                 .collect(),
             operation_catalog: self.operation_catalog(),
         }

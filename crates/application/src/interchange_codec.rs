@@ -16,6 +16,8 @@ pub enum InterchangeFormat {
 pub struct InterchangeRead {
     pub document: Document,
     pub loss_report: Vec<Loss>,
+    /// Outside-root comments or processing instructions require original bytes to preserve.
+    pub opaque_outside_root: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
