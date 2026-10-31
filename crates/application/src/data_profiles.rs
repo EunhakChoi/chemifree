@@ -85,6 +85,8 @@ pub enum ProfileRecords {
     Phase4Literals(Box<crate::phase4_literals::Records>),
     /// Lexical NMR carrier records and inert ancillary bytes, without an NMR engine.
     Phase4Nmr(Box<crate::phase4_nmr::NmrCarriers>),
+    /// Catalog-bound CMR records with their exact raw bytes and number lexemes.
+    Phase4Cmr(Box<crate::phase4_cmr::CmrData>),
 }
 
 #[derive(PartialEq)]

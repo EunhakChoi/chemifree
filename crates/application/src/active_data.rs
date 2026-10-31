@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::{DataProfile, DataSource, EngineState, ProfileRecords, decode_profile};
 use crate::{
     json, mass_input, naming_labels, naming_lexicon, naming_patterns, nickname_data, nmr_profile,
-    phase4_literals, phase4_nmr, phase6_profiles, prediction_input, prepared_xlogp,
+    phase4_cmr, phase4_literals, phase4_nmr, phase6_profiles, prediction_input, prepared_xlogp,
 };
 
 /// Typed failure reasons for external registration and model-binding validation.
@@ -250,6 +250,7 @@ pub fn validate_model_binding(
                     | ProfileRecords::PredictionInputs(_)
                     | ProfileRecords::Phase4Literals(_)
                     | ProfileRecords::Phase4Nmr(_)
+                    | ProfileRecords::Phase4Cmr(_)
             )
         {
             return Err(ActiveDataError::ModelUnavailable);
@@ -387,6 +388,7 @@ enum SelectedProfile {
     PredictionInputs,
     Phase4Literals(phase4_literals::Profile),
     Phase4Nmr,
+    Phase4Cmr,
 }
 
 fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataError> {
@@ -633,6 +635,22 @@ fn select_profile(manifest: &Manifest) -> Result<SelectedProfile, ActiveDataErro
             }
             return Ok(SelectedProfile::Phase4Nmr);
         }
+        "private-data-biobyte-cmr-static-data-v1" => {
+            if manifest.feature_schema_sha256.is_some()
+                || manifest.files.len() != 8
+                || manifest.files.iter().any(|file| {
+                    !file.required
+                        || !phase4_cmr::accepts_file(
+                            &file.file_id,
+                            &file.role,
+                            &file.declared_content_class,
+                        )
+                })
+            {
+                return Err(ActiveDataError::ProfileUnsupported);
+            }
+            return Ok(SelectedProfile::Phase4Cmr);
+        }
         other => {
             let profile = phase6_profiles::Profile::parse(other)
                 .ok_or(ActiveDataError::ProfileUnsupported)?;
@@ -775,12 +793,7 @@ fn load_personal_impl_with_metadata(
             )
         }
         SelectedProfile::PreparedXlogp => {
-            let files: Vec<_> = manifest
-                .files
-                .iter()
-                .zip(&payloads)
-                .map(|(file, (_, bytes))| (file.file_id.as_str(), bytes.as_slice()))
-                .collect();
+            let files = payloads_by_id(&manifest, &payloads)?;
             ProfileRecords::PreparedXlogp(Box::new(
                 prepared_xlogp::decode_dataset(&files)
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
@@ -839,35 +852,22 @@ fn load_personal_impl_with_metadata(
             ))
         }
         SelectedProfile::Phase4Literals(profile) => {
-            let files: Vec<_> = manifest
-                .files
-                .iter()
-                .zip(&payloads)
-                .map(|(file, (_, bytes))| (file.file_id.as_str(), bytes.as_slice()))
-                .collect();
+            let files = payloads_by_id(&manifest, &payloads)?;
             ProfileRecords::Phase4Literals(Box::new(
                 phase4_literals::decode_dataset(profile, &files)
                     .map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
         SelectedProfile::Phase4Nmr => {
-            let ids_by_path: HashMap<_, _> = manifest
-                .files
-                .iter()
-                .map(|file| (file.relative_path.as_str(), file.file_id.as_str()))
-                .collect();
-            let files: Vec<_> = payloads
-                .iter()
-                .map(|(path, bytes)| {
-                    ids_by_path
-                        .get(path)
-                        .copied()
-                        .map(|id| (id, bytes.as_slice()))
-                        .ok_or(ActiveDataError::ContentInvalid)
-                })
-                .collect::<Result<_, _>>()?;
+            let files = payloads_by_id(&manifest, &payloads)?;
             ProfileRecords::Phase4Nmr(Box::new(
                 phase4_nmr::decode_dataset(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
+            ))
+        }
+        SelectedProfile::Phase4Cmr => {
+            let files = payloads_by_id(&manifest, &payloads)?;
+            ProfileRecords::Phase4Cmr(Box::new(
+                phase4_cmr::decode_dataset(&files).map_err(|_| ActiveDataError::ContentInvalid)?,
             ))
         }
         SelectedProfile::MassInput => {
@@ -897,6 +897,27 @@ fn load_personal_impl_with_metadata(
         engine_contract_id: manifest.independent_engine_contract_id,
         records,
     })
+}
+
+fn payloads_by_id<'a>(
+    manifest: &'a Manifest,
+    payloads: &'a [(&str, Vec<u8>)],
+) -> Result<Vec<(&'a str, &'a [u8])>, ActiveDataError> {
+    let ids_by_path: HashMap<_, _> = manifest
+        .files
+        .iter()
+        .map(|file| (file.relative_path.as_str(), file.file_id.as_str()))
+        .collect();
+    payloads
+        .iter()
+        .map(|(path, bytes)| {
+            ids_by_path
+                .get(path)
+                .copied()
+                .map(|id| (id, bytes.as_slice()))
+                .ok_or(ActiveDataError::ContentInvalid)
+        })
+        .collect()
 }
 
 fn verify_catalog(
@@ -974,6 +995,14 @@ fn verify_catalog(
         )
         .map_err(|_| ActiveDataError::RegistrationMismatch),
         SelectedProfile::Phase4Nmr => phase4_nmr::verify_catalog_files(
+            &manifest.dataset_id,
+            &manifest.dataset_version,
+            manifest_bytes,
+            proof.registry,
+            proof.profile,
+        )
+        .map_err(|_| ActiveDataError::RegistrationMismatch),
+        SelectedProfile::Phase4Cmr => phase4_cmr::verify_catalog_files(
             &manifest.dataset_id,
             &manifest.dataset_version,
             manifest_bytes,
@@ -2286,3 +2315,7 @@ mod phase4_literal_tests;
 #[cfg(test)]
 #[path = "active_data/phase4_nmr_tests.rs"]
 mod phase4_nmr_tests;
+
+#[cfg(test)]
+#[path = "active_data/phase4_cmr_tests.rs"]
+mod phase4_cmr_tests;

@@ -287,3 +287,11 @@ PR [CI](https://github.com/EunhakChoi/chemifree/actions/runs/40820040161)는 che
 | 1 자동 | 2026-10-30 23:33:05 | `ffcc3d7065bfffc957c8cc10d4e4b2a2e225cbda` | 23:34:46 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/49#issuecomment-6535747871) |
 
 최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41145145727)는 check·browser 모두 성공했다. 2026-10-30 23:37:46에 `90b5ec0679b8bff175e9e999522b3711e51693b6`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41145608913)도 check·browser 모두 성공했다.
+
+### P14 phase 4 NMR carrier — [#50](https://github.com/EunhakChoi/chemifree/pull/50)
+
+| 회차 | 요청 시각 (UTC) | 대상 head | 완료 시각 (UTC) | 결과 |
+|---|---|---|---|---|
+| 1 자동 | 2026-10-30 23:52:26 | `c25973c99786e09bc7224d44605301c51f3ca00c` | 23:54:07 | 통과: 최신 head에 대한 실제 리뷰가 완료됐고 새 지적과 미해결 스레드가 없다. [완료 상태](https://github.com/EunhakChoi/chemifree/pull/50#issuecomment-6536033052) |
+
+최종 head의 [PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/41147011770)는 check·browser 모두 성공했다. 2026-10-30 23:56:40에 `5363cd2d05e33f8495e33f97103977f743108908`로 병합했고, 병합 후 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41147402697)도 check·browser 모두 성공했다.

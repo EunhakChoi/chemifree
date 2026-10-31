@@ -201,6 +201,7 @@ pub(super) fn fixture(profile_id: &str, entries: Vec<(&str, &str, Vec<u8>)>) -> 
             ("model_parameters", "contribution_table")
         }
         "private-data-nmr-carriers-v1" => ("model_parameters", "auxiliary_data"),
+        "private-data-biobyte-cmr-static-data-v1" => ("model_parameters", "weights"),
         _ => ("declarative_data", "auxiliary_data"),
     };
     let files: Vec<Value> = entries
