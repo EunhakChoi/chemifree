@@ -131,7 +131,7 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'structure_analysis', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
 
@@ -949,6 +949,11 @@ try {
       })
     assert.equal((await both(edit)).document_revision, 1)
     assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
+    const valence = await both((id) => request('op-valence', 'chem.validate', { document_id: id }))
+    assert.equal(valence.model_id, 'chemifree-valence-2')
+    assert.deepEqual(valence.result.atoms, [{ atom_id: 'a1', bond_order_sum: 0, hydrogens: 4, status: 'valid', reason: null }])
+    assert.equal(valence.result.snapshot.document.atoms[0].element, 'C')
+    assert.equal(valence.result.snapshot.session.undo_depth, 1)
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const unsupported = await both(() => request('op-props', 'chem.properties', {}))

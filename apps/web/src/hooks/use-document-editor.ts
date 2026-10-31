@@ -314,6 +314,7 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
+    inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     error,
     autosave,
     copyNotice,

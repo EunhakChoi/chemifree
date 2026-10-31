@@ -341,8 +341,8 @@ pub enum QueryBondOrderDto {
     Aromatic,
 }
 
-/// An atom's hydrogen state. `inferred` (the default) means "to be derived from valence";
-/// nothing derives it yet, so it has no count.
+/// An atom's recorded hydrogen state. `inferred` (the default) carries no count; a separate
+/// bounded inspection can derive one without changing this value.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HydrogensDto {
@@ -1251,7 +1251,7 @@ pub struct AtomView {
     pub kind: AtomKindView,
     /// The query a query atom stands for; null for an element.
     pub query: Option<QueryDto>,
-    /// `{"mode": "inferred"}` has no count: nothing computes it.
+    /// `{"mode": "inferred"}` has no stored count; inspection may derive one separately.
     pub hydrogens: HydrogensDto,
     pub radical: RadicalDto,
     /// Ascending, 1-4; empty when there are none.

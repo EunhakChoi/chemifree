@@ -1,0 +1,19 @@
+# Batch 3 review history
+
+This file records completed rounds preceding the current delivery. A PR comment records the final reviewed head without requiring a new commit just to describe its own review.
+
+## P16 first attempt: closed without merge
+
+[#78](https://github.com/EunhakChoi/chemifree/pull/78) was closed on 2026-10-31 after its third round failed. The replacement is independently authored from main; the closed branch is not reused.
+
+| Round and trigger | Full head | Requested / deadline / completed UTC | Elapsed | Result and disposition |
+| --- | --- | --- | --- | --- |
+| 1: [automatic on opening](https://github.com/EunhakChoi/chemifree/pull/78) | `fecbb8ebed5296324135884d9070ac37df706baa` | 14:34:58 / 14:49:58 / 14:37:18 | 2m 20s | Failed: [footer denied available inspection](https://github.com/EunhakChoi/chemifree/pull/78#discussion_r4432060435). Replacement copy must agree with the executable operation. |
+| 2: [manual request](https://github.com/EunhakChoi/chemifree/pull/78#issuecomment-6544926888) | `4f54f331e54896f7f7a4846301fccbf336d3bd7e` | 14:48:34 / 15:03:34 / 14:50:45 | 2m 11s | Failed: [capability status denied available inspection](https://github.com/EunhakChoi/chemifree/pull/78#discussion_r4432108902). Keep the v1 capability ID and status vocabulary, but label the available scope narrowly and make the operation catalog authoritative. |
+| 3: [manual request](https://github.com/EunhakChoi/chemifree/pull/78#issuecomment-6545095890) | `25aeafe7cc48739ea956033da6b401e7328c5c5d` | 15:02:31 / 15:17:31 / 15:05:11.735744 | 2m 40.735744s | Failed: [same revision can name different content after restart](https://github.com/EunhakChoi/chemifree/pull/78#discussion_r4432162319). The replacement returns the inspected snapshot and compares actual graph content; a process-restart browser regression checks the case. |
+
+## P20 first round
+
+[#79](https://github.com/EunhakChoi/chemifree/pull/79) opened at 2026-10-31 15:07:39 UTC on `3f982dc771dd426b57dfb138fc4596f3510d8ef5`. Its automatic round had deadline 15:22:39 and completed at 15:10:33 UTC (2m 54s): failed for [a missing record number on a multi-document export failure](https://github.com/EunhakChoi/chemifree/pull/79#discussion_r4432178963). The PR records the corrective work and later rounds.
+
+The [second request](https://github.com/EunhakChoi/chemifree/pull/79#issuecomment-6545311017) was sent at 15:20:31 UTC on `89e3c8aeed28aaf4a366530418fb3ead89a8a053`, with a 15:35:31 deadline. It completed at 15:23:19.039190 UTC (2m 48.039190s) with [a record-delimiter finding](https://github.com/EunhakChoi/chemifree/pull/79#discussion_r4432222522). The PR tracks the record-context fix and the final round.
