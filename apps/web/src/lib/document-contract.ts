@@ -208,6 +208,22 @@ export interface AromaticityInspection {
   systems: AromaticitySystem[]
 }
 
+export type IdentityMode = 'recorded' | 'chemical'
+
+export interface CanonicalIdentity {
+  code: string
+  numbering: string[]
+  symmetry: string[][]
+  folded_hydrogens: { hydrogen: string; attached_to: string }[]
+}
+
+export interface IdentityInspection {
+  model: string
+  snapshot: DocumentView
+  identity: CanonicalIdentity
+  comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
+}
+
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
  * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
 export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentView): boolean {
@@ -1029,6 +1045,75 @@ function restarted(status: number) {
   )
 }
 
+export type CtFormat = 'mol' | 'sdf'
+
+export interface CtLoss {
+  feature: string
+  source_path: string
+  disposition: string
+  reason: string
+  semantic_impact: string
+}
+
+export interface CtPreview {
+  digest: string
+  snapshot: DocumentView
+  records: Array<{ title: string; atoms: number; bonds: number; fields: Array<{ name: string; value: string }> }>
+  losses: CtLoss[]
+}
+
+export interface CtImport {
+  documentId: string
+  revision: number
+  format: CtFormat
+  source: string
+  record: number
+  digest: string
+}
+
+/** Full drawing comparison for conversion previews, including scene and settings. */
+export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+interface CtSourceRecord {
+  title: string
+  atoms: unknown[]
+  bonds: unknown[]
+  fields: Array<{ name: string; value: string }>
+}
+
+function isCtSourceRecord(item: unknown): item is CtSourceRecord {
+  return isRecord(item) && typeof item.title === 'string' && Array.isArray(item.atoms) &&
+    Array.isArray(item.bonds) && Array.isArray(item.fields) && item.fields.every((field: unknown) =>
+      isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
+}
+
+function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const diagnostic: unknown = value.diagnostics[0]
+    if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
+      const details = isRecord(diagnostic.details) ? diagnostic.details : {}
+      const record = isCount(details.record) ? ` Record ${details.record}.` : ''
+      const line = isCount(details.line) ? ` Line ${details.line}.` : ''
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+      })
+    }
+    throw new ApiError('conversion_failed', 'The conversion failed.', 200)
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is CtLoss =>
+        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+  }
+  return { result: value.result, losses: value.loss_report }
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -1045,6 +1130,7 @@ export class DocumentClient {
   private unconfirmed = new Map<string, Unconfirmed>()
   /** Saves whose outcome is unknown, by document and revision. */
   private unconfirmedSaves = new Map<string, Unconfirmed>()
+  private unconfirmedImports = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
 
   /**
@@ -1185,6 +1271,74 @@ export class DocumentClient {
     return { model: value.model_id, snapshot, atoms }
   }
 
+  async previewCt(documentId: string, revision: number, format: CtFormat, source: string, record: number): Promise<CtPreview> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { document_id: documentId, expected_revision: revision, format, source, record, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        result.selected_record !== record || !Array.isArray(result.records) ||
+        !result.records.every(isCtSourceRecord) || !isRecord(result.snapshot) ||
+        !isRecord(result.document) || result.document.id !== documentId || !Array.isArray(result.document.atoms) ||
+        !Array.isArray(result.document.bonds)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible import preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The import preview used a different drawing or revision.', 200)
+    }
+    const records = result.records.map((item) => ({
+      title: item.title, atoms: item.atoms.length, bonds: item.bonds.length, fields: item.fields,
+    }))
+    return { digest: result.preview_digest, snapshot, records, losses: reply.losses }
+  }
+
+  async importCt(input: CtImport): Promise<DocumentResponse> {
+    // An unanswered request might have committed. Reuse its ID only against the same service.
+    const key = JSON.stringify(input)
+    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
+    this.unconfirmedImports.set(key, pending)
+    let sentTo: string | undefined
+    try {
+      const reply = ctReply(await this.write('/api/v1/operations', {
+        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
+        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
+          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+      }, 'reload', (token) => {
+        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
+        sentTo = token
+      }))
+      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
+      if (response.document.id !== input.documentId) {
+        throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
+      }
+      this.unconfirmedImports.delete(key)
+      return response
+    } catch (error) {
+      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
+        pending.sentTo = sentTo
+        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
+      }
+      this.unconfirmedImports.delete(key)
+      throw error
+    }
+  }
+
+  async exportCt(documentId: string, format: CtFormat): Promise<{ content: string; losses: CtLoss[]; snapshot: DocumentView }> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: { format, records: [{ document_id: documentId }] },
+    }, 'reload'))
+    if (typeof reply.result.content !== 'string' || !Array.isArray(reply.result.records) ||
+        reply.result.records.length !== 1 || !isRecord(reply.result.records[0]) || !isRecord(reply.result.records[0].snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned invalid export content.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.records[0].snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
+    return { content: reply.result.content, losses: reply.losses, snapshot }
+  }
+
   /** Read-only properties are tied to the returned document snapshot and source profile. */
   async inspectProperties(
     id: string,
@@ -1290,6 +1444,83 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible aromaticity inspection.', 200)
     }
     return { model: value.model_id, snapshot, systems }
+  }
+
+  /** Canonical identity and optional comparison are bound to the returned graph snapshots. */
+  async inspectIdentity(id: string, mode: IdentityMode, otherId: string | null): Promise<IdentityInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.identity',
+      parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
+    }, 'reload')
+    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-1'
+    if (!isRecord(value) || value.outcome !== 'ok') {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
+      const details = isRecord(first) && isRecord(first.details) ? first.details : null
+      const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
+      if (reason && (details?.side === 'source' || details?.side === 'target')) {
+        if (!isRecord(value) || value.model_id !== expectedModel || value.result !== null || !isRecord(details.snapshot)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
+        }
+        const snapshot = DocumentClient.document({ api_version: API_VERSION, ...details.snapshot }).document
+        const target = details.side === 'target'
+        if (snapshot.id !== (target ? otherId : id) || (!target && snapshot.revision !== value.document_revision)) {
+          throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
+        }
+        const side = target ? 'Comparison' : 'Current drawing'
+        throw new ApiError('identity_unavailable', `${message} ${side} snapshot ${snapshot.id}, revision ${snapshot.revision}: ${reason}. Inspect again to include later edits.`, 200)
+      }
+      throw new ApiError('identity_unavailable', message, 200)
+    }
+    if (value.model_id !== expectedModel || !isRecord(value.result) || !isRecord(value.result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible graph identity.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const validIdentity = (item: unknown, document: DocumentView): item is CanonicalIdentity => {
+      if (!isRecord(item) || typeof item.code !== 'string' || !Array.isArray(item.numbering) ||
+          !Array.isArray(item.symmetry) || !Array.isArray(item.folded_hydrogens) ||
+          !item.numbering.every((atom: unknown) => typeof atom === 'string')) return false
+      const numbered = new Set<string>(item.numbering as string[])
+      const atoms = new Map(document.atoms.map((atom) => [atom.id, atom]))
+      if (numbered.size !== item.numbering.length || [...numbered].some((id) => !atoms.has(id))) return false
+      const folded = new Set<string>()
+      for (const row of item.folded_hydrogens) {
+        if (!isRecord(row) || typeof row.hydrogen !== 'string' || typeof row.attached_to !== 'string' ||
+            folded.has(row.hydrogen) || numbered.has(row.hydrogen) || !numbered.has(row.attached_to) ||
+            atoms.get(row.hydrogen)?.element !== 'H') return false
+        folded.add(row.hydrogen)
+      }
+      if (numbered.size + folded.size !== atoms.size || (mode === 'recorded' && folded.size !== 0)) return false
+      const members: string[] = []
+      for (const orbit of item.symmetry) {
+        if (!Array.isArray(orbit) || orbit.length === 0 ||
+            !orbit.every((atom: unknown) => typeof atom === 'string' && atoms.has(atom))) return false
+        members.push(...orbit)
+      }
+      return members.length === atoms.size && new Set(members).size === atoms.size
+    }
+    const sourceIdentity = value.result.identity
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision || !validIdentity(sourceIdentity, snapshot)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible graph identity.', 200)
+    }
+    const other = value.result.comparison
+    let comparison: IdentityInspection['comparison'] = null
+    if (otherId === null) {
+      if (other !== null) throw new ApiError('incompatible_response', 'The local service returned an unexpected comparison.', 200)
+    } else {
+      if (!isRecord(other) || !isRecord(other.snapshot) || typeof other.equivalent !== 'boolean') {
+        throw new ApiError('incompatible_response', 'The local service returned an incompatible comparison.', 200)
+      }
+      const otherResponse = DocumentClient.document({ api_version: API_VERSION, ...other.snapshot })
+      const otherSnapshot = otherResponse.document
+      if (otherSnapshot.id !== otherId || !validIdentity(other.identity, otherSnapshot) ||
+          other.equivalent !== (sourceIdentity.code === other.identity.code) ||
+          (otherId === id && !sameInspectionSnapshot(snapshot, otherSnapshot))) {
+        throw new ApiError('incompatible_response', 'The local service returned an incompatible comparison.', 200)
+      }
+      comparison = { snapshot: otherSnapshot, recovery: otherResponse.recovery, identity: other.identity, equivalent: other.equivalent }
+    }
+    return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
   }
 
   /** Apply one model conversion under the revision the user inspected, with history selection. */

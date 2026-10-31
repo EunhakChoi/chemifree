@@ -627,3 +627,27 @@ fn an_operation_counts_for_its_kind_by_the_outcome_it_expects() {
     assert!(parse_case(&case("accept", "partial")).is_ok());
     assert!(parse_case(&case("reject", "error")).is_ok());
 }
+
+#[test]
+fn operation_substitutions_require_an_earlier_capture_and_existing_parameter() {
+    let mut missing = operation(json!({"outcome": "ok"}));
+    missing["request"]["parameters"]["source"] = Value::Null;
+    missing["substitute"] = json!({"/parameters/source": "unknown"});
+    assert_eq!(
+        step_problem(&with_steps(json!([missing]))),
+        StepProblem::OperationRequest(
+            "substitution requires an existing parameter and an earlier captured value"
+        )
+    );
+
+    let mut capture = operation(json!({"outcome": "ok"}));
+    capture["capture"] = json!({"value": "/result/value"});
+    let mut absent_path = operation(json!({"outcome": "ok"}));
+    absent_path["substitute"] = json!({"/parameters/missing": "value"});
+    assert_eq!(
+        step_problem(&with_steps(json!([capture, absent_path]))),
+        StepProblem::OperationRequest(
+            "substitution requires an existing parameter and an earlier captured value"
+        )
+    );
+}

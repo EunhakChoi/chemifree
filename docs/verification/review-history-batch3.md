@@ -2,6 +2,10 @@
 
 This file records completed rounds preceding the current delivery. A PR comment records the final reviewed head without requiring a new commit just to describe its own review.
 
+## P17 ring and aromaticity interpretation
+
+[#82](https://github.com/EunhakChoi/chemifree/pull/82) opened on 2026-10-31 at 17:22:46 UTC and triggered automatic round 1 on `d9ea212ad9a3d6ce4e7c10eb81ccae792c0acfbe`; its deadline was 17:37:46 UTC. The [completed review](https://github.com/EunhakChoi/chemifree/pull/82#issuecomment-6546692262) finished at 17:25:17.290759 UTC (2m 31.290759s) without findings or unresolved threads. Current-head CI and the full local gate passed, so it merged as `c4a8e44eafeb5f560743559d4797d0791c463eb2`. [Exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41225052724) passed both jobs; the [final gate record](https://github.com/EunhakChoi/chemifree/pull/82#issuecomment-6546797496) records the disposition.
+
 ## P19 formula and mass inspection
 
 [#81](https://github.com/EunhakChoi/chemifree/pull/81) opened on 2026-10-31 at 16:38:59 UTC. Automatic round 1 reviewed `fc84150039019acbf4f998725c846fa35daa7fca`, with a 16:53:59 deadline, and completed at 16:41:23.746969 UTC (2m 24.746969s). It failed with [a finding](https://github.com/EunhakChoi/chemifree/pull/81#discussion_r4432463655): formula-only inspection unnecessarily depended on the availability of mass preferences. The fix and later review rounds are recorded on the PR; [round 1 record](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546230978).
@@ -31,3 +35,13 @@ The [third request](https://github.com/EunhakChoi/chemifree/pull/79#issuecomment
 ## P16 independent rewrite
 
 [#80](https://github.com/EunhakChoi/chemifree/pull/80) opened on 2026-10-31 at 16:03:23 UTC and triggered automatic round 1 on head `0d4003b2bd0b7054dfe7ee7c3a6a14dbb6674505`; its deadline was 16:18:23 UTC. The [completed review](https://github.com/EunhakChoi/chemifree/pull/80#issuecomment-6545797944) finished at 16:05:35.680026 UTC (2m 12.680026s) with no findings or unresolved threads. The current-head check and browser jobs passed, so it merged as `fb61369aeb456d6e4f7940dc13dc46d86d1c061d`. [Exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41218250815) passed both jobs; the [PR evidence comment](https://github.com/EunhakChoi/chemifree/pull/80#issuecomment-6545920244) records the disposition.
+
+## P17 aromaticity and ring inspection
+
+[#82](https://github.com/EunhakChoi/chemifree/pull/82) opened on 2026-10-31 at 17:22:46 UTC. Automatic round 1 reviewed `d9ea212ad9a3d6ce4e7c10eb81ccae792c0acfbe`, with a 17:37:46 deadline, and completed at 17:25:17.290759 UTC (2m 31.290759s) with no findings or unresolved threads. The [final record](https://github.com/EunhakChoi/chemifree/pull/82#issuecomment-6546797496) describes the current-head checks and merge `c4a8e44eafeb5f560743559d4797d0791c463eb2`; [exact-commit main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41225052724) passed.
+
+## P20 independent rewrite
+
+[#83](https://github.com/EunhakChoi/chemifree/pull/83) opened on 2026-10-31 at 17:54:32 UTC. Its automatic first round reviewed `a9af5085e2af656260936f1970c960f46f75f012`, with an 18:09:32 deadline, and completed at 17:58:34.314725 UTC (4m 02.314725s) with no findings or unresolved threads. A separate reference-script quality gate then prompted a correction, so the changed head requires another review; see the [round record](https://github.com/EunhakChoi/chemifree/pull/83#issuecomment-6547104866).
+
+The [second round](https://github.com/EunhakChoi/chemifree/pull/83#issuecomment-6547158126) was requested at 18:03:32 UTC on `96735a352b73f7568b86115b5b8e269fecc62009`, with an 18:18:32 deadline. It completed at 18:06:41.747893 UTC (3m 09.747893s) with no findings or unresolved threads. The current-head checks passed and it merged as `fe443007193bfef7af16f3771cb1dde3431646a0`; [exact-main CI](https://github.com/EunhakChoi/chemifree/actions/runs/41227984583) passed both jobs. The [final record](https://github.com/EunhakChoi/chemifree/pull/83#issuecomment-6547221570) includes the local evidence and remaining scope.

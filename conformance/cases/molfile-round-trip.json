@@ -1,13 +1,295 @@
 {
   "id": "molfile-round-trip",
-  "title": "A drawing survives a MOL V2000 write and read",
+  "title": "A C–O drawing is written as MOL, imported into another document, and survives reopening",
   "requirements": [
     "CODEC-03"
   ],
   "axis": "encoding",
   "kind": "accept",
-  "pending": {
-    "followup": "P20",
-    "reason": "No MOL reader or writer exists yet."
-  }
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-source",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "C-O fixture"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      },
+      "bind": "source",
+      "capture": {
+        "source_id": "/result/document/id"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 20,
+            "y": 20
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "element": "C"
+            },
+            {
+              "element": "O"
+            }
+          ],
+          "bonds": [
+            {
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "mol",
+          "records": [
+            {
+              "document_id": null
+            }
+          ]
+        }
+      },
+      "substitute": {
+        "/parameters/records/0/document_id": "source_id"
+      },
+      "capture": {
+        "mol": "/result/content"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "records": [
+            {
+              "atoms": [
+                "a1",
+                "a2"
+              ],
+              "bonds": [
+                "b1"
+              ]
+            }
+          ]
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "native_ids"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-target",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Target"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      },
+      "bind": "target"
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "preview",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "mol",
+          "source": null,
+          "record": 1,
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "substitute": {
+        "/parameters/source": "mol"
+      },
+      "capture": {
+        "digest": "/result/preview_digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "result": {
+          "document": {
+            "revision": 1,
+            "atoms": [
+              {
+                "element": "C",
+                "position": {
+                  "x": 0,
+                  "y": 0
+                }
+              },
+              {
+                "element": "O",
+                "position": {
+                  "x": 20,
+                  "y": 20
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "begin": "a1",
+                "end": "a2",
+                "order": "single"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "mol",
+          "source": null,
+          "record": 1,
+          "expected_revision": 0,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "substitute": {
+        "/parameters/source": "mol",
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "import_mapping": {
+            "atoms": [
+              "a1",
+              "a2"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "document": {
+            "atoms": [
+              {
+                "element": "C"
+              },
+              {
+                "element": "O"
+              }
+            ],
+            "bonds": [
+              {
+                "begin": "a1",
+                "end": "a2",
+                "order": "single"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "target",
+      "expected_revision": 1,
+      "expect": {
+        "session": {
+          "saved_revision": 1
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "element": "O",
+              "position": {
+                "x": 20,
+                "y": 20
+              }
+            }
+          ],
+          "bonds": [
+            {
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            }
+          ]
+        }
+      }
+    }
+  ]
 }

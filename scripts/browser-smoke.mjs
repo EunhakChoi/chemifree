@@ -1566,7 +1566,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '12 of 23 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '15 of 24 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1578,6 +1578,7 @@ for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution'
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -2558,6 +2559,210 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByText('a1: valid; hydrogens 2', { exact: true }).waitFor()
   await page.screenshot({ path: join(outDir, 'editor-valence.png') })
   results.valence_snapshot_after_restart = true
+}
+
+// Compare two captured graph snapshots, and do not show an error for a different target.
+{
+  const source = await apiWrite('/api/v1/documents', { request_id: 'identity-source-create', title: 'Identity source' })
+  const target = await apiWrite('/api/v1/documents', { request_id: 'identity-target-create', title: 'Identity iron' })
+  const id = source.body.document.id
+  const targetId = target.body.document.id
+  const sourceDraw = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'identity-source-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }] })
+  const targetDraw = await apiWrite(`/api/v1/documents/${targetId}/transactions`, { request_id: 'identity-target-draw', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'Fe', position: { x: 0, y: 0 } }] })
+  assert.equal(sourceDraw.status, 200)
+  assert.equal(targetDraw.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const identity = page.getByRole('region', { name: 'Graph identity' })
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
+  const before = await api(`/api/v1/documents/${id}`)
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  const afterInspection = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterInspection.document, before.document, 'identity inspection leaves the drawing unchanged')
+  assert.equal(afterInspection.session.undo_depth, before.session.undo_depth, 'identity inspection adds no history')
+  assert.equal(afterInspection.session.redo_depth, before.session.redo_depth, 'identity inspection preserves redo')
+  await page.screenshot({ path: join(outDir, 'editor-identity.png') })
+  await identity.getByLabel('Comparison model').click()
+  await page.getByRole('option', { name: 'Bounded chemical model', exact: true }).click()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity iron (${targetId})`, exact: true }).click()
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  const targetError = `Graph identity was not determined under this model. Comparison snapshot ${targetId}, revision ${targetDraw.body.document.revision}: element or charge. Inspect again to include later edits.`
+  await identity.getByText(targetError, { exact: true }).waitFor()
+  let errorArrived
+  const errorReady = new Promise((resolve) => { errorArrived = resolve })
+  let releaseError
+  const errorHeld = new Promise((resolve) => { releaseError = resolve })
+  const holdIdentityError = async (route) => {
+    if (route.request().postDataJSON()?.operation !== 'chem.identity') return route.continue()
+    const response = await route.fetch()
+    errorArrived()
+    await errorHeld
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdIdentityError)
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await errorReady
+  await identity.getByRole('button', { name: 'Refresh documents' }).click()
+  releaseError()
+  await identity.getByRole('button', { name: 'Inspect identity' }).waitFor()
+  await page.unroute('**/api/v1/operations', holdIdentityError)
+  assert.equal(await identity.getByText(targetError, { exact: true }).count(), 0, 'refresh invalidates an in-flight comparison error')
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
+  assert.equal(await identity.getByText(targetError, { exact: true }).count(), 0, 'an error for another comparison is hidden')
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity iron (${targetId})`, exact: true }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor()
+  const changedTarget = await apiWrite(`/api/v1/documents/${targetId}/transactions`, {
+    request_id: 'identity-target-now-carbon', expected_revision: targetDraw.body.document.revision,
+    commands: [{ op: 'update_atom', atom: 'a1', element: 'C' }],
+  })
+  assert.equal(changedTarget.status, 200)
+  await identity.getByRole('button', { name: 'Refresh documents' }).click()
+  await identity.getByText(targetError, { exact: true }).waitFor({ state: 'hidden' })
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await identity.getByLabel('Compare with').click()
+  await page.getByRole('option', { name: `Identity source (${id})`, exact: true }).click()
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await crashApi()
+  const recreated = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'identity-recreate', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }] })
+  assert.equal(recreated.status, 200)
+  assert.deepEqual(recreated.body.document, sourceDraw.body.document, 'the restarted service recreated the same graph and revision')
+  await page.getByRole('complementary', { name: 'Valence inspection' }).getByRole('button', { name: 'Inspect valence' }).click()
+  await identity.getByText('The drawing, model, comparison or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await identity.getByTestId('identity-result').count(), 0, 'a restart invalidates the old identity even for the same snapshot')
+  const afterRestart = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterRestart.document, recreated.body.document, 'the restart check leaves the graph unchanged')
+  assert.equal(afterRestart.session.undo_depth, recreated.body.session.undo_depth, 'the restart check leaves history unchanged')
+  await identity.getByRole('button', { name: 'Inspect identity' }).click()
+  await identity.getByTestId('identity-result').getByText(/Equivalent under this model/).waitFor()
+  await tool('Select and move')
+  await canvas.scrollIntoViewIfNeeded()
+  const point = await atomScreen(sourceDraw.body, 'a1')
+  await page.mouse.click(point.x, point.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await waitIdle()
+  await identity.getByText('The drawing, model, comparison or service changed. Inspect again.', { exact: true }).waitFor()
+  assert.equal(await identity.getByTestId('identity-result').count(), 0, 'an edit hides the earlier identity')
+  results.graph_identity_snapshots_and_comparison = true
+}
+
+// A verified export response can arrive after an editor transaction has completed. Its
+// bytes belong to the older drawing and must not trigger a download of that stale preview.
+{
+  step = 'MOL export delayed response after edit'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-export-race-create', title: 'Export race' })
+  const id = created.body.document.id
+  const carbon = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-export-race-carbon', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }],
+  })
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const holdExport = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.export') return route.continue()
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdExport)
+  let downloads = 0
+  const countDownload = () => { downloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await responseArrived
+  await tool('Select and move')
+  const position = await atomScreen(carbon.body, 'a1')
+  await page.mouse.click(position.x, position.y)
+  const edit = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  assert.equal((await edit).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const settled = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    panel.getByText('The export preview changed. Preview the export again.', { exact: true }).waitFor().then(() => 'refused'),
+  ])
+  release()
+  assert.equal(await settled, 'refused', 'a stale verified export is refused after the edit')
+  assert.equal(downloads, 0, 'an export from before the edit is not downloaded')
+  await page.unroute('**/api/v1/operations', holdExport)
+  page.off('download', countDownload)
+  results.ctfile_export_response_race = true
+}
+
+// Import previews a selected record and its losses before one atomic edit. Export gives a
+// separate preview and download containing the resulting graph.
+{
+  step = 'MOL preview, import and export'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'ct-browser-create', title: 'CT browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  const mol = 'Carbon\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n' +
+    '    0.0000    1.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n'
+  await panel.getByLabel('Import file').setInputFiles({ name: 'carbon.mol', mimeType: 'text/plain', buffer: Buffer.from(mol) })
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
+  await panel.getByText(/does not replace its title/).waitFor()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(imported.document.atoms.map((atom) => [atom.element, atom.position.x, atom.position.y]), [['C', 0, -20]])
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await panel.getByText(/Native atom and bond IDs/).waitFor()
+  const downloadPromise = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  const download = await downloadPromise
+  const path = join(work, 'ct-browser.mol')
+  await download.saveAs(path)
+  const written = readFileSync(path, 'utf8')
+  assert.match(written, /V2000/)
+  assert.match(written, /M  END/)
+
+  // The page still shows the imported carbon at revision 1. A restarted service can reuse
+  // that revision for a different unsaved graph. First check an old export cannot download;
+  // then the refreshed token must not make the oxygen snapshot look like the carbon preview.
+  await crashApi()
+  const replacement = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'ct-browser-replacement', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 0, y: 0 } }],
+  })
+  assert.equal(replacement.body.document.revision, 1)
+  assert.equal(replacement.body.document.atoms[0].element, 'O')
+  let extraDownloads = 0
+  const countDownload = () => { extraDownloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await panel.getByText(/The local service restarted/).waitFor()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
+  assert.equal(extraDownloads, 0, 'an old export is not downloaded after restart')
+  page.off('download', countDownload)
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText('The service previewed a different drawing. Reload and preview again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
+  results.ctfile_preview_import_export = true
 }
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.

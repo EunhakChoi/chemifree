@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -844,6 +844,47 @@ test('aromaticity conversion exposes a model refusal rather than a document', as
   const selection = { atoms: [], bonds: [], objects: [] }
   await assert.rejects(new DocumentClient().convertAromaticity('ring-doc', 1, 'kekule', selection),
     { code: 'invalid_command', stateReason: 'aromatic_bond_outside_ring' })
+})
+
+test('identity comparison validates both snapshots, symmetry and folded atom IDs', async () => {
+  const source = document('identity-source', 2)
+  source.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'H', 1, 0)]
+  source.document.bonds = [bondWith('b1', 'a1', 'a2')]
+  const target = document('identity-target', 3)
+  target.document.atoms = [atomWith('a1', 'C', 0, 0)]
+  const identity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1'], ['a2']], folded_hydrogens: [{ hydrogen: 'a2', attached_to: 'a1' }] }
+  const targetIdentity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1']], folded_hydrogens: [] }
+  const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 2,
+    model_id: 'chemifree-chemical-graph-1', result: {
+      snapshot: { document: source.document, session: source.session, recovery: null }, identity,
+      comparison: { snapshot: { document: target.document, session: target.session, recovery: { state: 'recoverable', revision: 4, base_revision: 3, saved_at_ms: 0, message: null } }, identity: targetIdentity, equivalent: true },
+    } }
+  const badOrbit = structuredClone(reply)
+  badOrbit.result.identity.symmetry = [['a1', 'a1']]
+  const badTarget = structuredClone(reply)
+  badTarget.result.comparison.snapshot.document.id = 'different-target'
+  const badEquality = structuredClone(reply)
+  badEquality.result.comparison.equivalent = false
+  const unsupported = { outcome: 'unsupported', model_id: 'chemifree-chemical-graph-1', result: null,
+    diagnostics: [{ message: 'Graph identity was not determined under this model.', details: {
+      side: 'target', reason: 'element_or_charge', snapshot: { document: target.document, session: target.session, recovery: null },
+    } }] }
+  const wrongFailure = structuredClone(unsupported)
+  wrongFailure.diagnostics[0].details.snapshot.document.id = 'wrong-target'
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, badOrbit), () => json(200, badTarget), () => json(200, badEquality), () => json(200, wrongFailure), () => json(200, unsupported)] })
+  const client = new DocumentClient()
+  const result = await client.inspectIdentity('identity-source', 'chemical', 'identity-target')
+  assert.equal(result.comparison.equivalent, true)
+  assert.equal(result.comparison.snapshot.revision, 3)
+  assert.equal(result.comparison.recovery.state, 'recoverable')
+  assert.deepEqual(result.identity.folded_hydrogens, [{ hydrogen: 'a2', attached_to: 'a1' }])
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
+  }
+  await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), { code: 'incompatible_response' })
+  await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), {
+    code: 'identity_unavailable', message: 'Graph identity was not determined under this model. Comparison snapshot identity-target, revision 3: element or charge. Inspect again to include later edits.',
+  })
 })
 
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */
@@ -1787,4 +1828,43 @@ test('new-document preferences are built from the latest preferences and store w
   assert.deepEqual(preferenceStep(latest, 'bond_length_pt', 1), { ui: { theme: 'dark' }, new_documents: { bond_length_pt: 41 } })
   const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
   assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
+})
+
+
+test('an unanswered import reuses the request ID against the same service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, format: 'mol', source: 'source', record: 1, digest: 'a'.repeat(64) }
+  await assert.rejects(client.importCt(input), { code: 'unreachable' })
+  const result = await client.importCt(input)
+  assert.equal(result.document.revision, 1)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('conversion failures retain their record and line context', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null,
+    diagnostics: [{ code: 'data_line_too_long', message: 'Too long.', details: { record: 2, line: 13 } }], loss_report: [] })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewCt('doc-1', 0, 'sdf', 'source', 1), {
+    code: 'data_line_too_long', message: 'Too long. Record 2. Line 13.',
+  })
+})
+
+
+test('an import preview exposes the actual graph even when a revision is reused', async () => {
+  const actual = document('doc-1', 1)
+  actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [],
+    result: { selected_record: 1, preview_digest: 'a'.repeat(64), records: [{ title: '', atoms: [], bonds: [], fields: [] }],
+      snapshot: actual, document: actual.document } })] })
+  const client = new DocumentClient()
+  const preview = await client.previewCt('doc-1', 1, 'mol', 'source', 1)
+  const shown = structuredClone(preview.snapshot)
+  shown.atoms[0].element = 'C'
+  assert.equal(shown.id, preview.snapshot.id)
+  assert.equal(shown.revision, preview.snapshot.revision)
+  assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })

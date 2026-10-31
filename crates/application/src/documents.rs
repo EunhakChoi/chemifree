@@ -16,7 +16,7 @@ use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 use crate::API_VERSION;
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DocumentSummary, DraftDiscardResponse,
+    DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
     SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
@@ -35,6 +35,8 @@ pub const REPLAY_LIMIT: usize = 64;
 pub const MAX_REQUEST_ID_CHARS: usize = 64;
 pub const MAX_LISTED_DOCUMENTS: usize = 1_000;
 
+pub(crate) type GraphSnapshot = (DocumentResponse, MoleculeGraph);
+
 /// What a request asked for, compared when a `request_id` is seen again.
 #[derive(Clone, Debug, PartialEq)]
 enum Mutation {
@@ -45,6 +47,9 @@ enum Mutation {
         expected_revision: u64,
         commands: Vec<CommandDto>,
         selection: TransactionSelections,
+    },
+    ImportCtfile {
+        fingerprint: String,
     },
     AromaticityConversion {
         expected_revision: u64,
@@ -706,6 +711,62 @@ impl<R: DocumentRepository> Documents<R> {
         ))
     }
 
+    /// Capture both working copies while holding the session lock. IDs and revisions in the
+    /// returned views therefore name the exact graphs used by a comparison.
+    pub(crate) fn graph_pair_snapshot(
+        &self,
+        id: &str,
+        other_id: Option<&str>,
+    ) -> Result<(GraphSnapshot, Option<GraphSnapshot>), ApplicationError> {
+        let mut sessions = self.lock();
+        // Validate both IDs before either read. Closed graphs are inspected without opening a
+        // session, so even a refused comparison cannot evict an unrelated working copy.
+        parse_id(id)?;
+        if let Some(other_id) = other_id {
+            parse_id(other_id)?;
+        }
+        let first = self.graph_readonly(&mut sessions, id)?;
+        let other = match other_id {
+            None => None,
+            Some(other_id) if other_id == id => Some(first.clone()),
+            Some(other_id) => Some(self.graph_readonly(&mut sessions, other_id)?),
+        };
+        Ok((first, other))
+    }
+
+    fn graph_readonly(
+        &self,
+        sessions: &mut Sessions,
+        id: &str,
+    ) -> Result<GraphSnapshot, ApplicationError> {
+        let parsed = parse_id(id)?;
+        if sessions.open.contains_key(&parsed) {
+            let session = self.session(sessions, id)?;
+            Ok((
+                self.respond(session),
+                MoleculeGraph::from_document(&session.document),
+            ))
+        } else {
+            // Use the same revision continuation that opening the saved copy would use,
+            // without publishing a session or consuming a slot. A returned revision must
+            // still be retired so a later different commit cannot reuse it.
+            let document = self.load(&parsed)?.ok_or_else(|| not_found(&parsed))?;
+            let session = Session::open(document, sessions.retired.get(&parsed).copied())?;
+            let snapshot = (
+                self.respond(&session),
+                MoleculeGraph::from_document(&session.document),
+            );
+            if let Some(retired) = session.retirement() {
+                let merged = match sessions.retired.get(&parsed) {
+                    Some(known) => known.merge(retired),
+                    None => retired,
+                };
+                sessions.retired.insert(parsed, merged);
+            }
+            Ok(snapshot)
+        }
+    }
+
     /// Convert an entire graph as one ordinary undoable edit. A replay is checked before
     /// interpreting again, and a failed assignment never reaches the document's history.
     pub(crate) fn convert_aromaticity(
@@ -796,6 +857,71 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_selecting(&domain_commands, &domain_selection)
                 .map(|_: Outcome| ())
                 .map_err(rejected_edit)
+        })
+    }
+
+    /// Check a previously completed import before looking at the document's current revision.
+    pub(crate) fn replay_import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        fingerprint: &str,
+    ) -> Result<Option<DocumentResponse>, ApplicationError> {
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let mutation = Mutation::ImportCtfile {
+            fingerprint: fingerprint.to_owned(),
+        };
+        self.replayed(request_id, |sessions| {
+            sessions.open.get(&document_id).map_or(Ok(None), |session| {
+                session.replays.find(request_id, &mutation)
+            })
+        })
+    }
+
+    /// Apply the complete graph to a copy for preview. This performs the very same domain
+    /// validation as a real transaction without changing the working document or its history.
+    pub(crate) fn preview_import(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        commands: &[Command],
+    ) -> Result<(DocumentResponse, DocumentResponse), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        session.expect_revision(expected_revision)?;
+        let before = self.respond(session);
+        let mut candidate = session.document.clone();
+        if !commands.is_empty() {
+            candidate.apply(commands).map_err(rejected_edit)?;
+        }
+        let after =
+            DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+        Ok((before, after))
+    }
+
+    /// Recheck the consented candidate under the session lock and commit it atomically.
+    pub(crate) fn import(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        fingerprint: String,
+        commands: &[Command],
+        verify: impl FnOnce(&DocumentView, &DocumentView) -> Result<(), ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let mutation = Mutation::ImportCtfile { fingerprint };
+        self.mutate(id, request_id, expected_revision, mutation, |session| {
+            let before = session.response();
+            let mut candidate = session.document.clone();
+            if !commands.is_empty() {
+                candidate.apply(commands).map_err(rejected_edit)?;
+            }
+            let projected =
+                DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+            verify(&before.document, &projected.document)?;
+            session.document = candidate;
+            Ok(())
         })
     }
 

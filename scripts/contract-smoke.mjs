@@ -133,7 +133,7 @@ try {
   const capabilities = (await call('/api/v1/capabilities')).body.capabilities
   assert.deepEqual(
     capabilities.filter((item) => item.status === 'available').map((item) => item.id),
-    ['runtime_inspection', 'document_editing', 'structure_analysis', 'persistence'],
+    ['runtime_inspection', 'document_editing', 'structure_analysis', 'format_conversion', 'persistence'],
   )
   assert.equal(new Set(capabilities.map((item) => item.id)).size, 8)
 
@@ -972,6 +972,11 @@ try {
     const unchanged = await both((id) => request('op-kekule', 'chem.aromaticity_convert', { document_id: id, expected_revision: 1, to: 'kekule' }))
     assert.equal(unchanged.model_id, 'chemifree-aromaticity-1')
     assert.equal(unchanged.document_revision, 1, 'a conversion with no aromatic bonds is a no-op')
+    const identity = await both((id) => request('op-identity', 'chem.identity', { document_id: id, other_document_id: id, mode: 'recorded' }))
+    assert.equal(identity.model_id, 'chemifree-recorded-graph-1')
+    assert.equal(identity.result.comparison.equivalent, true)
+    assert.deepEqual(identity.result.identity.numbering, ['a1'])
+    assert.deepEqual(identity.result.identity.symmetry, [['a1']])
     const stale = await both((id) => request('op-stale', 'history.undo', { document_id: id, expected_revision: 0 }))
     assert.deepEqual([stale.outcome, stale.diagnostics[0].code], ['error', 'revision_conflict'])
     const beforeProperties = await both((id) => request('op-before-properties', 'document.snapshot', { document_id: id }))
@@ -988,6 +993,38 @@ try {
     assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
     const saved = await both((id) => request('op-save', 'document.save', { document_id: id, expected_revision: 1 }))
     assert.equal(saved.result.session.unsaved_changes, false)
+    const exported = await both((id) => request('op-export', 'document.export', {
+      format: 'mol', records: [{ document_id: id }],
+    }))
+    assert.equal(exported.outcome, 'partial')
+    assert.match(exported.result.content, /V2000/)
+    const preview = (id) => request('op-import-preview', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content, record: 1, preview: true,
+    })
+    const httpPreview = (await viaHttp(preview(httpDoc))).body
+    const cliPreview = await viaCli(preview(cliDoc))
+    assert.equal(httpPreview.outcome, 'partial')
+    assert.equal(cliPreview.outcome, 'partial')
+    assert.ok(httpPreview.loss_report.some((loss) => loss.feature === 'default_hydrogen_interpretation' && loss.disposition === 'unknown'))
+    assert.deepEqual(httpPreview.loss_report, cliPreview.loss_report)
+    assert.deepEqual(httpPreview.result.records, cliPreview.result.records)
+    const commit = (id, digest) => request('op-import', 'document.import', {
+      document_id: id, expected_revision: 1, format: 'mol', source: exported.result.content,
+      record: 1, preview_digest: digest, accept_loss: true,
+    })
+    const httpImport = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    const cliImport = await viaCli(commit(cliDoc, cliPreview.result.preview_digest))
+    assert.equal(httpImport.document_revision, 2)
+    assert.equal(cliImport.document_revision, 2)
+    assert.deepEqual(httpImport.result.import_mapping, cliImport.result.import_mapping)
+    assert.deepEqual(httpImport.result.document.atoms, cliImport.result.document.atoms)
+    const importedFormula = await both((id) => request('op-formula-after-import', 'chem.properties', {
+      document_id: id, scope: 'molecule', property: 'formula',
+    }))
+    assert.equal(importedFormula.result.components[0].formula, 'C2H8', 'formula inspection sees the imported graph')
+    const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
+    assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
+    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
@@ -1016,7 +1053,9 @@ try {
     running.delete(operations)
     assert.equal(exitStatus, 0)
     assert.deepEqual(replies, [], 'one reply per request')
-    assert.equal(cli('documents', 'show', cliDoc, '--json').body.document.atoms.length, 1, 'the CLI process saved its edit')
+    const storedImport = cli('documents', 'show', cliDoc, '--json').body.document
+    assert.equal(storedImport.revision, 2, 'the CLI process saved the imported revision')
+    assert.deepEqual(storedImport.atoms, cliImport.result.document.atoms, 'the CLI saved both the original and imported atoms')
 
     // The HTTP adapter keeps the write guards, and answers what it cannot read in the envelope.
     const unguarded = await viaHttp(request('op-guard', 'document.create', {}), {})

@@ -148,6 +148,9 @@ pub enum Call {
         request: OperationRequest,
         document: Option<String>,
         bind: Option<String>,
+        /// Named values to read from the reply, and request JSON pointers to fill from them.
+        capture: Vec<(String, String)>,
+        substitute: Vec<(String, String)>,
     },
 }
 
@@ -727,9 +730,10 @@ const STEP_FIELDS: [&str; 6] = [
 
 fn parse_steps(steps: &[Value]) -> Result<Vec<Step>, Problem> {
     let mut bound = HashSet::new();
+    let mut captured = HashSet::new();
     let mut parsed = Vec::with_capacity(steps.len());
     for (index, step) in steps.iter().enumerate() {
-        let step = parse_step(index, step, &mut bound)
+        let step = parse_step(index, step, &mut bound, &mut captured)
             .map_err(|problem| Problem::Step { index, problem })?;
         parsed.push(step);
     }
@@ -740,6 +744,7 @@ fn parse_step(
     index: usize,
     value: &Value,
     bound: &mut HashSet<String>,
+    captured: &mut HashSet<String>,
 ) -> Result<Step, StepProblem> {
     let Value::Object(fields) = value else {
         return Err(StepProblem::NotAnObject);
@@ -754,7 +759,7 @@ fn parse_step(
         }
     };
     if call == "operation" {
-        return parse_operation_step(fields, bound);
+        return parse_operation_step(fields, bound, captured);
     }
     let (body_fields, writes, takes_document): (&[&str], bool, bool) = match call {
         "create" => (&["title"], true, false),
@@ -926,14 +931,17 @@ fn parse_step(
 fn parse_operation_step(
     fields: &Map<String, Value>,
     bound: &mut HashSet<String>,
+    captured: &mut HashSet<String>,
 ) -> Result<Step, StepProblem> {
-    const FIELDS: [&str; 6] = [
+    const FIELDS: [&str; 8] = [
         "call",
         "request",
         "document",
         "bind",
         "expect",
         "expect_error",
+        "capture",
+        "substitute",
     ];
     if let Some(field) = fields.keys().find(|key| !FIELDS.contains(&key.as_str())) {
         return Err(if field == "request_id" {
@@ -1002,11 +1010,61 @@ fn parse_operation_step(
             });
         }
     };
+    let mut substitute = Vec::new();
+    if let Some(value) = fields.get("substitute") {
+        let Some(entries) = value.as_object() else {
+            return Err(StepProblem::OperationRequest(
+                "substitute must be an object",
+            ));
+        };
+        let OperationRequest::Json(json) = &request else {
+            return Err(StepProblem::OperationRequest(
+                "substitute requires a JSON request",
+            ));
+        };
+        for (pointer, name) in entries {
+            let Some(name) = name.as_str() else {
+                return Err(StepProblem::OperationRequest(
+                    "substitution name must be a string",
+                ));
+            };
+            if !pointer.starts_with("/parameters/")
+                || json.pointer(pointer).is_none()
+                || !captured.contains(name)
+            {
+                return Err(StepProblem::OperationRequest(
+                    "substitution requires an existing parameter and an earlier captured value",
+                ));
+            }
+            substitute.push((pointer.clone(), name.to_owned()));
+        }
+    }
+    let mut capture = Vec::new();
+    if let Some(value) = fields.get("capture") {
+        let Some(entries) = value.as_object() else {
+            return Err(StepProblem::OperationRequest("capture must be an object"));
+        };
+        for (name, pointer) in entries {
+            let Some(pointer) = pointer.as_str() else {
+                return Err(StepProblem::OperationRequest(
+                    "capture pointer must be a string",
+                ));
+            };
+            if !is_name(name) || !pointer.starts_with('/') || !captured.insert(name.clone()) {
+                return Err(StepProblem::OperationRequest(
+                    "capture needs a unique name and JSON pointer",
+                ));
+            }
+            capture.push((name.clone(), pointer.to_owned()));
+        }
+    }
     Ok(Step {
         call: Call::Operation {
             request,
             document,
             bind,
+            capture,
+            substitute,
         },
         expectation: Expectation::Response(expected.clone()),
     })
