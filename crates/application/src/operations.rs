@@ -129,8 +129,7 @@ pub struct OperationResponse {
     pub document_revision: Option<u64>,
     /// The operation's typed result; null unless the outcome is `ok` or `partial`.
     pub result: Option<OperationResult>,
-    /// The model or method that produced the result; null when it needs none, as every result
-    /// so far does.
+    /// The model or method that produced the result; null when none was used.
     pub model_id: Option<String>,
     pub diagnostics: Vec<Diagnostic>,
     pub loss_report: Vec<Loss>,
