@@ -813,7 +813,7 @@
    "acceptance": "재번호·동등 표현·융합계·전하·실패 사례를 검사한다. 변환 실패가 원래 구조를 바꾸지 않고 모델·정책이 결과에 포함된다.",
    "kind": "core",
    "id": "P17",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",

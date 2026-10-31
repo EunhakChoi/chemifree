@@ -320,7 +320,18 @@ export function useDocumentEditor() {
       return { ready, release }
     }, [run]),
     busy: pending > 0,
+    serviceGeneration,
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
+    inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
+    convertAromaticity: useCallback((to: 'aromatic' | 'kekule') => {
+      const shown = currentRef.current?.document
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (!shown || restartedFrom || !sameContent(shown, document.document) || shown.revision !== document.document.revision) return null
+        const selected = selectionSnapshot(pressed, document.document)
+        return client.convertAromaticity(shown.id, shown.revision, to, selected)
+      })
+    }, [mutate]),
     error,
     autosave,
     copyNotice,

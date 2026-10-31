@@ -1,11 +1,14 @@
 //! Domain vocabulary and rules. This crate has no transport or infrastructure dependencies.
 
+pub mod aromaticity;
 pub mod chemistry;
 pub mod data;
 pub mod document;
 pub mod element;
 pub mod mass;
+pub mod graph;
 pub mod operation;
+pub mod rings;
 pub mod scene;
 pub mod settings;
 pub mod states;

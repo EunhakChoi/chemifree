@@ -46,6 +46,8 @@ HELM, 템플릿 프레이밍, phase 4 명명·수치 literal 및 CMR 입력의 �
 
 데이터 검증과 모델 실행은 별개다. 타입 값은 후속 application 계층에서 `DataRegistry::datasets`와 각 세대의 `records`로 읽을 수 있지만, P19 질량 계산은 검증된 질량 입력과 NIST snapshot만 명시된 정책으로 소비한다. 질량 입력의 계산 바인딩은 질량·자연 원자량 `u` 또는 `Da`, 풍부도 `%` 또는 `percent`, 전하 계수 `u/e` 또는 `Da/e`만 받아들이며 나머지 단위는 거절한다. 자유 문자열인 source schema ID는 불투명한 출처로 결과에 보존하고, 필드의 의미는 고정된 구조 프로필에서 가져온다. 실제 개인 DATA가 위 단위 표기와 호환되는지는 아직 검증하지 않았다. NIST 경로에서는 표준 원자량의 자유 형식 종류가 공개 구조 계약에 고정되지 않아 scalar/구간 값을 대체값으로 쓰지 않고, 보고된 동위원소 풍부도 합이 1에 충분히 가까울 때만 평균을 구한다. `prediction.evaluate`는 `model_unavailable`을 반환하며 결과를 만들지 않는다. 현재 코드에는 원본 실행 파일·벤더 엔진·개인 데이터·화학 모델 계수가 들어 있지 않다.
 
+별도 승인된 공개 출처 NIST snapshot을 로컬 typed loader로 적재한 뒤 메탄의 분자식·질량을 독립 공개 기준 범위와 대조하고 동위원소 분포의 유한·비음수 peak를 확인했다. 이는 한 사례의 실행 확인이며 전체 자료나 별도로 거절된 개인 질량 프로필의 호환성을 보증하지 않는다([기록](https://github.com/EunhakChoi/chemifree/pull/81#issuecomment-6546579774)). 공개 CI는 합성 fixture를 사용한다.
+
 ## 신뢰 경계와 선택
 
 API와 CLI에 `--model-data-root <DATA 디렉터리>` 및 `--model-trusted-registry <신뢰하는 기술서>`를 함께 주거나 `CHEMIFREE_MODEL_DATA_ROOT`, `CHEMIFREE_MODEL_TRUSTED_REGISTRY`를 설정한다. 둘 중 하나만 주면 상태는 `registry_configuration_incomplete`다. 기술서는 DATA 디렉터리와 별도로 관리하며 사용자가 신뢰하는 로컬 등록 정보여야 한다. 데이터셋이 자기 manifest에 적은 권리 설명이나 임의의 URL은 신뢰된 검토가 아니다. 공개 저장소, CI, 테스트 로그에 개인 데이터나 개인 검토 파일을 넣지 않는다.

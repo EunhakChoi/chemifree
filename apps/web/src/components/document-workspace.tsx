@@ -76,6 +76,7 @@ import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/pla
 import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import { PropertiesPanel } from '@/components/properties-panel'
+import { AromaticityPanel } from '@/components/aromaticity-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
@@ -108,7 +109,7 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
 ]
-/** The kinds the bond tool draws. Each is recorded only: aromaticity is not perceived. */
+/** The bond tool records the selected kind without converting other bonds. */
 const DRAWN_ORDERS: { value: DrawnOrder; label: string; glyph: string }[] = [
   { value: 'single', label: 'Single bond', glyph: '—' },
   { value: 'double', label: 'Double bond', glyph: '=' },
@@ -220,7 +221,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Atoms and bonds remain as drawn. Valence inspection uses a bounded model; aromaticity, stereo, and naming remain unimplemented.
+          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models; stereo and naming remain unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -714,6 +715,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
           <ValenceInspector document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
+          <AromaticityPanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
