@@ -1,5 +1,6 @@
 //! HELM input records; attachment, sequence and stereo semantics remain unbound.
 
+use num_bigint::BigInt;
 use serde::{Deserialize, Deserializer};
 
 use crate::{json, phase6_profiles};
@@ -101,7 +102,7 @@ pub struct Monomer {
     #[serde(rename = "createDate")]
     pub create_date: (),
     #[serde(deserialize_with = "json::deserialize_integer")]
-    pub id: i64,
+    pub id: BigInt,
     #[serde(rename = "polymerType")]
     pub polymer_type: String,
     pub symbol: String,
@@ -153,11 +154,26 @@ mod tests {
             .replace("\"name\":\"synthetic\"", "\"name\":\"-0.0\"");
         let bytes = document(&row, 705);
         let data = decode_dataset(&[(FILE_ID, &bytes)]).unwrap();
-        assert_eq!(data.monomers[0].id, 1);
+        assert_eq!(data.monomers[0].id.to_string(), "1");
         assert_eq!(data.monomers[0].name, "-0.0");
         let invalid = row.replace("\"id\":1.0", "\"id\":1.00000000000000000001");
         assert_eq!(
             decode_dataset(&[(FILE_ID, &document(&invalid, 705))]).err(),
+            Some(HelmError::Record)
+        );
+    }
+
+    #[test]
+    fn monomer_identifier_preserves_a_large_signed_schema_integer() {
+        let id = format!("-{}", "9".repeat(400));
+        let row = ROW.replace("\"id\":0", &format!("\"id\":{id}"));
+        assert!(row.contains(&format!("\"id\":{id}")));
+        let bytes = document(&row, 705);
+        let data = decode_dataset(&[(FILE_ID, &bytes)]).unwrap();
+        assert_eq!(data.monomers[0].id.to_string(), id);
+        let overlong = ROW.replace("\"id\":0", &format!("\"id\":-{}", "9".repeat(4097)));
+        assert_eq!(
+            decode_dataset(&[(FILE_ID, &document(&overlong, 705))]).err(),
             Some(HelmError::Record)
         );
     }
@@ -168,8 +184,8 @@ mod tests {
         let data = decode_dataset(&[(FILE_ID, &bytes)]).unwrap();
         assert_eq!(data.monomers.len(), 705);
         assert_eq!(data.monomers[0].monomer_type, "Terminal");
-        assert_eq!(data.monomers[0].id, 0);
-        assert_eq!(data.monomers[1].id, 0);
+        assert_eq!(data.monomers[0].id.to_string(), "0");
+        assert_eq!(data.monomers[1].id.to_string(), "0");
         assert_eq!(
             data.monomers[0].rgroups[0].cap_group_smiles.as_deref(),
             Some("C")

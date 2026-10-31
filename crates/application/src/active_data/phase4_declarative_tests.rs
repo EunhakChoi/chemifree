@@ -30,7 +30,14 @@ fn declarative_fixture(invalid_record: bool) -> Fixture {
             (
                 NORMALIZED[2],
                 NORMALIZED[2],
-                report.repeat(159).into_bytes(),
+                report
+                    .repeat(159)
+                    .replacen(
+                        "\"formal_charge\":-1",
+                        &format!("\"formal_charge\":-{}", "9".repeat(400)),
+                        1,
+                    )
+                    .into_bytes(),
             ),
         ],
     );
@@ -62,7 +69,10 @@ fn complete_inputs_are_typed_without_enabling_a_naming_engine() {
     assert_eq!(data.source.len(), 159);
     assert_eq!(data.reports.len(), 159);
     assert!(!data.reports[0].independent_parse_ok);
-    assert_eq!(data.reports[0].formal_charge, -1);
+    assert_eq!(
+        data.reports[0].formal_charge.to_string(),
+        format!("-{}", "9".repeat(400))
+    );
     assert_eq!(data.ancillary.len(), 2);
     assert_binding_unavailable(&test_fixture, &loaded);
 }
