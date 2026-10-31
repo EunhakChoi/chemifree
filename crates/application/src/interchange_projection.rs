@@ -174,12 +174,12 @@ fn reference(object: &Object, kind: &PropertyKind) -> Result<u32, InterchangeErr
     }
 }
 
-fn unknown_named(object: &Object, names: &[&str]) -> bool {
-    object.properties.iter().any(|p| match &p.kind {
-        PropertyKind::UnknownXml(name) => {
-            name.namespace.is_none() && names.contains(&name.local.as_str())
-        }
-        _ => false,
+fn has_opaque_property(object: &Object) -> bool {
+    object.properties.iter().any(|property| {
+        matches!(
+            property.kind,
+            PropertyKind::UnknownXml(_) | PropertyKind::UnknownBinary(_)
+        )
     })
 }
 
@@ -232,32 +232,27 @@ fn at<'a>(root: &'a Object, indices: &[usize]) -> &'a Object {
     })
 }
 
-fn atom(
-    object: &Object,
-    indices: &[usize],
-    losses: &mut Vec<Loss>,
-) -> Result<ProjectedAtom, InterchangeError> {
-    if unknown_named(
-        object,
-        &[
-            "NodeType",
-            "Element",
-            "Charge",
-            "Isotope",
-            "Radical",
-            "ElementList",
-            "Formula",
-            "NumHydrogens",
-            "ImplicitHydrogens",
-            "FreeSites",
-            "AS",
-            "BondOrdering",
-            "EnhancedStereoType",
-        ],
-    ) {
+fn atom(object: &Object, indices: &[usize]) -> Result<ProjectedAtom, InterchangeError> {
+    if has_opaque_property(object) {
         return Err(fail(
             "unsupported_node",
-            format!("{} has an unrecognized chemical attribute.", path(indices)),
+            format!(
+                "{} has an uninterpreted attribute that may affect chemistry.",
+                path(indices)
+            ),
+        ));
+    }
+    if object
+        .children
+        .iter()
+        .any(|child| matches!(child, Content::Object(_) | Content::Text(_)))
+    {
+        return Err(fail(
+            "unsupported_node",
+            format!(
+                "{} has a label or child object whose chemical interpretation is not established.",
+                path(indices)
+            ),
         ));
     }
     let node_type = integer(object, &PropertyKind::NodeType, 1)?;
@@ -306,14 +301,13 @@ fn atom(
     let position = match property(object, &PropertyKind::Position) {
         Some(PropertyValue::Point { x, y }) => [*x, *y],
         None => {
-            losses.push(Loss {
-                feature: "missing_position".into(),
-                source_path: path(indices),
-                disposition: LossDisposition::Normalized,
-                reason: "No source position; the editor places this atom at the origin.".into(),
-                semantic_impact: SemanticImpact::Geometry,
-            });
-            [0.0, 0.0]
+            return Err(fail(
+                "missing_position",
+                format!(
+                    "{} has no position for the editor projection.",
+                    path(indices)
+                ),
+            ));
         }
         _ => return Err(fail("invalid_document", "Node position is not a point.")),
     };
@@ -338,10 +332,26 @@ fn bond(
     indices: &[usize],
     ids: &HashMap<u32, usize>,
 ) -> Result<ProjectedBond, InterchangeError> {
-    if unknown_named(object, &["B", "E", "Order"]) {
+    if has_opaque_property(object) {
         return Err(fail(
             "unsupported_bond",
-            format!("{} has an unrecognized chemical attribute.", path(indices)),
+            format!(
+                "{} has an uninterpreted attribute that may affect chemistry.",
+                path(indices)
+            ),
+        ));
+    }
+    if object
+        .children
+        .iter()
+        .any(|child| matches!(child, Content::Object(_) | Content::Text(_)))
+    {
+        return Err(fail(
+            "unsupported_bond",
+            format!(
+                "{} has child content whose chemical interpretation is not established.",
+                path(indices)
+            ),
         ));
     }
     let begin = reference(object, &PropertyKind::BondBegin)?;
@@ -493,6 +503,13 @@ pub(crate) fn project(
     let (page_path, fragment_path) = selection(document, page_id, fragment_id)?;
     let root = document.root();
     let selected = at(root, &fragment_path);
+    if has_opaque_property(selected) || selected.children.iter().any(|child| matches!(child,
+        Content::Object(child) if matches!(child.kind, ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)))) {
+        return Err(fail(
+            "unsupported_fragment",
+            format!("{} has unrecognized molecular attributes or child objects.", path(&fragment_path)),
+        ));
+    }
     let mut losses = Vec::new();
     let mut atoms = Vec::new();
     let mut ids = HashMap::new();
@@ -505,7 +522,7 @@ pub(crate) fn project(
         }
         let mut indices = fragment_path.clone();
         indices.push(index);
-        let item = atom(node, &indices, &mut losses)?;
+        let item = atom(node, &indices)?;
         if let Some(id) = node.id {
             ids.insert(id, atoms.len());
         }
@@ -761,15 +778,10 @@ mod tests {
     }
 
     #[test]
-    fn missing_positions_are_reported_and_unknown_node_types_are_refused() {
-        let result = project(&fixture(true, false), 1, 2).unwrap();
-        assert_eq!(result.atoms[0].position, [0., 0.]);
-        assert!(
-            result
-                .losses
-                .iter()
-                .any(|loss| loss.feature == "missing_position"
-                    && loss.disposition == LossDisposition::Normalized)
+    fn missing_positions_and_unknown_node_types_are_refused() {
+        assert_eq!(
+            project(&fixture(true, false), 1, 2).unwrap_err().code,
+            "missing_position"
         );
         assert_eq!(
             project(&fixture(false, true), 1, 2).unwrap_err().code,

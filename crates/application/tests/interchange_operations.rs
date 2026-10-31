@@ -229,7 +229,7 @@ fn explicit_unknown_hydrogen_semantics_are_not_silently_inferred() {
 fn dative_direction_is_retained_in_rich_xml_but_cannot_create_an_editor_graph() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
-    let source = "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" Element=\"7\"/><n id=\"4\" Element=\"8\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"dative\"/></fragment></page></CDXML>";
+    let source = "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"0 0\" Element=\"7\"/><n id=\"4\" p=\"1 0\" Element=\"8\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"dative\"/></fragment></page></CDXML>";
     let read = call(
         &application,
         "dative-read",
@@ -262,4 +262,111 @@ fn dative_direction_is_retained_in_rich_xml_but_cannot_create_an_editor_graph() 
     assert_eq!(create["diagnostics"][0]["code"], "unsupported_bond");
     assert!(create["result"].is_null());
     assert_eq!(count(&application), 0);
+}
+
+#[test]
+fn unsafe_editor_projection_never_creates_or_changes_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let existing = call(
+        &application,
+        "existing",
+        "document.create",
+        json!({"title":"Existing"}),
+    );
+    let id = existing["result"]["document"]["id"].as_str().unwrap();
+    let before = call(
+        &application,
+        "before",
+        "document.snapshot",
+        json!({"document_id":id}),
+    );
+    let examples = [
+        (
+            "<fragment id=\"2\"><n id=\"3\"/></fragment>",
+            "missing_position",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\" future=\"opaque\"/></fragment>",
+            "unsupported_node",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"><t id=\"4\"><s>O</s></t></n></fragment>",
+            "unsupported_node",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"><fragment id=\"4\"><n id=\"5\" p=\"1 1\"/></fragment></n></fragment>",
+            "unsupported_node",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"><future/></n></fragment>",
+            "unsupported_node",
+        ),
+        (
+            "<fragment id=\"2\" future=\"opaque\"><n id=\"3\" p=\"0 0\"/></fragment>",
+            "unsupported_fragment",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"/><future/></fragment>",
+            "unsupported_fragment",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"/><n id=\"4\" p=\"1 0\"/><b id=\"5\" B=\"3\" E=\"4\" future=\"opaque\"/></fragment>",
+            "unsupported_bond",
+        ),
+        (
+            "<fragment id=\"2\"><n id=\"3\" p=\"0 0\"/><n id=\"4\" p=\"1 0\"/><b id=\"5\" B=\"3\" E=\"4\"><future/></b></fragment>",
+            "unsupported_bond",
+        ),
+    ];
+    for (index, (fragment, code)) in examples.into_iter().enumerate() {
+        let source = format!("<CDXML><page id=\"1\">{fragment}</page></CDXML>");
+        let read = call(
+            &application,
+            &format!("read-{index}"),
+            "document.import",
+            json!({"mode":"read","format":"cdxml","source":source}),
+        );
+        assert_eq!(read["outcome"], "ok", "rich read {index}: {read}");
+        let written = call(
+            &application,
+            &format!("write-{index}"),
+            "document.export",
+            json!({"format":"cdxml","document":read["result"]["document"],"original":source}),
+        );
+        assert_eq!(written["result"]["content"], source, "rich export {index}");
+        let preview = call(
+            &application,
+            &format!("preview-{index}"),
+            "document.import",
+            json!({"mode":"preview","format":"cdxml","source":source,"title":"Rejected","page_id":1,"fragment_id":2}),
+        );
+        assert_eq!(
+            preview["diagnostics"][0]["code"], code,
+            "preview {index}: {preview}"
+        );
+        assert!(preview["result"].is_null());
+        let create = call(
+            &application,
+            &format!("create-{index}"),
+            "document.import",
+            json!({"mode":"create","format":"cdxml","source":source,"title":"Rejected","page_id":1,"fragment_id":2,"preview_digest":"unavailable","accept_loss":true}),
+        );
+        assert_eq!(
+            create["diagnostics"][0]["code"], code,
+            "create {index}: {create}"
+        );
+        assert!(create["result"].is_null());
+        assert_eq!(count(&application), 1);
+        let after = call(
+            &application,
+            &format!("after-{index}"),
+            "document.snapshot",
+            json!({"document_id":id}),
+        );
+        assert_eq!(
+            after["result"], before["result"],
+            "existing graph and history {index}"
+        );
+    }
 }
