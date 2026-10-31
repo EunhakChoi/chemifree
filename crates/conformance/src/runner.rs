@@ -7,7 +7,9 @@ use std::path::Path;
 use chemifree_application::{
     Application, ApplicationError, DataRegistry, ProfileRecords, phase4_nist,
 };
-use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
+use chemifree_providers::{
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
+};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -148,6 +150,7 @@ fn run_steps(steps: &[Step], fixture: Option<&DataFixture>) -> Result<(), String
         .map_err(|error| format!("cannot create a temporary data directory: {error}"))?;
     let mut application = Some(start(directory.path(), fixture)?);
     let mut documents: HashMap<String, String> = HashMap::new();
+    let mut captured: HashMap<String, Value> = HashMap::new();
     for (index, step) in steps.iter().enumerate() {
         let fail = |message: String| format!("step {index} ({}): {message}", step.call.name());
         if let Call::Restart = step.call {
@@ -160,7 +163,7 @@ fn run_steps(steps: &[Step], fixture: Option<&DataFixture>) -> Result<(), String
         let Some(running) = application.as_ref() else {
             return Err(fail("no application is running".to_owned()));
         };
-        let outcome = call(running, &step.call, &documents).map_err(fail)?;
+        let outcome = call(running, &step.call, &documents, &captured).map_err(fail)?;
         check(&step.expectation, &outcome).map_err(fail)?;
         let bound = match (&step.call, &outcome) {
             (
@@ -177,6 +180,14 @@ fn run_steps(steps: &[Step], fixture: Option<&DataFixture>) -> Result<(), String
             ) => Some((name, reply.pointer("/result/document/id"))),
             _ => None,
         };
+        if let (Call::Operation { capture, .. }, Ok(response)) = (&step.call, &outcome) {
+            for (name, pointer) in capture {
+                let value = response
+                    .pointer(pointer)
+                    .ok_or_else(|| fail(format!("capture {name:?}: no value at {pointer:?}")))?;
+                captured.insert(name.clone(), value.clone());
+            }
+        }
         if let Some((name, id)) = bound {
             let id = id
                 .and_then(Value::as_str)
@@ -193,7 +204,9 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     repository.prune_stale_temporaries();
     let preferences = FilePreferenceStore::new(directory);
     preferences.prune_stale_temporaries();
-    let application = Application::new(LocalCapabilities, repository).with_preferences(preferences);
+    let application = Application::new(LocalCapabilities, repository)
+        .with_ctfile_codec(V2000Codec)
+        .with_preferences(preferences);
     let Some(fixture) = fixture else {
         return Ok(application);
     };
@@ -217,6 +230,7 @@ fn call(
     application: &LocalApplication,
     call: &Call,
     documents: &HashMap<String, String>,
+    captured: &HashMap<String, Value>,
 ) -> Result<CallOutcome, String> {
     let id = |name: &String| {
         documents
@@ -281,21 +295,33 @@ fn call(
         )),
         Call::Restart => return Err("restart is not a call".to_owned()),
         Call::Operation {
-            request, document, ..
+            request,
+            document,
+            substitute,
+            ..
         } => {
-            let body = match (request, document) {
-                (OperationRequest::Raw(raw), _) => raw.clone().into_bytes(),
-                (OperationRequest::Json(request), Some(name)) => {
+            let body = match request {
+                OperationRequest::Raw(raw) => raw.clone().into_bytes(),
+                OperationRequest::Json(request) => {
                     let mut request = request.clone();
-                    // Loading checked that the request has a parameters object.
-                    if let Some(parameters) =
-                        request.get_mut("parameters").and_then(Value::as_object_mut)
-                    {
+                    if let Some(name) = document {
+                        let parameters = request
+                            .get_mut("parameters")
+                            .and_then(Value::as_object_mut)
+                            .ok_or_else(|| "operation has no parameters object".to_owned())?;
                         parameters.insert("document_id".to_owned(), Value::from(id(name)?));
+                    }
+                    for (pointer, name) in substitute {
+                        let value = captured
+                            .get(name)
+                            .ok_or_else(|| format!("value {name:?} was not captured"))?;
+                        let slot = request
+                            .pointer_mut(pointer)
+                            .ok_or_else(|| format!("request has no value at {pointer:?}"))?;
+                        *slot = value.clone();
                     }
                     request.to_string().into_bytes()
                 }
-                (OperationRequest::Json(request), None) => request.to_string().into_bytes(),
             };
             // An operation answers every request with an operation reply, never an error.
             json(Ok(application.execute(&body)))

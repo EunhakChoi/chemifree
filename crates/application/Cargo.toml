@@ -14,6 +14,7 @@ conformance-fixtures = []
 
 [dependencies]
 chemifree-domain.workspace = true
+getrandom.workspace = true
 chemifree-numerics.workspace = true
 num-bigint = "0.5.1"
 roxmltree = "0.21.1"
