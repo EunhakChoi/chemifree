@@ -201,6 +201,54 @@ export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentV
     JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds)
 }
 
+export type PropertiesScope = 'molecule' | 'selection' | 'components'
+export type PropertyKind = 'formula' | 'masses' | 'distribution'
+
+export interface OmittedIsotopeAbundance { element: string; isotope: number }
+export interface PropertyMass {
+  average_u: number
+  exact_u: number
+  average_display: string
+  exact_display: string
+  exact_natural_weight_fallbacks: string[]
+  average_bases: { element: string; basis: string }[]
+  exact_selections: { element: string; isotope: number; basis: string }[]
+  average_omitted_abundances: OmittedIsotopeAbundance[]
+  exact_omitted_abundances: OmittedIsotopeAbundance[]
+}
+
+export interface PropertyComponent {
+  atoms: string[]
+  formula: string
+  formal_charge: number
+  mass: PropertyMass | null
+  isotope_distribution: null | { mass_u: number; mass_display: string; probability: number }[]
+  omitted_abundances: OmittedIsotopeAbundance[]
+  abundance_sums: { element: string; input_sum: number }[]
+}
+
+export interface PropertiesInspection {
+  model: string
+  snapshot: DocumentView
+  scope: PropertiesScope
+  property: PropertyKind
+  selection: SelectionView | null
+  display_decimals: number
+  valence_model: string
+  arithmetic: string
+  data: null | { registration_id: string; generation: number; dataset_id: string; dataset_version: string; profile_id: string; manifest_sha256: string; source_schema_id?: string | null; calculation_profile: string; charge_correction_u_per_e: number; charge_convention: string; abundance_policy: string; uncertainty: string }
+  components: PropertyComponent[]
+  warnings: string[]
+}
+
+/** Graph content is checked as well as revision, which can be reused after a restart. */
+export function samePropertySnapshot(shown: DocumentView, inspected: DocumentView): boolean {
+  return shown.id === inspected.id && shown.revision === inspected.revision &&
+    JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
+    JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds) &&
+    JSON.stringify(shown.scene) === JSON.stringify(inspected.scene)
+}
+
 /** The document's own style, or built-in defaults for an older service. */
 export function settingsOf(document: DocumentView): Readonly<DocumentSettings> {
   return document.settings ?? DEFAULT_SETTINGS
@@ -889,13 +937,19 @@ export interface PreferencesResponse {
   new_documents: SettingsEdit
   /** The settings a document created now starts from. */
   new_document_settings: DocumentSettings
-  computation: { nmr: ComputationSetting; numeric_precision: ComputationSetting }
+  computation: {
+    nmr: ComputationSetting
+    numeric_precision: ComputationSetting
+    /** Added within v1; absent from older services. */
+    mass_precision?: { status: 'available'; owner: 'preferences'; decimals: number }
+  }
 }
 
 /** The preferences a write sets: all of them, replacing what is stored. */
 export interface PreferencesChange {
   ui: { theme: Theme }
   new_documents: SettingsEdit
+  computation?: { mass_precision: { decimals: number } }
 }
 
 /** Where a reset takes a document's settings from. */
@@ -922,7 +976,14 @@ export function isPreferencesResponse(value: unknown): value is PreferencesRespo
     isSettings(value.new_document_settings, true) &&
     isRecord(value.computation) &&
     isComputationSetting(value.computation.nmr) &&
-    isComputationSetting(value.computation.numeric_precision)
+    isComputationSetting(value.computation.numeric_precision) &&
+    (value.computation.mass_precision === undefined || (
+      isRecord(value.computation.mass_precision) &&
+      value.computation.mass_precision.status === 'available' &&
+      value.computation.mass_precision.owner === 'preferences' &&
+      isCount(value.computation.mass_precision.decimals) &&
+      value.computation.mass_precision.decimals <= 8
+    ))
   )
 }
 
@@ -1107,6 +1168,88 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible inspection.', 200)
     }
     return { model: value.model_id, snapshot, atoms }
+  }
+
+  /** Read-only properties are tied to the returned document snapshot and source profile. */
+  async inspectProperties(
+    id: string,
+    scope: PropertiesScope,
+    property: PropertyKind,
+    selection: SelectionView | null,
+    dataRegistrationId: string | null,
+  ): Promise<PropertiesInspection> {
+    const parameters = {
+      document_id: id, scope, property,
+      ...(selection === null ? {} : { selection }),
+      ...(dataRegistrationId === null ? {} : { data_registration_id: dataRegistrationId }),
+    }
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.properties', parameters,
+    }, 'reload')
+    if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
+      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not calculate these properties.'
+      throw new ApiError('properties_unavailable', message, 200)
+    }
+    if (value.model_id !== 'chemifree-properties-1' || !isRecord(value.result) || !Array.isArray(value.loss_report)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    const result = value.result
+    if (!isRecord(result.snapshot) || !Array.isArray(result.components) || !Array.isArray(result.valence_warnings)) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    const validOmitted = (rows: unknown) => Array.isArray(rows) && rows.every((row) => isRecord(row) &&
+      typeof row.element === 'string' && isCount(row.isotope) && row.isotope > 0)
+    const validMass = (mass: unknown) => isRecord(mass) && isFiniteNumber(mass.average_u) &&
+      isFiniteNumber(mass.exact_u) && typeof mass.average_display === 'string' && typeof mass.exact_display === 'string' &&
+      Array.isArray(mass.exact_natural_weight_fallbacks) && mass.exact_natural_weight_fallbacks.every((item) => typeof item === 'string') &&
+      Array.isArray(mass.average_bases) && mass.average_bases.every((row) => isRecord(row) && typeof row.element === 'string' && typeof row.basis === 'string') &&
+      Array.isArray(mass.exact_selections) && mass.exact_selections.every((row) => isRecord(row) && typeof row.element === 'string' && isCount(row.isotope) && row.isotope > 0 && typeof row.basis === 'string') &&
+      validOmitted(mass.average_omitted_abundances) && validOmitted(mass.exact_omitted_abundances)
+    const validPeaks = (peaks: unknown) => Array.isArray(peaks) && peaks.every((peak) => isRecord(peak) &&
+      isFiniteNumber(peak.mass_u) && typeof peak.mass_display === 'string' && isFiniteNumber(peak.probability) &&
+      peak.probability >= 0 && peak.probability <= 1)
+    const components = result.components
+    const componentValid = (component: unknown): component is PropertyComponent => (
+      isRecord(component) && typeof component.formula === 'string' &&
+      Number.isSafeInteger(component.formal_charge) && Array.isArray(component.atoms) &&
+      component.atoms.length > 0 && component.atoms.every((atom: unknown) => typeof atom === 'string' && snapshot.atoms.some((shown) => shown.id === atom)) &&
+      validOmitted(component.omitted_abundances) && Array.isArray(component.abundance_sums) &&
+      component.abundance_sums.every((row) => isRecord(row) && typeof row.element === 'string' && isFiniteNumber(row.input_sum)) &&
+      (property === 'formula' ? component.mass === null && component.isotope_distribution === null :
+        validMass(component.mass) && (property === 'distribution' ? validPeaks(component.isotope_distribution) : component.isotope_distribution === null))
+    )
+    const data = result.data
+    const dataValid = property === 'formula' ? data === null : isRecord(data) &&
+      typeof data.registration_id === 'string' && isCount(data.generation) && typeof data.profile_id === 'string' &&
+      typeof data.manifest_sha256 === 'string' &&
+      (data.source_schema_id === undefined || data.source_schema_id === null || typeof data.source_schema_id === 'string') &&
+      isFiniteNumber(data.charge_correction_u_per_e) &&
+      typeof data.dataset_id === 'string' && typeof data.dataset_version === 'string' &&
+      typeof data.calculation_profile === 'string' && typeof data.charge_convention === 'string' &&
+      typeof data.abundance_policy === 'string' && typeof data.uncertainty === 'string' && result.mass_unit === 'u'
+    const losses = value.loss_report
+    const valence = result.valence_warnings
+    const atomIds: unknown[] = components.flatMap((component) => isRecord(component) && Array.isArray(component.atoms) ? component.atoms : [])
+    if (snapshot.id !== id || snapshot.revision !== value.document_revision || result.scope !== scope || result.property !== property ||
+        !(result.selection === null || isSelection(result.selection)) || JSON.stringify(result.selection) !== JSON.stringify(selection) ||
+        !isCount(result.display_decimals) || result.display_decimals > 8 || typeof result.valence_model !== 'string' || typeof result.arithmetic !== 'string' ||
+        components.length === 0 || !components.every(componentValid) || new Set(atomIds).size !== atomIds.length || !dataValid ||
+        !losses.every((loss) => isRecord(loss) && typeof loss.reason === 'string') ||
+        (value.outcome === 'partial' && losses.length === 0) ||
+        !valence.every((warning) => isRecord(warning) && typeof warning.atom === 'string' &&
+          (warning.status === 'invalid' || warning.status === 'unsupported') && (warning.reason === null || typeof warning.reason === 'string'))) {
+      throw new ApiError('incompatible_response', 'The local service returned incompatible properties.', 200)
+    }
+    return {
+      model: value.model_id, snapshot, scope, property, selection, display_decimals: result.display_decimals,
+      valence_model: result.valence_model, arithmetic: result.arithmetic, data: data as PropertiesInspection['data'], components: components as PropertyComponent[],
+      warnings: [
+        ...losses.map((loss) => (loss as { reason: string }).reason),
+        ...valence.map((warning) => `${(warning as { atom: string }).atom}: valence ${(warning as { status: string }).status}`),
+      ],
+    }
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

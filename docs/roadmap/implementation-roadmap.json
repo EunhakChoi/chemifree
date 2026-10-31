@@ -781,7 +781,7 @@
    "acceptance": "전하·라디칼·동위원소·명시적 H·비정상 입력을 독립 사례로 검사하고 진단만으로 문서를 자동 수정하지 않는다.",
    "kind": "core",
    "id": "P16",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -790,7 +790,12 @@
    "depends_on": [
     "P10",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [80],
+    "merge_commit": "fb61369aeb456d6e4f7940dc13dc46d86d1c061d",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41218250815"
+   }
   },
   {
    "phase": "chemistry",
@@ -861,7 +866,7 @@
    "acceptance": "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다. 계산 정밀도 설정의 저장·적용과 기존 문서 비소급을 검사한다.",
    "kind": "core",
    "id": "P19",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3833,7 +3838,7 @@
     "phase6-chemprop-numerics-functional-contract.md",
     "phase7-cos-functional-supplement.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P15",
     "P19",

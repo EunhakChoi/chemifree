@@ -13,6 +13,7 @@ mod draft_writer;
 mod error;
 pub mod json;
 pub mod layout_data_binding;
+mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
@@ -37,6 +38,7 @@ pub mod prediction_wire;
 mod preferences;
 pub mod prepared_f32;
 pub mod prepared_xlogp;
+mod properties;
 mod repository;
 mod turns;
 
@@ -96,8 +98,12 @@ pub use operations::{
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
-    MemoryPreferences, PreferenceRepository, Preferences, PreferencesChange, PreferencesRequest,
-    PreferencesResponse, Theme, UiPreferencesDto,
+    MassPrecision, MassPrecisionView, MemoryPreferences, PreferenceRepository, Preferences,
+    PreferencesChange, PreferencesRequest, PreferencesResponse, Theme, UiPreferencesDto,
+};
+pub use properties::{
+    AbundanceSum, AverageBasisView, ComponentView, ExactSelectionView, MassDataView, MassView,
+    OmittedAbundance, PeakView, PropertiesScope, PropertyKind,
 };
 pub use repository::{
     DocumentRepository, Draft, DraftInfo, DraftRecoveryTarget, DraftStatus, StorageError,
@@ -122,6 +128,7 @@ pub struct Application<C, R> {
     documents: Documents<R>,
     preferences: PreferenceService,
     data_registry: DataRegistry,
+    property_data_readiness: properties::DataReadiness,
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -133,14 +140,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             documents: Documents::new(repository),
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
+            property_data_readiness: properties::DataReadiness::default(),
         }
     }
 
     /// Retains the checked data generation for the application lifetime.
     #[must_use]
     pub fn with_data_registry(self, data_registry: DataRegistry) -> Self {
+        let property_data_readiness = properties::data_readiness(&data_registry);
         Self {
             data_registry,
+            property_data_readiness,
             ..self
         }
     }

@@ -54,7 +54,15 @@ pub struct Case {
     pub requirements: Vec<String>,
     pub axis: String,
     pub kind: Kind,
+    /// A pinned synthetic input selected only by the offline conformance harness.
+    pub data_fixture: Option<DataFixture>,
     pub body: Body,
+}
+
+#[derive(Clone, Debug)]
+pub struct DataFixture {
+    pub id: String,
+    pub sha256: String,
 }
 
 #[derive(Clone, Debug)]
@@ -487,6 +495,7 @@ pub fn parse_case(value: &Value) -> Result<Case, Problem> {
             "requirements",
             "axis",
             "kind",
+            "data_fixture",
             "steps",
             "pending",
         ],
@@ -508,6 +517,35 @@ pub fn parse_case(value: &Value) -> Result<Case, Problem> {
         "accept" => Kind::Accept,
         "reject" => Kind::Reject,
         other => return Err(Problem::UnknownKind(other.to_owned())),
+    };
+    let data_fixture = match fields.get("data_fixture") {
+        None => None,
+        Some(Value::Object(fixture)) => {
+            only_fields(fixture, &["id", "sha256"])?;
+            let id = required_string(fixture, "id")?;
+            let sha256 = required_string(fixture, "sha256")?;
+            if id != "synthetic-carbon-nist-1"
+                || sha256.len() != 64
+                || !sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                return Err(Problem::WrongType {
+                    field: "data_fixture",
+                    expected: "a known synthetic fixture and its lowercase SHA-256",
+                });
+            }
+            Some(DataFixture {
+                id: id.to_owned(),
+                sha256: sha256.to_owned(),
+            })
+        }
+        Some(_) => {
+            return Err(Problem::WrongType {
+                field: "data_fixture",
+                expected: "a fixture identity object",
+            });
+        }
     };
     let body = match (fields.get("pending"), fields.get("steps")) {
         (Some(_), Some(_)) => return Err(Problem::PendingWithSteps),
@@ -531,6 +569,7 @@ pub fn parse_case(value: &Value) -> Result<Case, Problem> {
         requirements,
         axis: axis.to_owned(),
         kind,
+        data_fixture,
         body,
     })
 }

@@ -25,6 +25,9 @@ use crate::contract::{
 use crate::documents::validate_request_id;
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
+use crate::properties::{
+    self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
+};
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 
 /// The operation contract version this service speaks.
@@ -163,6 +166,8 @@ pub enum OperationResult {
     Closed(ClosedResult),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
+    /// `chem.properties` over one immutable document snapshot.
+    Properties(Box<PropertiesResult>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -176,6 +181,28 @@ pub struct ValenceAtom {
     pub atom_id: String,
     pub bond_order_sum: Option<u16>,
     pub hydrogens: Option<u16>,
+    pub status: &'static str,
+    pub reason: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropertiesResult {
+    pub snapshot: DocumentResult,
+    pub scope: &'static str,
+    pub selection: Option<SelectionDto>,
+    pub property: &'static str,
+    pub valence_model: &'static str,
+    pub arithmetic: &'static str,
+    pub mass_unit: Option<&'static str>,
+    pub display_decimals: u8,
+    pub data: Option<MassDataView>,
+    pub valence_warnings: Vec<PropertyValenceWarning>,
+    pub components: Vec<ComponentView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PropertyValenceWarning {
+    pub atom: String,
     pub status: &'static str,
     pub reason: Option<&'static str>,
 }
@@ -268,6 +295,17 @@ const fn missing(id: &'static str, followup: &'static str, note: &'static str) -
         representation: Representation::NotSupported,
         execution: Execution::NotImplemented,
         followup: Some(followup),
+        note,
+        commands: None,
+    }
+}
+
+const fn needs_data(id: &'static str, note: &'static str) -> Entry {
+    Entry {
+        id,
+        representation: Representation::Supported,
+        execution: Execution::RequiresData,
+        followup: None,
         note,
         commands: None,
     }
@@ -419,9 +457,19 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     .carried_out_by(&["update_settings"]),
 ];
 
-const PROPERTY_PARTS: [Entry; 2] = [
-    missing("formula", "P19", "No molecular formula is computed."),
-    missing("mass", "P19", "No average or exact mass is computed."),
+const PROPERTY_PARTS: [Entry; 3] = [
+    runs(
+        "formula",
+        "Hill formula and charge for a molecule, selection, or graph components under the bounded valence model.",
+    ),
+    needs_data(
+        "mass",
+        "A compatible checked mass registration is required; individual elements or isotopes may still be unavailable.",
+    ),
+    needs_data(
+        "isotope_distribution",
+        "A compatible checked isotope mass is required; natural distributions also need suitable abundances.",
+    ),
 ];
 
 fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
@@ -476,7 +524,10 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             &[],
         ),
         Op::ChemProperties => (
-            missing(id, "P19", "No chemical property is computed."),
+            runs(
+                id,
+                "Computes bounded formula and, with available external data, mass or isotope distribution from an immutable graph snapshot.",
+            ),
             &PROPERTY_PARTS,
         ),
         Op::ChemNameToStructure => (
@@ -564,6 +615,18 @@ struct CreateParameters {
 #[serde(deny_unknown_fields)]
 struct SnapshotParameters {
     document_id: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PropertiesParameters {
+    document_id: String,
+    scope: PropertiesScope,
+    property: PropertyKind,
+    #[serde(default)]
+    selection: Option<SelectionDto>,
+    #[serde(default)]
+    data_registration_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -750,6 +813,117 @@ fn malformed(
     )
 }
 
+fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
+    use chemifree_domain::mass::{FormulaError, MassError};
+    let mut details = Map::new();
+    let (unsupported, code, message) = match error {
+        PropertiesError::Formula(FormulaError::NoAtoms) => {
+            (false, "empty_scope", "The chosen scope contains no atoms.")
+        }
+        PropertiesError::Formula(
+            FormulaError::MissingSelection | FormulaError::InvalidSelection,
+        ) => (
+            false,
+            "invalid_selection",
+            "The selection is missing or contains unknown identifiers.",
+        ),
+        PropertiesError::Formula(FormulaError::UnknownAtom(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                false,
+                "invalid_selection",
+                "The selection names an unknown atom.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::QueryAtom(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "query_atom",
+                "A query atom does not determine an element for a formula.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::UnknownHydrogens(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "hydrogens_unavailable",
+                "The hydrogen count is not determined by the selected valence model.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::UnknownAttachment(atom)) => {
+            details.insert("atom".into(), atom.to_string().into());
+            (
+                true,
+                "attachment_unknown",
+                "An attachment point does not determine a complete formula.",
+            )
+        }
+        PropertiesError::Formula(FormulaError::CountOverflow) => (
+            false,
+            "resource_limit",
+            "Formula counts exceed the supported range.",
+        ),
+        PropertiesError::DataUnavailable => (
+            true,
+            "mass_data_unavailable",
+            "No selected, compatible external mass dataset is available.",
+        ),
+        PropertiesError::DataAmbiguous => (
+            false,
+            "mass_data_ambiguous",
+            "Select one compatible mass data registration.",
+        ),
+        PropertiesError::DataInvalid(reason) => {
+            details.insert("reason".into(), reason.into());
+            (
+                true,
+                "mass_data_invalid",
+                "The selected data cannot supply this mass profile.",
+            )
+        }
+        PropertiesError::Mass(reason) => {
+            let (code, message) = match reason {
+                MassError::MissingElement => (
+                    "missing_element_data",
+                    "The selected dataset lacks an element.",
+                ),
+                MassError::MissingIsotope => (
+                    "isotope_selection_unavailable",
+                    "The selected isotope or an unambiguous default is unavailable.",
+                ),
+                MassError::MissingAverage => (
+                    "average_mass_unavailable",
+                    "A defensible average mass is unavailable for an element.",
+                ),
+                MassError::MissingAbundance => (
+                    "abundance_unavailable",
+                    "The selected dataset cannot determine this isotope distribution.",
+                ),
+                MassError::InvalidData => (
+                    "mass_data_invalid",
+                    "The selected mass data contain an unsupported value.",
+                ),
+                MassError::ResourceLimit => (
+                    "resource_limit",
+                    "The isotope distribution exceeds its work or peak limit.",
+                ),
+                MassError::ProbabilityUnderflow => (
+                    "probability_underflow",
+                    "An isotope probability cannot be represented; no partial distribution is returned.",
+                ),
+            };
+            (reason != MassError::ResourceLimit, code, message)
+        }
+        PropertiesError::Display => (
+            false,
+            "numeric_precision_invalid",
+            "The mass display precision cannot be applied.",
+        ),
+    };
+    (unsupported, diagnostic(code, message, details))
+}
+
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// What this service supports of the operation contract, per operation and sub-operation.
     pub fn operation_catalog(&self) -> OperationCatalog {
@@ -765,7 +939,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|operation| {
                     let (entry, parts) = entry(operation);
-                    entry.view(parts)
+                    let mut support = entry.view(parts);
+                    if operation == OperationId::ChemProperties {
+                        for part in &mut support.sub_operations {
+                            let available = match part.id {
+                                "mass" => self.property_data_readiness.mass,
+                                "isotope_distribution" => self.property_data_readiness.distribution,
+                                _ => continue,
+                            };
+                            if available {
+                                part.execution = Execution::Executable.as_str();
+                            }
+                        }
+                    }
+                    support
                 })
                 .collect(),
         }
@@ -895,6 +1082,154 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.dispatch(&known, parameters_value)
     }
 
+    fn chemical_properties(
+        &self,
+        known: &Known,
+        parameters: PropertiesParameters,
+    ) -> OperationResponse {
+        if (parameters.scope == PropertiesScope::Selection) != parameters.selection.is_some() {
+            return known.invalid(diagnostic(
+                "invalid_selection",
+                "Selection scope requires an explicit selection; other scopes do not accept one.",
+                Map::new(),
+            ));
+        }
+        if parameters.property == PropertyKind::Formula && parameters.data_registration_id.is_some()
+        {
+            return known.invalid(diagnostic(
+                "invalid_request",
+                "Formula-only requests do not select mass data.",
+                Map::new(),
+            ));
+        }
+        let selection = match crate::contract::to_selection(&TransactionSelections {
+            before: parameters.selection.clone(),
+            after: None,
+        }) {
+            Ok(value) => value.before,
+            Err(error) => return known.invalid(failure(&error)),
+        };
+        let (snapshot, document) = match self.documents.analysis_snapshot(&parameters.document_id) {
+            Ok(snapshot) => snapshot,
+            Err(error) => return known.invalid(failure(&error)),
+        };
+        let precision = if parameters.property == PropertyKind::Formula {
+            0
+        } else {
+            match self.preferences.current() {
+                Ok(preferences) => preferences.mass_precision.decimals,
+                Err(error) => return known.invalid(failure(&error)),
+            }
+        };
+        let data = if parameters.property == PropertyKind::Formula {
+            None
+        } else {
+            match properties::select_data(
+                &self.data_registry,
+                parameters.data_registration_id.as_deref(),
+            ) {
+                Ok(data) => Some(data),
+                Err(error) => {
+                    let (unsupported, diagnostic) = property_failure(error);
+                    return if unsupported {
+                        known.unsupported(diagnostic)
+                    } else {
+                        known.invalid(diagnostic)
+                    };
+                }
+            }
+        };
+        let assessments = chemifree_domain::chemistry::inspect_valence(&document);
+        let inferred = assessments
+            .iter()
+            .filter(|state| state.finding == chemifree_domain::chemistry::Finding::Valid)
+            .filter_map(|state| state.hydrogen_count.map(|count| (state.atom, count)))
+            .collect();
+        let components = match properties::calculate(
+            &document,
+            parameters.scope.domain(),
+            selection.as_ref(),
+            &inferred,
+            parameters.property,
+            data.as_ref().map(|(_, table)| table),
+            precision,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                let (unsupported, diagnostic) = property_failure(error);
+                return if unsupported {
+                    known.unsupported(diagnostic)
+                } else {
+                    known.invalid(diagnostic)
+                };
+            }
+        };
+        let mut losses = Vec::new();
+        let included: std::collections::BTreeSet<_> = components
+            .iter()
+            .flat_map(|component| component.atoms.iter().map(String::as_str))
+            .collect();
+        let valence_warnings = assessments
+            .iter()
+            .filter(|state| {
+                state.finding != chemifree_domain::chemistry::Finding::Valid
+                    && included.contains(state.atom.to_string().as_str())
+            })
+            .map(|state| PropertyValenceWarning {
+                atom: state.atom.to_string(),
+                status: state.finding.as_str(),
+                reason: state.reason,
+            })
+            .collect();
+        for (index, component) in components.iter().enumerate() {
+            if component.mass.as_ref().is_some_and(|mass| {
+                !mass.average_omitted_abundances.is_empty()
+                    || !mass.exact_omitted_abundances.is_empty()
+            }) || !component.omitted_abundances.is_empty()
+            {
+                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+            }
+            if component
+                .mass
+                .as_ref()
+                .is_some_and(|mass| !mass.exact_natural_weight_fallbacks.is_empty())
+            {
+                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+            }
+        }
+        let revision = snapshot.document.revision;
+        let result = PropertiesResult {
+            snapshot: snapshot.into(),
+            scope: parameters.scope.as_str(),
+            selection: parameters.selection,
+            property: parameters.property.as_str(),
+            valence_model: chemifree_domain::chemistry::VALENCE_MODEL,
+            arithmetic: if parameters.property == PropertyKind::Formula {
+                "integer-composition"
+            } else {
+                "binary64-sequential-species-order; fixed display ties-to-even"
+            },
+            mass_unit: data.as_ref().map(|_| "u"),
+            display_decimals: precision,
+            data: data.map(|(view, _)| view),
+            valence_warnings,
+            components,
+        };
+        let mut response = known.reply(
+            if losses.is_empty() {
+                Outcome::Ok
+            } else {
+                Outcome::Partial
+            },
+            Some(revision),
+            Some(OperationResult::Properties(Box::new(result))),
+            Vec::new(),
+        );
+        response.model_id = Some("chemifree-properties-1".into());
+        response.loss_report = losses;
+        response
+    }
+
     fn dispatch(&self, known: &Known, parameters_value: Value) -> OperationResponse {
         use OperationId as Op;
         if known.profile == CompatibilityProfile::LegacyObserved
@@ -1005,9 +1340,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
+            Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
+                Ok(p) => self.chemical_properties(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
             Op::DocumentImport
             | Op::DocumentExport
-            | Op::ChemProperties
             | Op::ChemNameToStructure
             | Op::ChemStructureToName
             | Op::LayoutStructure
@@ -1020,5 +1358,426 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             | Op::IntegrationInvoke
             | Op::ScriptEvaluate => known.not_running(),
         }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use crate::{Draft, DraftRecoveryTarget, DraftStatus, StorageError, TrashEntry};
+    use chemifree_domain::document::{Document, DocumentId};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    struct TestCapabilities;
+    impl CapabilityCatalog for TestCapabilities {
+        fn capabilities(&self) -> Vec<chemifree_domain::Capability> {
+            Vec::new()
+        }
+    }
+    #[derive(Default)]
+    struct TestRepository(Mutex<BTreeMap<DocumentId, Document>>);
+    impl DocumentRepository for TestRepository {
+        fn allocate_id(&self) -> Result<DocumentId, StorageError> {
+            Ok(DocumentId::parse("fixture-document").unwrap())
+        }
+        fn list_ids(&self) -> Result<Vec<DocumentId>, StorageError> {
+            Ok(self.0.lock().unwrap().keys().cloned().collect())
+        }
+        fn load(&self, id: &DocumentId) -> Result<Option<Document>, StorageError> {
+            Ok(self.0.lock().unwrap().get(id).cloned())
+        }
+        fn save(&self, document: &Document, _base: Option<u64>) -> Result<(), StorageError> {
+            self.0
+                .lock()
+                .unwrap()
+                .insert(document.id().clone(), document.clone());
+            Ok(())
+        }
+        fn draft_status(&self, _id: &DocumentId) -> Result<DraftStatus, StorageError> {
+            Ok(DraftStatus::None)
+        }
+        fn write_draft(&self, _draft: &Draft) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn claim_draft(
+            &self,
+            _id: &DocumentId,
+        ) -> Result<Option<Result<Draft, String>>, StorageError> {
+            unreachable!()
+        }
+        fn prepare_draft_for_recovery(
+            &self,
+            _id: &DocumentId,
+            _target: DraftRecoveryTarget,
+        ) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn release_draft(&self, _id: &DocumentId) {
+            unreachable!()
+        }
+        fn remove_draft(&self, _id: &DocumentId) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn saved_at_ms(&self, _id: &DocumentId) -> Result<Option<u64>, StorageError> {
+            Ok(None)
+        }
+        fn trash(&self, _id: &DocumentId, _base: u64) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn restore(&self, _id: &DocumentId) -> Result<(), StorageError> {
+            unreachable!()
+        }
+        fn list_trash(&self) -> Result<Vec<TrashEntry>, StorageError> {
+            unreachable!()
+        }
+        fn load_trashed(&self, _id: &DocumentId) -> Result<Option<Document>, StorageError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn catalog_distinguishes_formula_from_data_backed_properties() {
+        let states = |app: &Application<TestCapabilities, TestRepository>| {
+            let catalog = app.operation_catalog();
+            let entry = catalog
+                .operations
+                .iter()
+                .find(|entry| entry.id == "chem.properties")
+                .unwrap();
+            let execution = |id| {
+                entry
+                    .sub_operations
+                    .iter()
+                    .find(|part| part.id == id)
+                    .unwrap()
+                    .execution
+            };
+            (
+                entry.execution,
+                execution("formula"),
+                execution("mass"),
+                execution("isotope_distribution"),
+            )
+        };
+        let empty = Application::new(TestCapabilities, TestRepository::default());
+        assert_eq!(
+            states(&empty),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let snapshot = crate::mass_data::tests::decode(&crate::mass_data::tests::fixture());
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(snapshot)));
+        let ready = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&ready),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut input = crate::mass_data::tests::synthetic_mass_input();
+        input.features.mass_unit = "unknown-unit".into();
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)));
+        let incompatible = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&incompatible),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut sparse = crate::mass_data::tests::fixture();
+        sparse["isotopes"] = json!([]);
+        sparse["isotope_count"] = json!(0);
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&sparse),
+        )));
+        let unusable = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&unusable),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let mut natural_only = crate::mass_data::tests::synthetic_mass_input();
+        natural_only.isotopes.clear();
+        natural_only.selections.clear();
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(
+            natural_only,
+        )));
+        let natural_only = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&natural_only),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        // P14 permits an exactly positive decimal whose binary64 witness underflows to 0.
+        // Such a table cannot supply a valid numeric mass merely because a row exists.
+        let mut underflow = crate::mass_data::tests::synthetic_mass_input();
+        underflow.isotopes.clear();
+        underflow.selections.clear();
+        for element in &mut underflow.elements {
+            element.natural_atomic_weight.binary64_bits = 0.0_f64.to_bits();
+        }
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(underflow)));
+        let underflow = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&underflow),
+            ("executable", "executable", "requires_data", "requires_data")
+        );
+
+        let out_of_range = |abundance: f64| {
+            let mut input = crate::mass_data::tests::synthetic_mass_input();
+            input.elements.truncate(1);
+            input.isotopes.truncate(1);
+            input.isotopes[0].mass_number_u32 = 1000;
+            input.isotopes[0].mass.binary64_bits = 1000.0_f64.to_bits();
+            input.isotopes[0].abundance_percent.binary64_bits = abundance.to_bits();
+            input.selections[0].mass_number_u32 = 1000;
+            crate::PersonalDataset::fixture(crate::ProfileRecords::MassInput(Box::new(input)))
+        };
+        let no_natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(0.0)]));
+        assert_eq!(
+            states(&no_natural_distribution),
+            ("executable", "executable", "executable", "requires_data")
+        );
+        let natural_distribution = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![out_of_range(100.0)]));
+        assert_eq!(
+            states(&natural_distribution),
+            ("executable", "executable", "executable", "executable")
+        );
+
+        let mut zero = crate::mass_data::tests::fixture();
+        zero["isotopes"][0]["isotopic_composition"]["value_decimal"] = json!("0");
+        zero["isotopes"][1]["isotopic_composition"]["value_decimal"] = json!("0");
+        let dataset = crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(
+            crate::mass_data::tests::decode(&zero),
+        )));
+        let labeled = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        assert_eq!(
+            states(&labeled),
+            ("executable", "executable", "executable", "executable")
+        );
+        let id = labeled
+            .create_document(None, Some("Labeled isotope"))
+            .unwrap()
+            .document
+            .id;
+        let call = |request_id: &str, operation: &str, parameters: Value| -> Value {
+            let request = json!({"contract":1,"request_id":request_id,"profile":"preserve-semantics","operation":operation,"parameters":parameters});
+            serde_json::to_value(labeled.execute(request.to_string().as_bytes())).unwrap()
+        };
+        assert_eq!(
+            call(
+                "draw-labeled",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"C","hydrogens":{"mode":"specified","count":0},"position":{"x":0,"y":0}}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        assert_eq!(
+            call(
+                "set-isotope",
+                "document.transaction",
+                json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","isotope":12}]})
+            )["outcome"],
+            "ok"
+        );
+        let fixed = call(
+            "fixed-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(fixed["outcome"], "ok", "{fixed}");
+        assert_eq!(
+            fixed["result"]["components"][0]["isotope_distribution"],
+            json!([{"mass_u":12.0,"mass_display":"12.00","probability":1.0}])
+        );
+        assert_eq!(
+            call(
+                "change-isotope",
+                "document.transaction",
+                json!({
+                    "document_id":id,"expected_revision":2,"commands":[{"op":"update_atom","atom":"a1","isotope":null}]
+                })
+            )["outcome"],
+            "ok"
+        );
+        let natural = call(
+            "natural-isotope",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(natural["outcome"], "unsupported");
+        assert!(natural["result"].is_null());
+
+        let valid = crate::PersonalDataset::named_fixture(
+            "valid",
+            crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                &crate::mass_data::tests::fixture(),
+            ))),
+        );
+        let mut bad = crate::mass_data::tests::synthetic_mass_input();
+        bad.features.mass_unit = "unknown-unit".into();
+        let invalid = crate::PersonalDataset::named_fixture(
+            "invalid",
+            crate::ProfileRecords::MassInput(Box::new(bad)),
+        );
+        let multiple = crate::DataRegistry::fixture(vec![valid, invalid]);
+        assert!(matches!(
+            properties::select_data(&multiple, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&multiple, Some("valid")).is_ok());
+        assert!(matches!(
+            properties::select_data(&multiple, Some("invalid")),
+            Err(properties::PropertiesError::DataInvalid(
+                "unsupported_mass_profile"
+            ))
+        ));
+        let mixed = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(multiple);
+        assert_eq!(
+            states(&mixed),
+            ("executable", "executable", "executable", "executable")
+        );
+        let make_valid = |id| {
+            crate::PersonalDataset::named_fixture(
+                id,
+                crate::ProfileRecords::Phase4Nist(Box::new(crate::mass_data::tests::decode(
+                    &crate::mass_data::tests::fixture(),
+                ))),
+            )
+        };
+        let both_valid =
+            crate::DataRegistry::fixture(vec![make_valid("first"), make_valid("second")]);
+        assert!(matches!(
+            properties::select_data(&both_valid, None),
+            Err(properties::PropertiesError::DataAmbiguous)
+        ));
+        assert!(properties::select_data(&both_valid, Some("first")).is_ok());
+        assert!(properties::select_data(&both_valid, Some("second")).is_ok());
+    }
+
+    #[test]
+    fn synthetic_external_profile_supplies_mass_with_honest_selection_and_charge_metadata() {
+        let snapshot = crate::mass_data::tests::decode(&crate::mass_data::tests::fixture());
+        let dataset =
+            crate::PersonalDataset::fixture(crate::ProfileRecords::Phase4Nist(Box::new(snapshot)));
+        let app = Application::new(TestCapabilities, TestRepository::default())
+            .with_data_registry(crate::DataRegistry::fixture(vec![dataset]));
+        let id = app
+            .create_document(None, Some("Fixture"))
+            .unwrap()
+            .document
+            .id;
+        let call = |request_id: &str, operation: &str, parameters: Value| -> Value {
+            let body = json!({"contract":1,"request_id":request_id,"profile":"preserve-semantics","operation":operation,"parameters":parameters});
+            serde_json::to_value(app.execute(body.to_string().as_bytes())).unwrap()
+        };
+        let added = call(
+            "add",
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":0,"commands":[
+                {"op":"add_atom","element":"C","hydrogens":{"mode":"specified","count":0},"position":{"x":0,"y":0}}
+            ]}),
+        );
+        assert_eq!(added["outcome"], "ok");
+        let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+        let preferences: crate::PreferencesChange = serde_json::from_value(json!({
+            "ui":{"theme":"system"}, "new_documents":{},
+            "computation":{"mass_precision":{"decimals":5}}
+        }))
+        .unwrap();
+        app.set_preferences(None, 0, preferences).unwrap();
+        let natural = call(
+            "natural",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(natural["outcome"], "partial", "{natural}");
+        assert_eq!(natural["result"]["display_decimals"], 5);
+        assert_eq!(
+            natural["result"]["components"][0]["mass"]["average_display"],
+            "12.01074"
+        );
+        assert_eq!(
+            natural["result"]["data"]["dataset_id"],
+            "synthetic-public-values"
+        );
+        assert_eq!(
+            natural["result"]["data"]["source_schema_id"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            natural["result"]["data"]["calculation_profile"],
+            "chemifree-nist-representative-1"
+        );
+        assert_eq!(natural["result"]["components"][0]["mass"]["exact_u"], 12.0);
+        assert_eq!(
+            natural["result"]["components"][0]["mass"]["exact_selections"][0]["basis"],
+            "maximum_reported_fraction"
+        );
+        assert_eq!(
+            natural["result"]["components"][0]["omitted_abundances"][0]["isotope"],
+            14
+        );
+        assert_eq!(
+            natural["loss_report"][0]["feature"],
+            "unreported_isotope_abundances"
+        );
+        assert_eq!(
+            serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+            before
+        );
+        app.reset_preferences(None, 1).unwrap();
+        let after_reset = call(
+            "natural-after-reset",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"distribution"}),
+        );
+        assert_eq!(after_reset["outcome"], "partial", "{after_reset}");
+        assert_eq!(after_reset["result"]["display_decimals"], 2);
+        assert_eq!(
+            after_reset["result"]["components"][0]["mass"]["average_display"],
+            "12.01"
+        );
+        assert_eq!(
+            natural["result"]["display_decimals"], 5,
+            "a previous mass result is unchanged"
+        );
+
+        let updated = call(
+            "isotope",
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","isotope":13,"charge":1}]}),
+        );
+        assert_eq!(updated["outcome"], "ok");
+        let labeled = call(
+            "labeled",
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"masses","data_registration_id":"synthetic-test"}),
+        );
+        assert_eq!(labeled["outcome"], "ok", "{labeled}");
+        let exact = labeled["result"]["components"][0]["mass"]["exact_u"]
+            .as_f64()
+            .unwrap();
+        assert!(
+            (exact - (13.00335483507 - crate::mass_data::CODATA_2022_ELECTRON_MASS_U)).abs()
+                < 1e-12
+        );
+        assert_eq!(
+            labeled["result"]["components"][0]["mass"]["exact_selections"][0]["basis"],
+            "explicit_isotope"
+        );
     }
 }

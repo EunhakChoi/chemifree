@@ -180,19 +180,16 @@
     },
     {
       "id": "formula-and-mass",
-      "title": "Molecular formula and mass of a drawn structure",
+      "title": "Formula and isotope masses use one unchanged graph and a pinned synthetic public-reference fixture",
       "requirements": [
         "CHEM-01"
       ],
       "axis": "numeric",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P19",
-        "reason": "No formula or mass calculation exists yet."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "6738f16f609471ff710d71722700dd20ab2fe41ae1e32d7f13fb4272f0a98d4b"
+      "case_sha256": "b044889bc9385ca9c7e46a227da578b185464f5fcebf983e88de1ae9871074cd"
     },
     {
       "id": "molfile-round-trip",
@@ -318,7 +315,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "3c726eec15d45f02ed4b5929f582f8df3ee6858ad10d86660abd3229514acc10"
+      "case_sha256": "2b8e700112d139480918bfb2aeeaed30435e551a12fa2ee18ccfa72fb443ff80"
     },
     {
       "id": "operation-errors-match-v1",
@@ -345,7 +342,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "4f29422a6c96aafa60021555d03039e95bdbf315415cefa9e8184f098d2718d3"
+      "case_sha256": "83f18707d6811f6da8d3a0301aa5242f879b18164c9400258a856d0941591964"
     },
     {
       "id": "operation-version-refused",
@@ -417,9 +414,9 @@
   ],
   "counts": {
     "accept": {
-      "passed": 16,
+      "passed": 17,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     },
     "reject": {
       "passed": 12,
@@ -427,9 +424,9 @@
       "not_run": 0
     },
     "total": {
-      "passed": 28,
+      "passed": 29,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     }
   }
 }

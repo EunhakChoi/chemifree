@@ -118,6 +118,8 @@ const suffix = process.platform === 'win32' ? '.exe' : ''
 const cliPath = resolve(metadata.target_directory, 'debug', `chemifree${suffix}`)
 const apiPath = resolve(metadata.target_directory, 'debug', `chemifree-api${suffix}`)
 const env = { ...process.env, CHEMIFREE_DATA_DIR: dataDir }
+delete env.CHEMIFREE_MODEL_DATA_ROOT
+delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
 
 /**
  * Starts a process and resolves once its output matches `ready`. The match ignores terminal
@@ -320,17 +322,63 @@ assert.ok(Math.abs(Math.hypot(a4.position.x - a3pos.x, a4.position.y - a3pos.y) 
 results.add_atoms_and_bonds = true
 step = 'after add_atoms_and_bonds'
 
+// The property panel reads the same graph without editing it, and invalidates an answer
+// when that graph changes. The service has no external mass data in this smoke run.
+const properties = page.getByRole('region', { name: 'Molecular properties' })
+const beforeFormula = await openDoc()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+assert.deepEqual(await openDoc(), beforeFormula, 'calculation does not change document or history')
+await properties.getByText('Method and data', { exact: true }).click()
+assert.equal(await properties.getByText(/display: .* decimal places/).count(), 0, 'formula does not claim a mass precision')
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+const propertyPreferences = page.getByRole('dialog', { name: 'Preferences' })
+await propertyPreferences.waitFor()
+let propertyPreferenceWrite = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/preferences' && response.request().method() === 'PUT')
+await propertyPreferences.getByLabel('Mass display decimal places').click()
+await page.getByRole('option', { name: '5', exact: true }).click()
+assert.equal((await propertyPreferenceWrite).status(), 200)
+await propertyPreferences.getByRole('button', { name: 'Done' }).click()
+await propertyPreferences.waitFor({ state: 'hidden' })
+assert.equal((await api('/api/v1/preferences')).computation.mass_precision.decimals, 5)
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C4H10', { exact: false }).waitFor()
+await properties.getByText('Method and data', { exact: true }).click()
+assert.equal(await properties.getByText(/display: .* decimal places/).count(), 0, 'a new formula also has no mass precision')
+await properties.screenshot({ path: join(outDir, 'editor-properties.png') })
+await page.getByRole('button', { name: 'Preferences', exact: true }).click()
+await propertyPreferences.waitFor()
+propertyPreferenceWrite = page.waitForResponse((response) => response.url().endsWith('/api/v1/preferences/reset'))
+await propertyPreferences.getByRole('button', { name: 'Reset preferences' }).click()
+assert.equal((await propertyPreferenceWrite).status(), 200)
+await propertyPreferences.getByRole('button', { name: 'Done' }).click()
+await propertyPreferences.waitFor({ state: 'hidden' })
+
 // Atom tool: O element, click a4 to relabel it.
 await page.getByRole('button', { name: 'Element O' }).click()
+await canvas.scrollIntoViewIfNeeded()
 let a4s = await atomScreen(doc, 'a4')
 await page.mouse.click(a4s.x, a4s.y)
 await waitIdle()
 doc = await openDoc()
 assert.equal(doc.document.atoms.find((atom) => atom.id === 'a4').element, 'O')
 await page.locator('[data-atom-label="a4"]').waitFor()
+assert.equal(await properties.getByTestId('properties-result').count(), 0, 'a changed graph hides the earlier formula')
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByTestId('properties-result').getByText('C3H8O', { exact: false }).waitFor()
+await properties.getByLabel('Result').click()
+await page.getByRole('option', { name: 'Formula and mass', exact: true }).click()
+await properties.getByRole('button', { name: 'Calculate', exact: true }).click()
+await properties.getByText('No selected, compatible external mass dataset is available.', { exact: true }).waitFor()
+await properties.getByLabel('Result').click()
+await page.getByRole('option', { name: 'Formula', exact: true }).click()
+results.property_formula_and_missing_data = true
 
 // Select a4, set charge and isotope in the inspector.
 await tool('Select and move')
+await canvas.scrollIntoViewIfNeeded()
+a4s = await atomScreen(doc, 'a4')
 await page.mouse.click(a4s.x, a4s.y)
 await page.getByRole('heading', { name: 'Atom a4' }).waitFor()
 await page.getByRole('button', { name: 'Decrease charge' }).click()
@@ -1518,14 +1566,14 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '9 of 21 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '10 of 21 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
-for (const [id, followup] of [['chem.properties', 'P19']]) {
-  const row = operationRow(id)
-  assert.equal(await row.locator('[data-execution]').getAttribute('data-execution'), 'not_implemented', `${id} is not shown as running`)
-  assert.equal(await row.getByRole('cell').nth(3).textContent(), followup, `${id} names its follow-up`)
+assert.equal(await operationRow('chem.properties').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.properties/formula').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+for (const id of ['chem.properties/mass', 'chem.properties/isotope_distribution']) {
+  assert.equal(await operationRow(id).locator('[data-execution]').getAttribute('data-execution'), 'requires_data', `${id} needs compatible data`)
 }
 assert.equal(await operationRow('chem.validate').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
@@ -2384,9 +2432,14 @@ step = 'after scene_group_and_queued_delete_selection'
   await prefs.getByLabel('Theme').click()
   await page.getByRole('option', { name: 'Dark', exact: true }).click()
   assert.equal((await written).status(), 200)
+  written = preferenceWrite()
+  await prefs.getByLabel('Mass display decimal places').click()
+  await page.getByRole('option', { name: '5', exact: true }).click()
+  assert.equal((await written).status(), 200)
   await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
   const stored = await api('/api/v1/preferences')
   assert.deepEqual([stored.ui.theme, stored.new_documents], ['dark', { label_font: 'monospace' }])
+  assert.equal(stored.computation.mass_precision.decimals, 5)
   await prefs.getByRole('button', { name: 'Done' }).click()
   await prefs.waitFor({ state: 'hidden' })
   assert.deepEqual((await styledDoc()).settings, edited, 'preferences never change an open document')
@@ -2415,6 +2468,7 @@ step = 'after scene_group_and_queued_delete_selection'
   await prefs.getByRole('button', { name: 'Done' }).click()
   await prefs.waitFor({ state: 'hidden' })
   assert.deepEqual((await api('/api/v1/preferences')).new_documents, {})
+  assert.equal((await api('/api/v1/preferences')).computation.mass_precision.decimals, 2)
 }
 results.document_style_and_preferences = true
 step = 'after document_style_and_preferences'

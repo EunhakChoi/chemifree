@@ -165,6 +165,7 @@ name = "chemifree-application"
 version = "0.1.0"
 dependencies = [
  "chemifree-domain",
+ "chemifree-numerics",
  "chemifree-providers",
  "num-bigint",
  "roxmltree",
