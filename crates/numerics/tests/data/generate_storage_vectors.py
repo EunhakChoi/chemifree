@@ -21,6 +21,14 @@ def _real48_bytes(exponent: int, fraction: int, negative: bool) -> bytes:
     return bytes([exponent + 129]) + fraction_and_sign.to_bytes(5, "little")
 
 
+def _extended_bytes(exponent: int, fraction: int, negative: bool) -> bytes:
+    significand = fraction | (int(exponent != 0) << 63)
+    signed_exponent = exponent | (int(negative) << 15)
+    return significand.to_bytes(8, "little") + signed_exponent.to_bytes(
+        2, "little"
+    )
+
+
 def _ieee_value(bits: int, width: int) -> Fraction:
     code = "<f" if width == 4 else "<d"
     number = struct.unpack(code, bits.to_bytes(width, "little"))[0]
@@ -40,6 +48,14 @@ def _real48_value(code: int) -> Fraction:
         return Fraction(0)
     fraction = code & ((1 << 39) - 1)
     return Fraction((1 << 39) + fraction) * _power_of_two(exponent - 168)
+
+
+def _extended_value(code: int) -> Fraction:
+    exponent = code >> 63
+    fraction = code & ((1 << 63) - 1)
+    if exponent == 0:
+        return Fraction(fraction) * _power_of_two(-16445)
+    return Fraction((1 << 63) + fraction) * _power_of_two(exponent - 16446)
 
 
 def _nearest_code(
@@ -67,9 +83,9 @@ def _nearest_code(
     return high if ties_away or low & 1 else low
 
 
-def _sampled_vectors() -> list[str]:
-    """Build fixed rational samples with independent neighbor search."""
-    result: list[str] = []
+def _samples() -> list[Fraction]:
+    """Build portable deterministic rational samples."""
+    result = []
     for index in range(64):
         seed = hashlib.sha256(
             b"chemifree-numeric-v1:" + index.to_bytes(4, "little")
@@ -77,7 +93,16 @@ def _sampled_vectors() -> list[str]:
         numerator = int.from_bytes(seed[:4], "little") % ((1 << 31) - 1) + 1
         denominator = int.from_bytes(seed[4:8], "little") % ((1 << 31) - 1) + 1
         exponent = int.from_bytes(seed[8:10], "little") % 161 - 80
-        value = Fraction(numerator, denominator) * _power_of_two(exponent)
+        result.append(
+            Fraction(numerator, denominator) * _power_of_two(exponent)
+        )
+    return result
+
+
+def _sampled_vectors() -> list[str]:
+    """Build fixed rational samples with independent neighbor search."""
+    result: list[str] = []
+    for value in _samples():
         real_code = _nearest_code(
             value, (1 << 47) - 1, _real48_value, ties_away=True
         )
@@ -117,6 +142,53 @@ def _sampled_vectors() -> list[str]:
                     (f64_code | (int(negative) << 63)).to_bytes(8, "little"),
                 )
             )
+    return result
+
+
+def _extended_vectors() -> list[str]:
+    """Construct extended neighbors and search for general rational values."""
+    result: list[str] = []
+    positions = (
+        Fraction(0),
+        Fraction(1, 4),
+        Fraction(1, 2),
+        Fraction(3, 4),
+        Fraction(1),
+    )
+    for exponent in (-2, -1, 0, 1, 2):
+        step = _power_of_two(exponent - 63)
+        for fraction in (0, 1, 1 << 62, (1 << 63) - 2):
+            lower = (Fraction(1 << 63) + fraction) * step
+            for position in positions:
+                value = lower + step * position
+                up = position > Fraction(1, 2) or (
+                    position == Fraction(1, 2) and fraction & 1 != 0
+                )
+                result.extend(
+                    _row(
+                        "extended80",
+                        negative,
+                        value,
+                        _extended_bytes(
+                            exponent + 16383, fraction + int(up), negative
+                        ),
+                    )
+                    for negative in (False, True)
+                )
+    maximum = (0x7FFE << 63) | ((1 << 63) - 1)
+    for value in _samples():
+        code = _nearest_code(value, maximum, _extended_value, ties_away=False)
+        exponent = code >> 63
+        fraction = code & ((1 << 63) - 1)
+        result.extend(
+            _row(
+                "extended80",
+                negative,
+                value,
+                _extended_bytes(exponent, fraction, negative),
+            )
+            for negative in (False, True)
+        )
     return result
 
 
@@ -215,7 +287,8 @@ def _vectors() -> str:
                 _row(profile, negative, Fraction(2, 3), bytes(expected_bytes))
             )
     result.extend(_sampled_vectors())
-    assert len(result) == 851
+    result.extend(_extended_vectors())
+    assert len(result) == 1179
     return "".join(result)
 
 

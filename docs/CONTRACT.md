@@ -76,9 +76,9 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 
 Unknown parameters are `invalid_request` (`path: "parameters"`). Every other operation name the catalog lists (`document.import`, `document.export`, `chem.validate`, `chem.properties`, `chem.name_to_structure`, `chem.structure_to_name`, `layout.structure`, `layout.reaction`, `render.scene`, `biopolymer.expand`, `prediction.evaluate`, `integration.invoke`, `script.evaluate`) is answered `outcome: "unsupported"` with `details: { execution, followup }`, whatever its parameters. Prediction uses the diagnostic `model_unavailable`; the other operations use `operation_not_implemented`: nothing is computed and no placeholder result is returned. Semantics match the v1 routes: the same `request_id` replay and reuse rules, revisions, sessions, and saving. An operation that fails reports the v1 error code as its diagnostic (`revision_conflict`, `document_not_found`, `storage_failed`, …), with `details.current_revision`, `details.command_index`, and `details.reason` where the v1 envelope has them.
 
-## Numeric storage foundation (P15 in progress)
+## Numeric foundation (P15 in progress)
 
-The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32 and binary64 raw storage. Finite conversions use each documented rounding rule and report nonfinite input, overflow or resource limits explicitly. These types do not add an HTTP or CLI chemistry operation. Extended-precision arithmetic, unit conversions and output formatting remain unimplemented; the exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
+The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32, binary64 and 80-bit extended raw storage. Finite conversions and basic arithmetic use each documented rounding rule at explicit intermediate stores, and report nonfinite input, invalid encodings, division by zero, overflow or resource limits. These types do not add an HTTP or CLI chemistry operation. Specific ordered expressions, unit conversions and output formatting remain unimplemented; the exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
 
 ## External DATA status
 
