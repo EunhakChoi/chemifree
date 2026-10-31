@@ -11,6 +11,7 @@ pub mod operation;
 pub mod rings;
 pub mod scene;
 pub mod settings;
+pub mod smiles;
 pub mod states;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
