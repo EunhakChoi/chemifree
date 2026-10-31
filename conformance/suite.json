@@ -1,5 +1,5 @@
 {
-  "suite_version": 6,
+  "suite_version": 9,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",

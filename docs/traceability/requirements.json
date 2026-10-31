@@ -145,9 +145,19 @@
           "id": "MODEL-02.4",
           "summary": "A bounded named valence policy reports additional hydrogens and uncertain states without changing the drawing.",
           "status": "partial",
-          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs", "apps/web/src/components/document-workspace.tsx"],
-          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P17"]
+          "implementation": [
+            "crates/domain/src/chemistry.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "case:valence-snapshot",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
         },
         {
           "id": "MODEL-02.5",
@@ -296,11 +306,27 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-03.v2000-basic",
+          "summary": "Bounded V2000 MOL/SDF element graph and SD data conversion, with atomic preview/import and source-index maps. Query, stereo and V3000 remain outside this part.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/ctfile.rs",
+            "crates/application/src/ct_projection.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:molfile-round-trip",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-03.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "V3000, query/stereo semantics and advanced MOL/SDF features remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -379,11 +405,25 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-06.v2000-policy",
+          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/ctfile.rs",
+            "crates/application/src/ct_projection.rs"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Unknown and unsupported objects in other formats remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -643,9 +683,18 @@
           "id": "CHEM-02.1",
           "summary": "The bounded valence inspector distinguishes invalid and unsupported atom states with structured warnings and preserves the source graph and history.",
           "status": "partial",
-          "implementation": ["crates/domain/src/chemistry.rs", "crates/application/src/operations.rs"],
-          "evidence": ["case:valence-snapshot", "check:check:rust", "check:test:contracts"],
-          "followups": ["P17"]
+          "implementation": [
+            "crates/domain/src/chemistry.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:valence-snapshot",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
         },
         {
           "id": "CHEM-02.2",
