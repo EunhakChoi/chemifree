@@ -1,5 +1,5 @@
 //! Infrastructure implementations of application-owned ports.
-//! No chemistry engines are included. User documents and preferences are local JSON files;
+//! No prediction engines are included here. User documents and preferences are local JSON files;
 //! explicitly selected external data is checked through an application-owned registry.
 
 mod data_directory;
@@ -39,13 +39,13 @@ impl CapabilityCatalog for LocalCapabilities {
                 id: DocumentEditing,
                 label: "Document editing",
                 status: Available,
-                description: "Create drawings and add, edit, move, or delete atoms (element, charge, isotope) and single/double/triple bonds, with atomic transactions and undo/redo. Drawing only: no valence, aromaticity, stereo, or layout perception.",
+                description: "Create and edit drawings with atomic transactions and undo/redo. Edits record states as drawn; bounded valence inspection is a separate operation.",
             },
             Capability {
                 id: StructureAnalysis,
                 label: "Structure analysis",
                 status: NotImplemented,
-                description: "No chemical calculations, validation, or prediction engine is connected.",
+                description: "Read-only valence inspection covers a limited model; broader chemical analysis and prediction are not implemented.",
             },
             Capability {
                 id: FormatConversion,
