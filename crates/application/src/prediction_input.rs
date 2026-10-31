@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use num_bigint::BigUint;
 use serde::de::DeserializeOwned;
 
 use crate::{json, phase6_profiles, prediction_wire as wire};
@@ -86,8 +87,8 @@ fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, PredictionInputError> {
     if bytes.len() as u64 > crate::MAX_DATA_FILE_BYTES || bytes.starts_with(b"\xef\xbb\xbf") {
         return Err(PredictionInputError::Shape);
     }
-    let value = json::parse_integer_zero_strict(bytes).map_err(|_| PredictionInputError::Shape)?;
-    serde_json::from_value(value).map_err(|_| PredictionInputError::Shape)
+    json::validate_raw_strict(bytes).map_err(|_| PredictionInputError::Shape)?;
+    serde_json::from_slice(bytes).map_err(|_| PredictionInputError::Shape)
 }
 
 /// Decodes all required files together; malformed members refuse the entire set.
@@ -133,15 +134,15 @@ fn digest(text: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn bounded(offset: u64, bytes: u64, parent: u64) -> bool {
-    bytes > 0 && offset.checked_add(bytes).is_some_and(|end| end <= parent)
+fn bounded(offset: &BigUint, bytes: &BigUint, parent: &BigUint) -> bool {
+    bytes != &BigUint::from(0_u8) && offset + bytes <= *parent
 }
-fn function_span(span: &wire::FunctionEnvelope, parent: u64) -> bool {
+fn function_span(span: &wire::FunctionEnvelope, parent: &BigUint) -> bool {
     nonblank(&span.evidence_file)
         && nonblank(&span.binding_scope)
         && digest(&span.evidence_sha256)
         && span.source_file_offset_start < span.source_file_offset_end_exclusive
-        && span.source_file_offset_end_exclusive <= parent
+        && &span.source_file_offset_end_exclusive <= parent
 }
 fn unique<T: Eq + std::hash::Hash>(mut items: impl Iterator<Item = T>) -> bool {
     let mut seen = HashSet::new();
@@ -174,7 +175,7 @@ impl PredictionInputs {
             .collect();
         pka_family_sizes.sort_unstable();
         if !nonblank(&features.schema_id)
-            || features.version == 0
+            || features.version == BigUint::from(0_u8)
             || !features.row_order_is_data_identity_not_code_dispatch
             || features.original_atom_type_rules_or_pass_sequence_included
             || features.original_code_or_cfg_included
@@ -230,7 +231,7 @@ impl PredictionInputs {
                     .table
                     .rows
                     .iter()
-                    .map(|row| row.row_ordinal),
+                    .map(|row| &row.row_ordinal),
             )
         {
             return Err(PredictionInputError::Inconsistent);
@@ -241,7 +242,7 @@ impl PredictionInputs {
                     .rows
                     .iter()
                     .map(|row| (row.key_u64, &row.parameter_family)),
-            ) || !unique(table.rows.iter().map(|row| row.row_ordinal))
+            ) || !unique(table.rows.iter().map(|row| &row.row_ordinal))
             {
                 return Err(PredictionInputError::Inconsistent);
             }
@@ -250,17 +251,17 @@ impl PredictionInputs {
             let good = match table {
                 wire::SigmaTable::Damping(table) => {
                     unique(table.rows.iter().map(|row| row.key_u64))
-                        && unique(table.rows.iter().map(|row| row.row_ordinal))
+                        && unique(table.rows.iter().map(|row| &row.row_ordinal))
                 }
                 wire::SigmaTable::Orbital(table) => {
                     unique(table.rows.iter().map(|row| row.key_u64))
-                        && unique(table.rows.iter().map(|row| row.row_ordinal))
+                        && unique(table.rows.iter().map(|row| &row.row_ordinal))
                 }
                 wire::SigmaTable::ElementCubic(table) => {
                     table.shape_per_element == [3, 4]
                         && table.rows.len() as u64 == features.peoe_element_tensor_shape[0]
                         && unique(table.rows.iter().map(|row| row.atomic_number_u32))
-                        && unique(table.rows.iter().map(|row| row.row_ordinal))
+                        && unique(table.rows.iter().map(|row| &row.row_ordinal))
                 }
             };
             if !good {
@@ -278,14 +279,14 @@ impl PredictionInputs {
                 .table
                 .rows
                 .iter()
-                .map(|row| row.row_ordinal),
+                .map(|row| &row.row_ordinal),
         ) || !unique(
             self.xlogp
                 .table
                 .rows
                 .iter()
-                .map(|row| (&row.kind, row.index)),
-        ) || !unique(self.xlogp.table.rows.iter().map(|row| row.row_ordinal))
+                .map(|row| (&row.kind, &row.index)),
+        ) || !unique(self.xlogp.table.rows.iter().map(|row| &row.row_ordinal))
             || self.accessibility.distance_denominators.iter().any(|row| {
                 (1..=5).contains(&row.graph_distance_u32)
                     && f64::from_bits(row.denominator_f64.bits) == 0.0
@@ -331,7 +332,7 @@ impl PredictionInputs {
 
     fn validate_sources(&self) -> Result<(), PredictionInputError> {
         let source = &self.sources;
-        let size = source.source.bytes;
+        let size = &source.source.bytes;
         let evidence = [
             &source.static_literal_profile,
             &source.parameter_bindings,
@@ -339,7 +340,7 @@ impl PredictionInputs {
         ];
         if !nonblank(&source.record_id)
             || !nonblank(&source.source.file_name)
-            || size == 0
+            || size == &BigUint::from(0_u8)
             || !digest(&source.source.sha256)
             || !source.inert_lineage_only
             || !source.offsets_are_not_dispatch_entries
@@ -357,14 +358,14 @@ impl PredictionInputs {
                 .literal_radius_cells
                 .iter()
                 .any(|cell| {
-                    !digest(&cell.sha256) || !bounded(cell.source_file_offset, cell.bytes, size)
+                    !digest(&cell.sha256) || !bounded(&cell.source_file_offset, &cell.bytes, size)
                 })
             || source
                 .regression_cell_bounds
                 .values()
                 .flatten()
                 .any(|cell| {
-                    !digest(&cell.sha256) || !bounded(cell.source_file_offset, cell.bytes, size)
+                    !digest(&cell.sha256) || !bounded(&cell.source_file_offset, &cell.bytes, size)
                 })
         {
             return Err(PredictionInputError::Inconsistent);
@@ -374,19 +375,16 @@ impl PredictionInputs {
                 wire::TableBounds::Bytes(span) => {
                     nonblank(&span.binding_scope)
                         && digest(&span.sha256)
-                        && span.row_width_bytes > 0
-                        && span
-                            .row_width_bytes
-                            .checked_mul(span.row_count)
-                            .is_some_and(|size| size <= span.bytes)
-                        && bounded(span.source_file_offset_start, span.bytes, size)
+                        && span.row_width_bytes != BigUint::from(0_u8)
+                        && &span.row_width_bytes * &span.row_count <= span.bytes
+                        && bounded(&span.source_file_offset_start, &span.bytes, size)
                 }
                 wire::TableBounds::Function(span) => {
                     nonblank(&span.evidence_file)
                         && nonblank(&span.binding_scope)
                         && digest(&span.evidence_sha256)
                         && span.source_file_offset_start < span.source_file_offset_end_exclusive
-                        && span.source_file_offset_end_exclusive <= size
+                        && &span.source_file_offset_end_exclusive <= size
                         && span
                             .literal_argument_envelopes
                             .as_ref()
@@ -396,7 +394,8 @@ impl PredictionInputs {
                                         < row.source_file_offset_end_exclusive
                                         && span
                                             .row_count
-                                            .is_none_or(|count| row.row_ordinal < count)
+                                            .as_ref()
+                                            .is_none_or(|count| &row.row_ordinal < count)
                                         && row.source_file_offset_start
                                             >= span.source_file_offset_start
                                         && row.source_file_offset_end_exclusive
@@ -405,9 +404,10 @@ impl PredictionInputs {
                             })
                         && span
                             .zero_shift_default_source_file_offset
+                            .as_ref()
                             .is_none_or(|offset| {
-                                offset >= span.source_file_offset_start
-                                    && offset < span.source_file_offset_end_exclusive
+                                offset >= &span.source_file_offset_start
+                                    && offset < &span.source_file_offset_end_exclusive
                             })
                 }
             };

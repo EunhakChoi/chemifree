@@ -136,12 +136,18 @@ fn a_source_row_can_retain_multiple_distinct_literal_envelopes() {
     let spans = source.literal_argument_envelopes.as_ref().unwrap();
     assert_eq!(spans.len(), 2);
     assert_eq!(
-        (spans[0].row_ordinal, spans[0].source_file_offset_start),
-        (1, 2)
+        (
+            spans[0].row_ordinal.to_string(),
+            spans[0].source_file_offset_start.to_string()
+        ),
+        ("1".to_owned(), "2".to_owned())
     );
     assert_eq!(
-        (spans[1].row_ordinal, spans[1].source_file_offset_start),
-        (1, 6)
+        (
+            spans[1].row_ordinal.to_string(),
+            spans[1].source_file_offset_start.to_string()
+        ),
+        ("1".to_owned(), "6".to_owned())
     );
 }
 

@@ -4,6 +4,7 @@
 //! unnoticed.
 
 use std::fmt;
+use std::marker::PhantomData;
 use std::str::FromStr;
 
 use num_bigint::{BigInt, BigUint};
@@ -101,6 +102,43 @@ where
 {
     Vec::<Integer<T>>::deserialize(deserializer)
         .map(|values| values.into_iter().map(|value| value.0).collect())
+}
+
+/// Reads exactly `N` integer tokens without buffering an unbounded array.
+pub(crate) fn deserialize_integer_array<'de, D, T, const N: usize>(
+    deserializer: D,
+) -> Result<[T; N], D::Error>
+where
+    D: Deserializer<'de>,
+    T: IntegerToken,
+{
+    struct ArrayVisitor<T, const N: usize>(PhantomData<T>);
+
+    impl<'de, T: IntegerToken, const N: usize> Visitor<'de> for ArrayVisitor<T, N> {
+        type Value = [T; N];
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "an array of {N} exact integers")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut values = Vec::with_capacity(N);
+            for index in 0..N {
+                let Integer(value) = sequence
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(index, &self))?;
+                values.push(value);
+            }
+            if sequence.next_element::<de::IgnoredAny>()?.is_some() {
+                return Err(de::Error::invalid_length(N + 1, &self));
+            }
+            values
+                .try_into()
+                .map_err(|_| de::Error::custom("invalid fixed array length"))
+        }
+    }
+
+    deserializer.deserialize_seq(ArrayVisitor::<T, N>(PhantomData))
 }
 
 /// Parses `bytes` as JSON, refusing duplicate keys at any depth.
