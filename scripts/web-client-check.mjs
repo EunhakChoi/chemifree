@@ -1857,7 +1857,9 @@ test('SMILES preview exposes the returned snapshot and UTF-8 syntax offsets', as
   const actual = document('doc-1', 1)
   actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
   service({ '/api/v1/operations': [
-    () => json(200, { outcome: 'partial', model_id: 'chemifree-smiles-basic-1', diagnostics: [], loss_report: [],
+    () => json(200, { outcome: 'partial', document_revision: 1, model_id: 'chemifree-smiles-basic-1', diagnostics: [], loss_report: [],
+      result: { preview_digest: 'a'.repeat(64), atoms: 1, bonds: 0, snapshot: actual, document: actual.document } }),
+    () => json(200, { outcome: 'partial', document_revision: 2, model_id: 'chemifree-smiles-basic-1', diagnostics: [], loss_report: [],
       result: { preview_digest: 'a'.repeat(64), atoms: 1, bonds: 0, snapshot: actual, document: actual.document } }),
     () => json(200, { outcome: 'error', result: null, diagnostics: [{ code: 'invalid_bracket_atom', message: 'Invalid.',
       details: { start_byte: 2, end_byte: 4 } }], loss_report: [] }),
@@ -1867,6 +1869,7 @@ test('SMILES preview exposes the returned snapshot and UTF-8 syntax offsets', as
   const shown = structuredClone(result.snapshot)
   shown.atoms[0].element = 'C'
   assert.equal(sameConversionSnapshot(shown, result.snapshot), false)
+  await assert.rejects(client.previewSmiles('doc-1', 1, 'O'), { code: 'incompatible_response' })
   await assert.rejects(client.previewSmiles('doc-1', 1, '[Cé]'), {
     code: 'invalid_bracket_atom', message: 'Invalid. UTF-8 bytes 2–4.',
   })

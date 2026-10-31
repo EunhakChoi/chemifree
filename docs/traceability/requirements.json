@@ -383,9 +383,7 @@
       "summary": "Line notations (SMILES, InChI) are interpreted, distinguishing string equality from chemical equality and reporting loss.",
       "operations": [
         "document.import",
-        "document.export",
-        "chem.smiles_read",
-        "chem.smiles_write"
+        "document.export"
       ],
       "status": "partial",
       "parts": [
@@ -421,9 +419,7 @@
       "summary": "Unknown objects and properties are preserved, refused or reported according to a stated policy.",
       "operations": [
         "document.import",
-        "document.export",
-        "chem.smiles_read",
-        "chem.smiles_write"
+        "document.export"
       ],
       "status": "partial",
       "parts": [

@@ -73,6 +73,15 @@ def _compare(binary: pathlib.Path, source: str) -> None:
         == rdkit.Chem.MolToSmiles(written, canonical=True),
         f"written graph differs: {source}",
     )
+    canonical = [row[1] for row in records if row[0] == "canonical"]
+    if canonical:
+        decoded = rdkit.Chem.MolFromSmiles(canonical[0])
+        _require(decoded is not None, f"canonical output refused: {source}")
+        _require(
+            rdkit.Chem.MolToSmiles(original, canonical=True)
+            == rdkit.Chem.MolToSmiles(decoded, canonical=True),
+            f"canonical output changed chemistry: {source}",
+        )
 
 
 def main() -> None:

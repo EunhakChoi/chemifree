@@ -1,6 +1,8 @@
 //! Small command-line bridge for the independent public RDKit comparison.
 
-use chemifree_domain::smiles::{parse, write};
+use chemifree_domain::document::{AtomRef, Command, Document, DocumentId, NewAtomPositions, Point};
+use chemifree_domain::graph::MoleculeGraph;
+use chemifree_domain::smiles::{parse, write, write_canonical};
 use chemifree_domain::states::Hydrogens;
 
 fn main() {
@@ -24,6 +26,26 @@ fn main() {
         }
     };
     println!("smiles\t{output}");
+    let mut document = Document::new(DocumentId::parse("reference").unwrap(), "Reference").unwrap();
+    let mut commands: Vec<_> = graph
+        .atoms
+        .iter()
+        .map(|atom| Command::AddAtom {
+            atom: atom.atom.clone(),
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        })
+        .collect();
+    commands.extend(graph.bonds.iter().map(|bond| Command::AddBond {
+        begin: AtomRef::Created(bond.begin),
+        end: AtomRef::Created(bond.end),
+        order: bond.order.clone(),
+    }));
+    document.apply(&commands).unwrap();
+    match write_canonical(&MoleculeGraph::from_document(&document)) {
+        Ok(text) => println!("canonical\t{text}"),
+        Err(error) => println!("canonical_error\t{error:?}"),
+    }
     for atom in &graph.atoms {
         let symbol = atom.atom.kind.element().expect("SMILES element").symbol();
         let hydrogens = match atom.atom.hydrogens {

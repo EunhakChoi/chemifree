@@ -398,11 +398,22 @@ fn an_unavailable_prediction_model_returns_no_scientific_result() {
 fn the_catalog_says_exactly_which_operations_run() {
     let (app, _data) = application();
     let id = created(&app);
-    let smiles_id = app.create_document(None, Some("SMILES catalog probe")).unwrap().document.id;
-    let seed = send(&app, &request("smiles-catalog-seed", "document.transaction", json!({
-        "document_id": smiles_id, "expected_revision": 0,
-        "commands": [{"op":"add_atom", "element":"C", "position":{"x":0,"y":0}}]
-    })));
+    let smiles_id = app
+        .create_document(None, Some("SMILES catalog probe"))
+        .unwrap()
+        .document
+        .id;
+    let seed = send(
+        &app,
+        &request(
+            "smiles-catalog-seed",
+            "document.transaction",
+            json!({
+                "document_id": smiles_id, "expected_revision": 0,
+                "commands": [{"op":"add_atom", "element":"C", "position":{"x":0,"y":0}}]
+            }),
+        ),
+    );
     assert_eq!(seed["outcome"], "ok");
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
@@ -412,7 +423,9 @@ fn the_catalog_says_exactly_which_operations_run() {
         "document.create" => json!({}),
         "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
         "chem.identity" => json!({"document_id": id, "mode": "recorded"}),
-        "chem.smiles_read" => json!({"document_id": id, "expected_revision": 0, "source": "C", "preview": true}),
+        "chem.smiles_read" => {
+            json!({"document_id": id, "expected_revision": 0, "source": "C", "preview": true})
+        }
         "chem.smiles_write" => json!({"document_id": smiles_id, "mode": "canonical"}),
         "document.snapshot" | "document.close" | "chem.validate" | "chem.aromaticity" => {
             json!({"document_id": id})

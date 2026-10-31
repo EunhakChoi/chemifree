@@ -1325,7 +1325,7 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES preview.', 200)
     }
     const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
-    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+    if (snapshot.id !== documentId || snapshot.revision !== revision || raw.document_revision !== revision) {
       throw new ApiError('incompatible_response', 'The SMILES preview used a different drawing or revision.', 200)
     }
     return { digest: result.preview_digest, snapshot, atoms: result.atoms, bonds: result.bonds, losses: reply.losses }
@@ -1371,7 +1371,9 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The service returned incompatible SMILES output.', 200)
     }
     const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.snapshot }).document
-    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The output used a different drawing.', 200)
+    if (snapshot.id !== documentId || raw.document_revision !== snapshot.revision) {
+      throw new ApiError('incompatible_response', 'The output used a different drawing or revision.', 200)
+    }
     return { text: reply.result.text, model, losses: reply.losses, snapshot }
   }
 

@@ -14,7 +14,7 @@
 //! executable.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
-use chemifree_domain::{graph::MoleculeGraph, identity, smiles};
+use chemifree_domain::{chemistry, graph::MoleculeGraph, identity, smiles};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -1095,6 +1095,118 @@ impl Known {
     }
 }
 
+fn smiles_syntax_message(code: &str) -> &'static str {
+    match code {
+        "empty_input" => "Enter a SMILES string.",
+        "input_limit" | "atom_limit" | "bond_limit" | "branch_limit" | "ring_limit" => {
+            "The SMILES exceeds a supported size or nesting limit."
+        }
+        "expected_element" | "expected_atom" => "Expected an atom or element symbol.",
+        "unknown_element" => "The element symbol is not recognized.",
+        "brackets_required" => "This element requires brackets in SMILES.",
+        "invalid_bracket_atom" => "The bracket atom is invalid or incomplete.",
+        "isotope_out_of_range" => "The isotope mass number is outside the supported range.",
+        "hydrogens_out_of_range" => "The hydrogen count is outside the supported range.",
+        "hydrogen_count_on_hydrogen" => "A hydrogen atom cannot have its own hydrogen count.",
+        "invalid_charge" | "charge_out_of_range" => {
+            "The charge is invalid or outside the supported range."
+        }
+        "stereo_unsupported" => "SMILES stereochemistry is not supported yet.",
+        "query_unsupported" => "SMILES query extensions are not supported.",
+        "invalid_aromatic_bond" | "aromaticity_outside_model" => {
+            "The aromatic atoms and bonds cannot be interpreted by the supported model."
+        }
+        "invalid_ring_number" | "ring_without_atom" | "ring_bond_conflict" | "unclosed_ring" => {
+            "The ring label or its bond is invalid or unclosed."
+        }
+        "unexpected_branch_end"
+        | "branch_without_atom"
+        | "empty_branch"
+        | "empty_or_incomplete_branch"
+        | "unclosed_branch" => "A branch is empty, incomplete or misplaced.",
+        "unexpected_dot" | "trailing_dot" => "A disconnected-component separator is misplaced.",
+        "unexpected_bond" | "trailing_bond" | "duplicate_or_self_bond" => {
+            "A bond is incomplete, duplicated or misplaced."
+        }
+        _ => "The SMILES could not be parsed under the supported basic profile.",
+    }
+}
+
+/// Apply the existing bounded valence policy without treating its warnings as a correction.
+/// Aromatic atoms are checked by the SMILES parser/writer's complete P17 assignment instead:
+/// the P16 integral-bond inspector deliberately cannot assess aromatic edges directly.
+fn smiles_valence_warnings(
+    document: &chemifree_domain::document::Document,
+    source: bool,
+) -> (Vec<Loss>, Vec<Diagnostic>) {
+    use chemifree_domain::document::BondOrder;
+    use std::collections::BTreeSet;
+
+    let aromatic: BTreeSet<_> = document
+        .bonds()
+        .filter(|(_, bond)| bond.order == BondOrder::Aromatic)
+        .flat_map(|(_, bond)| [bond.begin, bond.end])
+        .collect();
+    chemistry::inspect_valence(document)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, assessment)| {
+            assessment.finding != chemistry::Finding::Valid && !aromatic.contains(&assessment.atom)
+        })
+        .map(|(index, assessment)| {
+            let subject = if source {
+                format!("SMILES atom {}", index + 1)
+            } else {
+                format!("Atom {}", assessment.atom)
+            };
+            let path = if source { "parameters.source" } else { "document.atoms" };
+            let reason = assessment.reason.unwrap_or("not_determined");
+            let message = format!(
+                "{subject} is {} under {} ({}). Its recorded state is preserved; syntax conversion does not establish chemical validity.",
+                assessment.finding.as_str(), chemistry::VALENCE_MODEL, reason,
+            );
+            let mut details = Map::new();
+            details.insert("model".into(), chemistry::VALENCE_MODEL.into());
+            details.insert("status".into(), assessment.finding.as_str().into());
+            details.insert("reason".into(), reason.into());
+            if source {
+                details.insert("source_atom_index".into(), (index + 1).into());
+            } else {
+                details.insert("atom_id".into(), assessment.atom.to_string().into());
+            }
+            let diagnostic = Diagnostic {
+                code: "valence_diagnostic",
+                severity: Severity::Warning,
+                message: message.clone(),
+                path: Some(path.into()),
+                details,
+            };
+            let loss = Loss {
+                feature: "valence_diagnostic".into(),
+                source_path: path.into(),
+                disposition: LossDisposition::Unknown,
+                reason: message,
+                semantic_impact: SemanticImpact::Chemistry,
+            };
+            (loss, diagnostic)
+        })
+        .unzip()
+}
+
+fn smiles_write_error(error: smiles::WriteError) -> (Outcome, &'static str, &'static str) {
+    match error {
+        smiles::WriteError::RingLimit => (Outcome::Error, "smiles_write_limit", error.code()),
+        smiles::WriteError::InvalidGraph => (Outcome::Error, "invalid_graph", error.code()),
+        smiles::WriteError::UnsupportedAtom
+        | smiles::WriteError::UnsupportedBond
+        | smiles::WriteError::UnsupportedAromaticity => (
+            Outcome::Unsupported,
+            "smiles_write_unsupported",
+            error.code(),
+        ),
+    }
+}
+
 fn identity_failure(
     known: &Known,
     revision: u64,
@@ -1353,7 +1465,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 return known.invalid(Diagnostic {
                     code: error.code,
                     severity: Severity::Error,
-                    message: "SMILES could not be parsed under the supported basic profile.".into(),
+                    message: smiles_syntax_message(error.code).into(),
                     path: Some("parameters.source".into()),
                     details,
                 });
@@ -1425,6 +1537,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             end: AtomRef::Created(bond.end),
             order: bond.order.clone(),
         }));
+        // Validate and inspect only the parsed source graph, not the unrelated drawing
+        // being appended to. Its temporary IDs follow the source atom order.
+        let mut source_document = chemifree_domain::document::Document::new(
+            chemifree_domain::document::DocumentId::parse("smiles-source").expect("static ID"),
+            "SMILES source",
+        )
+        .expect("static title");
+        if let Err(error) = source_document.apply(&commands) {
+            return known.invalid(diagnostic("invalid_graph", error.to_string(), Map::new()));
+        }
+        let (valence_losses, valence_diagnostics) = smiles_valence_warnings(&source_document, true);
+        losses.extend(valence_losses);
         if let Some(response) = replay {
             let mut result: DocumentResult = response.into();
             result.import_mapping = Some(ct_mapping(
@@ -1438,6 +1562,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 OperationResult::Document(Box::new(result)),
                 losses,
             );
+            reply.diagnostics = valence_diagnostics;
             reply.model_id = Some("chemifree-smiles-basic-1".into());
             return reply;
         }
@@ -1495,6 +1620,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 })),
                 losses,
             );
+            response.diagnostics = valence_diagnostics;
             response.model_id = Some("chemifree-smiles-basic-1".into());
             return response;
         }
@@ -1543,6 +1669,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     OperationResult::Document(Box::new(result)),
                     losses,
                 );
+                reply.diagnostics = valence_diagnostics;
                 reply.model_id = Some("chemifree-smiles-basic-1".into());
                 reply
             }
@@ -1556,7 +1683,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     }
 
     fn smiles_write(&self, known: &Known, p: SmilesWriteParameters) -> OperationResponse {
-        let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
+        let (snapshot, document) = match self.documents.analysis_snapshot(&p.document_id) {
             Ok(value) => value,
             Err(error) => {
                 return known.reply(
@@ -1567,33 +1694,50 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 );
             }
         };
+        let graph = MoleculeGraph::from_document(&document);
         let revision = snapshot.document.revision;
         let (text, mode, model) = match p.mode {
             SmilesMode::Recorded => (
-                smiles::write_recorded(&graph).map_err(|error| format!("{error:?}")),
+                smiles::write_recorded(&graph).map_err(smiles_write_error),
                 "recorded",
                 "chemifree-smiles-recorded-1",
             ),
             SmilesMode::Canonical => (
-                smiles::write_canonical(&graph).map_err(|error| format!("{error:?}")),
+                smiles::write_canonical(&graph).map_err(|error| match error {
+                    smiles::CanonicalError::Identity(error) => match error {
+                        identity::IdentityError::AtomLimit
+                        | identity::IdentityError::SearchLimit => {
+                            (Outcome::Error, "smiles_write_limit", error.code())
+                        }
+                        identity::IdentityError::Unsupported(_) => (
+                            Outcome::Unsupported,
+                            "smiles_write_unsupported",
+                            error.code(),
+                        ),
+                    },
+                    smiles::CanonicalError::Write(error) => smiles_write_error(error),
+                }),
                 "canonical",
                 smiles::CANONICAL_MODEL_ID,
             ),
         };
         let text = match text {
             Ok(value) => value,
-            Err(reason) => {
+            Err((outcome, code, reason)) => {
                 let mut details = Map::new();
                 details.insert("reason".into(), reason.into());
+                let message = match code {
+                    "smiles_write_limit" => {
+                        "The SMILES output exceeds a supported graph or search limit."
+                    }
+                    "invalid_graph" => "The graph is empty or cannot be represented as SMILES.",
+                    _ => "An atom, bond or aromatic state is outside this SMILES profile.",
+                };
                 let mut response = known.reply(
-                    Outcome::Unsupported,
+                    outcome,
                     Some(revision),
                     None,
-                    vec![diagnostic(
-                        "smiles_write_unsupported",
-                        "The graph cannot be written under this SMILES profile.",
-                        details,
-                    )],
+                    vec![diagnostic(code, message, details)],
                 );
                 response.model_id = Some(model.into());
                 return response;
@@ -1603,8 +1747,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             feature: "drawing_scene".into(),
             source_path: "document.scene".into(),
             disposition: LossDisposition::Dropped,
-            reason: "SMILES carries graph chemistry, not page objects, positions, style, selection, or the document title.".into(),
+            reason: "SMILES does not carry page objects, references, selection, document title or native IDs.".into(),
             semantic_impact: SemanticImpact::Document,
+        }, Loss {
+            feature: "drawing_positions".into(),
+            source_path: "document.scene.instances".into(),
+            disposition: LossDisposition::Dropped,
+            reason: "SMILES does not carry the drawing's atom positions or placements.".into(),
+            semantic_impact: SemanticImpact::Geometry,
+        }, Loss {
+            feature: "drawing_style".into(),
+            source_path: "document.settings".into(),
+            disposition: LossDisposition::Dropped,
+            reason: "SMILES does not carry the drawing's font, line and display settings.".into(),
+            semantic_impact: SemanticImpact::Rendering,
         }];
         if matches!(p.mode, SmilesMode::Canonical) {
             losses.push(Loss {
@@ -1615,6 +1771,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 semantic_impact: SemanticImpact::Chemistry,
             });
         }
+        let (valence_losses, valence_diagnostics) = smiles_valence_warnings(&document, false);
+        losses.extend(valence_losses);
         let mut response = converted(
             known,
             Some(revision),
@@ -1625,6 +1783,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             })),
             losses,
         );
+        response.diagnostics = valence_diagnostics;
         response.model_id = Some(model.into());
         response
     }

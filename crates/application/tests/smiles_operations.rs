@@ -64,6 +64,18 @@ fn preview_commit_replay_undo_and_canonical_export_share_the_exact_graph() {
     );
     assert_eq!(exported["outcome"], "partial", "{exported}");
     assert_eq!(exported["model_id"], "chemifree-smiles-canonical-1");
+    let losses = exported["loss_report"].as_array().unwrap();
+    for (feature, impact) in [
+        ("drawing_scene", "document"),
+        ("drawing_positions", "geometry"),
+        ("drawing_style", "rendering"),
+    ] {
+        assert!(
+            losses
+                .iter()
+                .any(|loss| loss["feature"] == feature && loss["semantic_impact"] == impact)
+        );
+    }
     assert_eq!(
         exported["result"]["snapshot"]["document"],
         imported["result"]["document"]
@@ -77,6 +89,35 @@ fn preview_commit_replay_undo_and_canonical_export_share_the_exact_graph() {
         json!({"document_id":id,"expected_revision":1}),
     );
     assert_eq!(undone["result"]["document"]["atoms"], json!([]));
+    let redone = call(
+        &app,
+        "redo",
+        "history.redo",
+        json!({"document_id":id,"expected_revision":2}),
+    );
+    assert_eq!(
+        redone["result"]["document"]["atoms"],
+        imported["result"]["document"]["atoms"]
+    );
+    assert_eq!(redone["document_revision"], 3);
+    let saved = call(
+        &app,
+        "save",
+        "document.save",
+        json!({"document_id":id,"expected_revision":3}),
+    );
+    assert_eq!(saved["result"]["session"]["saved_revision"], 3);
+    drop(app);
+    let restarted = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let reopened = serde_json::to_value(restarted.document(&id).unwrap()).unwrap();
+    assert_eq!(
+        reopened["document"]["atoms"],
+        imported["result"]["document"]["atoms"]
+    );
+    assert_eq!(reopened["session"]["undo_depth"], 1);
 }
 
 #[test]
@@ -160,4 +201,136 @@ fn unknown_radical_is_reported_and_stereo_is_refused() {
     assert_eq!(stereo["diagnostics"][0]["code"], "stereo_unsupported");
     assert!(stereo["result"].is_null());
     assert_eq!(app.document(&id).unwrap().document.revision, 0);
+}
+
+#[test]
+fn canonical_work_limit_returns_a_stable_diagnostic_without_text() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let id = app.create_document(None, None).unwrap().document.id;
+    let commands: Vec<_> = (0..129)
+        .map(|i| json!({"op":"add_atom","element":"C","position":{"x":i,"y":0}}))
+        .collect();
+    let edit = call(
+        &app,
+        "large-graph",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands}),
+    );
+    assert_eq!(edit["outcome"], "ok");
+    let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+    let result = call(
+        &app,
+        "bounded",
+        "chem.smiles_write",
+        json!({"document_id":id,"mode":"canonical"}),
+    );
+    assert_eq!(result["outcome"], "error");
+    assert_eq!(result["diagnostics"][0]["code"], "smiles_write_limit");
+    assert_eq!(result["diagnostics"][0]["details"]["reason"], "atom_limit");
+    assert!(result["result"].is_null());
+    assert_eq!(
+        serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn syntax_valid_valence_warnings_preserve_graph_and_distinguish_unsupported_elements() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let id = app.create_document(None, None).unwrap().document.id;
+    let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+    let hypervalent = preview(&app, &id, "C(C)(C)(C)(C)C");
+    assert_eq!(
+        hypervalent["result"]["atoms"], 6,
+        "the syntax graph is retained"
+    );
+    let warnings = hypervalent["loss_report"].as_array().unwrap();
+    let carbon = warnings
+        .iter()
+        .find(|loss| loss["feature"] == "valence_diagnostic")
+        .unwrap();
+    assert!(
+        carbon["reason"]
+            .as_str()
+            .unwrap()
+            .contains("atom 1 is invalid under chemifree-valence-2 (unusual_valence)")
+    );
+    assert_eq!(
+        hypervalent["diagnostics"][0]["details"],
+        json!({"model":"chemifree-valence-2","status":"invalid","reason":"unusual_valence","source_atom_index":1})
+    );
+    let metal = preview(&app, &id, "[Fe](Cl)(Cl)(Cl)(Cl)(Cl)Cl");
+    let warning = metal["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|loss| loss["feature"] == "valence_diagnostic")
+        .unwrap();
+    assert!(
+        warning["reason"]
+            .as_str()
+            .unwrap()
+            .contains("atom 1 is unsupported under chemifree-valence-2 (element_or_charge)")
+    );
+    assert_eq!(metal["diagnostics"][0]["details"]["status"], "unsupported");
+    assert_eq!(metal["diagnostics"][0]["details"]["reason"], "element_or_charge");
+    let benzene = preview(&app, &id, "c1ccccc1");
+    assert!(
+        !benzene["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|loss| loss["feature"] == "valence_diagnostic"),
+        "P17 checks supported aromatic input as a whole"
+    );
+    assert_eq!(
+        serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+        before
+    );
+
+    let parameters = json!({"document_id":id,"expected_revision":0,"source":"C(C)(C)(C)(C)C",
+        "preview_digest":hypervalent["result"]["preview_digest"],"accept_loss":true});
+    let imported = call(&app, "hypervalent", "chem.smiles_read", parameters);
+    assert_eq!(
+        imported["result"]["document"]["atoms"]
+            .as_array()
+            .unwrap()
+            .len(),
+        6
+    );
+    let written = call(
+        &app,
+        "recorded",
+        "chem.smiles_write",
+        json!({"document_id":id,"mode":"recorded"}),
+    );
+    assert_eq!(written["outcome"], "partial");
+    assert!(
+        written["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|loss| loss["feature"] == "valence_diagnostic"
+                && loss["reason"].as_str().unwrap().contains("invalid"))
+    );
+    let canonical = call(
+        &app,
+        "canonical",
+        "chem.smiles_write",
+        json!({"document_id":id,"mode":"canonical"}),
+    );
+    assert_eq!(canonical["outcome"], "unsupported");
+    assert!(canonical["result"].is_null());
+    assert_eq!(
+        canonical["diagnostics"][0]["details"]["reason"],
+        "unusual_valence"
+    );
 }

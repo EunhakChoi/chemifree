@@ -555,6 +555,18 @@ pub enum WriteError {
     RingLimit,
 }
 
+impl WriteError {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::InvalidGraph => "invalid_graph",
+            Self::UnsupportedAtom => "unsupported_atom",
+            Self::UnsupportedBond => "unsupported_bond",
+            Self::UnsupportedAromaticity => "unsupported_aromaticity",
+            Self::RingLimit => "ring_limit",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalError {
     Identity(IdentityError),
