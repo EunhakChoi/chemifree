@@ -149,11 +149,25 @@ fn restart_and_source_change_invalidate_consent_before_creation() {
         .to_owned();
     let changed_source = SOURCE.replace("α &amp; β", "γ &amp; β");
     let changed = json!({"mode":"create","format":"cdxml","source":changed_source,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
-    assert_eq!(call(&application, "changed-source", "document.import", changed)["diagnostics"][0]["code"], "preview_changed");
-    let preferences = serde_json::from_value(json!({"ui":{"theme":"system"},"new_documents":{"bond_length_pt":40}})).unwrap();
+    assert_eq!(
+        call(&application, "changed-source", "document.import", changed)["diagnostics"][0]["code"],
+        "preview_changed"
+    );
+    let preferences = serde_json::from_value(
+        json!({"ui":{"theme":"system"},"new_documents":{"bond_length_pt":40}}),
+    )
+    .unwrap();
     application.set_preferences(None, 0, preferences).unwrap();
     let changed_settings = json!({"mode":"create","format":"cdxml","source":SOURCE,"title":"Projected","page_id":1,"fragment_id":2,"preview_digest":digest,"accept_loss":true});
-    assert_eq!(call(&application, "changed-settings", "document.import", changed_settings)["diagnostics"][0]["code"], "preview_changed");
+    assert_eq!(
+        call(
+            &application,
+            "changed-settings",
+            "document.import",
+            changed_settings
+        )["diagnostics"][0]["code"],
+        "preview_changed"
+    );
     assert_eq!(count(&application), 0);
     drop(application);
     let restarted = app(dir.path());

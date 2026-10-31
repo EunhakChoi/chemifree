@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+base64 = "0.22.1"
 chemifree-domain.workspace = true
 getrandom.workspace = true
 num-bigint = "0.5.1"

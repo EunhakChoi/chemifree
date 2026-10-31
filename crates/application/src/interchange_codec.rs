@@ -32,6 +32,8 @@ pub struct InterchangeError {
     pub message: String,
     pub line: Option<u32>,
     pub column: Option<u32>,
+    /// Zero-based byte offset when the binary reader knows its source location.
+    pub byte_offset: Option<usize>,
 }
 
 impl fmt::Display for InterchangeError {

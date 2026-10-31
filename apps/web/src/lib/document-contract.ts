@@ -969,6 +969,7 @@ export interface InterchangeChoice {
 }
 
 export interface InterchangeInput {
+  format: 'cdxml' | 'cdx'
   source: string
   title: string
   page_id: number
@@ -1184,10 +1185,10 @@ export class DocumentClient {
     return { model: value.model_id, snapshot, atoms }
   }
 
-  async readInterchange(source: string): Promise<InterchangeChoice[]> {
+  async readInterchange(source: string, format: InterchangeInput['format']): Promise<InterchangeChoice[]> {
     const { result } = interchangeReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
-      parameters: { mode: 'read', format: 'cdxml', source },
+      parameters: { mode: 'read', format, source },
     }, 'reload'))
     if (!Array.isArray(result.choices) || !result.choices.every((choice): choice is InterchangeChoice =>
       isRecord(choice) && isCount(choice.page_id) && choice.page_id > 0 &&
@@ -1201,7 +1202,7 @@ export class DocumentClient {
   async previewInterchange(input: InterchangeInput): Promise<InterchangePreview> {
     const { result, losses } = interchangeReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
-      parameters: { mode: 'preview', format: 'cdxml', ...input },
+      parameters: { mode: 'preview', ...input },
     }, 'reload'))
     const document = result.document
     if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
@@ -1222,7 +1223,7 @@ export class DocumentClient {
       key,
       '/api/v1/operations',
       { contract: 1, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { mode: 'create', format: 'cdxml', ...input, preview_digest: digest, accept_loss: true } },
+        parameters: { mode: 'create', ...input, preview_digest: digest, accept_loss: true } },
       new ApiError('create_unconfirmed', 'The service restarted before confirming the imported drawing. Check Saved documents before creating another.', 401),
       async (value, replayed) => {
         const result = interchangeReply(value).result

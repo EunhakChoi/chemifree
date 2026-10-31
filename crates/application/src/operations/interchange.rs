@@ -1,4 +1,5 @@
 //! Application operations for rich CDXML and its loss-accounted editor projection.
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -59,6 +60,7 @@ pub struct InterchangePreviewResult {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct InterchangeExportResult {
     content: String,
+    encoding: &'static str,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -83,9 +85,11 @@ fn format(name: &str) -> Result<InterchangeFormat, InterchangeError> {
         "cdx" => Ok(InterchangeFormat::Cdx),
         _ => Err(InterchangeError {
             code: "unsupported_format",
-            message: "Only CDXML is available in this profile.".into(),
+            message: "Only CDXML and the documented CDX subset are available in this profile."
+                .into(),
             line: None,
             column: None,
+            byte_offset: None,
         }),
     }
 }
@@ -103,6 +107,9 @@ fn issue(error: InterchangeError) -> Diagnostic {
     }
     if let Some(column) = error.column {
         details.insert("column".into(), column.into());
+    }
+    if let Some(byte_offset) = error.byte_offset {
+        details.insert("byte_offset".into(), byte_offset.into());
     }
     Diagnostic {
         code: error.code,
@@ -156,6 +163,7 @@ fn mapping(
             message: "The created graph does not match its projection.".into(),
             line: None,
             column: None,
+            byte_offset: None,
         });
     }
     Ok(InterchangeMapping {
@@ -192,7 +200,32 @@ fn read(
     name: &str,
     source: &str,
 ) -> Result<crate::interchange_codec::InterchangeRead, InterchangeError> {
-    codec.read(format(name)?, source.as_bytes())
+    let format = format(name)?;
+    codec.read(format, &source_bytes(format, source)?)
+}
+
+fn source_bytes(format: InterchangeFormat, source: &str) -> Result<Vec<u8>, InterchangeError> {
+    match format {
+        InterchangeFormat::Cdxml => Ok(source.as_bytes().to_vec()),
+        InterchangeFormat::Cdx => {
+            if source.len() > 1_398_104 {
+                return Err(InterchangeError {
+                    code: "resource_limit",
+                    message: "Base64 CDX input exceeds the codec limit.".into(),
+                    line: None,
+                    column: None,
+                    byte_offset: None,
+                });
+            }
+            STANDARD.decode(source).map_err(|_| InterchangeError {
+                code: "invalid_base64",
+                message: "CDX source must be canonical padded base64.".into(),
+                line: None,
+                column: None,
+                byte_offset: None,
+            })
+        }
+    }
 }
 
 fn normalized_document(document: &DocumentView) -> DocumentView {
@@ -437,6 +470,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             &commands,
             || self.preferences.current()?.new_document_settings(),
             |document| {
+                // Validate the source-to-target mapping while the candidate is still staged.
+                mapping(&projection, document).map_err(|error| {
+                    ApplicationError::new(ErrorCode::InvalidRequest, error.message)
+                })?;
                 if bind(document) == expected {
                     Ok(())
                 } else {
@@ -493,34 +530,55 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Ok(document) => document,
             Err(error) => return known.invalid(refused("invalid_document", &error.to_string())),
         };
-        let original = parameters.original.as_deref().map(str::as_bytes);
-        let output = match codec.write(format, &document, original, parameters.discard_opaque) {
+        let original = match parameters
+            .original
+            .as_deref()
+            .map(|source| source_bytes(format, source))
+            .transpose()
+        {
+            Ok(original) => original,
+            Err(error) => return known.invalid(issue(error)),
+        };
+        let output = match codec.write(
+            format,
+            &document,
+            original.as_deref(),
+            parameters.discard_opaque,
+        ) {
             Ok(output) => output,
             Err(error) => return known.invalid(issue(error)),
         };
         let mut losses = output.loss_report;
-        if original.is_some_and(|bytes| bytes != output.bytes.as_slice()) {
+        if original
+            .as_ref()
+            .is_some_and(|bytes| bytes != &output.bytes)
+        {
             losses.push(Loss {
-                feature: "xml_serialization".into(),
+                feature: if format == InterchangeFormat::Cdxml { "xml_serialization" } else { "cdx_serialization" }.into(),
                 source_path: "source".into(),
                 disposition: LossDisposition::Normalized,
-                reason: "The edited document was reserialized; lexical XML formatting may differ."
-                    .into(),
+                reason: "The edited document was reserialized; its original byte representation may differ.".into(),
                 semantic_impact: SemanticImpact::None,
             });
         }
-        let content = match String::from_utf8(output.bytes) {
-            Ok(content) => content,
-            Err(_) => {
-                return known.invalid(refused(
-                    "invalid_output",
-                    "The provider returned non-UTF-8 CDXML.",
-                ));
-            }
+        let (content, encoding) = match format {
+            InterchangeFormat::Cdx => (STANDARD.encode(output.bytes), "base64"),
+            InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {
+                Ok(content) => (content, "utf8"),
+                Err(_) => {
+                    return known.invalid(refused(
+                        "invalid_output",
+                        "The provider returned non-UTF-8 CDXML.",
+                    ));
+                }
+            },
         };
         response(
             known,
-            OperationResult::InterchangeExport(Box::new(InterchangeExportResult { content })),
+            OperationResult::InterchangeExport(Box::new(InterchangeExportResult {
+                content,
+                encoding,
+            })),
             None,
             losses,
         )

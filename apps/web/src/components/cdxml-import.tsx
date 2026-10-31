@@ -8,6 +8,7 @@ import type { InterchangeChoice, InterchangeInput, InterchangePreview } from '@/
 
 interface Source {
   text: string
+  format: InterchangeInput['format']
   choices: InterchangeChoice[]
 }
 
@@ -41,23 +42,34 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     setChoice(0)
     setError(null)
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.cdxml')) {
-      setError('Choose a .cdxml file.')
+    const lower = file.name.toLowerCase()
+    const format = lower.endsWith('.cdxml') ? 'cdxml' : lower.endsWith('.cdx') ? 'cdx' : null
+    if (!format) {
+      setError('Choose a .cdxml or .cdx file.')
       return
     }
-    if (file.size > 200 * 1024) {
-      setError('This web form accepts files up to 200 KiB. The operation API and CLI have their own limits.')
+    const limitKiB = format === 'cdx' ? 180 : 120
+    if (file.size > limitKiB * 1024) {
+      setError(`This web form accepts ${format.toUpperCase()} files up to ${limitKiB} KiB. The operation API and CLI have their own limits.`)
       return
     }
     setPending(true)
     const generation = editor.currentServiceGeneration()
     try {
       // Preserve a UTF-8 BOM while rejecting invalid input rather than replacing bytes.
-      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await file.arrayBuffer())
-      const choices = await editor.readInterchange(text)
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let text: string
+      if (format === 'cdxml') {
+        text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+      } else {
+        let binary = ''
+        for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768))
+        text = btoa(binary)
+      }
+      const choices = await editor.readInterchange(text, format)
       if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
-        setSource({ text, choices })
-        setTitle(file.name.replace(/\.cdxml$/i, '') || 'Imported drawing')
+        setSource({ text, format, choices })
+        setTitle(file.name.replace(/\.(?:cdxml|cdx)$/i, '') || 'Imported drawing')
       }
     } catch (cause) {
       if (alive.current && sequence.current === request) setError(cause instanceof Error ? cause.message : 'Could not read this file.')
@@ -69,7 +81,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   async function preview() {
     const selected = source?.choices[choice]
     if (!source || !selected || !title.trim()) return
-    const input: InterchangeInput = { source: source.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
+    const input: InterchangeInput = { format: source.format, source: source.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
     const request = ++sequence.current
     const generation = editor.currentServiceGeneration()
     setPending(true)
@@ -88,11 +100,11 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   }
 
   return <section aria-labelledby="cdxml-import" className="space-y-3 rounded-lg border p-4">
-    <h3 id="cdxml-import" className="text-sm font-medium">Create a drawing from CDXML</h3>
+    <h3 id="cdxml-import" className="text-sm font-medium">Create a drawing from CDXML or CDX</h3>
     <p className="text-sm text-muted-foreground">Choose a page and molecule. The editor supports one molecule; review the other content that will be left out before creating a new drawing.</p>
     <Field>
-      <FieldLabel htmlFor="cdxml-file">CDXML file</FieldLabel>
-      <Input id="cdxml-file" type="file" accept=".cdxml,application/xml,text/xml" disabled={pending || editor.busy}
+      <FieldLabel htmlFor="cdxml-file">CDXML or CDX file</FieldLabel>
+      <Input id="cdxml-file" type="file" accept=".cdxml,.cdx,application/xml,text/xml" disabled={pending || editor.busy}
         onChange={(event) => void chooseFile(event.currentTarget.files?.[0])} />
       <FieldDescription>External resources are never fetched.</FieldDescription>
     </Field>
@@ -100,7 +112,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     {source && source.choices.length > 0 && <>
       <Field>
         <FieldLabel htmlFor="cdxml-choice">Page and molecule</FieldLabel>
-        <select id="cdxml-choice" className="rounded-md border bg-background p-2 text-sm" value={choice} disabled={pending || editor.busy}
+        <select id="cdxml-choice" className="w-full min-w-0 max-w-full rounded-md border bg-background p-2 text-sm" value={choice} disabled={pending || editor.busy}
           onChange={(event) => { setChoice(Number(event.currentTarget.value)); setPrepared(null) }}>
           {source.choices.map((item, index) => <option key={`${item.page_id}:${item.fragment_id}`} value={index}>
             Page {item.page_id}, molecule {item.fragment_id} ({item.fragment_path})
@@ -120,11 +132,11 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       <p className="font-medium">Source-to-editor IDs</p>
       <ul className="list-disc pl-5">
         {[current.preview.mapping.page, current.preview.mapping.fragment, ...current.preview.mapping.atoms, ...current.preview.mapping.bonds].map((item, index) =>
-          <li key={`${item.source_path}:${index}`}>{item.source_path} {item.source_id === null ? '(no ID)' : `#${item.source_id}`} → {item.target_id}</li>)}
+          <li className="break-all" key={`${item.source_path}:${index}`}>{item.source_path} {item.source_id === null ? '(no ID)' : `#${item.source_id}`} → {item.target_id}</li>)}
       </ul>
       <p className="font-medium">Content changed or left out</p>
       {current.preview.losses.length === 0 ? <p>No loss reported.</p> : <ul className="list-disc space-y-1 pl-5">
-        {current.preview.losses.map((loss, index) => <li key={`${loss.source_path}:${index}`}>
+        {current.preview.losses.map((loss, index) => <li className="break-words" key={`${loss.source_path}:${index}`}>
           {loss.source_path}: {loss.reason} ({loss.disposition}, {loss.semantic_impact})
         </li>)}
       </ul>}

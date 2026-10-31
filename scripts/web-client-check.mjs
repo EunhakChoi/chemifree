@@ -54,7 +54,7 @@ test('an unconfirmed CDXML creation is checked with the same request ID', async 
     'GET /api/v1/documents/imported': [() => json(200, output)],
   })
   const client = new DocumentClient()
-  const input = { source: '<CDXML/>', title: 'Imported', page_id: 1, fragment_id: 2 }
+  const input = { format: 'cdxml', source: '<CDXML/>', title: 'Imported', page_id: 1, fragment_id: 2 }
   await assert.rejects(client.createInterchange(input, 'a'.repeat(64)), { code: 'unreachable' })
   assert.equal((await client.createInterchange(input, 'a'.repeat(64))).document.id, 'imported')
   assert.equal(scripted.writes.length, 2)

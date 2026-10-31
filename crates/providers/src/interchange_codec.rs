@@ -6,6 +6,7 @@ use chemifree_application::interchange_codec::{
 use chemifree_application::{Loss, LossDisposition, SemanticImpact};
 use chemifree_domain::interchange::Document;
 
+use crate::cdx;
 use crate::cdxml::{self, CdxmlDocument, CdxmlError};
 
 #[derive(Clone, Copy, Default)]
@@ -17,6 +18,7 @@ fn fail(code: &'static str, message: impl Into<String>) -> InterchangeError {
         message: message.into(),
         line: None,
         column: None,
+        byte_offset: None,
     }
 }
 
@@ -27,8 +29,40 @@ impl From<CdxmlError> for InterchangeError {
             message: error.message,
             line: error.line,
             column: error.column,
+            byte_offset: None,
         }
     }
+}
+
+impl From<cdx::CdxError> for InterchangeError {
+    fn from(error: cdx::CdxError) -> Self {
+        let message = if error.offset == 0 {
+            error.message
+        } else {
+            format!("{} (byte offset {})", error.message, error.offset)
+        };
+        Self {
+            code: error.code,
+            message,
+            line: None,
+            column: None,
+            byte_offset: (error.offset != 0).then_some(error.offset),
+        }
+    }
+}
+
+fn cdx_platform_loss() -> Loss {
+    Loss {
+        feature: "font_platform".into(), source_path: "document.fonttable".into(),
+        disposition: LossDisposition::Normalized,
+        reason: "The source font platform is not represented in the common tree; an unchanged original retains its bytes.".into(),
+        semantic_impact: SemanticImpact::Rendering,
+    }
+}
+
+fn has_fonts(document: &Document) -> bool {
+    document.root().children.iter().any(|child| matches!(child,
+        chemifree_domain::interchange::Content::Object(object) if object.kind == chemifree_domain::interchange::ObjectKind::FontTable))
 }
 
 fn parse(format: InterchangeFormat, bytes: &[u8]) -> Result<CdxmlDocument, InterchangeError> {
@@ -78,6 +112,28 @@ impl InterchangeCodec for LocalInterchangeCodec {
         format: InterchangeFormat,
         bytes: &[u8],
     ) -> Result<InterchangeRead, InterchangeError> {
+        if format == InterchangeFormat::Cdx {
+            let decoded = cdx::read(bytes)?;
+            let document = decoded.document;
+            let count = opaque_count(&document)?;
+            let mut losses = Vec::new();
+            if count > 0 {
+                losses.push(opaque_loss(
+                    LossDisposition::Retained,
+                    Some(count),
+                    None,
+                    false,
+                ));
+            }
+            if decoded.font_platform_unrepresented {
+                losses.push(cdx_platform_loss());
+            }
+            return Ok(InterchangeRead {
+                document,
+                loss_report: losses,
+                opaque_outside_root: false,
+            });
+        }
         let file = parse(format, bytes)?;
         let count = opaque_count(file.document())?;
         let prolog = file.has_unrewritable_prolog();
@@ -105,6 +161,71 @@ impl InterchangeCodec for LocalInterchangeCodec {
         original: Option<&[u8]>,
         discard_opaque: bool,
     ) -> Result<InterchangeWrite, InterchangeError> {
+        if format == InterchangeFormat::Cdx {
+            document
+                .validate()
+                .map_err(|error| fail("invalid_document", error.to_string()))?;
+            let original_document = original
+                .map(cdx::read)
+                .transpose()?
+                .map(|read| read.document);
+            let submitted_count = opaque_count(document)?;
+            let original_count = original_document
+                .as_ref()
+                .map(opaque_count)
+                .transpose()?
+                .unwrap_or(0);
+            if let (Some(bytes), Some(baseline)) = (original, original_document.as_ref())
+                && !discard_opaque
+                && baseline.root() == document.root()
+            {
+                let losses = if submitted_count > 0 {
+                    vec![opaque_loss(
+                        LossDisposition::Retained,
+                        Some(submitted_count),
+                        None,
+                        false,
+                    )]
+                } else {
+                    Vec::new()
+                };
+                return Ok(InterchangeWrite {
+                    bytes: bytes.to_vec(),
+                    loss_report: losses,
+                });
+            }
+            if (submitted_count > 0 || original_count > 0) && !discard_opaque {
+                return Err(fail(
+                    "unsafe_unknown_rewrite",
+                    "An edited CDX document contains or originally contained opaque data whose references are unknown.",
+                ));
+            }
+            let mut clean = document.clone();
+            let mut losses = Vec::new();
+            if discard_opaque && (submitted_count > 0 || original_count > 0) {
+                clean
+                    .discard_opaque()
+                    .map_err(|error| fail("invalid_document", error.to_string()))?;
+                losses.push(opaque_loss(
+                    LossDisposition::Dropped,
+                    original.map(|_| original_count),
+                    Some(submitted_count),
+                    false,
+                ));
+            }
+            if original_document.as_ref().is_some_and(has_fonts) {
+                losses.push(cdx_platform_loss());
+            }
+            let bytes = cdx::write(&clean).map_err(|mut error| {
+                // A writer's staging offset is not a location in the supplied source.
+                error.offset = 0;
+                error
+            })?;
+            return Ok(InterchangeWrite {
+                bytes,
+                loss_report: losses,
+            });
+        }
         if format != InterchangeFormat::Cdxml {
             return Err(fail(
                 "unsupported_format",

@@ -212,9 +212,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion && self.interchange_codec.is_some() {
-                        capability.label = "CDXML subset";
+                        capability.label = "CDXML and CDX subsets";
                         capability.status = chemifree_domain::ImplementationStatus::Available;
-                        capability.description = "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.";
+                        capability.description = "Read and write bounded CDXML and CDX subsets and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.";
                     }
                     CapabilityResponse {
                     id: capability.id.as_str(),

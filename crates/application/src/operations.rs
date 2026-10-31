@@ -769,7 +769,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            "Read CDXML as a rich tree or preview a loss-accounted editor projection.",
+                            "Read CDXML or CDX as a rich tree or preview a loss-accounted editor projection.",
                         ),
                         &[],
                     );
@@ -778,7 +778,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            "Write rich CDXML with opaque-content safety and explicit loss reporting.",
+                            "Write rich CDXML or CDX with opaque-content safety and explicit loss reporting.",
                         ),
                         &[],
                     );

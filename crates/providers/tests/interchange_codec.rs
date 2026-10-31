@@ -89,7 +89,7 @@ fn original_is_reparsed_and_opaque_reference_loss_needs_explicit_consent() {
 }
 
 #[test]
-fn outside_root_content_and_unknown_formats_are_not_silently_discarded() {
+fn outside_root_content_and_invalid_input_are_not_silently_discarded() {
     let original = SOURCE.replacen("?>", "?>\n<!-- preserve me -->", 1);
     let decoded = LocalInterchangeCodec
         .read(InterchangeFormat::Cdxml, original.as_bytes())
@@ -135,7 +135,7 @@ fn outside_root_content_and_unknown_formats_are_not_silently_discarded() {
             .read(InterchangeFormat::Cdx, b"ignored")
             .unwrap_err()
             .code,
-        "unsupported_format"
+        "invalid_cdx_header"
     );
     assert_eq!(
         LocalInterchangeCodec
@@ -186,4 +186,32 @@ fn opaque_drop_reports_original_and_submitted_sets_separately() {
     assert!(
         !text.contains("future=") && !text.contains("another=") && !text.contains("different=")
     );
+}
+
+#[test]
+fn bom_alone_is_not_reported_as_opaque_and_survives_a_safe_edit() {
+    let source = "\u{feff}<?xml version=\"1.0\"?><CDXML><page id=\"1\"/></CDXML>";
+    let mut read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdxml, source.as_bytes())
+        .unwrap();
+    assert!(!read.opaque_outside_root);
+    assert!(read.loss_report.is_empty());
+    read.document
+        .edit(|root| {
+            let Content::Object(page) = &mut root.children[0] else {
+                panic!("page")
+            };
+            page.id = Some(2);
+        })
+        .unwrap();
+    let changed = LocalInterchangeCodec
+        .write(
+            InterchangeFormat::Cdxml,
+            &read.document,
+            Some(source.as_bytes()),
+            false,
+        )
+        .unwrap();
+    assert!(changed.loss_report.is_empty());
+    assert!(changed.bytes.starts_with(&[0xef, 0xbb, 0xbf]));
 }

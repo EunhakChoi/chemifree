@@ -282,7 +282,7 @@ results.preferences_read_can_be_retried = true
 {
   const source = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment><t id="4"><s>α</s></t></page><page id="5"><fragment id="6"><n id="7" p="10 20" Element="8"/></fragment></page></CDXML>'
   const before = (await api('/api/v1/documents')).documents.length
-  await page.getByLabel('CDXML file').setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
+  await page.getByLabel('CDXML or CDX file').setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
   await page.getByLabel('Page and molecule').selectOption('1')
   await page.getByRole('button', { name: 'Preview import' }).click()
   const preview = page.getByTestId('cdxml-preview')
@@ -297,6 +297,21 @@ results.preferences_read_can_be_retried = true
   assert.equal(body.result.document.atoms[0].element, 'O')
   await page.getByLabel('Document title').waitFor()
   assert.equal((await api('/api/v1/documents')).documents.length, before + 1)
+  await page.getByRole('button', { name: 'Close document' }).click()
+  await page.getByText('No document open').waitFor()
+  const cdx = Buffer.concat([
+    Buffer.from('VjCD0100', 'ascii'), Buffer.from([4, 3, 2, 1]), Buffer.alloc(16),
+    Buffer.from('0180010000000380020000000480030000000204020008000000000000000000', 'hex'),
+  ])
+  await page.getByLabel('CDXML or CDX file').setInputFiles({ name: 'oxygen.cdx', mimeType: 'application/octet-stream', buffer: cdx })
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  const binaryPreview = page.getByTestId('cdxml-preview')
+  await binaryPreview.getByText('Preview: 1 atoms (O), 0 bonds.').waitFor()
+  const binaryCreated = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
+    response.request().postDataJSON()?.parameters?.format === 'cdx' && response.request().postDataJSON()?.parameters?.mode === 'create')
+  await binaryPreview.getByRole('button', { name: 'Accept losses and create drawing' }).click()
+  assert.equal((await (await binaryCreated).json()).result.document.atoms[0].element, 'O')
+  await page.getByLabel('Document title').waitFor()
   await page.getByRole('button', { name: 'Close document' }).click()
   await page.getByText('No document open').waitFor()
 }

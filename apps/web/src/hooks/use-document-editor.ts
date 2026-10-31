@@ -323,7 +323,7 @@ export function useDocumentEditor() {
     busy: pending > 0,
     serviceGeneration,
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
-    readInterchange: useCallback((source: string) => client.readInterchange(source), []),
+    readInterchange: useCallback((source: string, format: InterchangeInput['format']) => client.readInterchange(source, format), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
     createInterchange: useCallback((input: InterchangeInput, digest: string) => run(async () => {
       try {
