@@ -1,0 +1,188 @@
+{
+  "id": "smiles-import-export",
+  "title": "Acetic acid is previewed and imported from SMILES without accepting a loss, then written as recorded and canonical SMILES",
+  "requirements": [
+    "CODEC-05"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC(=O)O",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "model_id": "chemifree-smiles-1",
+        "result": {
+          "valence_model": "chemifree-valence-2",
+          "aromaticity_model": "chemifree-aromaticity-2",
+          "document": {
+            "revision": 1,
+            "atoms": [
+              {
+                "element": "C"
+              },
+              {
+                "element": "C"
+              },
+              {
+                "element": "O"
+              },
+              {
+                "element": "O"
+              }
+            ],
+            "bonds": [
+              {
+                "begin": "a1",
+                "end": "a2",
+                "order": "single"
+              },
+              {
+                "begin": "a2",
+                "end": "a3",
+                "order": "double"
+              },
+              {
+                "begin": "a2",
+                "end": "a4",
+                "order": "single"
+              }
+            ]
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout"
+            }
+          ]
+        }
+      },
+      "document": "d",
+      "capture": {
+        "digest": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC(=O)O",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "revision": 1
+          },
+          "import_mapping": {
+            "atoms": [
+              "a1",
+              "a2",
+              "a3",
+              "a4"
+            ],
+            "bonds": [
+              "b1",
+              "b2",
+              "b3"
+            ]
+          }
+        }
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "write-recorded",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-smiles-1",
+        "document_revision": 1,
+        "result": {
+          "content": "CC(=O)O",
+          "style": "recorded",
+          "atom_order": [
+            "a1",
+            "a2",
+            "a3",
+            "a4"
+          ]
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "coordinates"
+            },
+            {
+              "feature": "native_ids"
+            }
+          ]
+        }
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "write-canonical",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-smiles-canonical-1",
+        "document_revision": 1,
+        "result": {
+          "content": "C(C)(=O)O",
+          "style": "canonical",
+          "graph_model": "chemifree-chemical-graph-2"
+        }
+      },
+      "document": "d"
+    }
+  ]
+}

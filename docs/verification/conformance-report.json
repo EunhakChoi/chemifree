@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 12,
+  "suite_version": 13,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2d17bcbf098f3ee78d0b44416c4d3bc35c6d07efc351d1fab6461a39c8ff0fd5"
+      "case_sha256": "ad3a76212c105d88518181d90ce76541692200b884095dc49fad9064a8dc222d"
     },
     {
       "id": "formula-and-mass",
@@ -491,21 +491,48 @@
       "pending": null,
       "failure": null,
       "case_sha256": "4647ba870f46f8d14857983bf67231d83b6c68a5637bdea6030b4752c674942f"
+    },
+    {
+      "id": "smiles-import-export",
+      "title": "Acetic acid is previewed and imported from SMILES without accepting a loss, then written as recorded and canonical SMILES",
+      "requirements": [
+        "CODEC-05"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "aa8c99ca559cb8374896c6c28005a020a9050ea4b322e8afca70e06f1b91fc3d"
+    },
+    {
+      "id": "smiles-malformed-and-unsupported-refused",
+      "title": "Malformed, unsupported and unconsented SMILES changes nothing and names the position and the code",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "4c6ebc4c30b9adacb4762f1d48c0dfc12426ee0316dccee93dfbb900efc8ea89"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 23,
+      "passed": 24,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 13,
+      "passed": 14,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 36,
+      "passed": 38,
       "failed": 0,
       "not_run": 0
     }
