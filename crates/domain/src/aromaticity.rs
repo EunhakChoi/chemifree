@@ -53,7 +53,22 @@ struct Role {
     saturated: bool,
 }
 
-fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'static str> {
+/// How the ring writes this atom's bonds, which decides an uncharged nitrogen's role.
+#[derive(Clone, Copy)]
+struct Notation {
+    /// The ring uses aromatic bonds (lowercase atoms), where `n` without hydrogens is
+    /// pyridine-type.
+    aromatic_ring: bool,
+    /// The atom has an explicit double bond inside the ring.
+    ring_double: bool,
+}
+
+fn role(
+    atom: &Atom,
+    ring_degree: usize,
+    outside: usize,
+    notation: Notation,
+) -> Result<Role, &'static str> {
     let Some(element) = atom.kind.element() else {
         return Err("query_atom");
     };
@@ -74,6 +89,10 @@ fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'stati
             ("C", 1) => (0, false, 3),
             ("C", -1) => (2, false, 3),
             ("N", 0) if stated.unwrap_or(0) > 0 || ring_degree + outside == 3 => (2, false, 3),
+            // In a Kekule-written ring, a neutral N with no double bond is the NH donor, as
+            // uppercase `N` infers its hydrogen; only an aromatic-bonded `n` or a double bond
+            // makes it pyridine-type.
+            ("N", 0) if !notation.aromatic_ring && !notation.ring_double => (2, false, 3),
             ("N", 0) => (1, true, 3),
             ("N", 1) => (1, true, 4),
             ("N", -1) => (2, false, 2),
@@ -216,11 +235,22 @@ fn calculate(
     }
     let mut roles = Vec::with_capacity(ring.atoms.len());
     for (i, id) in ring.atoms.iter().enumerate() {
-        roles.push(role(atoms[id], inside[i].len(), outside[i])?);
+        let notation = Notation {
+            aromatic_ring: any_aromatic,
+            ring_double: explicit_double.iter().any(|&(a, b)| a == i || b == i),
+        };
+        roles.push(role(atoms[id], inside[i].len(), outside[i], notation)?);
     }
+    // A fused or bridged system with double bonds that is not aromatic as a whole would need
+    // a per-ring conjugation model this version lacks; classifying it non-aromatic would make
+    // equivalent Kekule spellings of partly saturated systems (indane, tetralin) differ.
+    let fused_with_doubles = ring.cycle_rank > 1 && !explicit_double.is_empty();
     let saturated: Vec<usize> = (0..roles.len()).filter(|&i| roles[i].saturated).collect();
     if !saturated.is_empty() {
         if !any_aromatic {
+            if fused_with_doubles {
+                return Err("fused_system_outside_model");
+            }
             return Ok((
                 Classification::NonAromatic,
                 None,
@@ -244,6 +274,9 @@ fn calculate(
     if !any_aromatic {
         for (a, b) in explicit_double {
             if !roles[a].needs_double || !roles[b].needs_double || matched[a] || matched[b] {
+                if fused_with_doubles {
+                    return Err("fused_system_outside_model");
+                }
                 return Ok((
                     Classification::NonAromatic,
                     None,
@@ -259,6 +292,9 @@ fn calculate(
             .enumerate()
             .any(|(i, r)| r.needs_double != matched[i])
         {
+            if fused_with_doubles {
+                return Err("fused_system_outside_model");
+            }
             return Ok((
                 Classification::NonAromatic,
                 None,

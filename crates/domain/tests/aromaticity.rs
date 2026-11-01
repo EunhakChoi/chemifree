@@ -455,3 +455,53 @@ fn aromatic_bond_on_a_saturated_atom_stays_an_error() {
         (Classification::Unsupported, Some("valence_not_in_model"))
     );
 }
+
+#[test]
+fn kekule_written_nh_donor_is_pyrrole_like_and_pyridine_n_with_a_double_bond_is_not() {
+    // Five-membered ring N-C=C-C=C with an inferred-hydrogen N: six electrons, aromatic.
+    let pyrrole = graph(
+        vec![atom("N"), atom("C"), atom("C"), atom("C"), atom("C")],
+        &[
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Double),
+            (2, 3, BondOrder::Single),
+            (3, 4, BondOrder::Double),
+            (4, 0, BondOrder::Single),
+        ],
+    );
+    let result = aromaticity::perceive(&MoleculeGraph::from_document(&pyrrole));
+    assert_eq!(
+        (
+            result.systems[0].classification,
+            result.systems[0].electrons
+        ),
+        (Classification::Aromatic, Some(6))
+    );
+    // Pyridine written with an explicit N=C double bond is still pyridine-type.
+    let pyridine = graph(
+        vec![
+            atom("N"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+        ],
+        &[
+            (0, 1, BondOrder::Double),
+            (1, 2, BondOrder::Single),
+            (2, 3, BondOrder::Double),
+            (3, 4, BondOrder::Single),
+            (4, 5, BondOrder::Double),
+            (5, 0, BondOrder::Single),
+        ],
+    );
+    let result = aromaticity::perceive(&MoleculeGraph::from_document(&pyridine));
+    assert_eq!(
+        (
+            result.systems[0].classification,
+            result.systems[0].electrons
+        ),
+        (Classification::Aromatic, Some(6))
+    );
+}
