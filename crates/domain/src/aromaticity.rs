@@ -56,6 +56,9 @@ struct Role {
     /// Every valence is used by single bonds and stated hydrogens, so the atom cannot take part
     /// in conjugation and contributes no pi electrons.
     saturated: bool,
+    /// Read as a pyrrole-type donor only through the Kekule rule (inferred hydrogens, two
+    /// neighbours, no double bond, no aromatic bonds in the system).
+    pyrrole: bool,
 }
 
 /// What the atom contributes to a ring system, given its ring and outside neighbours.
@@ -86,6 +89,7 @@ fn role(
     // A pyrrole-type nitrogen has no ring double bond and inferred hydrogens in a ring drawn
     // with single and double bonds; with aromatic bonds the same atom is pyridine-type.
     let pyrrole_type = stated.is_none() && neighbours == 2 && !has_double && !aromatic_ring;
+    let symbol = element.symbol();
     let (electrons, needs_double, target): (u16, bool, usize) =
         match (element.symbol(), atom.charge) {
             ("C", 0) => (1, true, 4),
@@ -107,6 +111,7 @@ fn role(
             electrons,
             needs_double,
             saturated: false,
+            pyrrole: pyrrole_type && symbol == "N" && atom.charge == 0 && neighbours == 2,
         });
     }
     // The atom either takes one more bond order (a ring double bond) or is saturated.
@@ -125,6 +130,7 @@ fn role(
             electrons: 0,
             needs_double: false,
             saturated: true,
+            pyrrole: false,
         });
     }
     // Inferred hydrogens fill any remaining valence; stated ones must fit exactly once the
@@ -137,6 +143,7 @@ fn role(
         electrons,
         needs_double: true,
         saturated: false,
+        pyrrole: false,
     })
 }
 
@@ -176,52 +183,16 @@ fn interpret_ring(
     };
     let interpretation = calculate(ring, atoms, bonds);
     match interpretation {
-        Ok((classification, electrons, assignment, reason)) => {
+        Ok((classification, electrons, assignment, reason, donors)) => {
+            result.donors = donors;
             result.classification = classification;
             result.electrons = electrons;
             result.assignment = assignment;
             result.reason = reason;
-            if classification == Classification::Aromatic {
-                result.donors = pyrrole_donors(ring, atoms, bonds);
-            }
         }
         Err(reason) => result.reason = Some(reason),
     }
     result
-}
-
-/// Nitrogens of a ring system drawn without aromatic bonds that the model reads as pyrrole-type
-/// only through the Kekule rule: uncharged, inferred hydrogens, two neighbours, no double bond.
-fn pyrrole_donors(
-    ring: &RingSystem,
-    atoms: &BTreeMap<AtomId, &Atom>,
-    bonds: &BTreeMap<BondId, &Bond>,
-) -> Vec<AtomId> {
-    if ring
-        .bonds
-        .iter()
-        .any(|id| bonds[id].order == BondOrder::Aromatic)
-    {
-        return Vec::new();
-    }
-    ring.atoms
-        .iter()
-        .copied()
-        .filter(|id| {
-            let atom = atoms[id];
-            if atom.kind.element().map(|e| e.symbol()) != Some("N")
-                || atom.charge != 0
-                || atom.hydrogens != Hydrogens::Inferred
-            {
-                return false;
-            }
-            let incident: Vec<_> = bonds
-                .values()
-                .filter(|b| b.begin == *id || b.end == *id)
-                .collect();
-            incident.len() == 2 && incident.iter().all(|b| b.order == BondOrder::Single)
-        })
-        .collect()
 }
 
 type Calculated = (
@@ -229,6 +200,7 @@ type Calculated = (
     Option<u16>,
     Option<Vec<BondId>>,
     Option<&'static str>,
+    Vec<AtomId>,
 );
 
 fn calculate(
@@ -344,7 +316,13 @@ fn calculate(
                     Err(()) => return Err("search_limit"),
                 }
             }
-            return Ok((Classification::NonAromatic, None, None, Some(reason)));
+            return Ok((
+                Classification::NonAromatic,
+                None,
+                None,
+                Some(reason),
+                Vec::new(),
+            ));
         }
     }
     // Hückel's 4n+2 rule applies to a single circuit, not to the total π count of an
@@ -364,10 +342,23 @@ fn calculate(
             Some(electrons),
             None,
             Some("electron_count"),
+            Vec::new(),
         ));
     }
     if !any_aromatic {
-        return Ok((Classification::Aromatic, Some(electrons), None, None));
+        let donors = ring
+            .atoms
+            .iter()
+            .zip(&roles)
+            .filter_map(|(id, role)| role.pyrrole.then_some(*id))
+            .collect();
+        return Ok((
+            Classification::Aromatic,
+            Some(electrons),
+            None,
+            None,
+            donors,
+        ));
     }
     let mut used = vec![false; roles.len()];
     let mut selected = Vec::new();
@@ -380,6 +371,7 @@ fn calculate(
                 Some(electrons),
                 Some(selected),
                 None,
+                Vec::new(),
             ))
         }
         Ok(false) => Err("no_kekule_assignment"),
