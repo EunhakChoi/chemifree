@@ -719,8 +719,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
           <ValenceInspector document={document} editor={editor} />
-          <CtfilePanel key={document.id} document={document} editor={editor} />
-          <SmilesPanel key={document.id} document={document} editor={editor} />
+          <CtfilePanel key={`ctfile:${document.id}`} document={document} editor={editor} />
+          <SmilesPanel key={`smiles:${document.id}`} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
           <IdentityPanel document={document} editor={editor} />
