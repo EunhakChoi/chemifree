@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::aromaticity::{self, Classification};
 use crate::chemistry::{self, Finding};
-use crate::document::{Atom, AtomId, Bond, BondOrder};
+use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
@@ -47,6 +47,17 @@ pub struct CanonicalGraph {
     pub symmetry: Vec<Vec<AtomId>>,
     /// Terminal natural H vertices folded into a heavy atom in the chemical profile.
     pub folded_hydrogens: Vec<(AtomId, AtomId)>,
+    /// Chemical profile only: what the canonical atoms mean, in canonical order.
+    pub chemical: Option<ChemicalDetail>,
+}
+
+/// The interpreted state behind a chemical-profile code.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChemicalDetail {
+    /// Non-vertex hydrogens of canonical atom `i + 1`, including folded terminal hydrogens.
+    pub hydrogens: Vec<u16>,
+    /// Bonds the aromaticity model reads as aromatic; every other bond keeps its recorded order.
+    pub aromatic_bonds: BTreeSet<BondId>,
 }
 
 type Label = Vec<u8>;
@@ -133,6 +144,7 @@ struct Graph {
     labels: Vec<Label>,
     edges: Vec<Vec<Option<Label>>>,
     folded: Vec<(AtomId, AtomId)>,
+    chemical: Option<(Vec<u16>, BTreeSet<BondId>)>,
 }
 
 impl Graph {
@@ -161,6 +173,7 @@ impl Graph {
             labels,
             edges,
             folded: Vec::new(),
+            chemical: None,
         })
     }
 
@@ -198,32 +211,9 @@ impl Graph {
             .map_err(IdentityError::Unsupported)?
             .into_iter()
             .collect();
-        let mut orders: BTreeMap<_, Vec<Option<u16>>> =
-            atoms.keys().map(|&id| (id, Vec::new())).collect();
-        for (id, bond) in input.bonds() {
-            let order = match bond.order {
-                BondOrder::Single => Some(1),
-                BondOrder::Double => Some(2),
-                BondOrder::Triple => Some(3),
-                BondOrder::Aromatic => match assignment.get(&id) {
-                    Some(aromaticity::KekuleOrder::Single) => Some(1),
-                    Some(aromaticity::KekuleOrder::Double) => Some(2),
-                    None => return Err(IdentityError::Unsupported("aromaticity_unsupported")),
-                },
-                BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
-            };
-            orders
-                .get_mut(&bond.begin)
-                .expect("validated endpoint")
-                .push(order);
-            orders
-                .get_mut(&bond.end)
-                .expect("validated endpoint")
-                .push(order);
-        }
+        let assessed = chemistry::assess_graph(input, &assignment);
         let mut hydrogens = BTreeMap::new();
-        for (&id, atom) in &atoms {
-            let state = chemistry::assess(id, atom, &orders[&id]);
+        for (&id, state) in &assessed {
             if state.finding != Finding::Valid {
                 return Err(IdentityError::Unsupported(
                     state.reason.unwrap_or("valence_unsupported"),
@@ -306,11 +296,13 @@ impl Graph {
             edges[a][b] = Some(edge_label(&normalized, true));
             edges[b][a] = Some(edge_label(&normalized, false));
         }
+        let counts = ids.iter().map(|id| hydrogens[id]).collect();
         Ok(Self {
             ids,
             labels,
             edges,
             folded,
+            chemical: Some((counts, aromatic_bonds)),
         })
     }
 }
@@ -504,10 +496,18 @@ fn finish(graph: Graph) -> Result<CanonicalGraph, IdentityError> {
     symmetry.extend(hydrogen_orbits);
     symmetry.sort();
     let code = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let chemical = graph
+        .chemical
+        .as_ref()
+        .map(|(counts, aromatic_bonds)| ChemicalDetail {
+            hydrogens: order.iter().map(|&i| counts[i]).collect(),
+            aromatic_bonds: aromatic_bonds.clone(),
+        });
     Ok(CanonicalGraph {
         code,
         numbering: order.into_iter().map(|i| graph.ids[i]).collect(),
         symmetry,
         folded_hydrogens: graph.folded,
+        chemical,
     })
 }

@@ -48,9 +48,21 @@ pub struct Interpretation {
 struct Role {
     electrons: u16,
     needs_double: bool,
+    /// Every valence is used by single bonds and stated hydrogens, so the atom cannot take part
+    /// in conjugation and contributes no pi electrons.
+    saturated: bool,
 }
 
-fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'static str> {
+/// What the atom contributes to a ring system, given its ring and outside neighbours.
+/// `has_double` means a double bond to a ring neighbour is recorded; `aromatic_ring` means the
+/// system is drawn with aromatic bonds.
+fn role(
+    atom: &Atom,
+    ring_degree: usize,
+    outside: usize,
+    has_double: bool,
+    aromatic_ring: bool,
+) -> Result<Role, &'static str> {
     let Some(element) = atom.kind.element() else {
         return Err("query_atom");
     };
@@ -65,25 +77,61 @@ fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'stati
         Hydrogens::Specified(count) => Some(usize::from(count)),
         Hydrogens::Unknown => return Err("unknown_hydrogens"),
     };
+    let neighbours = ring_degree + outside;
+    // A pyrrole-type nitrogen has no ring double bond and inferred hydrogens in a ring drawn
+    // with single and double bonds; with aromatic bonds the same atom is pyridine-type.
+    let pyrrole_type = stated.is_none() && neighbours == 2 && !has_double && !aromatic_ring;
     let (electrons, needs_double, target): (u16, bool, usize) =
         match (element.symbol(), atom.charge) {
             ("C", 0) => (1, true, 4),
             ("C", 1) => (0, false, 3),
             ("C", -1) => (2, false, 3),
-            ("N", 0) if stated.unwrap_or(0) > 0 || ring_degree + outside == 3 => (2, false, 3),
+            ("N", 0) if stated.unwrap_or(0) > 0 || neighbours == 3 || pyrrole_type => (2, false, 3),
             ("N", 0) => (1, true, 3),
             ("N", 1) => (1, true, 4),
             ("N", -1) => (2, false, 2),
             ("O" | "S", 0) => (2, false, 2),
             _ => return Err("element_or_charge"),
         };
-    let minimum = ring_degree + outside + usize::from(needs_double);
+    if !needs_double {
+        let minimum = neighbours;
+        if minimum > target || stated.is_some_and(|h| minimum + h != target) {
+            return Err("valence_not_in_model");
+        }
+        return Ok(Role {
+            electrons,
+            needs_double,
+            saturated: false,
+        });
+    }
+    // The atom either takes one more bond order (a ring double bond) or is saturated.
+    let held = stated.unwrap_or(0);
+    let double_order = usize::from(has_double);
+    let used = neighbours + double_order + held;
+    let saturated = match stated {
+        Some(_) => !has_double && used == target,
+        None => !has_double && neighbours == target,
+    };
+    if saturated {
+        if aromatic_ring {
+            return Err("valence_not_in_model");
+        }
+        return Ok(Role {
+            electrons: 0,
+            needs_double: false,
+            saturated: true,
+        });
+    }
+    // Inferred hydrogens fill any remaining valence; stated ones must fit exactly once the
+    // atom takes its (possibly not yet recorded) double bond.
+    let minimum = neighbours + 1;
     if minimum > target || stated.is_some_and(|h| minimum + h != target) {
         return Err("valence_not_in_model");
     }
     Ok(Role {
         electrons,
-        needs_double,
+        needs_double: true,
+        saturated: false,
     })
 }
 
@@ -194,36 +242,61 @@ fn calculate(
     if any_aromatic && !all_aromatic {
         return Err("mixed_ring_bonds");
     }
+    let mut has_double = vec![false; ring.atoms.len()];
+    for &(a, b) in &explicit_double {
+        has_double[a] = true;
+        has_double[b] = true;
+    }
     let mut roles = Vec::with_capacity(ring.atoms.len());
     for (i, id) in ring.atoms.iter().enumerate() {
-        roles.push(role(atoms[id], inside[i].len(), outside[i])?);
+        roles.push(role(
+            atoms[id],
+            inside[i].len(),
+            outside[i],
+            has_double[i],
+            any_aromatic,
+        )?);
     }
     let electrons: u16 = roles.iter().map(|r| r.electrons).sum();
-    let mut matched = vec![false; roles.len()];
     if !any_aromatic {
-        for (a, b) in explicit_double {
+        let mut matched = vec![false; roles.len()];
+        let mut partner = vec![None; roles.len()];
+        let mut conflict = false;
+        for &(a, b) in &explicit_double {
             if !roles[a].needs_double || !roles[b].needs_double || matched[a] || matched[b] {
-                return Ok((
-                    Classification::NonAromatic,
-                    None,
-                    None,
-                    Some("not_conjugated"),
-                ));
+                conflict = true;
+                continue;
             }
             matched[a] = true;
             matched[b] = true;
+            partner[a] = Some(b);
+            partner[b] = Some(a);
         }
-        if roles
+        let reason = if conflict {
+            Some("not_conjugated")
+        } else if roles.iter().any(|r| r.saturated) {
+            Some("saturated_atom")
+        } else if roles
             .iter()
             .enumerate()
             .any(|(i, r)| r.needs_double != matched[i])
         {
-            return Ok((
-                Classification::NonAromatic,
-                None,
-                None,
-                Some("not_conjugated"),
-            ));
+            Some("not_conjugated")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            // A fused system that is not aromatic as a whole may still contain a cycle that
+            // would be aromatic alone. Its answer would depend on how the rest is drawn, so it
+            // is refused instead of being called non-aromatic.
+            if ring.cycle_rank > 1 {
+                match aromatic_cycle_possible(&roles, &inside, &partner) {
+                    Ok(false) => {}
+                    Ok(true) => return Err("fused_partially_aromatic"),
+                    Err(()) => return Err("search_limit"),
+                }
+            }
+            return Ok((Classification::NonAromatic, None, None, Some(reason)));
         }
     }
     // Hückel's 4n+2 rule applies to a single circuit, not to the total π count of an
@@ -264,6 +337,105 @@ fn calculate(
         Ok(false) => Err("no_kekule_assignment"),
         Err(()) => Err("search_limit"),
     }
+}
+
+/// Whether some simple cycle of the system alternates single and recorded double bonds through
+/// atoms that can conjugate and carries 4n+2 pi electrons. Such a cycle could be aromatic.
+fn aromatic_cycle_possible(
+    roles: &[Role],
+    inside: &[Vec<(usize, BondId)>],
+    partner: &[Option<usize>],
+) -> Result<bool, ()> {
+    struct Walk<'a> {
+        roles: &'a [Role],
+        inside: &'a [Vec<(usize, BondId)>],
+        partner: &'a [Option<usize>],
+        participant: Vec<bool>,
+        visited: Vec<bool>,
+        budget: usize,
+        start: usize,
+        first_double: Option<bool>,
+    }
+    impl Walk<'_> {
+        fn electrons(&self, i: usize) -> u16 {
+            if self.roles[i].needs_double {
+                1
+            } else {
+                self.roles[i].electrons
+            }
+        }
+
+        fn walk(
+            &mut self,
+            v: usize,
+            arrived: Option<bool>,
+            edges: usize,
+            electrons: u16,
+        ) -> Result<bool, ()> {
+            for index in 0..self.inside[v].len() {
+                let (w, _) = self.inside[v][index];
+                if w < self.start || !self.participant[w] {
+                    continue;
+                }
+                let double = self.partner[v] == Some(w);
+                if v != self.start && self.roles[v].needs_double && arrived == Some(double) {
+                    continue;
+                }
+                if self.budget == 0 {
+                    return Err(());
+                }
+                self.budget -= 1;
+                if w == self.start {
+                    let blocked = self.roles[w].needs_double && self.first_double == Some(double);
+                    if edges >= 2 && !blocked && electrons >= 2 && electrons % 4 == 2 {
+                        return Ok(true);
+                    }
+                    continue;
+                }
+                if self.visited[w] {
+                    continue;
+                }
+                if v == self.start {
+                    self.first_double = Some(double);
+                }
+                self.visited[w] = true;
+                let next = electrons + self.electrons(w);
+                if self.walk(w, Some(double), edges + 1, next)? {
+                    return Ok(true);
+                }
+                self.visited[w] = false;
+            }
+            Ok(false)
+        }
+    }
+    let participant: Vec<bool> = roles
+        .iter()
+        .enumerate()
+        .map(|(i, r)| !r.saturated && (!r.needs_double || partner[i].is_some()))
+        .collect();
+    let mut walk = Walk {
+        roles,
+        inside,
+        partner,
+        participant,
+        visited: vec![false; roles.len()],
+        budget: MAX_MATCH_STEPS,
+        start: 0,
+        first_double: None,
+    };
+    for start in 0..roles.len() {
+        if !walk.participant[start] {
+            continue;
+        }
+        walk.start = start;
+        walk.visited.iter_mut().for_each(|v| *v = false);
+        walk.visited[start] = true;
+        let electrons = walk.electrons(start);
+        if walk.walk(start, None, 0, electrons)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn six_membered_cover(adjacent: &[Vec<(usize, BondId)>]) -> bool {
