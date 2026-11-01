@@ -761,3 +761,32 @@ fn objects_in_a_written_tree_never_exceed_what_the_reader_accepts() {
     let bytes = cdx_of(&document, None, false).unwrap().bytes;
     assert_eq!(reread(&bytes), document);
 }
+
+#[test]
+fn ids_on_objects_that_cdx_cannot_number_are_dropped_with_a_reported_loss() {
+    let text = format!(
+        r#"<CDXML><colortable id="7"><color id="8" r="1" g="1" b="1"/></colortable><fonttable id="6"><font id="3" charset="iso-8859-1" name="Arial"/></fonttable><page id="1"><t id="2"><s id="9" font="3" size="10" face="0" color="0">a</s></t></page></CDXML>"#
+    );
+    let document = from_cdxml(&text);
+    let output = cdx_of(&document, None, false).unwrap();
+    let dropped = output
+        .loss_report
+        .iter()
+        .find(|loss| loss.feature == "object_ids")
+        .unwrap_or_else(|| panic!("no object_ids loss: {:?}", output.loss_report));
+    assert_eq!(dropped.disposition, LossDisposition::Dropped);
+    assert!(
+        dropped.reason.starts_with("4 object ID"),
+        "{}",
+        dropped.reason
+    );
+}
+
+#[test]
+fn a_reference_to_an_id_that_cannot_be_written_is_refused() {
+    let text = format!(
+        r#"<CDXML>{FONT}<page id="1"><t id="2"><s id="9" font="3" size="10" face="0" color="0">a</s></t><graphic id="4" GraphicType="Line" BoundingBox="0 0 1 1"><represent object="9" attribute="Charge"/></graphic></page></CDXML>"#
+    );
+    let error = cdx_of(&from_cdxml(&text), None, false).unwrap_err();
+    assert!(error.starts_with("unsupported_object_id"), "{error}");
+}

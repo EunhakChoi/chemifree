@@ -4,6 +4,8 @@
 //! numbers that are not exact multiples of the binary resolution, are reported as losses
 //! rather than rewritten silently; values that cannot be stored at all are refused.
 
+use std::collections::HashSet;
+
 use chemifree_application::{Loss, LossDisposition, SemanticImpact};
 use chemifree_domain::interchange::{
     Content, Document, Object, ObjectKind, Property, PropertyKind, PropertyValue,
@@ -49,10 +51,12 @@ pub fn write(document: &Document, original: Option<&CdxDocument>) -> Result<CdxW
         style_defaults: Counted::default(),
         child_order: Counted::default(),
         platform_unknown: Counted::default(),
+        dropped_ids: Counted::default(),
     };
     writer.out.extend_from_slice(MAGIC);
     writer.out.extend_from_slice(&RESERVED_PREFIX);
     writer.out.extend_from_slice(&[0; HEADER_LEN - 12]);
+    writer.check_dropped_ids(document.root())?;
     writer.object(document.root())?;
     writer.out.extend_from_slice(&[0, 0]);
     if writer.out.len() > MAX_BYTES {
@@ -112,6 +116,7 @@ struct Writer<'a> {
     style_defaults: Counted,
     child_order: Counted,
     platform_unknown: Counted,
+    dropped_ids: Counted,
 }
 
 fn kind_name(kind: &ObjectKind) -> &'static str {
@@ -159,6 +164,63 @@ impl Writer<'_> {
 
     fn refuse(&self, code: &'static str, message: impl Into<String>) -> CdxError {
         CdxError::general(code, format!("{} (at {}).", message.into(), self.path()))
+    }
+
+    /// Style runs, font and color tables and their entries are properties or parts of
+    /// properties in CDX and cannot carry an object ID. Dropping an ID is reported; dropping
+    /// one that a reference names would leave the file pointing at nothing, so it is refused.
+    fn check_dropped_ids(&mut self, root: &Object) -> Result<(), CdxError> {
+        fn walk<'a>(
+            object: &'a Object,
+            stack: &mut Vec<&'a Object>,
+            dropped: &mut Vec<(u32, String)>,
+            references: &mut HashSet<u32>,
+        ) {
+            stack.push(object);
+            if let Some(id) = object.id
+                && matches!(
+                    object.kind,
+                    ObjectKind::StyleRun
+                        | ObjectKind::FontTable
+                        | ObjectKind::Font
+                        | ObjectKind::ColorTable
+                        | ObjectKind::Color
+                )
+            {
+                let path = stack
+                    .iter()
+                    .map(|item| kind_name(&item.kind))
+                    .collect::<Vec<_>>()
+                    .join("/");
+                dropped.push((id, path));
+            }
+            for item in &object.properties {
+                if let PropertyValue::ObjectReference(id) = item.value {
+                    references.insert(id);
+                }
+            }
+            for child in &object.children {
+                if let Content::Object(child) = child {
+                    walk(child, stack, dropped, references);
+                }
+            }
+            stack.pop();
+        }
+        let mut dropped = Vec::new();
+        let mut references = HashSet::new();
+        walk(root, &mut Vec::new(), &mut dropped, &mut references);
+        for (id, path) in &dropped {
+            if references.contains(id) {
+                return Err(CdxError::general(
+                    "unsupported_object_id",
+                    format!(
+                        "Object {id} ({path}) cannot carry an ID in CDX, but a reference names it."
+                    ),
+                ));
+            }
+            self.dropped_ids.note(|| path.clone());
+        }
+        Ok(())
     }
 
     fn property_bytes(&mut self, property_tag: u16, data: &[u8]) -> Result<(), CdxError> {
@@ -355,8 +417,9 @@ impl Writer<'_> {
         if error > 0.0 {
             let slot = &mut self.precision[quantity as usize];
             slot.worst = slot.worst.max(error);
-            let path = self.stack.join("/");
-            self.precision[quantity as usize].seen.note(|| path);
+            self.precision[quantity as usize]
+                .seen
+                .note(|| self.stack.join("/"));
         }
         Ok(steps)
     }
@@ -444,8 +507,7 @@ impl Writer<'_> {
                 .is_some_and(|source| source.platform == PLATFORM_WINDOWS && source.table == *table)
         });
         if !known_platform {
-            let path = self.path();
-            self.platform_unknown.note(|| path);
+            self.platform_unknown.note(|| self.stack.join("/"));
         }
         let fonts: Vec<&Object> = table
             .children
@@ -626,8 +688,7 @@ impl Writer<'_> {
                 let face = match self.run_integer(run, &PropertyKind::FontFace, "face")? {
                     Some(face) => face,
                     None => {
-                        let path = self.stack.join("/");
-                        self.style_defaults.note(|| path);
+                        self.style_defaults.note(|| self.stack.join("/"));
                         0
                     }
                 };
@@ -693,6 +754,18 @@ impl Writer<'_> {
                     self.platform_unknown.count
                 ),
                 semantic_impact: SemanticImpact::Unknown,
+            });
+        }
+        if self.dropped_ids.count > 0 {
+            losses.push(Loss {
+                feature: "object_ids".into(),
+                source_path: self.dropped_ids.first.clone().unwrap_or_default(),
+                disposition: LossDisposition::Dropped,
+                reason: format!(
+                    "{} object ID(s) on style runs, font tables, color tables and their entries have no CDX encoding and were not written; no reference names them.",
+                    self.dropped_ids.count
+                ),
+                semantic_impact: SemanticImpact::Document,
             });
         }
         if self.dropped_namespace {
@@ -782,6 +855,7 @@ mod tests {
             style_defaults: Counted::default(),
             child_order: Counted::default(),
             platform_unknown: Counted::default(),
+            dropped_ids: Counted::default(),
         };
         writer.property_bytes(0x1234, &vec![7; 0xfffe]).unwrap();
         assert_eq!(&writer.out[2..4], &0xfffe_u16.to_le_bytes());
