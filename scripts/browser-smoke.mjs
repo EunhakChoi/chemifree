@@ -2870,7 +2870,7 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByText(/Text after the first whitespace/).waitFor()
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
   await input.fill('OC(=O)C  acetic acid.')
-  await panel.getByText('The drawing or text changed. Preview the import again.', { exact: true }).waitFor()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
   await input.fill('OC(=O)C  acetic acid')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
   await panel.getByRole('button', { name: 'Accept losses and import' }).click()
