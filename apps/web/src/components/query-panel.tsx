@@ -104,7 +104,7 @@ export function QueryPanel({ document, editor }: { document: DocumentView; edito
       </Field>
       <Field><FieldLabel htmlFor="query-min">Minimum neighbors</FieldLabel><Input id="query-min" inputMode="numeric" value={rule.min} onChange={(event) => editRule({ min: event.target.value })} /></Field>
       <Field><FieldLabel htmlFor="query-max">Maximum neighbors</FieldLabel><Input id="query-max" inputMode="numeric" value={rule.max} onChange={(event) => editRule({ max: event.target.value })} /></Field>
-      <Field><FieldLabel htmlFor="query-charge">Charge condition</FieldLabel><Input id="query-charge" inputMode="numeric" value={rule.charge} onChange={(event) => editRule({ charge: event.target.value })} /><FieldDescription>Query atoms only; an element atom must equal its drawn charge.</FieldDescription></Field>
+      <Field><FieldLabel htmlFor="query-charge">Charge condition</FieldLabel><Input id="query-charge" inputMode="text" value={rule.charge} onChange={(event) => editRule({ charge: event.target.value })} /><FieldDescription>Query atoms only; an element atom must equal its drawn charge.</FieldDescription></Field>
       <Button size="sm" variant="ghost" onClick={() => editRule(EMPTY_RULE)}>Clear this atom's conditions</Button>
       <Button size="sm" variant="ghost" onClick={() => setRuleState({ documentId: document.id, rules: {} })}>Clear all conditions</Button>
     </>}

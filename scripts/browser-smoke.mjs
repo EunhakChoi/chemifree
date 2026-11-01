@@ -2781,6 +2781,8 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByRole('option', { name: 'In a ring', exact: true }).click()
   await panel.getByLabel('Minimum neighbors').fill('2')
   await panel.getByLabel('Maximum neighbors').fill('2')
+  // A negative charge must be typeable on touch keyboards, which a numeric pad would not allow.
+  assert.equal(await panel.getByLabel('Charge condition').getAttribute('inputmode'), 'text')
   await panel.getByLabel('Charge condition').fill('0')
   const beforeSource = await api(`/api/v1/documents/${id}`)
   await panel.getByRole('button', { name: 'Search substructure' }).click()

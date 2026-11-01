@@ -30,9 +30,9 @@ Intentional differences, so only comparable behavior is compared:
   recorded mode) is a Chemifree-only refusal. Radicals are not compared: RDKit
   SMARTS has no radical primitive in this version.
 * N-H heterocycles written in Kekule form with an unstated N-H (pyrazole,
-  pyrrole) are refused in aromatic-target mode because the aromaticity model
-  would otherwise read the nitrogen as pyridine-type; RDKit finds matches, so
-  only the refusal is checked.
+  indole, benzimidazole, carbazole, pyrrole) are refused in aromatic-target
+  mode because the aromaticity model would otherwise read the nitrogen as
+  pyridine-type; RDKit finds matches, so only the refusal is checked.
 * Limits, refusals and completeness flags are Chemifree-only concepts and are
   checked against the declared expectation, not against RDKit.
 * A seeded random section compares exact mapping sets for connected query
@@ -304,6 +304,30 @@ _FIXTURES = (
         "cc",
         "",
         "C1=CC=NN1",
+        mode="aromatic_target",
+        refusal="aromatic_target_unsupported",
+    ),
+    Fixture(
+        "refusal_kekule_indole_unstated_nh",
+        "cc",
+        "",
+        "C1=CC=C2NC=CC2=C1",
+        mode="aromatic_target",
+        refusal="aromatic_target_unsupported",
+    ),
+    Fixture(
+        "refusal_kekule_benzimidazole_unstated_nh",
+        "cc",
+        "",
+        "C1=CC2=C(C=C1)N=CN2",
+        mode="aromatic_target",
+        refusal="aromatic_target_unsupported",
+    ),
+    Fixture(
+        "refusal_kekule_carbazole_unstated_nh",
+        "cc",
+        "",
+        "C1=CC2=C(C=C1)C1=C(N2)C=CC=C1",
         mode="aromatic_target",
         refusal="aromatic_target_unsupported",
     ),
