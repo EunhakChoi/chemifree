@@ -6,7 +6,9 @@ mod smiles_common;
 use chemifree_application::smiles_codec::{ErrorClass, ReadNote, SmilesCodec, SourceSpan};
 use chemifree_domain::document::{BondOrder, MAX_CHARGE, MIN_CHARGE};
 use chemifree_domain::states::{Hydrogens, Radical};
-use chemifree_providers::smiles::{Code, MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES};
+use chemifree_providers::smiles::{
+    Code, MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES, MAX_OPEN_RINGS, MAX_TRAILING_BYTES,
+};
 use smiles_common::{CODEC, Rng, read};
 
 /// (input, code, first byte, one past the last byte)
@@ -600,4 +602,65 @@ fn seeded_fuzz_and_mutation_never_panic_and_spans_stay_on_boundaries() {
         accepted > 100,
         "the fuzz must also reach accepted inputs, got {accepted}"
     );
+}
+
+fn label(n: usize) -> String {
+    if n < 10 {
+        n.to_string()
+    } else {
+        format!("%{n}")
+    }
+}
+
+#[test]
+fn the_reader_enforces_the_advertised_number_of_open_rings() {
+    // `count` atoms each open a different label, then `count` atoms close them all, so
+    // `count` labels are open at once.
+    let chain = |count: usize| {
+        let opens: String = (0..count).map(|n| format!("C{}", label(n))).collect();
+        let closes: String = (0..count).map(|n| format!("C{}", label(n))).collect();
+        format!("{opens}{closes}")
+    };
+    let at_limit = read(&chain(MAX_OPEN_RINGS)).expect("the advertised number is accepted");
+    assert_eq!(
+        at_limit.bonds.len(),
+        (2 * MAX_OPEN_RINGS - 1) + MAX_OPEN_RINGS
+    );
+    let error = read(&chain(MAX_OPEN_RINGS + 1)).unwrap_err();
+    assert_eq!(
+        (error.code, error.class),
+        ("ring_label_limit", ErrorClass::Limit)
+    );
+}
+
+#[test]
+fn the_byte_limit_covers_the_smiles_and_trailing_text_is_bounded_separately() {
+    let notes = "a note ".repeat(800);
+    assert!(notes.len() > MAX_INPUT_BYTES);
+    let read = read(&format!("CCO {notes}")).expect("notes after the terminator are not SMILES");
+    assert_eq!(read.atoms.len(), 3);
+    assert_eq!(
+        read.notes,
+        vec![ReadNote::IgnoredText(SourceSpan {
+            start: 4,
+            end: 4 + notes.len()
+        })]
+    );
+    // The SMILES itself is still bounded, wherever the terminator is.
+    let long = format!("{} x", "C".repeat(MAX_INPUT_BYTES + 1));
+    assert_eq!(read_code(&long), "input_too_long");
+    // Trailing text has its own bound, on a character boundary.
+    let too_much = format!("C {}", "名".repeat(MAX_TRAILING_BYTES));
+    let error = smiles_common::read(&too_much).unwrap_err();
+    assert_eq!(
+        (error.code, error.class),
+        ("trailing_text_too_long", ErrorClass::Limit)
+    );
+    let span = error.span.unwrap();
+    assert!(too_much.is_char_boundary(span.start) && span.end == too_much.len());
+    assert!(smiles_common::read(&format!("C {}", "x".repeat(MAX_TRAILING_BYTES - 2))).is_ok());
+}
+
+fn read_code(text: &str) -> &'static str {
+    smiles_common::read(text).unwrap_err().code
 }

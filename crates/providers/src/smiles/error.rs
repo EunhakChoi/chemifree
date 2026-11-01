@@ -77,6 +77,7 @@ codes! {
     AromaticSystemUnsupported = ("aromatic_system_unsupported", Unsupported, "The aromatic system is not one the aromaticity model reads."),
     // Limits.
     InputTooLong = ("input_too_long", Limit, "The SMILES is longer than the byte limit."),
+    TrailingTextTooLong = ("trailing_text_too_long", Limit, "The text after the SMILES is longer than the limit."),
     CommandLimit = ("command_limit", Limit, "The SMILES creates more atoms and bonds than one edit may."),
     BranchDepthLimit = ("branch_depth_limit", Limit, "Parentheses are nested deeper than the limit."),
     RingLabelLimit = ("ring_label_limit", Limit, "More ring closures are open at once than there are labels."),

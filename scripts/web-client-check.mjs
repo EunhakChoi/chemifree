@@ -15,6 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
+const { errorAfterTask } = await import('../apps/web/src/lib/page-error.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -1935,4 +1936,18 @@ test('SMILES output is accepted only for the drawing and style asked for', async
   await assert.rejects(client.exportSmiles('doc-1', 'recorded'), { code: 'incompatible_response' })
   await assert.rejects(client.exportSmiles('doc-1', 'recorded'), { code: 'incompatible_response' })
   assert.equal(shown.document.revision, 2)
+})
+
+
+test('only a success clears the page error; a failure a panel handles leaves it as it was', () => {
+  const seen = { code: 'seen' }
+  const fresh = { code: 'fresh' }
+  // A success clears an error seen before the task, but not one from a failure that came while it waited.
+  assert.equal(errorAfterTask(seen, { failed: false, newerFailure: false }), null)
+  assert.equal(errorAfterTask(seen, { failed: false, newerFailure: true }), seen)
+  // An unhandled failure becomes the page error.
+  assert.equal(errorAfterTask(seen, { failed: true, handled: false, error: fresh }), fresh)
+  // A failure the caller handles (a failed SMILES import shown in its panel) neither sets nor clears it.
+  assert.equal(errorAfterTask(seen, { failed: true, handled: true, error: fresh }), seen)
+  assert.equal(errorAfterTask(null, { failed: true, handled: true, error: fresh }), null)
 })

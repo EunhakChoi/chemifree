@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
+import { errorAfterTask } from '@/lib/page-error'
 import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
@@ -167,18 +168,19 @@ export function useDocumentEditor() {
    * Queues a task behind earlier ones. A success clears an error the user had already seen
    * when this task was queued, never one from a request that failed while it waited.
    */
-  const run = useCallback((task: () => Promise<void>) => {
+  const run = useCallback((task: () => Promise<void>, onFailure?: (failure: unknown) => void) => {
     setPending((count) => count + 1)
     const failuresSeen = failures.current
     const next = queue.current
       .then(task)
       .then(
         () => {
-          if (failures.current === failuresSeen) setError(null)
+          setError((previous) => errorAfterTask(previous, { failed: false, newerFailure: failures.current !== failuresSeen }))
         },
         (failure: unknown) => {
           failures.current += 1
-          setError(asApiError(failure))
+          onFailure?.(failure)
+          setError((previous) => errorAfterTask(previous, { failed: true, handled: onFailure !== undefined, error: asApiError(failure) }))
         },
       )
       .finally(() => setPending((count) => count - 1))
@@ -299,6 +301,24 @@ export function useDocumentEditor() {
     [run, setCurrent, refreshList],
   )
 
+  /** Whether the drawing on screen and the service are the ones a conversion was made for. */
+  const isCurrentConversion = useCallback((snapshot: DocumentView, generation: number) =>
+    serviceGenerationRef.current === generation && currentRef.current !== null &&
+    sameConversionSnapshot(currentRef.current.document, snapshot), [])
+
+  /** One guard for every previewed import: the same drawing, revision and service, or a refusal. */
+  const requireCurrentImport = useCallback((
+    input: { documentId: string; revision: number },
+    snapshot: DocumentView,
+    generation: number,
+  ) => {
+    const shown = currentRef.current
+    if (!shown || !isCurrentConversion(snapshot, generation) ||
+        shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+      throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+    }
+  }, [isCurrentConversion])
+
   return {
     list,
     listQuery,
@@ -341,9 +361,7 @@ export function useDocumentEditor() {
         throw failure
       }
     }), [run, show, refreshList]),
-    isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
-      serviceGenerationRef.current === generation && currentRef.current !== null &&
-      sameConversionSnapshot(currentRef.current.document, snapshot), []),
+    isCurrentConversion,
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
@@ -351,18 +369,13 @@ export function useDocumentEditor() {
     importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) => {
       let committed = false
       await run(async () => {
-        const shown = currentRef.current
-        if (!shown || serviceGenerationRef.current !== generation ||
-            !sameConversionSnapshot(shown.document, snapshot) ||
-            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
-          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
-        }
+        requireCurrentImport(input, snapshot, generation)
         const response = await client.importCt(input)
         if (currentRef.current?.document.id === input.documentId) setCurrent(response)
         committed = true
       })
       return committed
-    }, [run, setCurrent]),
+    }, [run, setCurrent, requireCurrentImport]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>
       client.previewSmiles(id, revision, source), []),
     exportSmiles: useCallback((id: string, style: SmilesStyle, acceptedLosses?: string) =>
@@ -374,21 +387,11 @@ export function useDocumentEditor() {
     importSmiles: useCallback(async (input: SmilesImport, snapshot: DocumentView, generation: number) => {
       let failure: ApiError | null = null
       await run(async () => {
-        const shown = currentRef.current
-        if (!shown || serviceGenerationRef.current !== generation ||
-            !sameConversionSnapshot(shown.document, snapshot) ||
-            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
-          failure = new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
-          return
-        }
-        try {
-          setCurrent(await client.importSmiles(input))
-        } catch (cause) {
-          failure = asApiError(cause)
-        }
-      })
+        requireCurrentImport(input, snapshot, generation)
+        setCurrent(await client.importSmiles(input))
+      }, (cause) => { failure = asApiError(cause) })
       return failure as ApiError | null
-    }, [run, setCurrent]),
+    }, [run, setCurrent, requireCurrentImport]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

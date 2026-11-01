@@ -5,7 +5,7 @@ mod smiles_common;
 
 use chemifree_application::smiles_codec::SmilesStyle;
 use chemifree_providers::smiles::{
-    Code, MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES, MAX_OPEN_RINGS,
+    Code, MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES, MAX_OPEN_RINGS, MAX_TRAILING_BYTES,
 };
 use smiles_common::{CODEC, graph, read, write};
 
@@ -121,6 +121,7 @@ fn every_error_code_is_documented_and_no_unknown_code_is() {
 fn documented_limits_are_the_codec_constants() {
     for (name, value) in [
         ("MAX_INPUT_BYTES", MAX_INPUT_BYTES),
+        ("MAX_TRAILING_BYTES", MAX_TRAILING_BYTES),
         ("MAX_COMMANDS", MAX_COMMANDS),
         ("MAX_BRANCH_DEPTH", MAX_BRANCH_DEPTH),
         ("MAX_OPEN_RINGS", MAX_OPEN_RINGS),
@@ -162,4 +163,33 @@ fn the_documents_state_the_same_limits_of_the_feature() {
     // The old statements that SMILES does not exist must be gone.
     assert!(!HANDOFF.contains("SMILES는 없다"));
     assert!(!CONTRACT.contains("SMILES is not implemented"));
+}
+
+#[test]
+fn the_documented_open_ring_and_trailing_limits_are_enforced_as_stated() {
+    let label = |n: usize| {
+        if n < 10 {
+            n.to_string()
+        } else {
+            format!("%{n}")
+        }
+    };
+    let chain = |count: usize| {
+        let opens: String = (0..count).map(|n| format!("C{}", label(n))).collect();
+        let closes: String = (0..count).map(|n| format!("C{}", label(n))).collect();
+        format!("{opens}{closes}")
+    };
+    assert!(CONTRACT.contains("`ring_label_limit` at the 100th"));
+    assert!(read(&chain(MAX_OPEN_RINGS)).is_ok());
+    assert_eq!(
+        read(&chain(MAX_OPEN_RINGS + 1)).unwrap_err().code,
+        "ring_label_limit"
+    );
+    assert!(read(&format!("C {}", "x".repeat(MAX_TRAILING_BYTES - 2))).is_ok());
+    assert_eq!(
+        read(&format!("C {}", "x".repeat(MAX_TRAILING_BYTES)))
+            .unwrap_err()
+            .code,
+        "trailing_text_too_long"
+    );
 }

@@ -550,3 +550,55 @@ fn a_written_atom_id_is_the_graph_atom() {
     let expected: Vec<AtomId> = (0..3).map(atom_id).collect();
     assert_eq!(written.atom_order, expected);
 }
+
+#[test]
+fn a_hydrogen_bearing_aromatic_atom_other_than_carbon_is_never_written_bare() {
+    // Aromatic P and B are outside the aromaticity model, so such a ring is refused with the
+    // model's reason before any text exists; a bare `p` or `b` would read back without the
+    // hydrogen. (Aromatic N, O and S are the elements the model reads.)
+    for symbol in ["P", "B"] {
+        let mut hetero = atom(symbol);
+        hetero.hydrogens = Hydrogens::Specified(1);
+        let ring = build(
+            vec![
+                hetero,
+                atom("C"),
+                atom("C"),
+                atom("C"),
+                atom("C"),
+                atom("C"),
+            ],
+            &(0..6)
+                .map(|i| (i, (i + 1) % 6, BondOrder::Aromatic))
+                .collect::<Vec<_>>(),
+        );
+        let error = refusal(&ring, SmilesStyle::Recorded);
+        assert_eq!(
+            (error.code, error.detail),
+            ("aromatic_unsupported", Some("element_or_charge")),
+            "{symbol}"
+        );
+    }
+    // The same for aromatic sulfur: the model refuses the valence before any bare `s`.
+    let mut sulfur = atom("S");
+    sulfur.hydrogens = Hydrogens::Specified(1);
+    let ring = build(
+        vec![sulfur, atom("C"), atom("C"), atom("C"), atom("C")],
+        &(0..5)
+            .map(|i| (i, (i + 1) % 5, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        refusal(&ring, SmilesStyle::Recorded).code,
+        "aromatic_unsupported"
+    );
+}
+
+#[test]
+fn canonical_size_is_judged_on_the_atoms_it_numbers() {
+    // 520 isolated atoms are within no recorded limit but the command limit; the canonical
+    // writer numbers at most 128 atoms, and names that limit rather than the command limit.
+    let many = build((0..520).map(|_| atom("C")).collect(), &[]);
+    assert_eq!(refusal(&many, SmilesStyle::Recorded).code, "command_limit");
+    assert_eq!(refusal(&many, SmilesStyle::Canonical).code, "atom_limit");
+}

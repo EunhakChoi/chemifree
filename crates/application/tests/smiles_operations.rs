@@ -779,3 +779,14 @@ fn smiles_is_refused_when_the_provider_is_not_connected_and_other_formats_when_o
         );
     }
 }
+
+#[test]
+fn a_long_note_after_a_short_smiles_is_ignored_text_not_a_size_error() {
+    let (app, _dir, id) = setup(None);
+    let source = format!("CCO {}", "a note ".repeat(800));
+    let shown = preview(&app, &id, &source, 0);
+    assert_eq!(shown["outcome"], "partial", "{shown}");
+    assert!(features(&shown).contains(&"ignored_text".to_owned()));
+    let long_smiles = preview(&app, &id, &format!("{} x", "C".repeat(5000)), 0);
+    assert_eq!(long_smiles["diagnostics"][0]["code"], "input_too_long");
+}

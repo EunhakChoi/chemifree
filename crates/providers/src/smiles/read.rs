@@ -24,7 +24,7 @@ use chemifree_domain::states::{AtomKind, Hydrogens, Radical};
 use super::error::{Code, Failure};
 use super::resolve::{self, Resolution};
 use super::tables::{self, AROMATIC, BARE_ORGANIC};
-use super::{MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES};
+use super::{MAX_BRANCH_DEPTH, MAX_COMMANDS, MAX_INPUT_BYTES, MAX_OPEN_RINGS, MAX_TRAILING_BYTES};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Symbol {
@@ -322,17 +322,32 @@ pub(super) fn read(text: &str) -> Result<SmilesRead, Failure> {
     if bytes.is_empty() {
         return Err(Failure::at(Code::EmptyInput, 0, 0));
     }
-    if bytes.len() > MAX_INPUT_BYTES {
-        let mut start = MAX_INPUT_BYTES;
-        while !text.is_char_boundary(start) {
-            start -= 1;
-        }
-        return Err(Failure::at(Code::InputTooLong, start, bytes.len()));
-    }
     if tables::is_whitespace(bytes[0]) {
         return Err(Failure::at(Code::LeadingWhitespace, 0, 1));
     }
     let end = terminator(bytes);
+    // The byte limit bounds the SMILES, up to its terminator; what follows is ignored text
+    // with a bound of its own, so a long note after a short SMILES is not an error.
+    let char_floor = |mut at: usize| {
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    };
+    if end > MAX_INPUT_BYTES {
+        return Err(Failure::at(
+            Code::InputTooLong,
+            char_floor(MAX_INPUT_BYTES),
+            end,
+        ));
+    }
+    if bytes.len() - end > MAX_TRAILING_BYTES {
+        return Err(Failure::at(
+            Code::TrailingTextTooLong,
+            char_floor(end + MAX_TRAILING_BYTES),
+            bytes.len(),
+        ));
+    }
     let mut reader = Reader {
         text,
         bytes,
@@ -482,6 +497,9 @@ pub(super) fn read(text: &str) -> Result<SmilesRead, Failure> {
                         reader.add_bond(open.atom, atom, written, span)?;
                     }
                     None => {
+                        if open_rings.len() >= MAX_OPEN_RINGS {
+                            return Err(Failure::at(Code::RingLabelLimit, span.0, span.1));
+                        }
                         open_rings.insert(
                             label,
                             OpenRing {
@@ -655,12 +673,16 @@ fn finish(reader: Reader<'_>, mut notes: Vec<ReadNote>) -> Result<SmilesRead, Fa
         };
         orders_chosen.push(order);
     }
-    for (i, parsed) in atoms.iter().enumerate() {
-        if parsed.aromatic
-            && !bonds.iter().zip(&orders_chosen).any(|(bond, order)| {
-                *order == BondOrder::Aromatic && (bond.begin == i || bond.end == i)
-            })
-        {
+    // One pass over the bonds marks the atoms that have an aromatic bond.
+    let mut has_aromatic_bond = vec![false; atoms.len()];
+    for (bond, order) in bonds.iter().zip(&orders_chosen) {
+        if *order == BondOrder::Aromatic {
+            has_aromatic_bond[bond.begin] = true;
+            has_aromatic_bond[bond.end] = true;
+        }
+    }
+    for (parsed, marked) in atoms.iter().zip(&has_aromatic_bond) {
+        if parsed.aromatic && !marked {
             return Err(Failure::at(
                 Code::AromaticAtomOutsideRing,
                 parsed.span.0,

@@ -13,6 +13,7 @@ use chemifree_domain::chemistry::{self, Finding};
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, MAX_CHARGE, MAX_ISOTOPE_MASS_NUMBER, MIN_CHARGE,
 };
+use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::{self, IdentityError};
 use chemifree_domain::states::{AtomKind, Hydrogens, Radical};
@@ -83,11 +84,13 @@ fn bond_symbol(order: &BondOrder, both_aromatic: bool) -> &'static str {
     }
 }
 
-fn check_graph(graph: &MoleculeGraph) -> Result<(), Failure> {
+/// The canonical writer is bounded by the atoms it numbers, so only the recorded writer
+/// judges the edit-size limit on the graph as drawn; canonical judges it after folding.
+fn check_graph(graph: &MoleculeGraph, style: SmilesStyle) -> Result<(), Failure> {
     if graph.atoms().len() == 0 {
         return Err(Failure::bare(Code::EmptyGraph));
     }
-    if graph.atoms().len() + graph.bonds().len() > MAX_COMMANDS {
+    if style == SmilesStyle::Recorded && graph.atoms().len() + graph.bonds().len() > MAX_COMMANDS {
         return Err(Failure::bare(Code::CommandLimit));
     }
     for (_, atom) in graph.atoms() {
@@ -136,7 +139,7 @@ fn without_attachment_points(graph: &MoleculeGraph) -> (MoleculeGraph, Vec<AtomI
 }
 
 pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, Failure> {
-    check_graph(graph)?;
+    check_graph(graph, style)?;
     let (clean, dropped) = without_attachment_points(graph);
     let mut changes = Vec::new();
     if !dropped.is_empty() {
@@ -185,6 +188,11 @@ pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesW
             (id, order)
         })
         .collect();
+    // What is actually written: the atoms numbered (explicit hydrogens folded away) and the
+    // bonds between them. The canonical form is bounded by 128 atoms, so this is a guard.
+    if ranked.len() + written.len() > MAX_COMMANDS {
+        return Err(Failure::bare(Code::CommandLimit));
+    }
     let aromatic_atoms: BTreeSet<AtomId> = written
         .iter()
         .filter(|(_, order)| **order == BondOrder::Aromatic)
@@ -294,7 +302,10 @@ fn plan_atoms(
         let default_matches =
             default.finding != Finding::Unsupported && default.hydrogen_count == Some(hydrogens);
         let symbol_ok = if aromatic {
-            tables::is_bare_aromatic(element) && !(element.symbol() == "N" && hydrogens > 0)
+            // A bare aromatic atom reads back with inferred hydrogens; of the aromatic
+            // elements only carbon shares the model's inference, so any other element that
+            // carries a hydrogen is bracketed.
+            tables::is_bare_aromatic(element) && (element == Element::CARBON || hydrogens == 0)
         } else {
             tables::is_bare_organic(element)
         };
@@ -527,22 +538,21 @@ fn verify(
             return Err(failure);
         }
     }
-    let expected: BTreeSet<(usize, usize, String)> = written
+    let expected: BTreeMap<(usize, usize), &BondOrder> = written
         .iter()
         .map(|(id, order)| {
             let bond = bonds[id];
             let (a, b) = (position[&bond.begin], position[&bond.end]);
-            (a.min(b), a.max(b), format!("{order:?}"))
+            ((a.min(b), a.max(b)), order)
         })
         .collect();
-    let found: BTreeSet<(usize, usize, String)> = read
+    let found: BTreeMap<(usize, usize), &BondOrder> = read
         .bonds
         .iter()
         .map(|bond| {
             (
-                bond.begin.min(bond.end),
-                bond.begin.max(bond.end),
-                format!("{:?}", bond.order),
+                (bond.begin.min(bond.end), bond.begin.max(bond.end)),
+                &bond.order,
             )
         })
         .collect();

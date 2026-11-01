@@ -1364,6 +1364,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
+    /// Whether `operation` runs now: the same rule `support` applies, without building the
+    /// catalog row.
+    fn executes(&self, operation: OperationId) -> bool {
+        let formats = matches!(
+            operation,
+            OperationId::DocumentImport | OperationId::DocumentExport
+        ) && self.format_text.is_some();
+        formats || entry(operation).0.execution == Execution::Executable
+    }
+
     /// The catalog row of `operation` for the formats connected now: import and export are
     /// executable, with the wording for exactly those formats, once any is connected.
     fn support(&self, operation: OperationId) -> Support {
@@ -1842,7 +1852,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if self.support(known.operation).execution != Execution::Executable.as_str() {
+        if !self.executes(known.operation) {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());

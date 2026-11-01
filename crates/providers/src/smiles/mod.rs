@@ -19,12 +19,15 @@ use chemifree_domain::identity;
 
 pub use error::Code;
 
-/// The most bytes of text, either way.
+/// The most bytes of SMILES, up to its whitespace terminator, either way.
 pub const MAX_INPUT_BYTES: usize = 4096;
+/// The most bytes of text after the terminator that a read accepts (reported as ignored).
+pub const MAX_TRAILING_BYTES: usize = 65_536;
 /// Atoms plus bonds one string may create: the document transaction limit.
 pub const MAX_COMMANDS: usize = DOCUMENT_COMMANDS;
 pub const MAX_BRANCH_DEPTH: usize = 100;
-/// Ring-closure labels the writers use (1 to 99); the reader also reads label 0.
+/// Ring closures open at once, in the reader and the writers. The reader reads labels `0`
+/// to `99`, the writers use `1` to `99`; neither has more than this many open.
 pub const MAX_OPEN_RINGS: usize = 99;
 
 /// The independently implemented SMILES codec.
