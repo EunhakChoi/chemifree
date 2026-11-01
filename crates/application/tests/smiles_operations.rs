@@ -265,27 +265,29 @@ fn a_new_service_rejects_a_preview_of_the_previous_one() {
 #[test]
 fn a_replayed_import_returns_the_committed_reply_without_placing_atoms_again() {
     let (application, _directory, id) = setup();
-    let report = preview(&application, "p", &id, 0, "CCO");
+    // The drawing is so low that the first import just fits below it; placing the same import
+    // again, below what it added, would not.
+    let low = call(
+        &application,
+        "low",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"N","position":{"x":0,"y":99890}}]}),
+    );
+    assert_eq!(low["outcome"], "ok", "{low}");
+    let report = preview(&application, "p", &id, 1, "CCO");
+    assert_eq!(report["outcome"], "partial", "{report}");
     let digest = report["result"]["preview_digest"]
         .as_str()
         .unwrap()
         .to_owned();
-    let first = commit(&application, "same-request", &id, 0, "CCO", &digest, false);
+    let first = commit(&application, "same-request", &id, 1, "CCO", &digest, false);
     assert_eq!(first["outcome"], "partial", "{first}");
-    // Fill the space below the drawing so that placing the atoms again would be out of range.
-    let edit = call(
-        &application,
-        "far",
-        "document.transaction",
-        json!({"document_id":id,"expected_revision":1,"commands":[{"op":"add_atom","element":"N","position":{"x":0,"y":99990}}]}),
-    );
-    assert_eq!(edit["outcome"], "ok", "{edit}");
-    let fresh = preview(&application, "p2", &id, 2, "CCO");
+    let again = preview(&application, "p2", &id, 2, "CCO");
     assert_eq!(
-        fresh["diagnostics"][0]["code"], "coordinate_out_of_range",
-        "a new import could not be placed there: {fresh}"
+        again["diagnostics"][0]["code"], "coordinate_out_of_range",
+        "a new import could not be placed there: {again}"
     );
-    let replay = commit(&application, "same-request", &id, 0, "CCO", &digest, false);
+    let replay = commit(&application, "same-request", &id, 1, "CCO", &digest, false);
     assert_eq!(replay["outcome"], "partial", "{replay}");
     assert_eq!(replay["result"]["document"], first["result"]["document"]);
     assert_eq!(
@@ -299,7 +301,7 @@ fn a_replayed_import_returns_the_committed_reply_without_placing_atoms_again() {
         "nothing was added again"
     );
     // The same request ID for a different import is refused.
-    let reused = commit(&application, "same-request", &id, 0, "CCN", &digest, false);
+    let reused = commit(&application, "same-request", &id, 1, "CCN", &digest, false);
     assert_eq!(
         reused["diagnostics"][0]["code"], "request_id_reused",
         "{reused}"

@@ -121,6 +121,17 @@ fn recorded_atom_order_lists_the_atoms_in_text_order() {
 }
 
 #[test]
+fn the_walk_visits_neighbours_in_document_order_whatever_the_order_of_the_bonds() {
+    let graph = build(
+        vec![atom("C"), atom("N"), atom("O")],
+        vec![(0, 2, BondOrder::Single), (0, 1, BondOrder::Single)],
+    );
+    let written = write(&graph, SmilesStyle::Recorded);
+    assert_eq!(written.text, "C(N)O");
+    assert_eq!(written.atom_order, vec![id(0), id(1), id(2)]);
+}
+
+#[test]
 fn canonical_text_does_not_depend_on_the_order_of_the_atoms() {
     let spellings = [
         "OCC(=O)C",
