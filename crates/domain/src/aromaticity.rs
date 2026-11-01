@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::chemistry::{self, Finding};
-use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
+use crate::document::{Atom, AtomEdit, AtomId, Bond, BondId, BondOrder, Command};
 use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
 use crate::states::Hydrogens;
@@ -314,10 +314,24 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         inside[a].push((b, id));
         inside[b].push((a, id));
     }
+    // Only the bonds touching this block, each once, feed the shared order summation.
+    let touching: BTreeMap<BondId, &Bond> = ring
+        .atoms
+        .iter()
+        .flat_map(|atom| &context.incident[atom])
+        .map(|&id| (id, context.bonds[&id]))
+        .collect();
+    let mut orders = chemistry::incident_orders(
+        ring.atoms.iter().copied(),
+        touching.iter().map(|(&id, &bond)| (id, bond)),
+        |_, bond| chemistry::bond_order_value(&bond.order),
+    );
     let mut incidences = Vec::with_capacity(ring.atoms.len());
     for (i, atom_id) in ring.atoms.iter().enumerate() {
         let mut incidence = Incidence {
-            orders: Vec::new(),
+            orders: orders
+                .remove(atom_id)
+                .expect("every ring atom has an entry"),
             ring_degree: inside[i].len(),
             outside: 0,
             ring_double: 0,
@@ -325,9 +339,6 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         };
         for bond_id in &context.incident[atom_id] {
             let bond = context.bonds[bond_id];
-            incidence
-                .orders
-                .push(chemistry::bond_order_value(&bond.order));
             if ring_edges.contains(bond_id) {
                 match bond.order {
                     BondOrder::Double => incidence.ring_double += 1,
@@ -628,4 +639,84 @@ pub fn redundant_nitrogen_hydrogens(
         })
         .map(|(id, _)| id)
         .collect()
+}
+
+/// The one valence contribution of a bond once a Kekulé assignment is applied: the assigned
+/// order where there is one, otherwise the recorded integral order.
+pub fn kekule_order_value(
+    assignment: &BTreeMap<BondId, KekuleOrder>,
+    id: BondId,
+    bond: &Bond,
+) -> Option<u16> {
+    assignment
+        .get(&id)
+        .map(|order| order.valence())
+        .or_else(|| chemistry::bond_order_value(&bond.order))
+}
+
+type ConversionPlan = (Vec<(BondId, BondOrder)>, Vec<(AtomId, Hydrogens)>);
+
+/// Which representation a conversion produces.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Target {
+    Aromatic,
+    Kekule,
+}
+
+/// The complete edit for one conversion of the whole graph: bond orders, plus the nitrogen
+/// hydrogen statements that keep the meaning of each ring nitrogen. Commands that would
+/// change nothing are omitted, so an already converted graph gives an empty list. Fails
+/// with the model's reason, and without a partial result, if any system is unsupported.
+pub fn conversion_commands(
+    graph: &MoleculeGraph,
+    target: Target,
+) -> Result<Vec<Command>, &'static str> {
+    let interpretation = perceive(graph);
+    let (bonds, hydrogens): ConversionPlan = match target {
+        Target::Aromatic => {
+            let plan = interpretation.aromatize()?;
+            (
+                plan.bonds
+                    .into_iter()
+                    .map(|id| (id, BondOrder::Aromatic))
+                    .collect(),
+                plan.hydrogens
+                    .into_iter()
+                    .map(|(atom, count)| (atom, Hydrogens::Specified(count)))
+                    .collect(),
+            )
+        }
+        Target::Kekule => {
+            let assignment = interpretation.kekulize()?;
+            let hydrogens = redundant_nitrogen_hydrogens(graph, &assignment)
+                .into_iter()
+                .map(|atom| (atom, Hydrogens::Inferred))
+                .collect();
+            let bonds = assignment
+                .into_iter()
+                .map(|(id, order)| (id, order.bond_order()))
+                .collect();
+            (bonds, hydrogens)
+        }
+    };
+    let current_bonds: BTreeMap<_, _> = graph.bonds().collect();
+    let current_atoms: BTreeMap<_, _> = graph.atoms().collect();
+    let mut commands = Vec::new();
+    for (bond, order) in bonds {
+        if current_bonds[&bond].order != order {
+            commands.push(Command::UpdateBond { bond, order });
+        }
+    }
+    for (atom, state) in hydrogens {
+        if current_atoms[&atom].hydrogens != state {
+            commands.push(Command::UpdateAtom {
+                atom,
+                edit: AtomEdit {
+                    hydrogens: Some(state),
+                    ..AtomEdit::default()
+                },
+            });
+        }
+    }
+    Ok(commands)
 }

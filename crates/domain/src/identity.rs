@@ -208,10 +208,7 @@ impl Graph {
         }
         let orders =
             chemistry::incident_orders(atoms.keys().copied(), input.bonds(), |id, bond| {
-                assignment
-                    .get(&id)
-                    .map(|order| order.valence())
-                    .or_else(|| chemistry::bond_order_value(&bond.order))
+                aromaticity::kekule_order_value(&assignment, id, bond)
             });
         let mut hydrogens = BTreeMap::new();
         for (&id, atom) in &atoms {
