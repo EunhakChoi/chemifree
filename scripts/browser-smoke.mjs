@@ -2893,6 +2893,24 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByTestId('smiles-output').count(), 0, 'an edit hides the earlier SMILES')
   await panel.getByRole('button', { name: 'Write recorded SMILES' }).click()
   await panel.getByTestId('smiles-output').getByText('[OH2+]C(=O)C', { exact: true }).waitFor()
+  // A consented import the service refuses shows its reason in the SMILES panel itself.
+  {
+    const conflict = await apiWrite('/api/v1/documents', { request_id: 'smiles-conflict-create', title: 'SMILES conflict' })
+    const conflictId = conflict.body.document.id
+    await page.reload()
+    await page.locator(`li[data-document-id="${conflictId}"]`).getByRole('button', { name: 'Open' }).click()
+    const again = page.getByRole('complementary', { name: 'SMILES' })
+    await again.getByLabel('SMILES text').fill('CCO')
+    await again.getByRole('button', { name: 'Preview SMILES import' }).click()
+    await again.getByRole('button', { name: 'Accept losses and import' }).waitFor()
+    await apiWrite(`/api/v1/documents/${conflictId}/transactions`, {
+      request_id: 'smiles-conflict-edit', expected_revision: 0,
+      commands: [{ op: 'add_atom', element: 'N', position: { x: 0, y: 0 } }],
+    })
+    await again.getByRole('button', { name: 'Accept losses and import' }).click()
+    await again.getByRole('alert').getByText(/revision/i).waitFor()
+    assert.equal((await api(`/api/v1/documents/${conflictId}`)).document.atoms.length, 1, 'the refused import added nothing')
+  }
   results.smiles_preview_import_write = true
 }
 

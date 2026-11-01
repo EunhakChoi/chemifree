@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { ConversionLosses } from '@/components/conversion-losses'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -24,15 +25,6 @@ interface PreparedExport {
   content: string
   losses: CtLoss[]
   generation: number
-}
-
-function Losses({ losses }: { losses: CtLoss[] }) {
-  if (losses.length === 0) return <p>No conversion losses were reported.</p>
-  return <ul className="list-disc space-y-1 pl-4">
-    {losses.map((loss, index) => <li key={`${loss.source_path}-${loss.feature}-${index}`}>
-      {loss.source_path}: {loss.reason} ({loss.semantic_impact}, {loss.disposition})
-    </li>)}
-  </ul>
 }
 
 /** The editor uses the same preview, loss consent and operation contract as other clients. */
@@ -192,7 +184,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
           {field.name}: {field.value || '(empty)'}
         </p>)}
       </div>)}
-      <Losses losses={currentImport.preview.losses} />
+      <ConversionLosses losses={currentImport.preview.losses} />
       <Button size="sm" disabled={pending > 0 || editor.busy} onClick={() => void commitImport()}>
         Accept losses and import
       </Button>
@@ -203,7 +195,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     </div>
     {exported && !currentExport && <p>The drawing changed. Preview the export again.</p>}
     {currentExport && <div className="flex max-h-64 flex-col gap-2 overflow-auto" aria-live="polite">
-      <Losses losses={currentExport.losses} />
+      <ConversionLosses losses={currentExport.losses} />
       <Button size="sm" disabled={pending > 0 || editor.busy} onClick={() => void downloadExport(currentExport)}>
         Download {currentExport.format.toUpperCase()}
       </Button>

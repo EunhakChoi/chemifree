@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { ConversionLosses } from '@/components/conversion-losses'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
-  sameConversionSnapshot, sameDrawingContent, type CtLoss, type DocumentView, type SmilesImport, type SmilesMode,
+  sameConversionSnapshot, sameDrawingContent, type DocumentView, type SmilesImport, type SmilesMode,
   type SmilesPreview, type SmilesWrite,
 } from '@/lib/document-contract'
 
@@ -19,15 +20,6 @@ interface PreparedImport {
 interface WriteResult {
   result: SmilesWrite
   generation: number
-}
-
-function Losses({ losses }: { losses: CtLoss[] }) {
-  if (losses.length === 0) return <p>No conversion losses were reported.</p>
-  return <ul className="list-disc space-y-1 pl-4">
-    {losses.map((loss, index) => <li key={`${loss.source_path}-${loss.feature}-${index}`}>
-      {loss.source_path}: {loss.reason} ({loss.semantic_impact}, {loss.disposition})
-    </li>)}
-  </ul>
 }
 
 /**
@@ -81,11 +73,13 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   async function commitImport() {
     if (!currentImport) return
     setPending((count) => count + 1)
-    const committed = await editor.importSmiles(currentImport.input, currentImport.snapshot, currentImport.generation)
+    const outcome = await editor.importSmiles(currentImport.input, currentImport.snapshot, currentImport.generation)
     if (alive.current) {
-      if (committed) {
+      if (outcome.committed) {
         setPrepared(null)
         setWritten(null)
+      } else if (outcome.failure) {
+        setImportError(outcome.failure.message)
       }
       setPending((count) => count - 1)
     }
@@ -130,7 +124,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     {prepared && !currentImport && <p>The drawing or text changed. Preview the import again.</p>}
     {currentImport && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
       <p>{currentImport.preview.atoms} atoms, {currentImport.preview.bonds} bonds will be appended.</p>
-      <Losses losses={currentImport.preview.losses} />
+      <ConversionLosses losses={currentImport.preview.losses} />
       <Button size="sm" disabled={locked} onClick={() => void commitImport()}>
         Accept losses and import
       </Button>
@@ -144,7 +138,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     {currentWrite && <div aria-live="polite" className="flex flex-col gap-2">
       <p className="break-all font-mono" data-testid="smiles-output">{currentWrite.result.smiles}</p>
       <p>{currentWrite.result.mode} by {currentWrite.result.implementation} {currentWrite.result.version} (model {currentWrite.result.modelId}).</p>
-      <Losses losses={currentWrite.result.losses} />
+      <ConversionLosses losses={currentWrite.result.losses} />
     </div>}
   </aside>
 }

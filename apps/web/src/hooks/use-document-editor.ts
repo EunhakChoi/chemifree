@@ -65,6 +65,12 @@ export type TrashState =
  */
 export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
+/** What a consented import did: committed, or the failure the service or the page check gave. */
+export interface ImportOutcome {
+  committed: boolean
+  failure: ApiError | null
+}
+
 /** Grouping replaces the members selected at the press with the newly created group. */
 export type EditSelection = { kind: 'group'; objects: string[] }
 
@@ -297,20 +303,26 @@ export function useDocumentEditor() {
       snapshot: DocumentView,
       generation: number,
       send: () => Promise<DocumentResponse>,
-    ) => {
-      let committed = false
+    ): Promise<ImportOutcome> => {
+      const outcome: ImportOutcome = { committed: false, failure: null }
       await run(async () => {
-        const shown = currentRef.current
-        if (!shown || serviceGenerationRef.current !== generation ||
-            !sameConversionSnapshot(shown.document, snapshot) ||
-            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
-          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+        try {
+          const shown = currentRef.current
+          if (!shown || serviceGenerationRef.current !== generation ||
+              !sameConversionSnapshot(shown.document, snapshot) ||
+              shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+            throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+          }
+          const response = await send()
+          if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+          outcome.committed = true
+        } catch (failure) {
+          // The page-level error still reports it; the calling panel shows it as well.
+          outcome.failure = asApiError(failure)
+          throw failure
         }
-        const response = await send()
-        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
-        committed = true
       })
-      return committed
+      return outcome
     },
     [run, setCurrent],
   )
@@ -364,8 +376,8 @@ export function useDocumentEditor() {
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
-    importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
-      commitImport(input, snapshot, generation, () => client.importCt(input)), [commitImport]),
+    importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) =>
+      (await commitImport(input, snapshot, generation, () => client.importCt(input))).committed, [commitImport]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>
       client.previewSmiles(id, revision, source), []),
     exportSmiles: useCallback((id: string, mode: SmilesMode) => client.exportSmiles(id, mode), []),
