@@ -148,6 +148,62 @@ fn opaque_count(object: &Object) -> usize {
             .sum::<usize>()
 }
 
+/// What the opaque-content policy decides for one write, whatever the format.
+enum OpaquePlan {
+    /// The submitted tree is the original's: the original representation is kept.
+    Unchanged(Option<Loss>),
+    /// The document is reserialized; `discard` is the loss to report when opaque content
+    /// (or unrewritable material outside the root) is explicitly discarded first.
+    Rewrite { discard: Option<Loss> },
+}
+
+/// Opaque data has unknown references, so it is never silently rewritten or dropped.
+/// `baseline` is the root decoded from the supplied original, if any; `prolog` marks
+/// original material outside the root that cannot be rewritten.
+fn plan_opaque(
+    baseline: Option<&Object>,
+    prolog: bool,
+    document: &Document,
+    discard_opaque: bool,
+) -> Result<OpaquePlan, InterchangeError> {
+    let submitted = opaque_count(document.root());
+    if !discard_opaque && baseline.is_some_and(|root| root == document.root()) {
+        let retained = (submitted > 0 || prolog)
+            .then(|| opaque_loss(LossDisposition::Retained, Some(submitted), None, prolog));
+        return Ok(OpaquePlan::Unchanged(retained));
+    }
+    // Without an original, the document is its own source.
+    let source = baseline.map_or(submitted, opaque_count);
+    if source == 0 && submitted == 0 && !prolog {
+        return Ok(OpaquePlan::Rewrite { discard: None });
+    }
+    if !discard_opaque {
+        return Err(fail(
+            "unsafe_unknown_rewrite",
+            "An edited document contains or originally contained opaque content whose references are unknown. Explicitly discard it before rewriting.",
+        ));
+    }
+    Ok(OpaquePlan::Rewrite {
+        discard: Some(opaque_loss(
+            LossDisposition::Dropped,
+            baseline.map(|_| source),
+            Some(submitted),
+            prolog,
+        )),
+    })
+}
+
+fn discarded(document: &Document) -> Result<Document, InterchangeError> {
+    let mut clean = document.clone();
+    clean.discard_opaque().map_err(|error| {
+        fail(
+            "invalid_document",
+            format!("Discarding opaque content would leave an invalid document: {error}"),
+        )
+    })?;
+    Ok(clean)
+}
+
 impl InterchangeCodec for LocalInterchangeCodec {
     fn read(
         &self,
@@ -205,50 +261,31 @@ impl InterchangeCodec for LocalInterchangeCodec {
     ) -> Result<InterchangeWrite, InterchangeError> {
         if format == InterchangeFormat::Cdx {
             let original_read = original.map(cdx::read).transpose()?;
-            let original_document = original_read.as_ref().map(|read| &read.document);
-            let submitted_count = opaque_count(document.root());
-            let original_count =
-                original_document.map_or(0, |original| opaque_count(original.root()));
-            if let (Some(bytes), Some(baseline)) = (original, original_document)
-                && !discard_opaque
-                && baseline.root() == document.root()
-            {
-                let losses = if submitted_count > 0 {
-                    vec![opaque_loss(
-                        LossDisposition::Retained,
-                        Some(submitted_count),
-                        None,
-                        false,
-                    )]
-                } else {
-                    Vec::new()
-                };
-                return Ok(InterchangeWrite {
-                    bytes: bytes.to_vec(),
-                    loss_report: losses,
-                });
-            }
-            if (submitted_count > 0 || original_count > 0) && !discard_opaque {
-                return Err(fail(
-                    "unsafe_unknown_rewrite",
-                    "An edited CDX document contains or originally contained opaque data whose references are unknown.",
-                ));
-            }
-            let mut clean = document.clone();
+            let plan = plan_opaque(
+                original_read.as_ref().map(|read| read.document.root()),
+                false,
+                document,
+                discard_opaque,
+            )?;
             let mut losses = Vec::new();
-            if discard_opaque && (submitted_count > 0 || original_count > 0) {
-                clean
-                    .discard_opaque()
-                    .map_err(|error| fail("invalid_document", error.to_string()))?;
-                losses.push(opaque_loss(
-                    LossDisposition::Dropped,
-                    original.map(|_| original_count),
-                    Some(submitted_count),
-                    false,
-                ));
-            }
-            let (without_notes, notes) = cdx::without_xml_notes(&clean)?;
-            if notes > 0 {
+            let mut clean = match plan {
+                OpaquePlan::Unchanged(retained) => {
+                    return Ok(InterchangeWrite {
+                        bytes: original
+                            .expect("an unchanged tree has an original")
+                            .to_vec(),
+                        loss_report: retained.into_iter().collect(),
+                    });
+                }
+                OpaquePlan::Rewrite {
+                    discard: Some(loss),
+                } => {
+                    losses.push(loss);
+                    discarded(document)?
+                }
+                OpaquePlan::Rewrite { discard: None } => document.clone(),
+            };
+            if let Some((without_notes, notes)) = cdx::without_xml_notes(&clean)? {
                 if !discard_opaque {
                     return Err(fail(
                         "comment_discard_required",
@@ -287,51 +324,32 @@ impl InterchangeCodec for LocalInterchangeCodec {
         };
         // If the original really decodes to this exact tree, the original bytes retain
         // even extensions whose reference semantics are unknown.
-        if original.is_some() && !discard_opaque && file.document().root() == document.root() {
-            let bytes = cdxml::write(&file)?.into_bytes();
-            let count = opaque_count(document.root());
-            let prolog = file.has_unrewritable_prolog();
-            let loss_report = if count > 0 || prolog {
-                vec![opaque_loss(
-                    LossDisposition::Retained,
-                    Some(count),
-                    None,
-                    prolog,
-                )]
-            } else {
-                Vec::new()
-            };
-            return Ok(InterchangeWrite { bytes, loss_report });
-        }
-        let source_count = opaque_count(file.document().root());
-        let submitted_count = opaque_count(document.root());
-        let prolog = file.has_unrewritable_prolog();
-        if (source_count > 0 || submitted_count > 0 || prolog) && !discard_opaque {
-            return Err(fail(
-                "unsafe_unknown_rewrite",
-                "An edited document contains or originally contained opaque content. Explicitly discard it before rewriting.",
-            ));
-        }
-        let mut submitted = document.clone();
+        let plan = plan_opaque(
+            original.map(|_| file.document().root()),
+            file.has_unrewritable_prolog(),
+            document,
+            discard_opaque,
+        )?;
         let mut loss_report = Vec::new();
-        if discard_opaque && (source_count > 0 || submitted_count > 0 || prolog) {
-            submitted.discard_opaque().map_err(|error| {
-                fail(
-                    "invalid_document",
-                    format!("Discarding opaque content would leave an invalid document: {error}"),
-                )
-            })?;
-            file.replace_after_discard(submitted);
-            loss_report.push(opaque_loss(
-                LossDisposition::Dropped,
-                original.map(|_| source_count),
-                Some(submitted_count),
-                prolog,
-            ));
-        } else {
-            file.document_mut()
-                .edit(|root| *root = submitted.root().clone())
-                .map_err(|error| fail("invalid_document", error.to_string()))?;
+        match plan {
+            OpaquePlan::Unchanged(retained) => {
+                let bytes = cdxml::write(&file)?.into_bytes();
+                return Ok(InterchangeWrite {
+                    bytes,
+                    loss_report: retained.into_iter().collect(),
+                });
+            }
+            OpaquePlan::Rewrite {
+                discard: Some(loss),
+            } => {
+                file.replace_after_discard(discarded(document)?);
+                loss_report.push(loss);
+            }
+            OpaquePlan::Rewrite { discard: None } => {
+                file.document_mut()
+                    .edit(|root| *root = document.root().clone())
+                    .map_err(|error| fail("invalid_document", error.to_string()))?;
+            }
         }
         let bytes = cdxml::write(&file)?.into_bytes();
         if bytes.len() > 1024 * 1024 {

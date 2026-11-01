@@ -77,6 +77,16 @@ struct Cursor<'a> {
     font_platform: Option<u16>,
 }
 impl<'a> Cursor<'a> {
+    fn new(bytes: &'a [u8], at: usize, origin: usize) -> Self {
+        Self {
+            bytes,
+            at,
+            origin,
+            objects: 0,
+            properties: 0,
+            font_platform: None,
+        }
+    }
     fn take(&mut self, count: usize) -> Result<&'a [u8], CdxError> {
         let end = self
             .at
@@ -173,7 +183,10 @@ impl<'a> Cursor<'a> {
                 }
                 if !unknown && current.kind == O::Document && tag == 0x0100 {
                     let (table, platform) = font_table(value, self.at - length)?;
-                    self.font_platform = Some(platform);
+                    // Any table off platform 1 must stay visible, whatever order the tables come in.
+                    if self.font_platform.is_none_or(|known| known == 1) {
+                        self.font_platform = Some(platform);
+                    }
                     current.children.push(Content::Object(table));
                 } else if !unknown && current.kind == O::Document && tag == 0x0300 {
                     current
@@ -221,6 +234,28 @@ fn unsigned32(bytes: &[u8], at: usize) -> Result<u32, CdxError> {
 fn coord(bytes: &[u8]) -> f64 {
     f64::from(i32::from_le_bytes(bytes.try_into().expect("four bytes"))) / 65536.0
 }
+/// An enumerated or bounded integer; the ranges are those of the common model, so a value
+/// outside them is refused here with its location rather than as a generic document error.
+fn ranged(
+    kind: K,
+    value: i64,
+    allowed: std::ops::RangeInclusive<i64>,
+    at: usize,
+) -> Result<Property, CdxError> {
+    if allowed.contains(&value) {
+        Ok(property(kind, V::Integer(value)))
+    } else {
+        Err(fail_at(
+            "invalid_property_value",
+            format!(
+                "CDX value {value} is outside the supported {} to {}.",
+                allowed.start(),
+                allowed.end()
+            ),
+            at,
+        ))
+    }
+}
 fn decode_property(
     kind: &O,
     tag: u16,
@@ -254,9 +289,9 @@ fn decode_property(
                 },
             )
         }
-        (O::Node, 0x0400) => property(K::NodeType, V::Integer(i64::from(signed16(bytes, at)?))),
-        (O::Node, 0x0402) => property(K::AtomicNumber, V::Integer(i64::from(signed16(bytes, at)?))),
-        (O::Node, 0x0420) => property(K::Isotope, V::Integer(i64::from(signed16(bytes, at)?))),
+        (O::Node, 0x0400) => ranged(K::NodeType, signed16(bytes, at)?.into(), 0..=13, at)?,
+        (O::Node, 0x0402) => ranged(K::AtomicNumber, signed16(bytes, at)?.into(), 1..=118, at)?,
+        (O::Node, 0x0420) => ranged(K::Isotope, signed16(bytes, at)?.into(), 0..=32767, at)?,
         (O::Node, 0x0421) => {
             let charge = match bytes.len() {
                 1 => bytes[0] as i8,
@@ -296,12 +331,10 @@ fn decode_property(
             }
             property(K::Radical, V::Integer(i64::from(radical)))
         }
-        (O::Bond, 0x0600) => property(K::BondOrder, V::Integer(i64::from(unsigned16(bytes, at)?))),
+        (O::Bond, 0x0600) => ranged(K::BondOrder, unsigned16(bytes, at)?.into(), 1..=65535, at)?,
         (O::Bond, 0x0604) => property(K::BondBegin, V::ObjectReference(unsigned32(bytes, at)?)),
         (O::Bond, 0x0605) => property(K::BondEnd, V::ObjectReference(unsigned32(bytes, at)?)),
-        (O::Graphic, 0x0a00) => {
-            property(K::GraphicType, V::Integer(i64::from(signed16(bytes, at)?)))
-        }
+        (O::Graphic, 0x0a00) => ranged(K::GraphicType, signed16(bytes, at)?.into(), 0..=7, at)?,
         _ => property(K::UnknownBinary(tag), V::Bytes(bytes.to_vec())),
     };
     Ok(value)
@@ -317,14 +350,7 @@ fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&byte| char::from(byte)).collect()
 }
 fn font_table(bytes: &[u8], at: usize) -> Result<(Object, u16), CdxError> {
-    let mut c = Cursor {
-        bytes,
-        at: 0,
-        origin: at,
-        objects: 0,
-        properties: 0,
-        font_platform: None,
-    };
+    let mut c = Cursor::new(bytes, 0, at);
     let platform = c.u16()?;
     if platform > 1 {
         return Err(fail_at(
@@ -387,14 +413,7 @@ fn font_table(bytes: &[u8], at: usize) -> Result<(Object, u16), CdxError> {
     Ok((table, platform))
 }
 fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
-    let mut c = Cursor {
-        bytes,
-        at: 0,
-        origin: at,
-        objects: 0,
-        properties: 0,
-        font_platform: None,
-    };
+    let mut c = Cursor::new(bytes, 0, at);
     let count = c.u16()?;
     let mut table = object(O::ColorTable, 0);
     for _ in 0..count {
@@ -472,14 +491,7 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
         let V::Bytes(bytes) = root.properties.remove(index).value else {
             unreachable!("binary property")
         };
-        let mut c = Cursor {
-            bytes: &bytes,
-            at: 0,
-            origin: 0,
-            objects: 0,
-            properties: 0,
-            font_platform: None,
-        };
+        let mut c = Cursor::new(&bytes, 0, 0);
         // The raw text property was detached from the stream; do not report its local
         // offset as a file offset when its style table is truncated.
         let unlocated = |error: CdxError| CdxError {
@@ -502,17 +514,19 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
                 "CDX text contains a control character that XML 1.0 cannot carry.",
             ));
         }
+        if text.iter().any(|byte| (0x80..=0x9f).contains(byte)) {
+            return Err(fail(
+                "unsupported_encoding",
+                "Bytes with ambiguous Latin-1/Windows-1252 meanings are not decoded.",
+            ));
+        }
+        // An empty segment is not materialized, matching how CDXML reads an empty element.
+        let segment = |bytes: &[u8]| (!bytes.is_empty()).then(|| Content::Text(latin1(bytes)));
         if count == 0 {
             let mut style = object(O::StyleRun, 0);
-            style.children.push(Content::Text(latin1(text)));
+            style.children.extend(segment(text));
             root.children.push(Content::Object(style));
         } else {
-            if text.iter().any(|byte| (0x80..=0x9f).contains(byte)) {
-                return Err(fail(
-                    "unsupported_encoding",
-                    "Styled bytes with ambiguous Latin-1/Windows-1252 meanings are not decoded.",
-                ));
-            }
             if runs[0][0] != 0
                 || runs.windows(2).any(|pair| pair[0][0] >= pair[1][0])
                 || usize::from(runs.last().expect("nonempty")[0]) > text.len()
@@ -540,7 +554,7 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
                 ]);
                 style
                     .children
-                    .push(Content::Text(latin1(&text[usize::from(*offset)..end])));
+                    .extend(segment(&text[usize::from(*offset)..end]));
                 root.children.push(Content::Object(style));
             }
         }
@@ -565,14 +579,7 @@ pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
             0,
         ));
     }
-    let mut cursor = Cursor {
-        bytes,
-        at: HEADER.len(),
-        origin: 0,
-        objects: 0,
-        properties: 0,
-        font_platform: None,
-    };
+    let mut cursor = Cursor::new(bytes, HEADER.len(), 0);
     let mut root = object(O::Document, 0);
     let explicit_document = cursor.bytes[cursor.at..].starts_with(&[0x00, 0x80]);
     if explicit_document {
@@ -663,7 +670,8 @@ fn latin1_bytes(text: &str) -> Result<Vec<u8>, CdxError> {
     if text.len() > LIMIT {
         return Err(fail("resource_limit", "CDX text exceeds 1 MiB."));
     }
-    text.chars()
+    let bytes: Vec<u8> = text
+        .chars()
         .map(|c| {
             u8::try_from(u32::from(c)).map_err(|_| {
                 fail(
@@ -672,7 +680,15 @@ fn latin1_bytes(text: &str) -> Result<Vec<u8>, CdxError> {
                 )
             })
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    // The reader refuses these, so the writer must not produce them.
+    if !xml_carriable(&bytes) {
+        return Err(fail(
+            "unsupported_text_character",
+            "CDX text contains a control character that XML 1.0 cannot carry.",
+        ));
+    }
+    Ok(bytes)
 }
 fn encode_fonts(table: &Object) -> Result<Vec<u8>, CdxError> {
     let mut bytes = Vec::new();
@@ -875,18 +891,26 @@ fn encode_text(object: &Object, font_map: &BTreeMap<u16, String>) -> Result<Vec<
             styles.push((offset, Some((font, face, size, color))));
         }
     }
-    if styles.len() == 1 && styles[0].1.is_none() {
+    if text.iter().any(|byte| (0x80..=0x9f).contains(byte)) {
+        return Err(fail(
+            "unsupported_encoding",
+            "Bytes with ambiguous Latin-1/Windows-1252 meanings are not written.",
+        ));
+    }
+    let unstyled = styles.iter().filter(|(_, style)| style.is_none()).count();
+    if unstyled > 1 && unstyled == styles.len() {
+        return Err(fail(
+            "unrepresentable_style",
+            "Several unstyled runs cannot be written without merging them into one.",
+        ));
+    }
+    if styles.len() <= 1 && unstyled == styles.len() {
+        // No run, or one unstyled run: the implicit string.
         let mut result = vec![0, 0];
         result.extend_from_slice(&text);
         return Ok(result);
     }
-    if text.iter().any(|byte| (0x80..=0x9f).contains(byte)) {
-        return Err(fail(
-            "unsupported_encoding",
-            "Styled bytes have ambiguous Latin-1/Windows-1252 meanings.",
-        ));
-    }
-    if styles.is_empty() || styles.iter().any(|(_, style)| style.is_none()) {
+    if unstyled > 0 {
         return Err(fail(
             "unrepresentable_style",
             "Mixed implicit and explicit CDX text styles are not supported.",
@@ -998,10 +1022,11 @@ fn encode_item(
                 0x0421
             }
             (K::Radical, V::Integer(v)) => {
-                bytes.push(u8::try_from(*v).map_err(|_| {
+                // The reader accepts only the documented 0 to 3, so the writer must too.
+                bytes.push(u8::try_from(*v).ok().filter(|v| *v <= 3).ok_or_else(|| {
                     fail(
-                        "unrepresentable_number",
-                        "Radical is outside unsigned-8 range.",
+                        "invalid_property_value",
+                        "Radical is not one of the documented values 0 to 3.",
                     )
                 })?);
                 0x0422
@@ -1131,29 +1156,63 @@ pub fn has_font_table(document: &Document) -> bool {
         .any(|child| matches!(child, Content::Object(table) if table.kind == O::FontTable))
 }
 
-/// Removes XML comments and processing instructions, which CDX has no way to hold.
-/// Returns the revalidated document and how many were removed.
-pub fn without_xml_notes(document: &Document) -> Result<(Document, usize), CdxError> {
+/// Removes XML comments and processing instructions, which CDX has no way to hold, and joins
+/// the text segments they separated. Returns `None` when there are none, without copying.
+pub fn without_xml_notes(document: &Document) -> Result<Option<(Document, usize)>, CdxError> {
+    fn is_note(content: &Content) -> bool {
+        matches!(
+            content,
+            Content::Comment(_) | Content::ProcessingInstruction { .. }
+        )
+    }
+    fn known(object: &Object) -> impl Iterator<Item = &Object> {
+        object.children.iter().filter_map(|child| match child {
+            Content::Object(child)
+                if !matches!(child.kind, O::UnknownXml(_) | O::UnknownBinary(_)) =>
+            {
+                Some(child)
+            }
+            _ => None,
+        })
+    }
+    fn count(object: &Object) -> usize {
+        object.children.iter().filter(|c| is_note(c)).count()
+            + known(object).map(count).sum::<usize>()
+    }
     fn strip(object: &mut Object) -> usize {
         let before = object.children.len();
-        object.children.retain(|child| {
-            !matches!(
-                child,
-                Content::Comment(_) | Content::ProcessingInstruction { .. }
-            )
-        });
-        let mut removed = before - object.children.len();
-        for child in &mut object.children {
-            if let Content::Object(child) = child
-                && !matches!(child.kind, O::UnknownXml(_) | O::UnknownBinary(_))
-            {
-                removed += strip(child);
+        object.children.retain(|child| !is_note(child));
+        let removed = before - object.children.len();
+        if removed > 0 {
+            // Text on either side of a note was one string.
+            let mut joined: Vec<Content> = Vec::with_capacity(object.children.len());
+            for child in object.children.drain(..) {
+                match (joined.last_mut(), child) {
+                    (Some(Content::Text(left)), Content::Text(right)) => left.push_str(&right),
+                    (_, child) => joined.push(child),
+                }
             }
+            object.children = joined;
         }
         removed
+            + object
+                .children
+                .iter_mut()
+                .filter_map(|child| match child {
+                    Content::Object(child)
+                        if !matches!(child.kind, O::UnknownXml(_) | O::UnknownBinary(_)) =>
+                    {
+                        Some(strip(child))
+                    }
+                    _ => None,
+                })
+                .sum::<usize>()
+    }
+    if count(document.root()) == 0 {
+        return Ok(None);
     }
     let mut root = document.root().clone();
     let removed = strip(&mut root);
     let stripped = Document::new(root).map_err(|e| fail("invalid_document", e.to_string()))?;
-    Ok((stripped, removed))
+    Ok(Some((stripped, removed)))
 }

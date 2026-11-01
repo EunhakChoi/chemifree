@@ -118,7 +118,7 @@ fn reader_decodes_signed_bytes_and_refuses_malformed_widths() {
     // 0xFFFE is -2 as a signed 16-bit isotope; the model refuses it, not a wrapped 65534.
     let error = cdx::read(&node_with(&[(0x0420, (-2i16).to_le_bytes().to_vec())]))
         .expect_err("a negative isotope is outside the common model");
-    assert_eq!(error.code, "invalid_document");
+    assert_eq!(error.code, "invalid_property_value");
     let wide = cdx::read(&node_with(&[(0x0421, vec![0, 0, 0, 0x7f])]))
         .unwrap()
         .document;
