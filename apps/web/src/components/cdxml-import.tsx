@@ -4,9 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import type { InterchangeChoice, InterchangeInput, InterchangePreview } from '@/lib/document-contract'
+import type { InterchangeChoice, InterchangeFormat, InterchangeInput, InterchangePreview } from '@/lib/document-contract'
+
+/** This form's cap on the file itself; CDX grows by a third as base64 and must fit the 256 KiB request body. */
+const MAX_FILE_BYTES = 120 * 1024
 
 interface Source {
+  format: InterchangeFormat
   text: string
   choices: InterchangeChoice[]
 }
@@ -15,6 +19,15 @@ interface Prepared {
   input: InterchangeInput
   preview: InterchangePreview
   generation: number
+}
+
+/** Canonical padded base64, which is what the operation API requires for CDX. */
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  return btoa(binary)
 }
 
 /** A rich file is projected only after its particular losses have been reviewed. */
@@ -41,23 +54,28 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     setChoice(0)
     setError(null)
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.cdxml')) {
-      setError('Choose a .cdxml file.')
+    const name = file.name.toLowerCase()
+    const format: InterchangeFormat | null = name.endsWith('.cdxml') ? 'cdxml' : name.endsWith('.cdx') ? 'cdx' : null
+    if (!format) {
+      setError('Choose a .cdxml or .cdx file.')
       return
     }
-    if (file.size > 120 * 1024) {
-      setError('This web form accepts CDXML files up to 120 KiB. The operation API and CLI have their own limits.')
+    if (file.size > MAX_FILE_BYTES) {
+      setError('This web form accepts CDXML and CDX files up to 120 KiB. The operation API and CLI have their own limits.')
       return
     }
     setPending(true)
     const generation = editor.currentServiceGeneration()
     try {
-      // Preserve a UTF-8 BOM while rejecting invalid input rather than replacing bytes.
-      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await file.arrayBuffer())
-      const choices = await editor.readInterchange(text)
+      const buffer = await file.arrayBuffer()
+      // CDXML preserves a UTF-8 BOM while rejecting invalid input rather than replacing bytes.
+      const text = format === 'cdx'
+        ? toBase64(new Uint8Array(buffer))
+        : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer)
+      const choices = await editor.readInterchange(text, format)
       if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
-        setSource({ text, choices })
-        setTitle(file.name.replace(/\.cdxml$/i, '') || 'Imported drawing')
+        setSource({ format, text, choices })
+        setTitle(file.name.replace(/\.cdxml?$/i, '') || 'Imported drawing')
       }
     } catch (cause) {
       if (alive.current && sequence.current === request) setError(cause instanceof Error ? cause.message : 'Could not read this file.')
@@ -69,7 +87,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   async function preview() {
     const selected = source?.choices[choice]
     if (!source || !selected || !title.trim()) return
-    const input: InterchangeInput = { source: source.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
+    const input: InterchangeInput = { format: source.format, source: source.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
     const request = ++sequence.current
     const generation = editor.currentServiceGeneration()
     setPending(true)
@@ -88,13 +106,13 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   }
 
   return <section aria-labelledby="cdxml-import" className="space-y-3 rounded-lg border p-4">
-    <h3 id="cdxml-import" className="text-sm font-medium">Create a drawing from CDXML</h3>
+    <h3 id="cdxml-import" className="text-sm font-medium">Create a drawing from CDXML or CDX</h3>
     <p className="text-sm text-muted-foreground">Choose a page and molecule. The editor supports one molecule; review the other content that will be left out before creating a new drawing.</p>
     <Field>
-      <FieldLabel htmlFor="cdxml-file">CDXML file</FieldLabel>
-      <Input id="cdxml-file" type="file" accept=".cdxml,application/xml,text/xml" disabled={pending || editor.busy}
+      <FieldLabel htmlFor="cdxml-file">CDXML or CDX file</FieldLabel>
+      <Input id="cdxml-file" type="file" accept=".cdxml,.cdx,application/xml,text/xml" disabled={pending || editor.busy}
         onChange={(event) => void chooseFile(event.currentTarget.files?.[0])} />
-      <FieldDescription>External resources are never fetched.</FieldDescription>
+      <FieldDescription>External resources are never fetched. Files up to 120 KiB; CDX is sent as base64.</FieldDescription>
     </Field>
     {source && source.choices.length === 0 && <p role="status">No page and top-level molecule with IDs can be projected into the editor.</p>}
     {source && source.choices.length > 0 && <>
