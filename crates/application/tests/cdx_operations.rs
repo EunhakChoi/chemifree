@@ -417,3 +417,37 @@ fn dative_binary_is_preserved_but_refused_before_editor_creation() {
         0
     );
 }
+
+#[test]
+fn base64_sources_beyond_the_codec_limit_are_refused_with_resource_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    // 1 MiB of binary is 1,398,104 canonical base64 characters; one more is refused unread.
+    let oversized = "A".repeat(1_398_105);
+    let read = call(
+        &app,
+        "oversized-read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":oversized}),
+    );
+    assert_eq!(read["diagnostics"][0]["code"], "resource_limit", "{read}");
+    assert!(read["result"].is_null());
+    let document = call(
+        &app,
+        "small-read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":STANDARD.encode(example())}),
+    )["result"]["document"]
+        .clone();
+    let export = call(
+        &app,
+        "oversized-original",
+        "document.export",
+        json!({"format":"cdx","document":document,"original":oversized}),
+    );
+    assert_eq!(
+        export["diagnostics"][0]["code"], "resource_limit",
+        "{export}"
+    );
+}

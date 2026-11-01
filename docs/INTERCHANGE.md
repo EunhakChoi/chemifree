@@ -114,12 +114,38 @@ the CDXML table-object requirements. This CDX profile therefore refuses a binary
 font or color table with count zero as `unsupported_empty_table`; the binary
 datatype descriptions do not establish that every such CDX file is invalid.
 No table remains distinct from an empty table and is supported.
-Non-ASCII font names and other encodings are refused rather than guessed. The font platform is not represented in the common tree and is reported;
-supplying an unchanged original preserves the bytes. Unknown binary objects and
+Non-ASCII font names and other encodings are refused rather than guessed.
+The font platform is not represented in the common tree. Reading a font table
+reports it; writing one records platform 1 and reports a `font_platform` loss
+unless the supplied same-format original already used platform 1 (an unchanged
+original preserves its bytes). Text or font names containing C0 control characters
+other than tab, line feed and carriage return are refused at read
+(`unsupported_text_character`), because XML 1.0 cannot carry them and the file
+could not be transcoded to CDXML.
+The [Charge page](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Atom_Charge.htm)
+defines an INT8 and documents an early 4-byte form decoded as `(INT32)saved >> 24`.
+That decoding discards the low 24 bits, so a 4-byte charge whose low 24 bits are
+not zero is refused (`unsupported_fractional_charge`) rather than truncated. A radical
+value other than the documented 0 to 3 is refused (`invalid_property_value`).
+Colors are 16-bit channels (multiples of 1/65535); a CDXML value between two
+steps is rounded to the nearest and reported as a `color_precision` loss, unlike
+coordinates and font sizes, which must be exact. CDX has no place for XML comments
+or processing instructions: writing them requires `discard_opaque`, drops them and
+reports an `xml_comment` loss (without it the write fails with
+`comment_discard_required`). Whitespace between text style runs carries no meaning
+and is ignored. A style run with no characters (for example at the end of the text)
+is kept and round-trips between CDX and CDXML. Unknown binary objects and
 properties are retained as opaque, with no assumption about their references;
 editing or transcoding them requires explicit discard. The editor refuses unknown
-binary node and bond properties because they may alter chemical meaning. Inputs
-and output are limited to 1 MiB; the profile allows at most 128 nested levels, 100,000
+binary node and bond properties because they may alter chemical meaning. The codec's own
+limit is 1 MiB for input and output, but a request also passes the entry point's
+limit: 256 KiB of JSON over HTTP (about 190 KiB of binary after base64) and 1 MiB
+per CLI request (about 768 KiB of binary), so the full 1 MiB is not reachable through
+either; a base64 source beyond the codec's limit is refused with `resource_limit`,
+and an export that supplies `original` carries it in the same request, so the two share that space. The web form accepts CDX files up to 180 KiB.
+Byte offsets in diagnostics are zero-based and present only when the error has a
+location; an invalid header reports offset 0.
+The profile allows at most 128 nested levels, 100,000
 objects, 100,000 properties, and 512 properties per object. Malformed, truncated,
 ambiguous, or out-of-
 scope values produce errors without partial results.

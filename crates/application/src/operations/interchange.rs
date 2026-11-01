@@ -2,6 +2,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 
 use super::*;
 use crate::interchange_codec::{InterchangeCodec, InterchangeError, InterchangeFormat};
@@ -204,9 +205,12 @@ fn read(
     codec.read(format, &source_bytes(format, source)?)
 }
 
-fn source_bytes(format: InterchangeFormat, source: &str) -> Result<Vec<u8>, InterchangeError> {
+fn source_bytes(
+    format: InterchangeFormat,
+    source: &str,
+) -> Result<Cow<'_, [u8]>, InterchangeError> {
     match format {
-        InterchangeFormat::Cdxml => Ok(source.as_bytes().to_vec()),
+        InterchangeFormat::Cdxml => Ok(Cow::Borrowed(source.as_bytes())),
         InterchangeFormat::Cdx => {
             if source.len() > 1_398_104 {
                 return Err(InterchangeError {
@@ -217,13 +221,16 @@ fn source_bytes(format: InterchangeFormat, source: &str) -> Result<Vec<u8>, Inte
                     byte_offset: None,
                 });
             }
-            STANDARD.decode(source).map_err(|_| InterchangeError {
-                code: "invalid_base64",
-                message: "CDX source must be canonical padded base64.".into(),
-                line: None,
-                column: None,
-                byte_offset: None,
-            })
+            STANDARD
+                .decode(source)
+                .map(Cow::Owned)
+                .map_err(|_| InterchangeError {
+                    code: "invalid_base64",
+                    message: "CDX source must be canonical padded base64.".into(),
+                    line: None,
+                    column: None,
+                    byte_offset: None,
+                })
         }
     }
 }
@@ -551,7 +558,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let mut losses = output.loss_report;
         if original
             .as_ref()
-            .is_some_and(|bytes| bytes != &output.bytes)
+            .is_some_and(|bytes| bytes.as_ref() != output.bytes.as_slice())
         {
             losses.push(Loss {
                 feature: if format == InterchangeFormat::Cdxml { "xml_serialization" } else { "cdx_serialization" }.into(),
