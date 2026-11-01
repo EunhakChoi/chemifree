@@ -257,75 +257,13 @@ pub(crate) fn export_record(
         })?;
         bonds.push(CtBond { begin, end, order });
     }
-    if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
-        losses.push(loss(
-            index,
-            ".ids",
-            "native_ids",
-            SemanticImpact::Document,
-            "Native atom and bond IDs are mapped to file indices and are not embedded in V2000.",
-        ));
-    }
-    if let Some(first) = doc.scene.instances.first() {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", first.id),
-            "placement_id",
-            SemanticImpact::Document,
-            "The placement ID is not embedded in V2000.",
-        ));
-    }
-    if !doc.selection.atoms.is_empty()
-        || !doc.selection.bonds.is_empty()
-        || !doc.selection.objects.is_empty()
-    {
-        losses.push(loss(
-            index,
-            ".selection",
-            "selection",
-            SemanticImpact::Document,
-            "The editor selection is not written.",
-        ));
-    }
-    for instance in doc.scene.instances.iter().skip(1) {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", instance.id),
-            "extra_placement",
-            SemanticImpact::Geometry,
-            "Only the first placement is written.",
-        ));
-    }
-    for object in &doc.scene.objects {
-        match object {
-            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => {
-                losses.push(loss(
-                    index,
-                    &format!(".scene.objects[{id}]"),
-                    "scene_object",
-                    SemanticImpact::Rendering,
-                    "Groups and graphics are not represented in this V2000 profile.",
-                ))
-            }
-            SceneObjectView::Instance { .. } => {}
-        }
-    }
-    if !doc.scene.references.is_empty() {
-        losses.push(loss(
-            index,
-            ".scene.references",
-            "scene_references",
-            SemanticImpact::Document,
-            "Scene references are not written.",
-        ));
-    }
-    losses.push(loss(
-        index,
-        ".settings",
-        "drawing_settings",
-        SemanticImpact::Rendering,
-        "Drawing styles and settings are not represented in this V2000 profile.",
-    ));
+    drawing_losses(
+        doc,
+        &format!("records[{index}]"),
+        "V2000",
+        "file indices",
+        losses,
+    );
     Ok(CtRecord {
         title: doc.title.clone(),
         program: String::new(),
@@ -334,6 +272,90 @@ pub(crate) fn export_record(
         bonds,
         fields,
     })
+}
+
+/// Drawing content a text or file notation does not carry, in the vocabulary every export
+/// shares: native IDs, placements, selection, scene objects and references, and settings.
+/// `base` prefixes each `source_path`; `notation` names the target and `positions` what the
+/// native IDs are mapped to.
+pub(crate) fn drawing_losses(
+    doc: &DocumentView,
+    base: &str,
+    notation: &str,
+    positions: &str,
+    losses: &mut Vec<Loss>,
+) {
+    let mut push = |path: String, feature: &str, impact: SemanticImpact, reason: String| {
+        losses.push(Loss {
+            feature: feature.into(),
+            source_path: format!("{base}{path}"),
+            disposition: LossDisposition::Dropped,
+            reason,
+            semantic_impact: impact,
+        });
+    };
+    if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
+        push(
+            ".ids".into(),
+            "native_ids",
+            SemanticImpact::Document,
+            format!(
+                "Native atom and bond IDs are mapped to {positions} and are not embedded in {notation}."
+            ),
+        );
+    }
+    if let Some(first) = doc.scene.instances.first() {
+        push(
+            format!(".scene.instances[{}]", first.id),
+            "placement_id",
+            SemanticImpact::Document,
+            format!("The placement ID is not embedded in {notation}."),
+        );
+    }
+    if !doc.selection.atoms.is_empty()
+        || !doc.selection.bonds.is_empty()
+        || !doc.selection.objects.is_empty()
+    {
+        push(
+            ".selection".into(),
+            "selection",
+            SemanticImpact::Document,
+            "The editor selection is not written.".into(),
+        );
+    }
+    for instance in doc.scene.instances.iter().skip(1) {
+        push(
+            format!(".scene.instances[{}]", instance.id),
+            "extra_placement",
+            SemanticImpact::Geometry,
+            "Only the first placement is written.".into(),
+        );
+    }
+    for object in &doc.scene.objects {
+        match object {
+            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
+                format!(".scene.objects[{id}]"),
+                "scene_object",
+                SemanticImpact::Rendering,
+                format!("Groups and graphics are not represented in this {notation} profile."),
+            ),
+            SceneObjectView::Instance { .. } => {}
+        }
+    }
+    if !doc.scene.references.is_empty() {
+        push(
+            ".scene.references".into(),
+            "scene_references",
+            SemanticImpact::Document,
+            "Scene references are not written.".into(),
+        );
+    }
+    push(
+        ".settings".into(),
+        "drawing_settings",
+        SemanticImpact::Rendering,
+        format!("Drawing styles and settings are not represented in this {notation} profile."),
+    );
 }
 
 /// Stable binding of the complete prospective editor document, source record and losses.

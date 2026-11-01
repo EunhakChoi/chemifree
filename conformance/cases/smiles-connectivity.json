@@ -62,7 +62,8 @@
       "document": "target",
       "request": {"contract": 1, "request_id": "write-recorded", "profile": "preserve-semantics", "operation": "document.export",
         "parameters": {"format": "smiles", "mode": "recorded"}},
-      "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-smiles-1",
+      "expect": {"outcome": "partial", "document_revision": 1, "model_id": "chemifree-smiles-1",
+        "loss_report": {"$contains": [{"feature": "coordinates"}, {"feature": "native_ids"}, {"feature": "drawing_settings"}]},
         "result": {"smiles": "OC(=O)C", "atoms": ["a1", "a2", "a3", "a4"], "snapshot": {"document": {"revision": 1}}}}
     },
     {
@@ -70,7 +71,7 @@
       "document": "target",
       "request": {"contract": 1, "request_id": "write-canonical", "profile": "preserve-semantics", "operation": "document.export",
         "parameters": {"format": "smiles", "mode": "canonical"}},
-      "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-smiles-canonical-1",
+      "expect": {"outcome": "partial", "document_revision": 1, "model_id": "chemifree-smiles-canonical-1",
         "result": {"smiles": "C(C)(=O)O", "implementation": "chemifree-smiles-canonical", "version": "1",
           "models": {"identity": "chemifree-chemical-graph-2"}}}
     },

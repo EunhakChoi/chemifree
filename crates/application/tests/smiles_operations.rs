@@ -479,7 +479,7 @@ fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
         json!({"document_id":id,"expected_revision":0,"commands":commands}),
     );
     assert_eq!(reply["outcome"], "ok");
-    assert_eq!(write(&app, &id, "recorded")["outcome"], "ok");
+    assert_eq!(write(&app, &id, "recorded")["outcome"], "partial");
     let reply = write(&app, &id, "canonical");
     assert_eq!(reply["diagnostics"][0]["code"], "smiles_limit");
     assert_eq!(reason(&reply), "atom_limit");
@@ -701,4 +701,89 @@ fn the_catalog_keeps_the_mol_sdf_and_cdxml_notes_when_smiles_is_connected() {
             .unwrap()
             .starts_with(capability(&both)["description"].as_str().unwrap())
     );
+}
+
+fn features(reply: &Value) -> Vec<String> {
+    reply["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["feature"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn export_reports_everything_the_text_drops_in_the_shared_vocabulary() {
+    let (app, _dir) = setup();
+    let id = import(&app, "CCO");
+    let edit = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"add_graphic","shape":"arrow","points":[{"x":10,"y":0},{"x":15,"y":0}]},
+            {"op":"add_instance","offset":{"x":0,"y":100}},
+        ],"selection_after":{"atoms":["a1"],"bonds":[],"objects":[]}}),
+    );
+    assert_eq!(edit["outcome"], "ok", "{edit}");
+    for mode in ["recorded", "canonical"] {
+        let reply = write(&app, &id, mode);
+        assert_eq!(
+            reply["outcome"], "partial",
+            "{mode}: a lossy export is partial: {reply}"
+        );
+        let found = features(&reply);
+        for expected in [
+            "coordinates",
+            "document_title",
+            "native_ids",
+            "placement_id",
+            "extra_placement",
+            "scene_object",
+            "selection",
+            "drawing_settings",
+        ] {
+            assert!(
+                found.contains(&expected.to_owned()),
+                "{mode}: {expected} missing from {found:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn canonical_export_reports_folded_hydrogens_and_representation_changes() {
+    let (app, _dir) = setup();
+    let id = import(&app, "[H]C([H])([H])[H]");
+    let reply = write(&app, &id, "canonical");
+    assert_eq!(reply["result"]["smiles"], "C");
+    assert_eq!(
+        reply["result"]["atoms"],
+        json!(["a2"]),
+        "only the carbon has a text position"
+    );
+    let folded = reply["result"]["folded_hydrogens"].as_array().unwrap();
+    assert_eq!(folded.len(), 4, "{reply}");
+    assert!(folded.iter().all(|f| f["attached_to"] == "a2"));
+    assert_eq!(
+        features(&reply)
+            .iter()
+            .filter(|f| *f == "folded_hydrogens")
+            .count(),
+        4
+    );
+    // Stated counts become inferred ones, and Kekule bonds become aromatic ones.
+    let id = import(&app, "[CH3]C1=CC=CC=C1");
+    let reply = write(&app, &id, "canonical");
+    let found = features(&reply);
+    assert!(
+        found.contains(&"aromatic_bonds_rewritten".to_owned()),
+        "{found:?}"
+    );
+    let id = import(&app, "[CH4]");
+    let found = features(&write(&app, &id, "canonical"));
+    assert!(found.contains(&"hydrogen_state".to_owned()), "{found:?}");
+    // Recorded mode keeps every one of those and reports no representation change.
+    let recorded = write(&app, &import(&app, "[H]C([H])([H])[H]"), "recorded");
+    assert!(!features(&recorded).contains(&"folded_hydrogens".to_owned()));
+    assert_eq!(recorded["result"]["folded_hydrogens"], json!([]));
 }

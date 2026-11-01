@@ -237,6 +237,8 @@ pub(crate) struct Written {
     pub text: String,
     /// The drawing's atoms in the order they appear in the written molecule.
     pub order: Vec<AtomId>,
+    /// Canonical mode: explicit terminal hydrogens folded into counts, as (hydrogen, heavy atom).
+    pub folded: Vec<(AtomId, AtomId)>,
     pub losses: Vec<Loss>,
 }
 
@@ -381,6 +383,37 @@ fn smiles_atom(plan: &AtomPlan<'_>, losses: &mut Vec<Loss>) -> Result<SmilesAtom
     })
 }
 
+fn representation_change(path: String, feature: &str, reason: &str) -> Loss {
+    loss(
+        path,
+        feature,
+        LossDisposition::Normalized,
+        SemanticImpact::Chemistry,
+        reason,
+    )
+}
+
+/// What a SMILES text does not carry of the drawing, in the vocabulary other exports use.
+pub(crate) fn export_losses(doc: &DocumentView, losses: &mut Vec<Loss>) {
+    if !doc.atoms.is_empty() {
+        losses.push(loss(
+            "document.atoms".into(),
+            "coordinates",
+            LossDisposition::Dropped,
+            SemanticImpact::Geometry,
+            "SMILES carries no atom coordinates.",
+        ));
+    }
+    losses.push(loss(
+        "document.title".into(),
+        "document_title",
+        LossDisposition::Dropped,
+        SemanticImpact::Document,
+        "The drawing title is not written.",
+    ));
+    crate::ct_projection::drawing_losses(doc, "document", "SMILES", "text positions", losses);
+}
+
 fn format_failure(error: SmilesFormatError) -> WriteRefusal {
     match error {
         SmilesFormatError::SizeLimit => WriteRefusal::limit("size_limit"),
@@ -463,8 +496,13 @@ pub(crate) fn write_graph(
                 .as_ref()
                 .expect("the chemical profile always reports its interpretation");
             let mut folded: HashMap<AtomId, u16> = HashMap::new();
-            for (_, parent) in &canonical.folded_hydrogens {
+            for (hydrogen, parent) in &canonical.folded_hydrogens {
                 *folded.entry(*parent).or_default() += 1;
+                losses.push(representation_change(
+                    format!("atoms[{hydrogen}]"),
+                    "folded_hydrogens",
+                    "This terminal hydrogen vertex is written as a hydrogen count on its heavy atom, so it has no atom of its own in the text.",
+                ));
             }
             let aromatic_atoms: BTreeSet<AtomId> = graph
                 .bonds()
@@ -483,7 +521,17 @@ pub(crate) fn write_graph(
                     force_bracket: false,
                 };
                 index_of.insert(id, rank);
-                molecule.atoms.push(smiles_atom(&plan, &mut losses)?);
+                let written = smiles_atom(&plan, &mut losses)?;
+                if matches!(plan.atom.hydrogens, Hydrogens::Specified(_))
+                    && written.hydrogens.is_none()
+                {
+                    losses.push(representation_change(
+                        format!("atoms[{id}]"),
+                        "hydrogen_state",
+                        "The stated hydrogen count is written as an inferred one because it equals the default for the atom's bonds.",
+                    ));
+                }
+                molecule.atoms.push(written);
                 order.push(id);
             }
             for (id, bond) in graph.bonds() {
@@ -493,6 +541,13 @@ pub(crate) fn write_graph(
                     continue;
                 };
                 let kind = if detail.aromatic_bonds.contains(&id) {
+                    if bond.order != BondOrder::Aromatic {
+                        losses.push(representation_change(
+                            format!("bonds[{id}]"),
+                            "aromatic_bonds_rewritten",
+                            "A single or double bond of a ring the aromaticity model reads as aromatic is written as an aromatic bond.",
+                        ));
+                    }
                     SmilesBondKind::Aromatic
                 } else {
                     kind_of(&bond.order).expect("bond kinds were checked")
@@ -513,9 +568,13 @@ pub(crate) fn write_graph(
         .iter()
         .map(|&index| order[index])
         .collect();
+    let folded = canonical
+        .map(|canonical| canonical.folded_hydrogens)
+        .unwrap_or_default();
     Ok(Written {
         text: written.text,
         order,
+        folded,
         losses,
     })
 }

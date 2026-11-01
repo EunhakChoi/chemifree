@@ -64,6 +64,9 @@ pub struct SmilesExportResult {
     pub implementation: &'static str,
     pub version: &'static str,
     pub models: SmilesModels,
+    /// Canonical mode: terminal hydrogen vertices folded into counts, which have no entry in
+    /// `atoms`; empty otherwise.
+    pub folded_hydrogens: Vec<FoldedHydrogen>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -265,6 +268,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         match smiles_projection::write_graph(codec.as_ref(), &graph, p.mode) {
             Ok(written) => {
                 let (implementation, version) = p.mode.implementation();
+                let mut losses = written.losses;
+                smiles_projection::export_losses(&snapshot.document, &mut losses);
                 let mut response = converted(
                     known,
                     Some(revision),
@@ -280,8 +285,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                             aromaticity: chemifree_domain::aromaticity::MODEL_ID,
                             identity: p.mode.identity_model(),
                         },
+                        folded_hydrogens: written
+                            .folded
+                            .into_iter()
+                            .map(|(hydrogen, attached_to)| FoldedHydrogen {
+                                hydrogen: hydrogen.to_string(),
+                                attached_to: attached_to.to_string(),
+                            })
+                            .collect(),
                     })),
-                    written.losses,
+                    losses,
                 );
                 response.model_id = Some(p.mode.model_id());
                 response
