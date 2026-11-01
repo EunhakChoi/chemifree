@@ -22,8 +22,23 @@ Intentional differences, so only comparable behavior is compared:
   ``chemifree-aromaticity-1`` model; they use rings where both models agree.
   Cyclobutadiene is the documented divergence: RDKit leaves it non-aromatic
   while Chemifree refuses the target, so that fixture checks only the refusal.
+* Hydrogen counts: a Chemifree query atom with a stated count (a bracket atom
+  such as ``[CH3]``) compares non-vertex hydrogens, taken from the valence
+  model for an unstated target atom. RDKit's ``H`` primitive counts total
+  hydrogens, which is the same quantity when no hydrogen is drawn as an atom.
+  A target whose hydrogens Chemifree cannot determine (aromatic bonds in
+  recorded mode) is a Chemifree-only refusal. Radicals are not compared: RDKit
+  SMARTS has no radical primitive in this version.
+* N-H heterocycles written in Kekule form with an unstated N-H (pyrazole,
+  pyrrole) are refused in aromatic-target mode because the aromaticity model
+  would otherwise read the nitrogen as pyridine-type; RDKit finds matches, so
+  only the refusal is checked.
 * Limits, refusals and completeness flags are Chemifree-only concepts and are
   checked against the declared expectation, not against RDKit.
+* A seeded random section compares exact mapping sets for connected query
+  subgraphs of random targets (recorded mode on C/N/O graphs, aromatic-target
+  mode on substituted benzene written in both spellings), using RDKit's
+  molecule-as-query matching.
 """
 
 from __future__ import annotations
@@ -33,6 +48,7 @@ import dataclasses
 import json
 import logging
 import pathlib
+import random
 import subprocess
 import sys
 
@@ -49,6 +65,7 @@ _BOND_NAMES = {
 }
 _MAX_MATCHES = 1000
 _MAX_STATES = 1_000_000
+_DEFAULT_STATES = 100_000
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,6 +82,7 @@ class Fixture:
       predicates: Chemifree atom predicates by 0-based query atom position.
       refusal: Expected refusal code, or None when mappings are expected.
       limit: Maximum mappings requested, when below the full set.
+      states: Search work bound requested (the service default).
     """
 
     name: str
@@ -75,6 +93,7 @@ class Fixture:
     predicates: tuple[dict[str, object], ...] = ()
     refusal: str | None = None
     limit: int = _MAX_MATCHES
+    states: int = _DEFAULT_STATES
 
 
 _BENZENE_KEKULE = "C1=CC=CC=C1"
@@ -235,6 +254,81 @@ _FIXTURES = (
         limit=3,
     ),
     Fixture(
+        "hydrogens_methyl_in_ethane",
+        "[CH3]",
+        "[#6+0;H3]",
+        "CC",
+    ),
+    Fixture(
+        "hydrogens_methylene_in_propane",
+        "[CH2]",
+        "[#6+0;H2]",
+        "CCC",
+    ),
+    Fixture(
+        "hydrogens_methyl_absent_in_kekule_benzene",
+        "[CH3]",
+        "[#6+0;H3]",
+        _BENZENE_KEKULE,
+    ),
+    Fixture(
+        "hydrogens_ch_in_kekule_benzene_aromatic_model",
+        "[CH]",
+        "[#6+0;H1]",
+        _BENZENE_KEKULE,
+        mode="aromatic_target",
+    ),
+    Fixture(
+        "isotope_label_matches_only_labeled_atom",
+        "[13C]",
+        "[13#6+0]",
+        "[13CH3]C",
+    ),
+    Fixture(
+        "refusal_stated_hydrogens_on_recorded_aromatic_target",
+        "[CH]",
+        "",
+        _BENZENE_AROMATIC,
+        refusal="target_hydrogens_undetermined",
+    ),
+    Fixture(
+        "refusal_charge_condition_contradicts_element_atom",
+        "C",
+        "",
+        "CC",
+        predicates=({"atom": 0, "charge": 1},),
+        refusal="invalid_predicate",
+    ),
+    Fixture(
+        "refusal_kekule_pyrazole_unstated_nh",
+        "cc",
+        "",
+        "C1=CC=NN1",
+        mode="aromatic_target",
+        refusal="aromatic_target_unsupported",
+    ),
+    Fixture(
+        "refusal_kekule_pyrrole_unstated_nh",
+        "cc",
+        "",
+        "C1=CC=CN1",
+        mode="aromatic_target",
+        refusal="aromatic_target_unsupported",
+    ),
+    Fixture(
+        "two_atom_query_in_400_atom_chain_default_budget",
+        "CC",
+        _CC,
+        "C" * 400,
+    ),
+    Fixture(
+        "path_of_64_in_240_atom_chain_maximum_budget",
+        "C" * 64,
+        "-".join(["[#6+0]"] * 64),
+        "C" * 240,
+        states=_MAX_STATES,
+    ),
+    Fixture(
         "refusal_aromatic_target_cyclobutadiene",
         "cc",
         "",
@@ -274,9 +368,15 @@ def _read_graph(smiles: str) -> dict[str, object]:
         if atom.GetSymbol() == "*":
             atoms.append({"query": "any"})
         else:
-            atoms.append(
-                {"el": atom.GetSymbol(), "charge": atom.GetFormalCharge()}
-            )
+            spec: dict[str, object] = {
+                "el": atom.GetSymbol(),
+                "charge": atom.GetFormalCharge(),
+            }
+            if atom.GetNumExplicitHs() > 0:
+                spec["hydrogens"] = atom.GetNumExplicitHs()
+            if atom.GetIsotope() > 0:
+                spec["isotope"] = atom.GetIsotope()
+            atoms.append(spec)
     bonds = [
         [
             bond.GetBeginAtomIdx(),
@@ -307,7 +407,7 @@ def _run_chemifree(binary: pathlib.Path, fixture: Fixture) -> dict[str, object]:
         "mode": fixture.mode,
         "predicates": list(fixture.predicates),
         "max_matches": fixture.limit,
-        "max_states": _MAX_STATES,
+        "max_states": fixture.states,
     }
     # The caller supplies the local example binary; no shell is involved.
     output = subprocess.run(  # noqa: S603
@@ -421,6 +521,13 @@ _EXPECTED_COUNTS = {
     "fused_ring_spiro_target_cyclopropane_in_spiropentane": 12,
     "no_match_element_absent": 0,
     "mapping_limit_reports_incomplete": 3,
+    "hydrogens_methyl_in_ethane": 2,
+    "hydrogens_methylene_in_propane": 1,
+    "hydrogens_methyl_absent_in_kekule_benzene": 0,
+    "hydrogens_ch_in_kekule_benzene_aromatic_model": 6,
+    "isotope_label_matches_only_labeled_atom": 1,
+    "two_atom_query_in_400_atom_chain_default_budget": 798,
+    "path_of_64_in_240_atom_chain_maximum_budget": 354,
 }
 
 
@@ -434,6 +541,257 @@ def _check(binary: pathlib.Path, fixture: Fixture) -> None:
     expected = _EXPECTED_COUNTS[fixture.name]
     if len(mappings) != expected:
         _fail(fixture, f"{len(mappings)} mappings, chemistry says {expected}")
+
+
+_VALENCE = {"C": 4, "N": 3, "O": 2}
+_ORDER_NAMES = {1: "single", 2: "double", 3: "triple"}
+_ORDER_TYPES = {
+    1: rdkit.Chem.BondType.SINGLE,
+    2: rdkit.Chem.BondType.DOUBLE,
+    3: rdkit.Chem.BondType.TRIPLE,
+}
+_RANDOM_SEED = 20261101
+_RANDOM_RECORDED_CASES = 40
+_RANDOM_AROMATIC_CASES = 16
+
+Edge = tuple[int, int, int]
+
+
+def _random_molecule(rng: random.Random) -> tuple[list[str], list[Edge]]:
+    """Builds a connected C/N/O graph whose atoms respect simple valences."""
+    count = rng.randint(5, 9)
+    elements = [rng.choice("CCCNO") for _ in range(count)]
+    free = [_VALENCE[symbol] for symbol in elements]
+    edges: list[Edge] = []
+    for atom in range(1, count):
+        candidates = [other for other in range(atom) if free[other] > 0]
+        while free[atom] == 0 or not candidates:
+            # Re-draw an element that cannot bond so the graph stays connected.
+            elements[atom] = "C"
+            free[atom] = 4 - sum(1 for e in edges if atom in e[:2])
+            candidates = [other for other in range(atom) if free[other] > 0]
+            if not candidates:
+                other = rng.randrange(atom)
+                elements[other] = "C"
+                free[other] += 1
+                candidates = [other]
+        other = rng.choice(candidates)
+        order = rng.randint(1, min(free[atom], free[other], 3))
+        edges.append((other, atom, order))
+        free[other] -= order
+        free[atom] -= order
+    for _ in range(rng.randint(0, 2)):
+        pair = rng.sample(range(count), 2)
+        linked = any(set(pair) == set(edge[:2]) for edge in edges)
+        if not linked and all(free[atom] > 0 for atom in pair):
+            edges.append((pair[0], pair[1], 1))
+            free[pair[0]] -= 1
+            free[pair[1]] -= 1
+    return elements, edges
+
+
+def _connected_subgraph(
+    rng: random.Random, edges: Sequence[Edge], atom_count: int
+) -> tuple[list[int], list[Edge]]:
+    """Picks a random connected atom subset and some of its edges."""
+    size = rng.randint(2, min(5, atom_count))
+    chosen = [rng.randrange(atom_count)]
+    tree: list[Edge] = []
+    while len(chosen) < size:
+        options = [
+            edge for edge in edges if (edge[0] in chosen) != (edge[1] in chosen)
+        ]
+        if not options:
+            break
+        edge = rng.choice(options)
+        chosen.append(edge[1] if edge[0] in chosen else edge[0])
+        tree.append(edge)
+    extra = [
+        edge
+        for edge in edges
+        if edge[0] in chosen and edge[1] in chosen and edge not in tree
+    ]
+    return chosen, tree + [edge for edge in extra if rng.random() < 0.5]
+
+
+def _graph_dict(
+    elements: Sequence[str], edges: Sequence[tuple[int, int, str]]
+) -> dict[str, object]:
+    return {
+        "atoms": [{"el": symbol, "charge": 0} for symbol in elements],
+        "bonds": [[a, b, name] for a, b, name in edges],
+    }
+
+
+def _rdkit_molecule(
+    elements: Sequence[str],
+    edges: Sequence[tuple[int, int, rdkit.Chem.BondType]],
+) -> rdkit.Chem.RWMol:
+    mol = rdkit.Chem.RWMol()
+    for symbol in elements:
+        mol.AddAtom(rdkit.Chem.Atom(symbol))
+    for a, b, bond_type in edges:
+        mol.AddBond(a, b, bond_type)
+    return mol
+
+
+@dataclasses.dataclass(frozen=True)
+class RandomCase:
+    """One generated comparison: the same graphs for both programs.
+
+    Attributes:
+      name: Readable identifier including the seed position.
+      mode: Chemifree match model.
+      query: Query elements and bonds as (begin, end, order name).
+      target: Target elements and bonds as (begin, end, order name).
+      rdkit_query: The query as an RDKit molecule used as a query.
+      rdkit_target: The target as an RDKit molecule.
+    """
+
+    name: str
+    mode: str
+    query: tuple[Sequence[str], Sequence[tuple[int, int, str]]]
+    target: tuple[Sequence[str], Sequence[tuple[int, int, str]]]
+    rdkit_query: rdkit.Chem.Mol
+    rdkit_target: rdkit.Chem.Mol
+
+
+def _compare_random(binary: pathlib.Path, case: RandomCase) -> int:
+    """Checks one random case; returns the number of mappings compared."""
+    request = {
+        "query": _graph_dict(*case.query),
+        "target": _graph_dict(*case.target),
+        "mode": case.mode,
+        "predicates": [],
+        "max_matches": _MAX_MATCHES,
+        "max_states": _MAX_STATES,
+    }
+    output = subprocess.run(  # noqa: S603
+        [str(binary)],
+        input=json.dumps(request),
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    response: object = json.loads(output.stdout)
+    if not isinstance(response, dict) or response.get("outcome") != "ok":
+        raise AssertionError(f"{case.name}: unexpected response {response}")
+    expected = {
+        tuple(match)
+        for match in case.rdkit_target.GetSubstructMatches(
+            case.rdkit_query, uniquify=False, maxMatches=_MAX_MATCHES
+        )
+    }
+    if len(expected) >= _MAX_MATCHES:
+        raise AssertionError(f"{case.name}: RDKit reached its match cap")
+    found = {tuple(mapping) for mapping in response["mappings"]}
+    if response["complete"] is not True or found != expected:
+        raise AssertionError(
+            f"{case.name}: Chemifree {sorted(found)} (complete="
+            f"{response['complete']}) != RDKit {sorted(expected)}"
+        )
+    return len(found)
+
+
+def _check_random_recorded(binary: pathlib.Path, rng: random.Random) -> int:
+    compared = 0
+    for case in range(_RANDOM_RECORDED_CASES):
+        elements, edges = _random_molecule(rng)
+        chosen, kept = _connected_subgraph(rng, edges, len(elements))
+        order = list(range(len(chosen)))
+        rng.shuffle(order)  # renumber query atoms to exercise numbering
+        position = {atom: order[i] for i, atom in enumerate(chosen)}
+        query_elements = [""] * len(chosen)
+        for atom, new in position.items():
+            query_elements[new] = elements[atom]
+        query_edges = [(position[a], position[b], o) for a, b, o in kept]
+        target = (elements, [(a, b, _ORDER_NAMES[o]) for a, b, o in edges])
+        query = (
+            query_elements,
+            [(a, b, _ORDER_NAMES[o]) for a, b, o in query_edges],
+        )
+        rdkit_target = _rdkit_molecule(
+            elements, [(a, b, _ORDER_TYPES[o]) for a, b, o in edges]
+        )
+        rdkit_target.UpdatePropertyCache(strict=False)
+        rdkit_query = _rdkit_molecule(
+            query_elements, [(a, b, _ORDER_TYPES[o]) for a, b, o in query_edges]
+        )
+        compared += _compare_random(
+            binary,
+            RandomCase(
+                f"random_recorded_{case}",
+                "recorded",
+                query,
+                target,
+                rdkit_query,
+                rdkit_target,
+            ),
+        )
+    return compared
+
+
+def _check_random_aromatic(binary: pathlib.Path, rng: random.Random) -> int:
+    compared = 0
+    for case in range(_RANDOM_AROMATIC_CASES):
+        elements = ["C"] * 6
+        substituents: list[tuple[int, int]] = []
+        for ring_atom in rng.sample(range(6), rng.randint(0, 3)):
+            elements.append(rng.choice("CNO"))
+            substituents.append((ring_atom, len(elements) - 1))
+            if elements[-1] != "O" and rng.random() < 0.4:
+                elements.append("C")
+                substituents.append((len(elements) - 2, len(elements) - 1))
+        ring = [(i, (i + 1) % 6) for i in range(6)]
+        shift = rng.randint(0, 1)
+        aromatic_edges = [(a, b, "aromatic") for a, b in ring] + [
+            (a, b, "single") for a, b in substituents
+        ]
+        kekule_edges = [
+            (a, b, "double" if (i + shift) % 2 == 0 else "single")
+            for i, (a, b) in enumerate(ring)
+        ] + [(a, b, "single") for a, b in substituents]
+        chosen, kept = _connected_subgraph(
+            rng,
+            [(a, b, 1) for a, b, _ in aromatic_edges],
+            len(elements),
+        )
+        names = {(a, b): name for a, b, name in aromatic_edges}
+        query_edges = [(a, b, names[(a, b)]) for a, b, _ in kept]
+        index = {atom: i for i, atom in enumerate(chosen)}
+        query = (
+            [elements[atom] for atom in chosen],
+            [(index[a], index[b], name) for a, b, name in query_edges],
+        )
+        types = {
+            "single": rdkit.Chem.BondType.SINGLE,
+            "double": rdkit.Chem.BondType.DOUBLE,
+            "aromatic": rdkit.Chem.BondType.AROMATIC,
+        }
+        rdkit_query = _rdkit_molecule(
+            query[0], [(a, b, types[name]) for a, b, name in query[1]]
+        )
+        # RDKit perceives aromaticity from the Kekule form on sanitization.
+        rdkit_target = _rdkit_molecule(
+            elements, [(a, b, types[name]) for a, b, name in kekule_edges]
+        )
+        rdkit.Chem.SanitizeMol(rdkit_target)
+        for spelling, edges in (
+            ("kekule", kekule_edges),
+            ("aromatic", aromatic_edges),
+        ):
+            compared += _compare_random(
+                binary,
+                RandomCase(
+                    f"random_aromatic_{case}_{spelling}",
+                    "aromatic_target",
+                    query,
+                    (elements, edges),
+                    rdkit_query,
+                    rdkit_target,
+                ),
+            )
+    return compared
 
 
 def main(argv: Sequence[str]) -> None:
@@ -452,6 +810,16 @@ def main(argv: Sequence[str]) -> None:
     _LOGGER.info("RDKit version: %s", rdkit.__version__)
     for fixture in _FIXTURES:
         _check(binary, fixture)
+    # Seeded for reproducibility, not for security.
+    rng = random.Random(_RANDOM_SEED)  # noqa: S311
+    recorded = _check_random_recorded(binary, rng)
+    aromatic = _check_random_aromatic(binary, rng)
+    _LOGGER.info(
+        "Seeded random sections compared %d recorded and %d aromatic-target"
+        " mappings",
+        recorded,
+        aromatic,
+    )
     _LOGGER.info(
         "RDKit substructure comparison passed for %d fixtures", len(_FIXTURES)
     )

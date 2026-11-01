@@ -7,12 +7,13 @@ use std::error::Error;
 use std::io::{self, Read};
 
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, NewAtomPositions, Point,
+    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_COMMANDS,
+    NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::query::{self, AtomPredicate, MatchModel, QueryError};
-use chemifree_domain::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
+use chemifree_domain::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder};
 use serde_json::{Value, json};
 
 fn element(symbol: &Value) -> Result<Element, Box<dyn Error>> {
@@ -39,6 +40,12 @@ fn atom(spec: &Value) -> Result<Atom, Box<dyn Error>> {
     }
     let mut atom = Atom::from(element(&spec["el"])?);
     atom.charge = i8::try_from(spec["charge"].as_i64().unwrap_or(0))?;
+    if let Some(count) = spec["hydrogens"].as_u64() {
+        atom.hydrogens = Hydrogens::Specified(u8::try_from(count)?);
+    }
+    if let Some(mass) = spec["isotope"].as_u64() {
+        atom.isotope = Some(u16::try_from(mass)?);
+    }
     Ok(atom)
 }
 
@@ -58,29 +65,38 @@ fn order(name: &str) -> Result<BondOrder, Box<dyn Error>> {
     })
 }
 
+/// A transaction holds at most `MAX_COMMANDS` commands, so atoms and bonds go in batches.
 fn molecule(name: &str, spec: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
     let mut document = Document::new(DocumentId::parse(name).ok_or("bad id")?, name)?;
+    let atoms = spec["atoms"].as_array().ok_or("atoms must be a list")?;
     let mut commands = Vec::new();
-    for item in spec["atoms"].as_array().ok_or("atoms must be a list")? {
+    for item in atoms {
         commands.push(Command::AddAtom {
             atom: atom(item)?,
             positions: NewAtomPositions::Single(Point::new(0.0, 0.0)?),
             bond_to: None,
         });
     }
+    for batch in commands.chunks(MAX_COMMANDS) {
+        document.apply(batch)?;
+    }
+    let ids: Vec<AtomId> = document.atoms().map(|(id, _)| id).collect();
+    let mut bonds = Vec::new();
     for bond in spec["bonds"].as_array().ok_or("bonds must be a list")? {
-        let index = |slot: usize| -> Result<usize, Box<dyn Error>> {
-            Ok(usize::try_from(bond[slot].as_u64().ok_or("bond index")?)?)
+        let end = |slot: usize| -> Result<AtomRef, Box<dyn Error>> {
+            let index = usize::try_from(bond[slot].as_u64().ok_or("bond index")?)?;
+            Ok(AtomRef::Id(
+                *ids.get(index).ok_or("bond index past the atoms")?,
+            ))
         };
-        commands.push(Command::AddBond {
-            begin: AtomRef::Created(index(0)?),
-            end: AtomRef::Created(index(1)?),
+        bonds.push(Command::AddBond {
+            begin: end(0)?,
+            end: end(1)?,
             order: order(bond[2].as_str().ok_or("bond order")?)?,
         });
     }
-    // An empty drawing is a valid input for the empty-query refusal; a transaction cannot be.
-    if !commands.is_empty() {
-        document.apply(&commands)?;
+    for batch in bonds.chunks(MAX_COMMANDS) {
+        document.apply(batch)?;
     }
     Ok(MoleculeGraph::from_document(&document))
 }
@@ -93,6 +109,7 @@ fn refusal_code(error: QueryError) -> &'static str {
         QueryError::InvalidPredicate => "invalid_predicate",
         QueryError::UnsupportedQuery => "unsupported_query",
         QueryError::UnsupportedTarget => "unsupported_target",
+        QueryError::TargetHydrogensUndetermined => "target_hydrogens_undetermined",
         QueryError::AromaticTargetUnsupported(_) => "aromatic_target_unsupported",
     }
 }
