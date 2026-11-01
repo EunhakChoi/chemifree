@@ -705,7 +705,7 @@ fn containment_and_required_properties_are_checked_with_offsets() {
     let graphic_alone = file(0, &[obj(0x8001, 1, &[obj(0x8007, 4, &[])])]);
     assert_eq!(refused(&graphic_alone).code, "missing_property");
     let no_page = file(0, &[]);
-    assert_eq!(refused(&no_page).code, "invalid_document");
+    assert_eq!(refused(&no_page).code, "page_required");
     let twice = file(
         0,
         &[
@@ -972,4 +972,102 @@ fn a_represents_property_at_the_depth_limit_is_refused_at_the_property() {
     let error = refused(&doc);
     assert_eq!(error.code, "resource_limit");
     assert!(error.offset.is_some(), "{error:?}");
+}
+
+#[test]
+fn a_document_nested_in_a_document_is_refused_even_with_tables() {
+    // Header, Document{ Document{ FontTable } }, end marker: the inner document's table must
+    // not reach the code that expects only the outermost document's tables.
+    let nested_fonts = file(
+        0,
+        &[obj(
+            0x8000,
+            5,
+            &[prop(0x0100, &font_table(1, &[(1, 1252, "A")]))],
+        )],
+    );
+    assert_eq!(refused(&nested_fonts).code, "invalid_containment");
+    let nested_colors = file(
+        0,
+        &[obj(0x8000, 5, &[prop(0x0300, &color_table(&[[1, 2, 3]]))])],
+    );
+    assert_eq!(refused(&nested_colors).code, "invalid_containment");
+    // Tables on other objects stay opaque properties, never tables.
+    let on_page = file(
+        0,
+        &[obj(
+            0x8001,
+            1,
+            &[
+                prop(0x0100, &font_table(1, &[(1, 1252, "A")])),
+                prop(0x0300, &color_table(&[[1, 2, 3]])),
+            ],
+        )],
+    );
+    let root = read(&on_page).unwrap();
+    let page = child_objects(&root)[0];
+    assert_eq!(page.properties.len(), 2);
+}
+
+#[test]
+fn seeded_structural_fuzz_never_panics() {
+    // Random trees of known and unknown objects with random properties from a pool that
+    // includes tables, text, references and Represents, at any depth.
+    const OBJECTS: [u16; 10] = [
+        0x8000, 0x8001, 0x8002, 0x8003, 0x8004, 0x8005, 0x8006, 0x8007, 0x8030, 0x8004,
+    ];
+    const PROPERTIES: [u16; 14] = [
+        0x0100, 0x0300, 0x0700, 0x000e, 0x0200, 0x0204, 0x0400, 0x0402, 0x0421, 0x0600, 0x0604,
+        0x0605, 0x0A00, 0x0990,
+    ];
+    fn build(rng: &mut Rng, depth: usize) -> Vec<u8> {
+        let mut parts = Vec::new();
+        for _ in 0..rng.below(5) {
+            let tag = PROPERTIES[rng.below(PROPERTIES.len())];
+            let length = rng.below(40);
+            let data: Vec<u8> = (0..length).map(|_| rng.next() as u8).collect();
+            // Half of the time use well-formed values for the table-like properties.
+            let data = match (tag, rng.below(2)) {
+                (0x0100, 0) => font_table(rng.below(3) as u16, &[(1, 1252, "A")]),
+                (0x0300, 0) => color_table(&[[1, 2, 3]]),
+                (0x0700, 0) => unstyled(b"text"),
+                (0x000e, 0) => [&u32le(1)[..], &u16le(0x0421)[..]].concat(),
+                _ => data,
+            };
+            parts.push(prop(tag, &data));
+        }
+        if depth < 6 {
+            for _ in 0..rng.below(4) {
+                let tag = OBJECTS[rng.below(OBJECTS.len())];
+                let id = if rng.below(3) == 0 {
+                    0
+                } else {
+                    rng.below(20) as u32 + 1
+                };
+                parts.push(obj(tag, id, &[build(rng, depth + 1)]));
+            }
+        }
+        parts.concat()
+    }
+    let mut rng = Rng(0x00c0_ffee_1234_5678);
+    let mut accepted = 0;
+    for round in 0..6_000 {
+        let body = build(&mut rng, 0);
+        let mut bytes = file(0, &[body, obj(0x8001, 99, &[])]);
+        if round % 3 == 0 {
+            let at = rng.below(bytes.len());
+            bytes[at] ^= 1 << rng.below(8);
+        }
+        if round % 5 == 0 {
+            bytes.truncate(rng.below(bytes.len()) + 1);
+        }
+        if let Ok(file) = cdx::read(&bytes) {
+            accepted += 1;
+            let _ = cdx::write(file.document(), None);
+        }
+    }
+    assert!(
+        accepted > 20,
+        "the fuzz should reach accepted trees too, got {accepted}"
+    );
 }

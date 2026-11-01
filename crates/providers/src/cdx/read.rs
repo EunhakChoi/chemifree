@@ -9,21 +9,15 @@ use chemifree_domain::interchange::{
 
 use super::raw::{self, RawItem, RawObject, RawProperty};
 use super::text::{self, DecodedString, FontInfo};
-use super::{CdxError, REPRESENTED_ATTRIBUTES, describe_validation, tag};
-
-/// A font table of the source together with the platform that wrote it. The common model has
-/// no platform field, so the writer consults this to know whether it may keep the platform.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FontTablePlatform {
-    pub table: Object,
-    pub platform: u16,
-}
+use super::{CdxError, REPRESENTED_ATTRIBUTES, tag};
 
 /// A decoded CDX file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CdxDocument {
     document: Document,
-    font_tables: Vec<FontTablePlatform>,
+    /// The platform each font table was written for, in file order. The common model has no
+    /// platform field, so the writer consults this to know whether it may keep the platform.
+    font_platforms: Vec<u16>,
 }
 
 impl CdxDocument {
@@ -32,9 +26,24 @@ impl CdxDocument {
         &self.document
     }
 
-    /// The font tables in file order with their source platforms.
-    pub fn font_tables(&self) -> &[FontTablePlatform] {
-        &self.font_tables
+    /// The `index`-th font table of the document with the platform it was written for.
+    pub fn font_table(&self, index: usize) -> Option<(&Object, u16)> {
+        let platform = *self.font_platforms.get(index)?;
+        self.document
+            .root()
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                Content::Object(object) if object.kind == ObjectKind::FontTable => Some(object),
+                _ => None,
+            })
+            .nth(index)
+            .map(|table| (table, platform))
+    }
+
+    /// How many font tables the file has.
+    pub fn font_table_count(&self) -> usize {
+        self.font_platforms.len()
     }
 }
 
@@ -53,7 +62,7 @@ pub fn read(bytes: &[u8]) -> Result<CdxDocument, CdxError> {
     let document = Document::new(root).map_err(|error| builder.model_error(&error))?;
     Ok(CdxDocument {
         document,
-        font_tables: builder.font_tables,
+        font_platforms: builder.font_platforms,
     })
 }
 
@@ -67,7 +76,7 @@ struct Builder<'a> {
     parsed_colors: HashMap<u64, Vec<[u16; 3]>>,
     ids: HashMap<u32, u64>,
     references: Vec<(u32, u64)>,
-    font_tables: Vec<FontTablePlatform>,
+    font_platforms: Vec<u16>,
 }
 
 fn known_kind(object_tag: u16) -> Option<ObjectKind> {
@@ -104,6 +113,16 @@ fn property(kind: PropertyKind, value: PropertyValue) -> Property {
     Property { kind, value }
 }
 
+/// Only the outermost document's tables are collected before the tree is built; a table
+/// anywhere else is a document nested where no document may be.
+fn not_collected(what: &str, raw: &RawProperty) -> CdxError {
+    CdxError::at(
+        "invalid_containment",
+        raw.offset,
+        format!("A {what} belongs to the outermost document only."),
+    )
+}
+
 fn bad_value(code: &'static str, raw: &RawProperty, what: &str) -> CdxError {
     CdxError::at(
         code,
@@ -123,7 +142,7 @@ impl<'a> Builder<'a> {
             colors: None,
             ids: HashMap::new(),
             references: Vec::new(),
-            font_tables: Vec::new(),
+            font_platforms: Vec::new(),
         }
     }
 
@@ -230,6 +249,23 @@ impl<'a> Builder<'a> {
                     self.property(&kind, raw, prop, &mut properties, &mut children)?;
                 }
                 RawItem::Object(child_raw) => {
+                    // Checked before descending: a misplaced child is never interpreted.
+                    let child_kind = if opaque {
+                        ObjectKind::UnknownBinary(child_raw.tag)
+                    } else {
+                        known_kind(child_raw.tag)
+                            .unwrap_or(ObjectKind::UnknownBinary(child_raw.tag))
+                    };
+                    if !kind.may_contain(&child_kind) {
+                        return Err(CdxError::at(
+                            "invalid_containment",
+                            child_raw.offset,
+                            format!(
+                                "Object 0x{:04x} cannot be inside object 0x{:04x}.",
+                                child_raw.tag, raw.tag
+                            ),
+                        ));
+                    }
                     let child = self.object(child_raw, opaque)?;
                     if !kind.may_contain(&child.kind) {
                         return Err(CdxError::at(
@@ -396,7 +432,7 @@ impl<'a> Builder<'a> {
                 let table = self
                     .parsed_fonts
                     .remove(&raw.offset)
-                    .expect("font tables of the document are parsed while collecting fonts");
+                    .ok_or_else(|| not_collected("font table", raw))?;
                 self.reserve(1 + table.entries.len(), raw.offset)?;
                 let fonts = table
                     .entries
@@ -424,17 +460,14 @@ impl<'a> Builder<'a> {
                     })
                     .collect();
                 let object = plain(ObjectKind::FontTable, Vec::new(), fonts);
-                self.font_tables.push(FontTablePlatform {
-                    table: object.clone(),
-                    platform: table.platform,
-                });
+                self.font_platforms.push(table.platform);
                 children.push(Content::Object(object));
             }
             (O::Document, tag::COLOR_TABLE) => {
                 let colors = self
                     .parsed_colors
                     .remove(&raw.offset)
-                    .expect("color tables of the document are parsed while collecting colors");
+                    .ok_or_else(|| not_collected("color table", raw))?;
                 self.reserve(1 + colors.len(), raw.offset)?;
                 let entries = colors
                     .iter()
@@ -622,7 +655,6 @@ impl<'a> Builder<'a> {
 
     fn model_error(&self, error: &chemifree_domain::interchange::ValidationError) -> CdxError {
         use chemifree_domain::interchange::ValidationError as V;
-        let (code, message) = describe_validation(error);
         let target = match error {
             V::BondEndpointNotNode(id) | V::CrossFragmentBond(id) | V::DanglingReference(id) => {
                 Some(*id)
@@ -636,8 +668,8 @@ impl<'a> Builder<'a> {
                 .map(|(_, offset)| *offset)
         });
         CdxError {
-            code,
-            message,
+            code: error.code(),
+            message: error.message(),
             offset,
         }
     }
