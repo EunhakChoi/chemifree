@@ -887,13 +887,7 @@ impl<R: DocumentRepository> Documents<R> {
                         .collect();
                     let bonds = pairs
                         .into_iter()
-                        .map(|(id, order)| {
-                            let order = match order {
-                                aromaticity::KekuleOrder::Single => BondOrder::Single,
-                                aromaticity::KekuleOrder::Double => BondOrder::Double,
-                            };
-                            (id, order)
-                        })
+                        .map(|(id, order)| (id, order.bond_order()))
                         .collect();
                     (bonds, atoms)
                 }),

@@ -12,7 +12,7 @@ use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
-use crate::states::{Hydrogens, Radical};
+use crate::states::Hydrogens;
 
 pub const MODEL_ID: &str = "chemifree-aromaticity-2";
 const MAX_SYSTEM_ATOMS: usize = 128;
@@ -29,6 +29,24 @@ pub enum Classification {
 pub enum KekuleOrder {
     Single,
     Double,
+}
+
+impl KekuleOrder {
+    /// The valence contribution of the assigned bond.
+    pub const fn valence(self) -> u16 {
+        match self {
+            Self::Single => 1,
+            Self::Double => 2,
+        }
+    }
+
+    /// The recorded bond order that realises this assignment.
+    pub const fn bond_order(self) -> BondOrder {
+        match self {
+            Self::Single => BondOrder::Single,
+            Self::Double => BondOrder::Double,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,7 +95,9 @@ struct Role {
 }
 
 /// The single rule deciding what a ring atom contributes. `Ok(None)` is an atom outside the
-/// conjugated system (saturated); `Err` is a state the model cannot read.
+/// conjugated system (saturated); `Err` is a state the model cannot read. Every ring atom,
+/// saturated or not, is checked by the valence model first, so an overvalent or
+/// inconsistently stated atom is never silently dropped from the system.
 ///
 /// A neutral nitrogen is pyrrole-type (a two-electron donor) when it carries hydrogen or
 /// has three sigma bonds. Its hydrogen count is the stated one, or the one the valence
@@ -87,19 +107,17 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
     let Some(element) = atom.kind.element() else {
         return Err("query_atom");
     };
-    if atom.radical != Radical::None {
-        return Err("radical_state");
-    }
-    if !atom.attachment_points.is_empty() {
-        return Err("attachment_point");
-    }
-    let stated = match atom.hydrogens {
-        Hydrogens::Inferred => None,
-        Hydrogens::Specified(count) => Some(usize::from(count)),
-        Hydrogens::Unknown => return Err("unknown_hydrogens"),
+    let assessed = chemistry::assess(id, atom, &incidence.orders);
+    let integral = match (assessed.finding, assessed.reason) {
+        (Finding::Valid, _) => true,
+        (Finding::Invalid, _) => return Err("valence_not_in_model"),
+        (Finding::Unsupported, Some("non_integral_or_unknown_bond")) => false,
+        (Finding::Unsupported, Some(reason)) => return Err(reason),
+        (Finding::Unsupported, None) => return Err("valence_not_in_model"),
     };
     let degree = incidence.ring_degree + incidence.outside;
     let takes_part = incidence.ring_double + incidence.ring_aromatic > 0;
+    let hydrogens = assessed.hydrogen_count.map_or(0, usize::from);
     let (electrons, needs_double, target, inferred_hydrogens): (u16, bool, usize, Option<u8>) =
         match (element.symbol(), atom.charge) {
             ("C", 0) if takes_part => (1, true, 4, None),
@@ -107,14 +125,11 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
             ("C", 1) => (0, false, 3, None),
             ("C", -1) => (2, false, 3, None),
             ("N", 0) => {
-                let assessed = chemistry::assess(id, atom, &incidence.orders);
-                let hydrogens = assessed.hydrogen_count.map_or(0, usize::from);
                 if hydrogens > 0 || degree == 3 {
-                    let inferred = (atom.hydrogens == Hydrogens::Inferred
-                        && assessed.finding == Finding::Valid
-                        && hydrogens > 0)
-                        .then(|| u8::try_from(hydrogens).ok())
-                        .flatten();
+                    let inferred =
+                        (atom.hydrogens == Hydrogens::Inferred && integral && hydrogens > 0)
+                            .then(|| u8::try_from(hydrogens).ok())
+                            .flatten();
                     (2, false, 3, inferred)
                 } else if takes_part {
                     (1, true, 3, None)
@@ -130,9 +145,16 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
     if incidence.ring_double > 0 && !needs_double {
         return Err("valence_not_in_model");
     }
-    let minimum = degree + usize::from(needs_double);
-    if minimum > target || stated.is_some_and(|h| minimum + h != target) {
-        return Err("valence_not_in_model");
+    if !integral {
+        // An aromatic bond has no integral order; check the atom against its target instead.
+        let stated = match atom.hydrogens {
+            Hydrogens::Specified(count) => Some(usize::from(count)),
+            _ => None,
+        };
+        let minimum = degree + usize::from(needs_double);
+        if minimum > target || stated.is_some_and(|h| minimum + h != target) {
+            return Err("valence_not_in_model");
+        }
     }
     Ok(Some(Role {
         electrons,
@@ -221,39 +243,37 @@ fn interpret_ring(ring: &RingSystem, context: &Context<'_>) -> System {
     result
 }
 
-/// True when atoms flagged `active` still contain a cycle after repeatedly removing those
-/// with fewer than two active neighbours. Linear in the block, with no search budget.
-fn has_conjugated_cycle(adjacent: &[Vec<(usize, BondId)>], active: &[bool]) -> bool {
-    let mut degree: Vec<usize> = adjacent
-        .iter()
-        .enumerate()
-        .map(|(i, edges)| {
-            if active[i] {
-                edges.iter().filter(|&&(j, _)| active[j]).count()
-            } else {
-                0
+/// True when some π bond (double or aromatic) between active atoms lies on a cycle of active
+/// atoms: the only place a conjugated circuit could be. A ring of donors joined by single
+/// bonds has no such bond. Bounded by the block size, with no search budget.
+fn has_pi_cycle(
+    adjacent: &[Vec<(usize, BondId)>],
+    active: &[bool],
+    pi_bonds: &BTreeSet<BondId>,
+) -> bool {
+    for (start, edges) in adjacent.iter().enumerate() {
+        for &(end, bond) in edges {
+            if start > end || !pi_bonds.contains(&bond) || !active[start] || !active[end] {
+                continue;
             }
-        })
-        .collect();
-    let mut alive = active.to_vec();
-    let mut queue: VecDeque<usize> = (0..alive.len())
-        .filter(|&i| alive[i] && degree[i] < 2)
-        .collect();
-    while let Some(i) = queue.pop_front() {
-        if !alive[i] {
-            continue;
-        }
-        alive[i] = false;
-        for &(j, _) in &adjacent[i] {
-            if alive[j] {
-                degree[j] -= 1;
-                if degree[j] < 2 {
-                    queue.push_back(j);
+            // Is `end` still reachable from `start` without this bond?
+            let mut seen = vec![false; adjacent.len()];
+            seen[start] = true;
+            let mut queue = VecDeque::from([start]);
+            while let Some(vertex) = queue.pop_front() {
+                for &(next, edge) in &adjacent[vertex] {
+                    if edge != bond && active[next] && !seen[next] {
+                        seen[next] = true;
+                        queue.push_back(next);
+                    }
                 }
+            }
+            if seen[end] {
+                return true;
             }
         }
     }
-    alive.into_iter().any(|a| a)
+    false
 }
 
 fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'static str> {
@@ -272,17 +292,22 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
     let mut any_aromatic = false;
     let mut all_aromatic = true;
     let mut explicit_double = Vec::new();
+    let mut pi_bonds = BTreeSet::new();
     for &id in &ring.bonds {
         let bond = context.bonds[&id];
         let (Some(&a), Some(&b)) = (positions.get(&bond.begin), positions.get(&bond.end)) else {
             return Err("invalid_graph");
         };
         match bond.order {
-            BondOrder::Aromatic => any_aromatic = true,
+            BondOrder::Aromatic => {
+                any_aromatic = true;
+                pi_bonds.insert(id);
+            }
             BondOrder::Single => all_aromatic = false,
             BondOrder::Double => {
                 all_aromatic = false;
                 explicit_double.push((a, b));
+                pi_bonds.insert(id);
             }
             _ => return Err("unsupported_ring_bond"),
         }
@@ -322,9 +347,10 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         roles.push(role(*id, context.atoms[id], &incidences[i])?);
     }
     if roles.iter().any(Option::is_none) {
-        // Some atoms are saturated. Only a cycle of conjugated atoms could be aromatic.
+        // Some atoms are saturated. Only a cycle of conjugated atoms through a π bond could
+        // be aromatic.
         let active: Vec<_> = roles.iter().map(Option::is_some).collect();
-        if has_conjugated_cycle(&inside, &active) {
+        if has_pi_cycle(&inside, &active, &pi_bonds) {
             return Err("fused_partially_aromatic");
         }
         return if any_aromatic {
@@ -334,6 +360,18 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         };
     }
     let roles: Vec<Role> = roles.into_iter().flatten().collect();
+    if pi_bonds.is_empty() {
+        // Every atom donates but no bond carries π: nothing is conjugated.
+        return Ok(Verdict::non_aromatic(None, "not_conjugated"));
+    }
+    let donates = |r: &Role| r.electrons == 2 && !r.needs_double;
+    if inside
+        .iter()
+        .enumerate()
+        .any(|(a, edges)| donates(&roles[a]) && edges.iter().any(|&(b, _)| donates(&roles[b])))
+    {
+        return Err("adjacent_donors");
+    }
     if any_aromatic && !all_aromatic {
         return Err("mixed_ring_bonds");
     }
@@ -546,52 +584,46 @@ impl Interpretation {
     }
 }
 
-/// Nitrogens whose stated hydrogen count equals what the valence model infers once the given
-/// Kekulé orders are applied. Returning them to `Inferred` leaves the graph meaning unchanged
-/// and keeps the round trip from aromatic and back exact. Any other stated count is kept.
+/// Neutral nitrogens whose stated hydrogen count equals what the valence model infers once the
+/// given Kekulé orders are applied: exactly the atoms aromatic conversion would give the
+/// statement back, so an aromatic, Kekulé, aromatic round trip is exact. Only nitrogen
+/// endpoints of the converted bonds are examined. Charged nitrogens, a stated zero and any
+/// other stated count are kept.
 pub fn redundant_nitrogen_hydrogens(
     graph: &MoleculeGraph,
     assignment: &[(BondId, KekuleOrder)],
 ) -> Vec<AtomId> {
-    let converted: BTreeMap<BondId, u16> = assignment
-        .iter()
-        .map(|&(id, order)| {
-            (
-                id,
-                match order {
-                    KekuleOrder::Single => 1,
-                    KekuleOrder::Double => 2,
-                },
-            )
-        })
-        .collect();
-    let touched: BTreeSet<AtomId> = graph
+    let converted: BTreeMap<BondId, KekuleOrder> = assignment.iter().copied().collect();
+    let endpoints: BTreeSet<AtomId> = graph
         .bonds()
         .filter(|(id, _)| converted.contains_key(id))
         .flat_map(|(_, bond)| [bond.begin, bond.end])
         .collect();
-    let orders = chemistry::incident_orders(
-        graph.atoms().map(|(id, _)| id),
-        graph.bonds(),
-        |id, bond| {
-            converted
-                .get(&id)
-                .copied()
-                .or_else(|| chemistry::bond_order_value(&bond.order))
-        },
-    );
-    graph
+    let candidates: BTreeMap<AtomId, &Atom> = graph
         .atoms()
         .filter(|(id, atom)| {
+            endpoints.contains(id)
+                && atom.charge == 0
+                && atom.kind.element().map(|e| e.symbol()) == Some("N")
+                && matches!(atom.hydrogens, Hydrogens::Specified(count) if count > 0)
+        })
+        .collect();
+    let orders =
+        chemistry::incident_orders(candidates.keys().copied(), graph.bonds(), |id, bond| {
+            converted
+                .get(&id)
+                .map(|order| order.valence())
+                .or_else(|| chemistry::bond_order_value(&bond.order))
+        });
+    candidates
+        .into_iter()
+        .filter(|&(id, atom)| {
             let Hydrogens::Specified(stated) = atom.hydrogens else {
                 return false;
             };
-            if !touched.contains(id) || atom.kind.element().map(|e| e.symbol()) != Some("N") {
-                return false;
-            }
-            let mut probe = (*atom).clone();
+            let mut probe = atom.clone();
             probe.hydrogens = Hydrogens::Inferred;
-            let assessed = chemistry::assess(*id, &probe, &orders[id]);
+            let assessed = chemistry::assess(id, &probe, &orders[&id]);
             assessed.finding == Finding::Valid && assessed.hydrogen_count == Some(u16::from(stated))
         })
         .map(|(id, _)| id)

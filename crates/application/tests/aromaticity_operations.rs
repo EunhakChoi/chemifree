@@ -547,3 +547,43 @@ fn a_plain_benzene_still_converts_alone() {
     let converted = convert(&app, &id, "to-aromatic", 1, "aromatic");
     assert_eq!(converted["outcome"], "ok", "{converted}");
 }
+
+#[test]
+fn charged_nitrogen_hydrogen_survives_an_aromatic_kekule_aromatic_round_trip() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    let ring = Ring {
+        atoms: vec!["N", "C", "C", "C", "C", "C"],
+        doubles: Vec::new(),
+        hydrogens: Vec::new(),
+        aromatic: true,
+    };
+    let id = draw_rings(&app, "Pyridinium", &[ring]);
+    let charged = call(
+        &app,
+        "charge",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"update_atom","atom":"a1","charge":1,"hydrogens":{"mode":"specified","count":1}}
+        ]}),
+    );
+    assert_eq!(charged["outcome"], "ok", "{charged}");
+    let drawn = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+    let kekule = convert(&app, &id, "to-kekule", 2, "kekule");
+    assert_eq!(kekule["outcome"], "ok", "{kekule}");
+    assert_eq!(
+        kekule["result"]["document"]["atoms"][0]["hydrogens"],
+        json!({"mode":"specified","count":1}),
+        "a charged nitrogen keeps its statement"
+    );
+    let back = convert(&app, &id, "to-aromatic", 3, "aromatic");
+    assert_eq!(back["outcome"], "ok", "{back}");
+    assert_eq!(
+        back["result"]["document"]["atoms"],
+        drawn["document"]["atoms"]
+    );
+    assert_eq!(
+        back["result"]["document"]["bonds"],
+        drawn["document"]["bonds"]
+    );
+}

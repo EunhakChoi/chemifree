@@ -143,7 +143,7 @@ pub(crate) fn bond_order_value(order: &BondOrder) -> Option<u16> {
 }
 
 /// The one incident-order collection: every atom's bond contributions, in one pass over the
-/// bonds. `order_of` lets a caller substitute an assignment for bonds with no recorded value.
+/// bonds, for the atoms given. `order_of` lets a caller substitute an assignment for bonds with no recorded value.
 pub(crate) fn incident_orders<'a>(
     atoms: impl Iterator<Item = AtomId>,
     bonds: impl Iterator<Item = (BondId, &'a Bond)>,
@@ -153,10 +153,10 @@ pub(crate) fn incident_orders<'a>(
     for (id, bond) in bonds {
         let order = order_of(id, bond);
         for end in [bond.begin, bond.end] {
-            incident
-                .get_mut(&end)
-                .expect("document validates endpoints")
-                .push(order);
+            // A caller may ask for a subset of atoms; others are skipped.
+            if let Some(orders) = incident.get_mut(&end) {
+                orders.push(order);
+            }
         }
     }
     incident

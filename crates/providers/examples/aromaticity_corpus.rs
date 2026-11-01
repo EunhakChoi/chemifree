@@ -12,7 +12,8 @@ use std::io;
 use chemifree_application::ctfile::{CtCodec, CtFormat};
 use chemifree_domain::aromaticity::{self, Classification};
 use chemifree_domain::document::{
-    Atom, AtomRef, BondOrder, Command, Document, DocumentId, NewAtomPositions, Point,
+    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_COMMANDS,
+    NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
@@ -31,7 +32,7 @@ fn digest(code: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
+pub fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
     let source = entry["molblock"]
         .as_str()
         .ok_or("molblock must be a string")?;
@@ -42,18 +43,14 @@ fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
     let stated = entry["stated_hydrogens"]
         .as_object()
         .ok_or("stated_hydrogens must be an object")?;
-    let mut commands: Vec<Command> = Vec::new();
+    let mut atoms: Vec<Atom> = Vec::new();
     for (index, ct) in record.atoms.iter().enumerate() {
         let mut atom = Atom::from(Element::from_symbol(&ct.element).ok_or("unknown element")?);
         atom.charge = ct.charge;
         if let Some(count) = stated.get(&index.to_string()).and_then(Value::as_u64) {
             atom.hydrogens = Hydrogens::Specified(u8::try_from(count)?);
         }
-        commands.push(Command::AddAtom {
-            atom,
-            positions: NewAtomPositions::Single(Point::new(0.0, 0.0)?),
-            bond_to: None,
-        });
+        atoms.push(atom);
     }
     let aromatic: Vec<u64> = entry["aromatic_bonds"]
         .as_array()
@@ -61,21 +58,37 @@ fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
         .iter()
         .filter_map(Value::as_u64)
         .collect();
+    let mut document = Document::new(DocumentId::parse("corpus").ok_or("invalid id")?, "corpus")?;
+    // `AtomRef::Created` is relative to one transaction, so atoms are added first, in
+    // chunks, and bonds then name the real atom IDs.
+    for chunk in atoms.chunks(MAX_COMMANDS) {
+        let commands: Vec<Command> = chunk
+            .iter()
+            .map(|atom| Command::AddAtom {
+                atom: atom.clone(),
+                positions: NewAtomPositions::Single(Point::new(0.0, 0.0).expect("finite")),
+                bond_to: None,
+            })
+            .collect();
+        document.apply(&commands)?;
+    }
+    let ids: Vec<AtomId> = document.atoms().map(|(id, _)| id).collect();
+    let mut bonds: Vec<Command> = Vec::new();
     for (index, bond) in record.bonds.iter().enumerate() {
-        commands.push(Command::AddBond {
-            begin: AtomRef::Created(bond.begin),
-            end: AtomRef::Created(bond.end),
-            order: match bond.order {
-                _ if aromatic.contains(&(index as u64)) => BondOrder::Aromatic,
-                1 => BondOrder::Single,
-                2 => BondOrder::Double,
-                3 => BondOrder::Triple,
-                other => return Err(format!("unsupported bond type {other}").into()),
-            },
+        let order = match bond.order {
+            _ if aromatic.contains(&(index as u64)) => BondOrder::Aromatic,
+            1 => BondOrder::Single,
+            2 => BondOrder::Double,
+            3 => BondOrder::Triple,
+            other => return Err(format!("unsupported bond type {other}").into()),
+        };
+        bonds.push(Command::AddBond {
+            begin: AtomRef::Id(ids[bond.begin]),
+            end: AtomRef::Id(ids[bond.end]),
+            order,
         });
     }
-    let mut document = Document::new(DocumentId::parse("corpus").ok_or("invalid id")?, "corpus")?;
-    for chunk in commands.chunks(500) {
+    for chunk in bonds.chunks(MAX_COMMANDS) {
         document.apply(chunk)?;
     }
     Ok(MoleculeGraph::from_document(&document))

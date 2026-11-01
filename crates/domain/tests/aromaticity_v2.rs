@@ -587,3 +587,140 @@ fn identity_refuses_each_reachable_aromatic_failure_with_the_models_reason() {
         IdentityError::Unsupported("unsupported_ring_bond")
     );
 }
+
+// ---- Review round 1 ----
+
+fn ring_bonds(n: usize, kind: char) -> Vec<(usize, usize, char)> {
+    (0..n).map(|i| (i, (i + 1) % n, kind)).collect()
+}
+
+#[test]
+fn saturated_ring_atoms_are_validated_before_they_are_peeled() {
+    // A cyclohexane carbon stated as CH3 has valence 5.
+    let stated = mol(&["CH3", "C", "C", "C", "C", "C"], &ring_bonds(6, '-'));
+    assert_eq!(
+        only(&stated),
+        (Classification::Unsupported, Some("valence_not_in_model"))
+    );
+    // A ring carbon with three extra substituents has valence 5.
+    let mut bonds = ring_bonds(6, '-');
+    bonds.extend([(0, 6, '-'), (0, 7, '-'), (0, 8, '-')]);
+    let crowded = mol(&["C"; 9], &bonds);
+    assert_eq!(
+        only(&crowded),
+        (Classification::Unsupported, Some("valence_not_in_model"))
+    );
+    // The refusal reaches conversion: a valid benzene elsewhere is not converted alone.
+    let mut atoms = vec!["C"; 6];
+    atoms.extend(["CH3", "C", "C", "C", "C", "C"]);
+    let mut bonds: Vec<(usize, usize, char)> = (0..6)
+        .map(|i| (i, (i + 1) % 6, if i % 2 == 0 { '=' } else { '-' }))
+        .collect();
+    bonds.extend((0..6).map(|i| (6 + i, 6 + (i + 1) % 6, '-')));
+    let both = mol(&atoms, &bonds);
+    assert_eq!(
+        aromaticity::perceive(&both)
+            .aromatize()
+            .map(|plan| plan.bonds),
+        Err("valence_not_in_model")
+    );
+}
+
+#[test]
+fn rings_without_a_pi_bond_are_not_conjugated_even_when_every_atom_donates() {
+    // Cyclotriazane: three NH donors, only sigma bonds.
+    let triazane = mol(&["N", "N", "N"], &ring_bonds(3, '-'));
+    assert_eq!(
+        only(&triazane),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    // Cyclopentane analogue made of sulfur and oxygen donors.
+    let donors = mol(&["O", "S", "O", "S", "O"], &ring_bonds(5, '-'));
+    assert_eq!(
+        only(&donors),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    // Adjacent donors beside one C=C are not a conjugated circuit the model can read.
+    let diazete = mol(
+        &["N", "N", "C", "C"],
+        &[(0, 1, '-'), (1, 2, '-'), (2, 3, '='), (3, 0, '-')],
+    );
+    assert_eq!(
+        only(&diazete),
+        (Classification::Unsupported, Some("adjacent_donors"))
+    );
+}
+
+#[test]
+fn a_donor_only_ring_in_a_fused_block_is_not_a_candidate_aromatic_ring() {
+    // N0-N1-N2 ring sharing the N0-N1 edge with a ring through two CH2 groups.
+    let block = mol(
+        &["N", "N", "N", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '-'),
+            (2, 0, '-'),
+            (0, 3, '-'),
+            (3, 4, '-'),
+            (4, 1, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&block),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+}
+
+#[test]
+fn pyridinium_and_methylpyridinium_nitrogen_hydrogens_are_not_reset() {
+    // Aromatic pyridinium [nH+]: charged, so its stated count is not what conversion restores.
+    let mut document = Document::new(DocumentId::parse("pyridinium").unwrap(), "p").unwrap();
+    let mut atoms: Vec<Atom> = (0..6)
+        .map(|_| Atom::from(Element::from_symbol("C").unwrap()))
+        .collect();
+    atoms[0] = Atom::from(Element::from_symbol("N").unwrap());
+    atoms[0].charge = 1;
+    atoms[0].hydrogens = Hydrogens::Specified(1);
+    let mut commands: Vec<Command> = atoms
+        .into_iter()
+        .map(|atom| Command::AddAtom {
+            atom,
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        })
+        .collect();
+    commands.extend((0..6).map(|i| Command::AddBond {
+        begin: AtomRef::Created(i),
+        end: AtomRef::Created((i + 1) % 6),
+        order: BondOrder::Aromatic,
+    }));
+    document.apply(&commands).unwrap();
+    let graph = MoleculeGraph::from_document(&document);
+    let assignment = aromaticity::kekulize(&graph).unwrap();
+    assert!(aromaticity::redundant_nitrogen_hydrogens(&graph, &assignment).is_empty());
+}
+
+#[test]
+fn unstated_aromatic_nitrogen_hydrogen_differs_from_the_kekule_spelling_by_design() {
+    let kekule = mol(
+        &["N", "C", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '='),
+            (2, 3, '-'),
+            (3, 4, '='),
+            (4, 0, '-'),
+        ],
+    );
+    let aromatic = mol(&["N", "C", "C", "C", "C"], &ring_bonds(5, ':'));
+    assert_eq!(only(&kekule).0, Classification::Aromatic);
+    assert_eq!(
+        only(&aromatic),
+        (Classification::NonAromatic, Some("electron_count"))
+    );
+    assert!(identity::canonicalize_chemical(&kekule).is_ok());
+    assert_eq!(
+        identity::canonicalize_chemical(&aromatic).unwrap_err(),
+        IdentityError::Unsupported("aromaticity_unsupported")
+    );
+}

@@ -198,13 +198,20 @@ impl Graph {
             .map_err(IdentityError::Unsupported)?
             .into_iter()
             .collect();
+        // `kekulize` assigns every recorded aromatic bond or fails, so this cannot trigger; it
+        // keeps an aromaticity failure from ever surfacing as a bond or valence reason.
+        if input
+            .bonds()
+            .any(|(id, bond)| bond.order == BondOrder::Aromatic && !assignment.contains_key(&id))
+        {
+            return Err(IdentityError::Unsupported("aromaticity_unsupported"));
+        }
         let orders =
             chemistry::incident_orders(atoms.keys().copied(), input.bonds(), |id, bond| {
-                match assignment.get(&id) {
-                    Some(aromaticity::KekuleOrder::Single) => Some(1),
-                    Some(aromaticity::KekuleOrder::Double) => Some(2),
-                    None => chemistry::bond_order_value(&bond.order),
-                }
+                assignment
+                    .get(&id)
+                    .map(|order| order.valence())
+                    .or_else(|| chemistry::bond_order_value(&bond.order))
             });
         let mut hydrogens = BTreeMap::new();
         for (&id, atom) in &atoms {
