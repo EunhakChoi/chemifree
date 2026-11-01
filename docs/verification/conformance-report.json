@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2d17bcbf098f3ee78d0b44416c4d3bc35c6d07efc351d1fab6461a39c8ff0fd5"
+      "case_sha256": "ad3a76212c105d88518181d90ce76541692200b884095dc49fad9064a8dc222d"
     },
     {
       "id": "formula-and-mass",
@@ -203,6 +203,47 @@
       "pending": null,
       "failure": null,
       "case_sha256": "4a4da3bc023704a047d1e2bae08a2d9e8110c50eedab7f8ea09455ca93b7cdf0"
+    },
+    {
+      "id": "smiles-import-export-roundtrip",
+      "title": "A SMILES is previewed, imported, written recorded and canonical, and the canonical text is a fixpoint when imported again",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "ba93bf11ba993e8f921b1cff6d20dce8d64f5018495a89d14b68ce89c093a922"
+    },
+    {
+      "id": "smiles-invalid-input-refused",
+      "title": "Malformed SMILES is refused with its code and input position, and SMILES the drawing cannot hold is unsupported; the drawing never changes",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a793d01a280607833334477fe224762b4b86713537cd9249497460ceac3fc731"
+    },
+    {
+      "id": "smiles-canonical-agreement",
+      "title": "Kekulé and aromatic spellings of benzene give one canonical text; an ion outside the valence model has recorded SMILES only with consent and no canonical form",
+      "requirements": [
+        "CODEC-05"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "baeb8820f70bbf33a7c1af117c2925ec80501a3378b74a69ce49d7dfbd8cfbc5"
     },
     {
       "id": "graph-scene-separation",
@@ -495,17 +536,17 @@
   ],
   "counts": {
     "accept": {
-      "passed": 23,
+      "passed": 25,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 13,
+      "passed": 14,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 36,
+      "passed": 39,
       "failed": 0,
       "not_run": 0
     }

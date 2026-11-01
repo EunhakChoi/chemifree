@@ -1,0 +1,305 @@
+{
+  "id": "smiles-invalid-input-refused",
+  "title": "Malformed SMILES is refused with its code and input position, and SMILES the drawing cannot hold is unsupported; the drawing never changes",
+  "requirements": [
+    "CODEC-05",
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "dangling",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "C=(O)",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "dangling_bond",
+            "details": {
+              "class": "syntax",
+              "byte_start": 1,
+              "byte_end_exclusive": 2
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "empty",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "empty_input",
+            "details": {
+              "byte_start": 0,
+              "byte_end_exclusive": 0
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "leading-space",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": " C",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "leading_whitespace",
+            "details": {
+              "byte_start": 0,
+              "byte_end_exclusive": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "unclosed-ring",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "CC1CC",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "unclosed_ring",
+            "details": {
+              "byte_start": 2,
+              "byte_end_exclusive": 3
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "digit-after-branch",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "C(C)1",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "ring_digit_after_branch",
+            "details": {
+              "byte_start": 4
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "stereo",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "C[C@H](O)N",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "stereo_unsupported",
+            "details": {
+              "class": "unsupported",
+              "byte_start": 3,
+              "byte_end_exclusive": 4
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "aromatic-bridge",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "c1ccccc1:c1ccccc1",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "aromatic_bridge_unsupported",
+            "details": {
+              "byte_start": 8
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "aromatic-system",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "c1ccccc1.c1cccc1",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "aromatic_system_unsupported",
+            "details": {
+              "byte_start": 9,
+              "reason": "electron_count"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "charge-range",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "[Fe+9]",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "charge_out_of_range",
+            "details": {
+              "class": "unsupported"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "snapshot",
+        "profile": "preserve-semantics",
+        "operation": "document.snapshot",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "document": {
+            "revision": 0,
+            "atoms": []
+          }
+        }
+      }
+    }
+  ]
+}

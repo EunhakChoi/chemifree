@@ -942,7 +942,7 @@
    ],
    "kind": "core",
    "id": "P21",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -952,7 +952,7 @@
     "P18",
     "P13"
    ],
-   "note": "선행 보완 P21a(방향족 모델 chemifree-aromaticity-2, 화학 동일성 chemifree-chemical-graph-2)는 미병합 브랜치에서 구현 중이며 SMILES는 없다. P21 자체는 계획 상태다."
+   "note": "SMILES 읽기·일반(recorded)·canonical 쓰기와 미리보기·동의·가져오기, HTTP·CLI·웹 패널을 구현했다(미병합). 입체·query·반응 SMILES·InChI는 구현하지 않았고 canonical 형식은 Chemifree 고유이며 도구 호환이 아니다. P21a(방향족 모델 2, 동일성 모델 2)는 #91로 병합됐다."
   },
   {
    "phase": "chemistry",
@@ -3737,7 +3737,7 @@
     "deep-stereo-contracts.md",
     "provider-representation-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P18",
     "P21",

@@ -76,6 +76,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `document.import` | `{ document_id, expected_revision, format, source, record, preview?, preview_digest?, accept_loss? }` | MOL/SDF preview or one atomic document edit; see below |
 | `document.export` | `{ format, records: [{ document_id, fields? }] }` | Staged MOL/SDF text, source-index maps and losses; see below |
 | `document.import`, `document.export` | [Rich CDXML/CDX or editor projection](#cdxml-interchange) | Rich tree, preview, created document, or CDXML text / CDX base64 content |
+| `document.import`, `document.export` | `format: "smiles"`; see [SMILES](#smiles-p21) | Preview and atomic import with consent, or recorded / canonical text with losses |
 | `chem.validate` | `{ document_id }` | `{ snapshot: { document, session, recovery }, atoms: [{ atom_id, bond_order_sum, hydrogens, status, reason }] }`; [policy and limits](#valence-inspection) |
 | `chem.properties` | `{ document_id, scope, property, selection?, data_registration_id? }` | Formula, selected mass or distribution, the analyzed snapshot and calculation metadata; [policy and limits](#formula-and-mass-properties) |
 | `chem.aromaticity` | `{ document_id }` | The analyzed snapshot and cyclic systems under the policy below |
@@ -127,6 +128,140 @@ The parser treats the three header lines, fixed-width connection table and SD da
 For SDF, only after a complete mol block and completed data items does a line beginning `$$$$` terminate a record. Suffix text after that prefix is ignored with a loss report. Header lines and data lines can contain control-looking text in their proper context, but a value line beginning `$$$$` is rejected because it is ambiguous with a separator. Each data item ends with a blank line; a value line may have at most 200 Unicode characters. Field names begin with an ASCII letter and contain only ASCII letters, digits and underscore; DT-numbered fields are refused, and optional registry/header metadata around a named field is reported as lost. LF and CRLF are accepted and normalized to LF on output; isolated CR, NUL, malformed UTF-8, truncated sections and invalid indices are rejected. No silent truncation occurs.
 
 The codec accepts at most 4 MiB input or output, 128 records, 999 atoms and 999 bonds per record, and 1,024 SD fields per record. An import is one transaction, so it must also fit the editor's 500-command and graph/coordinate limits. HTTP limits the JSON request to 256 KiB and CLI operations to 1 MiB; the web file picker limits source files to 200 KiB, and JSON escaping can reduce the effective transport limit. The web checks the source snapshot against the displayed drawing, invalidates previews on observed service restarts, and rechecks the export with the service at download time. It never overwrites a server-side destination.
+## SMILES (P21)
+
+`document.import` and `document.export` accept `format: "smiles"`. Rust: `crates/providers/src/smiles/` (the codec, behind the port `crates/application/src/smiles_codec.rs`) and `crates/application/src/operations/smiles.rs`; HTTP and CLI pass the request to the same `Application::execute`. The reader and the recorded-order writer are `chemifree-smiles-1`; the canonical writer is `chemifree-smiles-canonical-1`, bound to the chemical identity model `chemifree-chemical-graph-2` and so to the shared valence (`chemifree-valence-2`) and aromaticity (`chemifree-aromaticity-2`) models. **Not done:** stereochemistry (`@`, `/`, `\` are refused), query SMILES (`*`, SMARTS), reaction SMILES (`>`), atom classes, the `%(nnn)` ring label, the quadruple bond `$`, InChI and any other line notation. **The canonical form is Chemifree's own: it is not compatible with any toolkit's canonical SMILES**; compare graphs, not strings, with another program. Nothing here claims legacy equivalence.
+
+**Import.** Parameters: `format`, `document_id`, `expected_revision`, `source`, and `preview`, `preview_digest`, `accept_loss`. A preview (`preview: true`) changes nothing and returns `snapshot` (the exact working copy it used), the candidate `document`, `preview_digest`, `atoms`, `bonds`, `parts` and the losses. The digest binds the service instance, the source, the snapshot, the candidate and the losses; the commit recomputes it under the document lock, so a changed drawing, source or loss list is `preview_changed`, and a stale revision `revision_conflict`. `accept_loss` is required only when a loss needs consent; the only import loss that does is `ignored_text` (the SMILES ends at the first whitespace, and non-whitespace text after it is reported with its byte range as `source.bytes[first..=last]` and never silently dropped). A refusal for missing consent is `loss_consent_required` in the same envelope every format uses (`details.features`, `details.losses`; an export adds `details.loss_digest`). A commit is one undoable edit and appends to the drawing (exactly one placement is required, as for MOL). A completed `request_id` is replayed from its record without parsing a placement again. Losses reported without needing consent: `generated_layout` (SMILES has no coordinates; atoms are placed on a near-square grid in text order to the right of existing content, which is not a depiction layout) and `radical_state` (see below). `import_mapping` lists the created atom and bond IDs in text order. The reply's `model_id` is `chemifree-smiles-1`.
+
+**Reader.** Whitespace (space, tab, LF, CR) ends the SMILES; leading whitespace is `leading_whitespace` and an empty text `empty_input`. Grammar decisions follow OpenSMILES 1.0: atoms and the organic subset, bracket atoms (isotope of up to three digits with leading zeros allowed, symbol, hydrogens `H`/`Hn`, charge as `+`, `-`, a sign and one or two digits, or the deprecated `++`/`--`), bonds `- = # :`, branches, dots, ring closures `0`-`9` and `%nn` (`C%123` is `%12` then `3`), and aromatic `b c n o s p` plus `se as` in brackets. A ring digit must directly follow its atom (or its bond symbol); after `)` it is `ring_digit_after_branch`, and after `(`, `.` or at the start `ring_digit_without_atom`. A bond symbol before `(`, `)`, `.` or the end is `dangling_bond` at the symbol; the earliest-opened unclosed ring is `unclosed_ring`. Errors carry `details.class` (`syntax`, `unsupported`, `limit`), `byte_start` and `byte_end_exclusive`: a UTF-8 byte range on character boundaries whose first byte is `byte_start` and whose last byte is `byte_end_exclusive - 1` (an equal pair is a position between bytes). Valid OpenSMILES that the drawing or the models cannot hold is class `unsupported` (outcome `unsupported`), malformed text is `syntax` (outcome `error`), and limits are `limit`. The charge limits are the domain constants (`-8` to `+8`); a grammar-valid charge beyond them is `charge_out_of_range`, a charge syntax error `charge_syntax`. The drawing records isotopes 1 to 999 only, so isotope 0 (`[0S]`) is `isotope_zero_unsupported`. An unspecified bond between two aromatic atoms is aromatic only as a ring bond; otherwise it is single (`c1ccccc1c1ccccc1` is biphenyl). An explicit `:` or a lower-case atom outside every cycle is refused (`aromatic_bridge_unsupported`, `aromatic_atom_outside_ring`), and an aromatic system the aromaticity model does not read is `aromatic_system_unsupported` with the model's reason in `details.reason`, its byte range inside the failing system. Hydrogens: a bare organic atom records inferred hydrogens; a bracket atom records its stated count (zero when absent). The radical of a bracket atom comes from the shared valence model: the first of none, doublet that fits the stated hydrogens and the bonds; if none fits it is recorded `unknown` and reported as `radical_state` (not consent-requiring) with the reason: outside the valence model (`[Na+]`, `[Fe]`), ambiguous (`[CH2]`: singlet and triplet fit equally) or no state (`[C]`). Radical `[CH3]` and `[OH]` are doublets with a canonical form.
+
+**Export.** Parameters: `format`, `document_id`, `style` (`recorded` or `canonical`) and `accepted_losses`. The write is read-only: it takes one snapshot, changes neither the drawing nor its undo/redo history, and returns that `snapshot`, the `content`, `atom_order` (document atom IDs in text order), `folded_hydrogens` (canonical only; not in `atom_order`) and, for canonical, `canonical: { implementation, graph_model }`. `model_id` is `chemifree-smiles-1` or `chemifree-smiles-canonical-1`. Every text a writer returns has been read again by the same reader and compared atom by atom and bond by bond (element, charge, isotope, resolved hydrogens, radical, order), so the reader accepts it; otherwise the write is refused with a specific code, never with text. Refusals: `empty_graph`, `query_not_writable`, `bond_not_writable` (dative, unknown and query bonds), `isotope_not_writable` (not 1 to 999), `charge_not_writable`, `hydrogens_unknown`, `hydrogens_not_representable`, `radical_not_representable` (a singlet or triplet cannot be told from a carbene the reader leaves unknown), `aromatic_unsupported`, `aromatic_element_unsupported` (no lower-case symbol), and the limits `command_limit`, `text_too_long`, `branch_depth_limit`, `ring_label_limit`. The recorded writer keeps the drawing's atom order, writes stated hydrogens in brackets, and for atoms that need brackets (charged, isotopic, outside the organic subset) and were drawn with inferred hydrogens writes the count the valence model determines. Atoms outside the valence model (a drawn `Na+` or `Fe`) are written as bracket atoms with no hydrogens and the assumptions are reported as consent-required `hydrogens_assumed` and `radical_assumed`. Attachment points are dropped with consent-required `attachment_points`. Reported without consent: `hydrogen_state`, `kekule_to_aromatic`, `explicit_hydrogens_folded`, and the drawing losses: `coordinates`, `title` (only when the title is not the default), `native_ids`, `selection`, `extra_placement` (every placement beyond the first; SMILES writes none), `scene_object`, `scene_references`, `drawing_settings` (the vocabulary shared with MOL/SDF, with SMILES wording). When some loss needs consent the export is refused with `loss_consent_required`; the caller repeats it with `accepted_losses` set to `details.loss_digest`, a SHA-256 over the full entries shown and the exact text (a digest for other losses or text is `loss_consent_changed`), as for CDX.
+
+**Canonical.** The canonical numbering is that of `chemifree-chemical-graph-2`, so the same graph gives the same text whatever the atom order or spelling: Kekulé and aromatic spellings, stated and inferred hydrogens, and explicit hydrogen vertices (folded into their heavy atom and listed apart as `folded_hydrogens`) agree. A graph the shared models cannot determine is refused for every spelling alike, as `canonical_unsupported` with the model's reason in `details.reason`: query atoms or bonds (`query_atom`), unknown or dative bonds (`non_integral_or_unknown_bond`), elements or charges outside the valence table (`element_or_charge`, so metals and ions such as `Na+` have no canonical form), unusual valence (`unusual_valence`), unknown hydrogens (`unknown_hydrogens`), radicals the table does not cover or cannot tell apart (`radical_state`: singlet, triplet and unknown radicals have none; neutral doublet `C`, `N`, `O`, `H` do), and ring systems the aromaticity model refuses (`fused_partially_aromatic`, `fused_system_outside_model`, `electron_count` and the model's other reasons). More than 128 atoms is `atom_limit`, an exhausted search `search_limit`. Two hydrogen vertices (`[H][H]`) and one hydrogen atom with a hydrogen (`[HH]`) are different graphs under the model and give different texts. Canonical writing is a fixpoint: reading its text and writing canonical again gives the same text.
+
+**Limits.** MAX_INPUT_BYTES = 4096 (input and output, counted in bytes with the multibyte span on a character boundary); MAX_COMMANDS = 500 atoms plus bonds, which is the transaction limit; MAX_BRANCH_DEPTH = 100 nested parentheses; MAX_OPEN_RINGS = 99 labels used by the writers (the reader reads `0`-`99`); the canonical form numbers at most 128 atoms. These numbers are quoted in the capability text from the codec's own constants.
+
+Every SMILES code, its class (`details.class`) and its message, which the code table of the codec produces and `smiles_doc_claims.rs` checks against this list:
+
+| Code | Class | Message |
+| --- | --- | --- |
+| `leading_whitespace` | syntax | Whitespace ends a SMILES, so a SMILES cannot start with it. |
+| `unexpected_character` | syntax | This character cannot appear here in a SMILES. |
+| `unclosed_bracket` | syntax | A bracket atom is not closed with a ]. |
+| `empty_bracket` | syntax | A bracket atom needs an element symbol. |
+| `unknown_element` | syntax | This is not an element symbol. |
+| `bracket_unexpected_character` | syntax | This character cannot appear here inside a bracket atom. |
+| `isotope_too_long` | syntax | An isotope has at most three digits. |
+| `charge_syntax` | syntax | A charge is + or - with at most two digits, or ++ or --. |
+| `unclosed_branch` | syntax | A ( is never closed with a ). |
+| `unmatched_close_paren` | syntax | This ) has no matching (. |
+| `empty_branch` | syntax | A branch needs at least one atom. |
+| `branch_without_atom` | syntax | A branch must follow an atom. |
+| `dangling_bond` | syntax | A bond symbol must be followed by an atom or a ring-closure digit. |
+| `bond_without_atom` | syntax | A bond symbol must follow an atom or open a branch. |
+| `consecutive_bonds` | syntax | Two bond symbols in a row. |
+| `misplaced_dot` | syntax | A dot must separate two parts, each starting with an atom. |
+| `dangling_dot` | syntax | A dot must be followed by an atom. |
+| `ring_digit_without_atom` | syntax | A ring-closure digit must directly follow its atom. |
+| `ring_digit_after_branch` | syntax | A ring-closure digit cannot follow a closing parenthesis; put it right after its atom. |
+| `ring_label_syntax` | syntax | A % ring label needs exactly two digits. |
+| `unclosed_ring` | syntax | A ring-closure label is opened but never closed. |
+| `ring_self_bond` | syntax | A ring closure cannot join an atom to itself. |
+| `duplicate_bond` | syntax | These two atoms are already bonded. |
+| `ring_bond_conflict` | syntax | The two ends of a ring closure name different bonds. |
+| `stereo_unsupported` | unsupported | Stereochemistry (@, /, \) is not supported. |
+| `wildcard_unsupported` | unsupported | The * wildcard atom is a query, which is not supported. |
+| `quadruple_bond_unsupported` | unsupported | The quadruple bond $ is not supported. |
+| `atom_class_unsupported` | unsupported | Atom classes (:n) are not supported. |
+| `extended_ring_label_unsupported` | unsupported | The %(nnn) ring label is not supported; use one or two digits. |
+| `reaction_unsupported` | unsupported | Reaction SMILES (>) is not supported. |
+| `charge_out_of_range` | unsupported | The drawing holds charges from the domain minimum to the domain maximum only. |
+| `isotope_zero_unsupported` | unsupported | Isotope 0 cannot be recorded; the drawing holds mass numbers 1 to 999. |
+| `aromatic_bridge_unsupported` | unsupported | An aromatic bond outside every ring cannot be recorded. |
+| `aromatic_atom_outside_ring` | unsupported | A lower-case aromatic atom needs an aromatic bond in a ring. |
+| `aromatic_system_unsupported` | unsupported | The aromatic system is not one the aromaticity model reads. |
+| `input_too_long` | limit | The SMILES is longer than the byte limit. |
+| `command_limit` | limit | The SMILES creates more atoms and bonds than one edit may. |
+| `branch_depth_limit` | limit | Parentheses are nested deeper than the limit. |
+| `ring_label_limit` | limit | More ring closures are open at once than there are labels. |
+| `atom_limit` | limit | The canonical form numbers a limited number of atoms. |
+| `search_limit` | limit | The canonical numbering search exceeded its work limit. |
+| `empty_graph` | not_writable | A drawing without atoms has no SMILES. |
+| `query_not_writable` | not_writable | A query atom has no SMILES. |
+| `bond_not_writable` | not_writable | Only single, double, triple and aromatic bonds have a SMILES symbol. |
+| `isotope_not_writable` | not_writable | SMILES holds isotope mass numbers 1 to 999. |
+| `charge_not_writable` | not_writable | The charge is outside the range the reader accepts. |
+| `hydrogens_unknown` | not_writable | An atom with unknown hydrogens has no SMILES. |
+| `hydrogens_not_representable` | not_writable | The atom's hydrogens cannot be determined or written so that they read back the same. |
+| `radical_not_representable` | not_writable | The atom's radical state cannot be written so that it reads back the same. |
+| `aromatic_unsupported` | not_writable | The aromatic bonds are not in a system the aromaticity model reads. |
+| `aromatic_element_unsupported` | not_writable | The element has no lower-case aromatic symbol. |
+| `canonical_unsupported` | not_writable | The shared valence or aromaticity model cannot determine this graph, so it has no canonical form. |
+| `text_too_long` | not_writable | The SMILES would be longer than the reader accepts. |
+| `round_trip_failed` | not_writable | The written SMILES did not read back as the same graph. |
+
+Documented outcomes, checked by `crates/providers/tests/smiles_doc_claims.rs`. Columns: the input, what reading does (`ok` or a code with the model's reason), and the canonical text or the canonical refusal (`-` when nothing was read).
+
+<!-- smiles-claims:start -->
+| Input | Read | Canonical |
+| --- | --- | --- |
+| `CCO` | ok | `C(C)O` |
+| `OCC` | ok | `C(C)O` |
+| `CC(C)(C)C` | ok | `C(C)(C)(C)C` |
+| `C1=CC=CC=C1` | ok | `c1ccccc1` |
+| `c1ccccc1` | ok | `c1ccccc1` |
+| `c1ccccc1-c1ccccc1` | ok | `c1(ccccc1)-c1ccccc1` |
+| `c1ccccc1c1ccccc1` | ok | `c1(ccccc1)-c1ccccc1` |
+| `c1ccc2ccccc2c1` | ok | `c12ccccc1cccc2` |
+| `c1cc[nH]c1` | ok | `c1c[nH]cc1` |
+| `C1=CNC=C1` | ok | `c1c[nH]cc1` |
+| `C1CC2CCC1C2` | ok | `C12CC(CC1)CC2` |
+| `[NH4+]` | ok | `[NH4+]` |
+| `CC(=O)[O-]` | ok | `C(C)(=O)[O-]` |
+| `[2H]C` | ok | `[2H]C` |
+| `[002H]C` | ok | `[2H]C` |
+| `[13CH4]` | ok | `[13CH4]` |
+| `CCO.O` | ok | `C(C)O.O` |
+| `[H]C([H])([H])[H]` | ok | `C` |
+| `C%12CCCCC%12` | ok | `C1CCCCC1` |
+| `CCO ethanol` | ok | `C(C)O` |
+| `[CH3]` | ok | `[CH3]` |
+| `[OH]` | ok | `[OH]` |
+| `[HH]` | ok | `[HH]` |
+| `[H][H]` | ok | `[H][H]` |
+| `[CH2]` | ok | canonical_unsupported (radical_state) |
+| `[C]` | ok | canonical_unsupported (radical_state) |
+| `[Na+]` | ok | canonical_unsupported (element_or_charge) |
+| `[Na+].[Cl-]` | ok | canonical_unsupported (element_or_charge) |
+| `[Fe]` | ok | canonical_unsupported (element_or_charge) |
+| `CC(C)(C)(C)C` | ok | canonical_unsupported (unusual_valence) |
+| `C1CCC2=CC=CC=C2C1` | ok | canonical_unsupported (fused_partially_aromatic) |
+| `C1=CC=C2NC=CC2=C1` | ok | canonical_unsupported (fused_system_outside_model) |
+| `C1CCc2ccccc2C1` | aromatic_system_unsupported (fused_partially_aromatic) | - |
+| `c1ccc2[nH]ccc2c1` | aromatic_system_unsupported (fused_system_outside_model) | - |
+| `c1ccccc1.c1cccc1` | aromatic_system_unsupported (electron_count) | - |
+| `c` | aromatic_atom_outside_ring | - |
+| `c1ccccc1c` | aromatic_atom_outside_ring | - |
+| `c:c` | aromatic_bridge_unsupported | - |
+| `c1ccccc1:c1ccccc1` | aromatic_bridge_unsupported | - |
+| `C[C@H](O)N` | stereo_unsupported | - |
+| `F/C=C/F` | stereo_unsupported | - |
+| `*` | wildcard_unsupported | - |
+| `[CH4:1]` | atom_class_unsupported | - |
+| `C%(123)CC%(123)` | extended_ring_label_unsupported | - |
+| `CC>>CC` | reaction_unsupported | - |
+| `[0S]` | isotope_zero_unsupported | - |
+| `[Fe+9]` | charge_out_of_range | - |
+| `[O-99]` | charge_out_of_range | - |
+| `C=(O)` | dangling_bond | - |
+| `C1CC` | unclosed_ring | - |
+| `C(C)1` | ring_digit_after_branch | - |
+| `H` | unexpected_character | - |
+| ` CCO` | leading_whitespace | - |
+| `` | empty_input | - |
+<!-- smiles-claims:end -->
+
 ## Formula and mass properties
 
 `chem.properties` takes `{ "document_id", "scope": "molecule" | "selection" | "components", "property": "formula" | "masses" | "distribution", "selection"?: Selection, "data_registration_id"?: string }`. Selection is required only for selection scope and is the client's current atom/bond/object selection, not a stale history selection. Selected bonds add both endpoints; a selected molecule instance or its enclosing group adds the shared graph once; graphics and scene references contribute no atoms. Components follow graph connectivity. Non-vertex inferred hydrogen counts are evaluated on the entire graph before restricting to the selected atoms. Query atoms, undetermined hydrogens and attachment points are refused. Explicit non-vertex H and explicit H vertices are each counted once; valence warnings remain visible for recorded states whose count is known but whose valence is not established.

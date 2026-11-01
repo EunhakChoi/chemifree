@@ -1,0 +1,274 @@
+{
+  "id": "smiles-canonical-agreement",
+  "title": "Kekul\u00e9 and aromatic spellings of benzene give one canonical text; an ion outside the valence model has recorded SMILES only with consent and no canonical form",
+  "requirements": [
+    "CODEC-05"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "c1",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      },
+      "bind": "k"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "c2",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      },
+      "bind": "a"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "c3",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok"
+      },
+      "bind": "n"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "p1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "C1=CC=CC=C1",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial"
+      },
+      "document": "k",
+      "capture": {
+        "d1": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "i1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "C1=CC=CC=C1",
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "k",
+      "substitute": {
+        "/parameters/preview_digest": "d1"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "p2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "c1ccccc1",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial"
+      },
+      "document": "a",
+      "capture": {
+        "d2": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "i2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "c1ccccc1",
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "a",
+      "substitute": {
+        "/parameters/preview_digest": "d2"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "p3",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "[Na+]",
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial"
+      },
+      "document": "n",
+      "capture": {
+        "d3": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "i3",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "expected_revision": 0,
+          "source": "[Na+]",
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "n",
+      "substitute": {
+        "/parameters/preview_digest": "d3"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "w1",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "c1ccccc1"
+        }
+      },
+      "document": "k"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "w2",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "c1ccccc1"
+        }
+      },
+      "document": "a"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "canonical-ion",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "canonical_unsupported",
+            "details": {
+              "reason": "element_or_charge"
+            }
+          }
+        ]
+      },
+      "document": "n"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "recorded-ion",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "[Na+]"
+        }
+      },
+      "document": "n"
+    }
+  ]
+}
