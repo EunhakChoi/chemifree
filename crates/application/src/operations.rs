@@ -1130,6 +1130,9 @@ fn smiles_syntax_message(code: &str) -> &'static str {
         "invalid_ring_number" | "ring_without_atom" | "ring_bond_conflict" | "unclosed_ring" => {
             "The ring label or its bond is invalid or unclosed."
         }
+        "ring_after_branch" => {
+            "A ring-closure digit must directly follow its atom, before any branch."
+        }
         "unexpected_branch_end"
         | "branch_without_atom"
         | "empty_branch"
@@ -1210,7 +1213,8 @@ fn smiles_write_error(error: smiles::WriteError) -> (Outcome, &'static str, &'st
         smiles::WriteError::InvalidGraph => (Outcome::Error, "invalid_graph", error.code()),
         smiles::WriteError::UnsupportedAtom
         | smiles::WriteError::UnsupportedBond
-        | smiles::WriteError::UnsupportedAromaticity => (
+        | smiles::WriteError::UnsupportedAromaticity
+        | smiles::WriteError::HydrogensUndetermined => (
             Outcome::Unsupported,
             "smiles_write_unsupported",
             error.code(),
@@ -1479,12 +1483,22 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             }
         };
-        let graph = match smiles::parse(&p.source) {
+        let graph = match smiles::parse_with_command_limit(&p.source, MAX_COMMANDS) {
             Ok(value) => value,
+            Err(error) if error.code == "command_limit" => {
+                return known.invalid(diagnostic(
+                    "resource_limit",
+                    "This import exceeds the atomic transaction command limit.",
+                    Map::new(),
+                ));
+            }
             Err(error) => {
                 let mut details = Map::new();
                 details.insert("start_byte".into(), error.start.into());
                 details.insert("end_byte".into(), error.end.into());
+                if let Some(reason) = error.reason {
+                    details.insert("reason".into(), reason.into());
+                }
                 return known.invalid(Diagnostic {
                     code: error.code,
                     severity: Severity::Error,
@@ -1494,13 +1508,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 });
             }
         };
-        if graph.atoms.len() + graph.bonds.len() > MAX_COMMANDS {
-            return known.invalid(diagnostic(
-                "resource_limit",
-                "This import exceeds the atomic transaction command limit.",
-                Map::new(),
-            ));
-        }
         let target = match replay.as_ref() {
             Some(response) => response.clone(),
             None => match self.document(&p.document_id) {
@@ -1538,7 +1545,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 feature: "radical_state".into(),
                 source_path: "parameters.source".into(),
                 disposition: LossDisposition::Unknown,
-                reason: "A bracket atom has an incomplete shell; its radical or spin state is recorded as unknown.".into(),
+                reason: format!("A bracket atom's bonds and hydrogens do not establish a closed shell under {}, or its element or charge is outside that model; its radical or spin state is undetermined and recorded as unknown.", chemistry::VALENCE_MODEL),
                 semantic_impact: SemanticImpact::Chemistry,
             });
         }
@@ -1570,8 +1577,32 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         if let Err(error) = source_document.apply(&commands) {
             return known.invalid(diagnostic("invalid_graph", error.to_string(), Map::new()));
         }
-        let (valence_losses, valence_diagnostics) = smiles_valence_warnings(&source_document, true);
+        let (valence_losses, mut valence_diagnostics) =
+            smiles_valence_warnings(&source_document, true);
         losses.extend(valence_losses);
+        if let Some((start, end)) = graph.ignored {
+            // OpenSMILES ends a SMILES at whitespace; show what was not interpreted.
+            let message = format!(
+                "Text after the first whitespace (bytes {start}..{end}) was not interpreted: the SMILES ends there."
+            );
+            let mut details = Map::new();
+            details.insert("start_byte".into(), start.into());
+            details.insert("end_byte".into(), end.into());
+            losses.push(Loss {
+                feature: "ignored_text".into(),
+                source_path: "parameters.source".into(),
+                disposition: LossDisposition::Dropped,
+                reason: message.clone(),
+                semantic_impact: SemanticImpact::Unknown,
+            });
+            valence_diagnostics.push(Diagnostic {
+                code: "ignored_text",
+                severity: Severity::Warning,
+                message,
+                path: Some("parameters.source".into()),
+                details,
+            });
+        }
         if let Some(response) = replay {
             let mut result: DocumentResult = response.into();
             result.import_mapping = Some(ct_mapping(

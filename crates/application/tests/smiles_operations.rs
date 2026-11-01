@@ -337,3 +337,91 @@ fn syntax_valid_valence_warnings_preserve_graph_and_distinguish_unsupported_elem
         "unusual_valence"
     );
 }
+
+fn new_app() -> (tempfile::TempDir, App, String) {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let id = app.create_document(None, None).unwrap().document.id;
+    (directory, app, id)
+}
+
+#[test]
+fn text_after_whitespace_is_surfaced_as_an_ignored_loss_and_warning() {
+    let (_directory, app, id) = new_app();
+    let named = preview(&app, &id, "CCO ethanol");
+    assert_eq!(named["outcome"], "partial", "{named}");
+    assert_eq!(named["result"]["atoms"], 3);
+    let loss = named["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|loss| loss["feature"] == "ignored_text")
+        .unwrap_or_else(|| panic!("no ignored_text loss: {named}"));
+    assert_eq!(loss["disposition"], "dropped");
+    let warning = named["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "ignored_text")
+        .unwrap_or_else(|| panic!("no ignored_text diagnostic: {named}"));
+    assert_eq!(
+        (
+            &warning["details"]["start_byte"],
+            &warning["details"]["end_byte"]
+        ),
+        (&json!(3), &json!(11))
+    );
+    for plain in ["CC(=O)O ", "CCO\n"] {
+        let report = preview(&app, &id, plain);
+        assert!(
+            report["loss_report"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|loss| loss["feature"] != "ignored_text"),
+            "{plain:?}: {report}"
+        );
+    }
+}
+
+#[test]
+fn aromatic_refusal_reports_its_reason_and_the_failing_system_span() {
+    let (_directory, app, id) = new_app();
+    let report = preview(&app, &id, "c1ccccc1C.c1ccc2[nH]ccc2c1");
+    let diagnostic = &report["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "aromaticity_outside_model", "{report}");
+    assert_eq!(
+        diagnostic["details"]["reason"],
+        "fused_system_outside_model"
+    );
+    assert_eq!(diagnostic["details"]["start_byte"], 10);
+}
+
+#[test]
+fn oversized_import_is_refused_before_the_whole_source_is_parsed() {
+    let (_directory, app, id) = new_app();
+    let report = preview(&app, &id, &"C".repeat(400));
+    assert_eq!(
+        report["diagnostics"][0]["code"], "resource_limit",
+        "{report}"
+    );
+    assert!(report["result"].is_null());
+}
+
+#[test]
+fn undetermined_radical_wording_is_honest_about_the_valence_model() {
+    let (_directory, app, id) = new_app();
+    let report = preview(&app, &id, "[Na+]");
+    let loss = report["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|loss| loss["feature"] == "radical_state")
+        .unwrap_or_else(|| panic!("no radical_state loss: {report}"));
+    let reason = loss["reason"].as_str().unwrap();
+    assert!(!reason.contains("incomplete shell"), "{reason}");
+    assert!(reason.contains("chemifree-valence-2"), "{reason}");
+}

@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::aromaticity;
+use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::element::Element;
 use crate::graph::MoleculeGraph;
@@ -33,6 +34,9 @@ pub struct SmilesBond {
 pub struct SmilesGraph {
     pub atoms: Vec<SmilesAtom>,
     pub bonds: Vec<SmilesBond>,
+    /// Byte span of text after the first whitespace, which OpenSMILES treats as the end of
+    /// the SMILES. It was not interpreted; callers must report it rather than drop it.
+    pub ignored: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +45,9 @@ pub struct SyntaxError {
     /// Byte offsets in the UTF-8 input, half-open. End-of-input errors may be empty.
     pub start: usize,
     pub end: usize,
+    /// A more specific cause when the code names a broad refusal, such as the aromaticity
+    /// model's reason for not accepting a ring system.
+    pub reason: Option<&'static str>,
 }
 
 struct Ring {
@@ -65,6 +72,12 @@ struct Parser<'a> {
     bond: Option<(BondOrder, usize)>,
     rings: BTreeMap<u8, Ring>,
     branches: Vec<Branch>,
+    bond_pairs: BTreeSet<(usize, usize)>,
+    /// Bonds between aromatic atoms with no written symbol: aromatic when in a ring, else single.
+    implicit_aromatic: Vec<usize>,
+    /// The previous token closed a branch, where ring-closure digits are not permitted.
+    after_branch: bool,
+    command_limit: usize,
 }
 
 impl Parser<'_> {
@@ -83,6 +96,7 @@ impl Parser<'_> {
             code,
             start,
             end: end.max(start),
+            reason: None,
         }
     }
 
@@ -234,23 +248,26 @@ impl Parser<'_> {
         order: Option<BondOrder>,
         start: usize,
     ) -> Result<(), SyntaxError> {
-        if a == b
-            || self.graph.bonds.iter().any(|bond| {
-                (bond.begin == a && bond.end == b) || (bond.begin == b && bond.end == a)
-            })
-        {
+        if a == b || self.bond_pairs.contains(&(a.min(b), a.max(b))) {
             return Err(self.error("duplicate_or_self_bond", start, self.position));
         }
         if self.graph.bonds.len() >= MAX_BONDS {
             return Err(self.error("bond_limit", start, self.position));
         }
-        let order = order.unwrap_or_else(|| {
-            if self.graph.atoms[a].aromatic && self.graph.atoms[b].aromatic {
-                BondOrder::Aromatic
-            } else {
-                BondOrder::Single
-            }
+        if self.graph.atoms.len() + self.graph.bonds.len() >= self.command_limit {
+            return Err(self.error("command_limit", start, self.position));
+        }
+        let implicit =
+            order.is_none() && self.graph.atoms[a].aromatic && self.graph.atoms[b].aromatic;
+        let order = order.unwrap_or(if implicit {
+            BondOrder::Aromatic
+        } else {
+            BondOrder::Single
         });
+        if implicit {
+            self.implicit_aromatic.push(self.graph.bonds.len());
+        }
+        self.bond_pairs.insert((a.min(b), a.max(b)));
         if order == BondOrder::Aromatic
             && !(self.graph.atoms[a].aromatic && self.graph.atoms[b].aromatic)
         {
@@ -269,6 +286,10 @@ impl Parser<'_> {
         let Some(current) = self.current else {
             return Err(self.error("ring_without_atom", start, start + 1));
         };
+        if self.after_branch {
+            // OpenSMILES: branched_atom ::= atom ringbond* branch*.
+            return Err(self.error("ring_after_branch", start, start + 1));
+        }
         if self
             .branches
             .last()
@@ -320,10 +341,23 @@ impl Parser<'_> {
 }
 
 /// Parse a complete SMILES string. Errors use byte spans; no partial graph is returned.
+/// Text after the first whitespace is not interpreted and is reported in `ignored`.
 pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
+    parse_with_command_limit(text, usize::MAX)
+}
+
+/// As `parse`, but refuse input as soon as atoms plus bonds would exceed `command_limit`
+/// (`command_limit` error), so a caller with a smaller transaction bound fails early.
+pub fn parse_with_command_limit(
+    text: &str,
+    command_limit: usize,
+) -> Result<SmilesGraph, SyntaxError> {
+    let end = text
+        .find(|c: char| c.is_ascii_whitespace())
+        .unwrap_or(text.len());
     let mut p = Parser {
         text,
-        bytes: text.as_bytes(),
+        bytes: &text.as_bytes()[..end],
         position: 0,
         graph: SmilesGraph::default(),
         atom_spans: Vec::new(),
@@ -331,6 +365,10 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
         bond: None,
         rings: BTreeMap::new(),
         branches: Vec::new(),
+        bond_pairs: BTreeSet::new(),
+        implicit_aromatic: Vec::new(),
+        after_branch: false,
+        command_limit,
     };
     if text.is_empty() {
         return Err(p.error("empty_input", 0, 0));
@@ -375,6 +413,7 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
                     return Err(p.error("empty_or_incomplete_branch", branch.start, start + 1));
                 }
                 p.current = Some(branch.parent);
+                p.after_branch = true;
                 p.position += 1;
             }
             b'.' => {
@@ -382,6 +421,7 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
                     return Err(p.error("unexpected_dot", start, start + 1));
                 }
                 p.current = None;
+                p.after_branch = false;
                 p.position += 1;
             }
             b'-' | b'=' | b'#' | b':' => {
@@ -404,7 +444,11 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
                 if p.graph.atoms.len() >= MAX_ATOMS {
                     return Err(p.error("atom_limit", start, start + 1));
                 }
+                if p.graph.atoms.len() + p.graph.bonds.len() >= p.command_limit {
+                    return Err(p.error("command_limit", start, start + 1));
+                }
                 let atom = p.atom()?;
+                p.after_branch = false;
                 let next = p.graph.atoms.len();
                 p.atom_spans.push((start, p.position));
                 p.graph.atoms.push(atom);
@@ -419,7 +463,7 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
     if let Some(branch) = p.branches.last() {
         return Err(p.error("unclosed_branch", branch.start, p.position));
     }
-    if let Some(ring) = p.rings.values().next() {
+    if let Some(ring) = p.rings.values().min_by_key(|ring| ring.start) {
         return Err(p.error("unclosed_ring", ring.start, ring.end));
     }
     if let Some((_, start)) = p.bond {
@@ -428,26 +472,101 @@ pub fn parse(text: &str) -> Result<SmilesGraph, SyntaxError> {
     if p.current.is_none() {
         return Err(p.error("trailing_dot", p.position - 1, p.position));
     }
+    resolve_implicit_aromatic_bonds(&mut p.graph, &p.implicit_aromatic);
     mark_uncertain_bracket_radicals(&mut p.graph);
-    if !aromatic_supported(&p.graph) {
-        let first = p
-            .graph
-            .atoms
+    if let Some((reason, atoms)) = aromatic_problem(&p.graph) {
+        let start = atoms.iter().map(|&i| p.atom_spans[i].0).min().unwrap_or(0);
+        let end = atoms
             .iter()
-            .position(|atom| atom.aromatic)
-            .unwrap_or(0);
-        let (start, end) = p.atom_spans[first];
-        return Err(p.error("aromaticity_outside_model", start, end));
+            .map(|&i| p.atom_spans[i].1)
+            .max()
+            .unwrap_or(start);
+        let mut error = p.error("aromaticity_outside_model", start, end);
+        error.reason = Some(reason);
+        return Err(error);
+    }
+    if end < text.len()
+        && !text[end..]
+            .trim_matches(|c: char| c.is_ascii_whitespace())
+            .is_empty()
+    {
+        p.graph.ignored = Some((end, text.len()));
     }
     Ok(p.graph)
 }
 
-/// SMILES bracket atoms do not receive ordinary implicit H. An incomplete shell may imply
-/// radical electrons, but the syntax does not generally specify their spin multiplicity.
-/// Keep that uncertainty until the shared valence/aromaticity models can resolve it. Only
-/// conventional closed-shell valence states are marked non-radical here.
+/// An unspecified bond between two aromatic atoms is aromatic only when it lies in a ring
+/// (OpenSMILES); between separate aromatic systems, as in biphenyl, it is single.
+fn resolve_implicit_aromatic_bonds(graph: &mut SmilesGraph, implicit: &[usize]) {
+    if implicit.is_empty() {
+        return;
+    }
+    let bridges = bridge_flags(graph);
+    for &index in implicit {
+        if bridges[index] {
+            graph.bonds[index].order = BondOrder::Single;
+        }
+    }
+}
+
+/// Mark every bond that no cycle contains, using an iterative depth-first low-link search.
+fn bridge_flags(graph: &SmilesGraph) -> Vec<bool> {
+    let n = graph.atoms.len();
+    let mut adjacency = vec![Vec::new(); n];
+    for (index, bond) in graph.bonds.iter().enumerate() {
+        adjacency[bond.begin].push((bond.end, index));
+        adjacency[bond.end].push((bond.begin, index));
+    }
+    let mut bridge = vec![false; graph.bonds.len()];
+    let mut discovery = vec![usize::MAX; n];
+    let mut low = vec![0; n];
+    let mut counter = 0;
+    for root in 0..n {
+        if discovery[root] != usize::MAX {
+            continue;
+        }
+        discovery[root] = counter;
+        low[root] = counter;
+        counter += 1;
+        // Each frame: vertex, entering bond, next neighbour cursor.
+        let mut stack = vec![(root, usize::MAX, 0_usize)];
+        while let Some(frame) = stack.last_mut() {
+            let (vertex, parent_bond) = (frame.0, frame.1);
+            if let Some(&(next, bond)) = adjacency[vertex].get(frame.2) {
+                frame.2 += 1;
+                if bond == parent_bond {
+                    continue;
+                }
+                if discovery[next] == usize::MAX {
+                    discovery[next] = counter;
+                    low[next] = counter;
+                    counter += 1;
+                    stack.push((next, bond, 0));
+                } else {
+                    low[vertex] = low[vertex].min(discovery[next]);
+                }
+            } else {
+                stack.pop();
+                if let Some(parent) = stack.last() {
+                    let up = parent.0;
+                    low[up] = low[up].min(low[vertex]);
+                    if low[vertex] > discovery[up] {
+                        bridge[parent_bond] = true;
+                    }
+                }
+            }
+        }
+    }
+    bridge
+}
+
+/// SMILES bracket atoms do not receive ordinary implicit H. An open shell may imply radical
+/// electrons, but the syntax does not specify their spin multiplicity. The shared
+/// `chemifree-valence-2` model is the only judge of a closed shell: an atom it accepts as
+/// valid is non-radical; any other bracket atom, including an element or charge the model does
+/// not cover, keeps an undetermined (`Unknown`) radical state.
 fn mark_uncertain_bracket_radicals(graph: &mut SmilesGraph) {
-    let mut sums = vec![Some(0_u16); graph.atoms.len()];
+    let mut orders: Vec<Vec<Option<u16>>> = vec![Vec::new(); graph.atoms.len()];
     for bond in &graph.bonds {
         let order = match bond.order {
             BondOrder::Single => Some(1),
@@ -455,47 +574,17 @@ fn mark_uncertain_bracket_radicals(graph: &mut SmilesGraph) {
             BondOrder::Triple => Some(3),
             _ => None,
         };
-        for endpoint in [bond.begin, bond.end] {
-            sums[endpoint] = sums[endpoint].zip(order).map(|(sum, order)| sum + order);
-        }
+        orders[bond.begin].push(order);
+        orders[bond.end].push(order);
     }
     for (index, item) in graph.atoms.iter_mut().enumerate() {
         // A supported aromatic system is checked as a whole below, including a complete
         // Kekule assignment. Do not infer a radical merely from its nonintegral bonds.
-        if item.aromatic {
+        if item.aromatic || !matches!(item.atom.hydrogens, Hydrogens::Specified(_)) {
             continue;
         }
-        let Hydrogens::Specified(hydrogens) = item.atom.hydrogens else {
-            continue;
-        };
-        let symbol = item
-            .atom
-            .kind
-            .element()
-            .expect("parser accepts only elements")
-            .symbol();
-        let allowed: &[u16] = match (symbol, item.atom.charge) {
-            ("H", 0) => &[1],
-            ("H", -1 | 1) | ("F" | "Cl" | "Br" | "I", -1) => &[0],
-            ("Li" | "Na" | "K" | "Rb" | "Cs", 1) => &[0],
-            ("Mg" | "Ca" | "Sr" | "Ba", 2) => &[0],
-            ("B", 0) => &[3],
-            ("B", -1) => &[4],
-            ("B", 1) => &[2],
-            ("C", 0) => &[4],
-            ("C", -1 | 1) => &[3],
-            ("N" | "P", 0) => &[3, 5],
-            ("N", -1) => &[2],
-            ("N", 1) => &[4],
-            ("O", 0) => &[2],
-            ("O", -1) => &[1],
-            ("O", 1) => &[3],
-            ("S", 0) => &[2, 4, 6],
-            ("F" | "Cl" | "Br" | "I", 0) => &[1],
-            _ => &[],
-        };
-        let closed = sums[index].is_some_and(|sum| allowed.contains(&(sum + u16::from(hydrogens))));
-        if !closed {
+        let id = AtomId::from_serial((index + 1) as u32).expect("bounded atom index");
+        if chemistry::assess(id, &item.atom, &orders[index]).finding != Finding::Valid {
             item.atom.radical = Radical::Unknown;
         }
     }
@@ -504,17 +593,21 @@ fn mark_uncertain_bracket_radicals(graph: &mut SmilesGraph) {
 /// Lowercase atoms must survive conversion to the native bond representation without
 /// losing aromatic state. The named shared model must prove a complete assignment;
 /// structures outside that model are refused rather than assigned guessed radicals.
-fn aromatic_supported(graph: &SmilesGraph) -> bool {
+/// Returns the model's reason and the zero-based atoms of the first failing system.
+fn aromatic_problem(graph: &SmilesGraph) -> Option<(&'static str, Vec<usize>)> {
     if !graph.atoms.iter().any(|atom| atom.aromatic) {
-        return true;
+        return None;
     }
-    if graph.atoms.iter().enumerate().any(|(index, atom)| {
-        atom.aromatic
-            && !graph.bonds.iter().any(|bond| {
-                bond.order == BondOrder::Aromatic && (bond.begin == index || bond.end == index)
-            })
-    }) {
-        return false;
+    let mut with_bond = vec![false; graph.atoms.len()];
+    for bond in &graph.bonds {
+        if bond.order == BondOrder::Aromatic {
+            with_bond[bond.begin] = true;
+            with_bond[bond.end] = true;
+        }
+    }
+    if let Some(index) = (0..graph.atoms.len()).find(|&i| graph.atoms[i].aromatic && !with_bond[i])
+    {
+        return Some(("aromatic_atom_without_aromatic_bond", vec![index]));
     }
     let atoms = graph
         .atoms
@@ -527,7 +620,7 @@ fn aromatic_supported(graph: &SmilesGraph) -> bool {
             )
         })
         .collect();
-    let bonds = graph
+    let bonds: BTreeMap<_, _> = graph
         .bonds
         .iter()
         .enumerate()
@@ -543,7 +636,35 @@ fn aromatic_supported(graph: &SmilesGraph) -> bool {
             )
         })
         .collect();
-    aromaticity::kekulize(&MoleculeGraph::from_parts(atoms, bonds)).is_ok()
+    let molecule = MoleculeGraph::from_parts(atoms, bonds.clone().into_iter().collect());
+    let interpretation = aromaticity::perceive(&molecule);
+    let indices =
+        |ids: &[AtomId]| -> Vec<usize> { ids.iter().map(|id| id.serial() as usize - 1).collect() };
+    for system in &interpretation.systems {
+        let aromatic = system
+            .bonds
+            .iter()
+            .any(|id| bonds[id].order == BondOrder::Aromatic);
+        if aromatic && system.classification != aromaticity::Classification::Aromatic {
+            return Some((
+                system.reason.unwrap_or("not_aromatic"),
+                indices(&system.atoms),
+            ));
+        }
+    }
+    let reason = interpretation.kekulize().err()?;
+    // Only an aromatic bond outside every ring system reaches here.
+    let covered: BTreeSet<_> = interpretation
+        .systems
+        .iter()
+        .flat_map(|system| system.bonds.iter().copied())
+        .collect();
+    let stray: Vec<usize> = bonds
+        .iter()
+        .filter(|(id, bond)| bond.order == BondOrder::Aromatic && !covered.contains(id))
+        .flat_map(|(_, bond)| indices(&[bond.begin, bond.end]))
+        .collect();
+    Some((reason, stray))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -552,6 +673,9 @@ pub enum WriteError {
     UnsupportedAtom,
     UnsupportedBond,
     UnsupportedAromaticity,
+    /// A bracket atom needs an explicit hydrogen count that the bounded valence model cannot
+    /// determine from the recorded bonds, so writing it could change its meaning.
+    HydrogensUndetermined,
     RingLimit,
 }
 
@@ -562,6 +686,7 @@ impl WriteError {
             Self::UnsupportedAtom => "unsupported_atom",
             Self::UnsupportedBond => "unsupported_bond",
             Self::UnsupportedAromaticity => "unsupported_aromaticity",
+            Self::HydrogensUndetermined => "hydrogens_undetermined",
             Self::RingLimit => "ring_limit",
         }
     }
@@ -598,7 +723,64 @@ fn indexed(input: &MoleculeGraph) -> (SmilesGraph, BTreeMap<AtomId, usize>) {
             order: bond.order.clone(),
         });
     }
+    resolve_inferred_hydrogens(input, &mut graph, &indices);
     (graph, indices)
+}
+
+/// A bracket atom must state its hydrogens. For a drawn atom with inferred hydrogens that
+/// needs brackets (charge, isotope, or an element outside the organic subset), use the count
+/// the bounded valence model determines from its bonds; otherwise leave it for the writer
+/// to refuse with a specific reason.
+fn resolve_inferred_hydrogens(
+    input: &MoleculeGraph,
+    graph: &mut SmilesGraph,
+    indices: &BTreeMap<AtomId, usize>,
+) {
+    let pending = |item: &SmilesAtom| {
+        item.atom.hydrogens == Hydrogens::Inferred
+            && item
+                .atom
+                .kind
+                .element()
+                .is_some_and(|element| requires_bracket(element.symbol(), item))
+    };
+    if !graph.atoms.iter().any(pending) {
+        return;
+    }
+    let kekule: BTreeMap<_, _> = if graph.atoms.iter().any(|item| item.aromatic) {
+        aromaticity::kekulize(input)
+            .map(|pairs| pairs.into_iter().collect())
+            .unwrap_or_default()
+    } else {
+        BTreeMap::new()
+    };
+    let mut orders: BTreeMap<AtomId, Vec<Option<u16>>> = BTreeMap::new();
+    for (id, bond) in input.bonds() {
+        let order = match bond.order {
+            BondOrder::Single => Some(1),
+            BondOrder::Double => Some(2),
+            BondOrder::Triple => Some(3),
+            BondOrder::Aromatic => kekule.get(&id).map(|order| match order {
+                aromaticity::KekuleOrder::Single => 1,
+                aromaticity::KekuleOrder::Double => 2,
+            }),
+            BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
+        };
+        orders.entry(bond.begin).or_default().push(order);
+        orders.entry(bond.end).or_default().push(order);
+    }
+    for (id, atom) in input.atoms() {
+        let index = indices[&id];
+        if !pending(&graph.atoms[index]) {
+            continue;
+        }
+        let assessment = chemistry::assess(id, atom, orders.get(&id).map_or(&[], Vec::as_slice));
+        if assessment.finding == Finding::Valid
+            && let Some(count) = assessment.hydrogen_count.and_then(|n| u8::try_from(n).ok())
+        {
+            graph.atoms[index].atom.hydrogens = Hydrogens::Specified(count);
+        }
+    }
 }
 
 /// Serialize the recorded graph in document order, without claiming canonical ordering.
@@ -616,6 +798,19 @@ pub fn write_canonical(input: &MoleculeGraph) -> Result<String, CanonicalError> 
     let (graph, indices) = indexed(&normalized);
     let order: Vec<_> = canonical.numbering.iter().map(|id| indices[id]).collect();
     write(&graph, &order).map_err(CanonicalError::Write)
+}
+
+/// Whether the atom's isotope, charge or element needs a bracket atom in SMILES.
+fn requires_bracket(symbol: &str, atom: &SmilesAtom) -> bool {
+    let can_plain = if atom.aromatic {
+        !matches!(symbol, "As" | "Se")
+    } else {
+        matches!(
+            symbol,
+            "B" | "C" | "N" | "O" | "P" | "S" | "F" | "Cl" | "Br" | "I"
+        )
+    };
+    !can_plain || atom.atom.isotope.is_some() || atom.atom.charge != 0
 }
 
 fn atom_text(atom: &SmilesAtom) -> Result<String, WriteError> {
@@ -638,10 +833,6 @@ fn atom_text(atom: &SmilesAtom) -> Result<String, WriteError> {
     if symbol == "H" && matches!(atom.atom.hydrogens, Hydrogens::Specified(n) if n > 0) {
         return Err(WriteError::UnsupportedAtom);
     }
-    let plain = matches!(
-        symbol,
-        "B" | "C" | "N" | "O" | "P" | "S" | "F" | "Cl" | "Br" | "I"
-    );
     let aromatic = matches!(symbol, "B" | "C" | "N" | "O" | "P" | "S" | "As" | "Se");
     if atom.aromatic && !aromatic {
         return Err(WriteError::UnsupportedAtom);
@@ -651,22 +842,14 @@ fn atom_text(atom: &SmilesAtom) -> Result<String, WriteError> {
     } else {
         symbol.to_owned()
     };
-    let can_plain = if atom.aromatic {
-        !matches!(symbol, "As" | "Se")
-    } else {
-        plain
-    };
-    if can_plain
-        && atom.atom.isotope.is_none()
-        && atom.atom.charge == 0
-        && atom.atom.hydrogens == Hydrogens::Inferred
-    {
+    if !requires_bracket(symbol, atom) && atom.atom.hydrogens == Hydrogens::Inferred {
         return Ok(text);
     }
     let Hydrogens::Specified(count) = atom.atom.hydrogens else {
         // Bracket atoms have zero explicit H by default, so silently changing an inferred
-        // state to a bracket atom would change its meaning.
-        return Err(WriteError::UnsupportedAtom);
+        // state to a bracket atom would change its meaning. `indexed` supplies the count
+        // when the valence model can determine it.
+        return Err(WriteError::HydrogensUndetermined);
     };
     let mut out = String::from("[");
     if let Some(isotope) = atom.atom.isotope {
@@ -750,7 +933,7 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     for edges in &mut adjacency {
         edges.sort_by_key(|(v, _)| rank[*v]);
     }
-    if !aromatic_supported(graph) {
+    if aromatic_problem(graph).is_some() {
         return Err(WriteError::UnsupportedAromaticity);
     }
     // Brackets suppress ordinary implicit hydrogen in SMILES. A recorded closed-shell
