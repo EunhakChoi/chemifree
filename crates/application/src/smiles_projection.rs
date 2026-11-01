@@ -18,8 +18,8 @@ use chemifree_domain::states::{AtomKind, Hydrogens, Radical};
 
 use crate::contract::DocumentView;
 use crate::smiles::{
-    MAX_SMILES_ITEMS, SmilesAtom, SmilesBond, SmilesBondKind, SmilesCodec, SmilesFormatError,
-    SmilesMolecule, SmilesRead,
+    MAX_SMILES_ITEMS, ORGANIC_SUBSET, SmilesAtom, SmilesBond, SmilesBondKind, SmilesCodec,
+    SmilesFormatError, SmilesMolecule, SmilesRead, WriteMode,
 };
 use crate::{Loss, LossDisposition, SemanticImpact};
 
@@ -206,12 +206,6 @@ pub(crate) fn import_commands(
     Ok(commands)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum WriteMode {
-    Recorded,
-    Canonical,
-}
-
 /// Why a drawing was not written, with its cause.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WriteRefusal {
@@ -294,13 +288,6 @@ fn prepare(graph: &MoleculeGraph) -> Result<BTreeMap<BondId, KekuleOrder>, Write
         .map_err(|reason| WriteRefusal::unsupported(reason, None))
 }
 
-fn organic(symbol: &str) -> bool {
-    matches!(
-        symbol,
-        "B" | "C" | "N" | "O" | "P" | "S" | "F" | "Cl" | "Br" | "I"
-    )
-}
-
 /// One atom as the notation will state it.
 struct AtomPlan<'a> {
     id: AtomId,
@@ -318,7 +305,7 @@ fn smiles_atom(plan: &AtomPlan<'_>, losses: &mut Vec<Loss>) -> Result<SmilesAtom
     let atom = plan.atom;
     let element: Element = atom.kind.element().expect("queries were refused");
     let symbol = element.symbol();
-    let bare_shape = organic(symbol)
+    let bare_shape = ORGANIC_SUBSET.contains(&symbol)
         && atom.charge == 0
         && atom.isotope.is_none()
         && atom.radical == Radical::None

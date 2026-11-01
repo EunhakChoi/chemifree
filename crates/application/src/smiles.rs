@@ -24,6 +24,49 @@ pub const VERSION: &str = "1";
 pub const CANONICAL_IMPLEMENTATION: &str = "chemifree-smiles-canonical";
 pub const CANONICAL_VERSION: &str = "1";
 
+/// Elements that need no brackets, in SMILES order.
+pub const ORGANIC_SUBSET: [&str; 10] = ["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"];
+
+/// How a drawing is written.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriteMode {
+    /// Atoms in document order.
+    Recorded,
+    /// Atoms in Chemifree's own canonical order.
+    Canonical,
+}
+
+impl WriteMode {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Recorded => "recorded",
+            Self::Canonical => "canonical",
+        }
+    }
+
+    /// The notation implementation and its version for this mode.
+    pub const fn implementation(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Recorded => (IMPLEMENTATION, VERSION),
+            Self::Canonical => (CANONICAL_IMPLEMENTATION, CANONICAL_VERSION),
+        }
+    }
+
+    pub fn model_id(self) -> String {
+        let (implementation, version) = self.implementation();
+        format!("{implementation}-{version}")
+    }
+
+    /// The identity model that orders atoms; canonical mode only.
+    pub const fn identity_model(self) -> Option<&'static str> {
+        match self {
+            Self::Recorded => None,
+            Self::Canonical => Some(chemifree_domain::identity::CHEMICAL_MODEL_ID),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SmilesBondKind {
     Single,

@@ -4,11 +4,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::smiles::{
-    CANONICAL_IMPLEMENTATION, CANONICAL_VERSION, IMPLEMENTATION, SmilesError, SmilesErrorCode,
-    VERSION,
-};
-use crate::smiles_projection::{self, WriteMode, WriteRefusal};
+use crate::smiles::WriteMode;
+use crate::smiles::{IMPLEMENTATION, SmilesError, SmilesErrorCode, VERSION};
+use crate::smiles_projection::{self, WriteRefusal};
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -31,29 +29,6 @@ pub(super) struct SmilesImportParameters {
     accept_loss: bool,
 }
 
-#[derive(Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum SmilesMode {
-    Recorded,
-    Canonical,
-}
-
-impl SmilesMode {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Recorded => "recorded",
-            Self::Canonical => "canonical",
-        }
-    }
-
-    fn model_id(self) -> String {
-        match self {
-            Self::Recorded => format!("{IMPLEMENTATION}-{VERSION}"),
-            Self::Canonical => format!("{CANONICAL_IMPLEMENTATION}-{CANONICAL_VERSION}"),
-        }
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SmilesExportParameters {
@@ -63,7 +38,7 @@ pub(super) struct SmilesExportParameters {
         reason = "the format only selects this operation's parameters"
     )]
     format: SmilesFormat,
-    mode: SmilesMode,
+    mode: WriteMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -140,7 +115,7 @@ fn syntax_failure(error: SmilesError, source: &str) -> Diagnostic {
 fn write_failure(
     known: &Known,
     revision: u64,
-    mode: SmilesMode,
+    mode: WriteMode,
     snapshot: DocumentResponse,
     refusal: &WriteRefusal,
 ) -> OperationResponse {
@@ -198,7 +173,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             binding: serde_json::json!(["smiles", &p.source]),
             record: None,
         };
-        let model = SmilesMode::Recorded.model_id();
+        let model = WriteMode::Recorded.model_id();
         let mut response = self.smiles_import_inner(known, &request, &p, codec.as_ref());
         response.model_id = Some(model);
         response
@@ -287,20 +262,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             }
         };
         let revision = snapshot.document.revision;
-        let mode = match p.mode {
-            SmilesMode::Recorded => WriteMode::Recorded,
-            SmilesMode::Canonical => WriteMode::Canonical,
-        };
-        match smiles_projection::write_graph(codec.as_ref(), &graph, mode) {
+        match smiles_projection::write_graph(codec.as_ref(), &graph, p.mode) {
             Ok(written) => {
-                let (implementation, version, identity) = match p.mode {
-                    SmilesMode::Recorded => (IMPLEMENTATION, VERSION, None),
-                    SmilesMode::Canonical => (
-                        CANONICAL_IMPLEMENTATION,
-                        CANONICAL_VERSION,
-                        Some(identity::CHEMICAL_MODEL_ID),
-                    ),
-                };
+                let (implementation, version) = p.mode.implementation();
                 let mut response = converted(
                     known,
                     Some(revision),
@@ -314,7 +278,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         models: SmilesModels {
                             valence: chemifree_domain::chemistry::VALENCE_MODEL,
                             aromaticity: chemifree_domain::aromaticity::MODEL_ID,
-                            identity,
+                            identity: p.mode.identity_model(),
                         },
                     })),
                     written.losses,

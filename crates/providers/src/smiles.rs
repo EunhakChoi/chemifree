@@ -9,9 +9,9 @@
 use std::collections::HashSet;
 
 use chemifree_application::smiles::{
-    MAX_BRANCH_DEPTH, MAX_SMILES_BYTES, MAX_SMILES_ITEMS, MAX_WRITTEN_RING_LABELS, SmilesAtom,
-    SmilesBond, SmilesBondKind, SmilesCodec, SmilesError, SmilesErrorCode, SmilesFormatError,
-    SmilesMolecule, SmilesRead, SmilesText,
+    MAX_BRANCH_DEPTH, MAX_SMILES_BYTES, MAX_SMILES_ITEMS, MAX_WRITTEN_RING_LABELS, ORGANIC_SUBSET,
+    SmilesAtom, SmilesBond, SmilesBondKind, SmilesCodec, SmilesError, SmilesErrorCode,
+    SmilesFormatError, SmilesMolecule, SmilesRead, SmilesText,
 };
 use chemifree_domain::document::{MAX_CHARGE, MAX_ISOTOPE_MASS_NUMBER};
 use chemifree_domain::element::Element;
@@ -90,8 +90,6 @@ fn aromatic_element(symbol: &str) -> Option<Element> {
     };
     Element::from_symbol(element)
 }
-
-const ORGANIC: [&str; 10] = ["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"];
 
 /// Which bonds lie on no cycle. Iterative low-link search, linear in atoms plus bonds.
 fn bridge_flags(atoms: usize, ends: &[(usize, usize)]) -> Vec<bool> {
@@ -402,7 +400,7 @@ impl<'a> Reader<'a> {
         };
         let end = start + symbol.len();
         let (element, aromatic) = if c.is_ascii_uppercase() {
-            if ORGANIC.contains(&symbol) {
+            if ORGANIC_SUBSET.contains(&symbol) {
                 (Element::from_symbol(symbol), false)
             } else if Element::from_symbol(symbol).is_some() {
                 return fail(SmilesErrorCode::BracketRequired, start, end);
@@ -703,8 +701,9 @@ fn element_text(atom: &SmilesAtom) -> Result<String, SmilesFormatError> {
 fn atom_text(atom: &SmilesAtom) -> Result<String, SmilesFormatError> {
     let symbol = element_text(atom)?;
     let Some(hydrogens) = atom.hydrogens else {
-        let bare =
-            atom.charge == 0 && atom.isotope.is_none() && ORGANIC.contains(&atom.element.symbol());
+        let bare = atom.charge == 0
+            && atom.isotope.is_none()
+            && ORGANIC_SUBSET.contains(&atom.element.symbol());
         let aromatic_ok =
             !atom.aromatic || matches!(symbol.as_str(), "b" | "c" | "n" | "o" | "p" | "s");
         return if bare && aromatic_ok {
