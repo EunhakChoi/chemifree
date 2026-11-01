@@ -51,6 +51,8 @@ struct PendingBond {
     explicit: Option<SmilesBondKind>,
     begin: usize,
     end: usize,
+    /// Byte span of the bond symbol, or of the text that created the bond.
+    span: (usize, usize),
 }
 
 struct Reader<'a> {
@@ -179,11 +181,13 @@ impl<'a> Reader<'a> {
 
     fn run(mut self) -> Result<SmilesRead, SmilesError> {
         if self.text.len() > MAX_SMILES_BYTES {
-            return fail(
-                SmilesErrorCode::InputTooLong,
-                MAX_SMILES_BYTES,
-                self.text.len(),
-            );
+            // Offsets stay on character boundaries: the span starts at the last boundary that
+            // fits in the limit.
+            let mut start = MAX_SMILES_BYTES;
+            while !self.text.is_char_boundary(start) {
+                start -= 1;
+            }
+            return fail(SmilesErrorCode::InputTooLong, start, self.text.len());
         }
         if self.text.is_empty() {
             return fail(SmilesErrorCode::EmptyInput, 0, 0);
@@ -372,6 +376,7 @@ impl<'a> Reader<'a> {
             return fail(SmilesErrorCode::SizeLimit, start, stop);
         }
         self.bonds.push(PendingBond {
+            span: (start, stop),
             explicit,
             begin,
             end,
@@ -387,8 +392,10 @@ impl<'a> Reader<'a> {
         let index = self.atoms.len();
         self.atoms.push(atom);
         if let Some(parent) = self.current {
-            let explicit = self.bond.take().map(|(kind, _)| kind);
-            self.add_bond(parent, index, explicit, start, end)?;
+            let symbol = self.bond.take();
+            let explicit = symbol.map(|(kind, _)| kind);
+            let (from, to) = symbol.map_or((start, end), |(_, at)| (at, at + 1));
+            self.add_bond(parent, index, explicit, from, to)?;
         }
         self.current = Some(index);
         self.site = Some(index);
@@ -647,10 +654,16 @@ impl<'a> Reader<'a> {
                 }
             })
             .collect();
+        // An aromatic bond must lie on a cycle, and an aromatic atom needs such a bond.
         let mut has_aromatic_bond = vec![false; self.atoms.len()];
-        for bond in bonds.iter().filter(|b| b.kind == SmilesBondKind::Aromatic) {
-            has_aromatic_bond[bond.begin] = true;
-            has_aromatic_bond[bond.end] = true;
+        for (bond, &bridge) in bonds.iter().zip(&bridge) {
+            if bond.kind != SmilesBondKind::Aromatic {
+                continue;
+            }
+            if !bridge {
+                has_aromatic_bond[bond.begin] = true;
+                has_aromatic_bond[bond.end] = true;
+            }
         }
         if let Some((atom, _)) = self
             .atoms
@@ -662,6 +675,19 @@ impl<'a> Reader<'a> {
                 SmilesErrorCode::AromaticAtomOutsideRing,
                 atom.span.0,
                 atom.span.1,
+            );
+        }
+        if let Some((_, pending)) = bonds
+            .iter()
+            .zip(&self.bonds)
+            .zip(&bridge)
+            .find(|((bond, _), bridge)| bond.kind == SmilesBondKind::Aromatic && **bridge)
+            .map(|((bond, pending), _)| (bond, pending))
+        {
+            return fail(
+                SmilesErrorCode::AromaticBondOutsideRing,
+                pending.span.0,
+                pending.span.1,
             );
         }
         let rest = &self.text[self.position..];
@@ -951,6 +977,10 @@ impl Emitter<'_, '_> {
         for &label in &closed {
             self.out.push_str(&ring_label(label));
         }
+        // Labels closed here are free again for rings opened at this same atom.
+        for &label in &closed {
+            self.used[label] = false;
+        }
         for index in 0..self.openings[v].len() {
             let (_, edge) = self.openings[v][index];
             let Some(label) = (1..=MAX_WRITTEN_RING_LABELS).find(|&l| !self.used[l]) else {
@@ -960,9 +990,6 @@ impl Emitter<'_, '_> {
             self.label_of[edge] = label;
             self.out.push_str(self.writer.bond_text(edge));
             self.out.push_str(&ring_label(label));
-        }
-        for label in closed {
-            self.used[label] = false;
         }
         Ok(())
     }

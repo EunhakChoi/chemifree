@@ -136,6 +136,7 @@ pub enum SmilesErrorCode {
     BranchDepthLimit,
     SizeLimit,
     AromaticAtomOutsideRing,
+    AromaticBondOutsideRing,
     StereoUnsupported,
     QueryUnsupported,
     ReactionUnsupported,
@@ -145,7 +146,7 @@ pub enum SmilesErrorCode {
 
 impl SmilesErrorCode {
     /// Every code, in declaration order.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::EmptyInput,
         Self::LeadingWhitespace,
         Self::InputTooLong,
@@ -176,6 +177,7 @@ impl SmilesErrorCode {
         Self::BranchDepthLimit,
         Self::SizeLimit,
         Self::AromaticAtomOutsideRing,
+        Self::AromaticBondOutsideRing,
         Self::StereoUnsupported,
         Self::QueryUnsupported,
         Self::ReactionUnsupported,
@@ -215,6 +217,7 @@ impl SmilesErrorCode {
             Self::BranchDepthLimit => "branch_depth_limit",
             Self::SizeLimit => "size_limit",
             Self::AromaticAtomOutsideRing => "aromatic_atom_outside_ring",
+            Self::AromaticBondOutsideRing => "aromatic_bond_outside_ring",
             Self::StereoUnsupported => "stereo_unsupported",
             Self::QueryUnsupported => "query_unsupported",
             Self::ReactionUnsupported => "reaction_unsupported",
@@ -268,6 +271,7 @@ impl SmilesErrorCode {
             Self::AromaticAtomOutsideRing => {
                 "An aromatic (lower case) atom needs at least one aromatic bond."
             }
+            Self::AromaticBondOutsideRing => "An aromatic bond must lie in a ring.",
             Self::StereoUnsupported => {
                 "Stereochemistry (@, /, \\) is not supported; remove it to read the connectivity."
             }

@@ -222,6 +222,12 @@ fn every_error_code_is_reachable_with_an_exact_span() {
             MAX_SMILES_ITEMS / 2 + 1,
         ),
         ("c".into(), SmilesErrorCode::AromaticAtomOutsideRing, 0, 1),
+        (
+            "c1ccccc1:c1ccccc1".into(),
+            SmilesErrorCode::AromaticBondOutsideRing,
+            8,
+            9,
+        ),
         ("C/C=C/C".into(), SmilesErrorCode::StereoUnsupported, 1, 2),
         (
             "C[C@H](F)Cl".into(),
@@ -646,4 +652,52 @@ fn isotopes_may_have_leading_zeros_up_to_three_digits() {
     assert_eq!(error("[0013C]").0, SmilesErrorCode::InvalidIsotope);
     // OpenSMILES allows isotope 0, but the drawing model keeps isotopes 1-999 only.
     assert_eq!(error("[000C]").0, SmilesErrorCode::InvalidIsotope);
+}
+
+#[test]
+fn a_label_that_closes_at_an_atom_is_free_for_a_ring_opened_there() {
+    let proto = read("C").atoms[0].clone();
+    let mut molecule = SmilesMolecule {
+        atoms: vec![proto; 102],
+        bonds: Vec::new(),
+    };
+    molecule.bonds.extend((1..102).map(|i| bond(i - 1, i)));
+    // Atom 0 opens 98 rings, atom 1 opens the 99th; atom 2 closes one and opens another.
+    molecule.bonds.extend((2..=99).map(|i| bond(0, i)));
+    molecule.bonds.push(bond(1, 100));
+    molecule.bonds.push(bond(2, 101));
+    let written = write_text(&molecule).expect("99 labels are enough when one is reused at atom 2");
+    assert_eq!(read(&written).bonds.len(), molecule.bonds.len());
+}
+
+#[test]
+fn an_explicit_aromatic_bond_outside_every_cycle_is_refused() {
+    assert_eq!(
+        error("c:c"),
+        (SmilesErrorCode::AromaticAtomOutsideRing, 0, 1)
+    );
+    assert_eq!(
+        error("c:c1ccccc1"),
+        (SmilesErrorCode::AromaticAtomOutsideRing, 0, 1)
+    );
+    assert_eq!(
+        error("C:C"),
+        (SmilesErrorCode::AromaticBondOutsideRing, 1, 2)
+    );
+    assert_eq!(
+        error("c1ccccc1:c1ccccc1"),
+        (SmilesErrorCode::AromaticBondOutsideRing, 8, 9)
+    );
+    // On a cycle the explicit bond is fine.
+    assert_eq!(read("c1ccc:cc1").bonds.len(), 6);
+}
+
+#[test]
+fn input_too_long_reports_offsets_on_character_boundaries() {
+    let text = format!("a{}", "\u{e9}".repeat(8192));
+    assert_eq!(text.len(), 16_385);
+    let (code, start, end) = error(&text);
+    assert_eq!(code, SmilesErrorCode::InputTooLong);
+    assert!(text.is_char_boundary(start) && text.is_char_boundary(end));
+    assert_eq!((start, end), (16_383, 16_385));
 }
