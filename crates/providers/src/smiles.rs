@@ -13,7 +13,7 @@ use chemifree_application::smiles::{
     SmilesAtom, SmilesBond, SmilesBondKind, SmilesCodec, SmilesError, SmilesErrorCode,
     SmilesFormatError, SmilesMolecule, SmilesRead, SmilesText,
 };
-use chemifree_domain::document::{MAX_CHARGE, MAX_ISOTOPE_MASS_NUMBER};
+use chemifree_domain::document::{MAX_CHARGE, MAX_ISOTOPE_MASS_NUMBER, MIN_CHARGE};
 use chemifree_domain::element::Element;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -85,19 +85,18 @@ fn fail<T>(code: SmilesErrorCode, start: usize, end: usize) -> Result<T, SmilesE
 }
 
 fn aromatic_element(symbol: &str) -> Option<Element> {
-    let element = match symbol {
-        "b" => "B",
-        "c" => "C",
-        "n" => "N",
-        "o" => "O",
-        "p" => "P",
-        "s" => "S",
-        "se" => "Se",
-        "as" => "As",
+    // Lower-case organic atoms are the subset's upper-case ones; Se and As only in brackets.
+    let upper = match symbol {
+        "se" => "Se".to_owned(),
+        "as" => "As".to_owned(),
+        _ if AROMATIC_ORGANIC.contains(&symbol) => symbol.to_ascii_uppercase(),
         _ => return None,
     };
-    Element::from_symbol(element)
+    Element::from_symbol(&upper)
 }
+
+/// Aromatic atoms that need no brackets, the lower-case counterparts of the organic subset.
+const AROMATIC_ORGANIC: [&str; 6] = ["b", "c", "n", "o", "p", "s"];
 
 /// Which bonds lie on no cycle. Iterative low-link search, linear in atoms plus bonds.
 fn bridge_flags(atoms: usize, ends: &[(usize, usize)]) -> Vec<bool> {
@@ -420,7 +419,7 @@ impl<'a> Reader<'a> {
             } else {
                 return fail(SmilesErrorCode::UnknownElement, start, end);
             }
-        } else if matches!(symbol, "b" | "c" | "n" | "o" | "p" | "s") {
+        } else if AROMATIC_ORGANIC.contains(&symbol) {
             (aromatic_element(symbol), true)
         } else {
             return fail(SmilesErrorCode::UnexpectedCharacter, start, end);
@@ -440,17 +439,14 @@ impl<'a> Reader<'a> {
 
     /// An error for the character at the cursor inside a bracket that began at `open`.
     fn bracket_fault(&self, open: usize) -> SmilesError {
+        let unterminated = SmilesError {
+            code: SmilesErrorCode::UnterminatedBracket,
+            start: open,
+            end: self.position,
+        };
         match self.peek() {
-            None => SmilesError {
-                code: SmilesErrorCode::UnterminatedBracket,
-                start: open,
-                end: self.position,
-            },
-            Some(c) if is_blank(c) => SmilesError {
-                code: SmilesErrorCode::UnterminatedBracket,
-                start: open,
-                end: self.position,
-            },
+            None => unterminated,
+            Some(c) if is_blank(c) => unterminated,
             Some(c) => SmilesError {
                 code: SmilesErrorCode::InvalidBracketContent,
                 start: self.position,
@@ -459,8 +455,9 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn digits(&self) -> usize {
-        self.text[self.position..]
+    /// The run of ASCII digits that starts `skip` bytes after the cursor.
+    fn digits_after(&self, skip: usize) -> usize {
+        self.text[self.position + skip..]
             .bytes()
             .take_while(u8::is_ascii_digit)
             .count()
@@ -470,7 +467,7 @@ impl<'a> Reader<'a> {
         let open = self.position;
         self.position += 1;
         let mut isotope = None;
-        let width = self.digits();
+        let width = self.digits_after(0);
         if width > 0 {
             let digits = &self.text[self.position..self.position + width];
             let value: u16 = digits.parse().unwrap_or(u16::MAX);
@@ -500,7 +497,7 @@ impl<'a> Reader<'a> {
             }
             Some('H') => {
                 self.position += 1;
-                let width = self.digits();
+                let width = self.digits_after(0);
                 if width > 1 {
                     return fail(
                         SmilesErrorCode::InvalidHydrogenCount,
@@ -540,13 +537,6 @@ impl<'a> Reader<'a> {
             hydrogens: Some(hydrogens),
             span,
         })
-    }
-
-    fn digits_after(&self, skip: usize) -> usize {
-        self.text[self.position + skip..]
-            .bytes()
-            .take_while(u8::is_ascii_digit)
-            .count()
     }
 
     fn bracket_symbol(&mut self, open: usize) -> Result<(Element, bool), SmilesError> {
@@ -597,7 +587,7 @@ impl<'a> Reader<'a> {
             .take_while(|b| *b == sign as u8)
             .count();
         self.position += repeated;
-        let width = self.digits();
+        let width = self.digits_after(0);
         let magnitude = if repeated > 1 {
             if width > 0 {
                 return fail(SmilesErrorCode::InvalidCharge, start, self.position + width);
@@ -614,12 +604,12 @@ impl<'a> Reader<'a> {
             self.position += width;
             value
         };
-        let limit = usize::try_from(MAX_CHARGE).unwrap_or(8);
-        if magnitude > limit {
-            return fail(SmilesErrorCode::ChargeOutOfRange, start, self.position);
+        let signed = i64::try_from(magnitude).unwrap_or(i64::MAX);
+        let signed = if sign == '-' { -signed } else { signed };
+        match i8::try_from(signed) {
+            Ok(charge) if (MIN_CHARGE..=MAX_CHARGE).contains(&charge) => Ok(charge),
+            _ => fail(SmilesErrorCode::ChargeOutOfRange, start, self.position),
         }
-        let value = i8::try_from(magnitude).unwrap_or(MAX_CHARGE);
-        Ok(if sign == '-' { -value } else { value })
     }
 
     fn finish(mut self) -> Result<SmilesRead, SmilesError> {
@@ -736,15 +726,14 @@ fn atom_text(atom: &SmilesAtom) -> Result<String, SmilesFormatError> {
         let bare = atom.charge == 0
             && atom.isotope.is_none()
             && ORGANIC_SUBSET.contains(&atom.element.symbol());
-        let aromatic_ok =
-            !atom.aromatic || matches!(symbol.as_str(), "b" | "c" | "n" | "o" | "p" | "s");
+        let aromatic_ok = !atom.aromatic || AROMATIC_ORGANIC.contains(&symbol.as_str());
         return if bare && aromatic_ok {
             Ok(symbol)
         } else {
             Err(SmilesFormatError::NotWritable)
         };
     };
-    if hydrogens > 9 || atom.charge.unsigned_abs() > 8 {
+    if hydrogens > 9 || !(MIN_CHARGE..=MAX_CHARGE).contains(&atom.charge) {
         return Err(SmilesFormatError::NotWritable);
     }
     let mut out = String::from("[");

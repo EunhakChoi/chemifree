@@ -701,3 +701,22 @@ fn input_too_long_reports_offsets_on_character_boundaries() {
     assert!(text.is_char_boundary(start) && text.is_char_boundary(end));
     assert_eq!((start, end), (16_383, 16_385));
 }
+
+#[test]
+fn the_charge_limits_come_from_the_domain_in_both_directions() {
+    use chemifree_domain::document::{MAX_CHARGE, MIN_CHARGE};
+    for charge in [MIN_CHARGE, MAX_CHARGE] {
+        let mut m = read("[N]");
+        m.atoms[0].charge = charge;
+        let text = write_text(&m).unwrap();
+        assert_eq!(read(&text).atoms[0].charge, charge, "{text}");
+    }
+    let mut m = read("[N]");
+    m.atoms[0].charge = MAX_CHARGE + 1;
+    assert_eq!(write_text(&m).unwrap_err(), SmilesFormatError::NotWritable);
+    m.atoms[0].charge = MIN_CHARGE - 1;
+    assert_eq!(write_text(&m).unwrap_err(), SmilesFormatError::NotWritable);
+    assert_eq!(error("[N-9]").0, SmilesErrorCode::ChargeOutOfRange);
+    assert_eq!(error("[N+++++++++]").0, SmilesErrorCode::ChargeOutOfRange);
+    assert_eq!(read("[N--------]").atoms[0].charge, MIN_CHARGE);
+}
