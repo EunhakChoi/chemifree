@@ -131,7 +131,7 @@ FIXTURES: tuple[Fixture, ...] = (
     Fixture(
         "indane",
         ("c1ccc2c(c1)CCC2", "C1=CC=C2C(=C1)CCC2"),
-        Refused(("mixed_ring_bonds", "fused_partially_aromatic")),
+        Refused(("fused_partially_aromatic",)),
     ),
     Fixture(
         "indole",

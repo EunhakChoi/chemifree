@@ -145,11 +145,8 @@ fn fused_systems_with_a_possibly_aromatic_cycle_are_refused_in_every_spelling() 
     ] {
         let found = systems(&app, text);
         assert!(
-            found
-                .iter()
-                .any(|s| s == "unsupported/fused_partially_aromatic"
-                    || s == "unsupported/mixed_ring_bonds"),
-            "{text}: {found:?}"
+            found.contains(&"unsupported/fused_partially_aromatic".to_owned()),
+            "{text}: every spelling reports the same reason: {found:?}"
         );
         assert!(chemical_code(&app, text).is_err(), "{text}");
     }

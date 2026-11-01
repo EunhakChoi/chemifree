@@ -392,8 +392,14 @@ fn refusals_name_the_real_cause() {
     let (app, _dir) = setup();
     // Aromaticity is checked before atoms are formatted: indane drawn aromatic names its rings.
     let id = import(&app, "c1ccc2c(c1)CCC2");
-    assert_eq!(reason(&write(&app, &id, "recorded")), "mixed_ring_bonds");
-    assert_eq!(reason(&write(&app, &id, "canonical")), "mixed_ring_bonds");
+    assert_eq!(
+        reason(&write(&app, &id, "recorded")),
+        "fused_partially_aromatic"
+    );
+    assert_eq!(
+        reason(&write(&app, &id, "canonical")),
+        "fused_partially_aromatic"
+    );
     // A charged atom with inferred hydrogens in an unusual valence has no count to state.
     let id = new_document(&app);
     let drawn = call(

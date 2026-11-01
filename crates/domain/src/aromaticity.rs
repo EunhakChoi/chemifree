@@ -283,7 +283,12 @@ fn calculate(
         }
     }
     if any_aromatic && !all_aromatic {
-        return Err("mixed_ring_bonds");
+        // A fused system drawn partly aromatic is the same refusal in either spelling.
+        return Err(if ring.cycle_rank > 1 {
+            "fused_partially_aromatic"
+        } else {
+            "mixed_ring_bonds"
+        });
     }
     let mut has_double = vec![false; ring.atoms.len()];
     for &(a, b) in &explicit_double {

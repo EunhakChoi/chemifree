@@ -141,7 +141,7 @@ enum Expect {
 }
 use Expect::{Ok as Accepted, Refused};
 
-const FUSED_PARTIAL: &[&str] = &["mixed_ring_bonds", "fused_partially_aromatic"];
+const FUSED_PARTIAL: &[&str] = &["fused_partially_aromatic"];
 const FUSED_OUTSIDE: &[&str] = &["fused_system_outside_model"];
 const EXTERNAL: &[&str] = &["unsupported_external_bond"];
 
