@@ -580,7 +580,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let document = match chemifree_domain::interchange::Document::try_from(parameters.document)
         {
             Ok(document) => document,
-            Err(error) => return known.invalid(refused("invalid_document", &error.to_string())),
+            Err(error) => {
+                // CDXML keeps its contract 1 wording; see CONTRACT.md on model validation codes.
+                return known.invalid(match format {
+                    InterchangeFormat::Cdxml => refused("invalid_document", &error.to_string()),
+                    InterchangeFormat::Cdx => diagnostic(error.code(), error.message(), Map::new()),
+                });
+            }
         };
         let original = match parameters.original.as_deref() {
             Some(text) => match payload(codec.as_ref(), format, text) {
