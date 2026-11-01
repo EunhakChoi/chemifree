@@ -13,7 +13,7 @@ use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
 pub const MODEL_ID: &str = "chemifree-recorded-graph-1";
-pub const CHEMICAL_MODEL_ID: &str = "chemifree-chemical-graph-1";
+pub const CHEMICAL_MODEL_ID: &str = "chemifree-chemical-graph-2";
 pub const MAX_ATOMS: usize = 128;
 pub const MAX_SEARCH_STATES: usize = 100_000;
 /// Bounds refinement and serialization work as well as recursion count.

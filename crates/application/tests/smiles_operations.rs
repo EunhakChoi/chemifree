@@ -247,7 +247,7 @@ fn writing_does_not_change_the_document_or_its_history() {
     assert_eq!(canonical["result"]["version"], "1");
     assert_eq!(
         canonical["result"]["models"]["identity"],
-        "chemifree-chemical-graph-1"
+        "chemifree-chemical-graph-2"
     );
     assert_eq!(recorded["result"]["smiles"], "OC(=O)C");
 }

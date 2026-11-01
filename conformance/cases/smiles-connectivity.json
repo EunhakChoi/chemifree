@@ -72,7 +72,7 @@
         "parameters": {"format": "smiles", "mode": "canonical"}},
       "expect": {"outcome": "ok", "document_revision": 1, "model_id": "chemifree-smiles-canonical-1",
         "result": {"smiles": "C(C)(=O)O", "implementation": "chemifree-smiles-canonical", "version": "1",
-          "models": {"identity": "chemifree-chemical-graph-1"}}}
+          "models": {"identity": "chemifree-chemical-graph-2"}}}
     },
     {
       "call": "get",

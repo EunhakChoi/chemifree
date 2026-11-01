@@ -60,7 +60,7 @@ fn inspect_convert_replay_and_history_keep_the_source_separate() {
         json!({"document_id":id}),
     );
     assert_eq!(view["outcome"], "ok", "{view}");
-    assert_eq!(view["model_id"], "chemifree-aromaticity-1");
+    assert_eq!(view["model_id"], "chemifree-aromaticity-2");
     assert_eq!(view["result"]["systems"][0]["classification"], "aromatic");
     assert_eq!(view["result"]["systems"][0]["electrons"], 6);
     assert_eq!(view["result"]["snapshot"]["document"], before["document"]);
@@ -166,7 +166,7 @@ fn failed_conversion_is_atomic_even_after_a_convertible_system() {
         json!({"document_id":id,"expected_revision":1,"to":"kekule"}),
     );
     assert_eq!(failed["outcome"], "error", "{failed}");
-    assert_eq!(failed["model_id"], "chemifree-aromaticity-1");
+    assert_eq!(failed["model_id"], "chemifree-aromaticity-2");
     assert_eq!(
         failed["diagnostics"][0]["details"]["reason"],
         "aromatic_bond_outside_ring"

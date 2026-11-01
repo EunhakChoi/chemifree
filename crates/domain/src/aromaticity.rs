@@ -11,7 +11,7 @@ use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
 use crate::states::{Hydrogens, Radical};
 
-pub const MODEL_ID: &str = "chemifree-aromaticity-1";
+pub const MODEL_ID: &str = "chemifree-aromaticity-2";
 const MAX_SYSTEM_ATOMS: usize = 128;
 const MAX_MATCH_STEPS: usize = 100_000;
 
