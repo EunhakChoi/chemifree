@@ -21,9 +21,9 @@
       {"op":"add_bond","begin":"$5","end":"$0","order":"single"}
     ],"expect":{"document":{"revision":1}}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"ring-check","profile":"preserve-semantics","operation":"chem.aromaticity","parameters":{}},
-     "expect":{"outcome":"ok","document_revision":1,"model_id":"chemifree-aromaticity-1","result":{"snapshot":{"document":{"revision":1},"session":{"undo_depth":1}},"systems":[{"classification":"aromatic","cycle_rank":1,"electrons":6,"reason":null}]}}},
+     "expect":{"outcome":"ok","document_revision":1,"model_id":"chemifree-aromaticity-2","result":{"snapshot":{"document":{"revision":1},"session":{"undo_depth":1}},"systems":[{"classification":"aromatic","cycle_rank":1,"electrons":6,"reason":null}]}}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"make-aromatic","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
-     "expect":{"outcome":"ok","document_revision":2,"model_id":"chemifree-aromaticity-1","result":{"document":{"bonds":[{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"}]},"session":{"undo_depth":2}}}},
+     "expect":{"outcome":"ok","document_revision":2,"model_id":"chemifree-aromaticity-2","result":{"document":{"bonds":[{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"},{"order":"aromatic"}]},"session":{"undo_depth":2}}}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"make-aromatic","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
      "expect":{"outcome":"ok","document_revision":2,"result":{"session":{"undo_depth":2}}}},
     {"call":"undo","document":"d","expected_revision":2,

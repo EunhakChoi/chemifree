@@ -844,7 +844,7 @@ test('aromaticity inspection checks the returned snapshot and its ring reference
   shown.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 1, 0), atomWith('a3', 'C', 0, 1)]
   shown.document.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3'), bondWith('b3', 'a3', 'a1')]
   const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 1,
-    model_id: 'chemifree-aromaticity-1', result: { snapshot: { document: shown.document, session: shown.session, recovery: null },
+    model_id: 'chemifree-aromaticity-2', result: { snapshot: { document: shown.document, session: shown.session, recovery: null },
       systems: [{ atoms: ['a1', 'a2', 'a3'], bonds: ['b1', 'b2', 'b3'], cycle_rank: 1, classification: 'non_aromatic', electrons: 3, reason: 'electron_count' }] } }
   const invalid = structuredClone(reply)
   invalid.result.systems[0].bonds[0] = 'b99'
@@ -872,7 +872,7 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   const identity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1'], ['a2']], folded_hydrogens: [{ hydrogen: 'a2', attached_to: 'a1' }] }
   const targetIdentity = { code: 'bounded-code', numbering: ['a1'], symmetry: [['a1']], folded_hydrogens: [] }
   const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 2,
-    model_id: 'chemifree-chemical-graph-1', result: {
+    model_id: 'chemifree-chemical-graph-2', result: {
       snapshot: { document: source.document, session: source.session, recovery: null }, identity,
       comparison: { snapshot: { document: target.document, session: target.session, recovery: { state: 'recoverable', revision: 4, base_revision: 3, saved_at_ms: 0, message: null } }, identity: targetIdentity, equivalent: true },
     } }
@@ -882,7 +882,7 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   badTarget.result.comparison.snapshot.document.id = 'different-target'
   const badEquality = structuredClone(reply)
   badEquality.result.comparison.equivalent = false
-  const unsupported = { outcome: 'unsupported', model_id: 'chemifree-chemical-graph-1', result: null,
+  const unsupported = { outcome: 'unsupported', model_id: 'chemifree-chemical-graph-2', result: null,
     diagnostics: [{ message: 'Graph identity was not determined under this model.', details: {
       side: 'target', reason: 'element_or_charge', snapshot: { document: target.document, session: target.session, recovery: null },
     } }] }

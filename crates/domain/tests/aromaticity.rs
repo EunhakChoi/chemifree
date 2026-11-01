@@ -68,7 +68,7 @@ fn benzene_aromatic_input_and_both_kekule_forms_have_six_electrons() {
             ),
             (Classification::Aromatic, Some(6))
         );
-        assert_eq!(result.aromatize().unwrap().len(), 6);
+        assert_eq!(result.aromatize().map(|plan| plan.bonds).unwrap().len(), 6);
     }
 }
 
@@ -241,7 +241,9 @@ fn mixed_or_unknown_bonds_are_unsupported_not_assumed_to_be_single() {
         Err("unsupported_ring_bond")
     );
     assert_eq!(
-        aromaticity::perceive(&MoleculeGraph::from_document(&document)).aromatize(),
+        aromaticity::perceive(&MoleculeGraph::from_document(&document))
+            .aromatize()
+            .map(|plan| plan.bonds),
         Err("unsupported_ring_bond")
     );
 }

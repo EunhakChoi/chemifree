@@ -50,7 +50,7 @@ fn two_snapshots_compare_equivalent_encodings_without_editing_either_document() 
         json!({"document_id":source,"other_document_id":target,"mode":"chemical"}),
     );
     assert_eq!(compared["outcome"], "ok", "{compared}");
-    assert_eq!(compared["model_id"], "chemifree-chemical-graph-1");
+    assert_eq!(compared["model_id"], "chemifree-chemical-graph-2");
     assert_eq!(compared["result"]["comparison"]["equivalent"], true);
     assert_eq!(
         compared["result"]["identity"]["numbering"]

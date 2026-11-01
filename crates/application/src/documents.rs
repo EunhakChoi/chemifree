@@ -7,10 +7,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
 use chemifree_domain::document::{
-    BondOrder, Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering,
-    Outcome, RevisionsExhausted, TransactionError, validated_title,
+    AtomEdit, BondOrder, Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS,
+    Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
+use chemifree_domain::states::Hydrogens;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -865,14 +866,26 @@ impl<R: DocumentRepository> Documents<R> {
         self.mutate(id, request_id, expected_revision, mutation, |session| {
             let graph = MoleculeGraph::from_document(&session.document);
             let interpretation = aromaticity::perceive(&graph);
-            let changes: Vec<_> = match conversion {
-                AromaticityConversion::Aromatic => interpretation.aromatize().map(|ids| {
-                    ids.into_iter()
+            let (bonds, atoms): (Vec<_>, Vec<_>) = match conversion {
+                AromaticityConversion::Aromatic => interpretation.aromatize().map(|plan| {
+                    let bonds = plan
+                        .bonds
+                        .into_iter()
                         .map(|id| (id, BondOrder::Aromatic))
-                        .collect()
+                        .collect();
+                    let atoms = plan
+                        .hydrogens
+                        .into_iter()
+                        .map(|(atom, count)| (atom, Hydrogens::Specified(count)))
+                        .collect();
+                    (bonds, atoms)
                 }),
                 AromaticityConversion::Kekule => interpretation.kekulize().map(|pairs| {
-                    pairs
+                    let atoms = aromaticity::redundant_nitrogen_hydrogens(&graph, &pairs)
+                        .into_iter()
+                        .map(|atom| (atom, Hydrogens::Inferred))
+                        .collect();
+                    let bonds = pairs
                         .into_iter()
                         .map(|(id, order)| {
                             let order = match order {
@@ -881,7 +894,8 @@ impl<R: DocumentRepository> Documents<R> {
                             };
                             (id, order)
                         })
-                        .collect()
+                        .collect();
+                    (bonds, atoms)
                 }),
             }
             .map_err(|reason| ApplicationError {
@@ -892,8 +906,9 @@ impl<R: DocumentRepository> Documents<R> {
                 )
             })?;
             let existing: BTreeMap<_, _> = graph.bonds().collect();
+            let existing_atoms: BTreeMap<_, _> = graph.atoms().collect();
             let mut commands = Vec::new();
-            for (bond, order) in changes {
+            for (bond, order) in bonds {
                 let Some(current) = existing.get(&bond) else {
                     return Err(ApplicationError::new(
                         ErrorCode::InvalidCommand,
@@ -902,6 +917,23 @@ impl<R: DocumentRepository> Documents<R> {
                 };
                 if current.order != order {
                     commands.push(Command::UpdateBond { bond, order });
+                }
+            }
+            for (atom, hydrogens) in atoms {
+                let Some(current) = existing_atoms.get(&atom) else {
+                    return Err(ApplicationError::new(
+                        ErrorCode::InvalidCommand,
+                        "Conversion named an atom outside the inspected graph.",
+                    ));
+                };
+                if current.hydrogens != hydrogens {
+                    commands.push(Command::UpdateAtom {
+                        atom,
+                        edit: AtomEdit {
+                            hydrogens: Some(hydrogens),
+                            ..AtomEdit::default()
+                        },
+                    });
                 }
             }
             if commands.is_empty() {
