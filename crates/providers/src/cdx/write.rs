@@ -444,8 +444,8 @@ impl Writer<'_> {
                 .is_some_and(|source| source.platform == PLATFORM_WINDOWS && source.table == *table)
         });
         if !known_platform {
-            self.platform_unknown
-                .note(|| format!("font table[{index}]"));
+            let path = self.path();
+            self.platform_unknown.note(|| path);
         }
         let fonts: Vec<&Object> = table
             .children

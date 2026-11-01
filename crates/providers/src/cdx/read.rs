@@ -546,6 +546,7 @@ impl<'a> Builder<'a> {
                             format!("Style run color index {} is not available.", run.color),
                         ));
                     }
+                    // Attribute order of the public CDXML example: font, size, face, color.
                     children.push(Content::Object(plain(
                         ObjectKind::StyleRun,
                         vec![
@@ -554,12 +555,12 @@ impl<'a> Builder<'a> {
                                 PropertyValue::Integer(i64::from(run.font)),
                             ),
                             property(
-                                PropertyKind::FontFace,
-                                PropertyValue::Integer(i64::from(run.face)),
-                            ),
-                            property(
                                 PropertyKind::FontSize,
                                 PropertyValue::Float(f64::from(run.size) / 20.0),
+                            ),
+                            property(
+                                PropertyKind::FontFace,
+                                PropertyValue::Integer(i64::from(run.face)),
                             ),
                             property(
                                 PropertyKind::ColorIndex,
