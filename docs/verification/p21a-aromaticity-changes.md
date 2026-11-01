@@ -9,7 +9,7 @@ done and nothing here adds SMILES. The rules are defined once, in
 
 ## Corpus and reproduction
 
-The corpus has 181 MOL/V2000 records for 106 molecules, generated with RDKit 2022.03.2:
+The corpus has 190 MOL/V2000 records for 111 molecules, generated with RDKit 2022.03.2:
 acyclic, saturated rings, benzene and monocycles, monocyclic and fused heteroaromatics,
 benzenoids (up to coronene), fused partially saturated systems, bridged (norbornane,
 norbornene, norbornadiene, alpha-pinene, adamantane, camphor), spiro, charged,
@@ -36,18 +36,19 @@ The tables at the end of this file are the verbatim output of that last command.
 
 ## Summary
 
-181 records; 47 changed (26%); 134 unchanged. Counts per change kind (one record can
+190 records; 53 changed (28%); 137 unchanged. Counts per change kind (one record can
 appear under several):
 
 | change kind | records |
 |---|---|
-| classification or reason | 47 |
-| chemical identity availability (accepted <-> refused, or refusal reason) | 40 |
-| chemical identity code (accepted both times, code differs) | 7 |
-| conversion outcome (aromatic or Kekule conversion refused or accepted) | 40 |
+| classification or reason | 53 |
+| chemical identity availability (accepted <-> refused, or refusal reason) | 45 |
+| chemical identity code (accepted both times, code differs) | 8 |
+| conversion outcome (aromatic or Kekule conversion refused or accepted) | 45 |
 
 By class (records changed / records): fused partially saturated 28/30, monocyclic
-heteroaromatic 6/38, spiro 6/6, fused heteroaromatic 5/20, bridged 1/9, charged 1/15.
+heteroaromatic 6/38, spiro 6/6, donor-only and sigma rings 6/9, fused heteroaromatic
+5/20, bridged 1/9, charged 1/15.
 Acyclic, saturated ring, benzene and monocycle, benzenoid, antiaromatic and large,
 azulene-like and exocyclic double bond records are all unchanged.
 
@@ -75,10 +76,19 @@ What changed, grouped:
    spiro[4.5]deca-6,9-diene; 3 records).** Were `unsupported/valence_not_in_model` (a quaternary
    ring carbon); now `non_aromatic/not_conjugated`, identity accepted, aromatic conversion
    accepted as a no-op.
-5. **Conversion outcomes (40 records).** Aromatic conversion is refused for any document
+5. **Conversion outcomes (45 records).** Aromatic conversion is refused for any document
    containing a `fused_partially_aromatic` system, including "benzene plus tetralin
    (separate)", whose benzene main converted alone. Kekule conversion of a Kekule graph
    (nothing to convert) is unchanged.
+6. **Donor-only and sigma-only rings (6 records, added in review round 1).** A ring
+   whose atoms all donate but which has no double or aromatic bond has no conjugated
+   circuit. A first draft of revision 2 called Kekule cyclotriazane and the O/S ring
+   aromatic (a neutral nitrogen with inferred hydrogen is always a donor); the final rules
+   require a π bond on a circuit. Against main: Kekule cyclotriazane, the triazane-fused
+   ring and 1,2-dithiole are unchanged `non_aromatic`; the Kekule O/S ring was `aromatic`
+   on main (ten donor electrons around single bonds) and is now `non_aromatic`; two adjacent donors beside a C=C
+   (1,2-dihydro-1,2-diazete) and RDKit-aromatic-flagged all-donor rings are now
+   `unsupported/adjacent_donors` (they were `aromatic` or `non_aromatic` on main).
 
 ## User-visible changes to call out
 
@@ -94,7 +104,7 @@ What changed, grouped:
 
 ## Detailed results (generated)
 
-Records: 181; changed: 47; unchanged: 134
+Records: 190; changed: 53; unchanged: 137
 
 | class | records | changed |
 |---|---|---|
@@ -105,6 +115,7 @@ Records: 181; changed: 47; unchanged: 134
 | benzenoid | 16 | 0 |
 | bridged | 9 | 1 |
 | charged | 15 | 1 |
+| donor-only and sigma rings | 9 | 6 |
 | exocyclic double bond | 6 | 0 |
 | fused heteroaromatic | 20 | 5 |
 | fused partially saturated | 30 | 28 |
@@ -112,10 +123,12 @@ Records: 181; changed: 47; unchanged: 134
 | saturated ring | 10 | 0 |
 | spiro | 6 | 6 |
 
-### chemical identity availability (40)
+### chemical identity availability (45)
 
 | class | molecule | spelling | change |
 |---|---|---|---|
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | aromatic | ok -> refused/adjacent_donors |
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | kekule | ok -> refused/adjacent_donors |
 | fused partially saturated | 1,2-dihydronaphthalene | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 | fused partially saturated | 1,2-dihydronaphthalene | kekule | ok -> refused/fused_partially_aromatic |
 | fused partially saturated | 1,3-benzodioxole | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
@@ -131,6 +144,7 @@ Records: 181; changed: 47; unchanged: 134
 | fused heteroaromatic | carbazole | kekule | ok -> refused/fused_system_outside_model |
 | fused partially saturated | chroman | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 | fused partially saturated | chroman | kekule | ok -> refused/fused_partially_aromatic |
+| donor-only and sigma rings | cyclotriazane | aromatic | ok -> refused/adjacent_donors |
 | fused partially saturated | estratriene skeleton | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 | fused partially saturated | estratriene skeleton | kekule | ok -> refused/fused_partially_aromatic |
 | fused partially saturated | fluorene | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
@@ -145,6 +159,7 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | indoline | kekule | ok -> refused/fused_partially_aromatic |
 | fused partially saturated | isoindoline | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 | fused partially saturated | isoindoline | kekule | ok -> refused/fused_partially_aromatic |
+| donor-only and sigma rings | pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane) | aromatic | ok -> refused/adjacent_donors |
 | fused heteroaromatic | purine | kekule | ok -> refused/fused_system_outside_model |
 | spiro | spiro[4.4]nonane | kekule | refused/valence_not_in_model -> ok |
 | spiro | spiro[4.5]deca-6,9-diene | kekule | refused/valence_not_in_model -> ok |
@@ -156,8 +171,9 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | tetrahydroquinoline | kekule | ok -> refused/fused_partially_aromatic |
 | fused partially saturated | tetralin | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 | fused partially saturated | tetralin | kekule | ok -> refused/fused_partially_aromatic |
+| donor-only and sigma rings | triazane fused to CH2 ring | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 
-### chemical identity code (7)
+### chemical identity code (8)
 
 | class | molecule | spelling | change |
 |---|---|---|---|
@@ -165,16 +181,19 @@ Records: 181; changed: 47; unchanged: 134
 | monocyclic heteroaromatic | 1,2,4-triazole | kekule | ok -> ok (code differs) |
 | monocyclic heteroaromatic | imidazole | kekule | ok -> ok (code differs) |
 | charged | imidazolium | kekule | ok -> ok (code differs) |
+| donor-only and sigma rings | pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane) | kekule | ok -> ok (code differs) |
 | monocyclic heteroaromatic | pyrazole | kekule | ok -> ok (code differs) |
 | monocyclic heteroaromatic | pyrrole | kekule | ok -> ok (code differs) |
 | monocyclic heteroaromatic | tetrazole | kekule | ok -> ok (code differs) |
 
-### classification or reason (47)
+### classification or reason (53)
 
 | class | molecule | spelling | change |
 |---|---|---|---|
 | monocyclic heteroaromatic | 1,2,3-triazole | kekule | non_aromatic/not_conjugated (5 atoms) -> aromatic (5 atoms) |
 | monocyclic heteroaromatic | 1,2,4-triazole | kekule | non_aromatic/not_conjugated (5 atoms) -> aromatic (5 atoms) |
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | aromatic | aromatic (4 atoms) -> unsupported/adjacent_donors (4 atoms) |
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | kekule | non_aromatic/not_conjugated (4 atoms) -> unsupported/adjacent_donors (4 atoms) |
 | fused partially saturated | 1,2-dihydronaphthalene | aromatic | unsupported/mixed_ring_bonds (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
 | fused partially saturated | 1,2-dihydronaphthalene | kekule | non_aromatic/not_conjugated (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
 | fused partially saturated | 1,3-benzodioxole | aromatic | unsupported/mixed_ring_bonds (9 atoms) -> unsupported/fused_partially_aromatic (9 atoms) |
@@ -190,6 +209,7 @@ Records: 181; changed: 47; unchanged: 134
 | fused heteroaromatic | carbazole | kekule | non_aromatic/not_conjugated (13 atoms) -> unsupported/fused_system_outside_model (13 atoms) |
 | fused partially saturated | chroman | aromatic | unsupported/mixed_ring_bonds (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
 | fused partially saturated | chroman | kekule | non_aromatic/not_conjugated (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
+| donor-only and sigma rings | cyclotriazane | aromatic | aromatic (3 atoms) -> unsupported/adjacent_donors (3 atoms) |
 | fused partially saturated | estratriene skeleton | aromatic | unsupported/mixed_ring_bonds (17 atoms) -> unsupported/fused_partially_aromatic (17 atoms) |
 | fused partially saturated | estratriene skeleton | kekule | non_aromatic/not_conjugated (17 atoms) -> unsupported/fused_partially_aromatic (17 atoms) |
 | fused partially saturated | fluorene | aromatic | unsupported/mixed_ring_bonds (13 atoms) -> unsupported/fused_partially_aromatic (13 atoms) |
@@ -206,6 +226,8 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | indoline | kekule | non_aromatic/not_conjugated (9 atoms) -> unsupported/fused_partially_aromatic (9 atoms) |
 | fused partially saturated | isoindoline | aromatic | unsupported/mixed_ring_bonds (9 atoms) -> unsupported/fused_partially_aromatic (9 atoms) |
 | fused partially saturated | isoindoline | kekule | non_aromatic/not_conjugated (9 atoms) -> unsupported/fused_partially_aromatic (9 atoms) |
+| donor-only and sigma rings | pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane) | aromatic | aromatic (5 atoms) -> unsupported/adjacent_donors (5 atoms) |
+| donor-only and sigma rings | pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane) | kekule | aromatic (5 atoms) -> non_aromatic/not_conjugated (5 atoms) |
 | fused heteroaromatic | purine | kekule | non_aromatic/not_conjugated (9 atoms) -> unsupported/fused_system_outside_model (9 atoms) |
 | monocyclic heteroaromatic | pyrazole | kekule | non_aromatic/not_conjugated (5 atoms) -> aromatic (5 atoms) |
 | monocyclic heteroaromatic | pyrrole | kekule | non_aromatic/not_conjugated (5 atoms) -> aromatic (5 atoms) |
@@ -220,11 +242,14 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | tetralin | aromatic | unsupported/mixed_ring_bonds (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
 | fused partially saturated | tetralin | kekule | non_aromatic/not_conjugated (10 atoms) -> unsupported/fused_partially_aromatic (10 atoms) |
 | monocyclic heteroaromatic | tetrazole | kekule | non_aromatic/not_conjugated (5 atoms) -> aromatic (5 atoms) |
+| donor-only and sigma rings | triazane fused to CH2 ring | aromatic | unsupported/mixed_ring_bonds (5 atoms) -> unsupported/fused_partially_aromatic (5 atoms) |
 
-### conversion outcome (40)
+### conversion outcome (45)
 
 | class | molecule | spelling | change |
 |---|---|---|---|
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | aromatic | aromatic: ok, kekule: ok -> aromatic: adjacent_donors, kekule: adjacent_donors |
+| donor-only and sigma rings | 1,2-dihydro-1,2-diazete | kekule | aromatic: ok, kekule: ok -> aromatic: adjacent_donors, kekule: ok |
 | fused partially saturated | 1,2-dihydronaphthalene | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
 | fused partially saturated | 1,2-dihydronaphthalene | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
 | fused partially saturated | 1,3-benzodioxole | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
@@ -240,6 +265,7 @@ Records: 181; changed: 47; unchanged: 134
 | fused heteroaromatic | carbazole | kekule | aromatic: ok, kekule: ok -> aromatic: fused_system_outside_model, kekule: ok |
 | fused partially saturated | chroman | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
 | fused partially saturated | chroman | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
+| donor-only and sigma rings | cyclotriazane | aromatic | aromatic: ok, kekule: ok -> aromatic: adjacent_donors, kekule: adjacent_donors |
 | fused partially saturated | estratriene skeleton | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
 | fused partially saturated | estratriene skeleton | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
 | fused partially saturated | fluorene | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
@@ -254,6 +280,7 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | indoline | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
 | fused partially saturated | isoindoline | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
 | fused partially saturated | isoindoline | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
+| donor-only and sigma rings | pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane) | aromatic | aromatic: ok, kekule: ok -> aromatic: adjacent_donors, kekule: adjacent_donors |
 | fused heteroaromatic | purine | kekule | aromatic: ok, kekule: ok -> aromatic: fused_system_outside_model, kekule: ok |
 | spiro | spiro[4.4]nonane | kekule | aromatic: valence_not_in_model, kekule: ok -> aromatic: ok, kekule: ok |
 | spiro | spiro[4.5]deca-6,9-diene | kekule | aromatic: valence_not_in_model, kekule: ok -> aromatic: ok, kekule: ok |
@@ -265,3 +292,4 @@ Records: 181; changed: 47; unchanged: 134
 | fused partially saturated | tetrahydroquinoline | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
 | fused partially saturated | tetralin | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |
 | fused partially saturated | tetralin | kekule | aromatic: ok, kekule: ok -> aromatic: fused_partially_aromatic, kekule: ok |
+| donor-only and sigma rings | triazane fused to CH2 ring | aromatic | aromatic: mixed_ring_bonds, kekule: mixed_ring_bonds -> aromatic: fused_partially_aromatic, kekule: fused_partially_aromatic |

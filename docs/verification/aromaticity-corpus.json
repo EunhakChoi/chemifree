@@ -2329,6 +2329,115 @@
  },
  {
   "aromatic_bonds": [],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  3  3  0  0  0  0  0  0  0  0999 V2000\n    0.8660   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.4330    0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.4330   -0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  1  1  0\nM  END\n",
+  "name": "cyclotriazane",
+  "smiles": "N1NN1",
+  "spelling": "kekule",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [
+   0,
+   1,
+   2
+  ],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  3  3  0  0  0  0  0  0  0  0999 V2000\n    0.8660   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.4330    0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.4330   -0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  1  1  0\nM  END\n",
+  "name": "cyclotriazane",
+  "smiles": "N1NN1",
+  "spelling": "aromatic",
+  "stated_hydrogens": {
+   "0": 1,
+   "1": 1,
+   "2": 1
+  }
+ },
+ {
+  "aromatic_bonds": [],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  4  4  0  0  0  0  0  0  0  0999 V2000\n    1.0607   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.0000   -1.0607    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0607    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.0000    1.0607    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  2  0\n  4  1  1  0\nM  END\n",
+  "name": "1,2-dihydro-1,2-diazete",
+  "smiles": "N1NC=C1",
+  "spelling": "kekule",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  4  4  0  0  0  0  0  0  0  0999 V2000\n    1.0607   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.0000   -1.0607    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0607    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.0000    1.0607    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  2  0\n  4  1  1  0\nM  END\n",
+  "name": "1,2-dihydro-1,2-diazete",
+  "smiles": "N1NC=C1",
+  "spelling": "aromatic",
+  "stated_hydrogens": {
+   "0": 1,
+   "1": 1
+  }
+ },
+ {
+  "aromatic_bonds": [],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  5  5  0  0  0  0  0  0  0  0999 V2000\n    1.2760   -0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943    1.2135    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323    0.7500    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323   -0.7500    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943   -1.2135    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\nM  END\n",
+  "name": "pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane)",
+  "smiles": "O1SOSO1",
+  "spelling": "kekule",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [
+   0,
+   1,
+   2,
+   3,
+   4
+  ],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  5  5  0  0  0  0  0  0  0  0999 V2000\n    1.2760   -0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943    1.2135    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323    0.7500    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323   -0.7500    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943   -1.2135    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\nM  END\n",
+  "name": "pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane)",
+  "smiles": "O1SOSO1",
+  "spelling": "aromatic",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  5  6  0  0  0  0  0  0  0  0999 V2000\n   -1.1598   -0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.1598    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3402    0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.6392   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3402   -0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\n  5  3  1  0\nM  END\n",
+  "name": "triazane fused to CH2 ring",
+  "smiles": "C1CN2NN12",
+  "spelling": "kekule",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [
+   2,
+   3,
+   5
+  ],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  5  6  0  0  0  0  0  0  0  0999 V2000\n   -1.1598   -0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.1598    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3402    0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.6392   -0.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3402   -0.7500    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\n  5  3  1  0\nM  END\n",
+  "name": "triazane fused to CH2 ring",
+  "smiles": "C1CN2NN12",
+  "spelling": "aromatic",
+  "stated_hydrogens": {
+   "3": 1
+  }
+ },
+ {
+  "aromatic_bonds": [],
+  "class": "donor-only and sigma rings",
+  "molblock": "\n     RDKit          2D\n\n  5  5  0  0  0  0  0  0  0  0999 V2000\n    1.2760   -0.0000    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943    1.2135    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323   -0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943   -1.2135    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  2  0\n  4  5  1  0\n  5  1  1  0\nM  END\n",
+  "name": "1,2-dithiole",
+  "smiles": "S1SC=CC1",
+  "spelling": "kekule",
+  "stated_hydrogens": {}
+ },
+ {
+  "aromatic_bonds": [],
   "class": "exocyclic double bond",
   "molblock": "\n     RDKit          2D\n\n  8  8  0  0  0  0  0  0  0  0999 V2000\n    3.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    1.5000   -0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.7500   -1.2990    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.7500   -1.2990    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.5000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n   -3.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n   -0.7500    1.2990    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n    0.7500    1.2990    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  2  0\n  2  3  1  0\n  3  4  2  0\n  4  5  1  0\n  5  6  2  0\n  5  7  1  0\n  7  8  2  0\n  8  2  1  0\nM  END\n",
   "name": "benzoquinone",
