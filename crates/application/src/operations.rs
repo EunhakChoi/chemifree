@@ -1250,11 +1250,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         runs(
                             operation.as_str(),
                             if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses."
+                                "Preview and import bounded MOL/SDF records, or read, preview and create from rich CDXML or a bounded CDX subset (canonical base64, at most 1 MiB), with explicit losses."
                             } else if self.ctfile_codec.is_some() {
                                 "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
                             } else {
-                                "Read CDXML as a rich tree or preview a loss-accounted editor projection."
+                                "Read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or preview a loss-accounted editor projection."
                             },
                         ),
                         &[],
@@ -1265,11 +1265,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         runs(
                             operation.as_str(),
                             if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
+                                "Write bounded MOL/SDF, rich CDXML or a bounded CDX subset with explicit losses, opaque-content safety and accept_loss consent for rounded or dropped CDX content."
                             } else if self.ctfile_codec.is_some() {
                                 "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
                             } else {
-                                "Write rich CDXML with opaque-content safety and explicit loss reporting."
+                                "Write rich CDXML or a bounded CDX subset with opaque-content safety, explicit loss reporting and accept_loss consent for rounded or dropped CDX content."
                             },
                         ),
                         &[],

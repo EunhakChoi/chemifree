@@ -245,9 +245,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion {
                         let supported = match (self.ctfile_codec.is_some(), self.interchange_codec.is_some()) {
-                            (true, true) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
+                            (true, true) => Some(("MOL/SDF, CDXML and CDX subsets", "Read and write bounded V2000 MOL/SDF, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. Advanced chemistry and other CDX objects are unsupported; other formats are unsupported.")),
                             (true, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, true) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
+                            (false, true) => Some(("CDXML and CDX subsets", "Read and write rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower), and preview an editor projection, with explicit losses. Other formats and advanced objects remain unsupported.")),
                             (false, false) => None,
                         };
                         if let Some((label, description)) = supported {
