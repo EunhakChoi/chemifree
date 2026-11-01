@@ -664,3 +664,18 @@ fn the_byte_limit_covers_the_smiles_and_trailing_text_is_bounded_separately() {
 fn read_code(text: &str) -> &'static str {
     smiles_common::read(text).unwrap_err().code
 }
+
+#[test]
+fn parts_are_connected_components_not_dot_separated_pieces() {
+    for (text, parts) in [
+        ("C1.C1", 1),
+        ("CC.O", 2),
+        ("[Na+].[Cl-]", 2),
+        ("C1.C2.C1.C2", 2),
+        ("C.C.C", 3),
+        ("c1ccccc1.NCCO", 2),
+        ("C", 1),
+    ] {
+        assert_eq!(read(text).unwrap().parts, parts, "{text}");
+    }
+}

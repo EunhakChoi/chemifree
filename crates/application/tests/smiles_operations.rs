@@ -250,6 +250,11 @@ fn a_replayed_request_returns_the_committed_reply_without_placing_again() {
     );
     assert_eq!(moved["outcome"], "ok", "{moved}");
     let replay = commit(&app, "once", &id, "CCO", 0, &digest, false);
+    assert_eq!(
+        replay, first,
+        "a replay is exactly the committed reply, model_id included"
+    );
+    assert_eq!(replay["model_id"], "chemifree-smiles-1");
     assert_eq!(replay["outcome"], first["outcome"], "{replay}");
     assert_eq!(replay["document_revision"], first["document_revision"]);
     assert_eq!(

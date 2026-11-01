@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
-import { errorAfterTask } from '@/lib/page-error'
+import { countsAsPageFailure, errorAfterTask, replyBelongsToShownDrawing } from '@/lib/page-error'
 import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
@@ -178,7 +178,7 @@ export function useDocumentEditor() {
           setError((previous) => errorAfterTask(previous, { failed: false, newerFailure: failures.current !== failuresSeen }))
         },
         (failure: unknown) => {
-          failures.current += 1
+          if (countsAsPageFailure(onFailure !== undefined)) failures.current += 1
           onFailure?.(failure)
           setError((previous) => errorAfterTask(previous, { failed: true, handled: onFailure !== undefined, error: asApiError(failure) }))
         },
@@ -306,6 +306,11 @@ export function useDocumentEditor() {
     serviceGenerationRef.current === generation && currentRef.current !== null &&
     sameConversionSnapshot(currentRef.current.document, snapshot), [])
 
+  /** An import reply replaces the drawing on screen only if it is still the one it was made for. */
+  const adoptImportReply = useCallback((documentId: string, response: DocumentResponse) => {
+    if (replyBelongsToShownDrawing(currentRef.current?.document.id, documentId)) setCurrent(response)
+  }, [setCurrent])
+
   /** One guard for every previewed import: the same drawing, revision and service, or a refusal. */
   const requireCurrentImport = useCallback((
     input: { documentId: string; revision: number },
@@ -371,11 +376,11 @@ export function useDocumentEditor() {
       await run(async () => {
         requireCurrentImport(input, snapshot, generation)
         const response = await client.importCt(input)
-        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+        adoptImportReply(input.documentId, response)
         committed = true
       })
       return committed
-    }, [run, setCurrent, requireCurrentImport]),
+    }, [run, adoptImportReply, requireCurrentImport]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>
       client.previewSmiles(id, revision, source), []),
     exportSmiles: useCallback((id: string, style: SmilesStyle, acceptedLosses?: string) =>
@@ -388,10 +393,10 @@ export function useDocumentEditor() {
       let failure: ApiError | null = null
       await run(async () => {
         requireCurrentImport(input, snapshot, generation)
-        setCurrent(await client.importSmiles(input))
+        adoptImportReply(input.documentId, await client.importSmiles(input))
       }, (cause) => { failure = asApiError(cause) })
       return failure as ApiError | null
-    }, [run, setCurrent, requireCurrentImport]),
+    }, [run, adoptImportReply, requireCurrentImport]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

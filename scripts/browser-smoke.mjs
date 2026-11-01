@@ -2897,7 +2897,7 @@ step = 'after short_wide_bond_is_selectable'
   const input = panel.getByLabel('SMILES to import')
   await input.fill('CCO ethanol')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByText('3 atoms, 2 bonds, 1 part(s).', { exact: true }).waitFor()
+  await panel.getByText('3 atoms, 2 bonds, 1 connected part(s).', { exact: true }).waitFor()
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'a preview does not change the drawing')
   await panel.getByText(/Text after the first whitespace is not part of the SMILES/).waitFor()
   // Changing the text with a preview on screen says so instead of silently dropping it.
@@ -2940,6 +2940,34 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('alert').waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0, 'a failed commit clears its preview')
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 4, 'the refused import added nothing')
+  // While a commit is in flight the input is locked, and the import is reported when it lands.
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const lockedPanel = page.getByRole('complementary', { name: 'SMILES' })
+  const lockedInput = lockedPanel.getByLabel('SMILES to import')
+  await lockedInput.fill('O')
+  await lockedPanel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await lockedPanel.getByRole('button', { name: 'Import SMILES' }).waitFor()
+  let commitArrived
+  const commitSeen = new Promise((resolve) => { commitArrived = resolve })
+  let releaseCommit
+  const commitReleased = new Promise((resolve) => { releaseCommit = resolve })
+  const holdCommit = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.import' || request.parameters?.preview) return route.continue()
+    const response = await route.fetch()
+    commitArrived()
+    await commitReleased
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdCommit)
+  await lockedPanel.getByRole('button', { name: 'Import SMILES' }).click()
+  await commitSeen
+  assert.equal(await lockedInput.isDisabled(), true, 'typing is locked while the commit is in flight')
+  releaseCommit()
+  await lockedPanel.getByText('Imported. Undo restores the drawing before the import.', { exact: true }).waitFor()
+  await page.unroute('**/api/v1/operations', holdCommit)
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 5)
   results.smiles_preview_consent_import_export = true
 }
 

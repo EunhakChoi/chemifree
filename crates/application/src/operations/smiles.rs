@@ -119,6 +119,17 @@ fn codec_failure(error: SmilesError) -> (Outcome, Diagnostic) {
     (outcome, diagnostic(error.code, error.message, details))
 }
 
+/// A failure of the document layer (stale revision, rejected edit, missing document) as the
+/// one error reply every step of an import or export uses.
+fn document_failure(known: &Known, error: &ApplicationError) -> OperationResponse {
+    known.reply(
+        Outcome::Error,
+        error.current_revision,
+        None,
+        vec![failure(error)],
+    )
+}
+
 fn refuse_codec(known: &Known, error: SmilesError) -> OperationResponse {
     let (outcome, diagnostic) = codec_failure(error);
     known.reply(outcome, None, None, vec![diagnostic])
@@ -362,12 +373,7 @@ impl ImportAdapter for SmilesAdapter<'_> {
     }
 
     fn failure(&self, known: &Known, error: &ApplicationError) -> OperationResponse {
-        known.reply(
-            Outcome::Error,
-            error.current_revision,
-            None,
-            vec![failure(error)],
-        )
+        document_failure(known, error)
     }
 
     fn bind(
@@ -446,14 +452,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 &fingerprint,
             ) {
                 Ok(replay) => replay,
-                Err(error) => {
-                    return known.reply(
-                        Outcome::Error,
-                        error.current_revision,
-                        None,
-                        vec![failure(&error)],
-                    );
-                }
+                Err(error) => return document_failure(known, &error),
             }
         };
         let read = match codec.read(&p.source) {
@@ -466,23 +465,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             // A completed request is answered from its record: nothing is placed again.
             let mut result: DocumentResult = response.into();
             result.import_mapping = Some(ct_mapping(&result.document, atoms, bonds));
-            return converted(
+            let mut reply = converted(
                 known,
                 Some(result.document.revision),
                 OperationResult::Document(Box::new(result)),
                 losses,
             );
+            reply.model_id = Some(SMILES_MODEL_ID.into());
+            return reply;
         }
         let target = match self.document(&p.document_id) {
             Ok(response) => response,
-            Err(error) => {
-                return known.reply(
-                    Outcome::Error,
-                    error.current_revision,
-                    None,
-                    vec![failure(&error)],
-                );
-            }
+            Err(error) => return document_failure(known, &error),
         };
         let commands = match import_commands(&read, &target.document) {
             Ok(commands) => commands,
@@ -497,7 +491,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 preview_digest: p.preview_digest.as_deref(),
                 accept_loss: p.accept_loss,
                 fingerprint,
-                generation: self.smiles_generation,
+                generation: self.conversion_generation,
                 target: &target,
                 commands: &commands,
                 losses,
@@ -528,14 +522,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
             Ok(pair) => pair,
-            Err(error) => {
-                return known.reply(
-                    Outcome::Error,
-                    error.current_revision,
-                    None,
-                    vec![failure(&error)],
-                );
-            }
+            Err(error) => return document_failure(known, &error),
         };
         let style = SmilesStyle::from(p.style);
         let written: SmilesWrite = match codec.write(&graph, style) {

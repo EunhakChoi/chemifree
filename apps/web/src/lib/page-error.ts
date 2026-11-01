@@ -11,3 +11,20 @@ export function errorAfterTask<E>(
   if (!settled.failed) return settled.newerFailure ? previous : null
   return settled.handled ? previous : settled.error
 }
+
+/**
+ * Whether a failed task counts against clearing the page error. A failure the caller shows
+ * itself is not a page failure, so it must not stop an older task's success from clearing an
+ * error the user had already seen.
+ */
+export function countsAsPageFailure(handled: boolean): boolean {
+  return !handled
+}
+
+/**
+ * Whether a finished import's reply may replace the drawing on screen: only while that is
+ * still the drawing the import was made for, never one opened since.
+ */
+export function replyBelongsToShownDrawing(shownId: string | undefined, importedId: string): boolean {
+  return shownId === importedId
+}

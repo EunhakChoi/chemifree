@@ -98,7 +98,6 @@ struct Reader<'a> {
     atoms: Vec<ParsedAtom>,
     bonds: Vec<ParsedBond>,
     bonded: HashSet<(usize, usize)>,
-    parts: usize,
 }
 
 impl Reader<'_> {
@@ -354,7 +353,6 @@ pub(super) fn read(text: &str) -> Result<SmilesRead, Failure> {
         atoms: Vec::new(),
         bonds: Vec::new(),
         bonded: HashSet::new(),
-        parts: 0,
     };
     let mut state = State::Start;
     let mut previous: Option<usize> = None;
@@ -533,9 +531,6 @@ pub(super) fn read(text: &str) -> Result<SmilesRead, Failure> {
                 let span = parsed.span;
                 let index = reader.atoms.len();
                 reader.atoms.push(parsed);
-                if previous.is_none() {
-                    reader.parts += 1;
-                }
                 match previous {
                     Some(parent) => {
                         let written = pending.take();
@@ -580,6 +575,28 @@ pub(super) fn read(text: &str) -> Result<SmilesRead, Failure> {
     finish(reader, notes)
 }
 
+/// Connected components of the atoms joined by `bonds`: dot-separated pieces that a ring
+/// closure joins (`C1.C1`) are one part.
+fn connected_parts(atoms: usize, bonds: impl Iterator<Item = (usize, usize)>) -> usize {
+    fn root(parent: &mut [usize], mut at: usize) -> usize {
+        while parent[at] != at {
+            parent[at] = parent[parent[at]];
+            at = parent[at];
+        }
+        at
+    }
+    let mut parent: Vec<usize> = (0..atoms).collect();
+    let mut parts = atoms;
+    for (a, b) in bonds {
+        let (a, b) = (root(&mut parent, a), root(&mut parent, b));
+        if a != b {
+            parent[a] = b;
+            parts -= 1;
+        }
+    }
+    parts
+}
+
 fn atom_id(index: usize) -> AtomId {
     AtomId::from_serial(u32::try_from(index + 1).expect("at most a few hundred atoms"))
         .expect("serials start at one")
@@ -621,12 +638,8 @@ fn determine_radical(
 /// Bond orders, aromatic systems, hydrogens and radicals: the semantic pass of OpenSMILES,
 /// "Aromaticity" and "Organic Subset".
 fn finish(reader: Reader<'_>, mut notes: Vec<ReadNote>) -> Result<SmilesRead, Failure> {
-    let Reader {
-        atoms,
-        bonds,
-        parts,
-        ..
-    } = reader;
+    let Reader { atoms, bonds, .. } = reader;
+    let parts = connected_parts(atoms.len(), bonds.iter().map(|bond| (bond.begin, bond.end)));
     let ids: Vec<AtomId> = (0..atoms.len()).map(atom_id).collect();
     // Which bonds lie on a cycle: the topology alone decides, before any order is chosen.
     let topology = MoleculeGraph::from_parts(

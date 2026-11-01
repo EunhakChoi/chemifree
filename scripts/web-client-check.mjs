@@ -15,7 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
-const { errorAfterTask } = await import('../apps/web/src/lib/page-error.ts')
+const { countsAsPageFailure, errorAfterTask, replyBelongsToShownDrawing } = await import('../apps/web/src/lib/page-error.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -1950,4 +1950,12 @@ test('only a success clears the page error; a failure a panel handles leaves it 
   // A failure the caller handles (a failed SMILES import shown in its panel) neither sets nor clears it.
   assert.equal(errorAfterTask(seen, { failed: true, handled: true, error: fresh }), seen)
   assert.equal(errorAfterTask(null, { failed: true, handled: true, error: fresh }), null)
+})
+
+test('a failure a panel handles does not block clearing, and a reply never replaces another drawing', () => {
+  assert.equal(countsAsPageFailure(false), true, 'an unhandled failure is a page failure')
+  assert.equal(countsAsPageFailure(true), false, 'a handled failure is not')
+  assert.equal(replyBelongsToShownDrawing('doc-1', 'doc-1'), true)
+  assert.equal(replyBelongsToShownDrawing('doc-2', 'doc-1'), false, 'another drawing was opened meanwhile')
+  assert.equal(replyBelongsToShownDrawing(undefined, 'doc-1'), false, 'nothing is open')
 })

@@ -193,3 +193,17 @@ fn the_documented_open_ring_and_trailing_limits_are_enforced_as_stated() {
         "trailing_text_too_long"
     );
 }
+
+#[test]
+fn the_kekule_spelling_of_a_refused_fused_system_is_still_written_recorded() {
+    for text in [
+        "C1=CC=C2NC=CC2=C1",
+        "O=C1CCC2=CC=CC=C12",
+        "C1CC2=CC=CC=C2C1",
+        "C1=CC=C2C(=C1)C3=CC=CC=C23",
+    ] {
+        let source = read(text).expect(text);
+        let written = write(&graph(&source), SmilesStyle::Recorded).expect(text);
+        assert_eq!(written.text, text, "recorded order keeps the spelling");
+    }
+}

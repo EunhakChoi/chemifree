@@ -125,7 +125,8 @@ pub struct SmilesRead {
     pub atoms: Vec<SmilesAtom>,
     pub bonds: Vec<SmilesBond>,
     pub notes: Vec<ReadNote>,
-    /// Dot-separated parts, whether or not ring closures later joined them.
+    /// Connected parts: atoms joined by bonds, including ring closures, count once. A
+    /// dot-separated piece that a ring closure joins to another is not a separate part.
     pub parts: usize,
 }
 

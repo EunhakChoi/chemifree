@@ -1462,7 +1462,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 preview_digest: p.preview_digest.as_deref(),
                 accept_loss: p.accept_loss,
                 fingerprint,
-                generation: self.ctfile_generation,
+                generation: self.conversion_generation,
                 target: &target,
                 commands: &commands,
                 losses,

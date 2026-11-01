@@ -98,7 +98,6 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setPrepared(null)
     try {
       const preview = await editor.previewSmiles(snapshot.id, snapshot.revision, text)
-      if (!sameConversionSnapshot(snapshot, preview.snapshot)) throw new Error('The service previewed a different drawing. Reload and preview again.')
       if (alive.current && importRequest.current === sequence) setPrepared({ source: text, snapshot: preview.snapshot, generation, preview, offer: null })
     } catch (cause) {
       if (alive.current && importRequest.current === sequence) fail(cause, 'SMILES preview failed.')
@@ -117,10 +116,13 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }, item.snapshot, item.generation)
     if (!alive.current) return
     setImporting((count) => count - 1)
-    if (importRequest.current !== sequence) return
     if (failure === null) {
+      // The input is locked while a commit is in flight, but a success is reported whatever
+      // else happened, so the user always learns that the drawing changed.
       setPrepared(null)
       setNotice('Imported. Undo restores the drawing before the import.')
+    } else if (importRequest.current !== sequence) {
+      return
     } else if (failure instanceof ApiError && failure.code === 'loss_consent_required' && failure.consent) {
       // The only failure that keeps the preview: the same preview, plus what must be accepted.
       setPrepared({ ...item, offer: failure.consent })
@@ -168,7 +170,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     </p>
     <Field>
       <FieldLabel htmlFor="smiles-input">SMILES to import</FieldLabel>
-      <Input id="smiles-input" value={source} spellCheck={false} autoComplete="off"
+      <Input id="smiles-input" value={source} spellCheck={false} autoComplete="off" disabled={busy}
         onChange={(event) => {
           setSource(event.currentTarget.value)
           discard('The text changed, so the earlier SMILES preview was discarded.', true, false)
@@ -179,7 +181,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       Preview SMILES import
     </Button>
     {currentImport && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
-      <p>{currentImport.preview.atoms} atoms, {currentImport.preview.bonds} bonds, {currentImport.preview.parts} part(s).</p>
+      <p>{currentImport.preview.atoms} atoms, {currentImport.preview.bonds} bonds, {currentImport.preview.parts} connected part(s).</p>
       <LossList losses={currentImport.preview.losses} />
       {currentImport.offer && <div role="group" aria-label="Losses that need consent" className="flex flex-col gap-2">
         <p>These losses need your consent before importing:</p>
