@@ -281,7 +281,10 @@ fn syntax_valid_valence_warnings_preserve_graph_and_distinguish_unsupported_elem
             .contains("atom 1 is unsupported under chemifree-valence-2 (element_or_charge)")
     );
     assert_eq!(metal["diagnostics"][0]["details"]["status"], "unsupported");
-    assert_eq!(metal["diagnostics"][0]["details"]["reason"], "element_or_charge");
+    assert_eq!(
+        metal["diagnostics"][0]["details"]["reason"],
+        "element_or_charge"
+    );
     let benzene = preview(&app, &id, "c1ccccc1");
     assert!(
         !benzene["loss_report"]
