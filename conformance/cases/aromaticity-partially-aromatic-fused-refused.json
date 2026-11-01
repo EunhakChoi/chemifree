@@ -1,0 +1,355 @@
+{
+  "id": "aromaticity-partially-aromatic-fused-refused",
+  "title": "A benzene fused to a saturated ring is unsupported, never non-aromatic, and refuses conversion of the whole document",
+  "requirements": [
+    "MODEL-02",
+    "CHEM-02"
+  ],
+  "axis": "graph",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 20,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 80,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 140,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 160,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 220,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 260,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 280,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$0",
+          "end": "$1",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$2",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$2",
+          "end": "$3",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$3",
+          "end": "$4",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$4",
+          "end": "$5",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$5",
+          "end": "$0",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$6",
+          "end": "$7",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$7",
+          "end": "$8",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$8",
+          "end": "$9",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$9",
+          "end": "$10",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$10",
+          "end": "$11",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$11",
+          "end": "$6",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$6",
+          "end": "$12",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$12",
+          "end": "$13",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$13",
+          "end": "$14",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$14",
+          "end": "$15",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$15",
+          "end": "$11",
+          "order": "single"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "inspect",
+        "profile": "preserve-semantics",
+        "operation": "chem.aromaticity",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-aromaticity-2",
+        "result": {
+          "systems": [
+            {
+              "classification": "aromatic",
+              "electrons": 6,
+              "reason": null
+            },
+            {
+              "classification": "unsupported",
+              "cycle_rank": 2,
+              "electrons": null,
+              "reason": "fused_partially_aromatic"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "convert",
+        "profile": "preserve-semantics",
+        "operation": "chem.aromaticity_convert",
+        "parameters": {
+          "expected_revision": 1,
+          "to": "aromatic"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "model_id": "chemifree-aromaticity-2",
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "fused_partially_aromatic"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "identity",
+        "profile": "preserve-semantics",
+        "operation": "chem.identity",
+        "parameters": {
+          "mode": "chemical"
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "model_id": "chemifree-chemical-graph-2",
+        "diagnostics": [
+          {
+            "code": "identity_unsupported",
+            "details": {
+              "reason": "fused_partially_aromatic"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

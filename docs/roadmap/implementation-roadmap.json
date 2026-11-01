@@ -951,7 +951,8 @@
    "depends_on": [
     "P18",
     "P13"
-   ]
+   ],
+   "note": "선행 보완 P21a(방향족 모델 chemifree-aromaticity-2, 화학 동일성 chemifree-chemical-graph-2)는 미병합 브랜치에서 구현 중이며 SMILES는 없다. P21 자체는 계획 상태다."
   },
   {
    "phase": "chemistry",

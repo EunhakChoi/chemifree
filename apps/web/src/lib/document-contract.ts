@@ -1563,7 +1563,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics',
       operation: 'chem.aromaticity', parameters: { document_id: id },
     }, 'reload')
-    if (!isRecord(value) || value.outcome !== 'ok' || value.model_id !== 'chemifree-aromaticity-1' ||
+    if (!isRecord(value) || value.outcome !== 'ok' || value.model_id !== 'chemifree-aromaticity-2' ||
         !isRecord(value.result) || !isRecord(value.result.snapshot) || !Array.isArray(value.result.systems)) {
       throw new ApiError('analysis_unavailable', 'The local service could not inspect aromaticity.', 200)
     }
@@ -1589,7 +1589,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.identity',
       parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
     }, 'reload')
-    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-1'
+    const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
     if (!isRecord(value) || value.outcome !== 'ok') {
       const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
       const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
@@ -1676,7 +1676,7 @@ export class DocumentClient {
         stateReason: details && typeof details.reason === 'string' ? details.reason : undefined,
       })
     }
-    if (value.model_id !== 'chemifree-aromaticity-1') {
+    if (value.model_id !== 'chemifree-aromaticity-2') {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
     }
     const response = DocumentClient.document({ api_version: API_VERSION, ...value.result })

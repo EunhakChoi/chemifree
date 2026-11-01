@@ -32,6 +32,8 @@
     "cases/settings-and-preferences-refused.json",
     "cases/valence-snapshot.json",
     "cases/aromaticity-conversion.json",
+    "cases/aromaticity-kekule-nitrogen-hydrogen.json",
+    "cases/aromaticity-partially-aromatic-fused-refused.json",
     "cases/graph-identity.json",
     "cases/cdxml-rich-projection.json",
     "cases/cdx-binary-interchange.json"

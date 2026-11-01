@@ -13,7 +13,7 @@ use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
 pub const MODEL_ID: &str = "chemifree-recorded-graph-1";
-pub const CHEMICAL_MODEL_ID: &str = "chemifree-chemical-graph-1";
+pub const CHEMICAL_MODEL_ID: &str = "chemifree-chemical-graph-2";
 pub const MAX_ATOMS: usize = 128;
 pub const MAX_SEARCH_STATES: usize = 100_000;
 /// Bounds refinement and serialization work as well as recursion count.
@@ -198,29 +198,18 @@ impl Graph {
             .map_err(IdentityError::Unsupported)?
             .into_iter()
             .collect();
-        let mut orders: BTreeMap<_, Vec<Option<u16>>> =
-            atoms.keys().map(|&id| (id, Vec::new())).collect();
-        for (id, bond) in input.bonds() {
-            let order = match bond.order {
-                BondOrder::Single => Some(1),
-                BondOrder::Double => Some(2),
-                BondOrder::Triple => Some(3),
-                BondOrder::Aromatic => match assignment.get(&id) {
-                    Some(aromaticity::KekuleOrder::Single) => Some(1),
-                    Some(aromaticity::KekuleOrder::Double) => Some(2),
-                    None => return Err(IdentityError::Unsupported("aromaticity_unsupported")),
-                },
-                BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
-            };
-            orders
-                .get_mut(&bond.begin)
-                .expect("validated endpoint")
-                .push(order);
-            orders
-                .get_mut(&bond.end)
-                .expect("validated endpoint")
-                .push(order);
+        // `kekulize` assigns every recorded aromatic bond or fails, so this cannot trigger; it
+        // keeps an aromaticity failure from ever surfacing as a bond or valence reason.
+        if input
+            .bonds()
+            .any(|(id, bond)| bond.order == BondOrder::Aromatic && !assignment.contains_key(&id))
+        {
+            return Err(IdentityError::Unsupported("aromaticity_unsupported"));
         }
+        let orders =
+            chemistry::incident_orders(atoms.keys().copied(), input.bonds(), |id, bond| {
+                aromaticity::kekule_order_value(&assignment, id, bond)
+            });
         let mut hydrogens = BTreeMap::new();
         for (&id, atom) in &atoms {
             let state = chemistry::assess(id, atom, &orders[&id]);

@@ -420,7 +420,35 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "834538b8c592ccdc0f5291e4e16dc77f64b4d1c3e84404e7de48f56862a5d98f"
+      "case_sha256": "baaeaaa1b5a3bc1b71170bff464515e9113beaca0c7dfe85aca039a953d79ba2"
+    },
+    {
+      "id": "aromaticity-kekule-nitrogen-hydrogen",
+      "title": "A Kekule pyrrole nitrogen with inferred hydrogen is pyrrole-type; conversion states its hydrogen and the Kekule form restores it to inferred",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a120ca58b2510b7243e76ade85644105119b61848824a91725d51f3567afe09a"
+    },
+    {
+      "id": "aromaticity-partially-aromatic-fused-refused",
+      "title": "A benzene fused to a saturated ring is unsupported, never non-aromatic, and refuses conversion of the whole document",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "2d8f6a028b371b1cf9751c5ad35025503d3178212cccf4f2bfe2eeb0dd7e19cf"
     },
     {
       "id": "graph-identity",
@@ -467,17 +495,17 @@
   ],
   "counts": {
     "accept": {
-      "passed": 22,
+      "passed": 23,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 12,
+      "passed": 13,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 34,
+      "passed": 36,
       "failed": 0,
       "not_run": 0
     }

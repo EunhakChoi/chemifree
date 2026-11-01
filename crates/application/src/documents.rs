@@ -1,14 +1,14 @@
 //! Document editing sessions: working copies, revisions, idempotent replays, saves, recovery
 //! drafts, and copies.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
 use chemifree_domain::document::{
-    BondOrder, Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering,
-    Outcome, RevisionsExhausted, TransactionError, validated_title,
+    Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
+    RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
@@ -864,46 +864,19 @@ impl<R: DocumentRepository> Documents<R> {
         };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
             let graph = MoleculeGraph::from_document(&session.document);
-            let interpretation = aromaticity::perceive(&graph);
-            let changes: Vec<_> = match conversion {
-                AromaticityConversion::Aromatic => interpretation.aromatize().map(|ids| {
-                    ids.into_iter()
-                        .map(|id| (id, BondOrder::Aromatic))
-                        .collect()
-                }),
-                AromaticityConversion::Kekule => interpretation.kekulize().map(|pairs| {
-                    pairs
-                        .into_iter()
-                        .map(|(id, order)| {
-                            let order = match order {
-                                aromaticity::KekuleOrder::Single => BondOrder::Single,
-                                aromaticity::KekuleOrder::Double => BondOrder::Double,
-                            };
-                            (id, order)
-                        })
-                        .collect()
-                }),
-            }
-            .map_err(|reason| ApplicationError {
-                invalid_aromaticity: Some(reason),
-                ..ApplicationError::new(
-                    ErrorCode::InvalidCommand,
-                    "Aromaticity conversion could not be completed under the selected model.",
-                )
-            })?;
-            let existing: BTreeMap<_, _> = graph.bonds().collect();
-            let mut commands = Vec::new();
-            for (bond, order) in changes {
-                let Some(current) = existing.get(&bond) else {
-                    return Err(ApplicationError::new(
+            let target = match conversion {
+                AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
+                AromaticityConversion::Kekule => aromaticity::Target::Kekule,
+            };
+            let commands = aromaticity::conversion_commands(&graph, target).map_err(|reason| {
+                ApplicationError {
+                    invalid_aromaticity: Some(reason),
+                    ..ApplicationError::new(
                         ErrorCode::InvalidCommand,
-                        "Conversion named a bond outside the inspected graph.",
-                    ));
-                };
-                if current.order != order {
-                    commands.push(Command::UpdateBond { bond, order });
+                        "Aromaticity conversion could not be completed under the selected model.",
+                    )
                 }
-            }
+            })?;
             if commands.is_empty() {
                 return Ok(());
             }

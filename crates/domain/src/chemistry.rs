@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::document::{Atom, AtomId, BondOrder, Document};
+use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document};
 use crate::states::{Hydrogens, Radical};
 
 pub const VALENCE_MODEL: &str = "chemifree-valence-2";
@@ -131,28 +131,44 @@ pub(crate) fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAss
     result
 }
 
+/// The one mapping from a recorded bond to its integral valence contribution. Aromatic,
+/// dative, query and unknown bonds have none until a caller supplies a Kekulé assignment.
+pub(crate) fn bond_order_value(order: &BondOrder) -> Option<u16> {
+    match order {
+        BondOrder::Single => Some(1),
+        BondOrder::Double => Some(2),
+        BondOrder::Triple => Some(3),
+        BondOrder::Aromatic | BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
+    }
+}
+
+/// The one incident-order collection: every atom's bond contributions, in one pass over the
+/// bonds, for the atoms given. `order_of` lets a caller substitute an assignment for bonds with no recorded value.
+pub(crate) fn incident_orders<'a>(
+    atoms: impl Iterator<Item = AtomId>,
+    bonds: impl Iterator<Item = (BondId, &'a Bond)>,
+    order_of: impl Fn(BondId, &Bond) -> Option<u16>,
+) -> BTreeMap<AtomId, Vec<Option<u16>>> {
+    let mut incident: BTreeMap<_, Vec<Option<u16>>> = atoms.map(|id| (id, Vec::new())).collect();
+    for (id, bond) in bonds {
+        let order = order_of(id, bond);
+        for end in [bond.begin, bond.end] {
+            // A caller may ask for a subset of atoms; others are skipped.
+            if let Some(orders) = incident.get_mut(&end) {
+                orders.push(order);
+            }
+        }
+    }
+    incident
+}
+
 /// Inspect a single immutable document snapshot; never changes recorded atoms, history or IDs.
 pub fn inspect_valence(document: &Document) -> Vec<AtomAssessment> {
-    let mut incident: BTreeMap<_, Vec<Option<u16>>> =
-        document.atoms().map(|(id, _)| (id, Vec::new())).collect();
-    for (_, bond) in document.bonds() {
-        let order = match bond.order {
-            BondOrder::Single => Some(1),
-            BondOrder::Double => Some(2),
-            BondOrder::Triple => Some(3),
-            BondOrder::Aromatic | BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => {
-                None
-            }
-        };
-        incident
-            .get_mut(&bond.begin)
-            .expect("document validates endpoints")
-            .push(order);
-        incident
-            .get_mut(&bond.end)
-            .expect("document validates endpoints")
-            .push(order);
-    }
+    let incident = incident_orders(
+        document.atoms().map(|(id, _)| id),
+        document.bonds(),
+        |_, bond| bond_order_value(&bond.order),
+    );
     document
         .atoms()
         .map(|(id, atom)| assess(id, atom, &incident[&id]))
