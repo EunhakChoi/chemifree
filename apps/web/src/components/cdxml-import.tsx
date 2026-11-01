@@ -48,6 +48,8 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       setError('Choose a .cdxml or .cdx file.')
       return
     }
+    // CDX is sent base64-encoded inside a 256 KiB HTTP request, so its cap is 180 KiB; CDXML is
+    // sent as text and capped at 120 KiB. The operation API and CLI have their own limits.
     const limitKiB = format === 'cdx' ? 180 : 120
     if (file.size > limitKiB * 1024) {
       setError(`This web form accepts ${format.toUpperCase()} files up to ${limitKiB} KiB. The operation API and CLI have their own limits.`)

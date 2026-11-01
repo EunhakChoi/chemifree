@@ -102,7 +102,7 @@ It reads and writes supported node, bond, position, bounds, graphic, font, color
 and text properties. Coordinates and style sizes must be exactly representable in
 CDX units when writing. Default unstyled strings use ISO Latin-1; styled strings
 are supported only for the documented ISO Latin-1 font mapping, with explicit
-font, face, size and color for each run. Styled bytes 0x80–0x9f are refused because
+font, face, size and color for each run. Text bytes 0x80–0x9f, styled or not, are refused because
 the published charset example does not resolve their Latin-1/Windows-1252 ambiguity.
 Font and color tables are decoded at document scope; table tags on other known
 objects are refused because the public [string](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/DataType/CDXString.htm)
@@ -114,7 +114,19 @@ the CDXML table-object requirements. This CDX profile therefore refuses a binary
 font or color table with count zero as `unsupported_empty_table`; the binary
 datatype descriptions do not establish that every such CDX file is invalid.
 No table remains distinct from an empty table and is supported.
-Non-ASCII font names and other encodings are refused rather than guessed.
+Non-ASCII font names and other encodings are refused rather than guessed. This is a
+whole-file limit: every font table entry must use charset 1252 with an ASCII name,
+so even an unused entry such as a Symbol font refuses the file with
+`unsupported_encoding`, because carrying or dropping such an entry honestly is not
+yet supported.
+A known enumerated or bounded property outside the common model's range (node type
+0 to 13, graphic type 0 to 7, element 1 to 118, isotope 0 to 32767, bond order
+1 to 65535) is refused at read with `invalid_property_value` and the property's byte
+offset, not kept as opaque data, matching how the CDXML reader treats the same values.
+A text object with several unstyled runs is refused on write
+(`unrepresentable_style`) rather than merged; one unstyled run is written as the
+implicit string, and a run with no characters reads as a style run with no children,
+the same tree CDXML gives for an empty element.
 The font platform is not represented in the common tree. Reading a font table
 reports it; writing one records platform 1 and reports a `font_platform` loss
 unless the supplied same-format original already used platform 1 (an unchanged
@@ -133,7 +145,7 @@ coordinates and font sizes, which must be exact. CDX has no place for XML commen
 or processing instructions: writing them requires `discard_opaque`, drops them and
 reports an `xml_comment` loss (without it the write fails with
 `comment_discard_required`). Whitespace between text style runs carries no meaning
-and is ignored. A style run with no characters (for example at the end of the text)
+and is ignored; text on either side of a dropped comment or instruction inside a run is joined. A style run with no characters (for example at the end of the text)
 is kept and round-trips between CDX and CDXML. Unknown binary objects and
 properties are retained as opaque, with no assumption about their references;
 editing or transcoding them requires explicit discard. The editor refuses unknown
@@ -142,7 +154,7 @@ limit is 1 MiB for input and output, but a request also passes the entry point's
 limit: 256 KiB of JSON over HTTP (about 190 KiB of binary after base64) and 1 MiB
 per CLI request (about 768 KiB of binary), so the full 1 MiB is not reachable through
 either; a base64 source beyond the codec's limit is refused with `resource_limit`,
-and an export that supplies `original` carries it in the same request, so the two share that space. The web form accepts CDX files up to 180 KiB.
+and an export that supplies `original` carries it in the same request, so the two share that space. The web form accepts CDX files up to 180 KiB (CDXML files up to 120 KiB).
 Byte offsets in diagnostics are zero-based and present only when the error has a
 location; an invalid header reports offset 0.
 The profile allows at most 128 nested levels, 100,000
