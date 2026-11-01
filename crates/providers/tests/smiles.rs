@@ -644,5 +644,6 @@ fn isotopes_may_have_leading_zeros_up_to_three_digits() {
     assert_eq!(read("[013C]").atoms[0].isotope, Some(13));
     assert_eq!(read("[002H]").atoms[0].isotope, Some(2));
     assert_eq!(error("[0013C]").0, SmilesErrorCode::InvalidIsotope);
+    // OpenSMILES allows isotope 0, but the drawing model keeps isotopes 1-999 only.
     assert_eq!(error("[000C]").0, SmilesErrorCode::InvalidIsotope);
 }

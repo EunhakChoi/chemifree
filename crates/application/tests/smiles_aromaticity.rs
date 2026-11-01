@@ -362,3 +362,26 @@ fn assert_round_trip_in_place(app: &App, id: &str, text: &str, seed: u64) {
         );
     }
 }
+
+#[test]
+fn kekule_benzene_fused_to_saturated_rings_is_unsupported_never_silently_non_aromatic() {
+    let (app, _dir) = app();
+    // main reported each of these as `non_aromatic/not_conjugated` with chemical identity ok.
+    for (name, text) in [
+        ("tetralin", "C1=CC=C2CCCCC2=C1"),
+        ("indane", "C1=CC=C2CCCC2=C1"),
+        ("benzodioxole", "C1=CC=C2OCOC2=C1"),
+        ("indoline", "C1=CC=C2NCCC2=C1"),
+    ] {
+        assert_eq!(
+            systems(&app, text),
+            ["unsupported/fused_partially_aromatic"],
+            "{name}"
+        );
+        assert_eq!(
+            chemical_code(&app, text),
+            Err("fused_partially_aromatic".into()),
+            "{name}"
+        );
+    }
+}

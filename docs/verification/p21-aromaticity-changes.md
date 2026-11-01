@@ -61,3 +61,15 @@ Classes, in words:
 - `non_aromatic` becomes `unsupported/fused_partially_aromatic` or `fused_system_outside_model` for Kekulé fused systems, as in the first corpus.
 
 Aromatic conversion no longer changes these answers: it states the hydrogens of donor nitrogens in the same edit (`every_kekule_ring_the_model_calls_aromatic_survives_conversion_both_ways`).
+
+## Kekulé benzene fused to saturated rings
+
+main reported each of these as `non_aromatic/not_conjugated` (the benzene ring silently non-aromatic) with chemical identity ok. They are now `unsupported/fused_partially_aromatic` with identity refused for the same reason; the test `kekule_benzene_fused_to_saturated_rings_is_unsupported_never_silently_non_aromatic` asserts it.
+
+| Input | main | now |
+|---|---|---|
+| tetralin `C1=CC=C2CCCCC2=C1` | non_aromatic/not_conjugated, identity ok | unsupported/fused_partially_aromatic, identity refused |
+| indane `C1=CC=C2CCCC2=C1` | same | same as above |
+| benzodioxole `C1=CC=C2OCOC2=C1` | same | same as above |
+| indoline `C1=CC=C2NCCC2=C1` | same | same as above |
+
