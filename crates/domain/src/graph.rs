@@ -24,6 +24,11 @@ impl MoleculeGraph {
         }
     }
 
+    /// A graph from parts a codec built itself; every bond must name atoms in `atoms`.
+    pub(crate) fn from_parts(atoms: Vec<(AtomId, Atom)>, bonds: Vec<(BondId, Bond)>) -> Self {
+        Self { atoms, bonds }
+    }
+
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
         self.atoms.iter().map(|(id, atom)| (*id, atom))
     }

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::aromaticity::{self, Classification};
 use crate::chemistry::{self, Finding};
-use crate::document::{Atom, AtomId, Bond, BondOrder};
+use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
@@ -47,6 +47,11 @@ pub struct CanonicalGraph {
     pub symmetry: Vec<Vec<AtomId>>,
     /// Terminal natural H vertices folded into a heavy atom in the chemical profile.
     pub folded_hydrogens: Vec<(AtomId, AtomId)>,
+    /// Chemical profile only: the non-vertex hydrogens of `numbering[i]`, counting folded
+    /// hydrogen vertices. Empty in the recorded profile.
+    pub hydrogens: Vec<u16>,
+    /// Chemical profile only: the bonds the aromaticity model normalizes to aromatic.
+    pub aromatic_bonds: Vec<BondId>,
 }
 
 type Label = Vec<u8>;
@@ -133,6 +138,9 @@ struct Graph {
     labels: Vec<Label>,
     edges: Vec<Vec<Option<Label>>>,
     folded: Vec<(AtomId, AtomId)>,
+    /// Chemical profile: resolved hydrogens per vertex, and the normalized aromatic bonds.
+    hydrogens: Vec<u16>,
+    aromatic_bonds: Vec<BondId>,
 }
 
 impl Graph {
@@ -161,6 +169,8 @@ impl Graph {
             labels,
             edges,
             folded: Vec::new(),
+            hydrogens: Vec::new(),
+            aromatic_bonds: Vec::new(),
         })
     }
 
@@ -273,6 +283,7 @@ impl Graph {
             .enumerate()
             .map(|(i, id)| (id, i))
             .collect();
+        let resolved: Vec<u16> = ids.iter().map(|id| hydrogens[id]).collect();
         let labels = ids
             .iter()
             .map(|id| {
@@ -300,6 +311,8 @@ impl Graph {
             labels,
             edges,
             folded,
+            hydrogens: resolved,
+            aromatic_bonds: aromatic_bonds.iter().copied().collect(),
         })
     }
 }
@@ -493,9 +506,16 @@ fn finish(graph: Graph) -> Result<CanonicalGraph, IdentityError> {
     symmetry.extend(hydrogen_orbits);
     symmetry.sort();
     let code = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let resolved = if graph.hydrogens.is_empty() {
+        Vec::new()
+    } else {
+        order.iter().map(|&i| graph.hydrogens[i]).collect()
+    };
     Ok(CanonicalGraph {
         code,
         numbering: order.into_iter().map(|i| graph.ids[i]).collect(),
+        hydrogens: resolved,
+        aromatic_bonds: graph.aromatic_bonds.clone(),
         symmetry,
         folded_hydrogens: graph.folded,
     })

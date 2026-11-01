@@ -127,6 +127,72 @@ The parser treats the three header lines, fixed-width connection table and SD da
 For SDF, only after a complete mol block and completed data items does a line beginning `$$$$` terminate a record. Suffix text after that prefix is ignored with a loss report. Header lines and data lines can contain control-looking text in their proper context, but a value line beginning `$$$$` is rejected because it is ambiguous with a separator. Each data item ends with a blank line; a value line may have at most 200 Unicode characters. Field names begin with an ASCII letter and contain only ASCII letters, digits and underscore; DT-numbered fields are refused, and optional registry/header metadata around a named field is reported as lost. LF and CRLF are accepted and normalized to LF on output; isolated CR, NUL, malformed UTF-8, truncated sections and invalid indices are rejected. No silent truncation occurs.
 
 The codec accepts at most 4 MiB input or output, 128 records, 999 atoms and 999 bonds per record, and 1,024 SD fields per record. An import is one transaction, so it must also fit the editor's 500-command and graph/coordinate limits. HTTP limits the JSON request to 256 KiB and CLI operations to 1 MiB; the web file picker limits source files to 200 KiB, and JSON escaping can reduce the effective transport limit. The web checks the source snapshot against the displayed drawing, invalidates previews on observed service restarts, and rechecks the export with the service at download time. It never overwrites a server-side destination.
+## SMILES (P21)
+
+(Work in progress: error codes.)
+
+| Code | Class | Meaning |
+| --- | --- | --- |
+| `empty_input` | syntax | The input is empty; SMILES needs at least one atom. |
+| `leading_whitespace` | syntax | SMILES must not start with whitespace; whitespace ends the SMILES. |
+| `input_too_long` | limit | The input is longer than the reader accepts. |
+| `unexpected_character` | syntax | This character is not part of SMILES. |
+| `bare_atom_not_organic` | syntax | Only B, C, N, O, P, S, F, Cl, Br and I (and aromatic b, c, n, o, p, s) may be written without brackets. |
+| `unclosed_bracket_atom` | syntax | This bracket atom is not closed by ]. |
+| `missing_element` | syntax | A bracket atom needs an element symbol after its optional isotope. |
+| `unknown_element` | syntax | This is not an element symbol. |
+| `bracket_unexpected_character` | syntax | This character is not allowed here in a bracket atom (isotope, symbol, hydrogens, charge, then ]). |
+| `isotope_too_long` | syntax | An isotope has at most three digits. |
+| `isotope_zero_unsupported` | unsupported | Isotope 0 is not supported: the drawing records mass numbers 1 to 999 only. |
+| `charge_syntax` | syntax | A charge is + or - with an optional number of at most two digits, or a repeated sign. |
+| `charge_out_of_range` | syntax | The charge is outside the range the drawing records. |
+| `dangling_bond` | syntax | This bond symbol is not followed by an atom or ring closure. |
+| `bond_without_atom` | syntax | A bond symbol needs an atom before it. |
+| `bond_after_dot` | syntax | A bond symbol cannot follow a dot. |
+| `repeated_bond` | syntax | A bond symbol cannot follow another bond symbol. |
+| `dot_without_atom` | syntax | A dot must separate two atoms. |
+| `branch_without_atom` | syntax | A branch must follow an atom or a closed branch. |
+| `empty_branch` | syntax | A branch needs at least one atom. |
+| `unmatched_close_branch` | syntax | This ) has no matching (. |
+| `unclosed_branch` | syntax | This ( is never closed by ). |
+| `branch_depth_limit` | limit | Branches are nested deeper than the reader accepts. |
+| `ring_digit_without_atom` | syntax | A ring closure digit needs an atom before it. |
+| `ring_digit_after_branch_open` | syntax | A ring closure digit cannot directly follow (. |
+| `ring_digit_after_branch_close` | syntax | A ring closure digit must follow its atom, not a closed branch. |
+| `ring_label_syntax` | syntax | A % ring label is followed by exactly two digits. |
+| `ring_closure_self` | syntax | A ring closure cannot bond an atom to itself. |
+| `ring_closure_duplicate_bond` | syntax | These two atoms are already bonded. |
+| `ring_bond_conflict` | syntax | The two ends of a ring closure name different bonds. |
+| `unclosed_ring` | syntax | This ring closure is never closed. |
+| `command_limit` | limit | The structure has more atoms and bonds than one transaction accepts. |
+| `aromatic_bond_outside_ring` | syntax | An aromatic bond must be in a ring. |
+| `aromatic_atom_outside_ring` | syntax | A lowercase aromatic atom must be in a ring. |
+| `aromatic_atom_not_in_aromatic_ring` | syntax | This lowercase atom has no aromatic bond to another atom. |
+| `aromatic_system_unsupported` | unsupported | The aromatic system is not one the chemifree-aromaticity-2 model supports. |
+| `chirality_unsupported` | unsupported | Tetrahedral and other chirality (@, @@) is not supported; stereo is not implemented. |
+| `directional_bond_unsupported` | unsupported | Directional bonds (/, \) are not supported; stereo is not implemented. |
+| `wildcard_unsupported` | unsupported | The wildcard atom * is a query atom; query SMILES is not supported. |
+| `quadruple_bond_unsupported` | unsupported | The quadruple bond $ is not supported. |
+| `atom_class_unsupported` | unsupported | Atom classes (:n) are not supported. |
+| `reaction_unsupported` | unsupported | Reaction SMILES (>) is not supported. |
+| `empty_graph` | not writable | A drawing with no atoms has no SMILES; the reader would refuse an empty string. |
+| `query_atom_not_writable` | not writable | A query atom cannot be written as SMILES. |
+| `bond_kind_not_writable` | not writable | Only single, double, triple and aromatic bonds can be written as SMILES. |
+| `aromatic_bridge_not_writable` | not writable | An aromatic bond that is not in a ring would be refused by the reader. |
+| `aromaticity_unsupported` | not writable | The aromatic bonds are not a system chemifree-aromaticity-2 supports, so the reader would refuse them. |
+| `hydrogens_unknown_not_writable` | not writable | An atom with stated unknown hydrogens cannot be written. |
+| `hydrogens_undetermined` | not writable | The valence model cannot determine this atom's hydrogen count, which its bracket needs. |
+| `hydrogen_count_not_writable` | not writable | A bracket atom's hydrogen count is a single digit, 0 to 9. |
+| `radical_not_writable` | not writable | The radical state is not the one the reader would infer from the bracket atom's hydrogens. |
+| `isotope_not_writable` | not writable | The isotope is outside 1 to 999. |
+| `charge_not_writable` | not writable | The charge is outside the range the reader accepts. |
+| `ring_label_limit` | limit | More rings are open at once than SMILES has ring labels. |
+| `output_too_long` | limit | The text would be longer than the reader accepts. |
+| `atom_limit` | limit | The canonical form is limited in the number of atoms. |
+| `search_limit` | limit | The canonical search exceeded its work limit. |
+| `canonical_unsupported` | not writable | The chemical graph identity model cannot determine this structure, so it has no canonical form. |
+| `writer_inconsistent` | not writable | The written text did not read back as the same structure. |
+
 ## Formula and mass properties
 
 `chem.properties` takes `{ "document_id", "scope": "molecule" | "selection" | "components", "property": "formula" | "masses" | "distribution", "selection"?: Selection, "data_registration_id"?: string }`. Selection is required only for selection scope and is the client's current atom/bond/object selection, not a stale history selection. Selected bonds add both endpoints; a selected molecule instance or its enclosing group adds the shared graph once; graphics and scene references contribute no atoms. Components follow graph connectivity. Non-vertex inferred hydrogen counts are evaluated on the entire graph before restricting to the selected atoms. Query atoms, undetermined hydrogens and attachment points are refused. Explicit non-vertex H and explicit H vertices are each counted once; valence warnings remain visible for recorded states whose count is known but whose valence is not established.
