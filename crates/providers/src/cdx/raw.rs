@@ -47,10 +47,7 @@ impl Cursor<'_> {
         CdxError::at(
             "truncated",
             self.position as u64,
-            format!(
-                "The file ends at byte {} in the middle of an item.",
-                self.bytes.len()
-            ),
+            "The file ends in the middle of an item.",
         )
     }
 
