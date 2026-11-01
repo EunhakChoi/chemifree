@@ -211,6 +211,14 @@ impl Graph {
             .map_err(IdentityError::Unsupported)?
             .into_iter()
             .collect();
+        // Every aromatic bond must have received a Kekule order; say so rather than let the
+        // valence policy report an unknown bond.
+        if input
+            .bonds()
+            .any(|(id, bond)| bond.order == BondOrder::Aromatic && !assignment.contains_key(&id))
+        {
+            return Err(IdentityError::Unsupported("aromaticity_unsupported"));
+        }
         let assessed = chemistry::assess_graph(input, &assignment);
         let mut hydrogens = BTreeMap::new();
         for (&id, state) in &assessed {
