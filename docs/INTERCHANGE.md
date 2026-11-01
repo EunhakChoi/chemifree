@@ -169,7 +169,7 @@ plain and reported as `style_defaults`. Whitespace-only text between runs is ign
 comments, instructions, stray text outside runs, the root namespace and Represents objects
 naming an unverified attribute have no CDX encoding and are reported as `dropped`
 (`xml_content`, `xml_namespace`, `represents`) - the caller must accept them (`accept_loss`).
-A Represents object with its own ID is refused. What the writer emits is re-read to the same
+A Represents object with its own ID is refused. Object IDs on style runs, font and color tables and their entries cannot be written (CDX numbers only real objects); they are dropped with a reported `object_ids` loss, and a reference that names one is refused (`unsupported_object_id`). A font-table or Represents property repeated where it has no meaning, a Text without its string, and a Represents at the depth limit are refused with `duplicate_property`, `missing_property` and `resource_limit` at the property or object offset. What the writer emits is re-read to the same
 tree by the reader.
 
 **Not implemented:** CDX objects beyond the subset (reactions, brackets, curves, embedded

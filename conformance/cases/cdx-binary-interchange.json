@@ -126,8 +126,38 @@
           "page_id": 1,
           "fragment_id": 2,
           "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
-          "preview_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "preview_digest": null,
           "accept_loss": false
+        }
+      },
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "loss_consent_required"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-with-another-digest",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
+          "preview_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "accept_loss": true
         }
       },
       "expect": {
@@ -137,6 +167,55 @@
             "code": "preview_changed"
           }
         ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-accepted",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "C"
+              },
+              {
+                "element": "O"
+              }
+            ]
+          },
+          "interchange_mapping": {
+            "atoms": [
+              {
+                "source_id": 3,
+                "target_id": "a1"
+              },
+              {
+                "source_id": 4,
+                "target_id": "a2"
+              }
+            ]
+          }
+        }
       }
     },
     {
