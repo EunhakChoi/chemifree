@@ -2886,6 +2886,63 @@ step = 'after short_wide_bond_is_selectable'
   results.ctfile_preview_import_export = true
 }
 
+// SMILES: preview, consent refusal shown in the panel, import, output tied to its form.
+{
+  step = 'SMILES preview, consent, import and export'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-create', title: 'SMILES browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  const input = panel.getByLabel('SMILES to import')
+  await input.fill('CCO ethanol')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByText('3 atoms, 2 bonds, 1 part(s).', { exact: true }).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'a preview does not change the drawing')
+  await panel.getByText(/Text after the first whitespace is not part of the SMILES/).waitFor()
+  // Changing the text with a preview on screen says so instead of silently dropping it.
+  await input.fill('CCO ethanol!')
+  await panel.getByText('The text changed, so the earlier SMILES preview was discarded.', { exact: true }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0, 'the old preview cannot be committed')
+  await input.fill('CCO ethanol')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  // The refusal for the dropped text shows in this panel, and its losses are offered.
+  await panel.getByText('These losses need your consent before importing:', { exact: true }).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'a refused commit changes nothing')
+  await panel.getByRole('button', { name: 'Accept these losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept these losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.equal(imported.document.atoms.length, 3)
+  assert.equal(imported.document.bonds.length, 2)
+  // Output is for one style and one drawing.
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  const output = panel.getByLabel('SMILES output')
+  await output.waitFor()
+  const expected = await apiWrite('/api/v1/operations', {
+    contract: 1, request_id: 'smiles-browser-expected', profile: 'preserve-semantics', operation: 'document.export',
+    parameters: { format: 'smiles', document_id: id, style: 'canonical' },
+  })
+  assert.equal(await output.innerText(), expected.body.result.content)
+  await panel.getByLabel('Write the drawing as').selectOption('recorded')
+  await panel.getByText('The style changed, so the earlier SMILES output was discarded.', { exact: true }).waitFor()
+  assert.equal(await output.count(), 0, 'canonical output is not offered for the recorded form')
+  // A commit refused by the service (the drawing moved on) shows in the panel's own error area.
+  await input.fill('N')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByRole('button', { name: 'Import SMILES' }).waitFor()
+  const moved = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'smiles-browser-moved', expected_revision: imported.document.revision,
+    commands: [{ op: 'add_atom', element: 'O', position: { x: 300, y: 0 } }],
+  })
+  assert.equal(moved.status, 200)
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByRole('alert').waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0, 'a failed commit clears its preview')
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 4, 'the refused import added nothing')
+  results.smiles_preview_consent_import_export = true
+}
+
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {
   const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })

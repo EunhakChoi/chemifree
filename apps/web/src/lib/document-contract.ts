@@ -467,6 +467,15 @@ export interface ErrorDetails {
   reason?: StorageReason
   /** The code of a refused state, scene rule, or document/new-document setting. */
   stateReason?: string
+  /** The losses a refused conversion needs the caller to accept, with the digest that binds them. */
+  consent?: ConsentOffer
+}
+
+/** What a `loss_consent_required` refusal shows: the full entries, and an export's digest. */
+export interface ConsentOffer {
+  features: string[]
+  losses: CtLoss[]
+  digest?: string
 }
 
 /**
@@ -480,6 +489,7 @@ export class ApiError extends Error {
   readonly commandIndex?: number
   readonly reason?: StorageReason
   readonly stateReason?: string
+  readonly consent?: ConsentOffer
 
   constructor(code: string, message: string, status: number, details: ErrorDetails = {}) {
     super(message)
@@ -490,6 +500,7 @@ export class ApiError extends Error {
     this.commandIndex = details.commandIndex
     this.reason = details.reason
     this.stateReason = details.stateReason
+    this.consent = details.consent
   }
 }
 
@@ -1153,6 +1164,35 @@ export interface CtImport {
   digest: string
 }
 
+export type SmilesStyle = 'recorded' | 'canonical'
+
+export interface SmilesPreview {
+  digest: string
+  snapshot: DocumentView
+  atoms: number
+  bonds: number
+  parts: number
+  losses: CtLoss[]
+}
+
+export interface SmilesImport {
+  documentId: string
+  revision: number
+  source: string
+  digest: string
+  acceptLoss: boolean
+}
+
+export interface SmilesExport {
+  content: string
+  style: SmilesStyle
+  modelId: string
+  snapshot: DocumentView
+  losses: CtLoss[]
+  atomOrder: string[]
+  foldedHydrogens: string[]
+}
+
 /** Full drawing comparison for conversion previews, including scene and settings. */
 export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -1171,6 +1211,25 @@ function isCtSourceRecord(item: unknown): item is CtSourceRecord {
       isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
 }
 
+/** A byte range as a reader counts it: the first and the last byte, never the exclusive end. */
+export function byteRange(details: Record<string, unknown>): string {
+  const { byte_start: start, byte_end_exclusive: end } = details
+  if (!isCount(start) || !isCount(end)) return ''
+  return end > start ? ` Bytes ${start} to ${end - 1} (the last is byte ${end - 1}).` : ` At byte ${start}.`
+}
+
+function consentOffer(details: Record<string, unknown>): ConsentOffer | undefined {
+  const { features, losses, loss_digest: digest } = details
+  if (!Array.isArray(features) || !features.every((item) => typeof item === 'string') ||
+      !Array.isArray(losses) || !losses.every(isCtLoss)) return undefined
+  return { features: features as string[], losses, ...(typeof digest === 'string' ? { digest } : {}) }
+}
+
+function isCtLoss(loss: unknown): loss is CtLoss {
+  return isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+    typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string'
+}
+
 function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
   if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
     throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
@@ -1181,16 +1240,15 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
       const details = isRecord(diagnostic.details) ? diagnostic.details : {}
       const record = isCount(details.record) ? ` Record ${details.record}.` : ''
       const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}${byteRange(details)}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        consent: consentOffer(details),
       })
     }
     throw new ApiError('conversion_failed', 'The conversion failed.', 200)
   }
   if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
-      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is CtLoss =>
-        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
-        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
+      !Array.isArray(value.loss_report) || !value.loss_report.every(isCtLoss)) {
     throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
   }
   return { result: value.result, losses: value.loss_report }
@@ -1431,17 +1489,22 @@ export class DocumentClient {
     return { digest: result.preview_digest, snapshot, records, losses: reply.losses }
   }
 
-  async importCt(input: CtImport): Promise<DocumentResponse> {
-    // An unanswered request might have committed. Reuse its ID only against the same service.
-    const key = JSON.stringify(input)
+  /**
+   * Commits an import whose preview was accepted. An unanswered request might have committed,
+   * so its ID is reused, against the same service only, until a reply settles it.
+   */
+  private async commitImport(
+    input: { documentId: string },
+    parameters: Record<string, unknown>,
+  ): Promise<DocumentResponse> {
+    const key = JSON.stringify(parameters)
     const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
     this.unconfirmedImports.set(key, pending)
     let sentTo: string | undefined
     try {
       const reply = ctReply(await this.write('/api/v1/operations', {
         contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
-          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+        parameters,
       }, 'reload', (token) => {
         if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
         sentTo = token
@@ -1459,6 +1522,58 @@ export class DocumentClient {
       }
       this.unconfirmedImports.delete(key)
       throw error
+    }
+  }
+
+  async importCt(input: CtImport): Promise<DocumentResponse> {
+    return this.commitImport(input, {
+      document_id: input.documentId, expected_revision: input.revision, format: input.format,
+      source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true,
+    })
+  }
+
+  async previewSmiles(documentId: string, revision: number, source: string): Promise<SmilesPreview> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { format: 'smiles', document_id: documentId, expected_revision: revision, source, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        !isCount(result.atoms) || !isCount(result.bonds) || !isCount(result.parts) || !isRecord(result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The SMILES preview used a different drawing or revision.', 200)
+    }
+    return { digest: result.preview_digest, snapshot, atoms: result.atoms, bonds: result.bonds, parts: result.parts, losses: reply.losses }
+  }
+
+  /** A refusal for losses that need consent carries them in `ApiError.consent`. */
+  async importSmiles(input: SmilesImport): Promise<DocumentResponse> {
+    return this.commitImport(input, {
+      format: 'smiles', document_id: input.documentId, expected_revision: input.revision, source: input.source,
+      preview_digest: input.digest, accept_loss: input.acceptLoss,
+    })
+  }
+
+  /** A refusal for losses that need consent carries them, and the digest that accepts them, in `ApiError.consent`. */
+  async exportSmiles(documentId: string, style: SmilesStyle, acceptedLosses?: string): Promise<SmilesExport> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: { format: 'smiles', document_id: documentId, style, ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }) },
+    }, 'reload'))
+    const { result } = reply
+    const stringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
+    if (typeof result.content !== 'string' || result.style !== style || typeof result.model_id !== 'string' ||
+        !stringList(result.atom_order) || !stringList(result.folded_hydrogens) || !isRecord(result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned invalid SMILES output.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The SMILES output used a different drawing.', 200)
+    return {
+      content: result.content, style, modelId: result.model_id, snapshot, losses: reply.losses,
+      atomOrder: result.atom_order, foldedHydrogens: result.folded_hydrogens,
     }
   }
 

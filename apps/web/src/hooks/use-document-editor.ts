@@ -16,6 +16,8 @@ import {
   type InterchangeInput,
   type ListQuery,
   type SettingsSource,
+  type SmilesImport,
+  type SmilesStyle,
   type TrashListResponse,
 } from '@/lib/document-contract'
 
@@ -360,6 +362,32 @@ export function useDocumentEditor() {
         committed = true
       })
       return committed
+    }, [run, setCurrent]),
+    previewSmiles: useCallback((id: string, revision: number, source: string) =>
+      client.previewSmiles(id, revision, source), []),
+    exportSmiles: useCallback((id: string, style: SmilesStyle, acceptedLosses?: string) =>
+      client.exportSmiles(id, style, acceptedLosses), []),
+    /**
+     * Commits a previewed SMILES import. Its failures go to the caller, which shows them in
+     * its own panel; a success clears a page error as any other edit does.
+     */
+    importSmiles: useCallback(async (input: SmilesImport, snapshot: DocumentView, generation: number) => {
+      let failure: ApiError | null = null
+      await run(async () => {
+        const shown = currentRef.current
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          failure = new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+          return
+        }
+        try {
+          setCurrent(await client.importSmiles(input))
+        } catch (cause) {
+          failure = asApiError(cause)
+        }
+      })
+      return failure as ApiError | null
     }, [run, setCurrent]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {

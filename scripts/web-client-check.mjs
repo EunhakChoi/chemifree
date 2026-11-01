@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { ApiError, DocumentClient, byteRange, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -1884,4 +1884,55 @@ test('an import preview exposes the actual graph even when a revision is reused'
   assert.equal(shown.id, preview.snapshot.id)
   assert.equal(shown.revision, preview.snapshot.revision)
   assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
+})
+
+
+test('a byte range names the last byte, never the exclusive end', () => {
+  assert.equal(byteRange({ byte_start: 3, byte_end_exclusive: 4 }), ' Bytes 3 to 3 (the last is byte 3).')
+  assert.equal(byteRange({ byte_start: 9, byte_end_exclusive: 15 }), ' Bytes 9 to 14 (the last is byte 14).')
+  assert.equal(byteRange({ byte_start: 5, byte_end_exclusive: 5 }), ' At byte 5.')
+  assert.equal(byteRange({}), '')
+})
+
+test('a SMILES error carries its byte range, and a consent refusal carries the losses and digest', async () => {
+  const loss = { feature: 'ignored_text', source_path: 'source.bytes[4..=10]', disposition: 'dropped', reason: 'r', semantic_impact: 'document' }
+  service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'error', result: null, loss_report: [], diagnostics: [{ code: 'dangling_bond', message: 'A bond.', details: { byte_start: 1, byte_end_exclusive: 2 } }] }),
+    () => json(200, { outcome: 'error', result: null, loss_report: [], diagnostics: [{ code: 'loss_consent_required', message: 'Consent.', details: { features: ['ignored_text'], losses: [loss], loss_digest: 'd'.repeat(64) } }] }),
+  ] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'C=(O)'), { code: 'dangling_bond', message: 'A bond. Bytes 1 to 1 (the last is byte 1).' })
+  const refused = await client.exportSmiles('doc-1', 'recorded').catch((cause) => cause)
+  assert.ok(refused instanceof ApiError)
+  assert.equal(refused.code, 'loss_consent_required')
+  assert.deepEqual(refused.consent, { features: ['ignored_text'], losses: [loss], digest: 'd'.repeat(64) })
+})
+
+test('an unanswered SMILES import reuses its request ID, and a changed one does not', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [],
+  }), lost, lost] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, source: 'CCO', digest: 'a'.repeat(64), acceptLoss: false }
+  await assert.rejects(client.importSmiles(input), { code: 'unreachable' })
+  assert.equal((await client.importSmiles(input)).document.revision, 1)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+  await assert.rejects(client.importSmiles({ ...input, acceptLoss: true }), { code: 'unreachable' })
+  await assert.rejects(client.importSmiles({ ...input, source: 'CCN' }), { code: 'unreachable' })
+  assert.notEqual(scripted.writes[2].requestId, scripted.writes[0].requestId, 'accepting losses is a different request')
+  assert.notEqual(scripted.writes[3].requestId, scripted.writes[2].requestId, 'another source is a different request')
+})
+
+test('SMILES output is accepted only for the drawing and style asked for', async () => {
+  const shown = document('doc-1', 2)
+  const reply = (style, id) => () => json(200, { outcome: 'partial', diagnostics: [], loss_report: [], result: {
+    content: 'CCO', style, model_id: 'chemifree-smiles-1', atom_order: ['a1'], folded_hydrogens: [],
+    snapshot: { ...document(id, 2), },
+  } })
+  service({ '/api/v1/operations': [reply('recorded', 'doc-1'), reply('canonical', 'doc-1'), reply('recorded', 'doc-2')] })
+  const client = new DocumentClient()
+  assert.equal((await client.exportSmiles('doc-1', 'recorded')).content, 'CCO')
+  await assert.rejects(client.exportSmiles('doc-1', 'recorded'), { code: 'incompatible_response' })
+  await assert.rejects(client.exportSmiles('doc-1', 'recorded'), { code: 'incompatible_response' })
+  assert.equal(shown.document.revision, 2)
 })
