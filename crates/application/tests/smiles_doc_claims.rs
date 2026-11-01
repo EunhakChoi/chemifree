@@ -180,6 +180,7 @@ fn the_documented_canonical_refusals_match_the_codec_exactly() {
     let code = |graph: &MoleculeGraph| {
         OpenSmilesCodec
             .write(graph, SmilesStyle::Canonical)
+            .map(|written| written.text)
             .map_err(|error| (error.code.as_str(), error.reason))
     };
     let refused = |graph: MoleculeGraph, reason: &str| {

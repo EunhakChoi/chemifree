@@ -47,6 +47,9 @@ class Fixture:
     canonical: Expectation
     # Whether to compare the reader's atoms and bonds with RDKit's unsanitized reading.
     structure: bool = True
+    # RDKit rejects some valid OpenSMILES, such as isotope digits with leading zeros. The
+    # spelling it reads instead is stated, so the comparison is explicit about the difference.
+    rdkit_input: str | None = None
 
 
 def _fixtures() -> list[Fixture]:
@@ -60,30 +63,37 @@ def _fixtures() -> list[Fixture]:
         Fixture("CC(C)(C)C", "CC(C)(C)C", "C(C)(C)(C)C"),
         Fixture("C1CCCCC1", "C1CCCCC1", "C1CCCCC1"),
         Fixture("C1CC1C1CC1", "C1CC1C1CC1", "C1(CC1)C1CC1"),
-        Fixture("C12(CCCCC1)CCCCC2", "C12(CCCCC1)CCCCC2", "C12(CCCCC1)CCCCC2"),
-        Fixture("C1CC11CC1", "C1CC11CC1", "C12(CC1)CC2"),
+        Fixture("C12(CCCCC1)CCCCC2", "C12(CCCCC1)CCCCC2", "C12(CCCCC2)CCCCC1"),
+        Fixture("C1CC11CC1", "C1CC11CC1", "C12(CC2)CC1"),
         Fixture("C%12CCCCC%12", "C1CCCCC1", "C1CCCCC1"),
-        Fixture("C1CC2CCC1C2", "C1CC2CCC1C2", "C12CCC(CC1)C2"),
-        Fixture("CC1=CCC2CC1C2(C)C", "CC1=CCC2CC1C2(C)C", "C"),
+        Fixture("C1CC2CCC1C2", "C1CC2CCC1C2", "C12CC(CC1)CC2"),
+        Fixture("CC1=CCC2CC1C2(C)C", "CC1=CCC2CC1C2(C)C", "C1(C2C(=CCC1C2)C)(C)C"),
         Fixture("[Na+].[Cl-]", "[Na+].[Cl-]", canonical_refused),
         Fixture("[NH4+]", "[NH4+]", "[NH4+]"),
         Fixture("[CH3]", "[CH3]", "[CH3]"),
         Fixture("[OH]", "[OH]", "[OH]"),
         Fixture("[CH2]", "[CH2]", canonical_refused),
-        Fixture("[2H]C([2H])([2H])[2H]", "[2H]C([2H])([2H])[2H]", "C"),
-        Fixture("[002H]C", "[2H]C", "C"),
+        Fixture("[2H]C([2H])([2H])[2H]", "[2H]C([2H])([2H])[2H]", "[2H]C([2H])([2H])[2H]"),
+        Fixture("[002H]C", "[2H]C", "[2H]C", structure=False, rdkit_input="[2H]C"),
+        Fixture(
+            "[002H]C([2H])([2H])[2H]",
+            "[2H]C([2H])([2H])[2H]",
+            "[2H]C([2H])([2H])[2H]",
+            structure=False,
+            rdkit_input="[2H]C([2H])([2H])[2H]",
+        ),
         Fixture("[H][H]", "[H][H]", "[H][H]"),
         Fixture("C[H]", "C[H]", "C"),
-        Fixture("CCO.CC(=O)O", "CCO.CC(=O)O", "C"),
-        Fixture("N#CC(=O)O", "N#CC(=O)O", "C"),
+        Fixture("CCO.CC(=O)O", "CCO.CC(=O)O", "C(C)(=O)O.C(C)O"),
+        Fixture("N#CC(=O)O", "N#CC(=O)O", "C(C#N)(=O)O"),
         Fixture("c1ccccc1", "c1ccccc1", "c1ccccc1", structure=False),
         Fixture("C1=CC=CC=C1", "C1=CC=CC=C1", "c1ccccc1"),
-        Fixture("c1ccccc1c1ccccc1", "c1ccccc1-c1ccccc1", "c", structure=False),
-        Fixture("c1cc[nH]c1", "c1cc[nH]c1", "c", structure=False),
-        Fixture("C1=CNC=C1", "C1=CNC=C1", "c"),
-        Fixture("c1ccncc1", "c1ccncc1", "c", structure=False),
-        Fixture("c1ccc2ccccc2c1", "c1ccc2ccccc2c1", "c", structure=False),
-        Fixture("[O-]c1ccccc1", "[O-]c1ccccc1", "c", structure=False),
+        Fixture("c1ccccc1c1ccccc1", "c1ccccc1-c1ccccc1", "c1(ccccc1)-c1ccccc1", structure=False),
+        Fixture("c1cc[nH]c1", "c1cc[nH]c1", "c1c[nH]cc1", structure=False),
+        Fixture("C1=CNC=C1", "C1=CNC=C1", "c1c[nH]cc1"),
+        Fixture("c1ccncc1", "c1ccncc1", "c1ccncc1", structure=False),
+        Fixture("c1ccc2ccccc2c1", "c1ccc2ccccc2c1", "c12ccccc1cccc2", structure=False),
+        Fixture("[O-]c1ccccc1", "[O-]c1ccccc1", "c1(ccccc1)[O-]", structure=False),
         Fixture("C1=CC=C2CCCCC2=C1", "C1=CC=C2CCCCC2=C1", canonical_refused),
         Fixture("c1ccc2c(c1)CCCC2", Refused("aromatic_system_unsupported"), Refused("aromatic_system_unsupported")),
         Fixture("F/C=C/F", Refused("stereo_unsupported"), Refused("stereo_unsupported")),
@@ -145,9 +155,6 @@ def _outcome(
 def _check_expected(
     fixture: Fixture, style: str, expected: Expectation, found: str | Refused
 ) -> None:
-    if expected == "C":
-        # A placeholder cannot stand for a text: a fixture names its exact expectation.
-        raise AssertionError(f"{fixture.smiles}: the {style} expectation is unfinished")
     _require(
         found == expected,
         f"{fixture.smiles}: {style} expected {expected!r}, found {found!r}",
@@ -192,13 +199,13 @@ def _check_structure(binary: pathlib.Path, fixture: Fixture) -> None:
 
 
 def _check_fixture(binary: pathlib.Path, fixture: Fixture) -> dict[str, str | Refused]:
-    reference = _rdkit_canonical(fixture.smiles)
     results: dict[str, str | Refused] = {}
     for style, expected in (("recorded", fixture.recorded), ("canonical", fixture.canonical)):
         found = _outcome(binary, style, fixture.smiles)
         _check_expected(fixture, style, expected, found)
         results[style] = found
         if isinstance(found, str):
+            reference = _rdkit_canonical(fixture.rdkit_input or fixture.smiles)
             _require(reference is not None, f"{fixture.smiles}: RDKit cannot read the input")
             _require(
                 _rdkit_canonical(found) == reference,
@@ -211,6 +218,10 @@ def _check_fixture(binary: pathlib.Path, fixture: Fixture) -> dict[str, str | Re
     if fixture.structure and isinstance(results["recorded"], str):
         _check_structure(binary, fixture)
     return results
+
+
+def _group_key(outcome: str | Refused) -> str:
+    return "refused" if isinstance(outcome, Refused) else outcome
 
 
 def main(argv: list[str]) -> int:
@@ -226,16 +237,12 @@ def main(argv: list[str]) -> int:
     fixtures = _fixtures()
     outcomes = {fixture.smiles: _check_fixture(binary, fixture) for fixture in fixtures}
     for group in _GROUPS:
-        for style in ("recorded", "canonical"):
-            if style == "recorded":
-                continue
-            first = outcomes[group[0]][style]
-            for smiles in group:
-                _require(smiles in outcomes, f"{smiles}: group member without a fixture")
-                _require(
-                    outcomes[smiles][style] == first,
-                    f"{smiles}: {style} {outcomes[smiles][style]!r} != {first!r} for {group[0]}",
-                )
+        for smiles in group:
+            _require(smiles in outcomes, f"{smiles}: group member without a fixture")
+        # One text for every spelling, or a refusal for every spelling; never a mix. Which
+        # code refuses may differ, because the reader or the canonical form may be the one.
+        shown = {_group_key(outcomes[smiles]["canonical"]) for smiles in group}
+        _require(len(shown) == 1, f"{group}: spellings disagree: {sorted(shown)}")
     _LOGGER.info("checked %d fixtures and %d spelling groups", len(fixtures), len(_GROUPS))
     return 0
 
