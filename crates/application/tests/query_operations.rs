@@ -260,3 +260,103 @@ fn query_and_target_recovery_drafts_are_reported_but_not_searched() {
     );
     assert_eq!(result["result"]["mappings"].as_array().unwrap().len(), 6);
 }
+
+#[test]
+fn malformed_and_unknown_predicate_atoms_get_the_same_reply_shape() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let query = draw(&app, "Query", 1, &[]);
+    let target = draw(&app, "Target", 1, &[]);
+    let reply = |atom: &str| {
+        call(
+            &app,
+            "predicate-shape",
+            "chem.query_match",
+            json!({"document_id":query,"target_document_id":target,"mode":"recorded","predicates":[{"atom":atom}]}),
+        )
+    };
+    let unknown = reply("a99");
+    let malformed = reply("not an id");
+    for answer in [&unknown, &malformed] {
+        assert_eq!(answer["outcome"], "error", "{answer}");
+        assert!(answer["result"].is_null());
+        assert_eq!(answer["model_id"], "chemifree-query-recorded-1");
+        assert_eq!(answer["diagnostics"][0]["code"], "invalid_query");
+        assert_eq!(
+            answer["diagnostics"][0]["details"]["reason"],
+            "invalid_predicate"
+        );
+        assert_eq!(answer["diagnostics"][0]["details"]["side"], "query");
+        assert_eq!(
+            answer["diagnostics"][0]["details"]["snapshot"]["document"]["id"],
+            query
+        );
+    }
+}
+
+#[test]
+fn a_contradictory_charge_condition_is_an_invalid_predicate_not_an_empty_result() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let query = draw(&app, "Query", 1, &[]);
+    let target = draw(&app, "Target", 1, &[]);
+    let answer = call(
+        &app,
+        "contradictory-charge",
+        "chem.query_match",
+        json!({"document_id":query,"target_document_id":target,"mode":"recorded","predicates":[{"atom":"a1","charge":1}]}),
+    );
+    assert_eq!(answer["outcome"], "error", "{answer}");
+    assert_eq!(
+        answer["diagnostics"][0]["details"]["reason"],
+        "invalid_predicate"
+    );
+    assert!(answer["result"].is_null());
+}
+
+#[test]
+fn undetermined_target_hydrogens_are_unsupported_for_a_stated_hydrogen_query() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = App::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let query = app
+        .create_document(None, Some("Query"))
+        .unwrap()
+        .document
+        .id;
+    let drawn = call(
+        &app,
+        "hydrogen-query",
+        "document.transaction",
+        json!({"document_id":query,"expected_revision":0,"commands":[
+            {"op":"add_atom","element":"C","position":{"x":0,"y":0},"hydrogens":{"mode":"specified","count":1}}]}),
+    );
+    assert_eq!(drawn["outcome"], "ok", "{drawn}");
+    let target = draw(
+        &app,
+        "Target",
+        3,
+        &[(0, 1, "aromatic"), (1, 2, "aromatic"), (2, 0, "aromatic")],
+    );
+    let answer = call(
+        &app,
+        "hydrogen-target",
+        "chem.query_match",
+        json!({"document_id":query,"target_document_id":target,"mode":"recorded"}),
+    );
+    assert_eq!(answer["outcome"], "unsupported", "{answer}");
+    assert_eq!(
+        answer["diagnostics"][0]["details"]["reason"],
+        "target_hydrogens_undetermined"
+    );
+    assert_eq!(answer["diagnostics"][0]["details"]["side"], "target");
+    assert!(answer["result"].is_null());
+}

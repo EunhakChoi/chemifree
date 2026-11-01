@@ -5,9 +5,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::aromaticity;
-use crate::document::{Atom, AtomId, Bond, BondOrder, Document};
+use crate::aromaticity::{self, KekuleOrder};
+use crate::chemistry::{self, Finding};
+use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document, MAX_CHARGE, MIN_CHARGE};
 use crate::graph::MoleculeGraph;
+use crate::rings;
 use crate::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical};
 
 pub const MATCH_MODEL: &str = "chemifree-query-recorded-1";
@@ -33,6 +35,9 @@ pub enum QueryError {
     InvalidPredicate,
     UnsupportedQuery,
     UnsupportedTarget,
+    /// A query atom states a hydrogen count and a candidate target atom's count cannot be
+    /// determined (inferred hydrogens need a valid atom with integral bond orders).
+    TargetHydrogensUndetermined,
     AromaticTargetUnsupported(&'static str),
 }
 
@@ -65,12 +70,10 @@ struct Graph<'a> {
     ids: Vec<AtomId>,
     atoms: Vec<&'a Atom>,
     adjacent: Vec<Vec<(usize, &'a Bond)>>,
-    in_ring: Vec<bool>,
-    perceived_aromatic: BTreeSet<(AtomId, AtomId)>,
 }
 
 impl<'a> Graph<'a> {
-    fn new(document: &'a MoleculeGraph, perceived_aromatic: BTreeSet<(AtomId, AtomId)>) -> Self {
+    fn new(document: &'a MoleculeGraph) -> Self {
         let atoms: Vec<_> = document.atoms().collect();
         let ids: Vec<_> = atoms.iter().map(|(id, _)| *id).collect();
         let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
@@ -84,13 +87,10 @@ impl<'a> Graph<'a> {
         for edges in &mut adjacent {
             edges.sort_by_key(|(v, _)| *v);
         }
-        let in_ring = ring_membership(&adjacent);
         Self {
             ids,
             atoms: atoms.into_iter().map(|(_, a)| a).collect(),
             adjacent,
-            in_ring,
-            perceived_aromatic,
         }
     }
 
@@ -102,64 +102,76 @@ impl<'a> Graph<'a> {
     }
 }
 
-/// An undirected edge is in a cycle exactly when it is not a bridge. Iterative low-link DFS
-/// avoids recursion on large target drawings; self/duplicate edges are excluded by Document.
-fn ring_membership(adjacency: &[Vec<(usize, &Bond)>]) -> Vec<bool> {
-    let n = adjacency.len();
-    let mut discovery = vec![0usize; n];
-    let mut low = vec![0usize; n];
-    let mut parent = vec![None; n];
-    let mut ring = vec![false; n];
-    let mut clock = 0;
-    for root in 0..n {
-        if discovery[root] != 0 {
-            continue;
-        }
-        clock += 1;
-        discovery[root] = clock;
-        low[root] = clock;
-        let mut stack = vec![(root, 0usize)];
-        while let Some((v, cursor)) = stack.last_mut() {
-            if *cursor < adjacency[*v].len() {
-                let next = adjacency[*v][*cursor].0;
-                *cursor += 1;
-                if parent[*v] == Some(next) {
-                    continue;
-                }
-                if discovery[next] == 0 {
-                    parent[next] = Some(*v);
-                    clock += 1;
-                    discovery[next] = clock;
-                    low[next] = clock;
-                    stack.push((next, 0));
-                } else {
-                    low[*v] = low[*v].min(discovery[next]);
-                }
-            } else {
-                let done = *v;
-                stack.pop();
-                if let Some(up) = parent[done] {
-                    if low[done] <= discovery[up] {
-                        ring[done] = true;
-                        ring[up] = true;
-                    }
-                    low[up] = low[up].min(low[done]);
-                }
+/// Facts about the target that atom conditions need, computed once per search.
+struct TargetFacts {
+    /// An atom is in a ring when it belongs to a cyclic block of the shared topology.
+    in_ring: Vec<bool>,
+    /// Hydrogens not drawn as atoms, or `None` when no model can determine them.
+    hydrogens: Vec<Option<u16>>,
+    perceived_aromatic: BTreeSet<(AtomId, AtomId)>,
+}
+
+fn ring_membership(target: &MoleculeGraph, ids: &[AtomId]) -> Vec<bool> {
+    let in_ring: BTreeSet<_> = rings::perceive(target)
+        .into_iter()
+        .flat_map(|system| system.atoms)
+        .collect();
+    ids.iter().map(|id| in_ring.contains(id)).collect()
+}
+
+/// Non-vertex hydrogens per target atom. A stated count is used as recorded; an inferred
+/// count comes from `chemifree-valence-2` and exists only for a valid atom whose bonds all
+/// have integral orders (aromatic bonds take their assigned Kekule order when one is given).
+fn target_hydrogens(
+    target: &MoleculeGraph,
+    ids: &[AtomId],
+    kekule: &BTreeMap<BondId, KekuleOrder>,
+) -> Vec<Option<u16>> {
+    let mut orders: BTreeMap<AtomId, Vec<Option<u16>>> =
+        ids.iter().map(|id| (*id, Vec::new())).collect();
+    for (id, bond) in target.bonds() {
+        let order = match bond.order {
+            BondOrder::Single => Some(1),
+            BondOrder::Double => Some(2),
+            BondOrder::Triple => Some(3),
+            BondOrder::Aromatic => kekule.get(&id).map(|order| match order {
+                KekuleOrder::Single => 1,
+                KekuleOrder::Double => 2,
+            }),
+            BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => None,
+        };
+        for end in [bond.begin, bond.end] {
+            if let Some(list) = orders.get_mut(&end) {
+                list.push(order);
             }
         }
     }
-    ring
+    target
+        .atoms()
+        .map(|(id, atom)| match atom.hydrogens {
+            Hydrogens::Specified(count) => Some(u16::from(count)),
+            Hydrogens::Unknown => None,
+            Hydrogens::Inferred => {
+                let state = chemistry::assess(id, atom, &orders[&id]);
+                (state.finding == Finding::Valid)
+                    .then_some(state.hydrogen_count)
+                    .flatten()
+            }
+        })
+        .collect()
 }
 
+/// `None` means the condition cannot be decided for this target atom (its hydrogens).
 fn atom_matches(
     query: &Atom,
     target: &Atom,
     predicate: Option<&AtomPredicate>,
     degree: usize,
     ring: bool,
-) -> bool {
+    target_hydrogens: Option<u16>,
+) -> Option<bool> {
     let Some(element) = target.kind.element() else {
-        return false;
+        return Some(false);
     };
     let element_match = match &query.kind {
         AtomKind::Element(q) => *q == element,
@@ -174,30 +186,32 @@ fn atom_matches(
         }
     };
     if !element_match {
-        return false;
+        return Some(false);
     }
     if matches!(query.kind, AtomKind::Element(_)) && query.charge != target.charge {
-        return false;
+        return Some(false);
     }
     if query.isotope.is_some() && query.isotope != target.isotope {
-        return false;
+        return Some(false);
     }
     if (matches!(query.kind, AtomKind::Element(_)) || query.radical != Radical::None)
         && query.radical != target.radical
     {
-        return false;
+        return Some(false);
     }
-    if let Hydrogens::Specified(count) = query.hydrogens
-        && target.hydrogens != Hydrogens::Specified(count)
-    {
-        return false;
-    }
-    predicate.is_none_or(|p| {
+    let predicate_holds = predicate.is_none_or(|p| {
         p.ring.is_none_or(|wanted| wanted == ring)
             && p.min_neighbors.is_none_or(|min| degree >= min)
             && p.max_neighbors.is_none_or(|max| degree <= max)
             && p.charge.is_none_or(|charge| charge == target.charge)
-    })
+    });
+    if !predicate_holds {
+        return Some(false);
+    }
+    match query.hydrogens {
+        Hydrogens::Specified(count) => target_hydrogens.map(|found| found == u16::from(count)),
+        Hydrogens::Inferred | Hydrogens::Unknown => Some(true),
+    }
 }
 
 fn bond_matches(
@@ -235,8 +249,11 @@ fn bond_matches(
 struct Search<'a> {
     query: Graph<'a>,
     target: Graph<'a>,
-    predicates: BTreeMap<AtomId, &'a AtomPredicate>,
-    order: Vec<usize>,
+    perceived_aromatic: BTreeSet<(AtomId, AtomId)>,
+    /// Query atoms in matching order, each with an earlier neighbor that anchors candidates.
+    plan: Vec<(usize, Option<usize>)>,
+    /// `compatible[q][t]`: target atom `t` satisfies every atom condition of query atom `q`.
+    compatible: Vec<Vec<bool>>,
     assigned: Vec<Option<usize>>,
     used: Vec<bool>,
     result: SearchResult,
@@ -245,8 +262,8 @@ struct Search<'a> {
 }
 
 impl Search<'_> {
-    // Bound both candidate attempts and checks against already assigned neighbors. An
-    // edge lookup is logarithmic in the target degree because each adjacency is sorted.
+    // Bound candidate attempts and checks against already assigned neighbors. An edge lookup
+    // is logarithmic in the target degree because each adjacency is sorted.
     fn spend(&mut self) -> bool {
         if self.result.states == self.state_limit {
             self.result.complete = false;
@@ -258,75 +275,91 @@ impl Search<'_> {
         }
     }
 
+    fn edges_match(&mut self, q: usize, t: usize) -> Option<bool> {
+        for edge_index in 0..self.query.adjacent[q].len() {
+            let other = self.query.adjacent[q][edge_index].0;
+            let Some(mapped) = self.assigned[other] else {
+                continue;
+            };
+            if !self.spend() {
+                return None;
+            }
+            let bond = self.query.adjacent[q][edge_index].1;
+            let holds = self.target.edge(t, mapped).is_some_and(|target_bond| {
+                let key = (
+                    target_bond.begin.min(target_bond.end),
+                    target_bond.begin.max(target_bond.end),
+                );
+                bond_matches(
+                    bond,
+                    self.query.ids[q],
+                    target_bond,
+                    self.target.ids[t],
+                    self.perceived_aromatic.contains(&key),
+                )
+            });
+            if !holds {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    fn record(&mut self) {
+        if self.result.mappings.len() == self.match_limit {
+            self.result.complete = false;
+            self.result.limit = Some(SearchLimit::Mappings);
+            return;
+        }
+        let mapping = self
+            .assigned
+            .iter()
+            .enumerate()
+            .map(|(q, t)| {
+                (
+                    self.query.ids[q],
+                    self.target.ids[t.expect("complete assignment")],
+                )
+            })
+            .collect();
+        self.result.mappings.push(mapping);
+    }
+
     fn visit(&mut self, depth: usize) {
         if !self.result.complete {
             return;
         }
-        if depth == self.order.len() {
-            if self.result.mappings.len() == self.match_limit {
-                self.result.complete = false;
-                self.result.limit = Some(SearchLimit::Mappings);
-                return;
-            }
-            self.result.mappings.push(
-                self.assigned
-                    .iter()
-                    .enumerate()
-                    .map(|(q, t)| {
-                        (
-                            self.query.ids[q],
-                            self.target.ids[t.expect("complete assignment")],
-                        )
-                    })
-                    .collect(),
-            );
+        if depth == self.plan.len() {
+            self.record();
             return;
         }
-        let q = self.order[depth];
-        for t in 0..self.target.ids.len() {
+        let (q, anchor) = self.plan[depth];
+        // A connected query atom is only tried next to its mapped neighbor; the first atom of
+        // each component is tried against every target atom.
+        let candidates: Vec<usize> = match anchor {
+            Some(a) => {
+                let mapped = self.assigned[a].expect("anchor is mapped before its dependents");
+                self.target.adjacent[mapped]
+                    .iter()
+                    .map(|(t, _)| *t)
+                    .collect()
+            }
+            None => (0..self.target.ids.len()).collect(),
+        };
+        for t in candidates {
+            if self.used[t] {
+                continue;
+            }
             if !self.spend() {
                 return;
             }
-            if self.used[t]
-                || !atom_matches(
-                    self.query.atoms[q],
-                    self.target.atoms[t],
-                    self.predicates.get(&self.query.ids[q]).copied(),
-                    self.target.adjacent[t].len(),
-                    self.target.in_ring[t],
-                )
-            {
+            if !self.compatible[q][t] {
                 continue;
             }
-            let mut edges_match = true;
-            for edge_index in 0..self.query.adjacent[q].len() {
-                let other = self.query.adjacent[q][edge_index].0;
-                let Some(mapped) = self.assigned[other] else {
-                    continue;
-                };
-                if !self.spend() {
-                    return;
-                }
-                let bond = self.query.adjacent[q][edge_index].1;
-                if !self.target.edge(t, mapped).is_some_and(|target_bond| {
-                    let key = (
-                        target_bond.begin.min(target_bond.end),
-                        target_bond.begin.max(target_bond.end),
-                    );
-                    bond_matches(
-                        bond,
-                        self.query.ids[q],
-                        target_bond,
-                        self.target.ids[t],
-                        self.target.perceived_aromatic.contains(&key),
-                    )
-                }) {
-                    edges_match = false;
-                    break;
-                }
-            }
-            if !edges_match {
-                continue;
+            match self.edges_match(q, t) {
+                None => return,
+                Some(false) => continue,
+                Some(true) => {}
             }
             self.assigned[q] = Some(t);
             self.used[t] = true;
@@ -338,6 +371,40 @@ impl Search<'_> {
             }
         }
     }
+}
+
+/// Order query atoms so each one after a component's first has a mapped neighbor: prefer the
+/// atom with the most mapped neighbors, then the fewest compatible target atoms, then the
+/// highest degree. IDs only break exact ties, so renumbering rarely changes the work done.
+fn plan_order(query: &Graph, candidates: &[usize]) -> Vec<(usize, Option<usize>)> {
+    let n = query.ids.len();
+    let mut position: Vec<Option<usize>> = vec![None; n];
+    let mut plan: Vec<(usize, Option<usize>)> = Vec::with_capacity(n);
+    while plan.len() < n {
+        let next = (0..n)
+            .filter(|&i| position[i].is_none())
+            .min_by_key(|&i| {
+                let mapped = query.adjacent[i]
+                    .iter()
+                    .filter(|(j, _)| position[*j].is_some())
+                    .count();
+                (
+                    std::cmp::Reverse(mapped),
+                    candidates[i],
+                    std::cmp::Reverse(query.adjacent[i].len()),
+                    query.ids[i],
+                )
+            })
+            .expect("an unplaced atom remains");
+        let anchor = query.adjacent[next]
+            .iter()
+            .filter_map(|(j, _)| position[*j].map(|at| (at, *j)))
+            .min()
+            .map(|(_, j)| j);
+        position[next] = Some(plan.len());
+        plan.push((next, anchor));
+    }
+    plan
 }
 
 /// Find all injective mappings up to explicit bounds. `complete == false` means the result
@@ -359,18 +426,12 @@ pub fn find(
     )
 }
 
-/// Match immutable graph snapshots. Aromatic target interpretation is opt-in and fails
-/// as a whole when the named aromaticity model cannot justify the target representation.
-pub fn find_graphs(
-    query: &MoleculeGraph,
-    target: &MoleculeGraph,
+fn validate_query(
+    query: &Graph,
     predicates: &[AtomPredicate],
     match_limit: usize,
     state_limit: usize,
-    model: MatchModel,
-) -> Result<SearchResult, QueryError> {
-    let query = Graph::new(query, BTreeSet::new());
-    let mut target_graph = Graph::new(target, BTreeSet::new());
+) -> Result<(), QueryError> {
     if query.ids.is_empty() {
         return Err(QueryError::EmptyQuery);
     }
@@ -383,12 +444,22 @@ pub fn find_graphs(
     }
     let mut seen = BTreeSet::new();
     for p in predicates {
-        if !query.ids.contains(&p.atom)
-            || !seen.insert(p.atom)
+        let Some(index) = query.ids.iter().position(|id| *id == p.atom) else {
+            return Err(QueryError::InvalidPredicate);
+        };
+        // An element query atom already fixes the target charge, so a different charge
+        // condition could never be met and is refused rather than reported as "no match".
+        let contradictory = p.charge.is_some_and(|charge| {
+            matches!(query.atoms[index].kind, AtomKind::Element(_))
+                && charge != query.atoms[index].charge
+        });
+        if !seen.insert(p.atom)
             || p.min_neighbors
                 .zip(p.max_neighbors)
                 .is_some_and(|(a, b)| a > b)
-            || p.charge.is_some_and(|q| !(-8..=8).contains(&q))
+            || p.charge
+                .is_some_and(|q| !(MIN_CHARGE..=MAX_CHARGE).contains(&q))
+            || contradictory
         {
             return Err(QueryError::InvalidPredicate);
         }
@@ -405,6 +476,75 @@ pub fn find_graphs(
     {
         return Err(QueryError::UnsupportedQuery);
     }
+    Ok(())
+}
+
+/// A neutral ring nitrogen with inferred hydrogens and only single bonds is read by the
+/// aromaticity model as pyridine-type (no H). If reading it as N-H (pyrrole-type) would make
+/// its ring system aromatic, the answer depends on an unrecorded hydrogen, so refuse.
+fn refuse_ambiguous_ring_nitrogen(
+    target: &MoleculeGraph,
+    interpretation: &aromaticity::Interpretation,
+) -> Result<(), QueryError> {
+    let suspects: BTreeSet<AtomId> = target
+        .atoms()
+        .filter(|(id, atom)| {
+            atom.kind.element().is_some_and(|e| e.symbol() == "N")
+                && atom.charge == 0
+                && atom.hydrogens == Hydrogens::Inferred
+                && atom.radical == Radical::None
+                && {
+                    let incident: Vec<_> = target
+                        .bonds()
+                        .filter(|(_, b)| b.begin == *id || b.end == *id)
+                        .collect();
+                    incident.len() == 2
+                        && incident.iter().all(|(_, b)| b.order == BondOrder::Single)
+                }
+        })
+        .map(|(id, _)| id)
+        .collect();
+    let flagged: Vec<_> = interpretation
+        .systems
+        .iter()
+        .filter(|system| {
+            system.classification == aromaticity::Classification::NonAromatic
+                && system.reason == Some("not_conjugated")
+                && system.atoms.iter().any(|id| suspects.contains(id))
+        })
+        .collect();
+    if flagged.is_empty() {
+        return Ok(());
+    }
+    let as_amine = target.with_hydrogens(&suspects, Hydrogens::Specified(1));
+    let reread = aromaticity::perceive(&as_amine);
+    let ambiguous = flagged.iter().any(|system| {
+        reread.systems.iter().any(|other| {
+            other.atoms == system.atoms
+                && other.classification == aromaticity::Classification::Aromatic
+        })
+    });
+    if ambiguous {
+        return Err(QueryError::AromaticTargetUnsupported(
+            "ambiguous_ring_nitrogen_hydrogen",
+        ));
+    }
+    Ok(())
+}
+
+/// Match immutable graph snapshots. Aromatic target interpretation is opt-in and fails
+/// as a whole when the named aromaticity model cannot justify the target representation.
+pub fn find_graphs(
+    query: &MoleculeGraph,
+    target: &MoleculeGraph,
+    predicates: &[AtomPredicate],
+    match_limit: usize,
+    state_limit: usize,
+    model: MatchModel,
+) -> Result<SearchResult, QueryError> {
+    let query_graph = Graph::new(query);
+    validate_query(&query_graph, predicates, match_limit, state_limit)?;
+    let target_graph = Graph::new(target);
     if target_graph.atoms.iter().any(|a| {
         a.kind.element().is_none()
             || a.radical == Radical::Unknown
@@ -420,17 +560,22 @@ pub fn find_graphs(
     }
     // Perception is the costliest step, so it runs only after every cheap query-side and
     // target-state check has passed and those errors are not masked by a target failure.
+    let mut perceived_aromatic = BTreeSet::new();
+    let mut kekule = BTreeMap::new();
     if model == MatchModel::AromaticTarget {
         let interpretation = aromaticity::perceive(target);
-        interpretation
+        kekule = interpretation
             .kekulize()
-            .map_err(QueryError::AromaticTargetUnsupported)?;
+            .map_err(QueryError::AromaticTargetUnsupported)?
+            .into_iter()
+            .collect();
         let bonds: BTreeSet<_> = interpretation
             .aromatize()
             .map_err(QueryError::AromaticTargetUnsupported)?
             .into_iter()
             .collect();
-        target_graph.perceived_aromatic = target
+        refuse_ambiguous_ring_nitrogen(target, &interpretation)?;
+        perceived_aromatic = target
             .bonds()
             .filter_map(|(id, bond)| {
                 bonds
@@ -439,17 +584,46 @@ pub fn find_graphs(
             })
             .collect();
     }
-    let target = target_graph;
-    let mut order: Vec<_> = (0..query.ids.len()).collect();
-    order.sort_by_key(|&i| (std::cmp::Reverse(query.adjacent[i].len()), query.ids[i]));
-    let predicates = predicates.iter().map(|p| (p.atom, p)).collect();
+    let facts = TargetFacts {
+        in_ring: ring_membership(target, &target_graph.ids),
+        hydrogens: target_hydrogens(target, &target_graph.ids, &kekule),
+        perceived_aromatic,
+    };
+    let by_atom: BTreeMap<AtomId, &AtomPredicate> =
+        predicates.iter().map(|p| (p.atom, p)).collect();
+    let mut compatible = vec![vec![false; target_graph.ids.len()]; query_graph.ids.len()];
+    let mut undetermined = false;
+    for (q, row) in compatible.iter_mut().enumerate() {
+        for (t, slot) in row.iter_mut().enumerate() {
+            match atom_matches(
+                query_graph.atoms[q],
+                target_graph.atoms[t],
+                by_atom.get(&query_graph.ids[q]).copied(),
+                target_graph.adjacent[t].len(),
+                facts.in_ring[t],
+                facts.hydrogens[t],
+            ) {
+                Some(holds) => *slot = holds,
+                None => undetermined = true,
+            }
+        }
+    }
+    if undetermined {
+        return Err(QueryError::TargetHydrogensUndetermined);
+    }
+    let counts: Vec<usize> = compatible
+        .iter()
+        .map(|row| row.iter().filter(|holds| **holds).count())
+        .collect();
+    let plan = plan_order(&query_graph, &counts);
     let mut search = Search {
-        assigned: vec![None; query.ids.len()],
-        used: vec![false; target.ids.len()],
-        order,
-        query,
-        target,
-        predicates,
+        assigned: vec![None; query_graph.ids.len()],
+        used: vec![false; target_graph.ids.len()],
+        plan,
+        compatible,
+        perceived_aromatic: facts.perceived_aromatic,
+        query: query_graph,
+        target: target_graph,
         result: SearchResult {
             mappings: Vec::new(),
             complete: true,

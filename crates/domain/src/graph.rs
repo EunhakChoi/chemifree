@@ -24,6 +24,22 @@ impl MoleculeGraph {
         }
     }
 
+    /// A copy whose listed atoms carry `hydrogens`; used to re-read a model under an
+    /// alternative hydrogen hypothesis without touching the original snapshot.
+    pub(crate) fn with_hydrogens(
+        &self,
+        atoms: &std::collections::BTreeSet<AtomId>,
+        hydrogens: crate::states::Hydrogens,
+    ) -> Self {
+        let mut copy = self.clone();
+        for (id, atom) in &mut copy.atoms {
+            if atoms.contains(id) {
+                atom.hydrogens = hydrogens;
+            }
+        }
+        copy
+    }
+
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
         self.atoms.iter().map(|(id, atom)| (*id, atom))
     }

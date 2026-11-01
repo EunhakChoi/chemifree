@@ -1200,6 +1200,12 @@ fn query_failure(
             "unsupported_target_state",
             Some("target"),
         ),
+        query::QueryError::TargetHydrogensUndetermined => (
+            Outcome::Unsupported,
+            "query_unsupported",
+            "target_hydrogens_undetermined",
+            Some("target"),
+        ),
         query::QueryError::AromaticTargetUnsupported(reason) => {
             let outcome = if matches!(reason, "search_limit" | "system_limit") {
                 Outcome::Error
@@ -2104,6 +2110,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemQueryMatch => match parameters::<QueryParameters>(parameters_value) {
                 Ok(p) => {
+                    let ((query_snapshot, query_graph), target) = match self.documents.graph_pair_snapshot(&p.document_id, Some(&p.target_document_id)) {
+                        Ok(pair) => pair,
+                        Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                    };
+                    let (target_snapshot, target_graph) = target.expect("requested target snapshot");
+                    let revision = query_snapshot.document.revision;
                     let predicates = p.predicates.iter().map(|p| {
                         AtomId::parse(&p.atom).map(|atom| query::AtomPredicate {
                             atom,
@@ -2114,14 +2126,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         })
                     }).collect::<Option<Vec<_>>>();
                     let Some(predicates) = predicates else {
-                        return known.invalid(diagnostic("invalid_query", "A predicate names an invalid query atom ID.", Map::new()));
+                        return query_failure(known, revision, p.mode, query::QueryError::InvalidPredicate, query_snapshot, target_snapshot);
                     };
-                    let ((query_snapshot, query_graph), target) = match self.documents.graph_pair_snapshot(&p.document_id, Some(&p.target_document_id)) {
-                        Ok(pair) => pair,
-                        Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
-                    };
-                    let (target_snapshot, target_graph) = target.expect("requested target snapshot");
-                    let revision = query_snapshot.document.revision;
                     let result = match query::find_graphs(&query_graph, &target_graph, &predicates, p.max_matches, p.max_states, p.mode.domain()) {
                         Ok(result) => result,
                         Err(error) => return query_failure(known, revision, p.mode, error, query_snapshot, target_snapshot),

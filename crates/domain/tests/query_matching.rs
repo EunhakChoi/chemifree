@@ -6,7 +6,7 @@ use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::query::{
     AtomPredicate, MatchModel, QueryError, SearchLimit, find, find_graphs,
 };
-use chemifree_domain::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
+use chemifree_domain::states::{AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder};
 
 fn atom(symbol: &str) -> Atom {
     Atom::from(Element::from_symbol(symbol).unwrap())
@@ -104,10 +104,10 @@ fn state_bound_also_counts_checks_of_mapped_edges() {
         vec![atom("C"), atom("C")],
         &[(0, 1, BondOrder::Single)],
     );
-    // Three candidate attempts reach the first possible edge; checking it needs a
-    // fourth unit. Exhaustion cannot be reported as a complete negative result.
-    let result = find(&query, &target, &[], 10, 3).unwrap();
-    assert_eq!(result.states, 3);
+    // Two candidate attempts reach the first possible edge; checking it needs a third
+    // unit. Exhaustion cannot be reported as a complete negative result.
+    let result = find(&query, &target, &[], 10, 2).unwrap();
+    assert_eq!(result.states, 2);
     assert!(!result.complete);
     assert_eq!(result.limit, Some(SearchLimit::States));
     assert!(result.mappings.is_empty());
@@ -268,11 +268,11 @@ fn halogen_query_includes_heavy_halogen_and_charge_constraints_are_additive() {
         max_neighbors: None,
         charge: Some(-1),
     };
-    assert!(
-        find(&query, &target, &[predicate], 10, 100)
-            .unwrap()
-            .mappings
-            .is_empty()
+    // The element query atom already fixes charge +1, so a -1 condition is contradictory
+    // and refused instead of being reported as a complete empty result.
+    assert_eq!(
+        find(&query, &target, &[predicate], 10, 100),
+        Err(QueryError::InvalidPredicate)
     );
 }
 
@@ -485,4 +485,347 @@ fn query_side_errors_take_precedence_over_target_aromaticity_failures() {
             "query-side error must be reported first"
         );
     }
+}
+
+fn no_conditions(atom: AtomId) -> AtomPredicate {
+    AtomPredicate {
+        atom,
+        ring: None,
+        min_neighbors: None,
+        max_neighbors: None,
+        charge: None,
+    }
+}
+
+fn with_hydrogens(symbol: &str, count: u8) -> Atom {
+    let mut atom = atom(symbol);
+    atom.hydrogens = Hydrogens::Specified(count);
+    atom
+}
+
+fn chain(name: &str, length: usize) -> Document {
+    // A transaction holds at most 500 commands, so atoms and bonds go in batches.
+    let mut doc = Document::new(DocumentId::parse(name).unwrap(), name).unwrap();
+    for start in (0..length).step_by(400) {
+        let count = 400.min(length - start);
+        let atoms: Vec<_> = (0..count)
+            .map(|_| Command::AddAtom {
+                atom: atom("C"),
+                positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        doc.apply(&atoms).unwrap();
+    }
+    let ids: Vec<_> = (1..=length as u32).map(id).collect();
+    for batch in ids.windows(2).collect::<Vec<_>>().chunks(400) {
+        let bonds: Vec<_> = batch
+            .iter()
+            .map(|pair| Command::AddBond {
+                begin: AtomRef::Id(pair[0]),
+                end: AtomRef::Id(pair[1]),
+                order: BondOrder::Single,
+            })
+            .collect();
+        doc.apply(&bonds).unwrap();
+    }
+    doc
+}
+
+fn aromatic_pair() -> Document {
+    graph(
+        "aromatic-pair",
+        vec![atom("C"), atom("C")],
+        &[(0, 1, BondOrder::Aromatic)],
+    )
+}
+
+fn target_pairs(result: &chemifree_domain::query::SearchResult) -> Vec<Vec<AtomId>> {
+    result
+        .mappings
+        .iter()
+        .map(|mapping| mapping.iter().map(|(_, target)| *target).collect())
+        .collect()
+}
+
+#[test]
+fn stated_query_hydrogens_match_the_valence_model_hydrogens_of_a_drawn_target() {
+    let ethane = chain("ethane", 2);
+    for (count, expected) in [(3, 2), (2, 0), (4, 0)] {
+        let query = graph("methyl", vec![with_hydrogens("C", count)], &[]);
+        let result = find(&query, &ethane, &[], 10, 1000).unwrap();
+        assert!(result.complete);
+        assert_eq!(
+            result.mappings.len(),
+            expected,
+            "query H={count} against drawn ethane (each carbon has 3 inferred H)"
+        );
+    }
+    // A stated target count is used as recorded, not recomputed.
+    let stated = graph("stated", vec![with_hydrogens("C", 2)], &[]);
+    let query = graph("two", vec![with_hydrogens("C", 2)], &[]);
+    assert_eq!(
+        find(&query, &stated, &[], 10, 100).unwrap().mappings.len(),
+        1
+    );
+}
+
+#[test]
+fn stated_query_hydrogens_refuse_a_target_whose_hydrogens_cannot_be_determined() {
+    let query = graph("one-h", vec![with_hydrogens("C", 1)], &[]);
+    // Recorded aromatic bonds have no integral order in the recorded model.
+    let benzene = graph(
+        "benzene",
+        vec![atom("C"); 6],
+        &(0..6)
+            .map(|i| (i, (i + 1) % 6, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        find(&query, &benzene, &[], 10, 1000),
+        Err(QueryError::TargetHydrogensUndetermined)
+    );
+    // A pentavalent carbon has no valid inferred hydrogen count.
+    let hub = graph(
+        "hub",
+        vec![atom("C"); 6],
+        &(1..6)
+            .map(|i| (0, i, BondOrder::Single))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        find(&query, &hub, &[], 10, 1000),
+        Err(QueryError::TargetHydrogensUndetermined)
+    );
+    // Without a stated hydrogen condition the same targets are searched as before.
+    let plain = graph("plain", vec![atom("C")], &[]);
+    assert!(find(&plain, &hub, &[], 10, 1000).unwrap().complete);
+}
+
+#[test]
+fn isotope_and_radical_conditions_compare_recorded_target_states() {
+    let mut labeled = atom("C");
+    labeled.isotope = Some(13);
+    let query = graph("c13", vec![labeled.clone()], &[]);
+    let natural = graph("natural", vec![atom("C")], &[]);
+    let heavy = graph("heavy", vec![labeled], &[]);
+    assert!(
+        find(&query, &natural, &[], 10, 100)
+            .unwrap()
+            .mappings
+            .is_empty()
+    );
+    assert_eq!(
+        find(&query, &heavy, &[], 10, 100).unwrap().mappings.len(),
+        1
+    );
+    let mut radical = atom("C");
+    radical.radical = chemifree_domain::states::Radical::Doublet;
+    let query = graph("radical", vec![radical], &[]);
+    assert!(
+        find(&query, &natural, &[], 10, 100)
+            .unwrap()
+            .mappings
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_charge_condition_that_contradicts_an_element_atom_is_refused() {
+    let target = graph("target", vec![atom("C")], &[]);
+    let neutral = graph("neutral", vec![atom("C")], &[]);
+    let mut contradictory = no_conditions(id(1));
+    contradictory.charge = Some(1);
+    assert_eq!(
+        find(&neutral, &target, &[contradictory], 10, 100),
+        Err(QueryError::InvalidPredicate)
+    );
+    // The same value as the drawn charge is redundant, not contradictory.
+    let mut redundant = no_conditions(id(1));
+    redundant.charge = Some(0);
+    assert_eq!(
+        find(&neutral, &target, &[redundant], 10, 100)
+            .unwrap()
+            .mappings
+            .len(),
+        1
+    );
+    // A query atom stands for several charges, so a condition on it is meaningful.
+    let any = graph("any", vec![Atom::new(AtomKind::Query(QueryAtom::Any))], &[]);
+    let mut cation = atom("C");
+    cation.charge = 1;
+    let cations = graph("cations", vec![cation, atom("C")], &[]);
+    let mut positive = no_conditions(id(1));
+    positive.charge = Some(1);
+    assert_eq!(
+        find(&any, &cations, &[positive], 10, 100).unwrap().mappings,
+        vec![vec![(id(1), id(1))]]
+    );
+}
+
+#[test]
+fn kekule_nh_heterocycles_with_inferred_hydrogen_are_refused_not_reported_empty() {
+    let pyrazole = graph(
+        "pyrazole",
+        vec![atom("C"), atom("C"), atom("N"), atom("N"), atom("C")],
+        &[
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Double),
+            (2, 3, BondOrder::Single),
+            (3, 4, BondOrder::Single),
+            (4, 0, BondOrder::Double),
+        ],
+    );
+    let pyrrole = graph(
+        "pyrrole",
+        vec![atom("C"), atom("C"), atom("C"), atom("C"), atom("N")],
+        &[
+            (0, 1, BondOrder::Double),
+            (1, 2, BondOrder::Single),
+            (2, 3, BondOrder::Double),
+            (3, 4, BondOrder::Single),
+            (4, 0, BondOrder::Single),
+        ],
+    );
+    let query = aromatic_pair();
+    for target in [&pyrazole, &pyrrole] {
+        assert_eq!(
+            find_graphs(
+                &MoleculeGraph::from_document(&query),
+                &MoleculeGraph::from_document(target),
+                &[],
+                100,
+                10_000,
+                MatchModel::AromaticTarget
+            ),
+            Err(QueryError::AromaticTargetUnsupported(
+                "ambiguous_ring_nitrogen_hydrogen"
+            ))
+        );
+    }
+}
+
+#[test]
+fn only_the_ambiguous_nitrogen_pattern_is_refused_in_aromatic_target_mode() {
+    let aromatic_query = MoleculeGraph::from_document(&aromatic_pair());
+    // The same pyrrole with its N-H stated is classified, so the search proceeds.
+    let pyrrole = graph(
+        "pyrrole-nh",
+        vec![
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            with_hydrogens("N", 1),
+        ],
+        &[
+            (0, 1, BondOrder::Double),
+            (1, 2, BondOrder::Single),
+            (2, 3, BondOrder::Double),
+            (3, 4, BondOrder::Single),
+            (4, 0, BondOrder::Single),
+        ],
+    );
+    let found = find_graphs(
+        &aromatic_query,
+        &MoleculeGraph::from_document(&pyrrole),
+        &[],
+        100,
+        10_000,
+        MatchModel::AromaticTarget,
+    )
+    .unwrap();
+    assert!(found.complete);
+    assert_eq!(found.mappings.len(), 6);
+    // A saturated ring N-H is not aromatic under either hydrogen reading.
+    let piperidine = graph(
+        "piperidine",
+        vec![
+            atom("N"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+            atom("C"),
+        ],
+        &(0..6)
+            .map(|i| (i, (i + 1) % 6, BondOrder::Single))
+            .collect::<Vec<_>>(),
+    );
+    let single = graph(
+        "cc",
+        vec![atom("C"), atom("C")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    let result = find_graphs(
+        &MoleculeGraph::from_document(&single),
+        &MoleculeGraph::from_document(&piperidine),
+        &[],
+        100,
+        10_000,
+        MatchModel::AromaticTarget,
+    )
+    .unwrap();
+    assert!(result.complete);
+    assert_eq!(result.mappings.len(), 8);
+}
+
+#[test]
+fn a_two_atom_query_completes_against_a_long_chain_under_default_budgets() {
+    let query = chain("pair", 2);
+    let target = chain("long-chain", 400);
+    let result = find(&query, &target, &[], 1000, 100_000).unwrap();
+    assert!(result.complete, "work used: {}", result.states);
+    assert_eq!(result.mappings.len(), 798);
+}
+
+#[test]
+fn renumbering_a_path_query_changes_neither_mappings_nor_completeness() {
+    let target = chain("thirty", 30);
+    let numberings: [[usize; 6]; 3] = [[0, 1, 2, 3, 4, 5], [3, 0, 5, 1, 4, 2], [5, 2, 4, 0, 3, 1]];
+    let mut outcomes = Vec::new();
+    for numbering in numberings {
+        let edges: Vec<_> = numbering
+            .windows(2)
+            .map(|pair| (pair[0], pair[1], BondOrder::Single))
+            .collect();
+        let query = graph("scrambled", vec![atom("C"); 6], &edges);
+        let result = find(&query, &target, &[], 1000, 100_000).unwrap();
+        assert!(
+            result.complete,
+            "numbering {numbering:?} stopped at {} work",
+            result.states
+        );
+        // Read each mapping along the path, so numbering does not affect the comparison.
+        let mut along_path: Vec<Vec<AtomId>> = result
+            .mappings
+            .iter()
+            .map(|mapping| {
+                numbering
+                    .iter()
+                    .map(|&position| {
+                        mapping
+                            .iter()
+                            .find(|(q, _)| *q == id(position as u32 + 1))
+                            .unwrap()
+                            .1
+                    })
+                    .collect()
+            })
+            .collect();
+        along_path.sort();
+        outcomes.push(along_path);
+    }
+    assert_eq!(outcomes[0].len(), 2 * (30 - 5));
+    assert_eq!(outcomes[0], outcomes[1]);
+    assert_eq!(outcomes[0], outcomes[2]);
+}
+
+#[test]
+fn a_sixty_four_atom_path_completes_against_a_long_chain_with_the_maximum_budget() {
+    let query = chain("path-64", 64);
+    let target = chain("chain-240", 240);
+    let result = find(&query, &target, &[], 1000, 1_000_000).unwrap();
+    assert!(result.complete, "work used: {}", result.states);
+    assert_eq!(target_pairs(&result).len(), 2 * (240 - 63));
 }
