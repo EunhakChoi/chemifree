@@ -167,17 +167,14 @@ fn set_radical(object: &mut chemifree_domain::interchange::Object, value: i64) {
 
 fn set_first_text(object: &mut chemifree_domain::interchange::Object, value: &str) -> bool {
     for child in &mut object.children {
-        match child {
-            Content::Text(text) => {
-                *text = value.to_owned();
-                return true;
-            }
-            Content::Object(child) => {
-                if set_first_text(child, value) {
-                    return true;
-                }
-            }
-            _ => {}
+        if let Content::Text(text) = child {
+            *text = value.to_owned();
+            return true;
+        }
+        if let Content::Object(child) = child
+            && set_first_text(child, value)
+        {
+            return true;
         }
     }
     false

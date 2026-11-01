@@ -230,6 +230,7 @@ fn seeded_cdxml_mutations_never_write_cdx_the_reader_refuses() {
         let read = cdx::read(&written.bytes).unwrap_or_else(|error| {
             panic!("round {round}: CDX written but unreadable: {error:?}\n{text}")
         });
+        exercised += 1;
         if written.rounded_color_channels == 0 {
             assert_eq!(
                 read.document.root(),
@@ -238,4 +239,8 @@ fn seeded_cdxml_mutations_never_write_cdx_the_reader_refuses() {
             );
         }
     }
+    assert!(
+        exercised > rounds / 20,
+        "only {exercised} mutations reached the writer"
+    );
 }
