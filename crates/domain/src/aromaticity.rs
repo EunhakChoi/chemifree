@@ -36,6 +36,11 @@ pub struct System {
     pub classification: Classification,
     pub electrons: Option<u16>,
     pub reason: Option<&'static str>,
+    /// Aromatic system drawn with single and double bonds only: the uncharged nitrogens that
+    /// are pyrrole-type donors because they have inferred hydrogens, two neighbours and no
+    /// double bond. With aromatic bonds the same nitrogen would read as pyridine-type, so a
+    /// conversion to aromatic bonds states their hydrogens (see [`Interpretation::donor_hydrogens`]).
+    donors: Vec<AtomId>,
     assignment: Option<Vec<BondId>>,
 }
 
@@ -166,6 +171,7 @@ fn interpret_ring(
         classification: Classification::Unsupported,
         electrons: None,
         reason: None,
+        donors: Vec::new(),
         assignment: None,
     };
     let interpretation = calculate(ring, atoms, bonds);
@@ -175,10 +181,47 @@ fn interpret_ring(
             result.electrons = electrons;
             result.assignment = assignment;
             result.reason = reason;
+            if classification == Classification::Aromatic {
+                result.donors = pyrrole_donors(ring, atoms, bonds);
+            }
         }
         Err(reason) => result.reason = Some(reason),
     }
     result
+}
+
+/// Nitrogens of a ring system drawn without aromatic bonds that the model reads as pyrrole-type
+/// only through the Kekule rule: uncharged, inferred hydrogens, two neighbours, no double bond.
+fn pyrrole_donors(
+    ring: &RingSystem,
+    atoms: &BTreeMap<AtomId, &Atom>,
+    bonds: &BTreeMap<BondId, &Bond>,
+) -> Vec<AtomId> {
+    if ring
+        .bonds
+        .iter()
+        .any(|id| bonds[id].order == BondOrder::Aromatic)
+    {
+        return Vec::new();
+    }
+    ring.atoms
+        .iter()
+        .copied()
+        .filter(|id| {
+            let atom = atoms[id];
+            if atom.kind.element().map(|e| e.symbol()) != Some("N")
+                || atom.charge != 0
+                || atom.hydrogens != Hydrogens::Inferred
+            {
+                return false;
+            }
+            let incident: Vec<_> = bonds
+                .values()
+                .filter(|b| b.begin == *id || b.end == *id)
+                .collect();
+            incident.len() == 2 && incident.iter().all(|b| b.order == BondOrder::Single)
+        })
+        .collect()
 }
 
 type Calculated = (
@@ -530,6 +573,23 @@ impl Interpretation {
         result.sort_unstable();
         result.dedup();
         Ok(result)
+    }
+
+    /// The nitrogens, with the hydrogen count to record, that must state their hydrogens when the
+    /// aromatic systems they belong to are rewritten with aromatic bonds. A ring drawn with
+    /// single and double bonds reads such a nitrogen as pyrrole-type from its inferred hydrogens;
+    /// with aromatic bonds an inferred-hydrogen nitrogen is pyridine-type, so the count the model
+    /// used (one, filling nitrogen's valence of three) becomes explicit in the same edit.
+    pub fn donor_hydrogens(&self) -> Vec<(AtomId, u8)> {
+        let mut result: Vec<_> = self
+            .systems
+            .iter()
+            .filter(|s| s.classification == Classification::Aromatic)
+            .flat_map(|s| s.donors.iter().map(|id| (*id, 1)))
+            .collect();
+        result.sort_unstable();
+        result.dedup();
+        result
     }
 
     /// Use this interpretation's own input bond set; no second perception is required.

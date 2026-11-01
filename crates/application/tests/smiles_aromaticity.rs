@@ -192,3 +192,176 @@ fn exocyclic_double_bonds_on_ring_atoms_remain_outside_the_model() {
         );
     }
 }
+
+fn new_document(app: &App) -> String {
+    call(app, "document.create", json!({"title":"A"}))["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn close_document(app: &App, id: &str) {
+    let revision =
+        call(app, "document.snapshot", json!({"document_id":id}))["document_revision"].clone();
+    let reply = call(
+        app,
+        "document.close",
+        json!({"document_id":id,"discard_unsaved":true,"expected_revision":revision}),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+}
+
+/// Convert in place; returns the reply.
+fn convert(app: &App, id: &str, to: &str) -> Value {
+    let revision =
+        call(app, "document.snapshot", json!({"document_id":id}))["document_revision"].clone();
+    call(
+        app,
+        "chem.aromaticity_convert",
+        json!({"document_id":id,"expected_revision":revision,"to":to}),
+    )
+}
+
+fn code_of(app: &App, id: &str) -> Result<String, String> {
+    let reply = call(
+        app,
+        "chem.identity",
+        json!({"document_id":id,"mode":"chemical"}),
+    );
+    match reply["result"]["identity"]["code"].as_str() {
+        Some(code) => Ok(code.to_owned()),
+        None => Err(reply["diagnostics"][0]["details"]["reason"]
+            .as_str()
+            .unwrap()
+            .to_owned()),
+    }
+}
+
+fn classes(app: &App, id: &str) -> Vec<String> {
+    call(app, "chem.aromaticity", json!({"document_id":id}))["result"]["systems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["classification"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Converting a ring the model calls aromatic must not change what the model says about it.
+fn assert_round_trip(app: &App, text: &str) {
+    let id = import(app, text);
+    let before = code_of(app, &id);
+    assert_eq!(classes(app, &id), ["aromatic"], "{text}");
+    let to_aromatic = convert(app, &id, "aromatic");
+    assert_eq!(to_aromatic["outcome"], "ok", "{text}: {to_aromatic}");
+    assert_eq!(classes(app, &id), ["aromatic"], "{text}: aromatic form");
+    assert_eq!(
+        code_of(app, &id),
+        before,
+        "{text}: identity of the aromatic form"
+    );
+    let back = convert(app, &id, "kekule");
+    assert_eq!(back["outcome"], "ok", "{text}: {back}");
+    assert_eq!(classes(app, &id), ["aromatic"], "{text}: Kekule form");
+    assert_eq!(
+        code_of(app, &id),
+        before,
+        "{text}: identity after converting back"
+    );
+}
+
+#[test]
+fn converting_kekule_pyrrole_type_rings_to_aromatic_keeps_their_interpretation() {
+    let (app, _dir) = app();
+    for text in [
+        "N1C=CC=C1",
+        "N1C=NC=C1",
+        "N1C=CN=C1",
+        "N1N=CC=C1",
+        "N1SN1",
+        "O1ON1",
+        "[NH]1[NH]N1",
+    ] {
+        assert_round_trip(&app, text);
+    }
+}
+
+struct Lcg(u64);
+impl Lcg {
+    fn next(&mut self, bound: usize) -> usize {
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((self.0 >> 33) as usize) % bound
+    }
+}
+
+#[test]
+fn every_kekule_ring_the_model_calls_aromatic_survives_conversion_both_ways() {
+    let (app, _dir) = app();
+    let atoms = [
+        "C", "C", "C", "N", "N", "O", "S", "[CH-]", "[CH+]", "[NH]", "[N+]", "[NH+]", "[N-]",
+    ];
+    let mut tested = 0;
+    for seed in 0..3000_u64 {
+        let mut rng = Lcg(seed + 1);
+        let size = 3 + rng.next(5);
+        let mut text = String::new();
+        for i in 0..size {
+            if i > 0 && rng.next(2) == 0 {
+                text.push('=');
+            }
+            text.push_str(atoms[rng.next(atoms.len())]);
+            if i == 0 {
+                text.push('1');
+            }
+        }
+        if rng.next(2) == 0 {
+            text.push('=');
+        }
+        text.push('1');
+        let id = new_document(&app);
+        let preview = call(
+            &app,
+            "document.import",
+            json!({"document_id":id,"expected_revision":0,"format":"smiles","source":text,"preview":true}),
+        );
+        if preview["result"].is_null() {
+            close_document(&app, &id);
+            continue;
+        }
+        let digest = preview["result"]["preview_digest"].clone();
+        call(
+            &app,
+            "document.import",
+            json!({"document_id":id,"expected_revision":0,"format":"smiles","source":text,"preview_digest":digest,"accept_loss":true}),
+        );
+        if classes(&app, &id) == ["aromatic"] && code_of(&app, &id).is_ok() {
+            tested += 1;
+            assert_round_trip_in_place(&app, &id, &text, seed);
+        }
+        close_document(&app, &id);
+    }
+    assert!(tested > 30, "only {tested} aromatic rings were generated");
+}
+
+fn assert_round_trip_in_place(app: &App, id: &str, text: &str, seed: u64) {
+    let before = code_of(app, id);
+    for target in ["aromatic", "kekule"] {
+        let reply = convert(app, id, target);
+        assert_eq!(
+            reply["outcome"], "ok",
+            "seed {seed} {text}: to {target}: {reply}"
+        );
+        assert_eq!(
+            classes(app, id),
+            ["aromatic"],
+            "seed {seed} {text}: {target} form"
+        );
+        assert_eq!(
+            code_of(app, id),
+            before,
+            "seed {seed} {text}: identity in {target} form"
+        );
+    }
+}

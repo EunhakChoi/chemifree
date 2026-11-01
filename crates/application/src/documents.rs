@@ -893,6 +893,19 @@ impl<R: DocumentRepository> Documents<R> {
             })?;
             let existing: BTreeMap<_, _> = graph.bonds().collect();
             let mut commands = Vec::new();
+            if conversion == AromaticityConversion::Aromatic {
+                // Aromatic bonds would turn an inferred-hydrogen pyrrole-type nitrogen into a
+                // pyridine-type one; stating its hydrogens keeps the interpretation.
+                for (atom, count) in interpretation.donor_hydrogens() {
+                    commands.push(Command::UpdateAtom {
+                        atom,
+                        edit: chemifree_domain::document::AtomEdit {
+                            hydrogens: Some(chemifree_domain::states::Hydrogens::Specified(count)),
+                            ..Default::default()
+                        },
+                    });
+                }
+            }
             for (bond, order) in changes {
                 let Some(current) = existing.get(&bond) else {
                     return Err(ApplicationError::new(
