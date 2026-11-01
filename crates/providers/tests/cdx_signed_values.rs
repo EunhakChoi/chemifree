@@ -46,7 +46,7 @@ fn node_integer(document: &Document, kind: PropertyKind) -> Option<i64> {
 
 fn round_trip(source: &str) -> Result<Document, cdx::CdxError> {
     let xml = cdxml::read(source).expect("CDXML fixture is valid");
-    let bytes = cdx::write(xml.document())?;
+    let bytes = cdx::write(xml.document())?.bytes;
     let decoded = cdx::read(&bytes).expect("written CDX is readable").document;
     assert_eq!(decoded.root(), xml.document().root(), "{source}");
     Ok(decoded)

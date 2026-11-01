@@ -20,7 +20,7 @@ fn zero_font_count_is_a_profile_refusal_not_a_claim_of_invalid_cdx() {
     let error = cdx::read(&input).unwrap_err();
     assert_eq!(error.code, "unsupported_empty_table");
     assert!(error.message.contains("profile"));
-    assert_eq!(error.offset, 34);
+    assert_eq!(error.offset, Some(34));
     let error = LocalInterchangeCodec
         .read(InterchangeFormat::Cdx, &input)
         .unwrap_err();
@@ -33,7 +33,7 @@ fn zero_color_count_is_a_profile_refusal_not_a_claim_of_invalid_cdx() {
     let error = cdx::read(&input).unwrap_err();
     assert_eq!(error.code, "unsupported_empty_table");
     assert!(error.message.contains("profile"));
-    assert_eq!(error.offset, 32);
+    assert_eq!(error.offset, Some(32));
     let error = LocalInterchangeCodec
         .read(InterchangeFormat::Cdx, &input)
         .unwrap_err();

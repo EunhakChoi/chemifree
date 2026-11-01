@@ -56,7 +56,7 @@ fn independently_framed_binary_matches_cdxml_chemistry_and_coordinates() {
     let xml = cdxml::read("<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"1 -2\" Element=\"8\" Charge=\"-1\"/><n id=\"4\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"2\"/></fragment></page></CDXML>").unwrap();
     assert_eq!(binary.root(), xml.document().root());
     assert_eq!(
-        cdx::read(&cdx::write(xml.document()).unwrap())
+        cdx::read(&cdx::write(xml.document()).unwrap().bytes)
             .unwrap()
             .document
             .root(),
@@ -87,7 +87,7 @@ fn explicit_document_has_distinct_object_and_file_terminators() {
     }
     let read = cdx::read(&input).unwrap();
     assert_eq!(read.document.root().id, Some(9));
-    assert_eq!(cdx::write(&read.document).unwrap(), input);
+    assert_eq!(cdx::write(&read.document).unwrap().bytes, input);
     let mut wrong_terminator = input.clone();
     let last = wrong_terminator.len() - 2;
     wrong_terminator[last] = 1;
@@ -129,7 +129,7 @@ fn every_truncated_prefix_fails_and_extended_text_is_read_and_written() {
         panic!("value")
     };
     assert_eq!(value.len(), 70_000);
-    let encoded = cdx::write(&parsed).unwrap();
+    let encoded = cdx::write(&parsed).unwrap().bytes;
     assert!(encoded.windows(4).any(|w| w == [0x00, 0x07, 0xff, 0xff]));
     assert_eq!(cdx::read(&encoded).unwrap().document.root(), parsed.root());
 }
@@ -239,12 +239,12 @@ fn an_unused_unsupported_font_charset_is_not_invented_as_a_cdxml_name() {
 fn styled_text_and_font_table_match_cdxml_and_unknown_encodings_are_refused() {
     let bytes = styled_text(1252, 2);
     let read = cdx::read(&bytes).unwrap();
-    assert!(read.font_platform_unrepresented);
+    assert_eq!(read.font_platform, Some(1));
     let binary = read.document;
     let xml = cdxml::read("<CDXML><fonttable><font id=\"3\" name=\"Arial\" charset=\"iso-8859-1\"/></fonttable><page id=\"1\"><t id=\"2\"><s font=\"3\" face=\"1\" size=\"12\" color=\"2\">Te</s><s font=\"3\" face=\"2\" size=\"12\" color=\"2\">st</s></t></page></CDXML>").unwrap();
     assert_eq!(binary.root(), xml.document().root());
     assert_eq!(
-        cdx::read(&cdx::write(xml.document()).unwrap())
+        cdx::read(&cdx::write(xml.document()).unwrap().bytes)
             .unwrap()
             .document
             .root(),
@@ -358,7 +358,7 @@ fn color_table_components_agree_with_cdxml() {
     let xml = cdxml::read("<CDXML><colortable><color r=\"1\" g=\"1\" b=\"1\"/><color r=\"0\" g=\"0\" b=\"0\"/></colortable><page id=\"1\"/></CDXML>").unwrap();
     assert_eq!(binary.root(), xml.document().root());
     assert_eq!(
-        cdx::read(&cdx::write(xml.document()).unwrap())
+        cdx::read(&cdx::write(xml.document()).unwrap().bytes)
             .unwrap()
             .document
             .root(),
@@ -409,7 +409,7 @@ fn scoped_font_and_color_tables_are_not_interpreted_using_root_defaults() {
         end(&mut bytes);
         end(&mut bytes);
         errors.push(cdx::read(&bytes).err().map(|error| {
-            assert!(error.offset > 28);
+            assert!(error.offset.is_some_and(|offset| offset > 28));
             error.code
         }));
     }

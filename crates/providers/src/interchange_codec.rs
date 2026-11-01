@@ -36,33 +36,52 @@ impl From<CdxmlError> for InterchangeError {
 
 impl From<cdx::CdxError> for InterchangeError {
     fn from(error: cdx::CdxError) -> Self {
-        let message = if error.offset == 0 {
-            error.message
-        } else {
-            format!("{} (byte offset {})", error.message, error.offset)
+        let message = match error.offset {
+            Some(offset) => format!("{} (byte offset {offset})", error.message),
+            None => error.message,
         };
         Self {
             code: error.code,
             message,
             line: None,
             column: None,
-            byte_offset: (error.offset != 0).then_some(error.offset),
+            byte_offset: error.offset,
         }
     }
 }
 
 fn cdx_platform_loss() -> Loss {
     Loss {
-        feature: "font_platform".into(), source_path: "document.fonttable".into(),
+        feature: "font_platform".into(),
+        source_path: "document.fonttable".into(),
         disposition: LossDisposition::Normalized,
-        reason: "The source font platform is not represented in the common tree; an unchanged original retains its bytes.".into(),
+        reason: "The CDX font platform is not represented in the common tree; this writer records platform 1 unless an unchanged original retains its bytes.".into(),
         semantic_impact: SemanticImpact::Rendering,
     }
 }
 
-fn has_fonts(document: &Document) -> bool {
-    document.root().children.iter().any(|child| matches!(child,
-        chemifree_domain::interchange::Content::Object(object) if object.kind == chemifree_domain::interchange::ObjectKind::FontTable))
+fn xml_notes_loss(count: usize) -> Loss {
+    Loss {
+        feature: "xml_comment".into(),
+        source_path: "document".into(),
+        disposition: LossDisposition::Dropped,
+        reason: format!(
+            "{count} XML comments or processing instructions cannot be held in CDX and were dropped; they never carried drawing semantics."
+        ),
+        semantic_impact: SemanticImpact::None,
+    }
+}
+
+fn color_precision_loss(channels: usize) -> Loss {
+    Loss {
+        feature: "color_precision".into(),
+        source_path: "document.colortable".into(),
+        disposition: LossDisposition::Normalized,
+        reason: format!(
+            "{channels} color channels were not multiples of 1/65535 and were rounded to the nearest 16-bit CDX step."
+        ),
+        semantic_impact: SemanticImpact::Rendering,
+    }
 }
 
 fn parse(format: InterchangeFormat, bytes: &[u8]) -> Result<CdxmlDocument, InterchangeError> {
@@ -148,7 +167,7 @@ impl InterchangeCodec for LocalInterchangeCodec {
                     false,
                 ));
             }
-            if decoded.font_platform_unrepresented {
+            if decoded.font_platform.is_some() {
                 losses.push(cdx_platform_loss());
             }
             return Ok(InterchangeRead {
@@ -185,18 +204,12 @@ impl InterchangeCodec for LocalInterchangeCodec {
         discard_opaque: bool,
     ) -> Result<InterchangeWrite, InterchangeError> {
         if format == InterchangeFormat::Cdx {
-            document
-                .validate()
-                .map_err(|error| fail("invalid_document", error.to_string()))?;
-            let original_document = original
-                .map(cdx::read)
-                .transpose()?
-                .map(|read| read.document);
+            let original_read = original.map(cdx::read).transpose()?;
+            let original_document = original_read.as_ref().map(|read| &read.document);
             let submitted_count = opaque_count(document.root());
-            let original_count = original_document
-                .as_ref()
-                .map_or(0, |original| opaque_count(original.root()));
-            if let (Some(bytes), Some(baseline)) = (original, original_document.as_ref())
+            let original_count =
+                original_document.map_or(0, |original| opaque_count(original.root()));
+            if let (Some(bytes), Some(baseline)) = (original, original_document)
                 && !discard_opaque
                 && baseline.root() == document.root()
             {
@@ -234,16 +247,28 @@ impl InterchangeCodec for LocalInterchangeCodec {
                     false,
                 ));
             }
-            if original_document.as_ref().is_some_and(has_fonts) {
+            let (without_notes, notes) = cdx::without_xml_notes(&clean)?;
+            if notes > 0 {
+                if !discard_opaque {
+                    return Err(fail(
+                        "comment_discard_required",
+                        "CDX cannot hold XML comments or processing instructions; request discard_opaque to drop them and report the loss.",
+                    ));
+                }
+                clean = without_notes;
+                losses.push(xml_notes_loss(notes));
+            }
+            let written = cdx::write(&clean)?;
+            // The writer records font platform 1; only an original known to use it avoids a change.
+            let source_platform = original_read.as_ref().and_then(|read| read.font_platform);
+            if cdx::has_font_table(&clean) && source_platform != Some(1) {
                 losses.push(cdx_platform_loss());
             }
-            let bytes = cdx::write(&clean).map_err(|mut error| {
-                // A writer's staging offset is not a location in the supplied source.
-                error.offset = 0;
-                error
-            })?;
+            if written.rounded_color_channels > 0 {
+                losses.push(color_precision_loss(written.rounded_color_channels));
+            }
             return Ok(InterchangeWrite {
-                bytes,
+                bytes: written.bytes,
                 loss_report: losses,
             });
         }

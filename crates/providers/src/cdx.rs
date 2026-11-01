@@ -14,31 +14,46 @@ const TEXT: u16 = 0x0700;
 pub struct CdxError {
     pub code: &'static str,
     pub message: String,
-    pub offset: usize,
+    /// Zero-based byte offset in the supplied input, when the error has one.
+    pub offset: Option<usize>,
 }
 
 /// Decoded common tree and information that could not be represented in it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CdxRead {
     pub document: Document,
-    /// The font-table platform belongs to CDX framing and is not held in the common tree.
-    pub font_platform_unrepresented: bool,
+    /// The font-table platform belongs to CDX framing and is not held in the common tree;
+    /// this is the value read, when the file has a font table.
+    pub font_platform: Option<u16>,
+}
+
+/// Encoded CDX bytes and the precision the encoding could not keep.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CdxWrite {
+    pub bytes: Vec<u8>,
+    /// Color channels that were not an exact multiple of 1/65535 and were rounded.
+    pub rounded_color_channels: usize,
 }
 impl std::fmt::Display for CdxError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.offset == 0 {
-            formatter.write_str(&self.message)
-        } else {
-            write!(formatter, "{} at byte {}", self.message, self.offset)
+        match self.offset {
+            Some(offset) => write!(formatter, "{} at byte {offset}", self.message),
+            None => formatter.write_str(&self.message),
         }
     }
 }
 impl std::error::Error for CdxError {}
-fn fail(code: &'static str, message: impl Into<String>, offset: usize) -> CdxError {
+fn fail(code: &'static str, message: impl Into<String>) -> CdxError {
     CdxError {
         code,
         message: message.into(),
-        offset,
+        offset: None,
+    }
+}
+fn fail_at(code: &'static str, message: impl Into<String>, offset: usize) -> CdxError {
+    CdxError {
+        offset: Some(offset),
+        ..fail(code, message)
     }
 }
 fn object(kind: O, id: u32) -> Object {
@@ -59,6 +74,7 @@ struct Cursor<'a> {
     origin: usize,
     objects: usize,
     properties: usize,
+    font_platform: Option<u16>,
 }
 impl<'a> Cursor<'a> {
     fn take(&mut self, count: usize) -> Result<&'a [u8], CdxError> {
@@ -67,7 +83,7 @@ impl<'a> Cursor<'a> {
             .checked_add(count)
             .filter(|&end| end <= self.bytes.len())
             .ok_or_else(|| {
-                fail(
+                fail_at(
                     "truncated_cdx",
                     "A CDX item extends beyond its input.",
                     self.origin + self.at,
@@ -89,7 +105,7 @@ impl<'a> Cursor<'a> {
     }
     fn body(&mut self, current: &mut Object, unknown: bool, depth: usize) -> Result<(), CdxError> {
         if depth > 128 {
-            return Err(fail(
+            return Err(fail_at(
                 "resource_limit",
                 "CDX nesting exceeds 128 levels.",
                 self.at,
@@ -104,7 +120,7 @@ impl<'a> Cursor<'a> {
             if tag & 0x8000 != 0 {
                 self.objects += 1;
                 if self.objects > 100_000 {
-                    return Err(fail(
+                    return Err(fail_at(
                         "resource_limit",
                         "CDX contains too many objects.",
                         self.at,
@@ -133,7 +149,7 @@ impl<'a> Cursor<'a> {
                 local_properties += 1;
                 self.properties += 1;
                 if local_properties > 512 || self.properties > 100_000 {
-                    return Err(fail(
+                    return Err(fail_at(
                         "resource_limit",
                         "CDX has too many properties.",
                         self.at,
@@ -142,23 +158,23 @@ impl<'a> Cursor<'a> {
                 let short = self.u16()?;
                 let length = if short == u16::MAX {
                     usize::try_from(self.u32()?).map_err(|_| {
-                        fail("resource_limit", "CDX property is too large.", self.at)
+                        fail_at("resource_limit", "CDX property is too large.", self.at)
                     })?
                 } else {
                     usize::from(short)
                 };
                 let value = self.take(length)?;
                 if !unknown && current.kind != O::Document && matches!(tag, 0x0100 | 0x0300) {
-                    return Err(fail(
+                    return Err(fail_at(
                         "unsupported_table_scope",
                         "Scoped font and color tables outside the document are not interpreted.",
                         self.at - length,
                     ));
                 }
                 if !unknown && current.kind == O::Document && tag == 0x0100 {
-                    current
-                        .children
-                        .push(Content::Object(font_table(value, self.at - length)?));
+                    let (table, platform) = font_table(value, self.at - length)?;
+                    self.font_platform = Some(platform);
+                    current.children.push(Content::Object(table));
                 } else if !unknown && current.kind == O::Document && tag == 0x0300 {
                     current
                         .children
@@ -178,7 +194,7 @@ impl<'a> Cursor<'a> {
 }
 fn exact(bytes: &[u8], len: usize, at: usize) -> Result<&[u8], CdxError> {
     if bytes.len() != len {
-        Err(fail(
+        Err(fail_at(
             "invalid_property_length",
             format!("Expected {len} bytes, found {}.", bytes.len()),
             at,
@@ -244,9 +260,22 @@ fn decode_property(
         (O::Node, 0x0421) => {
             let charge = match bytes.len() {
                 1 => bytes[0] as i8,
-                4 => (i32::from_le_bytes(bytes.try_into().expect("four bytes")) >> 24) as i8,
+                4 => {
+                    // The public Charge page defines the 4-byte form (an early ChemDraw bug) as
+                    // `(INT32)saved >> 24`, which discards the low 24 bits. A fractional charge
+                    // has no meaning in this profile, so those bits must be zero.
+                    let saved = i32::from_le_bytes(bytes.try_into().expect("four bytes"));
+                    if saved & 0x00ff_ffff != 0 {
+                        return Err(fail_at(
+                            "unsupported_fractional_charge",
+                            "A 4-byte CDX charge with non-zero low 24 bits is not an integer charge.",
+                            at,
+                        ));
+                    }
+                    (saved >> 24) as i8
+                }
                 _ => {
-                    return Err(fail(
+                    return Err(fail_at(
                         "invalid_property_length",
                         "A CDX charge requires one or four bytes.",
                         at,
@@ -255,7 +284,18 @@ fn decode_property(
             };
             property(K::Charge, V::Integer(i64::from(charge)))
         }
-        (O::Node, 0x0422) => property(K::Radical, V::Integer(i64::from(exact(bytes, 1, at)?[0]))),
+        (O::Node, 0x0422) => {
+            // The public Radical page enumerates None, Singlet, Doublet and Triplet (0 to 3).
+            let radical = exact(bytes, 1, at)?[0];
+            if radical > 3 {
+                return Err(fail_at(
+                    "invalid_property_value",
+                    format!("CDX radical value {radical} is not one of the documented 0 to 3."),
+                    at,
+                ));
+            }
+            property(K::Radical, V::Integer(i64::from(radical)))
+        }
         (O::Bond, 0x0600) => property(K::BondOrder, V::Integer(i64::from(unsigned16(bytes, at)?))),
         (O::Bond, 0x0604) => property(K::BondBegin, V::ObjectReference(unsigned32(bytes, at)?)),
         (O::Bond, 0x0605) => property(K::BondEnd, V::ObjectReference(unsigned32(bytes, at)?)),
@@ -266,20 +306,28 @@ fn decode_property(
     };
     Ok(value)
 }
+/// XML 1.0 cannot carry C0 controls other than tab, line feed and carriage return, so such
+/// text could not be transcoded to CDXML.
+fn xml_carriable(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .all(|&byte| byte >= 0x20 || matches!(byte, b'\t' | b'\n' | b'\r'))
+}
 fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&byte| char::from(byte)).collect()
 }
-fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
+fn font_table(bytes: &[u8], at: usize) -> Result<(Object, u16), CdxError> {
     let mut c = Cursor {
         bytes,
         at: 0,
         origin: at,
         objects: 0,
         properties: 0,
+        font_platform: None,
     };
     let platform = c.u16()?;
     if platform > 1 {
-        return Err(fail(
+        return Err(fail_at(
             "unsupported_font_platform",
             "Unknown CDX font platform.",
             at,
@@ -293,9 +341,16 @@ fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
         let length = usize::from(c.u16()?);
         let name_bytes = c.take(length)?;
         if !name_bytes.is_ascii() {
-            return Err(fail(
+            return Err(fail_at(
                 "unsupported_encoding",
                 "Non-ASCII font names require an encoding this profile does not infer.",
+                at,
+            ));
+        }
+        if !xml_carriable(name_bytes) {
+            return Err(fail_at(
+                "unsupported_text_character",
+                "A CDX font name contains a control character that XML 1.0 cannot carry.",
                 at,
             ));
         }
@@ -305,7 +360,7 @@ fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
             .push(property(K::FontIndex, V::Integer(i64::from(id))));
         font.properties.push(property(K::FontName, V::Text(name)));
         if charset != 1252 {
-            return Err(fail(
+            return Err(fail_at(
                 "unsupported_encoding",
                 format!("Font charset {charset} has no supported CDXML mapping."),
                 at,
@@ -316,20 +371,20 @@ fn font_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
         table.children.push(Content::Object(font));
     }
     if c.at != bytes.len() {
-        return Err(fail(
+        return Err(fail_at(
             "invalid_font_table",
             "Trailing bytes in the CDX font table.",
             at + c.at,
         ));
     }
     if count == 0 {
-        return Err(fail(
+        return Err(fail_at(
             "unsupported_empty_table",
             "This interchange profile does not interpret a CDX font table with zero entries.",
             at + 2,
         ));
     }
-    Ok(table)
+    Ok((table, platform))
 }
 fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
     let mut c = Cursor {
@@ -338,6 +393,7 @@ fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
         origin: at,
         objects: 0,
         properties: 0,
+        font_platform: None,
     };
     let count = c.u16()?;
     let mut table = object(O::ColorTable, 0);
@@ -351,14 +407,14 @@ fn color_table(bytes: &[u8], at: usize) -> Result<Object, CdxError> {
         table.children.push(Content::Object(color));
     }
     if c.at != bytes.len() {
-        return Err(fail(
+        return Err(fail_at(
             "invalid_color_table",
             "Trailing bytes in the CDX color table.",
             at + c.at,
         ));
     }
     if count == 0 {
-        return Err(fail(
+        return Err(fail_at(
             "unsupported_empty_table",
             "This interchange profile does not interpret a CDX color table with zero entries.",
             at,
@@ -402,24 +458,17 @@ fn fonts(root: &Object) -> BTreeMap<u16, String> {
 }
 fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), CdxError> {
     if root.kind == O::Text {
-        if root
+        let mut raw = root
             .properties
             .iter()
-            .filter(|p| p.kind == K::UnknownBinary(TEXT))
-            .count()
-            != 1
-        {
+            .enumerate()
+            .filter(|(_, p)| p.kind == K::UnknownBinary(TEXT));
+        let (Some((index, _)), None) = (raw.next(), raw.next()) else {
             return Err(fail(
                 "invalid_text",
                 "A CDX text object must have exactly one text property.",
-                0,
             ));
-        }
-        let index = root
-            .properties
-            .iter()
-            .position(|p| p.kind == K::UnknownBinary(TEXT))
-            .ok_or_else(|| fail("invalid_text", "A CDX text object has no text property.", 0))?;
+        };
         let V::Bytes(bytes) = root.properties.remove(index).value else {
             unreachable!("binary property")
         };
@@ -429,25 +478,30 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
             origin: 0,
             objects: 0,
             properties: 0,
+            font_platform: None,
         };
         // The raw text property was detached from the stream; do not report its local
         // offset as a file offset when its style table is truncated.
-        let no_offset = |mut error: CdxError| {
-            error.offset = 0;
-            error
+        let unlocated = |error: CdxError| CdxError {
+            offset: None,
+            ..error
         };
-        let count = usize::from(c.u16().map_err(no_offset)?);
+        let count = usize::from(c.u16().map_err(unlocated)?);
         let mut runs = Vec::with_capacity(count);
         for _ in 0..count {
-            runs.push((
-                c.u16().map_err(no_offset)?,
-                c.u16().map_err(no_offset)?,
-                c.u16().map_err(no_offset)?,
-                c.u16().map_err(no_offset)?,
-                c.u16().map_err(no_offset)?,
-            ));
+            let mut run = [0u16; 5];
+            for value in &mut run {
+                *value = c.u16().map_err(unlocated)?;
+            }
+            runs.push(run);
         }
         let text = &bytes[c.at..];
+        if !xml_carriable(text) {
+            return Err(fail(
+                "unsupported_text_character",
+                "CDX text contains a control character that XML 1.0 cannot carry.",
+            ));
+        }
         if count == 0 {
             let mut style = object(O::StyleRun, 0);
             style.children.push(Content::Text(latin1(text)));
@@ -457,32 +511,26 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
                 return Err(fail(
                     "unsupported_encoding",
                     "Styled bytes with ambiguous Latin-1/Windows-1252 meanings are not decoded.",
-                    0,
                 ));
             }
-            if runs[0].0 != 0
-                || runs.windows(2).any(|pair| pair[0].0 >= pair[1].0)
-                || usize::from(runs.last().expect("nonempty").0) > text.len()
+            if runs[0][0] != 0
+                || runs.windows(2).any(|pair| pair[0][0] >= pair[1][0])
+                || usize::from(runs.last().expect("nonempty")[0]) > text.len()
             {
-                return Err(fail(
-                    "invalid_text",
-                    "CDX text style offsets are invalid.",
-                    0,
-                ));
+                return Err(fail("invalid_text", "CDX text style offsets are invalid."));
             }
-            for (index, (offset, font, face, size, color)) in runs.iter().enumerate() {
+            for (index, [offset, font, face, size, color]) in runs.iter().enumerate() {
                 if fonts.get(font).map(String::as_str) != Some("iso-8859-1") {
                     return Err(fail(
                         "unsupported_encoding",
                         format!(
                             "Text uses unsupported or missing CDX font charset for font {font}."
                         ),
-                        0,
                     ));
                 }
                 let end = runs
                     .get(index + 1)
-                    .map_or(text.len(), |run| usize::from(run.0));
+                    .map_or(text.len(), |run| usize::from(run[0]));
                 let mut style = object(O::StyleRun, 0);
                 style.properties.extend([
                     property(K::FontIndex, V::Integer(i64::from(*font))),
@@ -508,10 +556,10 @@ fn text_runs(root: &mut Object, fonts: &BTreeMap<u16, String>) -> Result<(), Cdx
 /// Parses the documented implicit-document form and the explicitly tagged document form.
 pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
     if bytes.len() > LIMIT {
-        return Err(fail("resource_limit", "CDX exceeds 1 MiB.", 0));
+        return Err(fail("resource_limit", "CDX exceeds 1 MiB."));
     }
     if !bytes.starts_with(HEADER) {
-        return Err(fail(
+        return Err(fail_at(
             "invalid_cdx_header",
             "Expected the 28-byte CDX header.",
             0,
@@ -523,6 +571,7 @@ pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
         origin: 0,
         objects: 0,
         properties: 0,
+        font_platform: None,
     };
     let mut root = object(O::Document, 0);
     let explicit_document = cursor.bytes[cursor.at..].starts_with(&[0x00, 0x80]);
@@ -535,37 +584,33 @@ pub fn read(bytes: &[u8]) -> Result<CdxRead, CdxError> {
     }
     cursor.body(&mut root, false, 0)?;
     if explicit_document && cursor.u16()? != 0 {
-        return Err(fail(
+        return Err(fail_at(
             "invalid_cdx_terminator",
             "An explicit document object must be followed by the file terminator.",
             cursor.at - 2,
         ));
     }
     if cursor.at != bytes.len() {
-        return Err(fail(
+        return Err(fail_at(
             "trailing_cdx",
             "Unexpected bytes after the CDX document terminator.",
             cursor.at,
         ));
     }
     let table = fonts(&root);
-    let font_platform_unrepresented = root.children.iter().any(|child| {
-        matches!(child,
-        Content::Object(object) if object.kind == O::FontTable)
-    });
     text_runs(&mut root, &table)?;
     // Whole-tree validation may discover a duplicate or dangling reference anywhere in the
     // document; the end-of-file cursor is not a reliable location for that error.
-    let document = Document::new(root).map_err(|e| fail("invalid_document", e.to_string(), 0))?;
+    let document = Document::new(root).map_err(|e| fail("invalid_document", e.to_string()))?;
     Ok(CdxRead {
         document,
-        font_platform_unrepresented,
+        font_platform: cursor.font_platform,
     })
 }
 
 fn encode_property(out: &mut Vec<u8>, tag: u16, bytes: &[u8]) -> Result<(), CdxError> {
     let len = u32::try_from(bytes.len())
-        .map_err(|_| fail("resource_limit", "CDX property is too long.", out.len()))?;
+        .map_err(|_| fail("resource_limit", "CDX property is too long."))?;
     out.extend_from_slice(&tag.to_le_bytes());
     if len >= u32::from(u16::MAX) {
         out.extend_from_slice(&u16::MAX.to_le_bytes());
@@ -575,11 +620,7 @@ fn encode_property(out: &mut Vec<u8>, tag: u16, bytes: &[u8]) -> Result<(), CdxE
     }
     out.extend_from_slice(bytes);
     if out.len() > LIMIT {
-        return Err(fail(
-            "resource_limit",
-            "CDX output exceeds 1 MiB.",
-            out.len(),
-        ));
+        return Err(fail("resource_limit", "CDX output exceeds 1 MiB."));
     }
     Ok(())
 }
@@ -609,9 +650,18 @@ fn text_property(object: &Object, kind: K) -> Option<&str> {
         }
     })
 }
+fn float(object: &Object, kind: K) -> Option<f64> {
+    object
+        .properties
+        .iter()
+        .find_map(|p| match (&p.kind, &p.value) {
+            (k, V::Float(n)) if *k == kind => Some(*n),
+            _ => None,
+        })
+}
 fn latin1_bytes(text: &str) -> Result<Vec<u8>, CdxError> {
     if text.len() > LIMIT {
-        return Err(fail("resource_limit", "CDX text exceeds 1 MiB.", 0));
+        return Err(fail("resource_limit", "CDX text exceeds 1 MiB."));
     }
     text.chars()
         .map(|c| {
@@ -619,7 +669,6 @@ fn latin1_bytes(text: &str) -> Result<Vec<u8>, CdxError> {
                 fail(
                     "unsupported_encoding",
                     "This CDX writer supports ISO Latin-1 text only.",
-                    0,
                 )
             })
         })
@@ -630,7 +679,7 @@ fn encode_fonts(table: &Object) -> Result<Vec<u8>, CdxError> {
     bytes.extend_from_slice(&1u16.to_le_bytes());
     bytes.extend_from_slice(
         &u16::try_from(table.children.len())
-            .map_err(|_| fail("resource_limit", "Too many fonts.", 0))?
+            .map_err(|_| fail("resource_limit", "Too many fonts."))?
             .to_le_bytes(),
     );
     for child in &table.children {
@@ -638,7 +687,6 @@ fn encode_fonts(table: &Object) -> Result<Vec<u8>, CdxError> {
             return Err(fail(
                 "unrepresentable_content",
                 "A font table has unsupported content.",
-                0,
             ));
         };
         if font.kind != O::Font
@@ -652,45 +700,42 @@ fn encode_fonts(table: &Object) -> Result<Vec<u8>, CdxError> {
             return Err(fail(
                 "unrepresentable_content",
                 "A font has unsupported attributes or children.",
-                0,
             ));
         }
         let id = integer(font, K::FontIndex)
             .and_then(|n| u16::try_from(n).ok())
-            .ok_or_else(|| fail("invalid_document", "A font index is required.", 0))?;
+            .ok_or_else(|| fail("invalid_document", "A font index is required."))?;
         if text_property(font, K::FontCharset) != Some("iso-8859-1") {
             return Err(fail(
                 "unsupported_encoding",
                 "Only the documented iso-8859-1 font charset is written.",
-                0,
             ));
         }
         let name = latin1_bytes(
             text_property(font, K::FontName)
-                .ok_or_else(|| fail("invalid_document", "A font name is required.", 0))?,
+                .ok_or_else(|| fail("invalid_document", "A font name is required."))?,
         )?;
         if !name.is_ascii() {
             return Err(fail(
                 "unsupported_encoding",
                 "Non-ASCII font names require an encoding this profile does not infer.",
-                0,
             ));
         }
         if bytes.len().saturating_add(6).saturating_add(name.len()) > LIMIT {
-            return Err(fail("resource_limit", "CDX font table exceeds 1 MiB.", 0));
+            return Err(fail("resource_limit", "CDX font table exceeds 1 MiB."));
         }
         bytes.extend_from_slice(&id.to_le_bytes());
         bytes.extend_from_slice(&1252u16.to_le_bytes());
         bytes.extend_from_slice(
             &u16::try_from(name.len())
-                .map_err(|_| fail("resource_limit", "Font name is too long.", 0))?
+                .map_err(|_| fail("resource_limit", "Font name is too long."))?
                 .to_le_bytes(),
         );
         bytes.extend_from_slice(&name);
     }
     Ok(bytes)
 }
-fn quantized(value: f64, scale: f64, at: usize) -> Result<i32, CdxError> {
+fn quantized(value: f64, scale: f64) -> Result<i32, CdxError> {
     let scaled = value * scale;
     if !scaled.is_finite()
         || !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&scaled)
@@ -699,16 +744,16 @@ fn quantized(value: f64, scale: f64, at: usize) -> Result<i32, CdxError> {
         return Err(fail(
             "unrepresentable_number",
             "The value is outside or between the exact CDX numeric steps.",
-            at,
         ));
     }
     Ok(scaled.round() as i32)
 }
-fn encode_colors(table: &Object) -> Result<Vec<u8>, CdxError> {
+/// Colors are stored as 16-bit channels; a CDXML value between two steps is rounded and counted.
+fn encode_colors(table: &Object, rounded: &mut usize) -> Result<Vec<u8>, CdxError> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(
         &u16::try_from(table.children.len())
-            .map_err(|_| fail("resource_limit", "Too many colors.", 0))?
+            .map_err(|_| fail("resource_limit", "Too many colors."))?
             .to_le_bytes(),
     );
     for child in &table.children {
@@ -716,7 +761,6 @@ fn encode_colors(table: &Object) -> Result<Vec<u8>, CdxError> {
             return Err(fail(
                 "unrepresentable_content",
                 "A color table has unsupported content.",
-                0,
             ));
         };
         if color.kind != O::Color
@@ -727,43 +771,23 @@ fn encode_colors(table: &Object) -> Result<Vec<u8>, CdxError> {
             return Err(fail(
                 "unrepresentable_content",
                 "A color has unsupported attributes or children.",
-                0,
             ));
         }
         for kind in [K::Red, K::Green, K::Blue] {
-            let value = color
-                .properties
-                .iter()
-                .find_map(|p| {
-                    if p.kind == kind {
-                        if let V::Float(n) = p.value {
-                            Some(n)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    fail(
-                        "invalid_document",
-                        "Each color needs red, green and blue.",
-                        0,
-                    )
-                })?;
-            let v = quantized(value, 65535.0, 0)?;
-            bytes.extend_from_slice(
-                &u16::try_from(v)
-                    .map_err(|_| {
-                        fail(
-                            "unrepresentable_number",
-                            "Color is outside the CDX range.",
-                            0,
-                        )
-                    })?
-                    .to_le_bytes(),
-            );
+            let value = float(color, kind)
+                .ok_or_else(|| fail("invalid_document", "Each color needs red, green and blue."))?;
+            let scaled = value * 65535.0;
+            if !(0.0..=65535.0).contains(&scaled) {
+                return Err(fail(
+                    "unrepresentable_number",
+                    "Color is outside the CDX range.",
+                ));
+            }
+            // Floating-point error in k/65535 is not a precision loss.
+            if (scaled - scaled.round()).abs() > 1e-6 {
+                *rounded += 1;
+            }
+            bytes.extend_from_slice(&(scaled.round() as u16).to_le_bytes());
         }
     }
     Ok(bytes)
@@ -772,41 +796,40 @@ fn encode_text(object: &Object, font_map: &BTreeMap<u16, String>) -> Result<Vec<
     let mut styles = Vec::new();
     let mut text = Vec::new();
     for child in &object.children {
-        let Content::Object(style) = child else {
-            return Err(fail(
-                "unrepresentable_content",
-                "A text object has unsupported content.",
-                0,
-            ));
+        let style = match child {
+            Content::Object(style) => style,
+            // Indentation between runs carries no meaning in the XML form.
+            Content::Text(value) if value.trim().is_empty() => continue,
+            _ => {
+                return Err(fail(
+                    "unrepresentable_content",
+                    "A text object has unsupported content.",
+                ));
+            }
         };
         if style.kind != O::StyleRun || style.id.is_some() {
             return Err(fail(
                 "unrepresentable_content",
                 "A text style has an unsupported ID or kind.",
-                0,
-            ));
-        }
-        if style.children.len() != 1 {
-            return Err(fail(
-                "unrepresentable_content",
-                "A CDX style run must contain exactly one text segment.",
-                0,
             ));
         }
         let offset = text.len();
-        for content in &style.children {
-            let Content::Text(value) = content else {
+        // An empty run (no characters) reads back from XML as a run with no children.
+        match style.children.as_slice() {
+            [] => {}
+            [Content::Text(value)] => {
+                let encoded = latin1_bytes(value)?;
+                if text.len().saturating_add(encoded.len()) > LIMIT {
+                    return Err(fail("resource_limit", "CDX text exceeds 1 MiB."));
+                }
+                text.extend_from_slice(&encoded);
+            }
+            _ => {
                 return Err(fail(
                     "unrepresentable_content",
-                    "A style contains unsupported content.",
-                    0,
+                    "A CDX style run must contain at most one text segment.",
                 ));
-            };
-            let encoded = latin1_bytes(value)?;
-            if text.len().saturating_add(encoded.len()) > LIMIT {
-                return Err(fail("resource_limit", "CDX text exceeds 1 MiB.", 0));
             }
-            text.extend_from_slice(&encoded);
         }
         if style.properties.is_empty() {
             styles.push((offset, None));
@@ -820,66 +843,35 @@ fn encode_text(object: &Object, font_map: &BTreeMap<u16, String>) -> Result<Vec<
                 return Err(fail(
                     "unrepresentable_content",
                     "A text style has unsupported properties.",
-                    0,
                 ));
             }
-            let font = integer(style, K::FontIndex)
-                .and_then(|v| u16::try_from(v).ok())
-                .ok_or_else(|| {
-                    fail(
-                        "unrepresentable_style",
-                        "A styled CDX run needs an explicit font.",
-                        0,
-                    )
-                })?;
+            let required = |kind: K, what: &str| {
+                integer(style, kind)
+                    .and_then(|v| u16::try_from(v).ok())
+                    .ok_or_else(|| {
+                        fail(
+                            "unrepresentable_style",
+                            format!("A styled CDX run needs an explicit {what}."),
+                        )
+                    })
+            };
+            let font = required(K::FontIndex, "font")?;
             if font_map.get(&font).map(String::as_str) != Some("iso-8859-1") {
                 return Err(fail(
                     "unsupported_encoding",
                     "The style font must use ISO Latin-1.",
-                    0,
                 ));
             }
-            let face = integer(style, K::FontFace)
-                .and_then(|v| u16::try_from(v).ok())
-                .ok_or_else(|| {
-                    fail(
-                        "unrepresentable_style",
-                        "A styled CDX run needs an explicit face.",
-                        0,
-                    )
-                })?;
-            let size = style
-                .properties
-                .iter()
-                .find_map(|p| {
-                    if p.kind == K::FontSize {
-                        if let V::Float(n) = p.value {
-                            Some(n)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .ok_or_else(|| {
-                    fail(
-                        "unrepresentable_style",
-                        "A styled CDX run needs an explicit size.",
-                        0,
-                    )
-                })?;
-            let size = u16::try_from(quantized(size, 20.0, 0)?)
-                .map_err(|_| fail("unrepresentable_style", "Font size is out of range.", 0))?;
-            let color = integer(style, K::ColorIndex)
-                .and_then(|v| u16::try_from(v).ok())
-                .ok_or_else(|| {
-                    fail(
-                        "unrepresentable_style",
-                        "A styled CDX run needs an explicit color.",
-                        0,
-                    )
-                })?;
+            let face = required(K::FontFace, "face")?;
+            let size = float(style, K::FontSize).ok_or_else(|| {
+                fail(
+                    "unrepresentable_style",
+                    "A styled CDX run needs an explicit size.",
+                )
+            })?;
+            let size = u16::try_from(quantized(size, 20.0)?)
+                .map_err(|_| fail("unrepresentable_style", "Font size is out of range."))?;
+            let color = required(K::ColorIndex, "color")?;
             styles.push((offset, Some((font, face, size, color))));
         }
     }
@@ -892,27 +884,24 @@ fn encode_text(object: &Object, font_map: &BTreeMap<u16, String>) -> Result<Vec<
         return Err(fail(
             "unsupported_encoding",
             "Styled bytes have ambiguous Latin-1/Windows-1252 meanings.",
-            0,
         ));
     }
     if styles.is_empty() || styles.iter().any(|(_, style)| style.is_none()) {
         return Err(fail(
             "unrepresentable_style",
             "Mixed implicit and explicit CDX text styles are not supported.",
-            0,
         ));
     }
     if styles.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
         return Err(fail(
             "unrepresentable_style",
             "CDX style runs must have distinct increasing offsets.",
-            0,
         ));
     }
     let mut result = Vec::new();
     result.extend_from_slice(
         &u16::try_from(styles.len())
-            .map_err(|_| fail("resource_limit", "Too many style runs.", 0))?
+            .map_err(|_| fail("resource_limit", "Too many style runs."))?
             .to_le_bytes(),
     );
     for (offset, style) in styles {
@@ -922,7 +911,6 @@ fn encode_text(object: &Object, font_map: &BTreeMap<u16, String>) -> Result<Vec<
                     fail(
                         "unrepresentable_style",
                         "A style begins after the CDX offset range.",
-                        0,
                     )
                 })?
                 .to_le_bytes(),
@@ -940,6 +928,7 @@ fn encode_item(
     object: &Object,
     font_map: &BTreeMap<u16, String>,
     root: bool,
+    rounded_colors: &mut usize,
 ) -> Result<(), CdxError> {
     let tag = match object.kind {
         O::Document => 0x8000,
@@ -954,7 +943,6 @@ fn encode_item(
             return Err(fail(
                 "unrepresentable_content",
                 "This object is not supported by the CDX writer.",
-                out.len(),
             ));
         }
     };
@@ -967,7 +955,7 @@ fn encode_item(
         let tag = match (&p.kind, &p.value) {
             (K::Position, V::Point { x, y }) => {
                 for v in [*y, *x] {
-                    bytes.extend_from_slice(&quantized(v, 65536.0, out.len())?.to_le_bytes());
+                    bytes.extend_from_slice(&quantized(v, 65536.0)?.to_le_bytes());
                 }
                 0x0200
             }
@@ -981,7 +969,7 @@ fn encode_item(
                 },
             ) => {
                 for v in [*top, *left, *bottom, *right] {
-                    bytes.extend_from_slice(&quantized(v, 65536.0, out.len())?.to_le_bytes());
+                    bytes.extend_from_slice(&quantized(v, 65536.0)?.to_le_bytes());
                 }
                 0x0204
             }
@@ -990,7 +978,6 @@ fn encode_item(
                     fail(
                         "unrepresentable_number",
                         "Integer is outside the CDX signed-16 range.",
-                        out.len(),
                     )
                 })?;
                 bytes.extend_from_slice(&n.to_le_bytes());
@@ -1006,7 +993,6 @@ fn encode_item(
                     fail(
                         "unrepresentable_number",
                         "Charge is outside signed-8 range.",
-                        out.len(),
                     )
                 })? as u8);
                 0x0421
@@ -1016,7 +1002,6 @@ fn encode_item(
                     fail(
                         "unrepresentable_number",
                         "Radical is outside unsigned-8 range.",
-                        out.len(),
                     )
                 })?);
                 0x0422
@@ -1028,7 +1013,6 @@ fn encode_item(
                             fail(
                                 "unrepresentable_number",
                                 "Bond order is outside unsigned-16 range.",
-                                out.len(),
                             )
                         })?
                         .to_le_bytes(),
@@ -1047,7 +1031,6 @@ fn encode_item(
                 return Err(fail(
                     "unrepresentable_property",
                     format!("Property {:?} has no supported CDX encoding.", p.kind),
-                    out.len(),
                 ));
             }
         };
@@ -1057,40 +1040,39 @@ fn encode_item(
         encode_property(out, TEXT, &encode_text(object, font_map)?)?;
     } else {
         for child in &object.children {
-            let Content::Object(child) = child else {
-                return Err(fail(
-                    "unrepresentable_content",
-                    "CDX cannot encode this XML content.",
-                    out.len(),
-                ));
+            let child = match child {
+                Content::Object(child) => child,
+                Content::Text(value) if value.trim().is_empty() => continue,
+                _ => {
+                    return Err(fail(
+                        "unrepresentable_content",
+                        "CDX cannot encode this XML content.",
+                    ));
+                }
             };
             match child.kind {
                 O::FontTable if root && child.id.is_none() && child.properties.is_empty() => {
                     encode_property(out, 0x0100, &encode_fonts(child)?)?
                 }
                 O::ColorTable if root && child.id.is_none() && child.properties.is_empty() => {
-                    encode_property(out, 0x0300, &encode_colors(child)?)?
+                    encode_property(out, 0x0300, &encode_colors(child, rounded_colors)?)?
                 }
-                _ => encode_item(out, child, font_map, false)?,
+                _ => encode_item(out, child, font_map, false, rounded_colors)?,
             }
         }
     }
     out.extend_from_slice(&[0, 0]);
     if out.len() > LIMIT {
-        return Err(fail(
-            "resource_limit",
-            "CDX output exceeds 1 MiB.",
-            out.len(),
-        ));
+        return Err(fail("resource_limit", "CDX output exceeds 1 MiB."));
     }
     Ok(())
 }
 
 /// Writes the bounded common-model subset without guessing unsupported encodings or numbers.
-pub fn write(document: &Document) -> Result<Vec<u8>, CdxError> {
+pub fn write(document: &Document) -> Result<CdxWrite, CdxError> {
     document
         .validate()
-        .map_err(|e| fail("invalid_document", e.to_string(), 0))?;
+        .map_err(|e| fail("invalid_document", e.to_string()))?;
     fn check_limits(object: &Object, root: bool, total: &mut usize) -> Result<(), CdxError> {
         let synthetic = if root {
             object.children.iter().filter(|child| matches!(child, Content::Object(object) if matches!(object.kind, O::FontTable | O::ColorTable))).count()
@@ -1102,7 +1084,7 @@ pub fn write(document: &Document) -> Result<Vec<u8>, CdxError> {
         let local = object.properties.len().saturating_add(synthetic);
         *total = (*total).saturating_add(local);
         if local > 512 || *total > 100_000 {
-            return Err(fail("resource_limit", "CDX has too many properties.", 0));
+            return Err(fail("resource_limit", "CDX has too many properties."));
         }
         if object.kind != O::Text {
             for child in &object.children {
@@ -1118,14 +1100,60 @@ pub fn write(document: &Document) -> Result<Vec<u8>, CdxError> {
     let mut total_properties = 0;
     check_limits(document.root(), true, &mut total_properties)?;
     let mut out = HEADER.to_vec();
-    encode_item(&mut out, document.root(), &fonts(document.root()), true)?;
+    let mut rounded_color_channels = 0;
+    encode_item(
+        &mut out,
+        document.root(),
+        &fonts(document.root()),
+        true,
+        &mut rounded_color_channels,
+    )?;
     if document.root().id.is_some() {
         // Unlike the implicit-document form, an explicit document has its own object
         // terminator before the file's separate document terminator.
         out.extend_from_slice(&[0, 0]);
         if out.len() > LIMIT {
-            return Err(fail("resource_limit", "CDX output exceeds 1 MiB.", 0));
+            return Err(fail("resource_limit", "CDX output exceeds 1 MiB."));
         }
     }
-    Ok(out)
+    Ok(CdxWrite {
+        bytes: out,
+        rounded_color_channels,
+    })
+}
+
+/// Whether the document has a font table, which the writer records as platform 1.
+pub fn has_font_table(document: &Document) -> bool {
+    document
+        .root()
+        .children
+        .iter()
+        .any(|child| matches!(child, Content::Object(table) if table.kind == O::FontTable))
+}
+
+/// Removes XML comments and processing instructions, which CDX has no way to hold.
+/// Returns the revalidated document and how many were removed.
+pub fn without_xml_notes(document: &Document) -> Result<(Document, usize), CdxError> {
+    fn strip(object: &mut Object) -> usize {
+        let before = object.children.len();
+        object.children.retain(|child| {
+            !matches!(
+                child,
+                Content::Comment(_) | Content::ProcessingInstruction { .. }
+            )
+        });
+        let mut removed = before - object.children.len();
+        for child in &mut object.children {
+            if let Content::Object(child) = child
+                && !matches!(child.kind, O::UnknownXml(_) | O::UnknownBinary(_))
+            {
+                removed += strip(child);
+            }
+        }
+        removed
+    }
+    let mut root = document.root().clone();
+    let removed = strip(&mut root);
+    let stripped = Document::new(root).map_err(|e| fail("invalid_document", e.to_string()))?;
+    Ok((stripped, removed))
 }
