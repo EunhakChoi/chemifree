@@ -166,7 +166,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
     }
     let mut text = String::new();
     let mut order = Vec::with_capacity(items.len());
-    let mut taken = vec![false; MAX_RING_LABEL + 1];
+    let mut taken = [false; MAX_RING_LABEL + 1];
     let mut label_of = vec![0_usize; links.len()];
     let mut depth = 0_usize;
     while let Some(step) = work.pop() {

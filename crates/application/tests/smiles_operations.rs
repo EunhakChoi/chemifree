@@ -25,12 +25,21 @@ fn setup() -> (App, TempDir, String) {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
     let created = call(&application, "create", "document.create", json!({}));
-    let id = created["result"]["document"]["id"].as_str().unwrap().to_owned();
+    let id = created["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     (application, dir, id)
 }
 
 fn snapshot(app: &App, id: &str) -> Value {
-    call(app, "snapshot", "document.snapshot", json!({"document_id":id}))["result"].clone()
+    call(
+        app,
+        "snapshot",
+        "document.snapshot",
+        json!({"document_id":id}),
+    )["result"]
+        .clone()
 }
 
 fn preview(app: &App, request: &str, id: &str, revision: u64, source: &str) -> Value {
@@ -42,7 +51,15 @@ fn preview(app: &App, request: &str, id: &str, revision: u64, source: &str) -> V
     )
 }
 
-fn commit(app: &App, request: &str, id: &str, revision: u64, source: &str, digest: &str, accept: bool) -> Value {
+fn commit(
+    app: &App,
+    request: &str,
+    id: &str,
+    revision: u64,
+    source: &str,
+    digest: &str,
+    accept: bool,
+) -> Value {
     call(
         app,
         request,
@@ -86,16 +103,37 @@ fn a_plain_string_previews_and_commits_without_accepting_a_loss() {
     assert_eq!(result["valence_model"], "chemifree-valence-2");
     assert_eq!(result["aromaticity_model"], "chemifree-aromaticity-2");
     assert_eq!(result["snapshot"]["document"]["revision"], 0);
-    assert_eq!(atoms(&snapshot(&application, &id)["document"]), 0, "a preview changes nothing");
+    assert_eq!(
+        atoms(&snapshot(&application, &id)["document"]),
+        0,
+        "a preview changes nothing"
+    );
     let digest = result["preview_digest"].as_str().unwrap();
     // No loss needs consent, so the commit does not ask for accept_loss.
     let done = commit(&application, "commit", &id, 0, "CCO", digest, false);
     assert_eq!(done["outcome"], "partial", "{done}");
     assert_eq!(atoms(&done["result"]["document"]), 3);
-    assert_eq!(done["result"]["import_mapping"]["atoms"].as_array().unwrap().len(), 3);
-    assert_eq!(done["result"]["import_mapping"]["bonds"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        done["result"]["import_mapping"]["atoms"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(
+        done["result"]["import_mapping"]["bonds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     assert_eq!(done["document_revision"], 1);
-    let undone = call(&application, "undo", "history.undo", json!({"document_id":id,"expected_revision":1}));
+    let undone = call(
+        &application,
+        "undo",
+        "history.undo",
+        json!({"document_id":id,"expected_revision":1}),
+    );
     assert_eq!(atoms(&undone["result"]["document"]), 0, "{undone}");
 }
 
@@ -110,7 +148,10 @@ fn losses_that_change_the_chemistry_or_drop_text_need_consent() {
         let (application, _directory, id) = setup();
         let report = preview(&application, "preview", &id, 0, source);
         assert!(features(&report).contains(&feature), "{source}: {report}");
-        let digest = report["result"]["preview_digest"].as_str().unwrap().to_owned();
+        let digest = report["result"]["preview_digest"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         let refused = commit(&application, "refuse", &id, 0, source, &digest, false);
         assert_eq!(refused["outcome"], "error", "{refused}");
         let diagnostic = &refused["diagnostics"][0];
@@ -125,8 +166,17 @@ fn losses_that_change_the_chemistry_or_drop_text_need_consent() {
             listed.contains(&feature) && !listed.contains(&"generated_layout"),
             "only losses that need consent are listed: {listed:?}"
         );
-        assert!(!diagnostic["details"]["losses"].as_array().unwrap().is_empty());
-        assert_eq!(atoms(&snapshot(&application, &id)["document"]), 0, "{source}");
+        assert!(
+            !diagnostic["details"]["losses"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            atoms(&snapshot(&application, &id)["document"]),
+            0,
+            "{source}"
+        );
         let accepted = commit(&application, "accept", &id, 0, source, &digest, true);
         assert_eq!(accepted["outcome"], "partial", "{source}: {accepted}");
         assert!(atoms(&accepted["result"]["document"]) >= 1, "{source}");
@@ -155,11 +205,17 @@ fn the_preview_reports_ethanol_and_the_ignored_text_of_a_pasted_second_line() {
 fn a_preview_is_bound_to_its_source_graph_snapshot_and_service() {
     let (application, _directory, id) = setup();
     let report = preview(&application, "p", &id, 0, "CCO");
-    let digest = report["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let digest = report["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     // Another string, a missing digest and a wrong digest are all a changed preview.
     for (source, digest) in [("CCN", digest.as_str()), ("CCO", "0"), ("CCO", "")] {
         let refused = commit(&application, "c", &id, 0, source, digest, true);
-        assert_eq!(refused["diagnostics"][0]["code"], "preview_changed", "{refused}");
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "preview_changed",
+            "{refused}"
+        );
     }
     let missing = call(
         &application,
@@ -177,9 +233,15 @@ fn a_preview_is_bound_to_its_source_graph_snapshot_and_service() {
     );
     assert_eq!(edit["outcome"], "ok", "{edit}");
     let stale = commit(&application, "stale", &id, 0, "CCO", &digest, true);
-    assert_eq!(stale["diagnostics"][0]["code"], "revision_conflict", "{stale}");
+    assert_eq!(
+        stale["diagnostics"][0]["code"], "revision_conflict",
+        "{stale}"
+    );
     let fresh = commit(&application, "fresh", &id, 1, "CCO", &digest, true);
-    assert_eq!(fresh["diagnostics"][0]["code"], "preview_changed", "{fresh}");
+    assert_eq!(
+        fresh["diagnostics"][0]["code"], "preview_changed",
+        "{fresh}"
+    );
     assert_eq!(atoms(&snapshot(&application, &id)["document"]), 1);
 }
 
@@ -187,18 +249,27 @@ fn a_preview_is_bound_to_its_source_graph_snapshot_and_service() {
 fn a_new_service_rejects_a_preview_of_the_previous_one() {
     let (application, directory, id) = setup();
     let report = preview(&application, "p", &id, 0, "CCO");
-    let digest = report["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let digest = report["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     drop(application);
     let restarted = app(directory.path());
     let refused = commit(&restarted, "c", &id, 0, "CCO", &digest, true);
-    assert_eq!(refused["diagnostics"][0]["code"], "preview_changed", "{refused}");
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "preview_changed",
+        "{refused}"
+    );
 }
 
 #[test]
 fn a_replayed_import_returns_the_committed_reply_without_placing_atoms_again() {
     let (application, _directory, id) = setup();
     let report = preview(&application, "p", &id, 0, "CCO");
-    let digest = report["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let digest = report["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let first = commit(&application, "same-request", &id, 0, "CCO", &digest, false);
     assert_eq!(first["outcome"], "partial", "{first}");
     // Fill the space below the drawing so that placing the atoms again would be out of range.
@@ -217,12 +288,22 @@ fn a_replayed_import_returns_the_committed_reply_without_placing_atoms_again() {
     let replay = commit(&application, "same-request", &id, 0, "CCO", &digest, false);
     assert_eq!(replay["outcome"], "partial", "{replay}");
     assert_eq!(replay["result"]["document"], first["result"]["document"]);
-    assert_eq!(replay["result"]["import_mapping"], first["result"]["import_mapping"]);
+    assert_eq!(
+        replay["result"]["import_mapping"],
+        first["result"]["import_mapping"]
+    );
     assert_eq!(replay["loss_report"], first["loss_report"]);
-    assert_eq!(atoms(&snapshot(&application, &id)["document"]), 4, "nothing was added again");
+    assert_eq!(
+        atoms(&snapshot(&application, &id)["document"]),
+        4,
+        "nothing was added again"
+    );
     // The same request ID for a different import is refused.
     let reused = commit(&application, "same-request", &id, 0, "CCN", &digest, false);
-    assert_eq!(reused["diagnostics"][0]["code"], "request_id_reused", "{reused}");
+    assert_eq!(
+        reused["diagnostics"][0]["code"], "request_id_reused",
+        "{reused}"
+    );
 }
 
 #[test]
@@ -253,9 +334,15 @@ fn errors_name_the_offending_part_in_bytes_and_in_characters() {
     assert_eq!(diagnostic["code"], "unexpected_character");
     let details = &diagnostic["details"];
     assert_eq!(details["class"], "syntax");
-    assert_eq!((details["offset"].as_u64(), details["length"].as_u64()), (Some(1), Some(2)));
     assert_eq!(
-        (details["character_offset"].as_u64(), details["character_length"].as_u64()),
+        (details["offset"].as_u64(), details["length"].as_u64()),
+        (Some(1), Some(2))
+    );
+    assert_eq!(
+        (
+            details["character_offset"].as_u64(),
+            details["character_length"].as_u64()
+        ),
         (Some(1), Some(1))
     );
     // A multibyte character before the fault moves the byte offset but not the character one.
@@ -264,7 +351,10 @@ fn errors_name_the_offending_part_in_bytes_and_in_characters() {
     let after = preview(&application, "bad3", &id, 0, "\u{e9}");
     assert_eq!(after["diagnostics"][0]["details"]["length"], 2);
     let aromatic = preview(&application, "bad4", &id, 0, "c1cccc1");
-    assert_eq!(aromatic["diagnostics"][0]["code"], "aromatic_system_unsupported");
+    assert_eq!(
+        aromatic["diagnostics"][0]["code"],
+        "aromatic_system_unsupported"
+    );
     assert!(aromatic["diagnostics"][0]["details"]["reason"].is_string());
     let stereo = preview(&application, "bad5", &id, 0, "F/C=C/F");
     assert_eq!(stereo["diagnostics"][0]["details"]["class"], "unsupported");
@@ -284,14 +374,20 @@ fn a_document_with_two_placements_is_not_imported_into() {
     );
     assert_eq!(edit["outcome"], "ok", "{edit}");
     let refused = preview(&application, "p", &id, 1, "CCO");
-    assert_eq!(refused["diagnostics"][0]["code"], "unsupported_scene", "{refused}");
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "unsupported_scene",
+        "{refused}"
+    );
 }
 
 #[test]
 fn export_is_read_only_and_names_its_snapshot_and_model() {
     let (application, _directory, id) = setup();
     let report = preview(&application, "p", &id, 0, "OC(C)=O");
-    let digest = report["result"]["preview_digest"].as_str().unwrap().to_owned();
+    let digest = report["result"]["preview_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     commit(&application, "c", &id, 0, "OC(C)=O", &digest, false);
     let before = snapshot(&application, &id);
     for (style, model, text) in [
@@ -314,10 +410,22 @@ fn export_is_read_only_and_names_its_snapshot_and_model() {
             assert_eq!(result["graph_model"], "chemifree-chemical-graph-2");
             assert_eq!(result["atom_order"].as_array().unwrap().len(), 4);
         }
-        assert_eq!(snapshot(&application, &id), before, "an export changes nothing");
+        assert_eq!(
+            snapshot(&application, &id),
+            before,
+            "an export changes nothing"
+        );
     }
-    let undo = call(&application, "u", "history.undo", json!({"document_id":id,"expected_revision":1}));
-    assert_eq!(undo["outcome"], "ok", "the import is still undoable: {undo}");
+    let undo = call(
+        &application,
+        "u",
+        "history.undo",
+        json!({"document_id":id,"expected_revision":1}),
+    );
+    assert_eq!(
+        undo["outcome"], "ok",
+        "the import is still undoable: {undo}"
+    );
 }
 
 #[test]
@@ -337,7 +445,10 @@ fn canonical_export_lists_folded_hydrogens_apart_from_the_atom_order() {
     let result = &written["result"];
     assert_eq!(result["content"], "C");
     assert_eq!(result["atom_order"], json!(["a1"]));
-    assert_eq!(result["folded_hydrogens"], json!([{"hydrogen":"a2","attached_to":"a1"}]));
+    assert_eq!(
+        result["folded_hydrogens"],
+        json!([{"hydrogen":"a2","attached_to":"a1"}])
+    );
     assert!(features(&written).contains(&"folded_hydrogens"));
 }
 
@@ -355,27 +466,55 @@ fn the_drawings_own_content_is_reported_as_lost_only_when_it_exists() {
     assert_eq!(edit["outcome"], "ok");
     let plain = export(&application, "plain", &id, "recorded");
     let plain_features = features(&plain);
-    for expected in ["coordinates", "native_ids", "placement_id", "drawing_settings"] {
-        assert!(plain_features.contains(&expected), "{expected} in {plain_features:?}");
+    for expected in [
+        "coordinates",
+        "native_ids",
+        "placement_id",
+        "drawing_settings",
+    ] {
+        assert!(
+            plain_features.contains(&expected),
+            "{expected} in {plain_features:?}"
+        );
     }
-    for absent in ["title", "selection", "extra_placement", "scene_object", "scene_references"] {
-        assert!(!plain_features.contains(&absent), "{absent} was reported without existing");
+    for absent in [
+        "title",
+        "selection",
+        "extra_placement",
+        "scene_object",
+        "scene_references",
+    ] {
+        assert!(
+            !plain_features.contains(&absent),
+            "{absent} was reported without existing"
+        );
     }
     // A real title, a second placement, a graphic and a selection exist and are reported.
-    let rename = call(&application, "r", "document.transaction", json!({"document_id":id,"expected_revision":1,"commands":[
+    let rename = call(
+        &application,
+        "r",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
         {"op":"rename","title":"Caffeine study"},
         {"op":"add_instance","offset":{"x":5,"y":5}},
         {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":10}]}
-    ],"selection_after":{"atoms":["a1"],"bonds":[],"objects":[]}}));
+    ],"selection_after":{"atoms":["a1"],"bonds":[],"objects":[]}}),
+    );
     assert_eq!(rename["outcome"], "ok", "{rename}");
     let rich = export(&application, "rich", &id, "recorded");
     assert_eq!(rich["outcome"], "partial", "{rich}");
     let rich_features = features(&rich);
     for expected in ["title", "selection", "extra_placement", "scene_object"] {
-        assert!(rich_features.contains(&expected), "{expected} in {rich_features:?}");
+        assert!(
+            rich_features.contains(&expected),
+            "{expected} in {rich_features:?}"
+        );
     }
     let wording: String = rich["loss_report"].to_string();
-    assert!(!wording.contains("first placement"), "SMILES writes no placement: {wording}");
+    assert!(
+        !wording.contains("first placement"),
+        "SMILES writes no placement: {wording}"
+    );
     assert!(!wording.contains("V2000"), "{wording}");
 }
 
@@ -404,7 +543,10 @@ fn ions_and_metals_export_as_recorded_text_with_consent_required_assumptions() {
         .collect();
     assert_eq!(listed, ["hydrogen_assumption", "radical_assumption"]);
     assert!(refused["result"].is_null());
-    let digest = diagnostic["details"]["loss_digest"].as_str().unwrap().to_owned();
+    let digest = diagnostic["details"]["loss_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let accept = |request: &str, digest: &str| {
         call(
             &application,
@@ -421,8 +563,14 @@ fn ions_and_metals_export_as_recorded_text_with_consent_required_assumptions() {
     // The canonical form has no row for them and is refused with its reason.
     let canonical = export(&application, "canon", &id, "canonical");
     assert_eq!(canonical["diagnostics"][0]["code"], "canonical_unsupported");
-    assert_eq!(canonical["diagnostics"][0]["details"]["reason"], "element_or_charge");
-    assert_eq!(canonical["diagnostics"][0]["details"]["class"], "not_writable");
+    assert_eq!(
+        canonical["diagnostics"][0]["details"]["reason"],
+        "element_or_charge"
+    );
+    assert_eq!(
+        canonical["diagnostics"][0]["details"]["class"],
+        "not_writable"
+    );
 }
 
 #[test]
@@ -441,8 +589,14 @@ fn attachment_points_reach_the_consent_path_in_both_styles() {
     for (style, text) in [("recorded", "CO"), ("canonical", "C(O)")] {
         let refused = export(&application, style, &id, style);
         let diagnostic = &refused["diagnostics"][0];
-        assert_eq!(diagnostic["code"], "loss_consent_required", "{style}: {refused}");
-        assert_eq!(diagnostic["details"]["features"], json!(["attachment_points"]));
+        assert_eq!(
+            diagnostic["code"], "loss_consent_required",
+            "{style}: {refused}"
+        );
+        assert_eq!(
+            diagnostic["details"]["features"],
+            json!(["attachment_points"])
+        );
         let digest = diagnostic["details"]["loss_digest"].as_str().unwrap();
         let accepted = call(
             &application,
@@ -452,14 +606,25 @@ fn attachment_points_reach_the_consent_path_in_both_styles() {
         );
         assert_eq!(accepted["outcome"], "partial", "{style}: {accepted}");
         let content = accepted["result"]["content"].as_str().unwrap();
-        assert!(content.contains('C') && content.contains('O'), "{style}: {content} vs {text}");
+        assert!(
+            content.contains('C') && content.contains('O'),
+            "{style}: {content} vs {text}"
+        );
     }
     // Without the attachment point there is nothing to consent to.
-    let clear = call(&application, "c", "document.transaction", json!({"document_id":id,"expected_revision":1,"commands":[
-        {"op":"update_atom","atom":"a1","attachment_points":[]}
-    ]}));
+    let clear = call(
+        &application,
+        "c",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"update_atom","atom":"a1","attachment_points":[]}
+        ]}),
+    );
     assert_eq!(clear["outcome"], "ok", "{clear}");
-    assert_eq!(export(&application, "ok", &id, "recorded")["outcome"], "partial");
+    assert_eq!(
+        export(&application, "ok", &id, "recorded")["outcome"],
+        "partial"
+    );
 }
 
 #[test]
@@ -479,7 +644,10 @@ fn a_drawing_the_writers_cannot_state_is_refused_with_the_real_cause() {
         assert_eq!(refused["outcome"], "error", "{refused}");
         assert!(refused["result"].is_null());
         let code = refused["diagnostics"][0]["code"].as_str().unwrap();
-        assert!(["hydrogens_not_writable", "canonical_unsupported"].contains(&code), "{code}");
+        assert!(
+            ["hydrogens_not_writable", "canonical_unsupported"].contains(&code),
+            "{code}"
+        );
     }
     let unknown = call(
         &application,
@@ -504,7 +672,12 @@ fn a_consent_refusal_has_one_envelope_in_every_format() {
     let smiles = export(&application, "smiles", &id, "recorded");
     // CDX export of a tree whose coordinates would be rounded.
     let cdxml = r#"<CDXML xmlns="urn:example:cdxml"><page id="1"><fragment id="2"><n id="3" p="0.1 2"/></fragment></page></CDXML>"#;
-    let read = call(&application, "read", "document.import", json!({"mode":"read","format":"cdxml","source":cdxml}));
+    let read = call(
+        &application,
+        "read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":cdxml}),
+    );
     let cdx = call(
         &application,
         "cdx",
@@ -514,7 +687,15 @@ fn a_consent_refusal_has_one_envelope_in_every_format() {
     // Imports: SMILES, MOL records and CDXML creation each ask for acceptance.
     let report = preview(&application, "pre", &id, 1, "[Na+]");
     let digest = report["result"]["preview_digest"].as_str().unwrap();
-    let smiles_import = commit(&application, "smiles-import", &id, 1, "[Na+]", digest, false);
+    let smiles_import = commit(
+        &application,
+        "smiles-import",
+        &id,
+        1,
+        "[Na+]",
+        digest,
+        false,
+    );
     let mol = "Ammonium\n\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000    1.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.0000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0  0  0  0\nM  CHG  1   1   1\nM  END\n";
     let mol_report = call(
         &application,

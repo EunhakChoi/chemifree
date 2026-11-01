@@ -57,7 +57,10 @@ fn wording(ctfile: bool, interchange: bool, smiles: bool) -> [String; 4] {
 /// complete wording: the `format_conversion` label and description, and the notes of
 /// `document.import` and `document.export`. One sentence per combination; a format is never
 /// called unsupported where it is also listed.
-const GOLDEN: [((bool, bool, bool), [&str; 4]); 7] = [
+/// Which codecs are connected, and the four texts they give.
+type Combination = ((bool, bool, bool), [&'static str; 4]);
+
+const GOLDEN: [Combination; 7] = [
     (
         (true, false, false),
         [
@@ -89,7 +92,7 @@ const GOLDEN: [((bool, bool, bool), [&str; 4]); 7] = [
         (false, false, true),
         [
             "SMILES subset",
-            "Read and write SMILES text (a bounded OpenSMILES subset of at most 16 KiB, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
+            "Read and write SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one SMILES string (at most 16 KiB).",
             "Write with explicit losses: one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
@@ -98,7 +101,7 @@ const GOLDEN: [((bool, bool, bool), [&str; 4]); 7] = [
         (true, false, true),
         [
             "MOL/SDF and SMILES subsets",
-            "Read and write bounded V2000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
+            "Read and write bounded V2000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset; append one SMILES string (at most 16 KiB).",
             "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
@@ -107,7 +110,7 @@ const GOLDEN: [((bool, bool, bool), [&str; 4]); 7] = [
         (false, true, true),
         [
             "CDXML, CDX and SMILES subsets",
-            "Read and write rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
+            "Read and write rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
             "Write with explicit losses: rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
@@ -116,7 +119,7 @@ const GOLDEN: [((bool, bool, bool), [&str; 4]); 7] = [
         (true, true, true),
         [
             "MOL/SDF, CDXML, CDX and SMILES subsets",
-            "Read and write bounded V2000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
+            "Read and write bounded V2000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset; read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
             "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
@@ -143,16 +146,32 @@ fn each_combination_of_codecs_has_one_pinned_wording() {
 fn the_wording_never_calls_a_listed_format_unsupported_and_agrees_in_number() {
     for ((ctfile, interchange, smiles), expected) in GOLDEN {
         let [label, description, import, export] = expected;
-        let named = [(ctfile, "MOL/SDF"), (interchange, "CDXML"), (smiles, "SMILES")];
+        let named = [
+            (ctfile, "MOL/SDF"),
+            (interchange, "CDXML"),
+            (smiles, "SMILES"),
+        ];
         let count = named.iter().filter(|(connected, _)| *connected).count();
         // The label is singular exactly when one family of formats is connected.
         let plural = label.ends_with("subsets");
         assert_eq!(plural, count > 1 || interchange, "{label}");
         for (connected, name) in named {
-            assert_eq!(description.contains(name), connected, "{name} in {description}");
-            assert_eq!(import.contains(name) || name == "SMILES" && import.contains("SMILES"), connected, "{name} in {import}");
+            assert_eq!(
+                description.contains(name),
+                connected,
+                "{name} in {description}"
+            );
+            assert_eq!(
+                import.contains(name) || name == "SMILES" && import.contains("SMILES"),
+                connected,
+                "{name} in {import}"
+            );
         }
-        assert_eq!(description.matches("unsupported").count(), 1, "{description}");
+        assert_eq!(
+            description.matches("unsupported").count(),
+            1,
+            "{description}"
+        );
         assert!(description.ends_with("other formats are unsupported."));
         assert!(!export.contains("unsupported"), "{export}");
     }
@@ -179,11 +198,15 @@ fn without_a_codec_the_static_wording_applies_and_nothing_is_claimed() {
 
 #[test]
 fn the_quoted_limits_are_the_codecs_limits() {
-    use chemifree_application::smiles::SmilesCodec;
     use chemifree_application::interchange_codec::InterchangeCodec;
+    use chemifree_application::smiles::SmilesCodec;
     assert_eq!(OpenSmilesCodec.limits().max_input_bytes, 16 * 1024);
+    assert_eq!(OpenSmilesCodec.limits().max_branch_depth, 64);
     assert_eq!(LocalInterchangeCodec.binary_input_limit(), 1024 * 1024);
     let [_, description, import, _] = wording(true, true, true);
-    assert!(description.contains("at most 16 KiB") && description.contains("at most 1 MiB"));
+    assert!(
+        description.contains("at most 16 KiB and 64 nested branches")
+            && description.contains("at most 1 MiB")
+    );
     assert!(import.contains("at most 16 KiB") && import.contains("at most 1 MiB"));
 }

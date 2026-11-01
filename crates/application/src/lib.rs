@@ -146,11 +146,10 @@ pub struct Application<C, R> {
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
     smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
-    /// Binds SMILES previews to this service instance, as `ctfile_generation` does for CTfile.
-    smiles_generation: Option<[u8; 16]>,
-    /// A process-local binding for conversion previews. If entropy is unavailable, previews
-    /// are refused rather than accepting a token from an earlier service instance.
-    ctfile_generation: Option<[u8; 16]>,
+    /// A process-local binding for the previews of text imports (MOL/SDF and SMILES). If entropy
+    /// is unavailable, previews are refused rather than accepting a token from an earlier
+    /// service instance.
+    preview_generation: Option<[u8; 16]>,
     property_data_readiness: properties::DataReadiness,
 }
 
@@ -170,15 +169,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
             ctfile_codec: None,
-            ctfile_generation: {
+            preview_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
             smiles_codec: None,
-            smiles_generation: {
-                let mut generation = [0_u8; 16];
-                getrandom::fill(&mut generation).ok().map(|()| generation)
-            },
             property_data_readiness: properties::DataReadiness::default(),
         }
     }

@@ -96,12 +96,21 @@ fn main() -> ExitCode {
             .iter()
             .map(|bond| json!([bond.begin, bond.end, order(&bond.order)]))
             .collect();
-        println!("{}", json!({"outcome": "read", "atoms": atoms, "bonds": bonds}));
+        println!(
+            "{}",
+            json!({"outcome": "read", "atoms": atoms, "bonds": bonds})
+        );
         return ExitCode::SUCCESS;
     };
-    let id = |index: usize| AtomId::from_serial(u32::try_from(index + 1).expect("small")).expect("positive");
+    let id = |index: usize| {
+        AtomId::from_serial(u32::try_from(index + 1).expect("small")).expect("positive")
+    };
     let graph = MoleculeGraph::from_parts(
-        read.atoms.iter().enumerate().map(|(i, a)| (id(i), a.atom.clone())).collect(),
+        read.atoms
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (id(i), a.atom.clone()))
+            .collect(),
         read.bonds
             .iter()
             .enumerate()

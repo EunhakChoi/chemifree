@@ -11,7 +11,9 @@ use chemifree_providers::OpenSmilesCodec;
 fn contract_section() -> String {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/CONTRACT.md");
     let text = std::fs::read_to_string(path).unwrap();
-    let start = text.find("\n## SMILES\n").expect("CONTRACT.md has a SMILES section");
+    let start = text
+        .find("\n## SMILES\n")
+        .expect("CONTRACT.md has a SMILES section");
     let rest = &text[start + 1..];
     let end = rest[3..].find("\n## ").map_or(rest.len(), |at| at + 3);
     rest[..end].to_owned()
@@ -35,9 +37,8 @@ fn table(section: &str, heading: &str) -> Vec<Vec<String>> {
                 .map(|cell| cell.trim().trim_matches('|').trim().to_owned())
                 .collect();
             rows.push(cells);
-        } else if in_table && !line.starts_with('|') && !line.trim().is_empty() {
-            break;
-        } else if in_table && line.trim().is_empty() && rows.len() > 2 {
+        } else if in_table {
+            // The first line that is not a row ends the table.
             break;
         }
     }
@@ -53,7 +54,11 @@ fn graph_of(text: &str) -> Option<MoleculeGraph> {
     let read = OpenSmilesCodec.read(text).ok()?;
     let id = |i: usize| AtomId::from_serial(u32::try_from(i + 1).unwrap()).unwrap();
     Some(MoleculeGraph::from_parts(
-        read.atoms.iter().enumerate().map(|(i, a)| (id(i), a.atom.clone())).collect(),
+        read.atoms
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (id(i), a.atom.clone()))
+            .collect(),
         read.bonds
             .iter()
             .enumerate()
@@ -92,7 +97,11 @@ fn the_error_code_table_is_the_codecs_table_row_for_row() {
             )
         })
         .collect();
-    assert_eq!(documented.len(), actual.len(), "the table lists every code once");
+    assert_eq!(
+        documented.len(),
+        actual.len(),
+        "the table lists every code once"
+    );
     for (documented, actual) in documented.iter().zip(&actual) {
         assert_eq!(documented, actual);
     }
@@ -125,7 +134,10 @@ fn every_writing_example_gives_the_documented_text_or_refusal() {
         assert_eq!(cells.len(), 3, "{cells:?}");
         let input = unquote(&cells[0]);
         let graph = graph_of(input).unwrap_or_else(|| panic!("{input:?} is not readable"));
-        for (style, cell) in [(SmilesStyle::Recorded, &cells[1]), (SmilesStyle::Canonical, &cells[2])] {
+        for (style, cell) in [
+            (SmilesStyle::Recorded, &cells[1]),
+            (SmilesStyle::Canonical, &cells[2]),
+        ] {
             let found = match OpenSmilesCodec.write(&graph, style) {
                 Ok(written) => format!("`{}`", written.text),
                 Err(error) => format!("refused: `{}`", error.code.as_str()),
@@ -142,7 +154,11 @@ fn element(symbol: &str) -> Atom {
 fn build(atoms: Vec<Atom>, bonds: Vec<(usize, usize, BondOrder)>) -> MoleculeGraph {
     let id = |i: usize| AtomId::from_serial(u32::try_from(i + 1).unwrap()).unwrap();
     MoleculeGraph::from_parts(
-        atoms.into_iter().enumerate().map(|(i, a)| (id(i), a)).collect(),
+        atoms
+            .into_iter()
+            .enumerate()
+            .map(|(i, a)| (id(i), a))
+            .collect(),
         bonds
             .into_iter()
             .enumerate()
@@ -172,10 +188,13 @@ fn the_documented_canonical_refusals_match_the_codec_exactly() {
         "query atoms",
         "dative or unknown bonds",
         "an aromatic system the aromaticity model cannot class",
-        "More than 128 atoms is `canonical_limit`",
+        "More than 128 atoms, or a search beyond its work limit, is `canonical_limit`",
         "Doublet radicals such as `[CH3]` and `[OH]` have a canonical form",
     ] {
-        assert!(section.contains(documented), "the contract no longer says {documented:?}");
+        assert!(
+            section.contains(documented),
+            "the contract no longer says {documented:?}"
+        );
     }
     let code = |graph: &MoleculeGraph| {
         OpenSmilesCodec
@@ -200,14 +219,22 @@ fn the_documented_canonical_refusals_match_the_codec_exactly() {
     query.kind = AtomKind::Query(QueryAtom::Any);
     refused(build(vec![query], vec![]), "query_atom");
     refused(
-        build(vec![element("C"), element("O")], vec![(0, 1, BondOrder::Dative)]),
+        build(
+            vec![element("C"), element("O")],
+            vec![(0, 1, BondOrder::Dative)],
+        ),
         "non_integral_or_unknown_bond",
     );
     refused(
-        build(vec![element("C"), element("O")], vec![(0, 1, BondOrder::Unknown)]),
+        build(
+            vec![element("C"), element("O")],
+            vec![(0, 1, BondOrder::Unknown)],
+        ),
         "non_integral_or_unknown_bond",
     );
-    let five: Vec<_> = (0..5).map(|i| (i, (i + 1) % 5, BondOrder::Aromatic)).collect();
+    let five: Vec<_> = (0..5)
+        .map(|i| (i, (i + 1) % 5, BondOrder::Aromatic))
+        .collect();
     let (found, reason) = code(&build((0..5).map(|_| element("C")).collect(), five)).unwrap_err();
     assert_eq!(found, "canonical_unsupported");
     assert!(reason.is_some());
@@ -234,7 +261,11 @@ fn the_documented_canonical_refusals_match_the_codec_exactly() {
 #[test]
 fn documented_reading_claims_hold() {
     let section = contract_section();
-    let accepted = |input: &str| OpenSmilesCodec.read(input).unwrap_or_else(|e| panic!("{input}: {e}"));
+    let accepted = |input: &str| {
+        OpenSmilesCodec
+            .read(input)
+            .unwrap_or_else(|e| panic!("{input}: {e}"))
+    };
     let refused = |input: &str| OpenSmilesCodec.read(input).unwrap_err().code.as_str();
     // "so `[002H]` is `[2H]`"
     assert!(section.contains("`[002H]` is `[2H]`"));
@@ -244,9 +275,18 @@ fn documented_reading_claims_hold() {
     assert_eq!(accepted("[C+0]").atoms[0].atom.charge, 0);
     assert_eq!(accepted("[C-0]").atoms[0].atom.charge, 0);
     // "biphenyl `c1ccccc1c1ccccc1` joins two aromatic rings by a single bond"
-    assert!(section.contains("biphenyl `c1ccccc1c1ccccc1` joins two aromatic rings by a single bond"));
+    assert!(
+        section.contains("biphenyl `c1ccccc1c1ccccc1` joins two aromatic rings by a single bond")
+    );
     let biphenyl = accepted("c1ccccc1c1ccccc1");
-    assert_eq!(biphenyl.bonds.iter().filter(|b| b.order == BondOrder::Single).count(), 1);
+    assert_eq!(
+        biphenyl
+            .bonds
+            .iter()
+            .filter(|b| b.order == BondOrder::Single)
+            .count(),
+        1
+    );
     // "`$` is refused as `quadruple_bond_unsupported`", "`*` ... `wildcard_unsupported`"
     assert_eq!(refused("C$C"), "quadruple_bond_unsupported");
     assert_eq!(refused("*"), "wildcard_unsupported");
@@ -258,7 +298,11 @@ fn documented_reading_claims_hold() {
     assert_eq!(refused(" CCO"), "leading_whitespace");
     assert_eq!(refused(""), "empty_input");
     // "Nesting up to 64 deep", "16 KiB", "500 atoms plus bonds"
-    for fact in ["Nesting up to 64 deep", "16 KiB of input", "at most 500 atoms plus bonds"] {
+    for fact in [
+        "Nesting up to 64 deep",
+        "16 KiB of input",
+        "at most 500 atoms plus bonds",
+    ] {
         assert!(section.contains(fact), "{fact}");
     }
     assert_eq!(chemifree_providers::MAX_BRANCH_DEPTH, 64);
@@ -266,9 +310,17 @@ fn documented_reading_claims_hold() {
     assert_eq!(chemifree_domain::document::MAX_COMMANDS, 500);
     // The bracket atoms named as having no single radical state.
     for text in ["[Na+]", "[Fe]", "[CH2]", "[C]", "[CH]", "[N]"] {
-        assert!(section.contains(&format!("`{text}`")), "{text} is named in the contract");
+        assert!(
+            section.contains(&format!("`{text}`")),
+            "{text} is named in the contract"
+        );
         let read = accepted(text);
-        assert!(read.losses.iter().any(|loss| loss.feature == "radical_state"), "{text}");
+        assert!(
+            read.losses
+                .iter()
+                .any(|loss| loss.feature == "radical_state"),
+            "{text}"
+        );
     }
     // "Ring labels `0`-`9` and `%00`-`%99`", "may be reused ... including at the atom that closes them"
     assert_eq!(accepted("C%99CCCCC%99").bonds.len(), 6);
@@ -286,8 +338,14 @@ fn documented_writing_claims_hold() {
     };
     // Kekulé stays Kekulé in the recorded writer and becomes aromatic in the canonical one.
     assert!(section.contains("Kekulé bonds stay Kekulé and aromatic bonds stay aromatic"));
-    assert_eq!(write("C1=CC=CC=C1", SmilesStyle::Recorded).unwrap(), "C1=CC=CC=C1");
-    assert_eq!(write("C1=CC=CC=C1", SmilesStyle::Canonical).unwrap(), "c1ccccc1");
+    assert_eq!(
+        write("C1=CC=CC=C1", SmilesStyle::Recorded).unwrap(),
+        "C1=CC=CC=C1"
+    );
+    assert_eq!(
+        write("C1=CC=CC=C1", SmilesStyle::Canonical).unwrap(),
+        "c1ccccc1"
+    );
     // An ion or a metal is written in brackets with the two consent-required assumptions.
     let mut sodium = element("Na");
     sodium.charge = 1;
@@ -306,5 +364,12 @@ fn documented_writing_claims_hold() {
     let methane = OpenSmilesCodec
         .write(&graph_of("C[H]").unwrap(), SmilesStyle::Canonical)
         .unwrap();
-    assert_eq!((methane.text.as_str(), methane.atom_order.len(), methane.folded_hydrogens.len()), ("C", 1, 1));
+    assert_eq!(
+        (
+            methane.text.as_str(),
+            methane.atom_order.len(),
+            methane.folded_hydrogens.len()
+        ),
+        ("C", 1, 1)
+    );
 }

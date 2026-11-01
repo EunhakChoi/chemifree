@@ -52,6 +52,23 @@ pub(super) fn aromatic_element(lower: &str) -> Option<&'static str> {
         .map(|(_, element)| *element)
 }
 
+/// The longest organic-subset symbol that `text` starts with.
+pub(super) fn bare_organic_prefix(text: &str) -> Option<&'static str> {
+    BARE_ORGANIC
+        .iter()
+        .copied()
+        .filter(|symbol| text.starts_with(symbol))
+        .max_by_key(|symbol| symbol.len())
+}
+
+/// The bare aromatic symbol that `text` starts with, as `(lower-case symbol, element)`.
+pub(super) fn bare_aromatic_prefix(text: &str) -> Option<(&'static str, &'static str)> {
+    AROMATIC[..BARE_AROMATIC]
+        .iter()
+        .copied()
+        .find(|(symbol, _)| text.starts_with(symbol))
+}
+
 /// Whether the lower-case aromatic symbol may be written without brackets.
 pub(super) fn is_bare_aromatic(lower: &str) -> bool {
     AROMATIC[..BARE_AROMATIC]
@@ -77,6 +94,13 @@ mod tests {
             );
         }
         assert!(!is_bare_aromatic("se") && !is_bare_aromatic("as"));
+        assert_eq!(bare_organic_prefix("Cl"), Some("Cl"));
+        assert_eq!(bare_organic_prefix("Ca"), Some("C"));
+        assert_eq!(bare_organic_prefix("Brc"), Some("Br"));
+        assert_eq!(bare_organic_prefix("Na"), None);
+        assert_eq!(bare_aromatic_prefix("cc"), Some(("c", "C")));
+        // "se" is only bracketed: bare, the s is read and the e is then unexpected.
+        assert_eq!(bare_aromatic_prefix("se"), Some(("s", "S")));
         assert!(BARE_ORGANIC.iter().all(|s| !s.is_empty()));
     }
 

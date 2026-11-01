@@ -468,38 +468,26 @@ impl Reader<'_> {
 
     fn bare_atom(&mut self) -> Result<ReadAtom, Fail> {
         let start = self.position;
-        let first = self.bytes[start];
-        let (symbol, aromatic): (&str, bool) = match first {
+        let rest = &self.source[start..];
+        let (symbol, element, aromatic) = match self.bytes[start] {
             b'*' => return Err(at(SmilesCode::WildcardUnsupported, self.here())),
-            b'C' if self.peek(1) == Some(b'l') => ("Cl", false),
-            b'B' if self.peek(1) == Some(b'r') => ("Br", false),
-            b'A'..=b'Z' => {
-                let one = &self.source[start..=start];
-                match tables::BARE_ORGANIC
-                    .iter()
-                    .find(|candidate| **candidate == one)
-                {
-                    Some(symbol) => (symbol, false),
-                    None => return Err(at(SmilesCode::BracketRequired, self.here())),
-                }
-            }
-            b'a'..=b'z' => {
-                let one = &self.source[start..=start];
-                match tables::aromatic_element(one).filter(|_| tables::is_bare_aromatic(one)) {
-                    Some(element) => (element, true),
-                    None => return Err(at(SmilesCode::UnexpectedCharacter, self.here())),
-                }
-            }
+            b'A'..=b'Z' => match tables::bare_organic_prefix(rest) {
+                Some(symbol) => (symbol, symbol, false),
+                None => return Err(at(SmilesCode::BracketRequired, self.here())),
+            },
+            b'a'..=b'z' => match tables::bare_aromatic_prefix(rest) {
+                Some((symbol, element)) => (symbol, element, true),
+                None => return Err(at(SmilesCode::UnexpectedCharacter, self.here())),
+            },
             _ => return Err(at(SmilesCode::UnexpectedCharacter, self.here())),
         };
-        let length = if aromatic { 1 } else { symbol.len() };
-        self.position += length;
-        let element = Element::from_symbol(symbol).expect("a bare symbol names an element");
+        self.position += symbol.len();
+        let element = Element::from_symbol(element).expect("a bare symbol names an element");
         Ok(ReadAtom {
             atom: Atom::new(AtomKind::Element(element)),
             aromatic,
             bracket: false,
-            span: Span::new(start, length),
+            span: Span::new(start, symbol.len()),
         })
     }
 
@@ -712,9 +700,10 @@ impl Reader<'_> {
     /// Non-whitespace text after the terminator: the first to the last non-whitespace byte.
     fn ignored_text(&self) -> Option<Span> {
         let rest = self.source.get(self.position..)?;
-        let trimmed = rest.trim_start_matches([' ', '\t', '\n', '\r']);
+        let blank = |c: char| u8::try_from(c).is_ok_and(tables::is_whitespace);
+        let trimmed = rest.trim_start_matches(blank);
         let start = self.position + (rest.len() - trimmed.len());
-        let text = trimmed.trim_end_matches([' ', '\t', '\n', '\r']);
+        let text = trimmed.trim_end_matches(blank);
         (!text.is_empty()).then(|| Span::new(start, text.len()))
     }
 
@@ -743,7 +732,9 @@ impl Reader<'_> {
 
     fn finish(self) -> Result<Parsed, Fail> {
         let ignored_text = self.ignored_text();
-        let topology = MoleculeGraph::from_parts(
+        // One graph is built for the whole read: first with every bond single, which is enough to
+        // find the rings, then with the bond kinds decided and, last, the radicals found.
+        let mut graph = MoleculeGraph::from_parts(
             self.atoms
                 .iter()
                 .enumerate()
@@ -764,24 +755,10 @@ impl Reader<'_> {
                 })
                 .collect(),
         );
-        let orders = self.bond_orders(&topology)?;
-        let graph_bonds = |orders: &[BondOrder]| -> Vec<(BondId, Bond)> {
-            self.bonds
-                .iter()
-                .zip(orders)
-                .enumerate()
-                .map(|(i, (b, order))| {
-                    (
-                        bond_id(i),
-                        Bond {
-                            begin: atom_id(b.begin),
-                            end: atom_id(b.end),
-                            order: order.clone(),
-                        },
-                    )
-                })
-                .collect()
-        };
+        let orders = self.bond_orders(&graph)?;
+        for ((_, bond), order) in graph.bonds_mut().zip(&orders) {
+            bond.order = order.clone();
+        }
         let mut aromatic_degree = vec![0_usize; self.atoms.len()];
         for (bond, order) in self.bonds.iter().zip(&orders) {
             if *order == BondOrder::Aromatic {
@@ -803,14 +780,6 @@ impl Reader<'_> {
             .filter(|(_, order)| **order == BondOrder::Aromatic)
             .map(|(i, _)| bond_id(i))
             .collect();
-        let atom_list = |atoms: &[ReadAtom]| -> Vec<(AtomId, Atom)> {
-            atoms
-                .iter()
-                .enumerate()
-                .map(|(i, a)| (atom_id(i), a.atom.clone()))
-                .collect()
-        };
-        let graph = MoleculeGraph::from_parts(atom_list(&self.atoms), graph_bonds(&orders));
         let aromatic_span = |id: AtomId| self.atoms[id.serial() as usize - 1].span;
         let interpretation = if aromatic.is_empty() {
             None
@@ -843,14 +812,13 @@ impl Reader<'_> {
                 SemanticImpact::Document,
             ));
         }
-        for (index, class) in &self.classes {
+        for (_, class) in &self.classes {
             losses.push(dropped(
                 "atom_class",
                 *class,
                 "An atom class is a label the drawing has no place for.",
                 SemanticImpact::Document,
             ));
-            debug_assert!(*index < atoms.len());
         }
         for (index, entry) in atoms.iter_mut().enumerate() {
             let id = atom_id(index);
@@ -880,7 +848,9 @@ impl Reader<'_> {
                 radical,
             });
         }
-        let final_graph = MoleculeGraph::from_parts(atom_list(&atoms), graph_bonds(&orders));
+        for ((_, atom), entry) in graph.atoms_mut().zip(&atoms) {
+            atom.radical = entry.atom.radical;
+        }
         let read = SmilesRead {
             atoms: atoms
                 .into_iter()
@@ -905,7 +875,7 @@ impl Reader<'_> {
         Ok(Parsed {
             read,
             resolved,
-            graph: final_graph,
+            graph,
         })
     }
 }

@@ -52,7 +52,11 @@ fn graph_of(read: &SmilesRead) -> MoleculeGraph {
 fn build(atoms: Vec<Atom>, bonds: Vec<(usize, usize, BondOrder)>) -> MoleculeGraph {
     let id = |i: usize| AtomId::from_serial(u32::try_from(i + 1).unwrap()).unwrap();
     MoleculeGraph::from_parts(
-        atoms.into_iter().enumerate().map(|(i, a)| (id(i), a)).collect(),
+        atoms
+            .into_iter()
+            .enumerate()
+            .map(|(i, a)| (id(i), a))
+            .collect(),
         bonds
             .into_iter()
             .enumerate()
@@ -79,17 +83,27 @@ fn permuted(graph: &MoleculeGraph, rng: &mut Rng) -> MoleculeGraph {
     for (new, &old) in order.iter().enumerate() {
         new_index[old] = new;
     }
-    let position: BTreeMap<AtomId, usize> =
-        atoms.iter().enumerate().map(|(i, (id, _))| (*id, i)).collect();
+    let position: BTreeMap<AtomId, usize> = atoms
+        .iter()
+        .enumerate()
+        .map(|(i, (id, _))| (*id, i))
+        .collect();
     let mut bonds: Vec<(usize, usize, BondOrder)> = graph
         .bonds()
         .map(|(_, b)| {
             let (x, y) = (new_index[position[&b.begin]], new_index[position[&b.end]]);
-            if rng.chance(50) { (x, y, b.order.clone()) } else { (y, x, b.order.clone()) }
+            if rng.chance(50) {
+                (x, y, b.order.clone())
+            } else {
+                (y, x, b.order.clone())
+            }
         })
         .collect();
     rng.shuffle(&mut bonds);
-    build(order.iter().map(|&old| atoms[old].1.clone()).collect(), bonds)
+    build(
+        order.iter().map(|&old| atoms[old].1.clone()).collect(),
+        bonds,
+    )
 }
 
 fn element(symbol: &str) -> Atom {
@@ -120,7 +134,11 @@ fn mutate(rng: &mut Rng, seed: &str) -> String {
     let mut chars: Vec<char> = seed.chars().collect();
     let alphabet: Vec<char> = ALPHABET.chars().collect();
     for _ in 0..=rng.below(4) {
-        let at = if chars.is_empty() { 0 } else { rng.below(chars.len() + 1) };
+        let at = if chars.is_empty() {
+            0
+        } else {
+            rng.below(chars.len() + 1)
+        };
         let pick = alphabet[rng.below(alphabet.len())];
         match rng.below(4) {
             0 if at < chars.len() => chars[at] = pick,
@@ -150,7 +168,10 @@ fn check_reading(text: &str) {
                 assert!(text.is_char_boundary(span.offset + span.length), "{text:?}");
             }
             if let Some(span) = read.ignored_text {
-                assert!(text.is_char_boundary(span.offset) && text.is_char_boundary(span.offset + span.length));
+                assert!(
+                    text.is_char_boundary(span.offset)
+                        && text.is_char_boundary(span.offset + span.length)
+                );
             }
             let graph = graph_of(&read);
             for style in [SmilesStyle::Recorded, SmilesStyle::Canonical] {
@@ -162,7 +183,10 @@ fn check_reading(text: &str) {
                         assert_eq!(again.atoms.len(), written.atom_order.len());
                     }
                     Err(error) => assert!(
-                        matches!(error.code.class(), ErrorClass::NotWritable | ErrorClass::Limit),
+                        matches!(
+                            error.code.class(),
+                            ErrorClass::NotWritable | ErrorClass::Limit
+                        ),
                         "{text:?}: {error:?}"
                     ),
                 }
@@ -172,7 +196,10 @@ fn check_reading(text: &str) {
             if let Some(span) = error.span {
                 assert!(span.offset <= text.len(), "{text:?}: {error:?}");
                 assert!(text.is_char_boundary(span.offset), "{text:?}: {error:?}");
-                assert!(text.is_char_boundary(span.offset + span.length), "{text:?}: {error:?}");
+                assert!(
+                    text.is_char_boundary(span.offset + span.length),
+                    "{text:?}: {error:?}"
+                );
             }
             assert!(!error.code.message().is_empty());
         }
@@ -248,8 +275,12 @@ fn random_atom(rng: &mut Rng) -> Atom {
         atom.hydrogens = Hydrogens::Specified(u8::try_from(rng.below(5)).unwrap());
     }
     if rng.chance(8) {
-        atom.radical = [Radical::Doublet, Radical::Singlet, Radical::Triplet, Radical::Unknown]
-            [rng.below(4)];
+        atom.radical = [
+            Radical::Doublet,
+            Radical::Singlet,
+            Radical::Triplet,
+            Radical::Unknown,
+        ][rng.below(4)];
     }
     atom
 }
@@ -301,14 +332,20 @@ fn writers_return_only_text_the_reader_accepts_or_a_specific_refusal() {
                 Err(error) => {
                     refused += 1;
                     assert!(
-                        matches!(error.code.class(), ErrorClass::NotWritable | ErrorClass::Limit),
+                        matches!(
+                            error.code.class(),
+                            ErrorClass::NotWritable | ErrorClass::Limit
+                        ),
                         "{error:?}"
                     );
                 }
             }
         }
     }
-    assert!(written > 500, "only {written} strings were written ({refused} refused)");
+    assert!(
+        written > 500,
+        "only {written} strings were written ({refused} refused)"
+    );
     assert!(refused > 100, "only {refused} refusals ({written} written)");
 }
 
@@ -322,20 +359,32 @@ const CORPUS: &[&[&str]] = &[
     &["CC(C)(C)C", "C(C)(C)(C)C"],
     &["C1CCCCC1", "C1CCCCC1"],
     &["C1CC1", "C1CC1"],
-&["C1CCC1C", "CC1CCC1"],
+    &["C1CCC1C", "CC1CCC1"],
     &["C1CCCC1C", "CC1CCCC1"],
     &["C1CCC2(CC1)CC2", "C1CC12CCCCC2", "C1CCCCC12CC2"],
     &["C1CC2CCC1C2", "C12CCC(CC1)C2"],
     &["C1=CC2CCC1C2", "C1=CC2CC1CC2", "C1CC2C=CC1C2"],
-    &["CC1=CCC2CC1C2(C)C", "C1C=C(C)C2CC1C2(C)C", "CC1(C)C2CC=C(C)C1C2"],
+    &[
+        "CC1=CCC2CC1C2(C)C",
+        "C1C=C(C)C2CC1C2(C)C",
+        "CC1(C)C2CC=C(C)C1C2",
+    ],
     &["c1ccccc1", "C1=CC=CC=C1", "C1=CC=CC=C1"],
     &["Cc1ccccc1", "CC1=CC=CC=C1", "c1ccccc1C"],
     &["c1ccncc1", "C1=CC=NC=C1", "n1ccccc1"],
     &["c1cc[nH]c1", "C1=CNC=C1", "[nH]1cccc1"],
     &["c1ccoc1", "C1=COC=C1", "o1cccc1"],
     &["c1ccsc1", "C1=CSC=C1"],
-    &["c1ccc2ccccc2c1", "C1=CC2=CC=CC=C2C=C1", "C1=CC=C2C=CC=CC2=C1"],
-    &["c1ccc2[nH]ccc2c1", "C1=CC=C2NC=CC2=C1", "C1=CC2=C(C=C1)NC=C2"],
+    &[
+        "c1ccc2ccccc2c1",
+        "C1=CC2=CC=CC=C2C=C1",
+        "C1=CC=C2C=CC=CC2=C1",
+    ],
+    &[
+        "c1ccc2[nH]ccc2c1",
+        "C1=CC=C2NC=CC2=C1",
+        "C1=CC2=C(C=C1)NC=C2",
+    ],
     &["c1ccc2c(c1)ccc1ccccc12", "C1=CC=C2C(=C1)C=CC1=CC=CC=C12"],
     &["c1ccc2c(c1)CCCC2", "C1=CC=C2CCCCC2=C1", "C1CCC2=CC=CC=C2C1"],
     &["c1ccc2c(c1)CC=CC2", "C1=CC2=C(C=C1)CC=CC2"],
@@ -383,12 +432,19 @@ fn canonical_text_depends_only_on_the_chemical_graph() {
         let mut outcomes: Vec<(String, Outcome)> = Vec::new();
         for spelling in *group {
             let Ok(read) = OpenSmilesCodec.read(spelling) else {
-                outcomes.push((format!("{spelling} (read)"), spelling_outcome(spelling, None)));
+                outcomes.push((
+                    format!("{spelling} (read)"),
+                    spelling_outcome(spelling, None),
+                ));
                 continue;
             };
             let graph = graph_of(&read);
             for round in 0..6 {
-                let candidate = if round == 0 { graph.clone() } else { permuted(&graph, &mut rng) };
+                let candidate = if round == 0 {
+                    graph.clone()
+                } else {
+                    permuted(&graph, &mut rng)
+                };
                 outcomes.push((
                     format!("{spelling} (round {round})"),
                     spelling_outcome(spelling, Some(&candidate)),
@@ -412,21 +468,39 @@ fn canonical_text_depends_only_on_the_chemical_graph() {
             Err(_) => refusals += 1,
         }
     }
-    assert!(texts >= 25, "only {texts} groups have a canonical form ({refusals} refused)");
-    assert!(refusals >= 2, "the corpus should include refused systems, got {refusals}");
+    assert!(
+        texts >= 25,
+        "only {texts} groups have a canonical form ({refusals} refused)"
+    );
+    assert!(
+        refusals >= 2,
+        "the corpus should include refused systems, got {refusals}"
+    );
 }
 
 #[test]
 fn fused_partially_saturated_systems_are_refused_in_every_spelling() {
     // The Kekule spellings read, and their canonical form is refused; the aromatic spellings
     // are refused already by the reader, because the same model classes the system.
-    for kekule in ["C1=CC=C2CCCCC2=C1", "C1CCC2=CC=CC=C2C1", "C1=CC2=C(C=C1)CC=CC2"] {
+    for kekule in [
+        "C1=CC=C2CCCCC2=C1",
+        "C1CCC2=CC=CC=C2C1",
+        "C1=CC2=C(C=C1)CC=CC2",
+    ] {
         let graph = graph_of(&OpenSmilesCodec.read(kekule).unwrap());
-        assert_eq!(canonical_outcome(&graph), Err("canonical_unsupported".to_owned()), "{kekule}");
+        assert_eq!(
+            canonical_outcome(&graph),
+            Err("canonical_unsupported".to_owned()),
+            "{kekule}"
+        );
     }
     for aromatic in ["c1ccc2c(c1)CCCC2", "c1ccc2c(c1)CC=CC2"] {
         let error = OpenSmilesCodec.read(aromatic).unwrap_err();
-        assert_eq!(error.code.as_str(), "aromatic_system_unsupported", "{aromatic}");
+        assert_eq!(
+            error.code.as_str(),
+            "aromatic_system_unsupported",
+            "{aromatic}"
+        );
     }
 }
 
@@ -436,9 +510,13 @@ fn recorded_text_reads_back_as_the_same_graph() {
     for group in CORPUS {
         for spelling in *group {
             // A spelling the reader refuses has no graph to write.
-            let Ok(read) = OpenSmilesCodec.read(spelling) else { continue };
+            let Ok(read) = OpenSmilesCodec.read(spelling) else {
+                continue;
+            };
             let graph = permuted(&graph_of(&read), &mut rng);
-            let written = OpenSmilesCodec.write(&graph, SmilesStyle::Recorded).unwrap();
+            let written = OpenSmilesCodec
+                .write(&graph, SmilesStyle::Recorded)
+                .unwrap();
             let again = graph_of(&OpenSmilesCodec.read(&written.text).unwrap());
             // Written atom k is the document atom `atom_order[k]`; its bonds must match.
             let source_atoms: BTreeMap<AtomId, &Atom> = graph.atoms().collect();
@@ -448,16 +526,24 @@ fn recorded_text_reads_back_as_the_same_graph() {
             for (k, id) in written.atom_order.iter().enumerate() {
                 slot.insert(*id, k);
                 let (a, b) = (source_atoms[id], again_atoms[k]);
-                assert_eq!((&a.kind, a.charge, a.isotope), (&b.kind, b.charge, b.isotope), "{spelling}");
+                assert_eq!(
+                    (&a.kind, a.charge, a.isotope),
+                    (&b.kind, b.charge, b.isotope),
+                    "{spelling}"
+                );
             }
-            let normalise = |a: usize, b: usize, order: &BondOrder| (a.min(b), a.max(b), order.clone());
+            let normalise =
+                |a: usize, b: usize, order: &BondOrder| (a.min(b), a.max(b), order.clone());
             let mut source_bonds: Vec<_> = graph
                 .bonds()
                 .map(|(_, b)| normalise(slot[&b.begin], slot[&b.end], &b.order))
                 .collect();
             let again_ids: Vec<AtomId> = again.atoms().map(|(id, _)| id).collect();
-            let index: BTreeMap<AtomId, usize> =
-                again_ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+            let index: BTreeMap<AtomId, usize> = again_ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (*id, i))
+                .collect();
             let mut again_bonds: Vec<_> = again
                 .bonds()
                 .map(|(_, b)| normalise(index[&b.begin], index[&b.end], &b.order))

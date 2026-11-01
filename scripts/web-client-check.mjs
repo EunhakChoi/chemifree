@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { ConsentRequired, DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -1885,3 +1885,55 @@ test('an import preview exposes the actual graph even when a revision is reused'
   assert.equal(shown.revision, preview.snapshot.revision)
   assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })
+
+test('SMILES refusals say where in characters and bytes, and a consent refusal carries what to accept', async () => {
+  const refusal = (code, message, details) => () => json(200, { outcome: 'error', result: null, loss_report: [],
+    diagnostics: [{ code, message, details }] })
+  service({ '/api/v1/operations': [
+    refusal('unexpected_character', 'This character cannot appear here.',
+      { class: 'syntax', offset: 1, length: 2, character_offset: 1, character_length: 1 }),
+    refusal('aromatic_system_unsupported', 'Outside the model.',
+      { class: 'unsupported', offset: 0, length: 1, character_offset: 0, character_length: 1, reason: 'not_conjugated' }),
+    refusal('empty_input', 'The SMILES text is empty.',
+      { class: 'syntax', offset: 0, length: 0, character_offset: 0, character_length: 0 }),
+    refusal('loss_consent_required', 'Accept the losses.', {
+      features: ['radical_state'],
+      losses: [{ feature: 'radical_state', source_path: 'source[0..=3]', disposition: 'dropped', reason: 'Unknown.', semantic_impact: 'chemistry' }],
+    }),
+    refusal('loss_consent_required', 'Accept the assumptions.', {
+      features: ['hydrogen_assumption'], loss_digest: 'f'.repeat(64),
+      losses: [{ feature: 'hydrogen_assumption', source_path: 'atoms[a1]', disposition: 'unknown', reason: 'No model.', semantic_impact: 'chemistry' }],
+    }),
+  ] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'C\u00e9O'), {
+    code: 'unexpected_character',
+    message: 'This character cannot appear here. Problem at character 2 (bytes 1 to 2).',
+  })
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'c1cccc1'), {
+    code: 'aromatic_system_unsupported',
+    message: 'Outside the model. Problem at character 1 (byte 0). Reason: not_conjugated.',
+  })
+  await assert.rejects(client.previewSmiles('doc-1', 0, ''), {
+    message: 'The SMILES text is empty. Problem at the position before character 1 (byte 0).',
+  })
+  const commit = { documentId: 'doc-1', revision: 0, source: '[CH2]', digest: 'a'.repeat(64), acceptLoss: false }
+  const imported = await client.importSmiles(commit).catch((failure) => failure)
+  assert.ok(imported instanceof ConsentRequired, 'an import refusal that asks for consent is a ConsentRequired')
+  assert.deepEqual(imported.features, ['radical_state'])
+  assert.equal(imported.losses[0].feature, 'radical_state')
+  assert.equal(imported.digest, undefined)
+  const written = await client.exportSmiles('doc-1', 'recorded').catch((failure) => failure)
+  assert.ok(written instanceof ConsentRequired)
+  assert.equal(written.digest, 'f'.repeat(64), 'an export refusal carries the digest to accept')
+})
+
+test('a SMILES preview of a different drawing or revision is refused', async () => {
+  const other = document('doc-2', 0)
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [], model_id: 'chemifree-smiles-1',
+    result: { atoms: [], bonds: [], ignored_text: null, preview_digest: 'a'.repeat(64), snapshot: other, document: other.document,
+      valence_model: 'v', aromaticity_model: 'a' } })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'C'), { code: 'incompatible_response' })
+})
+

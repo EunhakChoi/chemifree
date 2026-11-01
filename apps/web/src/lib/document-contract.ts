@@ -1217,7 +1217,7 @@ const isSmilesSpan = (value: unknown): value is SmilesSpan =>
 /** The place in the text, in characters (counted from 1) and in bytes (first and last). */
 export function describeSpan(span: SmilesSpan): string {
   const first = span.character_offset + 1
-  if (span.length === 0) return `at character ${first} (byte ${span.offset}, the end of a token)`
+  if (span.length === 0) return `the position before character ${first} (byte ${span.offset})`
   const last = span.character_offset + span.character_length
   const lastByte = span.offset + span.length - 1
   const characters = last === first ? `character ${first}` : `characters ${first} to ${last}`

@@ -33,7 +33,6 @@ impl SmilesCodec for OpenSmilesCodec {
         SmilesLimits {
             max_input_bytes: MAX_INPUT_BYTES,
             max_branch_depth: MAX_BRANCH_DEPTH,
-            max_ring_label: MAX_RING_LABEL,
         }
     }
 

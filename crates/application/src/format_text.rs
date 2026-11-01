@@ -75,7 +75,7 @@ impl FormatText {
         if let Some(limits) = connected.smiles {
             let limit = describe_limit(limits.max_input_bytes);
             names.push("SMILES".to_owned());
-            read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit}, written in recorded or canonical form)"));
+            read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit} and {} nested branches, written in recorded or canonical form)", limits.max_branch_depth));
             import.push(format!("append one SMILES string (at most {limit})"));
             export.push("one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make".to_owned());
         }

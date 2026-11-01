@@ -5,9 +5,7 @@ use chemifree_application::smiles::{SmilesCode, SmilesCodec, SmilesStyle, Smiles
 use chemifree_domain::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
-use chemifree_domain::states::{
-    AtomKind, AttachmentPoints, Hydrogens, QueryAtom, Radical,
-};
+use chemifree_domain::states::{AtomKind, AttachmentPoints, Hydrogens, QueryAtom, Radical};
 use chemifree_providers::{MAX_BRANCH_DEPTH, MAX_RING_LABEL, OpenSmilesCodec};
 
 fn id(index: usize) -> AtomId {
@@ -29,7 +27,11 @@ fn graph_of(text: &str) -> MoleculeGraph {
 
 fn build(atoms: Vec<Atom>, bonds: Vec<(usize, usize, BondOrder)>) -> MoleculeGraph {
     MoleculeGraph::from_parts(
-        atoms.into_iter().enumerate().map(|(i, a)| (id(i), a)).collect(),
+        atoms
+            .into_iter()
+            .enumerate()
+            .map(|(i, a)| (id(i), a))
+            .collect(),
         bonds
             .into_iter()
             .enumerate()
@@ -139,7 +141,11 @@ fn canonical_text_does_not_depend_on_the_kekule_or_aromatic_spelling() {
         &["c1ccccc1", "C1=CC=CC=C1", "C1=CC=CC=C1"][..],
         &["c1cc[nH]c1", "C1=CNC=C1", "[nH]1cccc1", "N1C=CC=C1"][..],
         &["c1ccncc1", "C1=CC=NC=C1", "n1ccccc1"][..],
-        &["c1ccc2ccccc2c1", "C1=CC2=CC=CC=C2C=C1", "C1=CC=C2C=CC=CC2=C1"][..],
+        &[
+            "c1ccc2ccccc2c1",
+            "C1=CC2=CC=CC=C2C=C1",
+            "C1=CC=C2C=CC=CC2=C1",
+        ][..],
         &["Oc1ccccc1", "OC1=CC=CC=C1", "c1ccc(O)cc1", "c1(O)ccccc1"][..],
         &["c1ccoc1", "C1=COC=C1", "o1cccc1"][..],
     ] {
@@ -177,12 +183,20 @@ fn canonical_reports_each_representation_change() {
     assert!(kekule.losses.iter().any(|l| l.feature == "aromatic_bonds"));
     let aromatic = write(&graph_of("c1ccccc1"), SmilesStyle::Canonical);
     assert!(
-        !aromatic.losses.iter().any(|l| l.feature == "aromatic_bonds"),
+        !aromatic
+            .losses
+            .iter()
+            .any(|l| l.feature == "aromatic_bonds"),
         "an aromatic drawing is not rewritten"
     );
     let folded = write(&graph_of("C[H]"), SmilesStyle::Canonical);
     assert_eq!(folded.text, "C");
-    assert!(folded.losses.iter().any(|l| l.feature == "folded_hydrogens"));
+    assert!(
+        folded
+            .losses
+            .iter()
+            .any(|l| l.feature == "folded_hydrogens")
+    );
     assert_eq!(folded.folded_hydrogens.len(), 1);
     assert_eq!(folded.atom_order.len(), 1);
     assert!(!folded.atom_order.contains(&folded.folded_hydrogens[0].0));
@@ -209,8 +223,14 @@ fn doublet_radicals_have_a_canonical_form_and_other_radicals_do_not() {
     let mut carbene = atom("C");
     carbene.radical = Radical::Singlet;
     let graph = build(vec![carbene], vec![]);
-    assert_eq!(refusal(&graph, SmilesStyle::Recorded), SmilesCode::RadicalNotWritable);
-    assert_eq!(refusal(&graph, SmilesStyle::Canonical), SmilesCode::RadicalNotWritable);
+    assert_eq!(
+        refusal(&graph, SmilesStyle::Recorded),
+        SmilesCode::RadicalNotWritable
+    );
+    assert_eq!(
+        refusal(&graph, SmilesStyle::Canonical),
+        SmilesCode::RadicalNotWritable
+    );
 }
 
 #[test]
@@ -225,11 +245,13 @@ fn ions_and_metals_are_written_with_named_consent_required_losses() {
     let features: Vec<&str> = written.losses.iter().map(|l| l.feature.as_str()).collect();
     assert!(features.contains(&"hydrogen_assumption"), "{features:?}");
     assert!(features.contains(&"radical_assumption"), "{features:?}");
-    assert!(written
-        .losses
-        .iter()
-        .filter(|l| l.feature.ends_with("_assumption"))
-        .all(|l| l.consent == chemifree_application::LossConsent::Required));
+    assert!(
+        written
+            .losses
+            .iter()
+            .filter(|l| l.feature.ends_with("_assumption"))
+            .all(|l| l.consent == chemifree_application::LossConsent::Required)
+    );
     let iron = write(&build(vec![atom("Fe")], vec![]), SmilesStyle::Recorded);
     assert_eq!(iron.text, "[Fe]");
     // With the hydrogens stated and the radical unknown, nothing is assumed.
@@ -288,7 +310,10 @@ fn refusals_name_their_real_cause() {
     ));
     let mut unknown = atom("C");
     unknown.hydrogens = Hydrogens::Unknown;
-    cases.push((build(vec![unknown], vec![]), SmilesCode::HydrogensNotWritable));
+    cases.push((
+        build(vec![unknown], vec![]),
+        SmilesCode::HydrogensNotWritable,
+    ));
     let mut many = atom("C");
     many.hydrogens = Hydrogens::Specified(10);
     cases.push((build(vec![many], vec![]), SmilesCode::HydrogensNotWritable));
@@ -302,12 +327,16 @@ fn refusals_name_their_real_cause() {
     ));
     // An aromatic bond that is a chain bond, and a lone aromatic bond between two atoms.
     cases.push((
-        build(vec![atom("C"), atom("C")], vec![(0, 1, BondOrder::Aromatic)]),
+        build(
+            vec![atom("C"), atom("C")],
+            vec![(0, 1, BondOrder::Aromatic)],
+        ),
         SmilesCode::AromaticNotWritable,
     ));
     // An aromatic ring of five carbons is not an aromatic system under the model.
-    let five: Vec<(usize, usize, BondOrder)> =
-        (0..5).map(|i| (i, (i + 1) % 5, BondOrder::Aromatic)).collect();
+    let five: Vec<(usize, usize, BondOrder)> = (0..5)
+        .map(|i| (i, (i + 1) % 5, BondOrder::Aromatic))
+        .collect();
     cases.push((
         build((0..5).map(|_| atom("C")).collect(), five),
         SmilesCode::AromaticNotWritable,
@@ -320,8 +349,9 @@ fn refusals_name_their_real_cause() {
 #[test]
 fn an_aromatic_element_without_a_lower_case_form_is_refused_before_any_text() {
     // Six-membered aromatic ring of silicon: no lower-case symbol exists for it.
-    let ring: Vec<(usize, usize, BondOrder)> =
-        (0..6).map(|i| (i, (i + 1) % 6, BondOrder::Aromatic)).collect();
+    let ring: Vec<(usize, usize, BondOrder)> = (0..6)
+        .map(|i| (i, (i + 1) % 6, BondOrder::Aromatic))
+        .collect();
     let graph = build((0..6).map(|_| atom("Si")).collect(), ring);
     let code = refusal(&graph, SmilesStyle::Recorded);
     assert!(
@@ -335,8 +365,9 @@ fn an_aromatic_element_without_a_lower_case_form_is_refused_before_any_text() {
 
 #[test]
 fn refusals_explain_unsupported_aromatic_systems() {
-    let five: Vec<(usize, usize, BondOrder)> =
-        (0..5).map(|i| (i, (i + 1) % 5, BondOrder::Aromatic)).collect();
+    let five: Vec<(usize, usize, BondOrder)> = (0..5)
+        .map(|i| (i, (i + 1) % 5, BondOrder::Aromatic))
+        .collect();
     let graph = build((0..5).map(|_| atom("C")).collect(), five);
     let error = OpenSmilesCodec
         .write(&graph, SmilesStyle::Recorded)
@@ -420,9 +451,15 @@ fn a_graph_with_more_commands_than_one_import_takes_is_refused() {
     let atoms: Vec<Atom> = (0..300).map(|_| atom("C")).collect();
     let bonds: Vec<_> = (1..300).map(|i| (i - 1, i, BondOrder::Single)).collect();
     let graph = build(atoms, bonds);
-    assert_eq!(refusal(&graph, SmilesStyle::Recorded), SmilesCode::CommandLimit);
+    assert_eq!(
+        refusal(&graph, SmilesStyle::Recorded),
+        SmilesCode::CommandLimit
+    );
     // The canonical form is limited by the identity model's atom bound before that.
-    assert_eq!(refusal(&graph, SmilesStyle::Canonical), SmilesCode::CanonicalLimit);
+    assert_eq!(
+        refusal(&graph, SmilesStyle::Canonical),
+        SmilesCode::CanonicalLimit
+    );
 }
 
 #[test]

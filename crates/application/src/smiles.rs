@@ -280,8 +280,6 @@ pub struct SmilesWrite {
 pub struct SmilesLimits {
     pub max_input_bytes: usize,
     pub max_branch_depth: usize,
-    /// Ring labels are `0` up to this number.
-    pub max_ring_label: usize,
 }
 
 /// Implemented outside the application. Implementations never panic on any input, and a

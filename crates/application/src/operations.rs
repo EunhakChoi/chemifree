@@ -1472,7 +1472,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             codec: codec.as_ref(),
             p: &p,
         };
-        self.run_import(known, &format, request, self.ctfile_generation)
+        self.run_import(known, &format, request, self.preview_generation)
     }
 
     fn ct_export(&self, known: &Known, p: CtExportParameters) -> OperationResponse {

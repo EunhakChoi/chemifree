@@ -51,7 +51,11 @@ fn chains_branches_rings_and_dots_read() {
             continue;
         }
         let parsed = read(text);
-        assert_eq!((parsed.atoms.len(), parsed.bonds.len()), (atoms, bonds), "{text}");
+        assert_eq!(
+            (parsed.atoms.len(), parsed.bonds.len()),
+            (atoms, bonds),
+            "{text}"
+        );
     }
 }
 
@@ -68,8 +72,14 @@ fn a_label_that_closes_at_an_atom_can_open_again_there() {
     assert_eq!(parsed.atoms.len(), 5);
     assert_eq!(parsed.bonds.len(), 6);
     let bonds = orders(&parsed);
-    assert!(bonds.iter().any(|(a, b, _)| (*a, *b) == (0, 2)), "{bonds:?}");
-    assert!(bonds.iter().any(|(a, b, _)| (*a, *b) == (2, 4)), "{bonds:?}");
+    assert!(
+        bonds.iter().any(|(a, b, _)| (*a, *b) == (0, 2)),
+        "{bonds:?}"
+    );
+    assert!(
+        bonds.iter().any(|(a, b, _)| (*a, *b) == (2, 4)),
+        "{bonds:?}"
+    );
 }
 
 #[test]
@@ -168,7 +178,12 @@ fn valid_but_unsupported_text_is_unsupported_not_syntax() {
         ("*", SmilesCode::WildcardUnsupported, 0, 1),
         ("[*]", SmilesCode::WildcardUnsupported, 1, 1),
         ("C$C", SmilesCode::QuadrupleBondUnsupported, 1, 1),
-        ("C%(123)CC%(123)", SmilesCode::RingLabelExtendedUnsupported, 1, 6),
+        (
+            "C%(123)CC%(123)",
+            SmilesCode::RingLabelExtendedUnsupported,
+            1,
+            6,
+        ),
         ("[C+9]", SmilesCode::ChargeOutOfRange, 2, 2),
         ("[C-9]", SmilesCode::ChargeOutOfRange, 2, 2),
         ("[C+15]", SmilesCode::ChargeOutOfRange, 2, 3),
@@ -244,7 +259,9 @@ fn hydrogen_and_radical_state_come_from_the_valence_model() {
 
 #[test]
 fn a_bracket_atom_without_one_consistent_radical_is_unknown_with_a_loss() {
-    for text in ["[C]", "[CH]", "[CH2]", "[N]", "[CH5]", "[Na+]", "[Fe]", "[S]"] {
+    for text in [
+        "[C]", "[CH]", "[CH2]", "[N]", "[CH5]", "[Na+]", "[Fe]", "[S]",
+    ] {
         let parsed = read(text);
         assert_eq!(parsed.atoms[0].atom.radical, Radical::Unknown, "{text}");
         let loss = parsed
@@ -260,7 +277,12 @@ fn a_bracket_atom_without_one_consistent_radical_is_unknown_with_a_loss() {
 fn atom_classes_are_dropped_with_a_loss() {
     let parsed = read("[CH4:5]");
     assert_eq!(parsed.atoms.len(), 1);
-    assert!(parsed.losses.iter().any(|loss| loss.feature == "atom_class"));
+    assert!(
+        parsed
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "atom_class")
+    );
     assert_eq!(read("[NH4+:005]").atoms[0].atom.charge, 1);
 }
 
@@ -285,7 +307,10 @@ fn whitespace_ends_the_string_and_later_text_is_reported() {
     }
     let two_lines = read("CCO\nCC");
     assert_eq!(two_lines.atoms.len(), 3);
-    assert_eq!(two_lines.ignored_text.map(|s| (s.offset, s.length)), Some((4, 2)));
+    assert_eq!(
+        two_lines.ignored_text.map(|s| (s.offset, s.length)),
+        Some((4, 2))
+    );
     for quiet in ["CCO ", "CCO\n", "CCO \t\r\n"] {
         let parsed = read(quiet);
         assert_eq!(parsed.ignored_text, None, "{quiet:?}");
@@ -329,7 +354,10 @@ fn an_unsupported_aromatic_system_is_located_inside_that_system() {
     // The second component's five-carbon ring is the one the model cannot class aromatic.
     let (code, offset, _) = refused("c1ccccc1.c1cccc1");
     assert_eq!(code, SmilesCode::AromaticSystemUnsupported);
-    assert!((9..16).contains(&offset), "offset {offset} is not in the second component");
+    assert!(
+        (9..16).contains(&offset),
+        "offset {offset} is not in the second component"
+    );
     let error = OpenSmilesCodec.read("c1cccc1").unwrap_err();
     assert!(error.reason.is_some(), "the model's reason is reported");
 }
@@ -356,7 +384,10 @@ fn kekule_and_aromatic_spellings_both_read() {
 #[test]
 fn limits_are_reported_as_limits() {
     let long = "C".repeat(MAX_INPUT_BYTES + 1);
-    assert_eq!(refused(&long), (SmilesCode::InputTooLong, MAX_INPUT_BYTES, 1));
+    assert_eq!(
+        refused(&long),
+        (SmilesCode::InputTooLong, MAX_INPUT_BYTES, 1)
+    );
     assert_eq!(SmilesCode::InputTooLong.class().as_str(), "limit");
     // A two-byte character that straddles the limit is reported from its first byte.
     let straddling = format!("{}é", "C".repeat(MAX_INPUT_BYTES - 1));
@@ -369,7 +400,10 @@ fn limits_are_reported_as_limits() {
     // terminator, so it is not read as atoms.
     let exact = format!("C {}é", "x".repeat(MAX_INPUT_BYTES - 4));
     assert_eq!(exact.len(), MAX_INPUT_BYTES);
-    assert_eq!(read(&exact).ignored_text.map(|s| s.length), Some(MAX_INPUT_BYTES - 2));
+    assert_eq!(
+        read(&exact).ignored_text.map(|s| s.length),
+        Some(MAX_INPUT_BYTES - 2)
+    );
     // Only the first four bytes of a four-byte character straddle.
     let emoji = format!("{}\u{1F600}", "C".repeat(MAX_INPUT_BYTES - 2));
     assert_eq!(
@@ -402,10 +436,16 @@ fn branch_depth_has_a_limit() {
 fn every_code_has_one_message_class_and_name() {
     let mut names = std::collections::BTreeSet::new();
     for code in SmilesCode::ALL {
-        assert!(names.insert(code.as_str()), "{} is listed twice", code.as_str());
+        assert!(
+            names.insert(code.as_str()),
+            "{} is listed twice",
+            code.as_str()
+        );
         assert!(!code.message().is_empty(), "{}", code.as_str());
         assert!(
-            code.as_str().bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+            code.as_str()
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b == b'_'),
             "{}",
             code.as_str()
         );

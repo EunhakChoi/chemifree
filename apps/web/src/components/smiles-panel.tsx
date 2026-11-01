@@ -71,6 +71,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   // How many requests of each kind are running, so an edit can say it replaced one.
   const previewing = useRef(0)
   const exporting = useRef(0)
+  const committing = useRef(false)
   useEffect(() => {
     alive.current = true
     return () => {
@@ -148,7 +149,9 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
 
   async function commitImport(acceptLoss: boolean) {
     const ready = livePreview
-    if (!ready) return
+    // A second click before the first reply would find the drawing changed by the first.
+    if (!ready || committing.current) return
+    committing.current = true
     setPending((count) => count + 1)
     setError(null)
     setNotice(null)
@@ -156,6 +159,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       documentId: document.id, revision: document.revision, source: ready.source,
       digest: ready.data.digest, acceptLoss,
     }, ready.data.snapshot, ready.generation)
+    committing.current = false
     if (alive.current) {
       if (result.committed) {
         setPrepared(null)
@@ -220,7 +224,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     <Field>
       <FieldLabel htmlFor="smiles-source">SMILES text</FieldLabel>
       <Textarea id="smiles-source" rows={3} spellCheck={false} autoComplete="off" autoCapitalize="off"
-        className="font-mono text-xs" value={source} disabled={editor.busy}
+        className="font-mono text-xs" value={source}
         onChange={(event) => changeSource(event.currentTarget.value)}
         onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} />
       <FieldDescription>
@@ -237,11 +241,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       <p data-testid="smiles-preview-summary">
         {livePreview.data.atoms} atom(s), {livePreview.data.bonds} bond(s) would be added.
       </p>
-      {livePreview.data.ignoredText && <p>
-        Not read: characters {livePreview.data.ignoredText.character_offset + 1} to{' '}
-        {livePreview.data.ignoredText.character_offset + livePreview.data.ignoredText.character_length}
-        {' '}({describeSpan(livePreview.data.ignoredText)}).
-      </p>}
+      {livePreview.data.ignoredText && <p>Not read: {describeSpan(livePreview.data.ignoredText)}.</p>}
       <LossList losses={livePreview.data.losses} />
       <p className="text-muted-foreground">
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.

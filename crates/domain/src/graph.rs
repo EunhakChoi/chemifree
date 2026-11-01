@@ -30,6 +30,17 @@ impl MoleculeGraph {
         Self { atoms, bonds }
     }
 
+    /// The atoms for editing the copy, such as setting a state found after reading: a graph
+    /// snapshot never feeds back into a document.
+    pub fn atoms_mut(&mut self) -> impl Iterator<Item = (AtomId, &mut Atom)> {
+        self.atoms.iter_mut().map(|(id, atom)| (*id, atom))
+    }
+
+    /// The bonds for editing the copy; see [`MoleculeGraph::atoms_mut`].
+    pub fn bonds_mut(&mut self) -> impl Iterator<Item = (BondId, &mut Bond)> {
+        self.bonds.iter_mut().map(|(id, bond)| (*id, bond))
+    }
+
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
         self.atoms.iter().map(|(id, atom)| (*id, atom))
     }

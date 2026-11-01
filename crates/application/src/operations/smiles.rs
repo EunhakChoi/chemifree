@@ -404,7 +404,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             codec: codec.as_ref(),
             p: &p,
         };
-        let mut response = self.run_import(known, &format, request, self.smiles_generation);
+        let mut response = self.run_import(known, &format, request, self.preview_generation);
         if response.result.is_some() {
             response.model_id = Some(crate::smiles::SMILES_MODEL.into());
         }

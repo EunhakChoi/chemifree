@@ -137,7 +137,7 @@ def _rdkit_canonical(smiles: str) -> str | None:
     molecule = rdkit.Chem.MolFromSmiles(smiles)
     if molecule is None:
         return None
-    return rdkit.Chem.MolToSmiles(molecule, isomericSmiles=False)
+    return str(rdkit.Chem.MolToSmiles(molecule, isomericSmiles=False))
 
 
 def _outcome(
@@ -225,6 +225,7 @@ def _group_key(outcome: str | Refused) -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Check every fixture and spelling group; return the exit status."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if len(argv) != 2:
         _LOGGER.error("usage: verify-smiles-rdkit.py /path/to/smiles_reference")

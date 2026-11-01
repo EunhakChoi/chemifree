@@ -616,7 +616,10 @@ mod tests {
             .collect();
         // Four carbons chained: CCCC. The same plans fit in 4 bytes and not in 3.
         assert_eq!(
-            render(&plans, &links, 4).map(|rendered| rendered.text).ok().as_deref(),
+            render(&plans, &links, 4)
+                .map(|rendered| rendered.text)
+                .ok()
+                .as_deref(),
             Some("CCCC")
         );
         assert_eq!(
