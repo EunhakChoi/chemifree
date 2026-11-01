@@ -28,20 +28,13 @@ fn intern(text: String) -> &'static str {
     leaked
 }
 
-fn join(base: Option<&'static str>, fragment: Option<&'static str>) -> Option<&'static str> {
-    match (base, fragment) {
-        (Some(base), Some(fragment)) => Some(intern(format!("{base} {fragment}"))),
-        (base, fragment) => base.or(fragment),
-    }
-}
-
 impl Formats {
     fn files(self) -> (bool, bool) {
         (self.ctfile, self.interchange)
     }
 
     /// The label of the `format_conversion` capability, e.g. "MOL/SDF and CDXML subsets".
-    pub(crate) fn label(self) -> Option<&'static str> {
+    fn label(self) -> Option<&'static str> {
         let mut names = Vec::new();
         if self.ctfile {
             names.push("MOL/SDF");
@@ -61,7 +54,18 @@ impl Formats {
     }
 
     pub(crate) fn description(self) -> Option<&'static str> {
-        let files = match self.files() {
+        if self.smiles {
+            let list = self.list()?;
+            return Some(intern(format!(
+                "Read and write bounded {list} subsets with explicit losses.{} Other formats, stereochemistry and advanced objects are unsupported.",
+                self.clauses(&[
+                    (self.ctfile, "MOL/SDF is the V2000 subset."),
+                    (self.interchange, "CDXML includes a loss-accounted editor projection."),
+                    (true, "SMILES is connectivity only, with no query or reaction support and no InChI."),
+                ])
+            )));
+        }
+        match self.files() {
             (true, true) => Some(
                 "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.",
             ),
@@ -72,17 +76,22 @@ impl Formats {
                 "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.",
             ),
             (false, false) => None,
-        };
-        let smiles = self.smiles.then_some(if files.is_some() {
-            "SMILES connectivity is also read and written; it has no stereo, query or reaction support and no InChI."
-        } else {
-            "Read and write SMILES connectivity (branches, rings, components, isotopes, charges, hydrogens, aromatic atoms) with explicit losses; canonical output is Chemifree's own. No stereo, query or reaction SMILES and no InChI. Other formats are unsupported."
-        });
-        join(files, smiles)
+        }
     }
 
     pub(crate) fn import_note(self) -> Option<&'static str> {
-        let files = match self.files() {
+        if self.smiles {
+            let list = self.list()?;
+            return Some(intern(format!(
+                "Preview and import {list} with explicit losses.{}",
+                self.clauses(&[
+                    (self.ctfile, "MOL/SDF appends one selected record under revision-checked consent."),
+                    (self.interchange, "CDXML reads a rich tree or previews an editor projection."),
+                    (true, "SMILES appends connectivity after loss consent; stereo, query and reaction SMILES are refused with a position."),
+                ])
+            )));
+        }
+        match self.files() {
             (true, true) => Some(
                 "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses.",
             ),
@@ -93,13 +102,22 @@ impl Formats {
                 Some("Read CDXML as a rich tree or preview a loss-accounted editor projection.")
             }
             (false, false) => None,
-        };
-        let smiles = self.smiles.then_some("SMILES text is previewed and appended after loss consent; it reads connectivity only, and stereo, query and reaction SMILES are refused with a position.");
-        join(files, smiles)
+        }
     }
 
     pub(crate) fn export_note(self) -> Option<&'static str> {
-        let files = match self.files() {
+        if self.smiles {
+            let list = self.list()?;
+            return Some(intern(format!(
+                "Write {list} with explicit losses.{}",
+                self.clauses(&[
+                    (self.ctfile, "MOL/SDF is the V2000 subset with per-record losses."),
+                    (self.interchange, "CDXML keeps opaque content safe."),
+                    (true, "SMILES is written in recorded order or Chemifree's own canonical order (not compatible with other toolkits), and drawings the shared valence and aromaticity models cannot interpret are refused with a reason."),
+                ])
+            )));
+        }
+        match self.files() {
             (true, true) => Some(
                 "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety.",
             ),
@@ -110,8 +128,53 @@ impl Formats {
                 Some("Write rich CDXML with opaque-content safety and explicit loss reporting.")
             }
             (false, false) => None,
-        };
-        let smiles = self.smiles.then_some("SMILES is written in recorded order or Chemifree's own canonical order (not compatible with other toolkits); drawings the shared valence and aromaticity models cannot interpret are refused with a reason.");
-        join(files, smiles)
+        }
     }
+
+    /// The connected formats as a list, "MOL/SDF, CDXML and SMILES".
+    fn list(self) -> Option<String> {
+        let mut names = Vec::new();
+        if self.ctfile {
+            names.push("MOL/SDF");
+        }
+        if self.interchange {
+            names.push("CDXML");
+        }
+        if self.smiles {
+            names.push("SMILES");
+        }
+        match names.as_slice() {
+            [] => None,
+            [only] => Some((*only).to_owned()),
+            [head @ .., last] => Some(format!("{} and {last}", head.join(", "))),
+        }
+    }
+
+    /// Each connected codec's sentence, each preceded by a space.
+    fn clauses(self, fragments: &[(bool, &str)]) -> String {
+        fragments
+            .iter()
+            .filter(|(connected, _)| *connected)
+            .map(|(_, text)| format!(" {text}"))
+            .collect()
+    }
+
+    /// All four texts, computed once for a set of connected formats.
+    pub(crate) fn texts(self) -> FormatTexts {
+        FormatTexts {
+            label: self.label(),
+            description: self.description(),
+            import_note: self.import_note(),
+            export_note: self.export_note(),
+        }
+    }
+}
+
+/// The wording for one set of connected formats; built when a codec is connected, not per request.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FormatTexts {
+    pub label: Option<&'static str>,
+    pub description: Option<&'static str>,
+    pub import_note: Option<&'static str>,
+    pub export_note: Option<&'static str>,
 }

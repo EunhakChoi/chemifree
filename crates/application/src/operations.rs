@@ -35,7 +35,6 @@ use crate::ct_projection;
 use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
 use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
-use crate::format_notes::Formats;
 use crate::json;
 use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
@@ -1266,14 +1265,9 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        let formats = Formats {
-            ctfile: self.ctfile_codec.is_some(),
-            interchange: self.interchange_codec.is_some(),
-            smiles: self.smiles_codec.is_some(),
-        };
         let note = match operation {
-            OperationId::DocumentImport => formats.import_note(),
-            OperationId::DocumentExport => formats.export_note(),
+            OperationId::DocumentImport => self.format_texts.import_note,
+            OperationId::DocumentExport => self.format_texts.export_note,
             _ => None,
         };
         match note {

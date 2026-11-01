@@ -146,6 +146,8 @@ pub struct Application<C, R> {
     /// are refused rather than accepting a token from an earlier service instance.
     ctfile_generation: Option<[u8; 16]>,
     smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
+    /// Wording for the connected formats, rebuilt when a codec is connected.
+    format_texts: format_notes::FormatTexts,
     property_data_readiness: properties::DataReadiness,
 }
 
@@ -165,6 +167,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             ctfile_codec: None,
             smiles_codec: None,
+            format_texts: format_notes::FormatTexts::default(),
             ctfile_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
@@ -173,22 +176,37 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
+    fn with_format_texts(self) -> Self {
+        let texts = format_notes::Formats {
+            ctfile: self.ctfile_codec.is_some(),
+            interchange: self.interchange_codec.is_some(),
+            smiles: self.smiles_codec.is_some(),
+        }
+        .texts();
+        Self {
+            format_texts: texts,
+            ..self
+        }
+    }
+
     /// Connects the independently implemented MOL/SDF provider for every entry adapter.
     #[must_use]
     pub fn with_ctfile_codec(self, codec: impl ctfile::CtCodec + 'static) -> Self {
-        Self {
+        let connected = Self {
             ctfile_codec: Some(Arc::new(codec)),
             ..self
-        }
+        };
+        connected.with_format_texts()
     }
 
     /// Connects the independently implemented SMILES text provider for every entry adapter.
     #[must_use]
     pub fn with_smiles_codec(self, codec: impl smiles::SmilesCodec + 'static) -> Self {
-        Self {
+        let connected = Self {
             smiles_codec: Some(Arc::new(codec)),
             ..self
-        }
+        };
+        connected.with_format_texts()
     }
 
     /// Connects a checked, independently implemented rich interchange provider.
@@ -197,10 +215,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self,
         codec: impl interchange_codec::InterchangeCodec + 'static,
     ) -> Self {
-        Self {
+        let connected = Self {
             interchange_codec: Some(Arc::new(codec)),
             ..self
-        }
+        };
+        connected.with_format_texts()
     }
 
     /// Retains the checked data generation for the application lifetime.
@@ -258,12 +277,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let formats = format_notes::Formats {
-                            ctfile: self.ctfile_codec.is_some(),
-                            interchange: self.interchange_codec.is_some(),
-                            smiles: self.smiles_codec.is_some(),
-                        };
-                        let supported = formats.label().zip(formats.description());
+                        let supported = self.format_texts.label.zip(self.format_texts.description);
                         if let Some((label, description)) = supported {
                             capability.label = label;
                             capability.status = chemifree_domain::ImplementationStatus::Available;

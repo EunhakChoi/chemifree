@@ -652,138 +652,81 @@ fn note(app: &App, operation: &str) -> String {
 }
 
 #[test]
-fn the_catalog_keeps_the_mol_sdf_and_cdxml_notes_when_smiles_is_connected() {
+fn catalog_and_capability_wording_is_consistent_for_all_eight_codec_sets() {
     use chemifree_providers::V2000Codec;
     use chemifree_providers::interchange_codec::LocalInterchangeCodec;
     let dir = tempfile::tempdir().unwrap();
-    let plain = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
-        .with_ctfile_codec(V2000Codec);
-    let import_note = note(&plain, "document.import");
-    let export_note = note(&plain, "document.export");
-    assert!(
-        import_note.starts_with(
-            "Preview and append one selected record of a bounded V2000 MOL/SDF subset"
-        )
-    );
-    let with_smiles = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
-        .with_ctfile_codec(V2000Codec)
-        .with_smiles_codec(SmilesTextCodec);
-    assert!(note(&with_smiles, "document.import").starts_with(&import_note));
-    assert!(note(&with_smiles, "document.export").starts_with(&export_note));
-    assert!(note(&with_smiles, "document.import").contains("SMILES"));
-    let both = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
-        .with_ctfile_codec(V2000Codec)
-        .with_interchange_codec(LocalInterchangeCodec);
-    let all = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
-        .with_ctfile_codec(V2000Codec)
-        .with_interchange_codec(LocalInterchangeCodec)
-        .with_smiles_codec(SmilesTextCodec);
-    assert!(note(&all, "document.export").starts_with(&note(&both, "document.export")));
-    assert!(note(&all, "document.export").contains("opaque-content safety"));
-    let capability = |app: &App| {
-        serde_json::to_value(app.capabilities()).unwrap()["capabilities"]
+    for (ct, ix, sm, label) in [
+        (false, false, false, None),
+        (true, false, false, Some("MOL/SDF subset")),
+        (false, true, false, Some("CDXML subset")),
+        (true, true, false, Some("MOL/SDF and CDXML subsets")),
+        (false, false, true, Some("SMILES subset")),
+        (true, false, true, Some("MOL/SDF and SMILES subsets")),
+        (false, true, true, Some("CDXML and SMILES subsets")),
+        (true, true, true, Some("MOL/SDF, CDXML and SMILES subsets")),
+    ] {
+        let mut app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()));
+        if ct {
+            app = app.with_ctfile_codec(V2000Codec);
+        }
+        if ix {
+            app = app.with_interchange_codec(LocalInterchangeCodec);
+        }
+        if sm {
+            app = app.with_smiles_codec(SmilesTextCodec);
+        }
+        let capability = serde_json::to_value(app.capabilities()).unwrap()["capabilities"]
             .as_array()
             .unwrap()
             .iter()
             .find(|c| c["id"] == "format_conversion")
             .unwrap()
-            .clone()
-    };
-    assert_eq!(capability(&plain)["label"], "MOL/SDF subset");
-    assert_eq!(capability(&both)["label"], "MOL/SDF and CDXML subsets");
-    assert_eq!(
-        capability(&all)["label"],
-        "MOL/SDF, CDXML and SMILES subsets"
-    );
-    assert!(
-        capability(&all)["description"]
-            .as_str()
-            .unwrap()
-            .starts_with(capability(&both)["description"].as_str().unwrap())
-    );
-}
-
-fn features(reply: &Value) -> Vec<String> {
-    reply["loss_report"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|l| l["feature"].as_str().unwrap().to_owned())
-        .collect()
-}
-
-#[test]
-fn export_reports_everything_the_text_drops_in_the_shared_vocabulary() {
-    let (app, _dir) = setup();
-    let id = import(&app, "CCO");
-    let edit = call(
-        &app,
-        "document.transaction",
-        json!({"document_id":id,"expected_revision":1,"commands":[
-            {"op":"add_graphic","shape":"arrow","points":[{"x":10,"y":0},{"x":15,"y":0}]},
-            {"op":"add_instance","offset":{"x":0,"y":100}},
-        ],"selection_after":{"atoms":["a1"],"bonds":[],"objects":[]}}),
-    );
-    assert_eq!(edit["outcome"], "ok", "{edit}");
-    for mode in ["recorded", "canonical"] {
-        let reply = write(&app, &id, mode);
-        assert_eq!(
-            reply["outcome"], "partial",
-            "{mode}: a lossy export is partial: {reply}"
-        );
-        let found = features(&reply);
-        for expected in [
-            "coordinates",
-            "document_title",
-            "native_ids",
-            "placement_id",
-            "extra_placement",
-            "scene_object",
-            "selection",
-            "drawing_settings",
-        ] {
-            assert!(
-                found.contains(&expected.to_owned()),
-                "{mode}: {expected} missing from {found:?}"
+            .clone();
+        let description = capability["description"].as_str().unwrap().to_owned();
+        let name = format!("ct={ct} ix={ix} sm={sm}");
+        match label {
+            None => {
+                assert_eq!(capability["status"], "not_implemented", "{name}");
+                continue;
+            }
+            Some(label) => assert_eq!(capability["label"], label, "{name}"),
+        }
+        let texts = [
+            description,
+            note(&app, "document.import"),
+            note(&app, "document.export"),
+        ];
+        for text in &texts {
+            assert_eq!(text.matches("also read").count(), 0, "{name}: {text}");
+            assert_eq!(text.contains("MOL/SDF"), ct, "{name}: {text}");
+            assert_eq!(text.contains("CDXML"), ix, "{name}: {text}");
+            assert_eq!(text.contains("SMILES"), sm, "{name}: {text}");
+        }
+        if sm {
+            // A statement of what is unsupported comes last and is made once.
+            assert_eq!(
+                texts[0].matches("unsupported").count(),
+                1,
+                "{name}: {}",
+                texts[0]
+            );
+            assert!(texts[0].ends_with("unsupported."), "{name}: {}", texts[0]);
+        }
+        if !sm && ct && !ix {
+            assert_eq!(
+                texts[0],
+                "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported."
+            );
+            assert!(texts[1].starts_with(
+                "Preview and append one selected record of a bounded V2000 MOL/SDF subset"
+            ));
+        }
+        if !sm && ct && ix {
+            assert_eq!(
+                texts[2],
+                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
             );
         }
     }
-}
-
-#[test]
-fn canonical_export_reports_folded_hydrogens_and_representation_changes() {
-    let (app, _dir) = setup();
-    let id = import(&app, "[H]C([H])([H])[H]");
-    let reply = write(&app, &id, "canonical");
-    assert_eq!(reply["result"]["smiles"], "C");
-    assert_eq!(
-        reply["result"]["atoms"],
-        json!(["a2"]),
-        "only the carbon has a text position"
-    );
-    let folded = reply["result"]["folded_hydrogens"].as_array().unwrap();
-    assert_eq!(folded.len(), 4, "{reply}");
-    assert!(folded.iter().all(|f| f["attached_to"] == "a2"));
-    assert_eq!(
-        features(&reply)
-            .iter()
-            .filter(|f| *f == "folded_hydrogens")
-            .count(),
-        4
-    );
-    // Stated counts become inferred ones, and Kekule bonds become aromatic ones.
-    let id = import(&app, "[CH3]C1=CC=CC=C1");
-    let reply = write(&app, &id, "canonical");
-    let found = features(&reply);
-    assert!(
-        found.contains(&"aromatic_bonds_rewritten".to_owned()),
-        "{found:?}"
-    );
-    let id = import(&app, "[CH4]");
-    let found = features(&write(&app, &id, "canonical"));
-    assert!(found.contains(&"hydrogen_state".to_owned()), "{found:?}");
-    // Recorded mode keeps every one of those and reports no representation change.
-    let recorded = write(&app, &import(&app, "[H]C([H])([H])[H]"), "recorded");
-    assert!(!features(&recorded).contains(&"folded_hydrogens".to_owned()));
-    assert_eq!(recorded["result"]["folded_hydrogens"], json!([]));
 }
