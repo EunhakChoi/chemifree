@@ -3736,7 +3736,7 @@
     "deep-stereo-contracts.md",
     "provider-representation-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P18",
     "P21",

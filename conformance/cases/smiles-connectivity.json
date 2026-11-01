@@ -16,7 +16,7 @@
       "document": "target",
       "request": {"contract": 1, "request_id": "bad-syntax", "profile": "preserve-semantics", "operation": "document.import",
         "parameters": {"format": "smiles", "source": "CC(C", "expected_revision": 0, "preview": true}},
-      "expect": {"outcome": "error", "diagnostics": [{"code": "invalid_smiles", "details": {"reason": "unclosed_branch", "start": 1, "end": 2}}]}
+      "expect": {"outcome": "error", "diagnostics": [{"code": "invalid_smiles", "details": {"reason": "unclosed_branch", "start": 2, "end": 3}}]}
     },
     {
       "call": "operation",
