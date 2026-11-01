@@ -13,13 +13,16 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod import_flow;
 mod interchange;
+mod smiles;
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
 pub use interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
+pub use smiles::{CanonicalIdentity, SmilesExportResult, SmilesPreviewResult};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -190,6 +193,8 @@ pub enum OperationResult {
     InterchangeExport(Box<InterchangeExportResult>),
     CtPreview(Box<CtPreviewResult>),
     CtExport(CtExportResult),
+    SmilesPreview(Box<SmilesPreviewResult>),
+    SmilesExport(Box<SmilesExportResult>),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
     /// `chem.properties` over one immutable document snapshot.
@@ -370,7 +375,7 @@ pub struct Support {
     /// The plan entry expected to deliver what is missing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
-    pub note: &'static str,
+    pub note: std::borrow::Cow<'static, str>,
     /// Present on a sub-operation that is a capability rather than a command: the commands
     /// that carry it out (none while it is not implemented). Added within operation contract 1.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -437,7 +442,7 @@ impl Entry {
             representation: self.representation.as_str(),
             execution: self.execution.as_str(),
             followup: self.followup,
-            note: self.note,
+            note: self.note.into(),
             commands: self.commands,
             sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
         }
@@ -1255,46 +1260,129 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
     (unsupported, diagnostic(code, message, details))
 }
 
+/// Which provider answers an import or export, by the format the request names.
+enum FormatRoute {
+    Smiles,
+    Interchange,
+    Ct,
+}
+
+/// MOL/SDF's wording and result for the shared import flow.
+struct CtAdapter<'a> {
+    p: &'a CtImportParameters,
+    records: Vec<CtRecord>,
+    atoms: usize,
+    bonds: usize,
+}
+
+impl import_flow::ImportAdapter for CtAdapter<'_> {
+    fn refusal(&self, code: &'static str, message: &str) -> Diagnostic {
+        ct_failure(CtError {
+            code,
+            message: message.into(),
+            record: self.p.record,
+            line: None,
+        })
+    }
+
+    fn failure(&self, known: &Known, error: &ApplicationError) -> OperationResponse {
+        known.indexed_error(error, self.p.record)
+    }
+
+    fn bind(
+        &self,
+        generation: [u8; 16],
+        snapshot: &DocumentView,
+        candidate: &DocumentView,
+        losses: &[Loss],
+    ) -> String {
+        ct_projection::digest(&(
+            generation,
+            self.p.format,
+            self.p.record,
+            &self.p.source,
+            snapshot,
+            candidate,
+            losses,
+        ))
+    }
+
+    fn preview(
+        self,
+        snapshot: DocumentResponse,
+        candidate: DocumentView,
+        digest: String,
+    ) -> OperationResult {
+        OperationResult::CtPreview(Box::new(CtPreviewResult {
+            selected_record: self.p.record,
+            records: self.records,
+            snapshot: snapshot.into(),
+            document: candidate,
+            preview_digest: digest,
+        }))
+    }
+
+    fn mapping(&self, document: &DocumentView) -> CtMapping {
+        ct_mapping(document, self.atoms, self.bonds)
+    }
+
+    fn consent(&self, known: &Known, losses: &[Loss]) -> Option<OperationResponse> {
+        (!losses.is_empty()).then(|| {
+            known.invalid(self.refusal(
+                "loss_consent_required",
+                "Review the reported losses and explicitly accept them before importing.",
+            ))
+        })
+    }
+}
+
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
-            match operation {
-                OperationId::DocumentImport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_import,
-                                (true, None) => {
-                                    "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
-                                }
-                                (false, Some(notes)) => notes.interchange_import,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                OperationId::DocumentExport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_export,
-                                (true, None) => {
-                                    "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
-                                }
-                                (false, Some(notes)) => notes.interchange_export,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                _ => {}
+    /// The one place that maps a request's `format` to the provider connected for it.
+    fn format_route(&self, parameters: &Value) -> Result<FormatRoute, Diagnostic> {
+        let not_connected = |provider: &str| {
+            diagnostic(
+                "unsupported_format",
+                format!("The {provider} provider is not connected."),
+                Map::new(),
+            )
+        };
+        match parameters.get("format").and_then(Value::as_str) {
+            Some("smiles") if self.smiles_codec.is_some() => Ok(FormatRoute::Smiles),
+            Some("smiles") => Err(not_connected("SMILES")),
+            Some("cdxml" | "cdx") if self.interchange_codec.is_some() => {
+                Ok(FormatRoute::Interchange)
+            }
+            Some("cdxml" | "cdx") => Err(not_connected("rich interchange")),
+            Some("mol" | "sdf") if self.ctfile_codec.is_none() => Err(not_connected("MOL/SDF")),
+            _ if self.ctfile_codec.is_none() && self.interchange_codec.is_some() => {
+                Ok(FormatRoute::Interchange)
+            }
+            _ if self.ctfile_codec.is_none() && self.smiles_codec.is_some() => {
+                Ok(FormatRoute::Smiles)
+            }
+            _ => Ok(FormatRoute::Ct),
+        }
+    }
+
+    /// The catalog row of `operation` for the formats connected now: import and export are
+    /// executable, with the wording for exactly those formats, once any is connected.
+    fn support(&self, operation: OperationId) -> Support {
+        let note = match (operation, &self.format_text) {
+            (OperationId::DocumentImport, Some(text)) => Some(&text.import_note),
+            (OperationId::DocumentExport, Some(text)) => Some(&text.export_note),
+            _ => None,
+        };
+        match note {
+            Some(note) => {
+                let mut support = runs(operation.as_str(), "").view(&[]);
+                support.note = note.clone().into();
+                support
+            }
+            None => {
+                let (entry, parts) = entry(operation);
+                entry.view(parts)
             }
         }
-        entry(operation)
     }
 
     fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
@@ -1354,104 +1442,28 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 losses,
             );
         }
-        let Some(generation) = self.ctfile_generation else {
-            return known.invalid(ct_failure(CtError {
-                code: "service_identity_unavailable",
-                message: "A service identity could not be created for the preview.".into(),
-                record: p.record,
-                line: None,
-            }));
-        };
-        let (before, candidate) =
-            match self
-                .documents
-                .preview_import(&p.document_id, p.expected_revision, &commands)
-            {
-                Ok(candidate) => candidate,
-                Err(error) => return known.indexed_error(&error, p.record),
-            };
-        if before.document != target.document {
-            return known.invalid(ct_failure(CtError {
-                code: "preview_changed",
-                message: "The drawing changed while the import preview was prepared.".into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        let bind = |snapshot: &DocumentView, document: &DocumentView| {
-            ct_projection::digest(&(
-                generation, p.format, p.record, &p.source, snapshot, document, &losses,
-            ))
-        };
-        let preview_digest = bind(&before.document, &candidate.document);
-        if p.preview {
-            let revision = target.document.revision;
-            return converted(
-                known,
-                Some(revision),
-                OperationResult::CtPreview(Box::new(CtPreviewResult {
-                    selected_record: p.record,
-                    records: input.value,
-                    snapshot: before.into(),
-                    document: candidate.document,
-                    preview_digest,
-                })),
+        let (atoms, bonds) = (record.atoms.len(), record.bonds.len());
+        self.run_import(
+            known,
+            import_flow::ImportRun {
+                document_id: &p.document_id,
+                expected_revision: p.expected_revision,
+                preview: p.preview,
+                preview_digest: p.preview_digest.as_deref(),
+                accept_loss: p.accept_loss,
+                fingerprint,
+                generation: self.ctfile_generation,
+                target: &target,
+                commands: &commands,
                 losses,
-            );
-        }
-        if p.preview_digest.as_deref() != Some(preview_digest.as_str()) {
-            return known.invalid(ct_failure(CtError {
-                code: "preview_changed",
-                message:
-                    "Preview is missing or does not match the current document, graph and losses."
-                        .into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        if !p.accept_loss && !losses.is_empty() {
-            return known.invalid(ct_failure(CtError {
-                code: "loss_consent_required",
-                message: "Review the reported losses and explicitly accept them before importing."
-                    .into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        let response = self.documents.import(
-            &p.document_id,
-            Some(&known.request_id),
-            p.expected_revision,
-            fingerprint,
-            &commands,
-            |current, candidate| {
-                if bind(current, candidate) == preview_digest {
-                    Ok(())
-                } else {
-                    Err(ApplicationError::new(
-                        ErrorCode::InvalidRequest,
-                        "The import preview changed before commit.",
-                    ))
-                }
             },
-        );
-        match response {
-            Ok(response) => {
-                let mut result: DocumentResult = response.into();
-                result.import_mapping = Some(ct_mapping(
-                    &result.document,
-                    record.atoms.len(),
-                    record.bonds.len(),
-                ));
-                converted(
-                    known,
-                    Some(result.document.revision),
-                    OperationResult::Document(Box::new(result)),
-                    losses,
-                )
-            }
-            Err(error) => known.indexed_error(&error, p.record),
-        }
+            CtAdapter {
+                p: &p,
+                records: input.value,
+                atoms,
+                bonds,
+            },
+        )
     }
 
     fn ct_export(&self, known: &Known, p: CtExportParameters) -> OperationResponse {
@@ -1526,8 +1538,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = self.effective_entry(operation);
-                    let mut support = entry.view(parts);
+                    let mut support = self.support(operation);
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -1831,7 +1842,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if self.effective_entry(known.operation).0.execution != Execution::Executable {
+        if self.support(known.operation).execution != Execution::Executable.as_str() {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());
@@ -2009,50 +2020,30 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
-                    if self.interchange_codec.is_some() {
+            Op::DocumentImport | Op::DocumentExport => {
+                let import = known.operation == OperationId::DocumentImport;
+                match self.format_route(&parameters_value) {
+                    Err(refusal) => known.invalid(refusal),
+                    Ok(FormatRoute::Smiles) if import => self.smiles_import(known, parameters_value),
+                    Ok(FormatRoute::Smiles) => self.smiles_export(known, parameters_value),
+                    Ok(FormatRoute::Interchange) if import => {
                         self.dispatch_interchange_import(known, parameters_value)
-                    } else {
-                        known.invalid(diagnostic(
-                            "unsupported_format",
-                            "The rich interchange provider is not connected.",
-                            Map::new(),
-                        ))
                     }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
-                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
-                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
-                    self.dispatch_interchange_import(known, parameters_value)
-                } else {
-                    match parameters::<CtImportParameters>(parameters_value) {
-                        Ok(p) => self.ct_import(known, p),
-                        Err(invalid) => known.invalid(invalid),
-                    }
-                }
-            },
-            Op::DocumentExport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
-                    if self.interchange_codec.is_some() {
+                    Ok(FormatRoute::Interchange) => {
                         self.dispatch_interchange_export(known, parameters_value)
-                    } else {
-                        known.invalid(diagnostic(
-                            "unsupported_format",
-                            "The rich interchange provider is not connected.",
-                            Map::new(),
-                        ))
                     }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
-                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
-                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
-                    self.dispatch_interchange_export(known, parameters_value)
-                } else {
-                    match parameters::<CtExportParameters>(parameters_value) {
+                    Ok(FormatRoute::Ct) if import => {
+                        match parameters::<CtImportParameters>(parameters_value) {
+                            Ok(p) => self.ct_import(known, p),
+                            Err(invalid) => known.invalid(invalid),
+                        }
+                    }
+                    Ok(FormatRoute::Ct) => match parameters::<CtExportParameters>(parameters_value) {
                         Ok(p) => self.ct_export(known, p),
                         Err(invalid) => known.invalid(invalid),
-                    }
+                    },
                 }
-            },
+            }
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
                 Ok(p) => self.chemical_properties(known, p),
                 Err(invalid) => known.invalid(invalid),

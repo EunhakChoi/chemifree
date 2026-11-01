@@ -9,8 +9,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::contract::{
-    AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto, SceneObjectView,
+    AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto,
 };
+use crate::drawing_losses;
 use crate::ctfile::{CtAtom, CtBond, CtError, CtField, CtRadical, CtRecord};
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
@@ -259,75 +260,12 @@ pub(crate) fn export_record(
         })?;
         bonds.push(CtBond { begin, end, order });
     }
-    if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
-        losses.push(loss(
-            index,
-            ".ids",
-            "native_ids",
-            SemanticImpact::Document,
-            "Native atom and bond IDs are mapped to file indices and are not embedded in V2000.",
-        ));
-    }
-    if let Some(first) = doc.scene.instances.first() {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", first.id),
-            "placement_id",
-            SemanticImpact::Document,
-            "The placement ID is not embedded in V2000.",
-        ));
-    }
-    if !doc.selection.atoms.is_empty()
-        || !doc.selection.bonds.is_empty()
-        || !doc.selection.objects.is_empty()
-    {
-        losses.push(loss(
-            index,
-            ".selection",
-            "selection",
-            SemanticImpact::Document,
-            "The editor selection is not written.",
-        ));
-    }
-    for instance in doc.scene.instances.iter().skip(1) {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", instance.id),
-            "extra_placement",
-            SemanticImpact::Geometry,
-            "Only the first placement is written.",
-        ));
-    }
-    for object in &doc.scene.objects {
-        match object {
-            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => {
-                losses.push(loss(
-                    index,
-                    &format!(".scene.objects[{id}]"),
-                    "scene_object",
-                    SemanticImpact::Rendering,
-                    "Groups and graphics are not represented in this V2000 profile.",
-                ))
-            }
-            SceneObjectView::Instance { .. } => {}
-        }
-    }
-    if !doc.scene.references.is_empty() {
-        losses.push(loss(
-            index,
-            ".scene.references",
-            "scene_references",
-            SemanticImpact::Document,
-            "Scene references are not written.",
-        ));
-    }
-    losses.push(loss(
-        index,
-        ".settings",
-        "drawing_settings",
-        SemanticImpact::Rendering,
-        "Drawing styles and settings are not represented in this V2000 profile.",
-    ));
+    drawing_losses::drawing_losses(
+        doc,
+        &format!("records[{index}]"),
+        &drawing_losses::V2000,
+        losses,
+    );
     Ok(CtRecord {
         title: doc.title.clone(),
         program: String::new(),
@@ -339,8 +277,22 @@ pub(crate) fn export_record(
 }
 
 /// Stable binding of the complete prospective editor document, source record and losses.
+///
+/// The value is hashed as it is serialized, by reference: a large source text is never copied
+/// into an intermediate JSON value or buffer to be hashed.
 pub(crate) fn digest<T: Serialize>(value: &T) -> String {
-    let bytes = serde_json::to_vec(value)
+    struct Hashing(Sha256);
+    impl std::io::Write for Hashing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut hashing = Hashing(Sha256::new());
+    serde_json::to_writer(&mut hashing, value)
         .expect("validated projection contains serializable finite values");
-    format!("{:x}", Sha256::digest(bytes))
+    format!("{:x}", hashing.0.finalize())
 }

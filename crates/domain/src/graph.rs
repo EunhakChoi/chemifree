@@ -24,6 +24,12 @@ impl MoleculeGraph {
         }
     }
 
+    /// A graph from parts built outside a document, such as a parsed text. The caller keeps
+    /// every bond's endpoints among `atoms`; analyses index atoms by these IDs.
+    pub fn from_parts(atoms: Vec<(AtomId, Atom)>, bonds: Vec<(BondId, Bond)>) -> Self {
+        Self { atoms, bonds }
+    }
+
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
         self.atoms.iter().map(|(id, atom)| (*id, atom))
     }

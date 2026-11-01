@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+use chemifree_providers::smiles::LocalSmilesCodec;
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
     configure_selected_registry, default_data_dir,
@@ -58,6 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let application = LocalApplication::new(LocalCapabilities, repository)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles_codec(LocalSmilesCodec)
         .with_preferences(preferences)
         .with_data_registry(registry);
 

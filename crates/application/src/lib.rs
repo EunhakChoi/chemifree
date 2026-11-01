@@ -11,6 +11,7 @@ mod data_profiles;
 mod decimal_input;
 mod documents;
 mod draft_schedule;
+mod drawing_losses;
 mod draft_writer;
 mod error;
 pub mod interchange_codec;
@@ -18,13 +19,14 @@ pub mod interchange_contract;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
-mod limit_text;
+mod format_text;
 mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
 pub mod naming_lexicon;
 pub mod naming_patterns;
+pub mod smiles_codec;
 pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
@@ -99,11 +101,12 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
+    AromaticityResult, AromaticitySystem, CanonicalIdentity, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
     InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
     LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
-    Outcome, ProfileSupport, SemanticImpact, Severity, Support,
+    Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewResult,
+    Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -138,13 +141,19 @@ pub struct Application<C, R> {
     preferences: PreferenceService,
     data_registry: DataRegistry,
     interchange_codec: Option<Arc<dyn interchange_codec::InterchangeCodec>>,
-    /// Wording that quotes the connected codec's limit, built when it is connected.
-    interchange_notes: Option<limit_text::InterchangeNotes>,
+    /// The binary limit the connected interchange codec reports, quoted in the wording.
+    interchange_binary_limit: Option<usize>,
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
     /// A process-local binding for conversion previews. If entropy is unavailable, previews
     /// are refused rather than accepting a token from an earlier service instance.
     ctfile_generation: Option<[u8; 16]>,
+    smiles_codec: Option<Arc<dyn smiles_codec::SmilesCodec>>,
+    /// Binds SMILES previews to this service instance, as `ctfile_generation` does.
+    smiles_generation: Option<[u8; 16]>,
+    /// The capability and catalog wording for the codecs connected, computed when one is
+    /// connected and owned by this application.
+    format_text: Option<format_text::FormatText>,
     property_data_readiness: properties::DataReadiness,
 }
 
@@ -158,7 +167,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
             interchange_codec: None,
-            interchange_notes: None,
+            interchange_binary_limit: None,
             interchange_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
@@ -168,6 +177,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
+            smiles_codec: None,
+            smiles_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
+            format_text: None,
             property_data_readiness: properties::DataReadiness::default(),
         }
     }
@@ -179,6 +194,27 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ctfile_codec: Some(Arc::new(codec)),
             ..self
         }
+        .with_format_text()
+    }
+
+    /// Connects the independently implemented SMILES provider for every entry adapter.
+    #[must_use]
+    pub fn with_smiles_codec(self, codec: impl smiles_codec::SmilesCodec + 'static) -> Self {
+        Self {
+            smiles_codec: Some(Arc::new(codec)),
+            ..self
+        }
+        .with_format_text()
+    }
+
+    /// Recomputes the wording for the codecs connected now.
+    fn with_format_text(self) -> Self {
+        let format_text = format_text::FormatText::new(
+            self.ctfile_codec.is_some(),
+            self.interchange_binary_limit,
+            self.smiles_codec.as_ref().map(|codec| codec.limits()),
+        );
+        Self { format_text, ..self }
     }
 
     /// Connects a checked, independently implemented rich interchange provider.
@@ -188,12 +224,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         codec: impl interchange_codec::InterchangeCodec + 'static,
     ) -> Self {
         Self {
-            interchange_notes: Some(limit_text::InterchangeNotes::new(
-                codec.binary_input_limit(),
-            )),
+            interchange_binary_limit: Some(codec.binary_input_limit()),
             interchange_codec: Some(Arc::new(codec)),
             ..self
         }
+        .with_format_text()
     }
 
     /// Retains the checked data generation for the application lifetime.
@@ -249,26 +284,24 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .catalog
                 .capabilities()
                 .into_iter()
-                .map(|mut capability| {
-                    if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                            (true, Some(notes)) => Some(("MOL/SDF, CDXML and CDX subsets", notes.combined_description)),
-                            (true, None) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, Some(notes)) => Some(("CDXML and CDX subsets", notes.interchange_description)),
-                            (false, None) => None,
-                        };
-                        if let Some((label, description)) = supported {
-                            capability.label = label;
-                            capability.status = chemifree_domain::ImplementationStatus::Available;
-                            capability.description = description;
-                        }
+                .map(|capability| {
+                    let mut label = std::borrow::Cow::Borrowed(capability.label);
+                    let mut status = capability.status;
+                    let mut description = std::borrow::Cow::Borrowed(capability.description);
+                    if capability.id == chemifree_domain::CapabilityId::FormatConversion
+                        && let Some(text) = &self.format_text
+                    {
+                        label = text.label.clone().into();
+                        status = chemifree_domain::ImplementationStatus::Available;
+                        description = text.description.clone().into();
                     }
                     CapabilityResponse {
-                    id: capability.id.as_str(),
-                    label: capability.label,
-                    status: capability.status.as_str(),
-                    description: capability.description,
-                }})
+                        id: capability.id.as_str(),
+                        label,
+                        status: status.as_str(),
+                        description,
+                    }
+                })
                 .collect(),
             operation_catalog: self.operation_catalog(),
         }
@@ -647,7 +680,7 @@ pub struct CapabilitiesResponse {
 #[derive(Debug, Serialize)]
 pub struct CapabilityResponse {
     pub id: &'static str,
-    pub label: &'static str,
+    pub label: std::borrow::Cow<'static, str>,
     pub status: &'static str,
-    pub description: &'static str,
+    pub description: std::borrow::Cow<'static, str>,
 }

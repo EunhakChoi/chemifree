@@ -4,6 +4,7 @@
 
 pub mod cdx;
 pub mod cdxml;
+pub mod smiles;
 mod ctfile;
 mod data_directory;
 mod file_format;

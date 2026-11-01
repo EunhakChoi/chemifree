@@ -12,6 +12,7 @@ use chemifree_application::{
     SettingsSource, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+use chemifree_providers::smiles::LocalSmilesCodec;
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
     configure_selected_registry, default_data_dir,
@@ -317,6 +318,7 @@ fn main() -> ExitCode {
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles_codec(LocalSmilesCodec)
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);
 

@@ -148,7 +148,7 @@ fn payload<'a>(
 /// reserialization notes need no consent.
 /// Binds consent to what was shown: the digest covers the losses that need it and the exact
 /// bytes that would be returned, so a changed document cannot reuse an earlier consent.
-fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
+pub(super) fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
     let shown = serde_json::to_vec(required).expect("losses are serializable");
     let mut hasher = Sha256::new();
     hasher.update(shown);
@@ -156,8 +156,53 @@ fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn needs_consent(loss: &Loss) -> bool {
+pub(super) fn needs_consent(loss: &Loss) -> bool {
     loss.consent == LossConsent::Required
+}
+
+/// The one refusal every format answers with when losses need the caller's consent: the
+/// features and full entries shown, and, for an export, the digest that binds consent to
+/// them and to the exact output. `repeated` is true when the caller gave a digest that does
+/// not match.
+pub(super) fn consent_refusal(
+    known: &Known,
+    required: &[&Loss],
+    digest: Option<&str>,
+    repeated: bool,
+) -> OperationResponse {
+    let mut features: Vec<&str> = Vec::new();
+    for loss in required {
+        if !features.contains(&loss.feature.as_str()) {
+            features.push(loss.feature.as_str());
+        }
+    }
+    let mut details = Map::new();
+    details.insert("features".into(), features.into());
+    details.insert(
+        "losses".into(),
+        serde_json::to_value(required).expect("losses are serializable"),
+    );
+    let (code, message) = match (digest, repeated) {
+        (Some(digest), true) => {
+            details.insert("loss_digest".into(), digest.into());
+            (
+                "loss_consent_changed",
+                "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
+            )
+        }
+        (Some(digest), false) => {
+            details.insert("loss_digest".into(), digest.into());
+            (
+                "loss_consent_required",
+                "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
+            )
+        }
+        (None, _) => (
+            "loss_consent_required",
+            "The import would drop or change content. Review the listed losses and repeat with accept_loss.",
+        ),
+    };
+    known.invalid(diagnostic(code, message, details))
 }
 
 fn digest<T: Serialize>(value: &T) -> String {
@@ -643,31 +688,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             let digest = consent_digest(&required, &output.bytes);
             let accepted = parameters.accepted_losses.as_deref() == Some(digest.as_str());
             if !accepted {
-                let mut features: Vec<&str> = Vec::new();
-                for loss in &required {
-                    if !features.contains(&loss.feature.as_str()) {
-                        features.push(loss.feature.as_str());
-                    }
-                }
-                let mut details = Map::new();
-                details.insert("features".into(), features.into());
-                details.insert(
-                    "losses".into(),
-                    serde_json::to_value(&required).expect("losses are serializable"),
+                return consent_refusal(
+                    known,
+                    &required,
+                    Some(&digest),
+                    parameters.accepted_losses.is_some(),
                 );
-                details.insert("loss_digest".into(), digest.into());
-                let (code, message) = if parameters.accepted_losses.is_some() {
-                    (
-                        "loss_consent_changed",
-                        "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
-                    )
-                } else {
-                    (
-                        "loss_consent_required",
-                        "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
-                    )
-                };
-                return known.invalid(diagnostic(code, message, details));
             }
         }
         let content = match format {
