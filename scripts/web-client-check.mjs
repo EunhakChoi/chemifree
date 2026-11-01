@@ -50,6 +50,16 @@ test('drawing content ignores selection and revision but not the graph', () => {
   assert.equal(sameDrawingContent({ ...base, title: 'Other' }, base), false)
 })
 
+test('MOL and SDF conversion errors keep their earlier message text', async () => {
+  const diagnostic = { code: 'invalid_atom', message: 'Atom line is malformed.',
+    details: { reason: 'extra', record: 1, line: 3, start: 1, end: 2 } }
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', diagnostics: [diagnostic], loss_report: [], result: null })] })
+  await assert.rejects(new DocumentClient().previewCt('doc-1', 0, 'mol', 'x', 1), (failure) => {
+    assert.equal(failure.message, 'Atom line is malformed. Record 1. Line 3.')
+    return true
+  })
+})
+
 test('a SMILES syntax error reports its byte position and reason', async () => {
   const diagnostic = { code: 'invalid_smiles', message: 'An opening parenthesis is never closed.',
     details: { reason: 'unclosed_branch', start: 2, end: 3, text: '(' } }

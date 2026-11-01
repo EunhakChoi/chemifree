@@ -1204,7 +1204,8 @@ function isCtSourceRecord(item: unknown): item is CtSourceRecord {
       isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
 }
 
-function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+/** `positioned` adds the source position and reason that a text notation reports. */
+function ctReply(value: unknown, positioned = false): { result: Record<string, unknown>; losses: CtLoss[] } {
   if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
     throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
   }
@@ -1214,9 +1215,9 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
       const details = isRecord(diagnostic.details) ? diagnostic.details : {}
       const record = isCount(details.record) ? ` Record ${details.record}.` : ''
       const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      const position = isCount(details.start) && isCount(details.end)
+      const position = positioned && isCount(details.start) && isCount(details.end)
         ? ` Position ${details.start}-${details.end} (UTF-8 bytes).` : ''
-      const reason = typeof details.reason === 'string' ? ` Reason: ${details.reason}.` : ''
+      const reason = positioned && typeof details.reason === 'string' ? ` Reason: ${details.reason}.` : ''
       throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}${position}${reason}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
       })
@@ -1475,7 +1476,7 @@ export class DocumentClient {
   }
 
   /** One consented import. An unanswered request might have committed; reuse its ID only against the same service. */
-  private async commitImport(documentId: string, key: string, parameters: Record<string, unknown>): Promise<DocumentResponse> {
+  private async commitImport(documentId: string, key: string, parameters: Record<string, unknown>, positioned = false): Promise<DocumentResponse> {
     const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
     this.unconfirmedImports.set(key, pending)
     let sentTo: string | undefined
@@ -1486,7 +1487,7 @@ export class DocumentClient {
       }, 'reload', (token) => {
         if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
         sentTo = token
-      }))
+      }), positioned)
       const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
       if (response.document.id !== documentId) {
         throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
@@ -1507,7 +1508,7 @@ export class DocumentClient {
     const reply = ctReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
       parameters: { document_id: documentId, expected_revision: revision, format: 'smiles', source, preview: true },
-    }, 'reload'))
+    }, 'reload'), true)
     const { result } = reply
     if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
         !isCount(result.atoms) || !isCount(result.bonds) || !isRecord(result.snapshot)) {
@@ -1524,7 +1525,7 @@ export class DocumentClient {
     return this.commitImport(input.documentId, `smiles:${JSON.stringify(input)}`, {
       document_id: input.documentId, expected_revision: input.revision, format: 'smiles',
       source: input.source, preview_digest: input.digest, accept_loss: true,
-    })
+    }, true)
   }
 
   async exportSmiles(documentId: string, mode: SmilesMode): Promise<SmilesWrite> {
@@ -1532,7 +1533,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
       parameters: { document_id: documentId, format: 'smiles', mode },
     }, 'reload')
-    const reply = ctReply(value)
+    const reply = ctReply(value, true)
     const { result } = reply
     const modelId = isRecord(value) ? value.model_id : undefined
     if (typeof result.smiles !== 'string' || result.mode !== mode || !isRecord(result.snapshot) ||
