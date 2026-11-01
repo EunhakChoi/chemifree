@@ -149,6 +149,15 @@ _MOLECULES: list[tuple[str, str, str]] = [
     ),
     ("donor-only and sigma rings", "triazane fused to CH2 ring", "C1CN2NN12"),
     ("donor-only and sigma rings", "1,2-dithiole", "S1SC=CC1"),
+    ("radical", "cyclopentadienyl radical", "[CH]1C=CC=C1"),
+    ("radical", "phenyl radical", "[c]1ccccc1"),
+    ("radical", "cycloheptatrienylidene", "[C]1C=CC=CC=C1"),
+    ("hypervalent", "N-dimethylpyrrole ylide (N valence 5)", "CN1(C)C=CC=C1"),
+    (
+        "hypervalent",
+        "dimethylthiophene sulfurane (S valence 4)",
+        "CS1(C)C=CC=C1",
+    ),
     ("exocyclic double bond", "benzoquinone", "O=C1C=CC(=O)C=C1"),
     ("exocyclic double bond", "tropone", "O=C1C=CC=CC=C1"),
     ("exocyclic double bond", "cyclohexanone", "O=C1CCCCC1"),
@@ -169,10 +178,21 @@ def _molblock(mol: Chem.Mol, kekulize: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _entries(group: str, name: str, smiles: str) -> list[dict[str, object]]:
-    mol = Chem.MolFromSmiles(smiles)
+def _parse(group: str, name: str, smiles: str) -> Chem.Mol:
+    """Parse a SMILES; hypervalent records are kept unsanitized on purpose."""
+    if group == "hypervalent":
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        if mol is not None:
+            mol.UpdatePropertyCache(strict=False)
+    else:
+        mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"RDKit cannot parse {name}: {smiles}")
+    return mol
+
+
+def _entries(group: str, name: str, smiles: str) -> list[dict[str, object]]:
+    mol = _parse(group, name, smiles)
     kekule = Chem.Mol(mol)
     Chem.Kekulize(kekule, clearAromaticFlags=True)
     entries: list[dict[str, object]] = [

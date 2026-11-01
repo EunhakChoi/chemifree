@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fs;
 use std::io;
 
-use chemifree_application::ctfile::{CtCodec, CtFormat};
+use chemifree_application::ctfile::{CtCodec, CtFormat, CtRadical};
 use chemifree_domain::aromaticity::{self, Classification};
 use chemifree_domain::document::{
     Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_COMMANDS,
@@ -18,7 +18,7 @@ use chemifree_domain::document::{
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity;
-use chemifree_domain::states::Hydrogens;
+use chemifree_domain::states::{Hydrogens, Radical};
 use chemifree_providers::V2000Codec;
 use serde_json::{Value, json};
 
@@ -32,7 +32,8 @@ fn digest(code: &str) -> String {
     format!("{hash:016x}")
 }
 
-pub fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
+/// Build the record as a document: atoms with their stated hydrogens and charges, then bonds.
+pub fn document(entry: &Value) -> Result<Document, Box<dyn Error>> {
     let source = entry["molblock"]
         .as_str()
         .ok_or("molblock must be a string")?;
@@ -47,6 +48,12 @@ pub fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
     for (index, ct) in record.atoms.iter().enumerate() {
         let mut atom = Atom::from(Element::from_symbol(&ct.element).ok_or("unknown element")?);
         atom.charge = ct.charge;
+        atom.radical = match ct.radical {
+            CtRadical::None => Radical::None,
+            CtRadical::Singlet => Radical::Singlet,
+            CtRadical::Doublet => Radical::Doublet,
+            CtRadical::Triplet => Radical::Triplet,
+        };
         if let Some(count) = stated.get(&index.to_string()).and_then(Value::as_u64) {
             atom.hydrogens = Hydrogens::Specified(u8::try_from(count)?);
         }
@@ -91,7 +98,11 @@ pub fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
     for chunk in bonds.chunks(MAX_COMMANDS) {
         document.apply(chunk)?;
     }
-    Ok(MoleculeGraph::from_document(&document))
+    Ok(document)
+}
+
+pub fn graph(entry: &Value) -> Result<MoleculeGraph, Box<dyn Error>> {
+    Ok(MoleculeGraph::from_document(&document(entry)?))
 }
 
 fn classify(graph: &MoleculeGraph) -> Value {

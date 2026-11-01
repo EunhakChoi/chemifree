@@ -43,6 +43,11 @@ def _identity(record: _Record) -> str:
     return f"refused/{identity['refused']}" if "refused" in identity else "ok"
 
 
+def _identity_raw(record: _Record) -> str:
+    """The identity exactly as recorded (status, reason or code digest)."""
+    return json.dumps(record["identity"], sort_keys=True)
+
+
 def _conversion(record: _Record) -> str:
     aromatic = record["aromaticity"]["to_aromatic_refused"] or "ok"
     kekule = record["aromaticity"]["to_kekule_refused"] or "ok"
@@ -54,6 +59,25 @@ _KINDS: list[tuple[str, Callable[[_Record], str]]] = [
     ("chemical identity availability", _identity),
     ("conversion outcome", _conversion),
 ]
+
+
+def describe_changes(before: _Record, after: _Record) -> list[tuple[str, str]]:
+    """Return (change kind, "old -> new") pairs; empty if unchanged."""
+    changes: list[tuple[str, str]] = []
+    for title, describe in _KINDS:
+        if describe(before) != describe(after):
+            changes.append((title, f"{describe(before)} -> {describe(after)}"))
+    if _identity_raw(before) != _identity_raw(after) and not any(
+        title == "chemical identity availability" for title, _ in changes
+    ):
+        # Same status and reason, yet the recorded identity differs: show both.
+        changes.append(
+            (
+                "chemical identity detail",
+                f"{_identity_raw(before)} -> {_identity_raw(after)}",
+            )
+        )
+    return changes
 
 
 def main(argv: list[str]) -> None:
@@ -71,18 +95,7 @@ def main(argv: list[str]) -> None:
     changed_records = 0
     for key in sorted(new):
         before, after = old[key], new[key]
-        changes: list[tuple[str, str]] = []
-        for title, describe in _KINDS:
-            if describe(before) != describe(after):
-                changes.append(
-                    (title, f"{describe(before)} -> {describe(after)}")
-                )
-        if _identity(before) == _identity(after) and (
-            before["identity"] != after["identity"]
-        ):
-            changes.append(
-                ("chemical identity code", "ok -> ok (code differs)")
-            )
+        changes = describe_changes(before, after)
         if not changes:
             continue
         changed_records += 1

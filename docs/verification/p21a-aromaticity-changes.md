@@ -9,11 +9,11 @@ done and nothing here adds SMILES. The rules are defined once, in
 
 ## Corpus and reproduction
 
-The corpus has 190 MOL/V2000 records for 111 molecules, generated with RDKit 2022.03.2:
+The corpus has 196 MOL/V2000 records for 116 molecules, generated with RDKit 2022.03.2:
 acyclic, saturated rings, benzene and monocycles, monocyclic and fused heteroaromatics,
 benzenoids (up to coronene), fused partially saturated systems, bridged (norbornane,
 norbornene, norbornadiene, alpha-pinene, adamantane, camphor), spiro, charged,
-antiaromatic and large annulenes (cyclobutadiene, cyclooctatetraene, [10]- and
+radicals and carbenes, hypervalent (N or S valence above the supported one), antiaromatic and large annulenes (cyclobutadiene, cyclooctatetraene, [10]- and
 [18]annulene), azulene-like systems and exocyclic double bonds. Every molecule has a Kekule
 spelling with no stated hydrogens; molecules RDKit perceives as aromatic also have an
 aromatic spelling (the reader accepts only single, double and triple bonds, so the
@@ -36,14 +36,14 @@ The tables at the end of this file are the verbatim output of that last command.
 
 ## Summary
 
-190 records; 53 changed (28%); 137 unchanged. Counts per change kind (one record can
+196 records; 53 changed (27%); 143 unchanged. Counts per change kind (one record can
 appear under several):
 
 | change kind | records |
 |---|---|
 | classification or reason | 53 |
 | chemical identity availability (accepted <-> refused, or refusal reason) | 45 |
-| chemical identity code (accepted both times, code differs) | 8 |
+| chemical identity detail (same availability, recorded identity differs) | 8 |
 | conversion outcome (aromatic or Kekule conversion refused or accepted) | 45 |
 
 By class (records changed / records): fused partially saturated 28/30, monocyclic
@@ -89,6 +89,11 @@ What changed, grouped:
    on main (ten donor electrons around single bonds) and is now `non_aromatic`; two adjacent donors beside a C=C
    (1,2-dihydro-1,2-diazete) and RDKit-aromatic-flagged all-donor rings are now
    `unsupported/adjacent_donors` (they were `aromatic` or `non_aromatic` on main).
+7. **Radicals, carbenes and hypervalent atoms (6 records, unchanged against main).**
+   Main refused them; an intermediate draft of revision 2 accepted them by trusting the
+   valence model, so they are in the corpus as a permanent check. Every radical or carbene
+   ring atom is `unsupported/radical_state` and a ring N or S above its supported total
+   valence is `unsupported/valence_not_in_model`, in Kekule and aromatic spellings alike.
 
 ## User-visible changes to call out
 
@@ -104,7 +109,7 @@ What changed, grouped:
 
 ## Detailed results (generated)
 
-Records: 190; changed: 53; unchanged: 137
+Records: 196; changed: 53; unchanged: 143
 
 | class | records | changed |
 |---|---|---|
@@ -119,7 +124,9 @@ Records: 190; changed: 53; unchanged: 137
 | exocyclic double bond | 6 | 0 |
 | fused heteroaromatic | 20 | 5 |
 | fused partially saturated | 30 | 28 |
+| hypervalent | 2 | 0 |
 | monocyclic heteroaromatic | 38 | 6 |
+| radical | 4 | 0 |
 | saturated ring | 10 | 0 |
 | spiro | 6 | 6 |
 
@@ -173,18 +180,18 @@ Records: 190; changed: 53; unchanged: 137
 | fused partially saturated | tetralin | kekule | ok -> refused/fused_partially_aromatic |
 | donor-only and sigma rings | triazane fused to CH2 ring | aromatic | refused/mixed_ring_bonds -> refused/fused_partially_aromatic |
 
-### chemical identity code (8)
+### chemical identity detail (8)
 
 | class | molecule | spelling | change |
 |---|---|---|---|
-| monocyclic heteroaromatic | 1,2,3-triazole | kekule | ok -> ok (code differs) |
-| monocyclic heteroaromatic | 1,2,4-triazole | kekule | ok -> ok (code differs) |
-| donor-only and sigma rings | five-membered O-S ring (trioxadithiolane) | kekule | ok -> ok (code differs) |
-| monocyclic heteroaromatic | imidazole | kekule | ok -> ok (code differs) |
-| charged | imidazolium | kekule | ok -> ok (code differs) |
-| monocyclic heteroaromatic | pyrazole | kekule | ok -> ok (code differs) |
-| monocyclic heteroaromatic | pyrrole | kekule | ok -> ok (code differs) |
-| monocyclic heteroaromatic | tetrazole | kekule | ok -> ok (code differs) |
+| monocyclic heteroaromatic | 1,2,3-triazole | kekule | {"code": "330b2f98ee784572"} -> {"code": "63cdb94655aecb99"} |
+| monocyclic heteroaromatic | 1,2,4-triazole | kekule | {"code": "480aec53990f54da"} -> {"code": "a240360e62197c31"} |
+| donor-only and sigma rings | five-membered O-S ring (trioxadithiolane) | kekule | {"code": "a7bd12923ab65af3"} -> {"code": "511768196e3710d4"} |
+| monocyclic heteroaromatic | imidazole | kekule | {"code": "668dd2ab423fdd52"} -> {"code": "d5b12a19a8830089"} |
+| charged | imidazolium | kekule | {"code": "a3c69e6967c1c0da"} -> {"code": "3abb6b324e04a941"} |
+| monocyclic heteroaromatic | pyrazole | kekule | {"code": "792faf5d6c36950a"} -> {"code": "371017afa86010e9"} |
+| monocyclic heteroaromatic | pyrrole | kekule | {"code": "0b2e843c80d4df62"} -> {"code": "726e1f0176e68c89"} |
+| monocyclic heteroaromatic | tetrazole | kekule | {"code": "eb9320d91e1700f2"} -> {"code": "0609c972f3a20eb9"} |
 
 ### classification or reason (53)
 
