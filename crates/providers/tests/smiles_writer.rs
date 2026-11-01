@@ -279,7 +279,7 @@ fn ring_labels_are_limited_and_a_closing_label_is_free_for_the_next_opening() {
     let error = refusal(&hub(MAX_OPEN_RINGS + 1, None), SmilesStyle::Recorded);
     assert_eq!(error.code, "ring_label_limit");
     // Atom 2 closes a label and opens one while all labels are in use: only the freed one fits.
-    let graph = hub(MAX_OPEN_RINGS - 1, Some((2, MAX_OPEN_RINGS + 4)));
+    let graph = hub(MAX_OPEN_RINGS, Some((2, MAX_OPEN_RINGS + 5)));
     let written = write(&graph, SmilesStyle::Recorded).expect("the freed label is reused");
     let back = read(&written.text).unwrap();
     assert_eq!(back.bonds.len(), graph.bonds().len());
