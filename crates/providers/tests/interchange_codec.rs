@@ -135,7 +135,7 @@ fn outside_root_content_and_unknown_formats_are_not_silently_discarded() {
             .read(InterchangeFormat::Cdx, b"ignored")
             .unwrap_err()
             .code,
-        "unsupported_format"
+        "invalid_signature"
     );
     assert_eq!(
         LocalInterchangeCodec
