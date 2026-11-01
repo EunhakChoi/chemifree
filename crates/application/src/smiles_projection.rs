@@ -416,6 +416,8 @@ pub(crate) fn write_graph(
     if graph.atoms().len() == 0 {
         return Err(WriteRefusal::unsupported("empty_graph", None));
     }
+    // What the notation can state is checked first, so both modes name the same cause and atom.
+    let kekule = prepare(graph)?;
     let canonical =
         match mode {
             WriteMode::Recorded => None,
@@ -427,7 +429,6 @@ pub(crate) fn write_graph(
                 },
             )?),
         };
-    let kekule = prepare(graph)?;
     let assessed = chemistry::assess_graph(graph, &kekule);
     let atoms: BTreeMap<_, _> = graph.atoms().collect();
     let mut losses = Vec::new();

@@ -605,3 +605,35 @@ fn smiles_failures_carry_no_record_number() {
         );
     }
 }
+
+#[test]
+fn both_modes_name_the_same_cause_and_atom_for_one_drawing() {
+    let (app, _dir) = setup();
+    let id = new_document(&app);
+    let drawn = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[
+            {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+            {"op":"add_atom","element":"O","position":{"x":20,"y":0},"bond_to":{"atom":"$0","order":"single"}},
+        ]}),
+    );
+    assert_eq!(drawn["outcome"], "ok", "{drawn}");
+    let unknown = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"update_atom","atom":"a2","hydrogens":{"mode":"unknown"}},
+        ]}),
+    );
+    assert_eq!(unknown["outcome"], "ok", "{unknown}");
+    let recorded = write(&app, &id, "recorded");
+    let canonical = write(&app, &id, "canonical");
+    assert_eq!(reason(&recorded), "unknown_hydrogens");
+    assert_eq!(recorded["diagnostics"][0]["details"]["atom_id"], "a2");
+    assert_eq!(reason(&canonical), reason(&recorded));
+    assert_eq!(
+        canonical["diagnostics"][0]["details"]["atom_id"],
+        recorded["diagnostics"][0]["details"]["atom_id"]
+    );
+}
