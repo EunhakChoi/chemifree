@@ -36,7 +36,10 @@ async fn operation(parameters: Value, operation: &str) -> (StatusCode, Value) {
     let response = router(Arc::new(state)).oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 #[tokio::test]
@@ -60,5 +63,8 @@ async fn a_missing_document_is_reported_by_the_smiles_route_not_as_an_unsupporte
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(reply["diagnostics"][0]["code"], "document_not_found", "{reply}");
+    assert_eq!(
+        reply["diagnostics"][0]["code"], "document_not_found",
+        "{reply}"
+    );
 }

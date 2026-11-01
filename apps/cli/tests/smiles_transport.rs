@@ -29,7 +29,10 @@ fn smiles_is_previewed_and_written_through_the_operations_stream() {
         serde_json::from_str(&line).unwrap()
     };
     let created = call("create", "document.create", json!({}));
-    let id = created["result"]["document"]["id"].as_str().unwrap().to_owned();
+    let id = created["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let preview = call(
         "preview",
         "document.import",
