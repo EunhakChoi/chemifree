@@ -49,6 +49,10 @@ impl std::error::Error for InterchangeError {}
 /// client-authoritative reference baseline. Unknown content may only be removed when
 /// `discard_opaque` is true, and every such removal is reported.
 pub trait InterchangeCodec: Send + Sync {
+    /// The most bytes of a binary (CDX) payload this codec accepts. The application refuses a
+    /// longer base64 text before decoding it, so the number lives only in the codec.
+    fn binary_input_limit(&self) -> usize;
+
     fn read(
         &self,
         format: InterchangeFormat,

@@ -94,6 +94,20 @@ pub struct Loss {
     pub disposition: LossDisposition,
     pub reason: String,
     pub semantic_impact: SemanticImpact,
+    /// Whether the content may only be returned after the caller accepts this loss. The
+    /// provider that causes a loss decides; it is not part of the wire report.
+    #[serde(skip)]
+    pub consent: LossConsent,
+}
+
+/// The consent a reported loss needs before an export returns its content.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LossConsent {
+    /// Reported only; the content is returned.
+    #[default]
+    NotRequired,
+    /// The caller must accept the loss (`accept_loss`) first.
+    Required,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -1759,14 +1773,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     || !mass.exact_omitted_abundances.is_empty()
             }) || !component.omitted_abundances.is_empty()
             {
-                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry, consent: LossConsent::NotRequired });
             }
             if component
                 .mass
                 .as_ref()
                 .is_some_and(|mass| !mass.exact_natural_weight_fallbacks.is_empty())
             {
-                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry, consent: LossConsent::NotRequired });
             }
         }
         let revision = snapshot.document.revision;

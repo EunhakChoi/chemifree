@@ -15,7 +15,7 @@ use chemifree_domain::states::{AtomKind, Radical};
 use serde::Serialize;
 
 use crate::interchange_codec::InterchangeError;
-use crate::{Loss, LossDisposition, SemanticImpact};
+use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct SourceObject {
@@ -138,6 +138,7 @@ fn source(object: &Object, indices: &[usize]) -> SourceObject {
 
 fn dropped(path: String, feature: &str, impact: SemanticImpact, reason: &str) -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: feature.into(),
         source_path: path,
         disposition: LossDisposition::Dropped,
@@ -620,6 +621,7 @@ pub(crate) fn project(
         let projected = bond(item, &indices, &ids)?;
         if projected.order == 2 {
             losses.push(Loss {
+                consent: LossConsent::NotRequired,
                 feature: "double_bond_stereo".into(),
                 source_path: path(&indices),
                 disposition: LossDisposition::Unknown,
@@ -638,6 +640,7 @@ pub(crate) fn project(
     );
     if !atoms.is_empty() {
         losses.push(Loss {
+            consent: LossConsent::NotRequired,
             feature: "implicit_hydrogen_interpretation".into(),
             source_path: path(&fragment_path),
             disposition: LossDisposition::Unknown,

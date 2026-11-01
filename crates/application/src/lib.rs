@@ -100,9 +100,9 @@ pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
-    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
+    LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
+    Outcome, ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

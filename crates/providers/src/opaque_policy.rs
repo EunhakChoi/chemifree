@@ -6,7 +6,7 @@
 //! as the original bytes.
 
 use chemifree_application::interchange_codec::InterchangeError;
-use chemifree_application::{Loss, LossDisposition, SemanticImpact};
+use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::interchange::{Content, Document, Object, ObjectKind, PropertyKind};
 
 /// What a format-specific reader found when it re-parsed the caller's original.
@@ -68,6 +68,7 @@ pub(crate) fn opaque_loss(
         value.map_or_else(|| "not supplied".into(), |value| value.to_string())
     };
     Loss {
+        consent: LossConsent::NotRequired,
         feature: "opaque_extensions".into(),
         source_path: "document".into(),
         disposition,

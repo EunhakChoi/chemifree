@@ -160,7 +160,12 @@ fn base64_text_must_be_canonical_and_within_the_binary_limit() {
     let too_long = "A".repeat(transport_base64::encoded_len(1024 * 1024) + 4);
     let response = read(&too_long);
     assert_eq!(response["diagnostics"][0]["code"], "resource_limit");
-    assert_eq!(response["diagnostics"][0]["details"]["offset"], 1024 * 1024);
+    assert!(
+        response["diagnostics"][0]["details"]
+            .get("offset")
+            .is_none(),
+        "a base64 text length is not a byte position: {response}"
+    );
     // CDXML text is not base64, and base64 is not CDXML.
     let wrong = call(
         &application,
@@ -233,7 +238,11 @@ fn export_to_cdx_needs_consent_for_rounded_and_dropped_content() {
         .iter()
         .map(|feature| feature.as_str().unwrap())
         .collect();
-    assert_eq!(features, ["precision", "xml_namespace"]);
+    assert_eq!(
+        features,
+        ["precision"],
+        "a dropped namespace changes nothing and needs no consent"
+    );
     assert!(refused["result"].is_null());
     let accepted = call(
         &application,
@@ -346,8 +355,8 @@ fn a_large_unknown_property_round_trips_inside_the_http_body_limit() {
 }
 
 #[test]
-fn the_application_binary_limit_is_the_codecs_limit() {
-    // The application cannot import the provider, so it repeats the number; this pins them.
+fn the_base64_size_limit_comes_from_the_codec_and_reports_no_offset() {
+    // The application asks the codec for its limit instead of restating it.
     assert_eq!(chemifree_providers::cdx::MAX_BYTES, 1024 * 1024);
     let too_long =
         "A".repeat(transport_base64::encoded_len(chemifree_providers::cdx::MAX_BYTES) + 4);
@@ -358,8 +367,44 @@ fn the_application_binary_limit_is_the_codecs_limit() {
         "document.import",
         json!({"mode":"read","format":"cdx","source":too_long}),
     );
-    assert_eq!(
-        response["diagnostics"][0]["details"]["offset"],
-        chemifree_providers::cdx::MAX_BYTES
+    assert!(
+        response["diagnostics"][0]["details"]
+            .get("offset")
+            .is_none()
     );
+}
+
+#[test]
+fn a_bad_original_is_reported_as_the_originals_fault() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let good = source();
+    let read = call(
+        &application,
+        "read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":good}),
+    );
+    let bytes = common::rich_file();
+    let broken = transport_base64::encode(&bytes[..bytes.len() - 9]);
+    let export = call(
+        &application,
+        "export-broken-original",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":broken}),
+    );
+    let diagnostic = &export["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "invalid_original", "{export}");
+    assert!(
+        diagnostic["message"].as_str().unwrap().contains("original"),
+        "{diagnostic}"
+    );
+    // The document itself is fine: the same export without the broken original succeeds.
+    let fine = call(
+        &application,
+        "export-fine",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":good}),
+    );
+    assert_eq!(fine["outcome"], "ok");
 }

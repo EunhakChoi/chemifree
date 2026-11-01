@@ -4,6 +4,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use chemifree_application::LossConsent;
 use chemifree_application::interchange_codec::{InterchangeCodec, InterchangeFormat};
 use chemifree_domain::interchange::{Content, Document, ObjectKind};
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
@@ -83,6 +84,13 @@ fn render(case: &Case) -> String {
         .read(InterchangeFormat::Cdxml, case.original.as_bytes())
         .unwrap();
     let mut out = String::new();
+    assert!(
+        read.loss_report
+            .iter()
+            .all(|loss| loss.consent == LossConsent::NotRequired),
+        "{}: CDXML reads never need consent",
+        case.name
+    );
     for loss in &read.loss_report {
         writeln!(
             out,
@@ -111,6 +119,14 @@ fn render(case: &Case) -> String {
     let original = case.use_original.then_some(case.original.as_bytes());
     match codec.write(InterchangeFormat::Cdxml, &submitted, original, case.discard) {
         Ok(written) => {
+            assert!(
+                written
+                    .loss_report
+                    .iter()
+                    .all(|loss| loss.consent == LossConsent::NotRequired),
+                "{}: CDXML writes never need consent (discard_opaque is their consent)",
+                case.name
+            );
             for loss in &written.loss_report {
                 writeln!(
                     out,

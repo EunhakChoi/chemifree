@@ -12,7 +12,7 @@ use chemifree_domain::interchange::{
 };
 use roxmltree::{Node, NodeType, ParsingOptions};
 
-const MAX_XML_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_XML_BYTES: usize = 1024 * 1024;
 const MAX_XML_NODES: u32 = 100_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

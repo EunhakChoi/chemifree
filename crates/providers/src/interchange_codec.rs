@@ -84,7 +84,7 @@ impl LocalInterchangeCodec {
                         .map_err(|error| fail("invalid_document", error.to_string()))?,
                 }
                 let bytes = cdxml::write(&file)?.into_bytes();
-                if bytes.len() > 1024 * 1024 {
+                if bytes.len() > cdxml::MAX_XML_BYTES {
                     return Err(fail("resource_limit", "CDXML output exceeds 1 MiB."));
                 }
                 Ok(InterchangeWrite {
@@ -100,11 +100,21 @@ impl LocalInterchangeCodec {
         original: Option<&[u8]>,
         discard_opaque: bool,
     ) -> Result<InterchangeWrite, InterchangeError> {
-        document.validate().map_err(|error| {
-            let (code, message) = cdx::describe_validation(&error);
-            fail(code, message)
-        })?;
-        let parsed_original = original.map(cdx::read).transpose()?;
+        document
+            .validate()
+            .map_err(|error| fail(error.code(), error.message()))?;
+        // A fault in the caller's original is not a fault in the submitted document.
+        let parsed_original = original
+            .map(|bytes| {
+                cdx::read(bytes).map_err(|error| InterchangeError {
+                    code: "invalid_original",
+                    message: format!("The original CDX source is invalid: {}", error.message),
+                    line: None,
+                    column: None,
+                    offset: error.offset,
+                })
+            })
+            .transpose()?;
         let parsed = parsed_original.as_ref().map(|file| ParsedOriginal {
             document: file.document(),
             unrewritable_outside: false,
@@ -131,6 +141,10 @@ impl LocalInterchangeCodec {
 }
 
 impl InterchangeCodec for LocalInterchangeCodec {
+    fn binary_input_limit(&self) -> usize {
+        cdx::MAX_BYTES
+    }
+
     fn read(
         &self,
         format: InterchangeFormat,

@@ -7,10 +7,7 @@ use crate::interchange_codec::{InterchangeCodec, InterchangeError, InterchangeFo
 use crate::interchange_contract::InterchangeDocumentDto;
 use crate::interchange_projection::{self, Projection, SourceObject};
 use crate::transport_base64;
-
-/// The binary codec's own input limit. A JSON transport may be stricter: the HTTP body limit
-/// and the CLI input limit apply to the base64 text, which is a third larger than the bytes.
-const MAX_BINARY_BYTES: usize = 1024 * 1024;
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
@@ -100,39 +97,49 @@ fn format(name: &str) -> Result<InterchangeFormat, InterchangeError> {
 }
 
 /// Payload bytes of a request string: CDXML text is its UTF-8 bytes, CDX is canonical base64.
-fn payload(format: InterchangeFormat, text: &str) -> Result<Vec<u8>, InterchangeError> {
+///
+/// A JSON transport may be stricter than the codec: the HTTP body limit and the CLI request
+/// limit apply to the base64 text, which is a third larger than the bytes.
+fn payload<'a>(
+    codec: &dyn InterchangeCodec,
+    format: InterchangeFormat,
+    text: &'a str,
+) -> Result<Cow<'a, [u8]>, InterchangeError> {
     match format {
-        InterchangeFormat::Cdxml => Ok(text.as_bytes().to_vec()),
+        InterchangeFormat::Cdxml => Ok(Cow::Borrowed(text.as_bytes())),
         InterchangeFormat::Cdx => {
-            if text.len() > transport_base64::encoded_len(MAX_BINARY_BYTES) {
+            let limit = codec.binary_input_limit();
+            if text.len() > transport_base64::encoded_len(limit) {
+                // The text length is not a byte position, so no offset is reported.
                 return Err(InterchangeError {
                     code: "resource_limit",
-                    message: "CDX input exceeds 1 MiB.".into(),
+                    message: format!("CDX input exceeds {limit} bytes."),
                     line: None,
                     column: None,
-                    offset: Some(MAX_BINARY_BYTES as u64),
+                    offset: None,
                 });
             }
-            transport_base64::decode(text).map_err(|error| InterchangeError {
-                code: "invalid_base64",
-                message: format!(
-                    "CDX input must be canonical base64: {} (character {}).",
-                    error.reason, error.index
-                ),
-                line: None,
-                column: None,
-                offset: None,
-            })
+            transport_base64::decode(text)
+                .map(Cow::Owned)
+                .map_err(|error| InterchangeError {
+                    code: "invalid_base64",
+                    message: format!(
+                        "CDX input must be canonical base64: {} (character {}).",
+                        error.reason, error.index
+                    ),
+                    line: None,
+                    column: None,
+                    offset: None,
+                })
         }
     }
 }
 
-/// Changes a writer reports that the caller must accept before the content is returned:
-/// content with no target encoding and values rounded to the format's resolution. Opaque
-/// content is covered by `discard_opaque`; reserialization notes need no consent.
+/// Changes a writer reports that the caller must accept before the content is returned. The
+/// provider that causes a loss marks it; opaque content is covered by `discard_opaque` and
+/// reserialization notes need no consent.
 fn needs_consent(loss: &Loss) -> bool {
-    loss.feature == "precision"
-        || (loss.disposition == LossDisposition::Dropped && loss.feature != "opaque_extensions")
+    loss.consent == LossConsent::Required
 }
 
 fn digest<T: Serialize>(value: &T) -> String {
@@ -228,6 +235,7 @@ fn mapping(
 
 fn outside_root_loss() -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: "outside_root".into(),
         source_path: "source".into(),
         disposition: LossDisposition::Dropped,
@@ -242,7 +250,7 @@ fn read(
     source: &str,
 ) -> Result<crate::interchange_codec::InterchangeRead, InterchangeError> {
     let format = format(name)?;
-    codec.read(format, &payload(format, source)?)
+    codec.read(format, &payload(codec, format, source)?)
 }
 
 fn normalized_document(document: &DocumentView) -> DocumentView {
@@ -548,7 +556,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Err(error) => return known.invalid(refused("invalid_document", &error.to_string())),
         };
         let original = match parameters.original.as_deref() {
-            Some(text) => match payload(format, text) {
+            Some(text) => match payload(codec.as_ref(), format, text) {
                 Ok(bytes) => Some(bytes),
                 Err(error) => return known.invalid(issue(error)),
             },
@@ -570,6 +578,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         {
             losses.push(match format {
                 InterchangeFormat::Cdxml => Loss {
+                    consent: LossConsent::NotRequired,
                     feature: "xml_serialization".into(),
                     source_path: "source".into(),
                     disposition: LossDisposition::Normalized,
@@ -579,6 +588,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     semantic_impact: SemanticImpact::None,
                 },
                 InterchangeFormat::Cdx => Loss {
+                    consent: LossConsent::NotRequired,
                     feature: "binary_serialization".into(),
                     source_path: "source".into(),
                     disposition: LossDisposition::Normalized,
