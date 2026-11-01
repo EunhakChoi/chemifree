@@ -2781,7 +2781,7 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByRole('option', { name: 'In a ring', exact: true }).click()
   await panel.getByLabel('Minimum neighbors').fill('2')
   await panel.getByLabel('Maximum neighbors').fill('2')
-  await panel.getByLabel('Target charge').fill('0')
+  await panel.getByLabel('Charge condition').fill('0')
   const beforeSource = await api(`/api/v1/documents/${id}`)
   await panel.getByRole('button', { name: 'Search substructure' }).click()
   await panel.getByTestId('query-result').getByText('Complete: 6 mappings.', { exact: true }).waitFor()

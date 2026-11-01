@@ -1931,3 +1931,34 @@ test('an import preview exposes the actual graph even when a revision is reused'
   assert.equal(shown.revision, preview.snapshot.revision)
   assert.equal(sameConversionSnapshot(shown, preview.snapshot), false, 'same ID and revision must not authorize a different graph')
 })
+
+const { queryParameters, EMPTY_RULE } = await import('../apps/web/src/lib/query-parameters.ts')
+const { QUERY_MODEL_IDS } = await import('../apps/web/src/lib/document-contract.ts')
+const { MAX_CHARGE, MIN_CHARGE } = await import('../apps/web/src/editor/atom-edits.ts')
+
+test('the web query constants equal the domain constants they mirror', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const query = await readFile(new URL('../crates/domain/src/query.rs', import.meta.url), 'utf8')
+  const documentRs = await readFile(new URL('../crates/domain/src/document.rs', import.meta.url), 'utf8')
+  const constant = (source, name) => source.match(new RegExp(`pub const ${name}: [^=]+= ([^;]+);`))?.[1]
+  assert.equal(QUERY_MODEL_IDS.recorded, constant(query, 'MATCH_MODEL')?.replaceAll('"', ''))
+  assert.equal(QUERY_MODEL_IDS.aromatic_target, constant(query, 'AROMATIC_TARGET_MODEL')?.replaceAll('"', ''))
+  assert.equal(MIN_CHARGE, Number(constant(documentRs, 'MIN_CHARGE')))
+  assert.equal(MAX_CHARGE, Number(constant(documentRs, 'MAX_CHARGE')))
+})
+
+test('query conditions kept for deleted atoms are ignored and element charges must agree', () => {
+  const atoms = [
+    { id: 'a1', kind: 'element', element: 'C', charge: 0 },
+    { id: 'a2', kind: 'query', element: '*', charge: 0 },
+  ]
+  const drawn = { ...document('conditions', 1).document, atoms }
+  const rules = (extra) => ({ gone: { ...EMPTY_RULE }, a1: { ...EMPTY_RULE }, ...extra })
+  assert.deepEqual(queryParameters(drawn, rules({}), '100', '1000'), { predicates: [], matches: 100, states: 1000 })
+  assert.deepEqual(queryParameters(drawn, rules({ gone: { ...EMPTY_RULE, ring: 'yes' } }), '100', '1000')?.predicates, [])
+  assert.deepEqual(queryParameters(drawn, rules({ a2: { ...EMPTY_RULE, charge: '1' } }), '100', '1000')?.predicates, [{ atom: 'a2', charge: 1 }])
+  assert.deepEqual(queryParameters(drawn, rules({ a1: { ...EMPTY_RULE, charge: '0' } }), '100', '1000')?.predicates, [{ atom: 'a1', charge: 0 }])
+  assert.equal(queryParameters(drawn, rules({ a1: { ...EMPTY_RULE, charge: '1' } }), '100', '1000'), null)
+  assert.equal(queryParameters(drawn, rules({ a2: { ...EMPTY_RULE, charge: '9' } }), '100', '1000'), null)
+  assert.equal(queryParameters(drawn, rules({}), '0', '1000'), null)
+})

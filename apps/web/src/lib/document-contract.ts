@@ -225,6 +225,11 @@ export interface IdentityInspection {
 }
 
 export type QueryMatchMode = 'recorded' | 'aromatic_target'
+/** Model identifiers the service reports; scripts/web-client-check.mjs compares them with crates/domain/src/query.rs. */
+export const QUERY_MODEL_IDS: Record<QueryMatchMode, string> = {
+  recorded: 'chemifree-query-recorded-1',
+  aromatic_target: 'chemifree-query-aromatic-target-1',
+}
 export interface QueryAtomPredicate {
   atom: string
   ring?: boolean
@@ -1680,7 +1685,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.query_match',
       parameters: { document_id: id, target_document_id: targetId, mode, predicates, max_matches: maxMatches, max_states: maxStates },
     }, 'reload')
-    const model = mode === 'recorded' ? 'chemifree-query-recorded-1' : 'chemifree-query-aromatic-target-1'
+    const model = QUERY_MODEL_IDS[mode]
     if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
       const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
       const details = isRecord(first) && isRecord(first.details) ? first.details : null

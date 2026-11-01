@@ -6,20 +6,11 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { sameInspectionSnapshot, type DocumentView, type QueryAtomPredicate, type QueryInspection, type QueryMatchMode } from '@/lib/document-contract'
+import { sameInspectionSnapshot, type DocumentView, type QueryInspection, type QueryMatchMode } from '@/lib/document-contract'
+import { EMPTY_RULE, queryParameters, type RingCondition, type RuleDraft } from '@/lib/query-parameters'
 
 const MODES: Record<QueryMatchMode, string> = { recorded: 'Recorded bonds', aromatic_target: 'Perceive target aromaticity' }
 const RING: Record<RingCondition, string> = { any: 'Any', yes: 'In a ring', no: 'Outside rings' }
-type RingCondition = 'any' | 'yes' | 'no'
-interface RuleDraft { ring: RingCondition; min: string; max: string; charge: string }
-const EMPTY_RULE: RuleDraft = { ring: 'any', min: '', max: '', charge: '' }
-
-function integer(text: string, minimum: number, maximum: number): number | undefined | null {
-  if (!text.trim()) return undefined
-  if (!/^-?\d+$/.test(text.trim())) return null
-  const value = Number(text)
-  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : null
-}
 
 /** Query atoms and bonds come from the drawing; optional constraints augment those states. */
 export function QueryPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
@@ -54,32 +45,11 @@ export function QueryPanel({ document, editor }: { document: DocumentView; edito
     })
   }
 
-  function parameters(): { predicates: QueryAtomPredicate[]; matches: number; states: number } | null {
-    const matches = integer(maxMatches, 1, 1000)
-    const states = integer(maxStates, 1, 1_000_000)
-    if (matches == null || states == null) return null
-    const predicates: QueryAtomPredicate[] = []
-    for (const [id, draft] of Object.entries(rules)) {
-      if (!(id in atomChoices)) return null
-      const min = integer(draft.min, 0, 2000)
-      const max = integer(draft.max, 0, 2000)
-      const charge = integer(draft.charge, -8, 8)
-      if (min === null || max === null || charge === null || (min !== undefined && max !== undefined && min > max)) return null
-      const predicate: QueryAtomPredicate = { atom: id }
-      if (draft.ring !== 'any') predicate.ring = draft.ring === 'yes'
-      if (min !== undefined) predicate.min_neighbors = min
-      if (max !== undefined) predicate.max_neighbors = max
-      if (charge !== undefined) predicate.charge = charge
-      if (Object.keys(predicate).length > 1) predicates.push(predicate)
-    }
-    return { predicates, matches, states }
-  }
-
   async function search() {
     const requested = key
     const snapshot = document
     const ticket = ++epoch.current
-    const values = parameters()
+    const values = queryParameters(document, rules, maxMatches, maxStates)
     setAnswer(null)
     setFailure(null)
     if (!values || target === 'none') {
@@ -134,7 +104,7 @@ export function QueryPanel({ document, editor }: { document: DocumentView; edito
       </Field>
       <Field><FieldLabel htmlFor="query-min">Minimum neighbors</FieldLabel><Input id="query-min" inputMode="numeric" value={rule.min} onChange={(event) => editRule({ min: event.target.value })} /></Field>
       <Field><FieldLabel htmlFor="query-max">Maximum neighbors</FieldLabel><Input id="query-max" inputMode="numeric" value={rule.max} onChange={(event) => editRule({ max: event.target.value })} /></Field>
-      <Field><FieldLabel htmlFor="query-charge">Target charge</FieldLabel><Input id="query-charge" inputMode="numeric" value={rule.charge} onChange={(event) => editRule({ charge: event.target.value })} /></Field>
+      <Field><FieldLabel htmlFor="query-charge">Charge condition</FieldLabel><Input id="query-charge" inputMode="numeric" value={rule.charge} onChange={(event) => editRule({ charge: event.target.value })} /><FieldDescription>Query atoms only; an element atom must equal its drawn charge.</FieldDescription></Field>
       <Button size="sm" variant="ghost" onClick={() => editRule(EMPTY_RULE)}>Clear this atom's conditions</Button>
       <Button size="sm" variant="ghost" onClick={() => setRuleState({ documentId: document.id, rules: {} })}>Clear all conditions</Button>
     </>}
