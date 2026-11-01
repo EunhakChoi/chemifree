@@ -136,7 +136,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 현재 집계: 요구사항 33개(partial 15, not_implemented 18) · 부분 72개(implemented 29, partial 8, unverified 2, not_implemented 33) · conformance 사례 34개(passed 34: accept 22·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-03, CODEC-06, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 
