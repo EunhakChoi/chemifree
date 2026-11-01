@@ -2886,6 +2886,131 @@ step = 'after short_wide_bond_is_selectable'
   results.ctfile_preview_import_export = true
 }
 
+// SMILES text keeps its line breaks, previews before anything changes, asks for consent only for
+// losses that need it, and never offers a result for a form or drawing it was not made for.
+{
+  step = 'SMILES panel'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-create', title: 'SMILES browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  const source = panel.getByLabel('SMILES text')
+  const atomCount = async () => (await api(`/api/v1/documents/${id}`)).document.atoms.length
+
+  // A pasted second line is not lost silently: the preview shows ethanol and the ignored text.
+  await source.focus()
+  await page.keyboard.insertText('CCO\nCC')
+  assert.equal(await source.inputValue(), 'CCO\nCC', 'the line break reaches the reader')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByTestId('smiles-preview-summary').getByText('3 atom(s), 2 bond(s) would be added.').waitFor()
+  await panel.getByText('Not read: characters 5 to 6', { exact: false }).waitFor()
+  await panel.getByText(/Text after the first whitespace is not read/).waitFor()
+  assert.equal(await atomCount(), 0, 'a preview changes nothing')
+
+  // That loss drops text, so the import asks for it to be accepted; nothing is added before.
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByRole('button', { name: 'Accept these losses and import SMILES' }).waitFor()
+  assert.equal(await atomCount(), 0, 'a consent refusal changes nothing')
+
+  // Editing the drawing makes the offer stale: it cannot be clicked.
+  await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'smiles-browser-edit', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'N', position: { x: 300, y: 300 } }],
+  })
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  assert.equal(await panel.getByRole('button', { name: 'Accept these losses and import SMILES' }).count(), 0)
+  assert.equal(await panel.getByLabel('SMILES text').inputValue(), '', 'a reopened panel starts empty')
+
+  // A plain string needs no acceptance.
+  await source.fill('CCO')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByTestId('smiles-preview-summary').waitFor()
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByText(/Imported\./).waitFor()
+  assert.equal(await atomCount(), 4)
+  await panel.getByRole('button', { name: 'Import SMILES' }).waitFor({ state: 'hidden' })
+
+  // An edit of the text while a preview is running is said out loud and its result is not used.
+  let arrived
+  const reached = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  let finished
+  const answered = new Promise((resolve) => { finished = resolve })
+  let intercepted = false
+  const hold = async (route) => {
+    const request = route.request().postDataJSON()
+    if (intercepted || request?.operation !== 'document.import' || request?.parameters?.preview !== true) return route.continue()
+    intercepted = true
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+    finished()
+  }
+  await page.route('**/api/v1/operations', hold)
+  await source.fill('CC')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await reached
+  await source.fill('CCC')
+  await panel.getByText('The text changed while a request was running; its result was not used. Run it again.').waitFor()
+  release()
+  await answered
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+  await page.unroute('**/api/v1/operations', hold)
+  assert.equal(await panel.getByTestId('smiles-preview-summary').count(), 0, 'the replaced preview is not shown')
+
+  // Errors are shown in characters and bytes, in the panel itself.
+  await source.fill('C\u00e9O')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByRole('alert').getByText(/character 2 \(bytes 1 to 2\)/).waitFor()
+  await source.fill('c1cccc1')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByRole('alert').getByText(/Reason: /).waitFor()
+
+  // Writing: the output belongs to the form it was written for.
+  await panel.getByLabel('Write the drawing as').selectOption('canonical')
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  const output = panel.getByLabel('Written SMILES')
+  await output.waitFor()
+  assert.notEqual(await output.inputValue(), '')
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 4, 'writing changes nothing')
+  await panel.getByLabel('Write the drawing as').selectOption('recorded')
+  assert.equal(await panel.getByLabel('Written SMILES').count(), 0, 'the output is not offered for another form')
+
+  // A drawing whose text needs assumptions asks for them to be accepted before it is written.
+  const metal = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-metal', title: 'Metal' })
+  const metalId = metal.body.document.id
+  await apiWrite(`/api/v1/documents/${metalId}/transactions`, {
+    request_id: 'smiles-browser-fe', expected_revision: 0,
+    commands: [{ op: 'add_atom', element: 'Fe', position: { x: 0, y: 0 } }],
+  })
+  await page.reload()
+  await page.locator(`li[data-document-id="${metalId}"]`).getByRole('button', { name: 'Open' }).click()
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  await panel.getByRole('button', { name: 'Accept these losses and write SMILES' }).waitFor()
+  assert.equal(await panel.getByLabel('Written SMILES').count(), 0, 'nothing is written before consent')
+  await panel.getByLabel('Write the drawing as').selectOption('canonical')
+  assert.equal(await panel.getByRole('button', { name: 'Accept these losses and write SMILES' }).count(), 0, 'an offer for another form is gone')
+  await panel.getByLabel('Write the drawing as').selectOption('recorded')
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  await panel.getByRole('button', { name: 'Accept these losses and write SMILES' }).click()
+  await panel.getByLabel('Written SMILES').waitFor()
+  assert.equal(await panel.getByLabel('Written SMILES').inputValue(), '[Fe]')
+
+  // A restart between the preview and the import refuses the import in the panel.
+  await source.fill('CC')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByTestId('smiles-preview-summary').waitFor()
+  await crashApi()
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByRole('alert').getByText(/The local service restarted/).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0)
+  results.smiles_panel = true
+}
+
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {
   const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })

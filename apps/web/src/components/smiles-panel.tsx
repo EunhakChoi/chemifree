@@ -228,7 +228,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       </FieldDescription>
     </Field>
     <Button size="sm" variant="outline" disabled={source === '' || busy || composing} onClick={() => void previewImport()}>
-      Preview import
+      Preview SMILES import
     </Button>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
@@ -247,12 +247,12 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
       </p>
       {!liveImportOffer && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
-        Import
+        Import SMILES
       </Button>}
       {liveImportOffer && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
         <p>These losses change the chemistry or drop text and must be accepted: {liveImportOffer.features.join(', ')}.</p>
         <LossList losses={liveImportOffer.losses} />
-        <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import</Button>
+        <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import SMILES</Button>
       </div>}
     </div>}
     <Field>
@@ -269,7 +269,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       <p>Writing this needs these assumptions accepted: {liveExportOffer.features.join(', ')}.</p>
       <LossList losses={liveExportOffer.losses} />
       <Button size="sm" disabled={busy} onClick={() => void write(liveExportOffer.digest)}>
-        Accept these losses and write
+        Accept these losses and write SMILES
       </Button>
     </div>}
     {liveWritten && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
