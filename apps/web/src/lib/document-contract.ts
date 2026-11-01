@@ -1111,7 +1111,10 @@ function interchangeReply(value: unknown): { result: Record<string, unknown>; lo
   if (value.outcome === 'error' || value.outcome === 'unsupported') {
     const problem: unknown = value.diagnostics[0]
     if (isRecord(problem) && typeof problem.code === 'string' && typeof problem.message === 'string') {
-      throw new ApiError(problem.code, problem.message, 200)
+      // A binary format names the offending byte; the server keeps it out of the message.
+      const offset = isRecord(problem.details) ? problem.details.offset : undefined
+      const where = typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0 ? ` (byte offset ${offset})` : ''
+      throw new ApiError(problem.code, `${problem.message}${where}`, 200)
     }
     throw new ApiError('conversion_failed', 'The interchange operation failed.', 200)
   }

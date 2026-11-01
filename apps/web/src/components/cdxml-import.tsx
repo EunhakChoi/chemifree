@@ -75,7 +75,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       const choices = await editor.readInterchange(text, format)
       if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
         setSource({ format, text, choices })
-        setTitle(file.name.replace(/\.cdxml?$/i, '') || 'Imported drawing')
+        setTitle(file.name.replace(/\.cdx(ml)?$/i, '') || 'Imported drawing')
       }
     } catch (cause) {
       if (alive.current && sequence.current === request) setError(cause instanceof Error ? cause.message : 'Could not read this file.')

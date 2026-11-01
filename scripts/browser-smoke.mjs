@@ -328,6 +328,7 @@ results.preferences_read_can_be_retried = true
   const before = (await api('/api/v1/documents')).documents.length
   await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'molecule.cdx', mimeType: 'application/octet-stream', buffer: cdx })
   await page.getByLabel('Page and molecule').waitFor()
+  assert.equal(await page.getByLabel('New drawing title').inputValue(), 'molecule', 'the .cdx extension is stripped from the title')
   await page.getByRole('button', { name: 'Preview import' }).click()
   const preview = page.getByTestId('cdxml-preview')
   await preview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
@@ -345,7 +346,7 @@ results.preferences_read_can_be_retried = true
   await page.getByText('No document open').waitFor()
   // A truncated file is refused by the service; an oversized one never leaves the browser.
   await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'cut.cdx', mimeType: 'application/octet-stream', buffer: cdx.subarray(0, cdx.length - 5) })
-  await page.getByRole('alert').filter({ hasText: /ends in the middle of an item/ }).waitFor()
+  await page.getByRole('alert').filter({ hasText: /ends in the middle of an item\. \(byte offset \d+\)/ }).waitFor()
   await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'big.cdx', mimeType: 'application/octet-stream', buffer: Buffer.alloc(121 * 1024) })
   await page.getByRole('alert').filter({ hasText: /up to 120 KiB/ }).waitFor()
   assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused CDX creates no drawing')
