@@ -130,7 +130,29 @@ pub enum PropertyValueDto {
     },
     ObjectReference(u32),
     Text(String),
-    Bytes(Vec<u8>),
+    /// Opaque binary data as canonical base64 text (a JSON array of numbers would be four
+    /// times larger and could not round-trip a large unknown property inside a request limit).
+    Bytes(#[serde(with = "base64_bytes")] Vec<u8>),
+}
+
+mod base64_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use crate::transport_base64;
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&transport_base64::encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        transport_base64::decode(&text).map_err(|error| {
+            serde::de::Error::custom(format!(
+                "opaque bytes must be canonical base64: {} (character {})",
+                error.reason, error.index
+            ))
+        })
+    }
 }
 
 impl From<core::PropertyValue> for PropertyValueDto {

@@ -300,3 +300,47 @@ fn opaque_binary_content_needs_the_discard_flag_not_the_loss_flag() {
             .any(|loss| loss["feature"] == "opaque_extensions" && loss["disposition"] == "dropped")
     );
 }
+
+#[test]
+fn a_large_unknown_property_round_trips_inside_the_http_body_limit() {
+    use common::{file, obj, prop};
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    // 50 KiB of opaque bytes: 66.7 KB as base64, about 190 KB as a JSON array of numbers.
+    let unknown: Vec<u8> = (0..50 * 1024).map(|i| (i * 7 % 251) as u8).collect();
+    let bytes = file(0, &[prop(0x0990, &unknown), obj(0x8001, 1, &[])]);
+    let original = transport_base64::encode(&bytes);
+    let read = call(
+        &application,
+        "read-big",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":original}),
+    );
+    assert_eq!(read["outcome"], "ok", "{read}");
+    let parameters =
+        json!({"format":"cdx","document":read["result"]["document"],"original":original});
+    let body = json!({"contract":1,"request_id":"export-big","profile":"preserve-semantics","operation":"document.export","parameters":parameters});
+    assert!(
+        body.to_string().len() < 256 * 1024,
+        "the export request is {} bytes; the HTTP body limit is 262144",
+        body.to_string().len()
+    );
+    let export = call(&application, "export-big", "document.export", parameters);
+    assert_eq!(export["outcome"], "ok", "{export}");
+    assert_eq!(export["result"]["content"], original.as_str());
+    // The DTO carries the bytes as canonical base64, strictly: a padded-wrong text is refused.
+    let mut tree = read["result"]["document"].clone();
+    let text = tree["root"]["properties"][0]["value"]["value"].clone();
+    assert!(
+        text.is_string(),
+        "opaque bytes are a base64 string, got {text:.80}"
+    );
+    tree["root"]["properties"][0]["value"]["value"] = json!(format!("{}=", text.as_str().unwrap()));
+    let refused = call(
+        &application,
+        "export-bad",
+        "document.export",
+        json!({"format":"cdx","document":tree,"original":original}),
+    );
+    assert_eq!(refused["outcome"], "error", "{refused}");
+}
