@@ -62,6 +62,9 @@ struct Builder<'a> {
     objects: usize,
     fonts: HashMap<u16, FontInfo>,
     colors: Option<usize>,
+    /// Tables parsed once while collecting fonts and colors, keyed by property offset.
+    parsed_fonts: HashMap<u64, text::FontTable>,
+    parsed_colors: HashMap<u64, Vec<[u16; 3]>>,
     ids: HashMap<u32, u64>,
     references: Vec<(u32, u64)>,
     font_tables: Vec<FontTablePlatform>,
@@ -115,6 +118,8 @@ impl<'a> Builder<'a> {
             bytes,
             objects,
             fonts: HashMap::new(),
+            parsed_fonts: HashMap::new(),
+            parsed_colors: HashMap::new(),
             colors: None,
             ids: HashMap::new(),
             references: Vec::new(),
@@ -164,6 +169,7 @@ impl<'a> Builder<'a> {
                             ));
                         }
                     }
+                    self.parsed_fonts.insert(raw.offset, table);
                 }
                 tag::COLOR_TABLE => {
                     let colors = text::parse_color_table(self.data(raw), Self::data_offset(raw))?;
@@ -174,6 +180,7 @@ impl<'a> Builder<'a> {
                             "The document has more than one color table.",
                         ));
                     }
+                    self.parsed_colors.insert(raw.offset, colors);
                 }
                 _ => (),
             }
@@ -206,7 +213,13 @@ impl<'a> Builder<'a> {
         for item in &raw.items {
             match item {
                 RawItem::Property(prop) => {
-                    let repeatable = matches!(prop.tag, tag::REPRESENTS | tag::FONT_TABLE);
+                    // Only a document may hold several font tables and only a graphic several
+                    // Represents; elsewhere a repeat would become an identical opaque property.
+                    let repeatable = matches!(
+                        (&kind, prop.tag),
+                        (ObjectKind::Document, tag::FONT_TABLE)
+                            | (ObjectKind::Graphic, tag::REPRESENTS)
+                    );
                     if !repeatable && !seen.insert(prop.tag) {
                         return Err(bad_value(
                             "duplicate_property",
@@ -232,7 +245,7 @@ impl<'a> Builder<'a> {
                 }
             }
         }
-        self.check_required(&kind, raw, &properties)?;
+        self.check_required(&kind, raw, &properties, seen.contains(&tag::TEXT))?;
         Ok(Object {
             kind,
             id,
@@ -246,6 +259,7 @@ impl<'a> Builder<'a> {
         kind: &ObjectKind,
         raw: &RawObject,
         properties: &[Property],
+        has_string: bool,
     ) -> Result<(), CdxError> {
         let has = |wanted: PropertyKind| properties.iter().any(|item| item.kind == wanted);
         let reference = |wanted: PropertyKind| {
@@ -279,6 +293,9 @@ impl<'a> Builder<'a> {
             }
             ObjectKind::Graphic if !has(PropertyKind::BoundingBox) => {
                 return Err(missing("a bounding box (0x0204)"));
+            }
+            ObjectKind::Text if !has_string => {
+                return Err(missing("its text string (0x0700)"));
             }
             _ => (),
         }
@@ -376,7 +393,10 @@ impl<'a> Builder<'a> {
         }
         match (kind, raw.tag) {
             (O::Document, tag::FONT_TABLE) => {
-                let table = text::parse_font_table(data, Self::data_offset(raw))?;
+                let table = self
+                    .parsed_fonts
+                    .remove(&raw.offset)
+                    .expect("font tables of the document are parsed while collecting fonts");
                 self.reserve(1 + table.entries.len(), raw.offset)?;
                 let fonts = table
                     .entries
@@ -411,7 +431,10 @@ impl<'a> Builder<'a> {
                 children.push(Content::Object(object));
             }
             (O::Document, tag::COLOR_TABLE) => {
-                let colors = text::parse_color_table(data, Self::data_offset(raw))?;
+                let colors = self
+                    .parsed_colors
+                    .remove(&raw.offset)
+                    .expect("color tables of the document are parsed while collecting colors");
                 self.reserve(1 + colors.len(), raw.offset)?;
                 let entries = colors
                     .iter()
@@ -437,6 +460,15 @@ impl<'a> Builder<'a> {
             (O::Text, tag::TEXT) => self.text(owner, raw, children)?,
             (O::Graphic, tag::REPRESENTS) => {
                 if let Some(object) = self.represents(data, raw)? {
+                    if owner.depth + 1 > MAX_DEPTH {
+                        return Err(CdxError::at(
+                            "resource_limit",
+                            raw.offset,
+                            format!(
+                                "A Represents object would nest deeper than {MAX_DEPTH} levels."
+                            ),
+                        ));
+                    }
                     self.reserve(1, raw.offset)?;
                     children.push(Content::Object(object));
                 } else {

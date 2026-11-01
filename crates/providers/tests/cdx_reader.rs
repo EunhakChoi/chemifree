@@ -915,3 +915,61 @@ fn seeded_mutations_never_panic_and_accepted_results_rewrite_or_refuse_cleanly()
         "the sweep should also reach accepted files, got {accepted}"
     );
 }
+
+#[test]
+fn repeated_font_table_or_represents_properties_are_only_allowed_where_they_mean_something() {
+    let table = prop(0x0100, &font_table(1, &[(1, 1252, "A")]));
+    // Two font tables on a page, and two Represents on a node, are plain duplicates.
+    let page = file(0, &[obj(0x8001, 1, &[table.clone(), table.clone()])]);
+    let error = refused(&page);
+    assert_eq!(error.code, "duplicate_property");
+    // Header 28 + document 6 + page 6 + first property (4 + 7 + 6).
+    assert_eq!(error.offset, Some(28 + 6 + 6 + 4 + table.len() as u64 - 4));
+    let represents = prop(0x000e, &[&u32le(1)[..], &u16le(0x0421)[..]].concat());
+    let node = file(
+        0,
+        &[obj(
+            0x8001,
+            1,
+            &[obj(
+                0x8003,
+                2,
+                &[obj(0x8004, 3, &[represents.clone(), represents])],
+            )],
+        )],
+    );
+    assert_eq!(refused(&node).code, "duplicate_property");
+}
+
+#[test]
+fn a_text_object_without_its_string_is_refused_at_the_object() {
+    let doc = file(
+        0,
+        &[obj(
+            0x8001,
+            1,
+            &[obj(0x8006, 2, &[prop(0x0200, &point(1.0, 2.0))])],
+        )],
+    );
+    let error = refused(&doc);
+    assert_eq!(error.code, "missing_property");
+    assert_eq!(error.offset, Some(28 + 6 + 6));
+}
+
+#[test]
+fn a_represents_property_at_the_depth_limit_is_refused_at_the_property() {
+    let represents = prop(0x000e, &[&u32le(1)[..], &u16le(0x0421)[..]].concat());
+    let mut inner = obj(
+        0x8007,
+        0,
+        &[prop(0x0204, &rect(0.0, 0.0, 1.0, 1.0)), represents],
+    );
+    for _ in 0..126 {
+        inner = obj(0x8002, 0, &[inner]);
+    }
+    // Page depth 1, 126 groups at depths 2..=127, the graphic at depth 128.
+    let doc = file(0, &[obj(0x8001, 1, &[inner])]);
+    let error = refused(&doc);
+    assert_eq!(error.code, "resource_limit");
+    assert!(error.offset.is_some(), "{error:?}");
+}
