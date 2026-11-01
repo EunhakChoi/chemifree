@@ -16,6 +16,7 @@ is compared with RDKit.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import dataclasses
 import json
 import logging
@@ -23,7 +24,6 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
 
 import rdkit
 import rdkit.Chem
@@ -59,47 +59,93 @@ class Fixture:
 
 FIXTURES: tuple[Fixture, ...] = (
     Fixture("ethanol", ("CCO", "OCC", "C(O)C"), Accepted("C(C)O")),
-    Fixture("acetic acid", ("CC(=O)O", "OC(C)=O", "C(=O)(C)O"),
-            Accepted("C(C)(=O)O")),
-    Fixture("benzene", ("c1ccccc1", "C1=CC=CC=C1", "C1=CC=CC=C1"),
-            Accepted("c1ccccc1")),
-    Fixture("toluene", ("Cc1ccccc1", "c1ccccc1C", "CC1=CC=CC=C1"),
-            Accepted("c1(C)ccccc1")),
-    Fixture("biphenyl", ("c1ccccc1-c1ccccc1", "c1ccccc1c1ccccc1",
-                         "C1=CC=CC=C1C1=CC=CC=C1"),
-            Accepted("c1(ccccc1)-c1ccccc1")),
-    Fixture("pyridine", ("n1ccccc1", "N1=CC=CC=C1", "C1=CC=NC=C1"),
-            Accepted("c1ccncc1")),
-    Fixture("pyrrole", ("[nH]1cccc1", "N1C=CC=C1", "C1=CNC=C1"),
-            Accepted("c1c[nH]cc1")),
-    Fixture("imidazole", ("[nH]1cncc1", "N1C=NC=C1", "c1c[nH]cn1"),
-            Accepted("c1c[nH]cn1")),
+    Fixture(
+        "acetic acid",
+        ("CC(=O)O", "OC(C)=O", "C(=O)(C)O"),
+        Accepted("C(C)(=O)O"),
+    ),
+    Fixture(
+        "benzene",
+        ("c1ccccc1", "C1=CC=CC=C1", "C1=CC=CC=C1"),
+        Accepted("c1ccccc1"),
+    ),
+    Fixture(
+        "toluene",
+        ("Cc1ccccc1", "c1ccccc1C", "CC1=CC=CC=C1"),
+        Accepted("c1(C)ccccc1"),
+    ),
+    Fixture(
+        "biphenyl",
+        ("c1ccccc1-c1ccccc1", "c1ccccc1c1ccccc1", "C1=CC=CC=C1C1=CC=CC=C1"),
+        Accepted("c1(ccccc1)-c1ccccc1"),
+    ),
+    Fixture(
+        "pyridine",
+        ("n1ccccc1", "N1=CC=CC=C1", "C1=CC=NC=C1"),
+        Accepted("c1ccncc1"),
+    ),
+    Fixture(
+        "pyrrole",
+        ("[nH]1cccc1", "N1C=CC=C1", "C1=CNC=C1"),
+        Accepted("c1c[nH]cc1"),
+    ),
+    Fixture(
+        "imidazole",
+        ("[nH]1cncc1", "N1C=NC=C1", "c1c[nH]cn1"),
+        Accepted("c1c[nH]cn1"),
+    ),
     Fixture("furan", ("o1cccc1", "O1C=CC=C1"), Accepted("c1cocc1")),
     Fixture("thiophene", ("s1cccc1", "S1C=CC=C1"), Accepted("c1cscc1")),
-    Fixture("naphthalene", ("c1ccc2ccccc2c1", "C1=CC=C2C=CC=CC2=C1"),
-            Accepted("c12ccccc1cccc2")),
-    Fixture("cyclopropane", ("C1CC1", "[CH2]1[CH2][CH2]1"),
-            Accepted("C1CC1")),
-    Fixture("gem-dimethylcyclopropane", ("CC1(C)CC1", "C1CC1(C)C"),
-            Accepted("C1(C)(C)CC1")),
-    Fixture("spiro[4.5]decane", ("C1CCC2(CC1)CCCC2", "C1CCCC12CCCCC2"),
-            Accepted("C12(CCCC1)CCCCC2")),
-    Fixture("norbornene", ("C1CC2C=CC1C2", "C1=CC2CCC1C2"),
-            Accepted("C12C=CC(C1)CC2")),
-    Fixture("alpha-pinene", ("CC1=CCC2CC1C2(C)C",),
-            Accepted("C1(C)(C)C2C(C)=CCC1C2")),
-    Fixture("ammonium acetate", ("CC(=O)[O-].[NH4+]", "[NH4+].[O-]C(C)=O"),
-            Accepted("C(C)(=O)[O-].[NH4+]")),
-    Fixture("labelled ethane", ("[13CH3]C", "C[13CH3]"),
-            Accepted("C[13CH3]")),
-    Fixture("indane", ("c1ccc2c(c1)CCC2", "C1=CC=C2C(=C1)CCC2"),
-            Refused(("mixed_ring_bonds", "fused_partially_aromatic"))),
-    Fixture("indole", ("c1ccc2[nH]ccc2c1", "C1=CC=C2NC=CC2=C1"),
-            Refused(("fused_system_outside_model",))),
-    Fixture("cyclohexanone", ("O=C1CCCCC1", "C1CCC(=O)CC1"),
-            Refused(("unsupported_external_bond",))),
-    Fixture("sodium chloride", ("[Na+].[Cl-]",),
-            Refused(("element_or_charge",))),
+    Fixture(
+        "naphthalene",
+        ("c1ccc2ccccc2c1", "C1=CC=C2C=CC=CC2=C1"),
+        Accepted("c12ccccc1cccc2"),
+    ),
+    Fixture("cyclopropane", ("C1CC1", "[CH2]1[CH2][CH2]1"), Accepted("C1CC1")),
+    Fixture(
+        "gem-dimethylcyclopropane",
+        ("CC1(C)CC1", "C1CC1(C)C"),
+        Accepted("C1(C)(C)CC1"),
+    ),
+    Fixture(
+        "spiro[4.5]decane",
+        ("C1CCC2(CC1)CCCC2", "C1CCCC12CCCCC2"),
+        Accepted("C12(CCCC1)CCCCC2"),
+    ),
+    Fixture(
+        "norbornene",
+        ("C1CC2C=CC1C2", "C1=CC2CCC1C2"),
+        Accepted("C12C=CC(C1)CC2"),
+    ),
+    Fixture(
+        "alpha-pinene",
+        ("CC1=CCC2CC1C2(C)C",),
+        Accepted("C1(C)(C)C2C(C)=CCC1C2"),
+    ),
+    Fixture(
+        "ammonium acetate",
+        ("CC(=O)[O-].[NH4+]", "[NH4+].[O-]C(C)=O"),
+        Accepted("C(C)(=O)[O-].[NH4+]"),
+    ),
+    Fixture("labelled ethane", ("[13CH3]C", "C[13CH3]"), Accepted("C[13CH3]")),
+    Fixture(
+        "indane",
+        ("c1ccc2c(c1)CCC2", "C1=CC=C2C(=C1)CCC2"),
+        Refused(("mixed_ring_bonds", "fused_partially_aromatic")),
+    ),
+    Fixture(
+        "indole",
+        ("c1ccc2[nH]ccc2c1", "C1=CC=C2NC=CC2=C1"),
+        Refused(("fused_system_outside_model",)),
+    ),
+    Fixture(
+        "cyclohexanone",
+        ("O=C1CCCCC1", "C1CCC(=O)CC1"),
+        Refused(("unsupported_external_bond",)),
+    ),
+    Fixture(
+        "sodium chloride", ("[Na+].[Cl-]",), Refused(("element_or_charge",))
+    ),
 )
 
 # Input, expected reason and byte span of the Chemifree syntax error.
@@ -136,7 +182,7 @@ def _run(
     )
     answers: dict[str, Mapping[str, object]] = {}
     for line in output.stdout.splitlines():
-        row: object = json.loads(line)
+        row = json.loads(line)  # a dynamic protocol row, checked below
         _require(isinstance(row, dict), "A reference row must be an object.")
         answers[str(row["input"])] = row
     _require(
@@ -149,7 +195,7 @@ def _graph_key(smiles: str) -> str:
     """RDKit's connectivity-only canonical SMILES for a reading."""
     mol = rdkit.Chem.MolFromSmiles(smiles)
     _require(mol is not None, f"RDKit refused {smiles!r}")
-    return rdkit.Chem.MolToSmiles(mol, isomericSmiles=False)
+    return str(rdkit.Chem.MolToSmiles(mol, isomericSmiles=False))
 
 
 def _outcome(row: Mapping[str, object], key: str) -> Mapping[str, object]:
@@ -226,7 +272,11 @@ def main() -> None:
                 error == {"reason": reason, "start": start, "end": end},
                 f"{text!r}: expected {reason} at {start}..{end}, got {error}",
             )
-            if reason in ("unknown_element", "unclosed_branch", "unclosed_ring"):
+            if reason in (
+                "unknown_element",
+                "unclosed_branch",
+                "unclosed_ring",
+            ):
                 _require(
                     rdkit.Chem.MolFromSmiles(text) is None,
                     f"RDKit unexpectedly accepted {text!r}",

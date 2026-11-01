@@ -316,3 +316,128 @@ fn canonical_output_agrees_across_spellings_and_orders() {
         assert!(results[0].is_ok(), "{group:?} gave {results:?}");
     }
 }
+
+fn reason(reply: &Value) -> &str {
+    reply["diagnostics"][0]["details"]["reason"].as_str().unwrap_or("?")
+}
+
+#[test]
+fn radical_states_come_from_the_shared_valence_model() {
+    let (app, _dir) = setup();
+    // A methyl radical has one fewer bond order than the closed shell: a doublet.
+    let id = import(&app, "[CH3]");
+    let atoms = call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"].clone();
+    assert_eq!(atoms[0]["radical"], "doublet");
+    assert_eq!(text(&app, &id, "canonical"), "[CH3]");
+    // Two fewer bond orders cannot be told apart as singlet or triplet: undetermined, and said so.
+    let id = new_document(&app);
+    let preview = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"[CH2]","preview":true}),
+    );
+    let loss = preview["loss_report"].as_array().unwrap().iter().find(|l| l["feature"] == "radical_state").unwrap();
+    assert!(loss["reason"].as_str().unwrap().contains("singlet from a triplet"), "{loss}");
+    assert!(!loss["reason"].as_str().unwrap().contains("incomplete"), "{loss}");
+    let id = import(&app, "[CH2]");
+    let atoms = call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"].clone();
+    assert_eq!(atoms[0]["radical"], "unknown");
+    assert_eq!(reason(&write(&app, &id, "canonical")), "radical_state");
+    // An element outside the valence table is undetermined, with outside-the-model wording.
+    let id = new_document(&app);
+    let preview = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"[Na+]","preview":true}),
+    );
+    let loss = preview["loss_report"].as_array().unwrap().iter().find(|l| l["feature"] == "radical_state").unwrap();
+    assert!(loss["reason"].as_str().unwrap().contains("outside the valence model"), "{loss}");
+    assert_eq!(text(&app, &import(&app, "[Na+]"), "recorded"), "[Na+]");
+}
+
+#[test]
+fn refusals_name_the_real_cause() {
+    let (app, _dir) = setup();
+    // Aromaticity is checked before atoms are formatted: indane drawn aromatic names its rings.
+    let id = import(&app, "c1ccc2c(c1)CCC2");
+    assert_eq!(reason(&write(&app, &id, "recorded")), "mixed_ring_bonds");
+    assert_eq!(reason(&write(&app, &id, "canonical")), "mixed_ring_bonds");
+    // A charged atom with inferred hydrogens in an unusual valence has no count to state.
+    let id = new_document(&app);
+    let drawn = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[
+            {"op":"add_atom","element":"N","position":{"x":0,"y":0}},
+            {"op":"add_atom","element":"C","position":{"x":20,"y":0},"bond_to":{"atom":"$0","order":"single"}},
+            {"op":"add_atom","element":"C","position":{"x":0,"y":20},"bond_to":{"atom":"$0","order":"single"}},
+            {"op":"add_atom","element":"C","position":{"x":-20,"y":0},"bond_to":{"atom":"$0","order":"single"}},
+            {"op":"add_atom","element":"C","position":{"x":0,"y":-20},"bond_to":{"atom":"$0","order":"single"}},
+            {"op":"add_atom","element":"C","position":{"x":20,"y":20},"bond_to":{"atom":"$0","order":"single"}},
+        ]}),
+    );
+    assert_eq!(drawn["outcome"], "ok", "{drawn}");
+    let charged = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","charge":1}]}),
+    );
+    assert_eq!(charged["outcome"], "ok", "{charged}");
+    let refused = write(&app, &id, "recorded");
+    assert_eq!(refused["outcome"], "unsupported");
+    assert_eq!(refused["diagnostics"][0]["code"], "smiles_write_unsupported");
+    assert_eq!(reason(&refused), "hydrogens_undetermined");
+    assert_eq!(refused["diagnostics"][0]["details"]["atom_id"], "a1");
+    assert_eq!(refused["diagnostics"][0]["details"]["snapshot"]["document"]["revision"], 2);
+}
+
+#[test]
+fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
+    let (app, _dir) = setup();
+    let id = new_document(&app);
+    let mut revision = 0;
+    for chunk in 0..3 {
+        let mut commands = Vec::new();
+        for i in 0..100 {
+            let mut command = json!({"op":"add_atom","element":"C","position":{"x":(i * 20) as f64,"y":(chunk * 20) as f64}});
+            if i > 0 {
+                command["bond_to"] = json!({"atom": format!("${}", i - 1), "order": "single"});
+            }
+            commands.push(command);
+        }
+        let reply = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":revision,"commands":commands}),
+        );
+        assert_eq!(reply["outcome"], "ok", "{reply}");
+        revision += 1;
+    }
+    // 300 atoms and 297 bonds are over the reader's 500 items, and over the identity limit of 128.
+    for (mode, expected) in [("recorded", "size_limit"), ("canonical", "size_limit")] {
+        let reply = write(&app, &id, mode);
+        assert_eq!(reply["outcome"], "error", "{mode}");
+        assert_eq!(reply["diagnostics"][0]["code"], "smiles_limit", "{mode}");
+        assert_eq!(reason(&reply), expected, "{mode}");
+    }
+    // Within the reader's limit but over the canonical search's 128 atoms.
+    let id = new_document(&app);
+    let mut commands = Vec::new();
+    for i in 0..130 {
+        let mut command = json!({"op":"add_atom","element":"C","position":{"x":(i * 20) as f64,"y":0}});
+        if i > 0 {
+            command["bond_to"] = json!({"atom": format!("${}", i - 1), "order": "single"});
+        }
+        commands.push(command);
+    }
+    let reply = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands}),
+    );
+    assert_eq!(reply["outcome"], "ok");
+    assert_eq!(write(&app, &id, "recorded")["outcome"], "ok");
+    let reply = write(&app, &id, "canonical");
+    assert_eq!(reply["diagnostics"][0]["code"], "smiles_limit");
+    assert_eq!(reason(&reply), "atom_limit");
+}
