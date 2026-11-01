@@ -344,3 +344,22 @@ fn a_large_unknown_property_round_trips_inside_the_http_body_limit() {
     );
     assert_eq!(refused["outcome"], "error", "{refused}");
 }
+
+#[test]
+fn the_application_binary_limit_is_the_codecs_limit() {
+    // The application cannot import the provider, so it repeats the number; this pins them.
+    assert_eq!(chemifree_providers::cdx::MAX_BYTES, 1024 * 1024);
+    let too_long =
+        "A".repeat(transport_base64::encoded_len(chemifree_providers::cdx::MAX_BYTES) + 4);
+    let dir = tempfile::tempdir().unwrap();
+    let response = call(
+        &app(dir.path()),
+        "limit",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":too_long}),
+    );
+    assert_eq!(
+        response["diagnostics"][0]["details"]["offset"],
+        chemifree_providers::cdx::MAX_BYTES
+    );
+}
