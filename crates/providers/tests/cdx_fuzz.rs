@@ -57,8 +57,30 @@ fn base() -> Vec<u8> {
     data
 }
 
+fn through_cdxml(
+    document: &chemifree_domain::interchange::Document,
+    label: &str,
+) -> Option<String> {
+    match cdxml::write(&cdxml::CdxmlDocument::from_document(document.clone())) {
+        Ok(xml) => Some(xml),
+        // Unknown binary objects have no CDXML spelling; everything else must transcode.
+        Err(error) if error.code == "unsafe_unknown_rewrite" => None,
+        Err(error) => panic!("{label}: CDXML write: {error:?}"),
+    }
+}
+
 fn check_round_trips(bytes: &[u8], label: &str) {
     let Ok(first) = cdx::read(bytes) else { return };
+    // Every accepted CDX must read back identically after a trip through CDXML.
+    if let Some(xml) = through_cdxml(&first.document, label) {
+        let reread = cdxml::read(&xml)
+            .unwrap_or_else(|error| panic!("{label}: CDXML reread: {error:?}\n{xml}"));
+        assert_eq!(
+            reread.document().root(),
+            first.document.root(),
+            "{label}: CDX tree vs CDXML tree\n{xml}"
+        );
+    }
     let Ok(written) = cdx::write(&first.document) else {
         return;
     };
@@ -69,11 +91,8 @@ fn check_round_trips(bytes: &[u8], label: &str) {
         first.document.root(),
         "{label}: read-write-read"
     );
-    // CDX to CDXML to CDX must keep the tree whenever CDX can represent it.
-    let xml = cdxml::write(&cdxml::CdxmlDocument::from_document(first.document.clone()))
-        .unwrap_or_else(|error| panic!("{label}: CDXML write: {error:?}"));
-    let reread =
-        cdxml::read(&xml).unwrap_or_else(|error| panic!("{label}: CDXML reread: {error:?}\n{xml}"));
+    let xml = through_cdxml(&first.document, label).expect("a writable tree has no opaque binary");
+    let reread = cdxml::read(&xml).unwrap();
     let back = cdx::write(reread.document())
         .unwrap_or_else(|error| panic!("{label}: CDX from CDXML: {error:?}\n{xml}"));
     let final_read = cdx::read(&back.bytes).unwrap();
@@ -129,5 +148,94 @@ fn seeded_mutations_never_panic_and_keep_round_trip_identity() {
             }
         }
         check_round_trips(&mutated, &format!("round {round}: {mutated:02x?}"));
+    }
+}
+
+#[test]
+fn cdxml_fixtures_agree_after_a_trip_through_cdx() {
+    let mut sources: Vec<String> = vec![
+        "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"1 -2\" Element=\"8\" Charge=\"-1\" Radical=\"Doublet\"/><n id=\"4\" p=\"3 4\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"2\"/></fragment></page></CDXML>".into(),
+        "<CDXML><fonttable><font id=\"3\" name=\"Arial\" charset=\"iso-8859-1\"/></fonttable><colortable><color r=\"0\" g=\"0\" b=\"0\"/><color r=\"1\" g=\"1\" b=\"1\"/></colortable><page id=\"1\"><t id=\"2\" p=\"1 2\"><s font=\"3\" face=\"1\" size=\"12\" color=\"1\">Te</s><s font=\"3\" face=\"2\" size=\"10.5\" color=\"0\">st</s></t><t id=\"6\"><s>plain</s></t><t id=\"7\"><s/></t></page></CDXML>".into(),
+    ];
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/cdxml");
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "cdxml")
+        {
+            sources.push(std::fs::read_to_string(path).unwrap());
+        }
+    }
+    for source in &sources {
+        let xml = cdxml::read(source).unwrap();
+        let Ok(binary) = cdx::write(xml.document()) else {
+            continue;
+        };
+        let from_binary = cdx::read(&binary.bytes).expect("written CDX must be readable");
+        let again = cdxml::write(&cdxml::CdxmlDocument::from_document(
+            from_binary.document.clone(),
+        ))
+        .and_then(|text| cdxml::read(&text))
+        .unwrap();
+        assert_eq!(
+            again.document().root(),
+            from_binary.document.root(),
+            "{source}"
+        );
+        assert_eq!(
+            from_binary.document.root(),
+            xml.document().root(),
+            "CDXML to CDX changed the tree: {source}"
+        );
+    }
+}
+
+#[test]
+fn seeded_cdxml_mutations_never_write_cdx_the_reader_refuses() {
+    let base = "<CDXML><fonttable><font id=\"3\" name=\"Arial\" charset=\"iso-8859-1\"/></fonttable><colortable><color r=\"0\" g=\"0\" b=\"0\"/><color r=\"1\" g=\"0.5\" b=\"1\"/></colortable><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"1 -2\" Element=\"8\" Charge=\"-1\" Isotope=\"18\" Radical=\"Doublet\"/><n id=\"4\" p=\"3 4\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"2\"/></fragment><t id=\"6\" p=\"1 2\"><s font=\"3\" face=\"1\" size=\"12\" color=\"1\">Te</s><s font=\"3\" face=\"2\" size=\"10.5\" color=\"0\">st</s></t><t id=\"7\"><s>caf\u{e9}</s></t></page></CDXML>".as_bytes().to_vec();
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let rounds = std::env::var("CDX_FUZZ_ROUNDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(20_000);
+    let mut exercised = 0;
+    for round in 0..rounds {
+        let mut mutated = base.clone();
+        for _ in 0..=(next() % 3) {
+            let at = (next() as usize) % mutated.len();
+            match next() % 3 {
+                0 => mutated[at] = b"0123456789-. <>\"/&;#x"[(next() as usize) % 21],
+                1 => {
+                    mutated.remove(at);
+                }
+                _ => mutated.insert(at, b"0123456789-. "[(next() as usize) % 13]),
+            }
+        }
+        let Ok(text) = String::from_utf8(mutated) else {
+            continue;
+        };
+        let Ok(xml) = cdxml::read(&text) else {
+            continue;
+        };
+        let Ok(written) = cdx::write(xml.document()) else {
+            continue;
+        };
+        let read = cdx::read(&written.bytes).unwrap_or_else(|error| {
+            panic!("round {round}: CDX written but unreadable: {error:?}\n{text}")
+        });
+        if written.rounded_color_channels == 0 {
+            assert_eq!(
+                read.document.root(),
+                xml.document().root(),
+                "round {round}: {text}"
+            );
+        }
     }
 }
