@@ -1107,43 +1107,7 @@ impl Known {
 }
 
 fn smiles_syntax_message(code: &str) -> &'static str {
-    match code {
-        "empty_input" => "Enter a SMILES string.",
-        "input_limit" | "atom_limit" | "bond_limit" | "branch_limit" | "ring_limit" => {
-            "The SMILES exceeds a supported size or nesting limit."
-        }
-        "expected_element" | "expected_atom" => "Expected an atom or element symbol.",
-        "unknown_element" => "The element symbol is not recognized.",
-        "brackets_required" => "This element requires brackets in SMILES.",
-        "invalid_bracket_atom" => "The bracket atom is invalid or incomplete.",
-        "isotope_out_of_range" => "The isotope mass number is outside the supported range.",
-        "hydrogens_out_of_range" => "The hydrogen count is outside the supported range.",
-        "hydrogen_count_on_hydrogen" => "A hydrogen atom cannot have its own hydrogen count.",
-        "invalid_charge" | "charge_out_of_range" => {
-            "The charge is invalid or outside the supported range."
-        }
-        "stereo_unsupported" => "SMILES stereochemistry is not supported yet.",
-        "query_unsupported" => "SMILES query extensions are not supported.",
-        "invalid_aromatic_bond" | "aromaticity_outside_model" => {
-            "The aromatic atoms and bonds cannot be interpreted by the supported model."
-        }
-        "invalid_ring_number" | "ring_without_atom" | "ring_bond_conflict" | "unclosed_ring" => {
-            "The ring label or its bond is invalid or unclosed."
-        }
-        "ring_after_branch" => {
-            "A ring-closure digit must directly follow its atom, before any branch."
-        }
-        "unexpected_branch_end"
-        | "branch_without_atom"
-        | "empty_branch"
-        | "empty_or_incomplete_branch"
-        | "unclosed_branch" => "A branch is empty, incomplete or misplaced.",
-        "unexpected_dot" | "trailing_dot" => "A disconnected-component separator is misplaced.",
-        "unexpected_bond" | "trailing_bond" | "duplicate_or_self_bond" => {
-            "A bond is incomplete, duplicated or misplaced."
-        }
-        _ => "The SMILES could not be parsed under the supported basic profile.",
-    }
+    smiles::syntax_message(code)
 }
 
 /// Apply the existing bounded valence policy without treating its warnings as a correction.
@@ -1209,7 +1173,9 @@ fn smiles_valence_warnings(
 
 fn smiles_write_error(error: smiles::WriteError) -> (Outcome, &'static str, &'static str) {
     match error {
-        smiles::WriteError::RingLimit => (Outcome::Error, "smiles_write_limit", error.code()),
+        smiles::WriteError::RingLimit | smiles::WriteError::BranchLimit => {
+            (Outcome::Error, "smiles_write_limit", error.code())
+        }
         smiles::WriteError::InvalidGraph => (Outcome::Error, "invalid_graph", error.code()),
         smiles::WriteError::UnsupportedAtom
         | smiles::WriteError::UnsupportedBond

@@ -425,3 +425,20 @@ fn undetermined_radical_wording_is_honest_about_the_valence_model() {
     assert!(!reason.contains("incomplete shell"), "{reason}");
     assert!(reason.contains("chemifree-valence-2"), "{reason}");
 }
+
+#[test]
+fn whitespace_only_or_leading_whitespace_is_a_syntax_diagnostic_not_a_crash() {
+    let (_directory, app, id) = new_app();
+    for source in [" C", " ", "\nC", "\t\t"] {
+        let report = preview(&app, &id, source);
+        assert_eq!(
+            report["diagnostics"][0]["code"], "leading_whitespace",
+            "{source:?}: {report}"
+        );
+        assert_eq!(report["diagnostics"][0]["details"]["start_byte"], 0);
+        assert!(report["result"].is_null());
+    }
+    // A zero charge is part of the OpenSMILES charge grammar.
+    let report = preview(&app, &id, "[N+0]");
+    assert_eq!(report["result"]["atoms"], 1, "{report}");
+}

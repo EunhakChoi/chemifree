@@ -195,7 +195,6 @@ fn malformed_syntax_names_its_input_span_and_never_returns_partial_graph() {
         ("C/C", "stereo_unsupported", 1, 2),
         ("C*", "query_unsupported", 1, 2),
         ("Cé", "expected_element", 1, 3),
-        ("[N+0]", "invalid_charge", 0, 4),
     ] {
         let error = parse(input).unwrap_err();
         assert_eq!(

@@ -222,3 +222,117 @@ fn recorded_writer_resolves_a_charged_aromatic_atom_through_its_kekule_form() {
     assert_eq!(text, "[n+]1(ccccc1)C");
     assert_eq!(shape(&text).1.len(), 7);
 }
+
+#[test]
+fn leading_whitespace_is_a_positioned_error_not_a_panic() {
+    for (input, end) in [(" C", 1), (" ", 1), ("\nC", 1), ("\t\t", 2), (" \r\nC", 3)] {
+        let error = parse(input).unwrap_err();
+        assert_eq!(
+            (error.code, error.start, error.end),
+            ("leading_whitespace", 0, end),
+            "{input:?}"
+        );
+    }
+}
+
+#[test]
+fn zero_charge_is_accepted_per_the_opensmiles_charge_grammar() {
+    // charge ::= '-' DIGIT? DIGIT | '+' DIGIT? DIGIT | ... so `+0` and `-0` are legal.
+    for input in ["[N+0]", "[Fe-0]", "[CH4+0]"] {
+        let graph = parse(input).unwrap_or_else(|e| panic!("{input}: {e:?}"));
+        assert_eq!(graph.atoms[0].atom.charge, 0, "{input}");
+    }
+    assert_eq!(parse("[N+00]").unwrap().atoms[0].atom.charge, 0);
+}
+
+#[test]
+fn a_ring_digit_directly_after_an_open_parenthesis_names_the_missing_atom() {
+    let error = parse("C(1)CC1").unwrap_err();
+    assert_eq!(
+        (error.code, error.start, error.end),
+        ("ring_without_atom", 2, 3)
+    );
+}
+
+#[test]
+fn unsupported_aromatic_system_is_reported_before_atom_limitations() {
+    let mut cation = element("N");
+    cation.charge = 1;
+    let atoms = vec![cation, element("C"), element("C"), element("C")];
+    let edges: Vec<_> = (0..4)
+        .map(|i| (i, (i + 1) % 4, BondOrder::Aromatic))
+        .collect();
+    assert_eq!(
+        smiles::write_recorded(&molecule(atoms, &edges)),
+        Err(smiles::WriteError::UnsupportedAromaticity)
+    );
+}
+
+#[test]
+fn kekule_written_pyrrole_and_imidazole_match_their_aromatic_spellings() {
+    for (kekule, aromatic) in [
+        ("N1C=CC=C1", "[nH]1cccc1"),
+        ("C1=CNC=C1", "[nH]1cccc1"),
+        ("[NH]1C=CC=C1", "c1cc[nH]c1"),
+        ("N1C=CN=C1", "c1c[nH]cn1"),
+        ("C1=CN=CN1", "c1c[nH]cn1"),
+    ] {
+        assert_eq!(
+            canonical(kekule),
+            canonical(aromatic),
+            "{kekule} vs {aromatic}"
+        );
+    }
+    // A pyridine-type N written aromatic without hydrogens is unchanged.
+    assert_eq!(canonical("N1=CC=CC=C1"), canonical("n1ccccc1"));
+}
+
+#[test]
+fn partly_saturated_fused_systems_are_refused_not_classified_by_their_spelling() {
+    use chemifree_domain::aromaticity::{self, Classification};
+    let classes = |input: &str| {
+        let source = parse(input).unwrap();
+        let atoms = source.atoms.iter().map(|a| a.atom.clone()).collect();
+        let edges: Vec<_> = source
+            .bonds
+            .iter()
+            .map(|b| (b.begin, b.end, b.order.clone()))
+            .collect();
+        aromaticity::perceive(&molecule(atoms, &edges))
+            .systems
+            .iter()
+            .map(|s| s.classification)
+            .collect::<Vec<_>>()
+    };
+    for input in [
+        "C1CC2=CC=CC=C2C1",
+        "C1CC2=C(C1)C=CC=C2",
+        "C1CCC2=CC=CC=C2C1",
+        "C1=CC=C2C(=C1)CC1=CC=CC=C12",
+        "CC1(C)CC2=CC=CC=C12",
+        "C1=CC2CCC1C2",
+    ] {
+        assert_eq!(classes(input), [Classification::Unsupported], "{input}");
+        let source = parse(input).unwrap();
+        let atoms = source.atoms.iter().map(|a| a.atom.clone()).collect();
+        let edges: Vec<_> = source
+            .bonds
+            .iter()
+            .map(|b| (b.begin, b.end, b.order.clone()))
+            .collect();
+        assert!(
+            smiles::write_canonical(&molecule(atoms, &edges)).is_err(),
+            "{input} must be refused, not given a spelling-dependent string"
+        );
+    }
+    // Fused or bridged systems with only single ring bonds stay non-aromatic.
+    for input in ["C1CC2CCC1C2", "C1CCC2CCCCC2C1", "C1CC12CC2"] {
+        assert!(
+            classes(input)
+                .iter()
+                .all(|class| *class == Classification::NonAromatic),
+            "{input}"
+        );
+        assert!(!canonical(input).is_empty());
+    }
+}

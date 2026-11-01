@@ -39,6 +39,146 @@ pub struct SmilesGraph {
     pub ignored: Option<(usize, usize)>,
 }
 
+/// Every syntax-error code the parser can return with the message shown to a user. A test
+/// reaches each code, so the table cannot list a code the parser never emits.
+pub const SYNTAX_ERRORS: &[(&str, &str)] = &[
+    ("empty_input", "Enter a SMILES string."),
+    (
+        "leading_whitespace",
+        "Remove the whitespace before the SMILES; a SMILES cannot begin with whitespace.",
+    ),
+    (
+        "input_limit",
+        "The SMILES exceeds a supported size or nesting limit.",
+    ),
+    (
+        "atom_limit",
+        "The SMILES exceeds a supported size or nesting limit.",
+    ),
+    (
+        "bond_limit",
+        "The SMILES exceeds a supported size or nesting limit.",
+    ),
+    (
+        "branch_limit",
+        "The SMILES exceeds a supported size or nesting limit.",
+    ),
+    (
+        "command_limit",
+        "This import exceeds the atomic transaction command limit.",
+    ),
+    ("expected_element", "Expected an atom or element symbol."),
+    ("expected_atom", "Expected an atom or element symbol."),
+    ("unknown_element", "The element symbol is not recognized."),
+    (
+        "brackets_required",
+        "This element requires brackets in SMILES.",
+    ),
+    (
+        "invalid_bracket_atom",
+        "The bracket atom is invalid or incomplete.",
+    ),
+    (
+        "isotope_out_of_range",
+        "The isotope mass number is outside the supported range.",
+    ),
+    (
+        "hydrogens_out_of_range",
+        "The hydrogen count is outside the supported range.",
+    ),
+    (
+        "hydrogen_count_on_hydrogen",
+        "A hydrogen atom cannot have its own hydrogen count.",
+    ),
+    (
+        "charge_out_of_range",
+        "The charge is invalid or outside the supported range.",
+    ),
+    (
+        "stereo_unsupported",
+        "SMILES stereochemistry is not supported yet.",
+    ),
+    (
+        "query_unsupported",
+        "SMILES query extensions are not supported.",
+    ),
+    (
+        "invalid_aromatic_bond",
+        "The aromatic atoms and bonds cannot be interpreted by the supported model.",
+    ),
+    (
+        "aromaticity_outside_model",
+        "The aromatic atoms and bonds cannot be interpreted by the supported model.",
+    ),
+    (
+        "invalid_ring_number",
+        "The ring label or its bond is invalid or unclosed.",
+    ),
+    (
+        "ring_without_atom",
+        "The ring label or its bond is invalid or unclosed.",
+    ),
+    (
+        "ring_bond_conflict",
+        "The ring label or its bond is invalid or unclosed.",
+    ),
+    (
+        "unclosed_ring",
+        "The ring label or its bond is invalid or unclosed.",
+    ),
+    (
+        "ring_after_branch",
+        "A ring-closure digit must directly follow its atom, before any branch.",
+    ),
+    (
+        "unexpected_branch_end",
+        "A branch is empty, incomplete or misplaced.",
+    ),
+    (
+        "branch_without_atom",
+        "A branch is empty, incomplete or misplaced.",
+    ),
+    (
+        "empty_or_incomplete_branch",
+        "A branch is empty, incomplete or misplaced.",
+    ),
+    (
+        "unclosed_branch",
+        "A branch is empty, incomplete or misplaced.",
+    ),
+    (
+        "unexpected_dot",
+        "A disconnected-component separator is misplaced.",
+    ),
+    (
+        "trailing_dot",
+        "A disconnected-component separator is misplaced.",
+    ),
+    (
+        "unexpected_bond",
+        "A bond is incomplete, duplicated or misplaced.",
+    ),
+    (
+        "trailing_bond",
+        "A bond is incomplete, duplicated or misplaced.",
+    ),
+    (
+        "duplicate_or_self_bond",
+        "A bond is incomplete, duplicated or misplaced.",
+    ),
+];
+
+/// The user-facing message for a syntax-error code.
+pub fn syntax_message(code: &str) -> &'static str {
+    SYNTAX_ERRORS
+        .iter()
+        .find(|(known, _)| *known == code)
+        .map_or(
+            "The SMILES could not be parsed under the supported basic profile.",
+            |(_, message)| message,
+        )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SyntaxError {
     pub code: &'static str,
@@ -207,10 +347,8 @@ impl Parser<'_> {
             }
             if let Some(sign @ (b'+' | b'-')) = self.bytes.get(self.position).copied() {
                 self.position += 1;
+                // OpenSMILES charge ::= '+' DIGIT? DIGIT, so `+0` and `-0` are valid zero charges.
                 let digits = self.number();
-                if digits == Some(0) {
-                    return Err(self.error("invalid_charge", start, self.position));
-                }
                 let mut magnitude = digits.unwrap_or(1);
                 if digits.is_none() {
                     while self.bytes.get(self.position) == Some(&sign) {
@@ -295,7 +433,8 @@ impl Parser<'_> {
             .last()
             .is_some_and(|b| b.atom_count == self.graph.atoms.len())
         {
-            return Err(self.error("empty_branch", start, start + 1));
+            // A ring-closure digit belongs to an atom, and this branch has none yet.
+            return Err(self.error("ring_without_atom", start, start + 1));
         }
         let label = if self.bytes[start] == b'%' {
             if self
@@ -375,6 +514,11 @@ pub fn parse_with_command_limit(
     }
     if text.len() > MAX_SMILES_BYTES {
         return Err(p.error("input_limit", MAX_SMILES_BYTES, text.len()));
+    }
+    if end == 0 {
+        // OpenSMILES allows no whitespace before the SMILES; the whole input would be ignored.
+        let run = text.bytes().take_while(u8::is_ascii_whitespace).count();
+        return Err(p.error("leading_whitespace", 0, run));
     }
     while p.position < p.bytes.len() {
         let start = p.position;
@@ -470,7 +614,7 @@ pub fn parse_with_command_limit(
         return Err(p.error("trailing_bond", start, p.position));
     }
     if p.current.is_none() {
-        return Err(p.error("trailing_dot", p.position - 1, p.position));
+        return Err(p.error("trailing_dot", p.position.saturating_sub(1), p.position));
     }
     resolve_implicit_aromatic_bonds(&mut p.graph, &p.implicit_aromatic);
     mark_uncertain_bracket_radicals(&mut p.graph);
@@ -673,6 +817,8 @@ pub enum WriteError {
     UnsupportedAtom,
     UnsupportedBond,
     UnsupportedAromaticity,
+    /// The text would nest branches deeper than this reader accepts.
+    BranchLimit,
     /// A bracket atom needs an explicit hydrogen count that the bounded valence model cannot
     /// determine from the recorded bonds, so writing it could change its meaning.
     HydrogensUndetermined,
@@ -686,6 +832,7 @@ impl WriteError {
             Self::UnsupportedAtom => "unsupported_atom",
             Self::UnsupportedBond => "unsupported_bond",
             Self::UnsupportedAromaticity => "unsupported_aromaticity",
+            Self::BranchLimit => "branch_limit",
             Self::HydrogensUndetermined => "hydrogens_undetermined",
             Self::RingLimit => "ring_limit",
         }
@@ -907,11 +1054,6 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     if unique.len() != n || unique.iter().copied().ne(0..n) {
         return Err(WriteError::InvalidGraph);
     }
-    let atom_texts = graph
-        .atoms
-        .iter()
-        .map(atom_text)
-        .collect::<Result<Vec<_>, _>>()?;
     let mut rank = vec![0; n];
     for (i, &v) in order.iter().enumerate() {
         rank[v] = i;
@@ -933,9 +1075,16 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     for edges in &mut adjacency {
         edges.sort_by_key(|(v, _)| rank[*v]);
     }
+    // Report an unsupported aromatic system before any per-atom limitation, so the reason
+    // given is the real one. Endpoints are validated above.
     if aromatic_problem(graph).is_some() {
         return Err(WriteError::UnsupportedAromaticity);
     }
+    let atom_texts = graph
+        .atoms
+        .iter()
+        .map(atom_text)
+        .collect::<Result<Vec<_>, _>>()?;
     // Brackets suppress ordinary implicit hydrogen in SMILES. A recorded closed-shell
     // atom whose stated bonds and H do not prove that shell would acquire an unknown
     // radical state on reading; refuse that semantic change rather than emitting it.
@@ -999,6 +1148,7 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
     let mut out = String::new();
     let mut free_labels: BTreeSet<u8> = (0..100).collect();
     let mut open_labels = BTreeMap::<usize, u8>::new();
+    let mut depth = 0_usize;
     for (root_index, root) in roots.into_iter().enumerate() {
         if root_index > 0 {
             out.push('.');
@@ -1006,8 +1156,18 @@ pub fn write(graph: &SmilesGraph, order: &[usize]) -> Result<String, WriteError>
         let mut stack = vec![Emit::Visit(root)];
         while let Some(event) = stack.pop() {
             match event {
-                Emit::Open => out.push('('),
-                Emit::Close => out.push(')'),
+                Emit::Open => {
+                    depth += 1;
+                    if depth > MAX_BRANCH_DEPTH {
+                        // The reader refuses this nesting, so the text would not read back.
+                        return Err(WriteError::BranchLimit);
+                    }
+                    out.push('(');
+                }
+                Emit::Close => {
+                    depth -= 1;
+                    out.push(')');
+                }
                 Emit::Bond(edge) => out.push_str(bond_text(graph, edge)?),
                 Emit::Visit(v) => {
                     out.push_str(&atom_texts[v]);
