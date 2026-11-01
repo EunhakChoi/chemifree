@@ -401,18 +401,25 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-05.smiles-connectivity",
+          "summary": "SMILES connectivity (branches, rings, components, isotopes, charges, hydrogens, aromatic atoms) is read with positioned errors and written in recorded and Chemifree-specific canonical order; spelling and chemical equality are separate from toolkit string equality, and losses are reported. Stereo, query and reaction SMILES are not implemented.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/smiles.rs", "crates/application/src/smiles.rs", "crates/application/src/smiles_projection.rs", "crates/application/src/operations/smiles.rs"],
+          "evidence": ["case:smiles-connectivity", "check:check:rust", "check:test:contracts"],
+          "followups": []
+        },
+        {
           "id": "CODEC-05.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "InChI, stereochemical, query and reaction line notations are not implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
             "P18",
-            "P21",
             "P29",
             "P30",
             "P48",
@@ -461,6 +468,14 @@
           "followups": []
         },
         {
+          "id": "CODEC-06.smiles-policy",
+          "summary": "For SMILES, stereo, query, reaction, atom-map and unusual bond syntax is refused with a byte position, text after the terminator is reported as an ignored loss, and writes refuse unrepresentable chemistry with a reason.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/smiles.rs", "crates/application/src/smiles_projection.rs"],
+          "evidence": ["case:smiles-connectivity", "check:check:rust"],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
           "summary": "Advanced unknown and unsupported objects across formats remain open.",
           "status": "not_implemented",
@@ -469,7 +484,6 @@
           "evidence": [],
           "followups": [
             "P20",
-            "P21",
             "P22",
             "P23",
             "P33",

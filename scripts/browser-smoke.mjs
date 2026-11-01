@@ -2848,6 +2848,54 @@ step = 'after short_wide_bond_is_selectable'
   results.ctfile_preview_import_export = true
 }
 
+// SMILES is previewed with its losses, appended after consent, and written without editing.
+// A write describes the drawing content, so selecting an atom keeps it and an edit hides it.
+{
+  step = 'SMILES preview, import, write and staleness'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-create', title: 'SMILES browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  const input = panel.getByLabel('SMILES text')
+  await input.fill('CC(')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByText(/Position 2-3 \(UTF-8 bytes\)\. Reason: unclosed_branch\./).waitFor()
+  await input.fill('F/C=C/F')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByText(/Reason: stereo_unsupported/).waitFor()
+  await input.fill('OC(=O)C  acetic acid')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByText('4 atoms, 3 bonds will be appended.', { exact: true }).waitFor()
+  await panel.getByText(/Text after the first whitespace/).waitFor()
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
+  await input.fill('OC(=O)C  acetic acid.')
+  await panel.getByText('The drawing or text changed. Preview the import again.', { exact: true }).waitFor()
+  await input.fill('OC(=O)C  acetic acid')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(imported.document.atoms.map((atom) => atom.element), ['O', 'C', 'O', 'C'])
+  await panel.getByRole('button', { name: 'Write canonical SMILES' }).click()
+  await panel.getByTestId('smiles-output').getByText('C(C)(=O)O', { exact: true }).waitFor()
+  await panel.getByText(/canonical by chemifree-smiles-canonical 1 \(model chemifree-smiles-canonical-1\)\./).waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, imported.document, 'writing leaves the drawing unchanged')
+  // Selecting an atom changes only the selection: the written text stays valid.
+  await tool('Select and move')
+  const point = await atomScreen(imported, 'a1')
+  await page.mouse.click(point.x, point.y)
+  await waitIdle()
+  await panel.getByTestId('smiles-output').getByText('C(C)(=O)O', { exact: true }).waitFor()
+  // An edit changes the content: the earlier text is hidden.
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await panel.getByText('The drawing changed. Write the SMILES again.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('smiles-output').count(), 0, 'an edit hides the earlier SMILES')
+  await panel.getByRole('button', { name: 'Write recorded SMILES' }).click()
+  await panel.getByTestId('smiles-output').getByText('[OH2+]C(=O)C', { exact: true }).waitFor()
+  results.smiles_preview_import_write = true
+}
+
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {
   const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })

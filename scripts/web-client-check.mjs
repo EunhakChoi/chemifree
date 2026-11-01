@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, sameDrawingContent, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -40,6 +40,27 @@ test('an inspection is stale when another graph replaces the same ID and revisio
   assert.equal(sameInspectionSnapshot({ ...carbon, bonds: [{ id: 'b1', order: 'double' }] }, carbon), false)
   assert.equal(sameInspectionSnapshot({ ...carbon, revision: 2 }, carbon), false)
 })
+test('drawing content ignores selection and revision but not the graph', () => {
+  const atom = { id: 'a1', element: 'C', charge: 0, isotope: null, radical: 'none', hydrogens: { mode: 'inferred' } }
+  const base = { ...document('d', 1).document, atoms: [atom], selection: { atoms: [], bonds: [], objects: [] } }
+  const selected = { ...base, revision: 1, selection: { atoms: ['a1'], bonds: [], objects: [] } }
+  assert.equal(sameDrawingContent(base, selected), true, 'a selection-only difference is the same drawing')
+  assert.equal(sameConversionSnapshot(base, selected), false, 'a conversion preview binds the selection')
+  assert.equal(sameDrawingContent({ ...base, atoms: [{ ...atom, charge: 1 }] }, base), false)
+  assert.equal(sameDrawingContent({ ...base, title: 'Other' }, base), false)
+})
+
+test('a SMILES syntax error reports its byte position and reason', async () => {
+  const diagnostic = { code: 'invalid_smiles', message: 'An opening parenthesis is never closed.',
+    details: { reason: 'unclosed_branch', start: 2, end: 3, text: '(' } }
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', diagnostics: [diagnostic], loss_report: [], result: null })] })
+  await assert.rejects(new DocumentClient().previewSmiles('doc-1', 0, 'CC('), (failure) => {
+    assert.equal(failure.code, 'invalid_smiles')
+    assert.match(failure.message, /Position 2-3 \(UTF-8 bytes\)\. Reason: unclosed_branch\./)
+    return true
+  })
+})
+
 const lost = () => {
   throw new TypeError('fetch failed')
 }

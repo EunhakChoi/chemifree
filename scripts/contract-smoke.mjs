@@ -1049,7 +1049,36 @@ try {
     assert.equal(importedFormula.result.components[0].formula, 'C2H8', 'formula inspection sees the imported graph')
     const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
     assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
-    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
+    // SMILES uses the same preview, consent and snapshot-bound write through both adapters.
+    const smilesPreview = (id) => request('op-smiles-preview', 'document.import', {
+      document_id: id, expected_revision: 2, format: 'smiles', source: 'CC(=O)O', preview: true,
+    })
+    const httpSmilesPreview = (await viaHttp(smilesPreview(httpDoc))).body
+    const cliSmilesPreview = await viaCli(smilesPreview(cliDoc))
+    assert.equal(httpSmilesPreview.outcome, 'partial')
+    assert.equal(httpSmilesPreview.model_id, 'chemifree-smiles-1')
+    assert.ok(httpSmilesPreview.loss_report.some((loss) => loss.feature === 'generated_coordinates'))
+    assert.deepEqual(httpSmilesPreview.loss_report, cliSmilesPreview.loss_report)
+    const smilesCommit = (id, digest) => request('op-smiles-import', 'document.import', {
+      document_id: id, expected_revision: 2, format: 'smiles', source: 'CC(=O)O',
+      preview_digest: digest, accept_loss: true,
+    })
+    const httpSmiles = (await viaHttp(smilesCommit(httpDoc, httpSmilesPreview.result.preview_digest))).body
+    const cliSmiles = await viaCli(smilesCommit(cliDoc, cliSmilesPreview.result.preview_digest))
+    assert.equal(httpSmiles.document_revision, 3)
+    assert.deepEqual(httpSmiles.result.import_mapping, cliSmiles.result.import_mapping)
+    const smilesWrite = (id) => request('op-smiles-write', 'document.export', { document_id: id, format: 'smiles', mode: 'recorded' })
+    const httpWritten = (await viaHttp(smilesWrite(httpDoc))).body
+    const cliWritten = await viaCli(smilesWrite(cliDoc))
+    assert.equal(httpWritten.document_revision, 3)
+    assert.equal(httpWritten.result.snapshot.document.revision, 3)
+    assert.equal(httpWritten.result.smiles, cliWritten.result.smiles)
+    assert.equal(httpWritten.model_id, 'chemifree-smiles-1')
+    const stereo = (await viaHttp(request('op-smiles-stereo', 'document.import', {
+      document_id: httpDoc, expected_revision: 3, format: 'smiles', source: 'F/C=C/F', preview: true,
+    }))).body
+    assert.deepEqual([stereo.outcome, stereo.diagnostics[0].details.reason], ['unsupported', 'stereo_unsupported'])
+    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 3 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
