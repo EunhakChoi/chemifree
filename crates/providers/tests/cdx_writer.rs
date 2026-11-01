@@ -872,3 +872,45 @@ fn consent_is_marked_by_the_writer_on_the_losses_that_change_content() {
         ]
     );
 }
+
+#[test]
+fn reserved_header_bytes_of_the_original_are_kept_when_the_file_is_rewritten() {
+    let mut original = rich_file();
+    for byte in &mut original[8..28] {
+        *byte = 0xa5;
+    }
+    let read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdx, &original)
+        .unwrap();
+    // Unchanged: the original bytes come back.
+    assert_eq!(
+        cdx_of(&read.document, Some(&original), false)
+            .unwrap()
+            .bytes,
+        original
+    );
+    // Edited: the tree is rewritten, but the reserved bytes are not silently normalized.
+    let mut edited = read.document.clone();
+    edited
+        .edit(|root| {
+            let Content::Object(page) = root
+                .children
+                .iter_mut()
+                .find_map(|c| match c {
+                    Content::Object(o) if o.kind == ObjectKind::Page => Some(c),
+                    _ => None,
+                })
+                .unwrap()
+            else {
+                panic!()
+            };
+            page.id = Some(8);
+        })
+        .unwrap();
+    let rewritten = cdx_of(&edited, Some(&original), false).unwrap();
+    assert_eq!(&rewritten.bytes[8..28], &original[8..28]);
+    assert_ne!(rewritten.bytes, original);
+    // Without an original there is nothing to keep: the documented values are written.
+    let fresh = cdx_of(&edited, None, false).unwrap();
+    assert_eq!(&fresh.bytes[..28], &HEADER);
+}

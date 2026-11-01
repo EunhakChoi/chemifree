@@ -36,26 +36,7 @@ const SIZE_BOUND: f64 = 0.5 / 20.0;
 /// Refuses opaque content (see the shared opaque policy), values outside the binary format's
 /// range, text it cannot encode exactly, and trees the format cannot express.
 pub fn write(document: &Document, original: Option<&CdxDocument>) -> Result<CdxWrite, CdxError> {
-    let mut writer = Writer {
-        out: Vec::new(),
-        original,
-        stack: Vec::new(),
-        precision: [
-            Precision::default(),
-            Precision::default(),
-            Precision::default(),
-        ],
-        dropped_namespace: false,
-        xml_content: Counted::default(),
-        represents: Counted::default(),
-        style_defaults: Counted::default(),
-        child_order: Counted::default(),
-        platform_unknown: Counted::default(),
-        dropped_ids: Counted::default(),
-    };
-    writer.out.extend_from_slice(MAGIC);
-    writer.out.extend_from_slice(&RESERVED_PREFIX);
-    writer.out.extend_from_slice(&[0; HEADER_LEN - 12]);
+    let mut writer = Writer::new(original);
     writer.check_dropped_ids(document.root())?;
     writer.object(document.root())?;
     writer.out.extend_from_slice(&[0, 0]);
@@ -155,6 +136,35 @@ fn object_tag(kind: &ObjectKind) -> Option<u16> {
 
 fn is_xml_space(text: &str) -> bool {
     text.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+}
+
+impl<'a> Writer<'a> {
+    /// Starts a file with its header. The reserved bytes of the original are kept; without an
+    /// original they are the values the specification shows.
+    fn new(original: Option<&'a CdxDocument>) -> Self {
+        let mut out = Vec::new();
+        out.extend_from_slice(MAGIC);
+        match original {
+            Some(original) => out.extend_from_slice(original.reserved_header_bytes()),
+            None => {
+                out.extend_from_slice(&RESERVED_PREFIX);
+                out.extend_from_slice(&[0; HEADER_LEN - 12]);
+            }
+        }
+        Self {
+            out,
+            original,
+            stack: Vec::new(),
+            precision: Default::default(),
+            dropped_namespace: false,
+            xml_content: Counted::default(),
+            represents: Counted::default(),
+            style_defaults: Counted::default(),
+            child_order: Counted::default(),
+            platform_unknown: Counted::default(),
+            dropped_ids: Counted::default(),
+        }
+    }
 }
 
 impl Writer<'_> {
@@ -293,16 +303,12 @@ impl Writer<'_> {
             ObjectKind::Graphic => self.represents(object)?,
             _ => (),
         }
+        self.note_markup(object);
         for child in &object.children {
-            match child {
-                Content::Object(child) if object_tag_is_object(&child.kind) => {
-                    self.object(child)?;
-                }
-                Content::Object(_) => (),
-                Content::Text(text) if is_xml_space(text) => (),
-                Content::Text(_) | Content::Comment(_) | Content::ProcessingInstruction { .. } => {
-                    self.xml_content.note(|| self.stack.join("/"));
-                }
+            if let Content::Object(child) = child
+                && object_tag_is_object(&child.kind)
+            {
+                self.object(child)?;
             }
         }
         self.out.extend_from_slice(&[0, 0]);
@@ -896,21 +902,13 @@ mod tests {
 
     #[test]
     fn extended_length_is_used_exactly_from_0xffff() {
-        let mut writer = Writer {
-            out: Vec::new(),
-            original: None,
-            stack: Vec::new(),
-            precision: Default::default(),
-            dropped_namespace: false,
-            xml_content: Counted::default(),
-            represents: Counted::default(),
-            style_defaults: Counted::default(),
-            child_order: Counted::default(),
-            platform_unknown: Counted::default(),
-            dropped_ids: Counted::default(),
-        };
+        let mut writer = Writer::new(None);
+        let header = writer.out.len();
         writer.property_bytes(0x1234, &vec![7; 0xfffe]).unwrap();
-        assert_eq!(&writer.out[2..4], &0xfffe_u16.to_le_bytes());
+        assert_eq!(
+            &writer.out[header + 2..header + 4],
+            &0xfffe_u16.to_le_bytes()
+        );
         let first = writer.out.len();
         writer.property_bytes(0x1234, &vec![7; 0xffff]).unwrap();
         assert_eq!(&writer.out[first + 2..first + 4], &[0xff, 0xff]);

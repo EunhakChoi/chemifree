@@ -35,6 +35,8 @@ pub(super) struct RawFile {
     pub root: RawObject,
     /// Objects found in the file; the model's own limit also counts objects made later.
     pub objects: usize,
+    /// Header bytes 8 to 28, kept as found.
+    pub reserved: [u8; HEADER_LEN - 8],
 }
 
 struct Cursor<'a> {
@@ -128,7 +130,13 @@ pub(super) fn parse(bytes: &[u8]) -> Result<RawFile, CdxError> {
             "Bytes follow the end-of-file marker.",
         ));
     }
-    Ok(RawFile { root, objects })
+    let mut reserved = [0; HEADER_LEN - 8];
+    reserved.copy_from_slice(&bytes[8..HEADER_LEN]);
+    Ok(RawFile {
+        root,
+        objects,
+        reserved,
+    })
 }
 
 fn parse_object(

@@ -9,7 +9,7 @@ use chemifree_domain::interchange::{
 
 use super::raw::{self, RawItem, RawObject, RawProperty};
 use super::text::{self, DecodedString, FontInfo};
-use super::{CdxError, REPRESENTED_ATTRIBUTES, tag};
+use super::{CdxError, HEADER_LEN, REPRESENTED_ATTRIBUTES, tag};
 
 /// A decoded CDX file.
 #[derive(Clone, Debug, PartialEq)]
@@ -18,9 +18,17 @@ pub struct CdxDocument {
     /// The platform each font table was written for, in file order. The common model has no
     /// platform field, so the writer consults this to know whether it may keep the platform.
     font_platforms: Vec<u16>,
+    /// Header bytes 8 to 28 as found. The specification gives their usual values but does
+    /// not make others an error, so they are not interpreted, only kept for a rewrite.
+    reserved: [u8; HEADER_LEN - 8],
 }
 
 impl CdxDocument {
+    /// The reserved header bytes of the source file.
+    pub fn reserved_header_bytes(&self) -> &[u8; HEADER_LEN - 8] {
+        &self.reserved
+    }
+
     /// The decoded tree.
     pub fn document(&self) -> &Document {
         &self.document
@@ -63,6 +71,7 @@ pub fn read(bytes: &[u8]) -> Result<CdxDocument, CdxError> {
     Ok(CdxDocument {
         document,
         font_platforms: builder.font_platforms,
+        reserved: file.reserved,
     })
 }
 
@@ -266,18 +275,7 @@ impl<'a> Builder<'a> {
                             ),
                         ));
                     }
-                    let child = self.object(child_raw, opaque)?;
-                    if !kind.may_contain(&child.kind) {
-                        return Err(CdxError::at(
-                            "invalid_containment",
-                            child_raw.offset,
-                            format!(
-                                "Object 0x{:04x} cannot be inside object 0x{:04x}.",
-                                child_raw.tag, raw.tag
-                            ),
-                        ));
-                    }
-                    children.push(Content::Object(child));
+                    children.push(Content::Object(self.object(child_raw, opaque)?));
                 }
             }
         }
