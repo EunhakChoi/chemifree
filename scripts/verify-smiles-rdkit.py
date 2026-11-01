@@ -124,7 +124,9 @@ REFUSED = (
     Fixture("[C", "unclosed_bracket_atom", offset=0, rdkit="reject"),
     Fixture("[C+9]", "charge_beyond_drawing_range", offset=2, rdkit="any"),
     Fixture("[C+16]", "charge_out_of_range", offset=2, rdkit="any"),
-    Fixture("C%(12)C", "extended_ring_label_unsupported", offset=1, rdkit="any"),
+    Fixture(
+        "C%(12)C", "extended_ring_label_unsupported", offset=1, rdkit="any"
+    ),
     Fixture("c", "aromatic_atom_outside_ring", offset=0, rdkit="reject"),
     Fixture("c:c", "aromatic_bond_outside_ring", offset=1, rdkit="reject"),
     # Valid SMILES that Chemifree does not implement.
