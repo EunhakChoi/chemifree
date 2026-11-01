@@ -1108,8 +1108,8 @@ try {
     assert.equal(exitStatus, 0)
     assert.deepEqual(replies, [], 'one reply per request')
     const storedImport = cli('documents', 'show', cliDoc, '--json').body.document
-    assert.equal(storedImport.revision, 2, 'the CLI process saved the imported revision')
-    assert.deepEqual(storedImport.atoms, cliImport.result.document.atoms, 'the CLI saved both the original and imported atoms')
+    assert.equal(storedImport.revision, 3, 'the CLI process saved the imported revision')
+    assert.deepEqual(storedImport.atoms, cliSmiles.result.document.atoms, 'the CLI saved the original, MOL-imported and SMILES-imported atoms')
 
     // The HTTP adapter keeps the write guards, and answers what it cannot read in the envelope.
     const unguarded = await viaHttp(request('op-guard', 'document.create', {}), {})
