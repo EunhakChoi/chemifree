@@ -278,7 +278,7 @@ fn several_font_tables_each_need_a_known_platform() {
         ],
     );
     let read = cdx::read(&two).unwrap();
-    assert_eq!(read.font_tables().len(), 2);
+    assert_eq!(read.font_table_count(), 2);
     let output = cdx::write(read.document(), Some(&read)).unwrap();
     assert_eq!(
         features(&output.losses),
@@ -787,4 +787,88 @@ fn a_reference_to_an_id_that_cannot_be_written_is_refused() {
     );
     let error = cdx_of(&from_cdxml(&text), None, false).unwrap_err();
     assert!(error.starts_with("unsupported_object_id"), "{error}");
+}
+
+#[test]
+fn markup_inside_property_backed_objects_is_reported_as_dropped_content() {
+    let plain = from_cdxml(&format!(
+        "<CDXML><colortable><color r=\"1\" g=\"1\" b=\"1\"/></colortable>{FONT}<page id=\"1\"><graphic id=\"2\" GraphicType=\"Line\" BoundingBox=\"0 0 1 1\"><represent object=\"1\" attribute=\"Charge\"/></graphic></page></CDXML>"
+    ));
+    let clean = cdx_of(&plain, None, false).unwrap();
+    assert!(
+        clean
+            .loss_report
+            .iter()
+            .all(|loss| loss.feature != "xml_content")
+    );
+    for (label, text) in [
+        (
+            "font table comment",
+            "<CDXML><fonttable><!--c--><font id=\"3\" charset=\"iso-8859-1\" name=\"Arial\"/></fonttable><page id=\"1\"/></CDXML>",
+        ),
+        (
+            "font text",
+            "<CDXML><fonttable><font id=\"3\" charset=\"iso-8859-1\" name=\"Arial\">note</font></fonttable><page id=\"1\"/></CDXML>",
+        ),
+        (
+            "color table instruction",
+            "<CDXML><colortable><?pi x?><color r=\"1\" g=\"1\" b=\"1\"/></colortable><page id=\"1\"/></CDXML>",
+        ),
+        (
+            "color comment",
+            "<CDXML><colortable><color r=\"1\" g=\"1\" b=\"1\"><!--c--></color></colortable><page id=\"1\"/></CDXML>",
+        ),
+        (
+            "represent text",
+            "<CDXML><page id=\"1\"><graphic id=\"2\" GraphicType=\"Line\" BoundingBox=\"0 0 1 1\"><represent object=\"1\" attribute=\"Charge\">x</represent></graphic></page></CDXML>",
+        ),
+    ] {
+        let output = cdx_of(&from_cdxml(text), None, false).unwrap();
+        let dropped = output
+            .loss_report
+            .iter()
+            .find(|loss| loss.feature == "xml_content");
+        let dropped = dropped.unwrap_or_else(|| panic!("{label}: {:?}", output.loss_report));
+        assert_eq!(dropped.disposition, LossDisposition::Dropped, "{label}");
+    }
+}
+
+#[test]
+fn a_text_object_always_has_a_style_run_so_an_unstyled_string_is_never_invented() {
+    // The model refuses a Text without a run, so the writer never sees one; the reader in
+    // turn gives an unstyled string exactly one bare run, and the pair round-trips.
+    let empty = LocalInterchangeCodec.read(
+        InterchangeFormat::Cdxml,
+        b"<CDXML><page id=\"1\"><t id=\"2\"/></page></CDXML>",
+    );
+    assert!(empty.is_err());
+    let bare = from_cdxml("<CDXML><page id=\"1\"><t id=\"2\"><s/></t></page></CDXML>");
+    let bytes = cdx_of(&bare, None, false).unwrap();
+    assert!(bytes.loss_report.is_empty());
+    assert_eq!(reread(&bytes.bytes), bare);
+}
+
+#[test]
+fn consent_is_marked_by_the_writer_on_the_losses_that_change_content() {
+    use chemifree_application::LossConsent::{NotRequired, Required};
+    let document = from_cdxml(&format!(
+        "<CDXML xmlns=\"urn:example:cdxml\">{FONT}<page id=\"1\"><!--note--><fragment id=\"2\"><n id=\"3\" p=\"0.1 2\"/></fragment><t id=\"4\"><s font=\"3\" size=\"10\" color=\"0\">a</s></t></page></CDXML>"
+    ));
+    let output = cdx_of(&document, None, false).unwrap();
+    let mut seen: Vec<(&str, chemifree_application::LossConsent)> = output
+        .loss_report
+        .iter()
+        .map(|loss| (loss.feature.as_str(), loss.consent))
+        .collect();
+    seen.sort_by_key(|(feature, _)| *feature);
+    assert_eq!(
+        seen,
+        [
+            ("font_platform", NotRequired),
+            ("precision", Required),
+            ("style_defaults", NotRequired),
+            ("xml_content", Required),
+            ("xml_namespace", NotRequired),
+        ]
+    );
 }

@@ -16,7 +16,7 @@ mod write;
 
 use std::fmt;
 
-pub use read::{CdxDocument, FontTablePlatform, read};
+pub use read::{CdxDocument, read};
 pub use write::{CdxWrite, write};
 
 /// Largest accepted or produced file.
@@ -100,85 +100,3 @@ impl fmt::Display for CdxError {
     }
 }
 impl std::error::Error for CdxError {}
-
-/// Wording for model validation failures, which have no readable `Display`.
-pub fn describe_validation(
-    error: &chemifree_domain::interchange::ValidationError,
-) -> (&'static str, String) {
-    use chemifree_domain::interchange::ValidationError as V;
-    match error {
-        V::DuplicateId(id) => (
-            "duplicate_id",
-            format!(
-                "Object ID {id} is used more than once; IDs must be unique across the whole document."
-            ),
-        ),
-        V::DanglingReference(id) => (
-            "dangling_reference",
-            format!("A reference names object {id}, which does not exist."),
-        ),
-        V::BondEndpointNotNode(id) => (
-            "invalid_reference",
-            format!("A bond endpoint names object {id}, which is not a node."),
-        ),
-        V::CrossFragmentBond(id) => (
-            "invalid_reference",
-            format!("A bond endpoint names node {id} from a different fragment."),
-        ),
-        V::SelfBond => (
-            "invalid_document",
-            "A bond connects a node to itself.".into(),
-        ),
-        V::UnknownFont(id) => ("unknown_font", format!("Font {id} is not in a font table.")),
-        V::UnknownColor(index) => (
-            "unknown_color",
-            format!("Color index {index} is not available."),
-        ),
-        V::DuplicateFont(id) => (
-            "duplicate_font",
-            format!("Font ID {id} is defined more than once."),
-        ),
-        V::DuplicateColorTable => (
-            "duplicate_color_table",
-            "The document has more than one color table.".into(),
-        ),
-        V::DepthLimit => (
-            "resource_limit",
-            format!(
-                "Nesting exceeds {} levels.",
-                chemifree_domain::interchange::MAX_DEPTH
-            ),
-        ),
-        V::ObjectLimit => (
-            "resource_limit",
-            format!(
-                "The file holds more than {} objects.",
-                chemifree_domain::interchange::MAX_OBJECTS
-            ),
-        ),
-        V::PageRequired => (
-            "invalid_document",
-            "A document needs at least one page.".into(),
-        ),
-        V::InvalidContainment => (
-            "invalid_containment",
-            "An object is inside a kind of object that cannot contain it.".into(),
-        ),
-        V::EmptyFontTable => (
-            "invalid_font_table",
-            "A font table needs at least one font.".into(),
-        ),
-        V::EmptyColorTable => (
-            "invalid_color_table",
-            "A color table needs at least one color.".into(),
-        ),
-        V::UnsafeIdRewrite | V::OpaqueContentChanged => (
-            "unsafe_unknown_rewrite",
-            "Opaque content would be changed.".into(),
-        ),
-        _ => (
-            "invalid_document",
-            "The tree is not a valid interchange document.".into(),
-        ),
-    }
-}

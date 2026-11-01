@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use chemifree_application::{Loss, LossDisposition, SemanticImpact};
+use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::interchange::{
     Content, Document, Object, ObjectKind, Property, PropertyKind, PropertyValue,
 };
@@ -173,7 +173,8 @@ impl Writer<'_> {
         fn walk<'a>(
             object: &'a Object,
             stack: &mut Vec<&'a Object>,
-            dropped: &mut Vec<(u32, String)>,
+            dropped: &mut Vec<u32>,
+            first_path: &mut Option<String>,
             references: &mut HashSet<u32>,
         ) {
             stack.push(object);
@@ -187,12 +188,16 @@ impl Writer<'_> {
                         | ObjectKind::Color
                 )
             {
-                let path = stack
-                    .iter()
-                    .map(|item| kind_name(&item.kind))
-                    .collect::<Vec<_>>()
-                    .join("/");
-                dropped.push((id, path));
+                dropped.push(id);
+                if first_path.is_none() {
+                    *first_path = Some(
+                        stack
+                            .iter()
+                            .map(|item| kind_name(&item.kind))
+                            .collect::<Vec<_>>()
+                            .join("/"),
+                    );
+                }
             }
             for item in &object.properties {
                 if let PropertyValue::ObjectReference(id) = item.value {
@@ -201,26 +206,46 @@ impl Writer<'_> {
             }
             for child in &object.children {
                 if let Content::Object(child) = child {
-                    walk(child, stack, dropped, references);
+                    walk(child, stack, dropped, first_path, references);
                 }
             }
             stack.pop();
         }
         let mut dropped = Vec::new();
+        let mut first_path = None;
         let mut references = HashSet::new();
-        walk(root, &mut Vec::new(), &mut dropped, &mut references);
-        for (id, path) in &dropped {
-            if references.contains(id) {
-                return Err(CdxError::general(
-                    "unsupported_object_id",
-                    format!(
-                        "Object {id} ({path}) cannot carry an ID in CDX, but a reference names it."
-                    ),
-                ));
-            }
-            self.dropped_ids.note(|| path.clone());
+        walk(
+            root,
+            &mut Vec::new(),
+            &mut dropped,
+            &mut first_path,
+            &mut references,
+        );
+        if let Some(id) = dropped.iter().find(|id| references.contains(id)) {
+            return Err(CdxError::general(
+                "unsupported_object_id",
+                format!("Object {id} cannot carry an ID in CDX, but a reference names it."),
+            ));
+        }
+        for _ in &dropped {
+            self.dropped_ids
+                .note(|| first_path.clone().unwrap_or_default());
         }
         Ok(())
+    }
+
+    /// Comments, instructions and visible text directly inside an object that CDX stores as a
+    /// property have no CDX encoding; whitespace between children is insignificant.
+    fn note_markup(&mut self, object: &Object) {
+        for child in &object.children {
+            match child {
+                Content::Object(_) => (),
+                Content::Text(text) if is_xml_space(text) => (),
+                Content::Text(_) | Content::Comment(_) | Content::ProcessingInstruction { .. } => {
+                    self.xml_content.note(|| self.stack.join("/"));
+                }
+            }
+        }
     }
 
     fn property_bytes(&mut self, property_tag: u16, data: &[u8]) -> Result<(), CdxError> {
@@ -392,7 +417,12 @@ impl Writer<'_> {
                 ),
             ));
         }
-        let value = i16::try_from(value).expect("range is within INT16");
+        let value = i16::try_from(value).map_err(|_| {
+            self.refuse(
+                "out_of_range",
+                format!("The {what} {value} does not fit 16 bits"),
+            )
+        })?;
         self.property_bytes(property_tag, &value.to_le_bytes())
     }
 
@@ -432,7 +462,8 @@ impl Writer<'_> {
             Quantity::Coordinate,
             "coordinate",
         )?;
-        Ok(i32::try_from(steps).expect("range checked"))
+        i32::try_from(steps)
+            .map_err(|_| self.refuse("out_of_range", "A coordinate does not fit 32 bits"))
     }
 
     fn color_component(&mut self, value: f64) -> Result<u16, CdxError> {
@@ -443,12 +474,14 @@ impl Writer<'_> {
             Quantity::Color,
             "color component",
         )?;
-        Ok(u16::try_from(steps).expect("range checked"))
+        u16::try_from(steps)
+            .map_err(|_| self.refuse("out_of_range", "A color component does not fit 16 bits"))
     }
 
     fn font_size(&mut self, value: f64) -> Result<u16, CdxError> {
         let steps = self.quantize(value, 20.0, (0.0, 65535.0), Quantity::FontSize, "font size")?;
-        Ok(u16::try_from(steps).expect("range checked"))
+        u16::try_from(steps)
+            .map_err(|_| self.refuse("out_of_range", "A font size does not fit 16 bits"))
     }
 
     fn text_property<'a>(object: &'a Object, wanted: &PropertyKind) -> Option<&'a PropertyValue> {
@@ -500,11 +533,11 @@ impl Writer<'_> {
     }
 
     fn font_table(&mut self, table: &Object, index: usize) -> Result<Vec<u8>, CdxError> {
+        self.note_markup(table);
         let known_platform = self.original.is_some_and(|original| {
             original
-                .font_tables()
-                .get(index)
-                .is_some_and(|source| source.platform == PLATFORM_WINDOWS && source.table == *table)
+                .font_table(index)
+                .is_some_and(|(source, platform)| platform == PLATFORM_WINDOWS && source == table)
         });
         if !known_platform {
             self.platform_unknown.note(|| self.stack.join("/"));
@@ -522,6 +555,7 @@ impl Writer<'_> {
         let mut data = PLATFORM_WINDOWS.to_le_bytes().to_vec();
         data.extend_from_slice(&count.to_le_bytes());
         for font in fonts {
+            self.note_markup(font);
             let Some(PropertyValue::Integer(id)) =
                 Self::text_property(font, &PropertyKind::FontIndex)
             else {
@@ -550,7 +584,9 @@ impl Writer<'_> {
             let length = u16::try_from(encoded.len()).map_err(|_| {
                 self.refuse("out_of_range", "A font name is longer than 65535 bytes")
             })?;
-            data.extend_from_slice(&(*id as u16).to_le_bytes());
+            let id = u16::try_from(*id)
+                .map_err(|_| self.refuse("out_of_range", "A font ID does not fit 16 bits"))?;
+            data.extend_from_slice(&id.to_le_bytes());
             data.extend_from_slice(&charset.to_le_bytes());
             data.extend_from_slice(&length.to_le_bytes());
             data.extend_from_slice(&encoded);
@@ -559,6 +595,7 @@ impl Writer<'_> {
     }
 
     fn color_table(&mut self, table: &Object) -> Result<Vec<u8>, CdxError> {
+        self.note_markup(table);
         let colors: Vec<&Object> = table
             .children
             .iter()
@@ -571,6 +608,7 @@ impl Writer<'_> {
             .map_err(|_| self.refuse("out_of_range", "A color table holds at most 65535 colors"))?;
         let mut data = count.to_le_bytes().to_vec();
         for color in colors {
+            self.note_markup(color);
             for kind in [PropertyKind::Red, PropertyKind::Green, PropertyKind::Blue] {
                 let Some(PropertyValue::Float(level)) = Self::text_property(color, &kind) else {
                     return Err(self.refuse(
@@ -592,6 +630,7 @@ impl Writer<'_> {
             if child.kind != ObjectKind::Represents {
                 continue;
             }
+            self.note_markup(child);
             if child.id.is_some() {
                 return Err(self.refuse(
                     "unsupported_represents_id",
@@ -633,6 +672,11 @@ impl Writer<'_> {
                 _ => None,
             })
             .collect();
+        // The model requires a style run in every text object; a string written without one
+        // would read back with an invented empty run.
+        if runs.is_empty() {
+            return Err(self.refuse("missing_property", "A text object has no style run"));
+        }
         let mut data = Vec::new();
         let unstyled = runs.len() == 1 && runs[0].properties.is_empty();
         let count = u16::try_from(if unstyled { 0 } else { runs.len() }).map_err(|_| {
@@ -741,6 +785,7 @@ impl Writer<'_> {
                         slot.seen.count, names[index], units[index].0, slot.worst, units[index].1
                     ),
                     semantic_impact: units[index].2,
+                    consent: LossConsent::Required,
                 });
             }
         }
@@ -754,6 +799,7 @@ impl Writer<'_> {
                     self.platform_unknown.count
                 ),
                 semantic_impact: SemanticImpact::Unknown,
+                    consent: LossConsent::NotRequired,
             });
         }
         if self.dropped_ids.count > 0 {
@@ -766,6 +812,7 @@ impl Writer<'_> {
                     self.dropped_ids.count
                 ),
                 semantic_impact: SemanticImpact::Document,
+                    consent: LossConsent::Required,
             });
         }
         if self.dropped_namespace {
@@ -775,6 +822,7 @@ impl Writer<'_> {
                 disposition: LossDisposition::Dropped,
                 reason: "The XML root namespace has no CDX encoding.".into(),
                 semantic_impact: SemanticImpact::None,
+                consent: LossConsent::NotRequired,
             });
         }
         if self.xml_content.count > 0 {
@@ -787,6 +835,7 @@ impl Writer<'_> {
                     self.xml_content.count
                 ),
                 semantic_impact: SemanticImpact::Unknown,
+                    consent: LossConsent::Required,
             });
         }
         if self.represents.count > 0 {
@@ -799,6 +848,7 @@ impl Writer<'_> {
                     self.represents.count
                 ),
                 semantic_impact: SemanticImpact::Chemistry,
+                consent: LossConsent::Required,
             });
         }
         if self.style_defaults.count > 0 {
@@ -811,6 +861,7 @@ impl Writer<'_> {
                     self.style_defaults.count
                 ),
                 semantic_impact: SemanticImpact::Rendering,
+                consent: LossConsent::NotRequired,
             });
         }
         if self.child_order.count > 0 {
@@ -820,6 +871,7 @@ impl Writer<'_> {
                 disposition: LossDisposition::Normalized,
                 reason: "Font and color tables are properties in CDX and were written before the document's objects.".into(),
                 semantic_impact: SemanticImpact::None,
+                    consent: LossConsent::NotRequired,
             });
         }
         losses

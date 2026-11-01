@@ -304,8 +304,7 @@
             "code": "loss_consent_required",
             "details": {
               "features": [
-                "precision",
-                "xml_namespace"
+                "precision"
               ]
             }
           }
