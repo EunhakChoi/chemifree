@@ -45,7 +45,13 @@ pub(crate) const SMILES: Wording = Wording {
     title: Some("SMILES carries no title; the drawing's title is not written."),
 };
 
-fn drop(path_prefix: &str, path: &str, feature: &str, impact: SemanticImpact, reason: &str) -> Loss {
+fn drop(
+    path_prefix: &str,
+    path: &str,
+    feature: &str,
+    impact: SemanticImpact,
+    reason: &str,
+) -> Loss {
     Loss {
         consent: LossConsent::NotRequired,
         feature: feature.into(),
@@ -78,7 +84,13 @@ pub(crate) fn drawing_losses(
     if let Some(reason) = wording.title
         && doc.title != DEFAULT_TITLE
     {
-        losses.push(drop(path_prefix, ".title", "title", SemanticImpact::Document, reason));
+        losses.push(drop(
+            path_prefix,
+            ".title",
+            "title",
+            SemanticImpact::Document,
+            reason,
+        ));
     }
     if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
         losses.push(drop(

@@ -22,10 +22,10 @@ use chemifree_domain::{graph::MoleculeGraph, identity};
 pub use interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
-pub use smiles::{CanonicalIdentity, SmilesExportResult, SmilesPreviewResult};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+pub use smiles::{CanonicalIdentity, SmilesExportResult, SmilesPreviewResult};
 
 use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,

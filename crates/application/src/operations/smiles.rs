@@ -191,9 +191,11 @@ fn read_losses(read: &SmilesRead) -> Vec<Loss> {
             .notes
             .iter()
             .filter_map(|note| match note {
-                ReadNote::RadicalUndetermined { atom, reason: found, .. } if *found == reason => {
-                    Some(atom + 1)
-                }
+                ReadNote::RadicalUndetermined {
+                    atom,
+                    reason: found,
+                    ..
+                } if *found == reason => Some(atom + 1),
                 _ => None,
             })
             .collect();
@@ -302,13 +304,17 @@ fn import_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Comma
         .atoms
         .iter()
         .map(|atom| atom.position.x)
-        .fold(None, |most: Option<f64>, x| Some(most.map_or(x, |m| m.max(x))))
+        .fold(None, |most: Option<f64>, x| {
+            Some(most.map_or(x, |m| m.max(x)))
+        })
         .map_or(GRID_SPACING, |most| most + GRID_MARGIN);
     let origin_y = target
         .atoms
         .iter()
         .map(|atom| atom.position.y)
-        .fold(None, |least: Option<f64>, y| Some(least.map_or(y, |m| m.min(y))))
+        .fold(None, |least: Option<f64>, y| {
+            Some(least.map_or(y, |m| m.min(y)))
+        })
         .unwrap_or(GRID_SPACING);
     let width = (1..).find(|w| w * w >= read.atoms.len()).unwrap_or(1);
     let mut commands = Vec::with_capacity(read.atoms.len() + read.bonds.len());
@@ -320,7 +326,10 @@ fn import_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Comma
         .map_err(|_| {
             diagnostic(
                 "coordinate_out_of_range",
-                format!("Atom {} cannot be placed beside the existing drawing.", index + 1),
+                format!(
+                    "Atom {} cannot be placed beside the existing drawing.",
+                    index + 1
+                ),
                 Map::new(),
             )
         })?;
@@ -437,7 +446,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 &fingerprint,
             ) {
                 Ok(replay) => replay,
-                Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+                Err(error) => {
+                    return known.reply(
+                        Outcome::Error,
+                        error.current_revision,
+                        None,
+                        vec![failure(&error)],
+                    );
+                }
             }
         };
         let read = match codec.read(&p.source) {
@@ -459,7 +475,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
         let target = match self.document(&p.document_id) {
             Ok(response) => response,
-            Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+            Err(error) => {
+                return known.reply(
+                    Outcome::Error,
+                    error.current_revision,
+                    None,
+                    vec![failure(&error)],
+                );
+            }
         };
         let commands = match import_commands(&read, &target.document) {
             Ok(commands) => commands,
@@ -505,7 +528,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
             Ok(pair) => pair,
-            Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
+            Err(error) => {
+                return known.reply(
+                    Outcome::Error,
+                    error.current_revision,
+                    None,
+                    vec![failure(&error)],
+                );
+            }
         };
         let style = SmilesStyle::from(p.style);
         let written: SmilesWrite = match codec.write(&graph, style) {
@@ -523,7 +553,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         if !required.is_empty() {
             let digest = consent_digest(&required, written.text.as_bytes());
             if p.accepted_losses.as_deref() != Some(digest.as_str()) {
-                return consent_refusal(known, &required, Some(&digest), p.accepted_losses.is_some());
+                return consent_refusal(
+                    known,
+                    &required,
+                    Some(&digest),
+                    p.accepted_losses.is_some(),
+                );
             }
         }
         let revision = snapshot.document.revision;

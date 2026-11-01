@@ -135,9 +135,7 @@ impl From<Failure> for SmilesError {
             code: failure.code.as_str(),
             class: failure.code.class(),
             message: failure.code.message().into(),
-            span: failure
-                .span
-                .map(|(start, end)| SourceSpan { start, end }),
+            span: failure.span.map(|(start, end)| SourceSpan { start, end }),
             detail: failure.detail,
         }
     }

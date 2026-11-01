@@ -146,13 +146,14 @@ pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesW
     let (ranked, folded): (Vec<AtomId>, Vec<(AtomId, AtomId)>) = match style {
         SmilesStyle::Recorded => (clean.atoms().map(|(id, _)| id).collect(), Vec::new()),
         SmilesStyle::Canonical => {
-            let canonical = identity::canonicalize_chemical(&clean).map_err(|error| match error {
-                IdentityError::AtomLimit => Failure::bare(Code::AtomLimit),
-                IdentityError::SearchLimit => Failure::bare(Code::SearchLimit),
-                IdentityError::Unsupported(reason) => {
-                    Failure::bare(Code::CanonicalUnsupported).because(reason)
-                }
-            })?;
+            let canonical =
+                identity::canonicalize_chemical(&clean).map_err(|error| match error {
+                    IdentityError::AtomLimit => Failure::bare(Code::AtomLimit),
+                    IdentityError::SearchLimit => Failure::bare(Code::SearchLimit),
+                    IdentityError::Unsupported(reason) => {
+                        Failure::bare(Code::CanonicalUnsupported).because(reason)
+                    }
+                })?;
             (canonical.numbering, canonical.folded_hydrogens)
         }
     };
@@ -175,12 +176,12 @@ pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesW
         .iter()
         .filter(|(_, bond)| !folded_ids.contains(&bond.begin) && !folded_ids.contains(&bond.end))
         .map(|(&id, bond)| {
-            let order = if style == SmilesStyle::Canonical && resolution.aromatic_systems.contains(&id)
-            {
-                BondOrder::Aromatic
-            } else {
-                bond.order.clone()
-            };
+            let order =
+                if style == SmilesStyle::Canonical && resolution.aromatic_systems.contains(&id) {
+                    BondOrder::Aromatic
+                } else {
+                    bond.order.clone()
+                };
             (id, order)
         })
         .collect();
@@ -202,10 +203,10 @@ pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesW
     let source = resolution.assess(&clean);
     let view_orders = chemistry::incident_orders(
         ranked.iter().copied(),
-        clean
-            .bonds()
-            .filter(|(id, _)| written.contains_key(id)),
-        |id, bond| chemifree_domain::aromaticity::kekule_order_value(&resolution.assignment, id, bond),
+        clean.bonds().filter(|(id, _)| written.contains_key(id)),
+        |id, bond| {
+            chemifree_domain::aromaticity::kekule_order_value(&resolution.assignment, id, bond)
+        },
     );
     let plans = plan_atoms(
         style,
@@ -280,8 +281,9 @@ fn plan_atoms(
             },
         };
         if hydrogens > 9 {
-            return Err(Failure::bare(Code::HydrogensNotRepresentable)
-                .because("hydrogen_count_above_nine"));
+            return Err(
+                Failure::bare(Code::HydrogensNotRepresentable).because("hydrogen_count_above_nine")
+            );
         }
         // A bare atom reads back with inferred hydrogens and no radical: it is bare only
         // when that is what the atom is.
@@ -289,15 +291,15 @@ fn plan_atoms(
         probe.hydrogens = Hydrogens::Inferred;
         probe.radical = Radical::None;
         let default = chemistry::assess(id, &probe, &view_orders[&id]);
-        let default_matches = default.finding != Finding::Unsupported
-            && default.hydrogen_count == Some(hydrogens);
+        let default_matches =
+            default.finding != Finding::Unsupported && default.hydrogen_count == Some(hydrogens);
         let symbol_ok = if aromatic {
-            tables::is_bare_aromatic(element)
-                && !(element.symbol() == "N" && hydrogens > 0)
+            tables::is_bare_aromatic(element) && !(element.symbol() == "N" && hydrogens > 0)
         } else {
             tables::is_bare_organic(element)
         };
-        let may_be_inferred = style == SmilesStyle::Canonical || atom.hydrogens == Hydrogens::Inferred;
+        let may_be_inferred =
+            style == SmilesStyle::Canonical || atom.hydrogens == Hydrogens::Inferred;
         let bracket = !(atom.charge == 0
             && atom.isotope.is_none()
             && atom.radical == Radical::None
@@ -330,7 +332,10 @@ fn plan_atoms(
         });
     }
     for (list, change) in [
-        (inferred, WriteChange::InferredHydrogensStated as fn(Vec<AtomId>) -> WriteChange),
+        (
+            inferred,
+            WriteChange::InferredHydrogensStated as fn(Vec<AtomId>) -> WriteChange,
+        ),
         (stated, WriteChange::StatedHydrogensInferred),
         (hydrogens_assumed, WriteChange::HydrogensAssumed),
         (radical_assumed, WriteChange::RadicalAssumed),
@@ -356,7 +361,7 @@ fn emit(
     let count = plans.len();
     // Neighbours in rank order, with the bond.
     let mut adjacent: Vec<Vec<(usize, BondId)>> = vec![Vec::new(); count];
-    for (&id, _) in written {
+    for &id in written.keys() {
         let bond = bonds[&id];
         let (a, b) = (position[&bond.begin], position[&bond.end]);
         adjacent[a].push((b, id));
@@ -491,9 +496,8 @@ fn verify(
     bonds: &BTreeMap<BondId, &Bond>,
     written: &BTreeMap<BondId, BondOrder>,
 ) -> Result<(), Failure> {
-    let read = read::read(text).map_err(|failure| {
-        Failure::bare(Code::RoundTripFailed).because(failure.code.as_str())
-    })?;
+    let read = read::read(text)
+        .map_err(|failure| Failure::bare(Code::RoundTripFailed).because(failure.code.as_str()))?;
     let plan_of: BTreeMap<AtomId, &Plan> = plans.iter().map(|plan| (plan.id, plan)).collect();
     let position: BTreeMap<AtomId, usize> =
         order.iter().enumerate().map(|(i, id)| (*id, i)).collect();
@@ -547,4 +551,3 @@ fn verify(
     }
     Ok(())
 }
-

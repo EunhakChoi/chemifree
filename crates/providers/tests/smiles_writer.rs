@@ -18,12 +18,23 @@ fn atom(symbol: &str) -> Atom {
 
 fn build(atoms: Vec<Atom>, bonds: &[(usize, usize, BondOrder)]) -> MoleculeGraph {
     MoleculeGraph::from_parts(
-        atoms.into_iter().enumerate().map(|(i, a)| (atom_id(i), a)).collect(),
+        atoms
+            .into_iter()
+            .enumerate()
+            .map(|(i, a)| (atom_id(i), a))
+            .collect(),
         bonds
             .iter()
             .enumerate()
             .map(|(i, (a, b, order))| {
-                (bond_id(i), Bond { begin: atom_id(*a), end: atom_id(*b), order: order.clone() })
+                (
+                    bond_id(i),
+                    Bond {
+                        begin: atom_id(*a),
+                        end: atom_id(*b),
+                        order: order.clone(),
+                    },
+                )
             })
             .collect(),
     )
@@ -58,7 +69,11 @@ fn recorded_writes_follow_the_drawing_order() {
     ] {
         let written = recorded(input);
         // Ring bonds put their symbol at the opening digit.
-        let expected = if input == "C=1CCCCC1" { "C=1CCCCC1" } else { expected };
+        let expected = if input == "C=1CCCCC1" {
+            "C=1CCCCC1"
+        } else {
+            expected
+        };
         assert_eq!(written, expected, "{input}");
     }
 }
@@ -66,8 +81,18 @@ fn recorded_writes_follow_the_drawing_order() {
 #[test]
 fn every_returned_text_reads_back_to_the_graph_written() {
     for input in [
-        "CCO", "c1ccccc1", "C1=CC=CC=C1", "[NH4+]", "CC(=O)[O-]", "[13CH4]", "[Na+].[Cl-]",
-        "c1ccc2ccccc2c1", "OC(=O)c1ccccc1O", "C1CC2CCC1C2", "[H][H]", "[H]C([H])([H])[H]",
+        "CCO",
+        "c1ccccc1",
+        "C1=CC=CC=C1",
+        "[NH4+]",
+        "CC(=O)[O-]",
+        "[13CH4]",
+        "[Na+].[Cl-]",
+        "c1ccc2ccccc2c1",
+        "OC(=O)c1ccccc1O",
+        "C1CC2CCC1C2",
+        "[H][H]",
+        "[H]C([H])([H])[H]",
     ] {
         let source = read(input).unwrap();
         let graph = graph(&source);
@@ -110,12 +135,18 @@ fn inferred_hydrogens_inside_brackets_are_stated_from_the_valence_model() {
     let mut oxygen = atom("O");
     oxygen.charge = -1;
     let hydroxide = build(vec![oxygen], &[]);
-    assert_eq!(write(&hydroxide, SmilesStyle::Recorded).unwrap().text, "[OH-]");
+    assert_eq!(
+        write(&hydroxide, SmilesStyle::Recorded).unwrap().text,
+        "[OH-]"
+    );
     // A stated count is kept, even when it equals the inferred one.
     let mut stated = atom("C");
     stated.hydrogens = Hydrogens::Specified(4);
     let methane = build(vec![stated], &[]);
-    assert_eq!(write(&methane, SmilesStyle::Recorded).unwrap().text, "[CH4]");
+    assert_eq!(
+        write(&methane, SmilesStyle::Recorded).unwrap().text,
+        "[CH4]"
+    );
 }
 
 #[test]
@@ -125,8 +156,16 @@ fn ions_and_metals_drawn_with_defaults_are_written_with_consent_losses() {
     let graph = build(vec![sodium, atom("Fe")], &[]);
     let written = write(&graph, SmilesStyle::Recorded).unwrap();
     assert_eq!(written.text, "[Na+].[Fe]");
-    assert!(written.changes.contains(&WriteChange::HydrogensAssumed(vec![atom_id(0), atom_id(1)])));
-    assert!(written.changes.contains(&WriteChange::RadicalAssumed(vec![atom_id(0), atom_id(1)])));
+    assert!(
+        written
+            .changes
+            .contains(&WriteChange::HydrogensAssumed(vec![atom_id(0), atom_id(1)]))
+    );
+    assert!(
+        written
+            .changes
+            .contains(&WriteChange::RadicalAssumed(vec![atom_id(0), atom_id(1)]))
+    );
     // A stated radical on such an atom cannot be written: reading gives unknown.
     let mut radical = atom("Fe");
     radical.radical = Radical::Doublet;
@@ -153,33 +192,101 @@ fn bare_atoms_are_checked_for_their_radical_too() {
 fn unwritable_graphs_are_refused_with_their_own_code() {
     let cases: Vec<(&str, MoleculeGraph, &str)> = vec![
         ("empty", build(vec![], &[]), "empty_graph"),
-        ("isotope zero", build(vec![{ let mut a = atom("C"); a.isotope = Some(0); a }], &[]), "isotope_not_writable"),
         (
-            "isotope above 999",
-            build(vec![{ let mut a = atom("C"); a.isotope = Some(MAX_ISOTOPE_MASS_NUMBER + 1); a }], &[]),
+            "isotope zero",
+            build(
+                vec![{
+                    let mut a = atom("C");
+                    a.isotope = Some(0);
+                    a
+                }],
+                &[],
+            ),
             "isotope_not_writable",
         ),
-        ("charge above the domain", build(vec![{ let mut a = atom("Fe"); a.charge = 9; a }], &[]), "charge_not_writable"),
-        ("charge below the domain", build(vec![{ let mut a = atom("Fe"); a.charge = -9; a }], &[]), "charge_not_writable"),
+        (
+            "isotope above 999",
+            build(
+                vec![{
+                    let mut a = atom("C");
+                    a.isotope = Some(MAX_ISOTOPE_MASS_NUMBER + 1);
+                    a
+                }],
+                &[],
+            ),
+            "isotope_not_writable",
+        ),
+        (
+            "charge above the domain",
+            build(
+                vec![{
+                    let mut a = atom("Fe");
+                    a.charge = 9;
+                    a
+                }],
+                &[],
+            ),
+            "charge_not_writable",
+        ),
+        (
+            "charge below the domain",
+            build(
+                vec![{
+                    let mut a = atom("Fe");
+                    a.charge = -9;
+                    a
+                }],
+                &[],
+            ),
+            "charge_not_writable",
+        ),
         (
             "unknown hydrogens",
-            build(vec![{ let mut a = atom("C"); a.hydrogens = Hydrogens::Unknown; a }], &[]),
+            build(
+                vec![{
+                    let mut a = atom("C");
+                    a.hydrogens = Hydrogens::Unknown;
+                    a
+                }],
+                &[],
+            ),
             "hydrogens_unknown",
         ),
         (
             "query atom",
-            build(vec![Atom::new(AtomKind::Query(chemifree_domain::states::QueryAtom::Any))], &[]),
+            build(
+                vec![Atom::new(AtomKind::Query(
+                    chemifree_domain::states::QueryAtom::Any,
+                ))],
+                &[],
+            ),
             "query_not_writable",
         ),
-        ("dative bond", build(vec![atom("N"), atom("B")], &[(0, 1, BondOrder::Dative)]), "bond_not_writable"),
-        ("unknown bond", build(vec![atom("C"), atom("C")], &[(0, 1, BondOrder::Unknown)]), "bond_not_writable"),
+        (
+            "dative bond",
+            build(vec![atom("N"), atom("B")], &[(0, 1, BondOrder::Dative)]),
+            "bond_not_writable",
+        ),
+        (
+            "unknown bond",
+            build(vec![atom("C"), atom("C")], &[(0, 1, BondOrder::Unknown)]),
+            "bond_not_writable",
+        ),
         // An aromatic bond outside every ring (a bridge) or on a lone pair of atoms.
-        ("aromatic bridge", build(vec![atom("C"), atom("C")], &[(0, 1, BondOrder::Aromatic)]), "aromatic_unsupported"),
+        (
+            "aromatic bridge",
+            build(vec![atom("C"), atom("C")], &[(0, 1, BondOrder::Aromatic)]),
+            "aromatic_unsupported",
+        ),
         (
             "aromatic bond in a non-aromatic ring",
             build(
                 vec![atom("C"), atom("C"), atom("C")],
-                &[(0, 1, BondOrder::Aromatic), (1, 2, BondOrder::Single), (2, 0, BondOrder::Single)],
+                &[
+                    (0, 1, BondOrder::Aromatic),
+                    (1, 2, BondOrder::Single),
+                    (2, 0, BondOrder::Single),
+                ],
             ),
             "aromatic_unsupported",
         ),
@@ -211,17 +318,29 @@ fn the_real_cause_of_a_refusal_is_reported() {
     // An unsupported aromatic ring is named before any atom is formatted.
     let ring = build(
         vec![atom("C"), atom("C"), atom("C")],
-        &[(0, 1, BondOrder::Aromatic), (1, 2, BondOrder::Aromatic), (2, 0, BondOrder::Aromatic)],
+        &[
+            (0, 1, BondOrder::Aromatic),
+            (1, 2, BondOrder::Aromatic),
+            (2, 0, BondOrder::Aromatic),
+        ],
     );
     let error = refusal(&ring, SmilesStyle::Recorded);
     assert_eq!(error.code, "aromatic_unsupported");
-    assert!(error.detail.is_some(), "the model's own reason is carried: {error:?}");
+    assert!(
+        error.detail.is_some(),
+        "the model's own reason is carried: {error:?}"
+    );
     // An unusual valence has a reason of its own, not a generic mismatch.
     let mut oxygen = atom("O");
     oxygen.charge = 1;
     let crowded = build(
         vec![oxygen, atom("C"), atom("C"), atom("C"), atom("C")],
-        &[(0, 1, BondOrder::Single), (0, 2, BondOrder::Single), (0, 3, BondOrder::Single), (0, 4, BondOrder::Single)],
+        &[
+            (0, 1, BondOrder::Single),
+            (0, 2, BondOrder::Single),
+            (0, 3, BondOrder::Single),
+            (0, 4, BondOrder::Single),
+        ],
     );
     let error = refusal(&crowded, SmilesStyle::Recorded);
     assert_eq!(error.code, "radical_not_representable");
@@ -236,7 +355,9 @@ fn attachment_points_are_dropped_and_reported() {
     for style in [SmilesStyle::Recorded, SmilesStyle::Canonical] {
         let written = write(&graph, style).unwrap();
         assert!(
-            written.changes.contains(&WriteChange::AttachmentPoints(vec![atom_id(0)])),
+            written
+                .changes
+                .contains(&WriteChange::AttachmentPoints(vec![atom_id(0)])),
             "{style:?}: {:?}",
             written.changes
         );
@@ -260,13 +381,17 @@ fn text_beyond_the_readers_size_is_refused_by_the_writer() {
     assert!(MAX_INPUT_BYTES < 500 * "[999Fe+8]".len());
     // One command too many.
     let too_many = build((0..501).map(|_| atom("C")).collect(), &[]);
-    assert_eq!(refusal(&too_many, SmilesStyle::Recorded).code, "command_limit");
+    assert_eq!(
+        refusal(&too_many, SmilesStyle::Recorded).code,
+        "command_limit"
+    );
 }
 
 /// A path of atoms with `chords` extra bonds from atom 0 to atoms 2.. (all open at atom 0).
 fn hub(chords: usize, extra: Option<(usize, usize)>) -> MoleculeGraph {
     let last = extra.map_or(chords + 2, |(_, to)| to);
-    let mut bonds: Vec<(usize, usize, BondOrder)> = (0..last).map(|i| (i, i + 1, BondOrder::Single)).collect();
+    let mut bonds: Vec<(usize, usize, BondOrder)> =
+        (0..last).map(|i| (i, i + 1, BondOrder::Single)).collect();
     bonds.extend((2..2 + chords).map(|k| (0, k, BondOrder::Single)));
     bonds.extend(extra.map(|(from, to)| (from, to, BondOrder::Single)));
     build((0..=last).map(|_| atom("C")).collect(), &bonds)
@@ -307,7 +432,12 @@ fn random_graph(rng: &mut Rng) -> MoleculeGraph {
                 _ => Hydrogens::Inferred,
             };
             if rng.below(10) == 0 {
-                a.radical = [Radical::Doublet, Radical::Singlet, Radical::Triplet, Radical::Unknown][rng.below(4)];
+                a.radical = [
+                    Radical::Doublet,
+                    Radical::Singlet,
+                    Radical::Triplet,
+                    Radical::Unknown,
+                ][rng.below(4)];
             }
             if rng.below(20) == 0 {
                 a.attachment_points = AttachmentPoints::new(&[1]).unwrap();
@@ -342,7 +472,17 @@ fn random_graph(rng: &mut Rng) -> MoleculeGraph {
         bonds.retain(|(a, b, _)| *a >= 6 || *b >= 6);
         bonds.retain(|(a, b, _)| !(*a < 6 && *b < 6));
         for i in 0..6 {
-            bonds.push((i, (i + 1) % 6, if rng.below(2) == 0 { BondOrder::Aromatic } else if i % 2 == 0 { BondOrder::Double } else { BondOrder::Single }));
+            bonds.push((
+                i,
+                (i + 1) % 6,
+                if rng.below(2) == 0 {
+                    BondOrder::Aromatic
+                } else if i % 2 == 0 {
+                    BondOrder::Double
+                } else {
+                    BondOrder::Single
+                },
+            ));
         }
     }
     build(atoms, &bonds)
@@ -355,12 +495,18 @@ fn random_molecules_write_then_read_or_are_refused_with_a_specific_code() {
     let mut refused = std::collections::BTreeMap::<String, usize>::new();
     for round in 0..6000 {
         let molecule = random_graph(&mut rng);
-        for (slot, style) in [SmilesStyle::Recorded, SmilesStyle::Canonical].into_iter().enumerate() {
+        for (slot, style) in [SmilesStyle::Recorded, SmilesStyle::Canonical]
+            .into_iter()
+            .enumerate()
+        {
             match write(&molecule, style) {
                 Ok(output) => {
                     written[slot] += 1;
                     let back = read(&output.text).unwrap_or_else(|error| {
-                        panic!("round {round} {style:?}: {:?} is not read back: {error:?}", output.text)
+                        panic!(
+                            "round {round} {style:?}: {:?} is not read back: {error:?}",
+                            output.text
+                        )
                     });
                     assert_eq!(
                         back.atoms.len() + output.folded_hydrogens.len(),
@@ -385,8 +531,14 @@ fn random_molecules_write_then_read_or_are_refused_with_a_specific_code() {
             }
         }
     }
-    assert!(written[0] > 500 && written[1] > 100, "both writers are exercised: {written:?}");
-    assert!(refused.len() >= 5, "several distinct refusals are exercised: {refused:?}");
+    assert!(
+        written[0] > 500 && written[1] > 100,
+        "both writers are exercised: {written:?}"
+    );
+    assert!(
+        refused.len() >= 5,
+        "several distinct refusals are exercised: {refused:?}"
+    );
 }
 
 #[test]

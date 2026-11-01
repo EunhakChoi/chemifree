@@ -8,11 +8,9 @@ use chemifree_domain::states::{AtomKind, Radical};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::contract::{
-    AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto,
-};
-use crate::drawing_losses;
+use crate::contract::{AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto};
 use crate::ctfile::{CtAtom, CtBond, CtError, CtField, CtRadical, CtRecord};
+use crate::drawing_losses;
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 /// V2000 coordinates are in angstroms; the editor's positions are points with y increasing down.

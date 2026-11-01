@@ -168,7 +168,10 @@ impl Reader<'_> {
             if value == 0 {
                 return Err(Failure::at(Code::IsotopeZeroUnsupported, digits_start, at));
             }
-            debug_assert!(value <= MAX_ISOTOPE_MASS_NUMBER, "three digits fit the range");
+            debug_assert!(
+                value <= MAX_ISOTOPE_MASS_NUMBER,
+                "three digits fit the range"
+            );
             isotope = Some(value);
         }
         // Symbol.
@@ -186,13 +189,16 @@ impl Reader<'_> {
                     .get(at + 1)
                     .filter(|byte| byte.is_ascii_lowercase())
                     .and_then(|second| {
-                        Element::from_symbol(&format!("{}{}", char::from(first), char::from(*second)))
+                        Element::from_symbol(&format!(
+                            "{}{}",
+                            char::from(first),
+                            char::from(*second)
+                        ))
                     });
                 if let Some(element) = two {
                     at += 2;
                     (element, false)
-                } else if let Some(element) = Element::from_symbol(&char::from(first).to_string())
-                {
+                } else if let Some(element) = Element::from_symbol(&char::from(first).to_string()) {
                     at += 1;
                     (element, false)
                 } else {
@@ -598,7 +604,10 @@ fn determine_radical(
 /// "Aromaticity" and "Organic Subset".
 fn finish(reader: Reader<'_>, mut notes: Vec<ReadNote>) -> Result<SmilesRead, Failure> {
     let Reader {
-        atoms, bonds, parts, ..
+        atoms,
+        bonds,
+        parts,
+        ..
     } = reader;
     let ids: Vec<AtomId> = (0..atoms.len()).map(atom_id).collect();
     // Which bonds lie on a cycle: the topology alone decides, before any order is chosen.

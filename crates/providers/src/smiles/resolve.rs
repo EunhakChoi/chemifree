@@ -38,10 +38,7 @@ impl Resolution {
         )
     }
 
-    pub(super) fn assess(
-        &self,
-        graph: &MoleculeGraph,
-    ) -> BTreeMap<AtomId, AtomAssessment> {
+    pub(super) fn assess(&self, graph: &MoleculeGraph) -> BTreeMap<AtomId, AtomAssessment> {
         let orders = self.incident_orders(graph);
         graph
             .atoms()

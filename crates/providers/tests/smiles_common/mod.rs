@@ -22,7 +22,12 @@ pub fn bond_id(index: usize) -> BondId {
 }
 
 pub fn graph(read: &SmilesRead) -> MoleculeGraph {
-    permuted(read, &(0..read.atoms.len()).collect::<Vec<_>>(), &mut Rng(1), false)
+    permuted(
+        read,
+        &(0..read.atoms.len()).collect::<Vec<_>>(),
+        &mut Rng(1),
+        false,
+    )
 }
 
 /// The read's graph with atom `order[i]` placed at position `i`, bonds shuffled and, when
@@ -37,14 +42,15 @@ pub fn permuted(read: &SmilesRead, order: &[usize], rng: &mut Rng, flip: bool) -
         .enumerate()
         .map(|(position, &old)| (atom_id(position), read.atoms[old].atom.clone()))
         .collect();
-    let mut bonds: Vec<&chemifree_application::smiles_codec::SmilesBond> = read.bonds.iter().collect();
+    let mut bonds: Vec<&chemifree_application::smiles_codec::SmilesBond> =
+        read.bonds.iter().collect();
     rng.shuffle(&mut bonds);
     let bonds = bonds
         .into_iter()
         .enumerate()
         .map(|(i, bond)| {
             let (mut a, mut b) = (new_index[bond.begin], new_index[bond.end]);
-            if flip && rng.next() % 2 == 0 {
+            if flip && rng.next().is_multiple_of(2) {
                 std::mem::swap(&mut a, &mut b);
             }
             (

@@ -103,9 +103,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 "Preview is missing or does not match the current document, graph and losses.",
             ));
         }
-        if !accept_loss
-            && let Some(refusal) = adapter.consent(known, &losses)
-        {
+        if !accept_loss && let Some(refusal) = adapter.consent(known, &losses) {
             return refusal;
         }
         let response = self.documents.import(

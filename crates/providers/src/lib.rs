@@ -4,7 +4,6 @@
 
 pub mod cdx;
 pub mod cdxml;
-pub mod smiles;
 mod ctfile;
 mod data_directory;
 mod file_format;
@@ -12,6 +11,7 @@ mod file_store;
 pub mod interchange_codec;
 mod opaque_policy;
 mod preference_store;
+pub mod smiles;
 
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};

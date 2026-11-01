@@ -125,7 +125,10 @@ mod tests {
     fn lists_read_naturally() {
         assert_eq!(list(&["a".into()], "and"), "a");
         assert_eq!(list(&["a".into(), "b".into()], "or"), "a or b");
-        assert_eq!(list(&["a".into(), "b".into(), "c".into()], "and"), "a, b and c");
+        assert_eq!(
+            list(&["a".into(), "b".into(), "c".into()], "and"),
+            "a, b and c"
+        );
     }
 
     #[test]
@@ -139,10 +142,30 @@ mod tests {
     fn smiles_combinations_are_pinned() {
         let limit = Some(1024 * 1024);
         let cases = [
-            (false, None, "SMILES subset", "Read and write SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported."),
-            (true, None, "MOL/SDF and SMILES subsets", "Read and write a bounded V2000 MOL/SDF subset and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported."),
-            (false, limit, "CDXML, CDX and SMILES subsets", "Read and write rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported."),
-            (true, limit, "MOL/SDF, CDXML, CDX and SMILES subsets", "Read and write a bounded V2000 MOL/SDF subset, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported."),
+            (
+                false,
+                None,
+                "SMILES subset",
+                "Read and write SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported.",
+            ),
+            (
+                true,
+                None,
+                "MOL/SDF and SMILES subsets",
+                "Read and write a bounded V2000 MOL/SDF subset and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported.",
+            ),
+            (
+                false,
+                limit,
+                "CDXML, CDX and SMILES subsets",
+                "Read and write rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported.",
+            ),
+            (
+                true,
+                limit,
+                "MOL/SDF, CDXML, CDX and SMILES subsets",
+                "Read and write a bounded V2000 MOL/SDF subset, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES without stereochemistry (at most 4096 bytes and 500 atoms plus bonds per string, recorded-order or canonical output) with explicit losses. Stereochemistry, queries, reactions, InChI and formats not listed here are unsupported.",
+            ),
         ];
         for (ct, rich, label, description) in cases {
             let text = FormatText::new(ct, rich, Some(smiles())).expect("a format is connected");
@@ -151,10 +174,22 @@ mod tests {
             assert!(!text.description.contains("Other formats"), "{label}");
         }
         let all = FormatText::new(true, limit, Some(smiles())).unwrap();
-        assert_eq!(all.import_note, "Read, preview and import bounded MOL/SDF records, rich CDXML, a bounded CDX subset (canonical base64, at most 1 MiB) and a SMILES string (at most 4096 bytes), with explicit losses and revision-checked consent.");
-        assert_eq!(all.export_note, "Write bounded MOL/SDF, rich CDXML, a bounded CDX subset and SMILES (recorded-order or canonical), reporting every loss; a write that would drop or round CDX or SMILES content needs the loss_digest repeated as accepted_losses.");
+        assert_eq!(
+            all.import_note,
+            "Read, preview and import bounded MOL/SDF records, rich CDXML, a bounded CDX subset (canonical base64, at most 1 MiB) and a SMILES string (at most 4096 bytes), with explicit losses and revision-checked consent."
+        );
+        assert_eq!(
+            all.export_note,
+            "Write bounded MOL/SDF, rich CDXML, a bounded CDX subset and SMILES (recorded-order or canonical), reporting every loss; a write that would drop or round CDX or SMILES content needs the loss_digest repeated as accepted_losses."
+        );
         let only = FormatText::new(false, None, Some(smiles())).unwrap();
-        assert_eq!(only.import_note, "Read, preview and import a SMILES string (at most 4096 bytes), with explicit losses and revision-checked consent.");
-        assert_eq!(only.export_note, "Write SMILES (recorded-order or canonical), reporting every loss; a write that would drop or round SMILES content needs the loss_digest repeated as accepted_losses.");
+        assert_eq!(
+            only.import_note,
+            "Read, preview and import a SMILES string (at most 4096 bytes), with explicit losses and revision-checked consent."
+        );
+        assert_eq!(
+            only.export_note,
+            "Write SMILES (recorded-order or canonical), reporting every loss; a write that would drop or round SMILES content needs the loss_digest repeated as accepted_losses."
+        );
     }
 }

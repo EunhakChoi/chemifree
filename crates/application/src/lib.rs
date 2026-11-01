@@ -11,22 +11,21 @@ mod data_profiles;
 mod decimal_input;
 mod documents;
 mod draft_schedule;
-mod drawing_losses;
 mod draft_writer;
+mod drawing_losses;
 mod error;
+mod format_text;
 pub mod interchange_codec;
 pub mod interchange_contract;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
-mod format_text;
 mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
 pub mod naming_labels;
 pub mod naming_lexicon;
 pub mod naming_patterns;
-pub mod smiles_codec;
 pub mod nickname_data;
 pub mod nmr_profile;
 mod operations;
@@ -48,6 +47,7 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+pub mod smiles_codec;
 pub mod transport_base64;
 mod turns;
 
@@ -101,12 +101,12 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, CanonicalIdentity, ClosedResult, Diagnostic, DocumentResult, Envelope,
-    FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
-    LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
-    Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewResult,
-    Support,
+    AromaticityResult, AromaticitySystem, CanonicalIdentity, ClosedResult, Diagnostic,
+    DocumentResult, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView,
+    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
+    Loss, LossConsent, LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse,
+    OperationResult, Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult,
+    SmilesPreviewResult, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -214,7 +214,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             self.interchange_binary_limit,
             self.smiles_codec.as_ref().map(|codec| codec.limits()),
         );
-        Self { format_text, ..self }
+        Self {
+            format_text,
+            ..self
+        }
     }
 
     /// Connects a checked, independently implemented rich interchange provider.
