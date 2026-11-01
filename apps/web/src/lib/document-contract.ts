@@ -467,6 +467,8 @@ export interface ErrorDetails {
   reason?: StorageReason
   /** The code of a refused state, scene rule, or document/new-document setting. */
   stateReason?: string
+  /** The losses an export needs accepted, and the digest that accepts exactly them. */
+  consent?: { losses: CtLoss[]; digest: string }
 }
 
 /**
@@ -480,6 +482,7 @@ export class ApiError extends Error {
   readonly commandIndex?: number
   readonly reason?: StorageReason
   readonly stateReason?: string
+  readonly consent?: { losses: CtLoss[]; digest: string }
 
   constructor(code: string, message: string, status: number, details: ErrorDetails = {}) {
     super(message)
@@ -490,6 +493,7 @@ export class ApiError extends Error {
     this.commandIndex = details.commandIndex
     this.reason = details.reason
     this.stateReason = details.stateReason
+    this.consent = details.consent
   }
 }
 
@@ -1196,6 +1200,76 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
   return { result: value.result, losses: value.loss_report }
 }
 
+export type SmilesForm = 'recorded' | 'canonical'
+
+export interface SmilesPreview {
+  digest: string
+  snapshot: DocumentView
+  /** The drawing as it would be after the import. */
+  document: DocumentView
+  components: number
+  losses: CtLoss[]
+}
+
+export interface SmilesImport {
+  documentId: string
+  revision: number
+  source: string
+  digest: string
+}
+
+export interface SmilesExport {
+  content: string
+  form: SmilesForm
+  modelId: string
+  canonical: { implementation: string; graph_model: string } | null
+  snapshot: DocumentView
+  atoms: string[]
+  foldedHydrogens: { hydrogen: string; attached_to: string }[]
+  losses: CtLoss[]
+}
+
+const isLoss = (loss: unknown): loss is CtLoss =>
+  isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+  typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string'
+
+/** Where in the SMILES text a refusal points, as the service reports it. */
+function smilesWhere(details: Record<string, unknown>): string {
+  const { offset, end } = details
+  if (!isCount(offset)) return ''
+  return isCount(end) && end > offset + 1 ? ` (bytes ${offset} to ${end})` : ` (byte ${offset})`
+}
+
+function smilesReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[]; modelId: unknown } {
+  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES response.', 200)
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const diagnostic: unknown = value.diagnostics[0]
+    if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
+      const details = isRecord(diagnostic.details) ? diagnostic.details : {}
+      const atom = typeof details.atom_id === 'string' ? ` Atom ${details.atom_id}.` : ''
+      const bond = typeof details.bond_id === 'string' ? ` Bond ${details.bond_id}.` : ''
+      const reason = typeof details.reason === 'string' ? ` (${details.reason})` : ''
+      const consent = diagnostic.code === 'loss_consent_required' || diagnostic.code === 'loss_consent_changed'
+        ? (Array.isArray(details.losses) && details.losses.every(isLoss) && typeof details.loss_digest === 'string'
+            ? { losses: details.losses, digest: details.loss_digest }
+            : undefined)
+        : undefined
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${smilesWhere(details)}${atom}${bond}${reason}`, 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        consent,
+      })
+    }
+    throw new ApiError('conversion_failed', 'The SMILES operation failed.', 200)
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every(isLoss)) {
+    throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES response.', 200)
+  }
+  return { result: value.result, losses: value.loss_report, modelId: value.model_id }
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -1474,6 +1548,88 @@ export class DocumentClient {
     const snapshot = DocumentClient.document({ api_version: API_VERSION, ...reply.result.records[0].snapshot }).document
     if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
     return { content: reply.result.content, losses: reply.losses, snapshot }
+  }
+
+  async previewSmiles(documentId: string, revision: number, source: string): Promise<SmilesPreview> {
+    const reply = smilesReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { document_id: documentId, expected_revision: revision, format: 'smiles', source, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        !isCount(result.components) || !isRecord(result.snapshot) || !isRecord(result.document) ||
+        result.document.id !== documentId || !Array.isArray(result.document.atoms) || !Array.isArray(result.document.bonds)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The SMILES preview used a different drawing or revision.', 200)
+    }
+    const document = DocumentClient.document({
+      api_version: API_VERSION, document: result.document,
+      session: result.snapshot.session, recovery: result.snapshot.recovery,
+    }).document
+    return { digest: result.preview_digest, snapshot, document, components: result.components, losses: reply.losses }
+  }
+
+  async importSmiles(input: SmilesImport): Promise<DocumentResponse> {
+    // An unanswered request might have committed. Reuse its ID only against the same service.
+    const key = `smiles:${JSON.stringify(input)}`
+    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
+    this.unconfirmedImports.set(key, pending)
+    let sentTo: string | undefined
+    try {
+      const reply = smilesReply(await this.write('/api/v1/operations', {
+        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
+        parameters: { document_id: input.documentId, expected_revision: input.revision, format: 'smiles',
+          source: input.source, preview_digest: input.digest, accept_loss: true },
+      }, 'reload', (token) => {
+        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
+        sentTo = token
+      }))
+      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
+      if (response.document.id !== input.documentId) {
+        throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
+      }
+      this.unconfirmedImports.delete(key)
+      return response
+    } catch (error) {
+      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
+        pending.sentTo = sentTo
+        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
+      }
+      this.unconfirmedImports.delete(key)
+      throw error
+    }
+  }
+
+  /** Writing is a read: it never changes the drawing. `acceptedLosses` repeats a refusal's digest. */
+  async exportSmiles(documentId: string, form: SmilesForm, acceptedLosses?: string): Promise<SmilesExport> {
+    const reply = smilesReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: {
+        format: 'smiles', document_id: documentId, form,
+        ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }),
+      },
+    }, 'reload'))
+    const { result } = reply
+    const identity = result.canonical
+    if (typeof result.content !== 'string' || result.form !== form || typeof reply.modelId !== 'string' ||
+        !isRecord(result.snapshot) || !isRecord(result.snapshot.document) ||
+        !Array.isArray(result.atoms) || !result.atoms.every((id): id is string => typeof id === 'string') ||
+        !Array.isArray(result.folded_hydrogens) ||
+        !result.folded_hydrogens.every((row): row is { hydrogen: string; attached_to: string } =>
+          isRecord(row) && typeof row.hydrogen === 'string' && typeof row.attached_to === 'string') ||
+        !(identity === null || (isRecord(identity) && typeof identity.implementation === 'string' && typeof identity.graph_model === 'string'))) {
+      throw new ApiError('incompatible_response', 'The service returned invalid SMILES output.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
+    return {
+      content: result.content, form, modelId: reply.modelId, snapshot, losses: reply.losses,
+      canonical: identity === null ? null : { implementation: String(identity.implementation), graph_model: String(identity.graph_model) },
+      atoms: result.atoms, foldedHydrogens: result.folded_hydrogens,
+    }
   }
 
   /** Read-only properties are tied to the returned document snapshot and source profile. */

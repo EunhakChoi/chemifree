@@ -1,0 +1,310 @@
+{
+  "id": "smiles-refusals-carry-code-and-position",
+  "title": "Invalid SMILES is refused with its input position, unsupported SMILES with a specific code, and the drawing is never changed",
+  "requirements": [
+    "CODEC-05",
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "dangling",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C=(O)",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "dangling_bond",
+            "details": {
+              "offset": 1,
+              "end": 2,
+              "class": "syntax"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "leading-space",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": " CC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "leading_whitespace",
+            "details": {
+              "offset": 0,
+              "class": "syntax"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ring-digit",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C(C)1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "ring_digit_after_branch_close",
+            "details": {
+              "offset": 4
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "unclosed-ring",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C2CC1CC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unclosed_ring",
+            "details": {
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "stereo",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C[C@H](F)Cl",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "chirality_unsupported",
+            "details": {
+              "offset": 3,
+              "class": "unsupported"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "directional",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C/C",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_unsupported",
+            "details": {
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "isotope-zero",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "[0H]",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "isotope_zero_unsupported",
+            "details": {
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "bridge",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "c1ccccc1:c1ccccc1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "aromatic_bond_outside_ring",
+            "details": {
+              "offset": 8
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "fused",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "c1ccc2[nH]ccc2c1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "unsupported",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "aromatic_system_unsupported",
+            "details": {
+              "class": "unsupported"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "limit",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "command_limit",
+            "details": {
+              "class": "limit"
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": []
+        }
+      }
+    }
+  ]
+}

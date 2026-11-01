@@ -1871,6 +1871,62 @@ test('conversion failures retain their record and line context', async () => {
 })
 
 
+test('a SMILES refusal names its position, atom and the model reason', async () => {
+  service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'error', result: null, loss_report: [],
+      diagnostics: [{ code: 'dangling_bond', message: 'This bond symbol is not followed by an atom or ring closure.', details: { offset: 1, end: 2, class: 'syntax' } }] }),
+    () => json(200, { outcome: 'unsupported', result: null, loss_report: [],
+      diagnostics: [{ code: 'hydrogens_undetermined', message: 'The valence model cannot determine this atom\'s hydrogen count, which its bracket needs.', details: { atom_id: 'a3', reason: 'element_or_charge' } }] }),
+  ] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'C=(O)'), {
+    code: 'dangling_bond', message: 'This bond symbol is not followed by an atom or ring closure. (byte 1)',
+  })
+  await assert.rejects(client.exportSmiles('doc-1', 'recorded'), {
+    code: 'hydrogens_undetermined',
+    message: "The valence model cannot determine this atom's hydrogen count, which its bracket needs. Atom a3. (element_or_charge)",
+  })
+})
+
+test('a SMILES export that needs consent carries the shown losses and the digest', async () => {
+  const losses = [{ feature: 'attachment_points', source_path: 'document.atoms[a1].attachment_points', disposition: 'dropped', reason: 'Not written.', semantic_impact: 'chemistry' }]
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'error', result: null, loss_report: [],
+      diagnostics: [{ code: 'loss_consent_required', message: 'Review the losses.', details: { features: ['attachment_points'], losses, loss_digest: 'f'.repeat(64) } }] }),
+  ] })
+  const client = new DocumentClient()
+  await assert.rejects(client.exportSmiles('doc-1', 'recorded'), (error) => {
+    assert.equal(error.code, 'loss_consent_required')
+    assert.deepEqual(error.consent, { losses, digest: 'f'.repeat(64) })
+    return true
+  })
+  assert.equal(scripted.writes.length, 1)
+})
+
+test('a SMILES import preview must describe the requested drawing and revision', async () => {
+  const actual = document('doc-1', 1)
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [],
+    result: { preview_digest: 'a'.repeat(64), components: 1, snapshot: actual, document: actual.document } })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'C'), { code: 'incompatible_response' })
+})
+
+test('a SMILES preview carries the snapshot, the prospective drawing and the losses', async () => {
+  const actual = document('doc-1', 0)
+  const after = structuredClone(actual.document)
+  after.atoms = [{ id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  const loss = { feature: 'generated_layout', source_path: 'source', disposition: 'normalized', reason: 'No coordinates.', semantic_impact: 'geometry' }
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'partial', diagnostics: [], loss_report: [loss],
+    result: { preview_digest: 'a'.repeat(64), components: 1, snapshot: actual, document: after } })] })
+  const client = new DocumentClient()
+  const preview = await client.previewSmiles('doc-1', 0, 'C')
+  assert.equal(preview.snapshot.atoms.length, 0)
+  assert.equal(preview.document.atoms.length, 1)
+  assert.deepEqual(preview.losses, [loss])
+  assert.equal(preview.digest, 'a'.repeat(64))
+})
+
+
 test('an import preview exposes the actual graph even when a revision is reused', async () => {
   const actual = document('doc-1', 1)
   actual.document.atoms = [{ id: 'a1', element: 'O', charge: 0, isotope: null, position: { x: 0, y: 0 } }]

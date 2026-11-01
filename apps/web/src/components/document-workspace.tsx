@@ -77,6 +77,7 @@ import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
+import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { IdentityPanel } from '@/components/identity-panel'
@@ -718,7 +719,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
           <ValenceInspector document={document} editor={editor} />
-          <CtfilePanel key={document.id} document={document} editor={editor} />
+          <CtfilePanel key={`ctfile:${document.id}`} document={document} editor={editor} />
+          <SmilesPanel key={`smiles:${document.id}`} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
           <IdentityPanel document={document} editor={editor} />

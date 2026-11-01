@@ -2945,6 +2945,105 @@ step = 'after short_wide_bond_is_selectable'
   results.aromaticity_inspection_and_atomic_conversion = true
 }
 
+// SMILES: preview, losses, consent and commit; an edit of the text never discards a result;
+// a refused commit shows in the panel; export is a read.
+{
+  step = 'SMILES preview, import and export'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'smiles-browser-create', title: 'SMILES browser' })
+  const id = created.body.document.id
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const panel = page.getByRole('complementary', { name: 'SMILES', exact: true })
+  const input = panel.locator('#smiles-input')
+
+  // A stereo centre is refused with its code and position, in the panel's own error area.
+  await input.fill('C[C@H](F)Cl')
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByTestId('smiles-error').getByText(/Tetrahedral and other chirality.*byte 3/).waitFor()
+
+  // An edit of the text while a preview is in flight keeps the arriving result, marked stale.
+  await input.fill('c1ccccc1O')
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const hold = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.import' || request.parameters.preview !== true) return route.continue()
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', hold)
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await responseArrived
+  await input.fill('c1ccccc1OC')
+  release()
+  await panel.getByTestId('smiles-preview').waitFor()
+  await panel.getByTestId('smiles-stale').waitFor()
+  await page.unroute('**/api/v1/operations', hold)
+  assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).isDisabled(), true, 'a result for older text cannot be imported')
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'a preview changes nothing')
+
+  // A preview of the current text lists the losses, and the commit is one edit.
+  await input.fill('c1ccccc1O')
+  await panel.getByRole('button', { name: 'Preview import' }).click()
+  await panel.getByText(/SMILES has no coordinates/).waitFor()
+  await panel.getByText('7 atom(s) and 7 bond(s) in 1 part(s).', { exact: true }).waitFor()
+
+  // A commit the service refuses is shown in the panel, with the preview left to be redone.
+  const spoil = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.import' || request.parameters.preview === true) return route.continue()
+    request.parameters.preview_digest = '0'.repeat(64)
+    await route.continue({ postData: JSON.stringify(request) })
+  }
+  await page.route('**/api/v1/operations', spoil)
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByTestId('smiles-error').getByText(/preview_changed/).waitFor()
+  await page.unroute('**/api/v1/operations', spoil)
+  assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'a refused commit changes nothing')
+
+  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const imported = await api(`/api/v1/documents/${id}`)
+  assert.equal(imported.document.atoms.length, 7)
+  assert.equal(imported.session.undo_depth, 1, 'the import is one undoable edit')
+
+  // Writing is a read: the revision and history are untouched.
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  await panel.getByTestId('smiles-output').getByLabel('Written SMILES').waitFor()
+  assert.equal(await panel.getByLabel('Written SMILES').inputValue(), 'Oc1ccccc1')
+  await panel.getByText(/chemifree-smiles-canonical-1, from chemifree-chemical-graph-2/).waitFor()
+  await panel.getByText(/Native atom and bond IDs are not written/).waitFor()
+  const afterWrite = await api(`/api/v1/documents/${id}`)
+  assert.deepEqual(afterWrite.document, imported.document)
+  assert.equal(afterWrite.session.undo_depth, 1)
+
+  // Content that SMILES cannot hold needs consent, which is bound to the shown losses.
+  const attach = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'smiles-browser-attachment', expected_revision: imported.document.revision,
+    commands: [{ op: 'add_atom', element: 'Cl', position: { x: 200, y: 0 }, attachment_points: [1] }],
+  })
+  assert.equal(attach.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  // The canonical form has no answer for an attachment point at all; the recorded form drops it.
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  await panel.getByTestId('smiles-error').getByText(/no canonical form|cannot determine this structure/).waitFor()
+  await panel.locator('#smiles-form').click()
+  await page.getByRole('option', { name: 'Recorded order' }).click()
+  await panel.getByRole('button', { name: 'Write SMILES' }).click()
+  await panel.getByTestId('smiles-consent').getByText(/Attachment points are not written/).waitFor()
+  assert.equal(await panel.getByTestId('smiles-output').count(), 0, 'nothing is written before consent')
+  await panel.getByRole('button', { name: 'Accept these losses and write' }).click()
+  await panel.getByTestId('smiles-output').waitFor()
+  assert.equal(await panel.getByLabel('Written SMILES').inputValue(), 'c1ccccc1O.Cl')
+  await page.screenshot({ path: join(outDir, 'editor-smiles.png') })
+  results.smiles_preview_consent_import_and_export = true
+}
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

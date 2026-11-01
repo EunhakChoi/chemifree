@@ -15,6 +15,8 @@ import {
   type InterchangeFormat,
   type InterchangeInput,
   type ListQuery,
+  type SmilesForm,
+  type SmilesImport,
   type SettingsSource,
   type TrashListResponse,
 } from '@/lib/document-contract'
@@ -361,6 +363,30 @@ export function useDocumentEditor() {
       })
       return committed
     }, [run, setCurrent]),
+    previewSmiles: useCallback((id: string, revision: number, source: string) =>
+      client.previewSmiles(id, revision, source), []),
+    exportSmiles: useCallback((id: string, form: SmilesForm, acceptedLosses?: string) =>
+      client.exportSmiles(id, form, acceptedLosses), []),
+    /**
+     * Commits a previewed SMILES import behind earlier edits. A refusal (a changed preview,
+     * missing consent, a revision conflict) is thrown to the caller, whose panel shows it,
+     * and is not reported as the page's error.
+     */
+    importSmiles: useCallback((input: SmilesImport, snapshot: DocumentView, generation: number) => {
+      setPending((count) => count + 1)
+      const committed = queue.current.then(async () => {
+        const shown = currentRef.current
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+        }
+        const response = await client.importSmiles(input)
+        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+      })
+      queue.current = committed.then(() => undefined, () => undefined)
+      return committed.finally(() => setPending((count) => count - 1))
+    }, [setCurrent]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

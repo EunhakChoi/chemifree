@@ -408,18 +408,35 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-05.smiles-basic",
+          "summary": "For bounded SMILES without stereo, queries or reactions: branches, ring closures, components, isotopes, charges, hydrogens and aromatic atoms are read with positioned errors; recorded-order and Chemifree canonical SMILES are written, the canonical form is stable under atom order and Kekule/aromatic spelling and identifies its implementation and graph model, and representation changes are reported as losses.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/smiles/mod.rs",
+            "crates/domain/src/smiles/parse.rs",
+            "crates/domain/src/smiles/write.rs",
+            "crates/application/src/operations/smiles_operations.rs",
+            "crates/application/src/smiles_projection.rs"
+          ],
+          "evidence": [
+            "case:smiles-import-and-canonical-write",
+            "check:check:rust",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-05.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "SMILES stereo, query and reaction SMILES, aromatic systems the shared model does not support, string-versus-chemical equality across toolkits, and InChI remain open; the canonical form is not compatible with any toolkit's.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
             "P18",
-            "P21",
             "P29",
             "P30",
             "P48",
@@ -473,6 +490,21 @@
           "status": "implemented",
           "implementation": ["crates/providers/src/opaque_policy.rs", "crates/providers/src/cdx/read.rs", "crates/providers/src/cdx/write.rs", "crates/providers/src/interchange_codec.rs"],
           "evidence": ["case:cdx-binary-interchange", "check:check:rust"],
+          "followups": []
+        },
+        {
+          "id": "CODEC-06.smiles-policy",
+          "summary": "For bounded SMILES, stereo, queries, reactions, atom classes, isotope 0 and aromatic systems outside the shared model are refused with specific codes and input positions; text after the SMILES, inferred radicals, generated layout and every dropped drawing feature are reported as losses, and content with no SMILES form needs consent bound to the shown losses.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/smiles/error.rs",
+            "crates/application/src/smiles_projection.rs",
+            "crates/application/src/ct_projection.rs"
+          ],
+          "evidence": [
+            "case:smiles-refusals-carry-code-and-position",
+            "check:check:rust"
+          ],
           "followups": []
         },
         {

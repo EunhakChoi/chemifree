@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 12,
+  "suite_version": 13,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -176,7 +176,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2d17bcbf098f3ee78d0b44416c4d3bc35c6d07efc351d1fab6461a39c8ff0fd5"
+      "case_sha256": "ad3a76212c105d88518181d90ce76541692200b884095dc49fad9064a8dc222d"
     },
     {
       "id": "formula-and-mass",
@@ -491,21 +491,49 @@
       "pending": null,
       "failure": null,
       "case_sha256": "4647ba870f46f8d14857983bf67231d83b6c68a5637bdea6030b4752c674942f"
+    },
+    {
+      "id": "smiles-import-and-canonical-write",
+      "title": "Two spellings of phenol import through a preview and consent, and write the same canonical SMILES; the recorded write keeps the Kekule spelling",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "dbbe6b1d4cc4b68b218725ba14409d1a761a54fdda326bcd9c1efa16d4107261"
+    },
+    {
+      "id": "smiles-refusals-carry-code-and-position",
+      "title": "Invalid SMILES is refused with its input position, unsupported SMILES with a specific code, and the drawing is never changed",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "2e848b582a51aafef877f8eceaeecc18ab1b9b9a77282d271f1dc326015e6a6a"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 23,
+      "passed": 24,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 13,
+      "passed": 14,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 36,
+      "passed": 38,
       "failed": 0,
       "not_run": 0
     }

@@ -1,0 +1,236 @@
+{
+  "id": "smiles-import-and-canonical-write",
+  "title": "Two spellings of phenol import through a preview and consent, and write the same canonical SMILES; the recorded write keeps the Kekule spelling",
+  "requirements": [
+    "CODEC-05",
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "a"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview-a",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C1=CC=CC=C1O",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "result": {
+          "components": 1,
+          "document": {
+            "revision": 1
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout"
+            }
+          ]
+        }
+      },
+      "document": "a",
+      "capture": {
+        "digest": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import-a",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C1=CC=CC=C1O",
+          "expected_revision": 0,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "import_mapping": {
+            "atoms": [
+              "a1",
+              "a2",
+              "a3",
+              "a4",
+              "a5",
+              "a6",
+              "a7"
+            ]
+          },
+          "document": {
+            "revision": 1
+          }
+        }
+      },
+      "document": "a",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "recorded-a",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "form": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "model_id": "chemifree-smiles-recorded-1",
+        "result": {
+          "content": "C1=CC=CC=C1O",
+          "form": "recorded",
+          "canonical": null
+        }
+      },
+      "document": "a"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "canonical-a",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "form": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "model_id": "chemifree-smiles-canonical-1",
+        "result": {
+          "content": "Oc1ccccc1",
+          "form": "canonical",
+          "canonical": {
+            "implementation": "chemifree-smiles-canonical-1",
+            "graph_model": "chemifree-chemical-graph-2"
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "aromatic_bonds"
+            },
+            {
+              "feature": "coordinates"
+            },
+            {
+              "feature": "native_ids"
+            }
+          ]
+        }
+      },
+      "document": "a"
+    },
+    {
+      "call": "create",
+      "bind": "b"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview-b",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "c1ccc(O)cc1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0
+      },
+      "document": "b",
+      "capture": {
+        "digest_b": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import-b",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "c1ccc(O)cc1",
+          "expected_revision": 0,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "b",
+      "substitute": {
+        "/parameters/preview_digest": "digest_b"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "canonical-b",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "form": "canonical"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "Oc1ccccc1"
+        }
+      },
+      "document": "b"
+    },
+    {
+      "call": "get",
+      "document": "a",
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    }
+  ]
+}
