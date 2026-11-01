@@ -61,22 +61,23 @@ impl FormatText {
             names.push("MOL/SDF".to_owned());
             read_write.push("bounded V2000 MOL/SDF".to_owned());
             import.push("append one selected record of a bounded V2000 MOL/SDF subset".to_owned());
-            export.push("write bounded V2000 MOL/SDF with per-record losses".to_owned());
+            export.push("bounded V2000 MOL/SDF with per-record losses".to_owned());
         }
         if let Some(limit) = connected.interchange_binary_limit {
             let limit = describe_limit(limit);
             names.push("CDXML".to_owned());
             names.push("CDX".to_owned());
-            read_write.push(format!("rich CDXML and a bounded CDX subset (base64 over JSON, at most {limit} of CDX; HTTP and CLI limits are lower)"));
+            read_write.push("rich CDXML".to_owned());
+            read_write.push(format!("a bounded CDX subset (base64 over JSON, at most {limit} of CDX; HTTP and CLI limits are lower)"));
             import.push(format!("read CDXML or a bounded CDX subset (canonical base64, at most {limit}) as a rich tree, or create a drawing from its loss-accounted editor projection"));
-            export.push("write rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content".to_owned());
+            export.push("rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content".to_owned());
         }
         if let Some(limits) = connected.smiles {
             let limit = describe_limit(limits.max_input_bytes);
             names.push("SMILES".to_owned());
             read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit}, written in recorded or canonical form)"));
             import.push(format!("append one SMILES string (at most {limit})"));
-            export.push("write one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make".to_owned());
+            export.push("one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make".to_owned());
         }
         if names.is_empty() {
             return None;
