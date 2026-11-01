@@ -9,7 +9,7 @@ use chemifree_application::{
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, SmilesTextCodec, V2000Codec,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -208,6 +208,7 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     let application = Application::new(LocalCapabilities, repository)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles_codec(SmilesTextCodec)
         .with_preferences(preferences);
     let Some(fixture) = fixture else {
         return Ok(application);
