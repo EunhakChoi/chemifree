@@ -37,6 +37,13 @@ pub enum ObjectKind {
     UnknownBinary(u16),
 }
 
+impl ObjectKind {
+    /// Whether the common model allows `child` directly inside this kind of object.
+    pub fn may_contain(&self, child: &ObjectKind) -> bool {
+        allowed_child(self, child)
+    }
+}
+
 /// A supported property or an uninterpreted format-specific property.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PropertyKind {
@@ -181,8 +188,10 @@ impl fmt::Display for ValidationError {
 }
 impl std::error::Error for ValidationError {}
 
-const MAX_DEPTH: usize = 128;
-const MAX_OBJECTS: usize = 100_000;
+/// Deepest allowed nesting: the root is at depth zero.
+pub const MAX_DEPTH: usize = 128;
+/// Most objects a document may hold, counting every object in the tree.
+pub const MAX_OBJECTS: usize = 100_000;
 
 impl Document {
     /// Creates a document only after checking global IDs and known references.

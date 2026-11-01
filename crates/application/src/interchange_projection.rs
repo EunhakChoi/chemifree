@@ -117,6 +117,7 @@ fn fail(code: &'static str, message: impl Into<String>) -> InterchangeError {
         message: message.into(),
         line: None,
         column: None,
+        offset: None,
     }
 }
 

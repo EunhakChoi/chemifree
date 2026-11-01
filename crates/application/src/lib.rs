@@ -45,6 +45,7 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+pub mod transport_base64;
 mod turns;
 
 use std::sync::Arc;

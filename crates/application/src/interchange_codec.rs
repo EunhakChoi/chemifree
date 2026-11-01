@@ -32,6 +32,9 @@ pub struct InterchangeError {
     pub message: String,
     pub line: Option<u32>,
     pub column: Option<u32>,
+    /// Byte offset of the offending item in a binary format; `None` when no single item is
+    /// at fault. Zero is a real offset.
+    pub offset: Option<u64>,
 }
 
 impl fmt::Display for InterchangeError {

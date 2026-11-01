@@ -6,6 +6,11 @@ use super::*;
 use crate::interchange_codec::{InterchangeCodec, InterchangeError, InterchangeFormat};
 use crate::interchange_contract::InterchangeDocumentDto;
 use crate::interchange_projection::{self, Projection, SourceObject};
+use crate::transport_base64;
+
+/// The binary codec's own input limit. A JSON transport may be stricter: the HTTP body limit
+/// and the CLI input limit apply to the base64 text, which is a third larger than the bytes.
+const MAX_BINARY_BYTES: usize = 1024 * 1024;
 
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
@@ -41,6 +46,9 @@ struct ExportParameters {
     original: Option<String>,
     #[serde(default)]
     discard_opaque: bool,
+    /// Consent to the dropped or rounded content the writer reports (see `needs_consent`).
+    #[serde(default)]
+    accept_loss: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -83,11 +91,48 @@ fn format(name: &str) -> Result<InterchangeFormat, InterchangeError> {
         "cdx" => Ok(InterchangeFormat::Cdx),
         _ => Err(InterchangeError {
             code: "unsupported_format",
-            message: "Only CDXML is available in this profile.".into(),
+            message: "The format must be \"cdxml\" or \"cdx\".".into(),
             line: None,
             column: None,
+            offset: None,
         }),
     }
+}
+
+/// Payload bytes of a request string: CDXML text is its UTF-8 bytes, CDX is canonical base64.
+fn payload(format: InterchangeFormat, text: &str) -> Result<Vec<u8>, InterchangeError> {
+    match format {
+        InterchangeFormat::Cdxml => Ok(text.as_bytes().to_vec()),
+        InterchangeFormat::Cdx => {
+            if text.len() > transport_base64::encoded_len(MAX_BINARY_BYTES) {
+                return Err(InterchangeError {
+                    code: "resource_limit",
+                    message: "CDX input exceeds 1 MiB.".into(),
+                    line: None,
+                    column: None,
+                    offset: Some(MAX_BINARY_BYTES as u64),
+                });
+            }
+            transport_base64::decode(text).map_err(|error| InterchangeError {
+                code: "invalid_base64",
+                message: format!(
+                    "CDX input must be canonical base64: {} (character {}).",
+                    error.reason, error.index
+                ),
+                line: None,
+                column: None,
+                offset: None,
+            })
+        }
+    }
+}
+
+/// Changes a writer reports that the caller must accept before the content is returned:
+/// content with no target encoding and values rounded to the format's resolution. Opaque
+/// content is covered by `discard_opaque`; reserialization notes need no consent.
+fn needs_consent(loss: &Loss) -> bool {
+    loss.feature == "precision"
+        || (loss.disposition == LossDisposition::Dropped && loss.feature != "opaque_extensions")
 }
 
 fn digest<T: Serialize>(value: &T) -> String {
@@ -103,6 +148,9 @@ fn issue(error: InterchangeError) -> Diagnostic {
     }
     if let Some(column) = error.column {
         details.insert("column".into(), column.into());
+    }
+    if let Some(offset) = error.offset {
+        details.insert("offset".into(), offset.into());
     }
     Diagnostic {
         code: error.code,
@@ -156,6 +204,7 @@ fn mapping(
             message: "The created graph does not match its projection.".into(),
             line: None,
             column: None,
+            offset: None,
         });
     }
     Ok(InterchangeMapping {
@@ -192,7 +241,8 @@ fn read(
     name: &str,
     source: &str,
 ) -> Result<crate::interchange_codec::InterchangeRead, InterchangeError> {
-    codec.read(format(name)?, source.as_bytes())
+    let format = format(name)?;
+    codec.read(format, &payload(format, source)?)
 }
 
 fn normalized_document(document: &DocumentView) -> DocumentView {
@@ -497,30 +547,75 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Ok(document) => document,
             Err(error) => return known.invalid(refused("invalid_document", &error.to_string())),
         };
-        let original = parameters.original.as_deref().map(str::as_bytes);
-        let output = match codec.write(format, &document, original, parameters.discard_opaque) {
+        let original = match parameters.original.as_deref() {
+            Some(text) => match payload(format, text) {
+                Ok(bytes) => Some(bytes),
+                Err(error) => return known.invalid(issue(error)),
+            },
+            None => None,
+        };
+        let output = match codec.write(
+            format,
+            &document,
+            original.as_deref(),
+            parameters.discard_opaque,
+        ) {
             Ok(output) => output,
             Err(error) => return known.invalid(issue(error)),
         };
         let mut losses = output.loss_report;
-        if original.is_some_and(|bytes| bytes != output.bytes.as_slice()) {
-            losses.push(Loss {
-                feature: "xml_serialization".into(),
-                source_path: "source".into(),
-                disposition: LossDisposition::Normalized,
-                reason: "The edited document was reserialized; lexical XML formatting may differ."
-                    .into(),
-                semantic_impact: SemanticImpact::None,
+        if original
+            .as_deref()
+            .is_some_and(|bytes| bytes != output.bytes.as_slice())
+        {
+            losses.push(match format {
+                InterchangeFormat::Cdxml => Loss {
+                    feature: "xml_serialization".into(),
+                    source_path: "source".into(),
+                    disposition: LossDisposition::Normalized,
+                    reason:
+                        "The edited document was reserialized; lexical XML formatting may differ."
+                            .into(),
+                    semantic_impact: SemanticImpact::None,
+                },
+                InterchangeFormat::Cdx => Loss {
+                    feature: "binary_serialization".into(),
+                    source_path: "source".into(),
+                    disposition: LossDisposition::Normalized,
+                    reason: "The edited document was reserialized; reserved header bytes, extended-length spelling and property order may differ from the original."
+                        .into(),
+                    semantic_impact: SemanticImpact::None,
+                },
             });
         }
-        let content = match String::from_utf8(output.bytes) {
-            Ok(content) => content,
-            Err(_) => {
-                return known.invalid(refused(
-                    "invalid_output",
-                    "The provider returned non-UTF-8 CDXML.",
-                ));
-            }
+        if !parameters.accept_loss && losses.iter().any(needs_consent) {
+            let mut details = Map::new();
+            details.insert(
+                "features".into(),
+                losses
+                    .iter()
+                    .filter(|loss| needs_consent(loss))
+                    .map(|loss| Value::String(loss.feature.clone()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+            return known.invalid(diagnostic(
+                "loss_consent_required",
+                "The export would drop or round content. Review the listed features and repeat with accept_loss.",
+                details,
+            ));
+        }
+        let content = match format {
+            InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {
+                Ok(content) => content,
+                Err(_) => {
+                    return known.invalid(refused(
+                        "invalid_output",
+                        "The provider returned non-UTF-8 CDXML.",
+                    ));
+                }
+            },
+            InterchangeFormat::Cdx => transport_base64::encode(&output.bytes),
         };
         response(
             known,
