@@ -389,6 +389,13 @@ pub struct Support {
     pub sub_operations: Vec<Support>,
 }
 
+/// A catalog row as this service presents it: the table entry, its parts and the note to show.
+struct CatalogRow {
+    entry: Entry,
+    parts: &'static [Entry],
+    note: Cow<'static, str>,
+}
+
 /// One row of the support table.
 struct Entry {
     id: &'static str,
@@ -1266,26 +1273,26 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    /// The catalog row of `operation` for the codecs connected now: import and export run once
-    /// any format codec is connected, and their note then comes from `format_text`.
-    fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        match operation {
-            OperationId::DocumentImport | OperationId::DocumentExport
-                if self.format_text.is_some() =>
-            {
-                (runs(operation.as_str(), ""), &[])
-            }
-            _ => entry(operation),
-        }
-    }
-
-    /// The note of a catalog row that `effective_entry` made executable.
-    fn effective_note(&self, operation: OperationId) -> Option<Cow<'static, str>> {
-        let text = self.format_text.as_ref()?;
-        match operation {
-            OperationId::DocumentImport => Some(Cow::Owned(text.import_note.clone())),
-            OperationId::DocumentExport => Some(Cow::Owned(text.export_note.clone())),
+    /// The catalog row of `operation` for the codecs connected now, with its note: import and
+    /// export run once any format codec is connected, and their note then comes from
+    /// `format_text`. The catalog and the dispatcher both read this one row.
+    fn catalog_row(&self, operation: OperationId) -> CatalogRow {
+        let note = match (operation, &self.format_text) {
+            (OperationId::DocumentImport, Some(text)) => Some(text.import_note.clone()),
+            (OperationId::DocumentExport, Some(text)) => Some(text.export_note.clone()),
             _ => None,
+        };
+        match note {
+            Some(note) => CatalogRow {
+                entry: runs(operation.as_str(), ""),
+                parts: &[],
+                note: Cow::Owned(note),
+            },
+            None => {
+                let (entry, parts) = entry(operation);
+                let note = Cow::Borrowed(entry.note);
+                CatalogRow { entry, parts, note }
+            }
         }
     }
 
@@ -1518,11 +1525,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = self.effective_entry(operation);
-                    let mut support = entry.view(parts);
-                    if let Some(note) = self.effective_note(operation) {
-                        support.note = note;
-                    }
+                    let row = self.catalog_row(operation);
+                    let mut support = row.entry.view(row.parts);
+                    support.note = row.note;
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -1826,7 +1831,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if self.effective_entry(known.operation).0.execution != Execution::Executable {
+        if self.catalog_row(known.operation).entry.execution != Execution::Executable {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());

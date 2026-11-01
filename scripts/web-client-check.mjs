@@ -15,7 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
-const { currentSmilesExport } = await import('../apps/web/src/lib/smiles-state.ts')
+const { consentAfterFailure, currentSmilesExport } = await import('../apps/web/src/lib/smiles-state.ts')
 const { RunQueue } = await import('../apps/web/src/lib/run-queue.ts')
 const { ApiError } = await import('../apps/web/src/lib/document-contract.ts')
 
@@ -1956,6 +1956,22 @@ test('a SMILES import that succeeds clears the page error, and one that fails is
   const waiting = queue.runOrThrow(async () => 1)
   await Promise.all([slow, waiting])
   assert.deepEqual(errors, ['revision_conflict', null, 'storage_failed'])
+})
+
+test('a SMILES range names its last byte, not the exclusive end', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null, loss_report: [],
+    diagnostics: [{ code: 'unclosed_ring', message: 'Never closed.', details: { offset: 2, end: 6, class: 'syntax' } }] })] })
+  const client = new DocumentClient()
+  await assert.rejects(client.previewSmiles('doc-1', 0, 'CC1CCCC'), { message: 'Never closed. (bytes 2 to 5)' })
+})
+
+test('a consent offer ends with any failure that is not a new consent refusal', () => {
+  const losses = [{ feature: 'attachment_points', source_path: 'p', disposition: 'dropped', reason: 'r', semantic_impact: 'chemistry' }]
+  const refusal = new ApiError('loss_consent_changed', 'Changed.', 200, { consent: { losses, digest: 'd'.repeat(64) } })
+  assert.deepEqual(consentAfterFailure('recorded', refusal), { form: 'recorded', losses, digest: 'd'.repeat(64) })
+  assert.equal(consentAfterFailure('recorded', new ApiError('revision_conflict', 'Stale.', 409)), null, 'the digest belongs to a write that no longer stands')
+  assert.equal(consentAfterFailure('recorded', new ApiError('unreachable', 'Down.', 0)), null)
+  assert.equal(consentAfterFailure('recorded', new Error('boom')), null)
 })
 
 

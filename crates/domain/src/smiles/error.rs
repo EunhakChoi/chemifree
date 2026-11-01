@@ -132,6 +132,7 @@ error_codes! {
     BondKindNotWritable, NotWritable, "bond_kind_not_writable", "Only single, double, triple and aromatic bonds can be written as SMILES.";
     AromaticBridgeNotWritable, NotWritable, "aromatic_bridge_not_writable", "An aromatic bond that is not in a ring would be refused by the reader.";
     AromaticityUnsupported, NotWritable, "aromaticity_unsupported", "The aromatic bonds are not a system chemifree-aromaticity-2 supports, so the reader would refuse them.";
+    AromaticElementNotWritable, NotWritable, "aromatic_element_not_writable", "SMILES has a lower-case aromatic form only for B, C, N, O, P, S, Se and As.";
     HydrogensUnknownNotWritable, NotWritable, "hydrogens_unknown_not_writable", "An atom with stated unknown hydrogens cannot be written.";
     HydrogensUndetermined, NotWritable, "hydrogens_undetermined", "The valence model cannot determine this atom's hydrogen count, which its bracket needs.";
     HydrogenCountNotWritable, NotWritable, "hydrogen_count_not_writable", "A bracket atom's hydrogen count is a single digit, 0 to 9.";

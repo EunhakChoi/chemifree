@@ -1741,3 +1741,41 @@ fn the_read_back_compares_the_hydrogens_of_bare_atoms_too() {
             .is_empty()
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// The aromatic and bare predicates both writers share
+
+#[test]
+fn only_elements_the_reader_accepts_in_lower_case_may_be_aromatic() {
+    use super::write::{has_aromatic_form, may_be_bare};
+    for symbol in ["B", "C", "N", "O", "P", "S", "Se", "As"] {
+        let element = Element::from_symbol(symbol).unwrap();
+        assert!(has_aromatic_form(element), "{symbol}");
+        let lower = format!("[{}]", symbol.to_lowercase());
+        // The reader gets past the symbol (it may still refuse the atom for another reason).
+        let code = read(&lower).unwrap_err().code;
+        assert_ne!(code, ErrorCode::UnknownElement, "{lower}");
+    }
+    for symbol in ["Te", "Si", "F", "Cl", "Br", "I", "H", "Fe", "Na", "Ge"] {
+        let element = Element::from_symbol(symbol).unwrap();
+        assert!(!has_aromatic_form(element), "{symbol}");
+        let lower = format!("[{}]", symbol.to_lowercase());
+        // There is no way to spell the atom as an aromatic one.
+        assert!(read(&lower).is_err(), "{lower}");
+        // Never bare when aromatic, even where the element is in the bare organic subset.
+        assert!(
+            !may_be_bare(&element_atom(symbol), element, true),
+            "{symbol}"
+        );
+    }
+    let chlorine = Element::from_symbol("Cl").unwrap();
+    assert!(may_be_bare(&element_atom("Cl"), chlorine, false));
+    let nitrogen = Element::from_symbol("N").unwrap();
+    assert!(may_be_bare(&element_atom("N"), nitrogen, true));
+    let mut cation = element_atom("N");
+    cation.charge = 1;
+    assert!(
+        !may_be_bare(&cation, nitrogen, false),
+        "a charged atom needs brackets"
+    );
+}

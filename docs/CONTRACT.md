@@ -141,7 +141,7 @@ Chemifree reads and writes a bounded part of SMILES with its own code (`crates/d
 
 SMILES has no coordinates. Atoms are placed on a plain grid (30 points apart, in input order) to the right of the existing atoms and reported as `generated_layout`; there is no layout algorithm and the result is not a structure diagram.
 
-`document.export` with `format: "smiles"` takes `{ format, document_id, form: "recorded" | "canonical", accepted_losses? }` and returns `{ content, form, canonical, snapshot, atoms, folded_hydrogens }`. `snapshot` is the exact working copy written (document and session, with its revision); `atoms` lists atom IDs in the order the text names atoms; `folded_hydrogens` lists `{ hydrogen, attached_to }` for explicit hydrogens the canonical form folded into counts, and these are not in `atoms`. `model_id` is `chemifree-smiles-recorded-1` or `chemifree-smiles-canonical-1`; for the canonical form `canonical` is `{ implementation: "chemifree-smiles-canonical-1", graph_model: "chemifree-chemical-graph-2" }`. Export is a read: it never changes the document, its revision, its history or its recovery draft. A refusal still reports `document_revision` and the `model_id`.
+`document.export` with `format: "smiles"` takes `{ format, document_id, form: "recorded" | "canonical", accepted_losses? }` and returns `{ content, form, canonical, snapshot, atoms, folded_hydrogens }`. `snapshot` is the exact working copy written (document and session, with its revision); `atoms` lists atom IDs in the order the text names atoms; `folded_hydrogens` lists `{ hydrogen, attached_to }` for explicit hydrogens the canonical form folded into counts, and these are not in `atoms`. `model_id` is `chemifree-smiles-recorded-1` or `chemifree-smiles-canonical-1`; for the canonical form `canonical` is `{ implementation: "chemifree-smiles-canonical-1", graph_model: "chemifree-chemical-graph-2" }`. Export is a read: it never changes the document, its revision, its history or its recovery draft. A writer refusal (`not writable`, `limit`) still reports `document_revision` and the `model_id`; a consent refusal (`loss_consent_required`, `loss_consent_changed`) has the same envelope for every format, SMILES included: `outcome: "error"`, no result, no revision and no `model_id`.
 
 ### Reading
 
@@ -219,6 +219,7 @@ The codes below are the complete set. Every one has a message in one table (`cra
 | `bond_kind_not_writable` | not writable | Only single, double, triple and aromatic bonds can be written as SMILES. |
 | `aromatic_bridge_not_writable` | not writable | An aromatic bond that is not in a ring would be refused by the reader. |
 | `aromaticity_unsupported` | not writable | The aromatic bonds are not a system chemifree-aromaticity-2 supports, so the reader would refuse them. |
+| `aromatic_element_not_writable` | not writable | SMILES has a lower-case aromatic form only for B, C, N, O, P, S, Se and As. |
 | `hydrogens_unknown_not_writable` | not writable | An atom with stated unknown hydrogens cannot be written. |
 | `hydrogens_undetermined` | not writable | The valence model cannot determine this atom's hydrogen count, which its bracket needs. |
 | `hydrogen_count_not_writable` | not writable | A bracket atom's hydrogen count is a single digit, 0 to 9. |

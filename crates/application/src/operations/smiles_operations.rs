@@ -134,10 +134,6 @@ fn projection_refusal(refused: smiles_projection::Refusal) -> Diagnostic {
     diagnostic(refused.code, refused.message, refused.details)
 }
 
-fn mapping(document: &DocumentView, atoms: usize, bonds: usize) -> CtMapping {
-    ct_mapping(document, atoms, bonds)
-}
-
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     pub(super) fn smiles_import(
         &self,
@@ -177,7 +173,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             // that depend on the text alone. Nothing is placed or recomputed from the drawing,
             // which may have changed since.
             let mut result: DocumentResult = committed.into();
-            result.import_mapping = Some(mapping(
+            result.import_mapping = Some(ct_mapping(
                 &result.document,
                 read.atoms.len(),
                 read.bonds.len(),
@@ -281,7 +277,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         match response {
             Ok(response) => {
                 let mut result: DocumentResult = response.into();
-                result.import_mapping = Some(mapping(
+                result.import_mapping = Some(ct_mapping(
                     &result.document,
                     read.atoms.len(),
                     read.bonds.len(),
@@ -347,9 +343,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             written.text.as_bytes(),
             p.accepted_losses.as_deref(),
         ) {
-            let mut response = known.reply(Outcome::Error, Some(revision), None, vec![refused]);
-            response.model_id = Some(model_id.into());
-            return response;
+            // The envelope of every format's consent refusal: an error with no revision and no
+            // model, as for CDXML and CDX.
+            return known.invalid(refused);
         }
         let mut response = converted(
             known,

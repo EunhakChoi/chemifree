@@ -172,11 +172,39 @@ fn kekule_assignment(
         .map_err(|reason| SmilesError::refused(ErrorCode::AromaticityUnsupported).because(reason))
 }
 
+/// The elements the reader accepts in lower case: `b c n o p s` bare or in brackets, `se` and
+/// `as` in brackets (OpenSMILES, Atoms). An atom with an aromatic bond must be one of these.
+/// `chemifree-aromaticity-2` only ever produces C, N, O and S, so for any other element the
+/// aromaticity check refuses the drawing first; this predicate is the writer's own guarantee
+/// that the text it emits can be read, whatever the model does later.
+pub(super) fn has_aromatic_form(element: Element) -> bool {
+    matches!(
+        element.symbol(),
+        "B" | "C" | "N" | "O" | "P" | "S" | "Se" | "As"
+    )
+}
+
 fn bare_kind(atom: &Atom, element: Element) -> bool {
     ORGANIC.contains(&element.symbol())
         && atom.charge == 0
         && atom.isotope.is_none()
         && atom.radical == Radical::None
+}
+
+/// Whether the atom may be written without brackets: a neutral, unlabelled, radical-free atom
+/// of the organic subset, and, if it is aromatic, one with a bare lower-case symbol.
+pub(super) fn may_be_bare(atom: &Atom, element: Element, aromatic: bool) -> bool {
+    bare_kind(atom, element) && (!aromatic || has_aromatic_form(element))
+}
+
+/// The refusal for an aromatic atom of an element with no lower-case form, made before any text
+/// is emitted so that it is named and not found as a failed read-back.
+fn check_aromatic_element(id: AtomId, element: Element, aromatic: bool) -> Result<(), SmilesError> {
+    if aromatic && !has_aromatic_form(element) {
+        Err(about_atom(ErrorCode::AromaticElementNotWritable, id))
+    } else {
+        Ok(())
+    }
 }
 
 /// The hydrogens a bracket states for `atom`, and whether that count is an assumption: an
@@ -304,9 +332,9 @@ pub fn write_recorded(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
         let AtomKind::Element(element) = atom.kind else {
             return Err(about_atom(ErrorCode::QueryAtomNotWritable, id));
         };
-        let bare = atom.hydrogens == Hydrogens::Inferred
-            && bare_kind(atom, element)
-            && (!aromatic[index] || matches!(element.symbol(), "B" | "C" | "N" | "O" | "P" | "S"));
+        check_aromatic_element(id, element, aromatic[index])?;
+        let bare =
+            atom.hydrogens == Hydrogens::Inferred && may_be_bare(atom, element, aromatic[index]);
         if bare {
             let expected = chemistry::assess(id, atom, &orders[&id]).hydrogen_count;
             vertices.push(bare_vertex(id, element, aromatic[index], expected, false));
@@ -409,7 +437,8 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
         probe.hydrogens = Hydrogens::Inferred;
         probe.radical = Radical::None;
         let default = chemistry::assess(id, &probe, &orders[index]);
-        let bare = bare_kind(atom, element)
+        check_aromatic_element(id, element, aromatic[index])?;
+        let bare = may_be_bare(atom, element, aromatic[index])
             && default.finding == Finding::Valid
             && default.hydrogen_count == Some(hydrogens)
             && !(aromatic[index] && element.symbol() == "N" && hydrogens > 0);
@@ -722,30 +751,18 @@ impl Emitter<'_> {
 
 /// The resolved hydrogens of every atom the reader gives back, by the shared valence and
 /// aromaticity models.
-fn resolved_hydrogens(read: &super::Read) -> Result<Vec<Option<u16>>, SmilesError> {
+fn resolved_hydrogens(read: &super::Read) -> Vec<Option<u16>> {
     let graph = read.graph();
-    let assignment: BTreeMap<BondId, KekuleOrder> = if read
-        .bonds
-        .iter()
-        .any(|bond| bond.order == BondOrder::Aromatic)
-    {
-        aromaticity::perceive(&graph)
-            .kekulize()
-            .map_err(|reason| SmilesError::refused(ErrorCode::WriterInconsistent).because(reason))?
-            .into_iter()
-            .collect()
-    } else {
-        BTreeMap::new()
-    };
+    let assignment: BTreeMap<BondId, KekuleOrder> = read.kekule.iter().copied().collect();
     let orders = chemistry::incident_orders(
         graph.atoms().map(|(id, _)| id),
         graph.bonds(),
         |id, bond| aromaticity::kekule_order_value(&assignment, id, bond),
     );
-    Ok(graph
+    graph
         .atoms()
         .map(|(id, atom)| chemistry::assess(id, atom, &orders[&id]).hydrogen_count)
-        .collect())
+        .collect()
 }
 
 fn order_code(order: &BondOrder) -> u8 {
@@ -776,7 +793,7 @@ pub(super) fn read_back_mismatches(
     {
         return Err(inconsistent());
     }
-    let resolved = resolved_hydrogens(&read)?;
+    let resolved = resolved_hydrogens(&read);
     let mut position = vec![0_usize; vertices.len()];
     let mut mismatched = Vec::new();
     for (at, &index) in emitted.iter().enumerate() {

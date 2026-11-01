@@ -38,6 +38,9 @@ pub struct Read {
     /// Number of dot-disconnected parts. Ring closures can join parts, so this counts
     /// connected components of the bonded graph.
     pub components: usize,
+    /// The shared model's Kekulé assignment of the aromatic bonds, by bond ID (`b1..` in input
+    /// order); empty when there are none. The writers reuse it to resolve hydrogens.
+    pub kekule: Vec<(BondId, aromaticity::KekuleOrder)>,
     /// Non-whitespace text after the terminating whitespace. SMILES strings may be followed by
     /// a name; it is reported, never stored.
     pub ignored_text: Option<Span>,
@@ -783,6 +786,7 @@ impl Parser<'_> {
                 })
                 .collect(),
             components: components(count, &edges),
+            kekule: Vec::new(),
             ignored_text,
         };
         let graph = read.graph();
@@ -805,6 +809,7 @@ impl Parser<'_> {
             } else {
                 BTreeMap::new()
             };
+        read.kekule = assignment.iter().map(|(&id, &order)| (id, order)).collect();
         let incident = chemistry::incident_orders(
             graph.atoms().map(|(id, _)| id),
             graph.bonds(),

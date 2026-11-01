@@ -548,8 +548,6 @@ fn a_drawn_ion_is_written_with_its_assumptions_named_and_needing_consent() {
         first["outcome"], "error",
         "consent is asked for, not a refusal: {first}"
     );
-    assert_eq!(first["document_revision"], 2);
-    assert_eq!(first["model_id"], "chemifree-smiles-recorded-1");
     let problem = &first["diagnostics"][0];
     assert_eq!(problem["code"], "loss_consent_required");
     assert_eq!(
@@ -734,4 +732,119 @@ fn capability_and_catalog_text_is_consistent_for_every_combination_of_codecs() {
             assert!(description.contains("1 MiB"));
         }
     }
+}
+
+#[test]
+fn every_format_refuses_for_consent_in_one_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec)
+        .with_smiles();
+    // CDX: a coordinate that needs rounding.
+    let cdxml = r#"<CDXML xmlns="urn:example:cdxml"><page id="1"><fragment id="2"><n id="3" p="0.1 2"/></fragment></page></CDXML>"#;
+    let read = call(
+        &application,
+        "read",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":cdxml}),
+    );
+    let cdx = call(
+        &application,
+        "cdx",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"].clone()}),
+    );
+    // SMILES: an attachment point.
+    let created = call(
+        &application,
+        "create",
+        "document.create",
+        json!({"title":"T"}),
+    );
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    call(
+        &application,
+        "atom",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_atom","element":"C","position":{"x":0,"y":0},"attachment_points":[1]}]}),
+    );
+    let smiles = call(
+        &application,
+        "smiles",
+        "document.export",
+        json!({"format":"smiles","document_id":id,"form":"recorded"}),
+    );
+    for (name, reply) in [("cdx", &cdx), ("smiles", &smiles)] {
+        assert_eq!(reply["envelope"], "operation_result", "{name}");
+        assert_eq!(reply["outcome"], "error", "{name}");
+        assert!(reply["result"].is_null(), "{name}");
+        assert!(reply["document_revision"].is_null(), "{name}: {reply}");
+        assert!(reply["model_id"].is_null(), "{name}");
+        assert!(
+            reply["loss_report"].as_array().unwrap().is_empty(),
+            "{name}"
+        );
+        let problem = &reply["diagnostics"][0];
+        assert_eq!(problem["code"], "loss_consent_required", "{name}");
+        assert_eq!(problem["severity"], "error", "{name}");
+        assert!(problem["path"].is_null(), "{name}");
+        let mut keys: Vec<&str> = problem["details"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["features", "loss_digest", "losses"], "{name}");
+    }
+}
+
+#[test]
+fn the_import_and_export_rows_carry_their_note_on_every_path() {
+    // Nothing connected: the dispatcher answers with the built-in row's note.
+    let dir = tempfile::tempdir().unwrap();
+    let bare = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()));
+    let created = call(&bare, "create", "document.create", json!({"title":"T"}));
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    let refused = call(
+        &bare,
+        "i",
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"C"}),
+    );
+    assert_eq!(refused["outcome"], "unsupported");
+    assert!(
+        refused["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("No chemical file reader is implemented."),
+        "{refused}"
+    );
+    // SMILES connected: the same row is executable and its catalog note is the generated one.
+    let (_, import, export) = capability_text(false, false, true);
+    assert_eq!(import["execution"], "executable");
+    assert!(
+        import["note"]
+            .as_str()
+            .unwrap()
+            .starts_with("Preview and append one SMILES string")
+    );
+    assert!(
+        export["note"]
+            .as_str()
+            .unwrap()
+            .starts_with("Write one drawing as recorded-order or canonical SMILES")
+    );
+    // A row that no codec changes keeps its own note.
+    let caps = serde_json::to_value(app(dir.path()).operation_catalog()).unwrap();
+    let snapshot = caps["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "document.snapshot")
+        .unwrap();
+    assert_eq!(
+        snapshot["note"],
+        "Reads an open or stored document and its session."
+    );
 }

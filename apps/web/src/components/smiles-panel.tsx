@@ -6,11 +6,10 @@ import { Input } from '@/components/ui/input'
 import { LossList } from '@/components/loss-list'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { currentSmilesExport, type WrittenSmiles } from '@/lib/smiles-state'
+import { consentAfterFailure, currentSmilesExport, type Consent, type WrittenSmiles } from '@/lib/smiles-state'
 import {
   ApiError,
   sameConversionSnapshot,
-  type CtLoss,
   type DocumentView,
   type SmilesForm,
   type SmilesImport,
@@ -23,13 +22,6 @@ interface PreparedImport {
   snapshot: DocumentView
   preview: SmilesPreview
   generation: number
-}
-
-/** A refusal that needs the losses accepted: the export is repeated with this digest. */
-interface Consent {
-  form: SmilesForm
-  losses: CtLoss[]
-  digest: string
 }
 
 const FORMS: Record<SmilesForm, string> = {
@@ -121,9 +113,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       }
     } catch (cause) {
       if (alive.current && exportRequest.current === sequence) {
-        if (cause instanceof ApiError && cause.consent) {
-          setConsent({ form, losses: cause.consent.losses, digest: cause.consent.digest })
-        }
+        setConsent(consentAfterFailure(form, cause))
         setError(cause instanceof Error ? cause.message : 'Writing SMILES failed.')
       }
     } finally {

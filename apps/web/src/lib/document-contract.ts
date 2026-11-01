@@ -1223,7 +1223,8 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
 function smilesWhere(details: Record<string, unknown>): string {
   const { offset, end } = details
   if (!isCount(offset)) return ''
-  return isCount(end) && end > offset + 1 ? ` (bytes ${offset} to ${end})` : ` (byte ${offset})`
+  // `end` is exclusive; the message names the last byte of the range.
+  return isCount(end) && end > offset + 1 ? ` (bytes ${offset} to ${end - 1})` : ` (byte ${offset})`
 }
 
 function smilesReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[]; modelId: unknown } {
@@ -1504,22 +1505,35 @@ export class DocumentClient {
   }
 
   async importCt(input: CtImport): Promise<DocumentResponse> {
-    // An unanswered request might have committed. Reuse its ID only against the same service.
-    const key = JSON.stringify(input)
+    return this.commitImport(JSON.stringify(input), input.documentId, ctReply, {
+      document_id: input.documentId, expected_revision: input.revision, format: input.format,
+      source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true,
+    })
+  }
+
+  /**
+   * Commits a previewed import. An unanswered request might have committed, so its ID is reused
+   * against the same service, and only then.
+   */
+  private async commitImport(
+    key: string,
+    documentId: string,
+    parse: (value: unknown) => { result: Record<string, unknown> },
+    parameters: Record<string, unknown>,
+  ): Promise<DocumentResponse> {
     const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
     this.unconfirmedImports.set(key, pending)
     let sentTo: string | undefined
     try {
-      const reply = ctReply(await this.write('/api/v1/operations', {
+      const reply = parse(await this.write('/api/v1/operations', {
         contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
-          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+        parameters,
       }, 'reload', (token) => {
         if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
         sentTo = token
       }))
       const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
-      if (response.document.id !== input.documentId) {
+      if (response.document.id !== documentId) {
         throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
       }
       this.unconfirmedImports.delete(key)
@@ -1571,34 +1585,10 @@ export class DocumentClient {
   }
 
   async importSmiles(input: SmilesImport): Promise<DocumentResponse> {
-    // An unanswered request might have committed. Reuse its ID only against the same service.
-    const key = `smiles:${JSON.stringify(input)}`
-    const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
-    this.unconfirmedImports.set(key, pending)
-    let sentTo: string | undefined
-    try {
-      const reply = smilesReply(await this.write('/api/v1/operations', {
-        contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { document_id: input.documentId, expected_revision: input.revision, format: 'smiles',
-          source: input.source, preview_digest: input.digest, accept_loss: true },
-      }, 'reload', (token) => {
-        if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
-        sentTo = token
-      }))
-      const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
-      if (response.document.id !== input.documentId) {
-        throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
-      }
-      this.unconfirmedImports.delete(key)
-      return response
-    } catch (error) {
-      if (error instanceof ApiError && outcomeOpen(error) && sentTo !== undefined) {
-        pending.sentTo = sentTo
-        throw new ApiError(error.code, `${error.message} The import may have completed; try again to check its result.`, error.status)
-      }
-      this.unconfirmedImports.delete(key)
-      throw error
-    }
+    return this.commitImport(`smiles:${JSON.stringify(input)}`, input.documentId, smilesReply, {
+      document_id: input.documentId, expected_revision: input.revision, format: 'smiles',
+      source: input.source, preview_digest: input.digest, accept_loss: true,
+    })
   }
 
   /** Writing is a read: it never changes the drawing. `acceptedLosses` repeats a refusal's digest. */
