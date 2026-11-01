@@ -730,3 +730,167 @@ fn catalog_and_capability_wording_is_consistent_for_all_eight_codec_sets() {
         }
     }
 }
+
+#[test]
+fn a_replayed_import_returns_the_committed_reply_without_placing_atoms_again() {
+    let (app, _dir) = setup();
+    let id = new_document(&app);
+    // Near the coordinate limit: the first import fits below this atom, a second placement below
+    // the imported atoms would not.
+    let edit = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[
+            {"op":"add_atom","element":"N","position":{"x":0,"y":99_900}},
+        ]}),
+    );
+    assert_eq!(edit["outcome"], "ok", "{edit}");
+    let source = json!({"document_id":id,"expected_revision":1,"format":"smiles","source":"CCO"});
+    let mut preview = source.clone();
+    preview["preview"] = json!(true);
+    let preview = call(&app, "document.import", preview);
+    assert_eq!(preview["outcome"], "partial", "{preview}");
+    let mut commit = source;
+    commit["preview_digest"] = preview["result"]["preview_digest"].clone();
+    commit["accept_loss"] = json!(true);
+    let first = call_id(&app, "same-commit", "document.import", commit.clone());
+    assert_eq!(first["outcome"], "partial", "{first}");
+    let replay = call_id(&app, "same-commit", "document.import", commit);
+    assert_eq!(
+        replay["outcome"], "partial",
+        "a replay is not refused: {replay}"
+    );
+    assert_eq!(replay["document_revision"], first["document_revision"]);
+    assert_eq!(
+        replay["result"]["import_mapping"],
+        first["result"]["import_mapping"]
+    );
+    assert_eq!(replay["loss_report"], first["loss_report"]);
+}
+
+#[test]
+fn export_reports_a_title_only_when_the_drawing_has_one() {
+    let (app, _dir) = setup();
+    let untitled = call(&app, "document.create", json!({}))["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let preview = call(
+        &app,
+        "document.import",
+        json!({"document_id":untitled,"expected_revision":0,"format":"smiles","source":"CCO","preview":true}),
+    );
+    let digest = preview["result"]["preview_digest"].clone();
+    call(
+        &app,
+        "document.import",
+        json!({"document_id":untitled,"expected_revision":0,"format":"smiles","source":"CCO","preview_digest":digest,"accept_loss":true}),
+    );
+    assert!(!features(&write(&app, &untitled, "recorded")).contains(&"document_title".to_owned()));
+    let titled = import(&app, "CCO");
+    assert!(features(&write(&app, &titled, "recorded")).contains(&"document_title".to_owned()));
+}
+
+#[test]
+fn charges_at_the_domain_limit_are_read_and_written() {
+    let (app, _dir) = setup();
+    let id = import(&app, "[N+8]");
+    assert_eq!(text(&app, &id, "recorded"), "[N+8]");
+    let id = import(&app, "[N-8]");
+    assert_eq!(text(&app, &id, "recorded"), "[N-8]");
+    let id = new_document(&app);
+    let reply = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"[N+9]","preview":true}),
+    );
+    assert_eq!(
+        reply["diagnostics"][0]["details"]["reason"],
+        "charge_out_of_range"
+    );
+}
+
+fn features(reply: &Value) -> Vec<String> {
+    reply["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["feature"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn export_reports_everything_the_text_drops_in_the_shared_vocabulary() {
+    let (app, _dir) = setup();
+    let id = import(&app, "CCO");
+    let edit = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"add_graphic","shape":"arrow","points":[{"x":10,"y":0},{"x":15,"y":0}]},
+            {"op":"add_instance","offset":{"x":0,"y":100}},
+        ],"selection_after":{"atoms":["a1"],"bonds":[],"objects":[]}}),
+    );
+    assert_eq!(edit["outcome"], "ok", "{edit}");
+    for mode in ["recorded", "canonical"] {
+        let reply = write(&app, &id, mode);
+        assert_eq!(
+            reply["outcome"], "partial",
+            "{mode}: a lossy export is partial: {reply}"
+        );
+        let found = features(&reply);
+        for expected in [
+            "coordinates",
+            "document_title",
+            "native_ids",
+            "placement_id",
+            "extra_placement",
+            "scene_object",
+            "selection",
+            "drawing_settings",
+        ] {
+            assert!(
+                found.contains(&expected.to_owned()),
+                "{mode}: {expected} missing from {found:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn canonical_export_reports_folded_hydrogens_and_representation_changes() {
+    let (app, _dir) = setup();
+    let id = import(&app, "[H]C([H])([H])[H]");
+    let reply = write(&app, &id, "canonical");
+    assert_eq!(reply["result"]["smiles"], "C");
+    assert_eq!(
+        reply["result"]["atoms"],
+        json!(["a2"]),
+        "only the carbon has a text position"
+    );
+    let folded = reply["result"]["folded_hydrogens"].as_array().unwrap();
+    assert_eq!(folded.len(), 4, "{reply}");
+    assert!(folded.iter().all(|f| f["attached_to"] == "a2"));
+    assert_eq!(
+        features(&reply)
+            .iter()
+            .filter(|f| *f == "folded_hydrogens")
+            .count(),
+        4
+    );
+    // Stated counts become inferred ones, and Kekule bonds become aromatic ones.
+    let id = import(&app, "[CH3]C1=CC=CC=C1");
+    let reply = write(&app, &id, "canonical");
+    let found = features(&reply);
+    assert!(
+        found.contains(&"aromatic_bonds_rewritten".to_owned()),
+        "{found:?}"
+    );
+    let id = import(&app, "[CH4]");
+    let found = features(&write(&app, &id, "canonical"));
+    assert!(found.contains(&"hydrogen_state".to_owned()), "{found:?}");
+    // Recorded mode keeps every one of those and reports no representation change.
+    let recorded = write(&app, &import(&app, "[H]C([H])([H])[H]"), "recorded");
+    assert!(!features(&recorded).contains(&"folded_hydrogens".to_owned()));
+    assert_eq!(recorded["result"]["folded_hydrogens"], json!([]));
+}

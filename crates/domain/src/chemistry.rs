@@ -140,7 +140,7 @@ fn assess_sum(id: AtomId, atom: &Atom, sum: Option<u16>) -> AtomAssessment {
 /// The integral bond order the valence policy counts for a recorded bond, or `None` when it
 /// cannot. An aromatic bond counts only with the Kekulé order a caller obtained from the
 /// aromaticity model.
-pub(crate) fn valence_order(order: &BondOrder, kekule: Option<KekuleOrder>) -> Option<u16> {
+pub fn valence_order(order: &BondOrder, kekule: Option<KekuleOrder>) -> Option<u16> {
     match (order, kekule) {
         (BondOrder::Single, _) | (BondOrder::Aromatic, Some(KekuleOrder::Single)) => Some(1),
         (BondOrder::Double, _) | (BondOrder::Aromatic, Some(KekuleOrder::Double)) => Some(2),

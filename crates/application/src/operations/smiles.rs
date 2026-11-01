@@ -211,7 +211,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let mut losses = Vec::new();
         let commands = match smiles_projection::import_commands(
             &read,
-            &target.document,
+            // A replay's edits were committed already; its atoms are not placed again.
+            replay.is_none().then_some(&target.document),
             &p.source,
             &mut losses,
         ) {

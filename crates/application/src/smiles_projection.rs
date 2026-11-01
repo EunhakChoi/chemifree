@@ -67,23 +67,17 @@ fn kind_of(order: &BondOrder) -> Option<SmilesBondKind> {
     }
 }
 
-fn integral(kind: SmilesBondKind) -> Option<u16> {
-    match kind {
-        SmilesBondKind::Single => Some(1),
-        SmilesBondKind::Double => Some(2),
-        SmilesBondKind::Triple => Some(3),
-        SmilesBondKind::Aromatic => None,
-    }
-}
-
-/// Domain edits for one read molecule, with every loss the projection implies.
+/// Domain edits for one read molecule, with every loss the projection implies. `doc` is the
+/// drawing the atoms are placed below; a replayed import, whose edits were committed already
+/// and are never applied again, passes `None` so that placement is not recomputed against the
+/// drawing as it is now.
 pub(crate) fn import_commands(
     read: &SmilesRead,
-    doc: &DocumentView,
+    doc: Option<&DocumentView>,
     source: &str,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, ImportRefusal> {
-    if doc.scene.instances.len() != 1 {
+    if doc.is_some_and(|doc| doc.scene.instances.len() != 1) {
         return Err(ImportRefusal {
             code: "unsupported_scene",
             message: "Import requires exactly one molecule placement.".into(),
@@ -106,24 +100,27 @@ pub(crate) fn import_commands(
     let mut aromatic = vec![false; molecule.atoms.len()];
     for bond in &molecule.bonds {
         for end in [bond.begin, bond.end] {
-            sum[end] = sum[end].zip(integral(bond.kind)).map(|(a, b)| a + b);
+            sum[end] = sum[end]
+                .zip(chemistry::valence_order(&order(bond.kind), None))
+                .map(|(a, b)| a + b);
             aromatic[end] |= bond.kind == SmilesBondKind::Aromatic;
         }
     }
-    let left = doc
-        .atoms
-        .iter()
-        .map(|a| a.position.x)
-        .fold(f64::INFINITY, f64::min);
-    let top = doc
-        .atoms
-        .iter()
-        .map(|a| a.position.y)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let (x0, y0) = if doc.atoms.is_empty() {
-        (0.0, 0.0)
-    } else {
-        (left, top + 2.0 * GRID_SPACING)
+    let (x0, y0) = match doc.filter(|doc| !doc.atoms.is_empty()) {
+        Some(doc) => {
+            let left = doc
+                .atoms
+                .iter()
+                .map(|a| a.position.x)
+                .fold(f64::INFINITY, f64::min);
+            let top = doc
+                .atoms
+                .iter()
+                .map(|a| a.position.y)
+                .fold(f64::NEG_INFINITY, f64::max);
+            (left, top + 2.0 * GRID_SPACING)
+        }
+        None => (0.0, 0.0),
     };
     let mut commands = Vec::with_capacity(molecule.atoms.len() + molecule.bonds.len());
     for (index, source_atom) in molecule.atoms.iter().enumerate() {
@@ -404,13 +401,16 @@ pub(crate) fn export_losses(doc: &DocumentView, losses: &mut Vec<Loss>) {
             "SMILES carries no atom coordinates.",
         ));
     }
-    losses.push(loss(
-        "document.title".into(),
-        "document_title",
-        LossDisposition::Dropped,
-        SemanticImpact::Document,
-        "The drawing title is not written.",
-    ));
+    // A new drawing is called "Untitled"; only a title someone chose is lost.
+    if !doc.title.is_empty() && doc.title != crate::documents::DEFAULT_TITLE {
+        losses.push(loss(
+            "document.title".into(),
+            "document_title",
+            LossDisposition::Dropped,
+            SemanticImpact::Document,
+            "The drawing title is not written.",
+        ));
+    }
     crate::ct_projection::drawing_losses(doc, "document", "SMILES", "text positions", losses);
 }
 
