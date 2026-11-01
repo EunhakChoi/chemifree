@@ -694,24 +694,11 @@ fn finish(reader: Reader<'_>, mut notes: Vec<ReadNote>) -> Result<SmilesRead, Fa
         Failure::at(Code::AromaticSystemUnsupported, span.0, span.1).because(failure.reason)
     })?;
     let incident = resolution.incident_orders(&graph);
-    let aromatic_atoms: BTreeSet<usize> = bonds
-        .iter()
-        .zip(&orders_chosen)
-        .filter(|(_, order)| **order == BondOrder::Aromatic)
-        .flat_map(|(bond, _)| [bond.begin, bond.end])
-        .collect();
     let mut out_atoms = Vec::with_capacity(atoms.len());
     for (i, parsed) in atoms.into_iter().enumerate() {
         let mut atom = parsed.atom;
         if parsed.bracket {
             let (radical, reason) = determine_radical(ids[i], &atom, &incident[&ids[i]]);
-            if radical != Radical::None && aromatic_atoms.contains(&i) {
-                return Err(Failure::at(
-                    Code::AromaticRadicalUnsupported,
-                    parsed.span.0,
-                    parsed.span.1,
-                ));
-            }
             atom.radical = radical;
             if let Some(reason) = reason {
                 notes.push(ReadNote::RadicalUndetermined {

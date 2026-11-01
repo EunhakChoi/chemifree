@@ -75,7 +75,6 @@ codes! {
     AromaticBridgeUnsupported = ("aromatic_bridge_unsupported", Unsupported, "An aromatic bond outside every ring cannot be recorded."),
     AromaticAtomOutsideRing = ("aromatic_atom_outside_ring", Unsupported, "A lower-case aromatic atom needs an aromatic bond in a ring."),
     AromaticSystemUnsupported = ("aromatic_system_unsupported", Unsupported, "The aromatic system is not one the aromaticity model reads."),
-    AromaticRadicalUnsupported = ("aromatic_radical_unsupported", Unsupported, "A radical on an aromatic atom is not supported."),
     // Limits.
     InputTooLong = ("input_too_long", Limit, "The SMILES is longer than the byte limit."),
     CommandLimit = ("command_limit", Limit, "The SMILES creates more atoms and bonds than one edit may."),
