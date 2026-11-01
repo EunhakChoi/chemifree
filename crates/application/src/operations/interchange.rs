@@ -13,7 +13,13 @@ use std::borrow::Cow;
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 enum ImportParameters {
     /// Read into the rich interchange tree without creating a drawing.
-    Read { format: String, source: String },
+    Read {
+        format: String,
+        source: String,
+        /// Write opaque binary property values as base64 text (default: number arrays).
+        #[serde(default)]
+        compact_bytes: bool,
+    },
     /// Inspect a proposed single-page/fragment projection.
     Preview {
         format: String,
@@ -43,9 +49,11 @@ struct ExportParameters {
     original: Option<String>,
     #[serde(default)]
     discard_opaque: bool,
-    /// Consent to the dropped or rounded content the writer reports (see `needs_consent`).
+    /// The `loss_digest` of the refusal that showed the dropped or rounded content, which
+    /// the caller accepts by repeating it. A digest of other losses or other output does not
+    /// match.
     #[serde(default)]
-    accept_loss: bool,
+    accepted_losses: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -138,6 +146,16 @@ fn payload<'a>(
 /// Changes a writer reports that the caller must accept before the content is returned. The
 /// provider that causes a loss marks it; opaque content is covered by `discard_opaque` and
 /// reserialization notes need no consent.
+/// Binds consent to what was shown: the digest covers the losses that need it and the exact
+/// bytes that would be returned, so a changed document cannot reuse an earlier consent.
+fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
+    let shown = serde_json::to_vec(required).expect("losses are serializable");
+    let mut hasher = Sha256::new();
+    hasher.update(shown);
+    hasher.update(Sha256::digest(bytes));
+    format!("{:x}", hasher.finalize())
+}
+
 fn needs_consent(loss: &Loss) -> bool {
     loss.consent == LossConsent::Required
 }
@@ -273,12 +291,21 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             return known.not_running();
         };
         match &parameters {
-            ImportParameters::Read { format, source } => match read(codec.as_ref(), format, source)
-            {
+            ImportParameters::Read {
+                format,
+                source,
+                compact_bytes,
+            } => match read(codec.as_ref(), format, source) {
                 Ok(read) => response(
                     known,
                     OperationResult::InterchangeRead(Box::new(InterchangeReadResult {
-                        document: InterchangeDocumentDto::from(&read.document),
+                        document: {
+                            let mut document = InterchangeDocumentDto::from(&read.document);
+                            if *compact_bytes {
+                                document.compact_bytes();
+                            }
+                            document
+                        },
                         choices: interchange_projection::choices(&read.document),
                     })),
                     None,
@@ -558,7 +585,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let original = match parameters.original.as_deref() {
             Some(text) => match payload(codec.as_ref(), format, text) {
                 Ok(bytes) => Some(bytes),
-                Err(error) => return known.invalid(issue(error)),
+                // The fault is in the caller's original, not in the document being exported.
+                Err(error) => {
+                    return known.invalid(issue(InterchangeError {
+                        code: "invalid_original",
+                        message: format!("The original source is invalid: {}", error.message),
+                        ..error
+                    }));
+                }
             },
             None => None,
         };
@@ -592,28 +626,43 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     feature: "binary_serialization".into(),
                     source_path: "source".into(),
                     disposition: LossDisposition::Normalized,
-                    reason: "The edited document was reserialized; reserved header bytes, extended-length spelling and property order may differ from the original."
+                    reason: "The edited document was reserialized; extended-length spelling and property order may differ from the original; reserved header bytes are kept."
                         .into(),
                     semantic_impact: SemanticImpact::None,
                 },
             });
         }
-        if !parameters.accept_loss && losses.iter().any(needs_consent) {
-            let mut details = Map::new();
-            details.insert(
-                "features".into(),
-                losses
-                    .iter()
-                    .filter(|loss| needs_consent(loss))
-                    .map(|loss| Value::String(loss.feature.clone()))
-                    .collect::<Vec<_>>()
-                    .into(),
-            );
-            return known.invalid(diagnostic(
-                "loss_consent_required",
-                "The export would drop or round content. Review the listed features and repeat with accept_loss.",
-                details,
-            ));
+        let required: Vec<&Loss> = losses.iter().filter(|loss| needs_consent(loss)).collect();
+        if !required.is_empty() {
+            let digest = consent_digest(&required, &output.bytes);
+            let accepted = parameters.accepted_losses.as_deref() == Some(digest.as_str());
+            if !accepted {
+                let mut features: Vec<&str> = Vec::new();
+                for loss in &required {
+                    if !features.contains(&loss.feature.as_str()) {
+                        features.push(loss.feature.as_str());
+                    }
+                }
+                let mut details = Map::new();
+                details.insert("features".into(), features.into());
+                details.insert(
+                    "losses".into(),
+                    serde_json::to_value(&required).expect("losses are serializable"),
+                );
+                details.insert("loss_digest".into(), digest.into());
+                let (code, message) = if parameters.accepted_losses.is_some() {
+                    (
+                        "loss_consent_changed",
+                        "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
+                    )
+                } else {
+                    (
+                        "loss_consent_required",
+                        "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
+                    )
+                };
+                return known.invalid(diagnostic(code, message, details));
+            }
         }
         let content = match format {
             InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {

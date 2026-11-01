@@ -110,8 +110,8 @@ returned byte for byte, an edited document with opaque content is refused
 `dropped` `opaque_extensions` loss. The recorded CDXML outputs in
 `crates/providers/tests/data/cdxml-golden/` pin the P22 results taken before the CDX code existed.
 
-**Framing.** A 28-byte header (`VjCD0100`, then 20 reserved bytes that are not interpreted and
-are written as the specification shows them), a Document object (tag `0x8000`, ID, properties,
+**Framing.** A 28-byte header (`VjCD0100`, then 20 reserved bytes that are not interpreted; a rewrite
+keeps those of the `original` and, with none, writes the values the specification shows), a Document object (tag `0x8000`, ID, properties,
 child objects, `0000`) and the two-byte end-of-file marker. The marker is required, so every
 proper prefix of a file is refused as `truncated` (or `invalid_*`), and bytes after it are
 `trailing_data`. Property lengths use the 16-bit field, or `0xFFFF` plus a 32-bit length; the
@@ -169,11 +169,11 @@ plain and reported as `style_defaults`. Whitespace-only text between runs is ign
 comments, instructions, stray text outside runs, the root namespace and Represents objects
 naming an unverified attribute have no CDX encoding and are reported as `dropped`
 (`xml_content`, `xml_namespace`, `represents`); all but the namespace, which carries no
-meaning, need the caller's `accept_loss`.
+meaning, need the caller's consent (`accepted_losses`, bound to what was shown).
 A Represents object with its own ID is refused. Object IDs on style runs, font and color tables and their entries cannot be written (CDX numbers only real objects); they are dropped with a reported `object_ids` loss, and a reference that names one is refused (`unsupported_object_id`). A font-table or Represents property repeated where it has no meaning, a Text without its string, and a Represents at the depth limit are refused with `duplicate_property`, `missing_property` and `resource_limit` at the property or object offset. What the writer emits is re-read to the same
 tree by the reader.
 
-**Model errors.** Failures found only by the common model use the domain's `ValidationError::code()` and `message()` (specific codes such as `page_required`, `duplicate_id`, `dangling_reference`, with no internal names). The CDXML codec keeps its P22 behavior, code `invalid_document` with the original wording, so existing CDXML errors are unchanged.
+**Model errors.** CDX reports a failure found only by the common model with the domain's specific code and message; CDXML keeps its P22 code and wording. The difference and the reason are stated once, in [CONTRACT.md](CONTRACT.md#cdx-over-the-same-operations).
 
 **Not implemented:** CDX objects beyond the subset (reactions, brackets, curves, embedded
 objects, tables...), other character sets, Macintosh text beyond ASCII, 3D positions, and any

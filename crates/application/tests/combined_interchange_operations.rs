@@ -153,7 +153,10 @@ fn capability_and_catalog_text_names_cdx_and_its_limits() {
     let operations = caps["operation_catalog"]["operations"].as_array().unwrap();
     for (id, needed) in [
         ("document.import", ["CDX", "base64", "1 MiB"]),
-        ("document.export", ["CDX", "accept_loss", "opaque-content"]),
+        (
+            "document.export",
+            ["CDX", "accepted_losses", "opaque-content"],
+        ),
     ] {
         let note = operations
             .iter()
@@ -173,4 +176,17 @@ fn capability_and_catalog_text_names_cdx_and_its_limits() {
     let note = serde_json::to_value(only.operation_catalog()).unwrap();
     let text = note.to_string();
     assert!(text.contains("bounded CDX subset"), "{text}");
+}
+
+#[test]
+fn the_quoted_limit_is_the_codecs_limit() {
+    use chemifree_application::interchange_codec::InterchangeCodec;
+    let codec = LocalInterchangeCodec;
+    assert_eq!(codec.binary_input_limit(), 1024 * 1024);
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(codec);
+    let caps = serde_json::to_value(app.capabilities()).unwrap();
+    let text = caps.to_string();
+    assert!(text.contains("at most 1 MiB"), "{text}");
 }

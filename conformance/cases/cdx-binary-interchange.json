@@ -309,6 +309,9 @@
             }
           }
         ]
+      },
+      "capture": {
+        "consent": "/diagnostics/0/details/loss_digest"
       }
     },
     {
@@ -321,11 +324,12 @@
         "parameters": {
           "format": "cdx",
           "document": null,
-          "accept_loss": true
+          "accepted_losses": null
         }
       },
       "substitute": {
-        "/parameters/document": "xmltree"
+        "/parameters/document": "xmltree",
+        "/parameters/accepted_losses": "consent"
       },
       "expect": {
         "outcome": "partial",

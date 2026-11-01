@@ -243,12 +243,24 @@ fn export_to_cdx_needs_consent_for_rounded_and_dropped_content() {
         ["precision"],
         "a dropped namespace changes nothing and needs no consent"
     );
+    // The refusal shows the full entries the consent would cover, with the worst rounding.
+    let shown = diagnostic["details"]["losses"].as_array().unwrap();
+    assert_eq!(shown.len(), 1, "{diagnostic}");
+    assert_eq!(shown[0]["feature"], "precision");
+    assert!(shown[0]["source_path"].as_str().unwrap().contains("node"));
+    assert!(
+        shown[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("largest change")
+    );
+    let digest = diagnostic["details"]["loss_digest"].as_str().unwrap();
     assert!(refused["result"].is_null());
     let accepted = call(
         &application,
         "export-accepted",
         "document.export",
-        json!({"format":"cdx","document":tree,"accept_loss":true}),
+        json!({"format":"cdx","document":tree,"accepted_losses":digest}),
     );
     assert_eq!(accepted["outcome"], "partial", "{accepted}");
     let bytes = transport_base64::decode(accepted["result"]["content"].as_str().unwrap()).unwrap();
@@ -260,6 +272,35 @@ fn export_to_cdx_needs_consent_for_rounded_and_dropped_content() {
         .map(|loss| loss["feature"].as_str().unwrap())
         .collect();
     assert_eq!(kinds, ["precision", "xml_namespace"]);
+    // Consent covers what was shown: a different document produces different losses, and the
+    // digest of the first does not accept them.
+    let other_source = cdxml.replace("0.1 2", "0.2 2");
+    let other = call(
+        &application,
+        "read-xml-2",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":other_source}),
+    );
+    let changed = call(
+        &application,
+        "export-changed",
+        "document.export",
+        json!({"format":"cdx","document":other["result"]["document"],"accepted_losses":digest}),
+    );
+    assert_eq!(
+        changed["diagnostics"][0]["code"], "loss_consent_changed",
+        "{changed}"
+    );
+    assert_ne!(changed["diagnostics"][0]["details"]["loss_digest"], digest);
+    assert!(changed["result"].is_null());
+    // The blanket flag of the first design no longer exists.
+    let flag = call(
+        &application,
+        "export-flag",
+        "document.export",
+        json!({"format":"cdx","document":tree,"accept_loss":true}),
+    );
+    assert_eq!(flag["diagnostics"][0]["code"], "invalid_request");
     // The same tree as CDXML needs no consent: nothing is rounded or dropped there.
     let xml = call(
         &application,
@@ -323,7 +364,7 @@ fn a_large_unknown_property_round_trips_inside_the_http_body_limit() {
         &application,
         "read-big",
         "document.import",
-        json!({"mode":"read","format":"cdx","source":original}),
+        json!({"mode":"read","format":"cdx","source":original,"compact_bytes":true}),
     );
     assert_eq!(read["outcome"], "ok", "{read}");
     let parameters =
@@ -342,7 +383,11 @@ fn a_large_unknown_property_round_trips_inside_the_http_body_limit() {
     let text = tree["root"]["properties"][0]["value"]["value"].clone();
     assert!(
         text.is_string(),
-        "opaque bytes are a base64 string, got {text:.80}"
+        "compact opaque bytes are a base64 string, got {text:.80}"
+    );
+    assert_eq!(
+        tree["root"]["properties"][0]["value"]["type"],
+        "bytes_base64"
     );
     tree["root"]["properties"][0]["value"]["value"] = json!(format!("{}=", text.as_str().unwrap()));
     let refused = call(
@@ -407,4 +452,115 @@ fn a_bad_original_is_reported_as_the_originals_fault() {
         json!({"format":"cdx","document":read["result"]["document"],"original":good}),
     );
     assert_eq!(fine["outcome"], "ok");
+}
+
+#[test]
+fn contract_one_keeps_the_number_array_form_of_opaque_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    use common::{file, obj, prop};
+    let bytes = file(0, &[prop(0x0990, &[1, 2, 3]), obj(0x8001, 1, &[])]);
+    let original = transport_base64::encode(&bytes);
+    let read = call(
+        &application,
+        "read-array",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":original}),
+    );
+    let value = &read["result"]["document"]["root"]["properties"][0]["value"];
+    assert_eq!(value, &json!({"type":"bytes","value":[1,2,3]}), "{read}");
+    let export = call(
+        &application,
+        "export-array",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"],"original":original}),
+    );
+    assert_eq!(export["outcome"], "ok", "{export}");
+    assert_eq!(export["result"]["content"], original.as_str());
+    // A client may also send the compact form, and it means the same bytes.
+    let mut tree = read["result"]["document"].clone();
+    tree["root"]["properties"][0]["value"] = json!({"type":"bytes_base64","value":"AQID"});
+    let compact = call(
+        &application,
+        "export-compact",
+        "document.export",
+        json!({"format":"cdx","document":tree,"original":original}),
+    );
+    assert_eq!(compact["result"]["content"], original.as_str(), "{compact}");
+}
+
+#[test]
+fn a_bad_base64_original_is_the_originals_fault_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let read = call(
+        &application,
+        "read",
+        "document.import",
+        json!({"mode":"read","format":"cdx","source":source()}),
+    );
+    for bad in ["Zg", "Zm9v\n"] {
+        let export = call(
+            &application,
+            "export-bad-original",
+            "document.export",
+            json!({"format":"cdx","document":read["result"]["document"],"original":bad}),
+        );
+        let diagnostic = &export["diagnostics"][0];
+        assert_eq!(diagnostic["code"], "invalid_original", "{bad:?}: {export}");
+        assert!(diagnostic["message"].as_str().unwrap().contains("original"));
+    }
+}
+
+#[test]
+fn consent_features_are_listed_once_in_a_stable_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    // A rounded coordinate, a rounded color and a rounded font size are three losses of one feature.
+    let cdxml = r#"<CDXML><colortable><color r="0.1" g="0" b="0"/></colortable><fonttable><font id="3" charset="iso-8859-1" name="A"/></fonttable><page id="1"><fragment id="2"><n id="3" p="0.1 2"/></fragment><t id="4"><s font="3" size="10.01" face="0" color="2">x</s></t></page></CDXML>"#;
+    let read = call(
+        &application,
+        "read-three",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":cdxml}),
+    );
+    let refused = call(
+        &application,
+        "export-three",
+        "document.export",
+        json!({"format":"cdx","document":read["result"]["document"]}),
+    );
+    let details = &refused["diagnostics"][0]["details"];
+    assert_eq!(details["losses"].as_array().unwrap().len(), 3, "{refused}");
+    assert_eq!(details["features"], json!(["precision"]));
+}
+
+#[test]
+fn a_model_failure_has_a_specific_code_in_cdx_and_the_p22_code_in_cdxml() {
+    // Documented in CONTRACT.md, once: CDXML keeps its contract 1 wording for compatibility.
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let cdxml = r#"<CDXML><fonttable><font id="3" charset="iso-8859-1" name="A"/></fonttable><page id="1"/></CDXML>"#;
+    let read = call(
+        &application,
+        "read-empty-table",
+        "document.import",
+        json!({"mode":"read","format":"cdxml","source":cdxml}),
+    );
+    let mut tree = read["result"]["document"].clone();
+    tree["root"]["children"][0]["value"]["children"] = json!([]);
+    let xml = call(
+        &application,
+        "empty-table-xml",
+        "document.export",
+        json!({"format":"cdxml","document":tree}),
+    );
+    assert_eq!(xml["diagnostics"][0]["code"], "invalid_document");
+    let binary = call(
+        &application,
+        "empty-table-cdx",
+        "document.export",
+        json!({"format":"cdx","document":tree}),
+    );
+    assert_eq!(binary["diagnostics"][0]["code"], "invalid_font_table");
 }

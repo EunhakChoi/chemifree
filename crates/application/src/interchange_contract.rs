@@ -130,9 +130,11 @@ pub enum PropertyValueDto {
     },
     ObjectReference(u32),
     Text(String),
-    /// Opaque binary data as canonical base64 text (a JSON array of numbers would be four
-    /// times larger and could not round-trip a large unknown property inside a request limit).
-    Bytes(#[serde(with = "base64_bytes")] Vec<u8>),
+    /// Opaque binary data as a JSON array of numbers: the form of contract 1, unchanged.
+    Bytes(Vec<u8>),
+    /// The same data as canonical base64 text, about a quarter the size of the array. A reply
+    /// uses it only when the request asks for `compact_bytes`; a request may always use it.
+    BytesBase64(#[serde(with = "base64_bytes")] Vec<u8>),
 }
 
 mod base64_bytes {
@@ -197,7 +199,9 @@ impl From<PropertyValueDto> for core::PropertyValue {
             },
             PropertyValueDto::ObjectReference(value) => Self::ObjectReference(value),
             PropertyValueDto::Text(value) => Self::Text(value),
-            PropertyValueDto::Bytes(value) => Self::Bytes(value),
+            PropertyValueDto::Bytes(value) | PropertyValueDto::BytesBase64(value) => {
+                Self::Bytes(value)
+            }
         }
     }
 }
@@ -291,6 +295,25 @@ impl From<InterchangeObjectDto> for core::Object {
         }
     }
 }
+impl InterchangeDocumentDto {
+    /// Writes opaque binary values as base64 text instead of number arrays.
+    pub fn compact_bytes(&mut self) {
+        fn walk(object: &mut InterchangeObjectDto) {
+            for property in &mut object.properties {
+                if let PropertyValueDto::Bytes(bytes) = &mut property.value {
+                    property.value = PropertyValueDto::BytesBase64(std::mem::take(bytes));
+                }
+            }
+            for child in &mut object.children {
+                if let ContentDto::Object(child) = child {
+                    walk(child);
+                }
+            }
+        }
+        walk(&mut self.root);
+    }
+}
+
 impl From<&core::Document> for InterchangeDocumentDto {
     fn from(value: &core::Document) -> Self {
         Self {
