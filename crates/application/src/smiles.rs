@@ -267,10 +267,18 @@ pub enum SmilesFormatError {
     NotWritable,
 }
 
+/// Written text and the order in which it names the molecule's atoms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SmilesText {
+    pub text: String,
+    /// `atom_order[k]` is the index in the written molecule of the `k`-th atom of the text.
+    pub atom_order: Vec<usize>,
+}
+
 /// Implemented outside the application. Output must be accepted again by the same reader.
 pub trait SmilesCodec: Send + Sync {
     fn read(&self, text: &str) -> Result<SmilesRead, SmilesError>;
-    fn write(&self, molecule: &SmilesMolecule) -> Result<String, SmilesFormatError>;
+    fn write(&self, molecule: &SmilesMolecule) -> Result<SmilesText, SmilesFormatError>;
 }
 
 #[cfg(test)]

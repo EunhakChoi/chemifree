@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use chemifree_application::smiles::{
     MAX_BRANCH_DEPTH, MAX_SMILES_BYTES, MAX_SMILES_ITEMS, MAX_WRITTEN_RING_LABELS, SmilesAtom,
     SmilesBond, SmilesBondKind, SmilesCodec, SmilesError, SmilesErrorCode, SmilesFormatError,
-    SmilesMolecule, SmilesRead,
+    SmilesMolecule, SmilesRead, SmilesText,
 };
 use chemifree_domain::document::{MAX_CHARGE, MAX_ISOTOPE_MASS_NUMBER};
 use chemifree_domain::element::Element;
@@ -24,7 +24,7 @@ impl SmilesCodec for SmilesTextCodec {
         Reader::new(text).run()
     }
 
-    fn write(&self, molecule: &SmilesMolecule) -> Result<String, SmilesFormatError> {
+    fn write(&self, molecule: &SmilesMolecule) -> Result<SmilesText, SmilesFormatError> {
         Writer::new(molecule)?.run()
     }
 }
@@ -860,7 +860,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn run(self) -> Result<String, SmilesFormatError> {
+    fn run(self) -> Result<SmilesText, SmilesFormatError> {
         let plan = self.plan();
         let n = self.molecule.atoms.len();
         let mut emitter = Emitter {
@@ -870,6 +870,7 @@ impl<'a> Writer<'a> {
             label_of: vec![0; self.molecule.bonds.len()],
             used: [false; MAX_WRITTEN_RING_LABELS + 1],
             out: String::new(),
+            order: Vec::with_capacity(n),
         };
         for (edge, ring) in plan.rings.iter().enumerate() {
             if let Some((ancestor, descendant)) = *ring {
@@ -915,7 +916,10 @@ impl<'a> Writer<'a> {
         if emitter.out.len() > MAX_SMILES_BYTES {
             return Err(SmilesFormatError::OutputLimit);
         }
-        Ok(emitter.out)
+        Ok(SmilesText {
+            text: emitter.out,
+            atom_order: emitter.order,
+        })
     }
 }
 
@@ -926,6 +930,7 @@ struct Emitter<'w, 'a> {
     label_of: Vec<usize>,
     used: [bool; MAX_WRITTEN_RING_LABELS + 1],
     out: String,
+    order: Vec<usize>,
 }
 
 impl Emitter<'_, '_> {
@@ -933,6 +938,7 @@ impl Emitter<'_, '_> {
         if let Some(edge) = via {
             self.out.push_str(self.writer.bond_text(edge));
         }
+        self.order.push(v);
         self.out
             .push_str(&atom_text(&self.writer.molecule.atoms[v])?);
         let mut closed: Vec<usize> = self.closings[v].iter().map(|&e| self.label_of[e]).collect();

@@ -386,7 +386,7 @@ fn seeded_fuzz_never_panics_and_accepted_input_rewrites() {
             .collect();
         match SmilesTextCodec.read(&text) {
             Ok(read) => {
-                if let Ok(written) = SmilesTextCodec.write(&read.molecule) {
+                if let Ok(written) = write_text(&read.molecule) {
                     let again = SmilesTextCodec.read(&written).unwrap_or_else(|e| {
                         panic!("seed {seed}: {text:?} wrote {written:?}: {e:?}")
                     });
@@ -415,6 +415,10 @@ fn seeded_fuzz_never_panics_and_accepted_input_rewrites() {
             }
         }
     }
+}
+
+fn write_text(m: &SmilesMolecule) -> Result<String, SmilesFormatError> {
+    SmilesTextCodec.write(m).map(|written| written.text)
 }
 
 fn graph(m: &SmilesMolecule) -> Vec<String> {
@@ -464,11 +468,11 @@ fn written_text_reads_back_to_the_same_molecule() {
         "[NH4+]",
     ] {
         let m = read(text);
-        let written = SmilesTextCodec.write(&m).unwrap();
+        let written = write_text(&m).unwrap();
         let again = read(&written);
         assert_eq!(graph(&again), graph(&m), "{text} wrote {written}");
         assert_eq!(
-            SmilesTextCodec.write(&again).unwrap(),
+            write_text(&again).unwrap(),
             written,
             "{text}: writing is a fixpoint"
         );
@@ -478,9 +482,9 @@ fn written_text_reads_back_to_the_same_molecule() {
 #[test]
 fn written_text_is_deterministic_and_uses_small_subtrees_as_branches() {
     let m = read("OC(CCCCC)C");
-    assert_eq!(SmilesTextCodec.write(&m).unwrap(), "OC(C)CCCCC");
+    assert_eq!(write_text(&m).unwrap(), "OC(C)CCCCC");
     let b = read("C1=CC=CC=C1-C");
-    assert_eq!(SmilesTextCodec.write(&b).unwrap(), "C1=CC=CC=C1C");
+    assert_eq!(write_text(&b).unwrap(), "C1=CC=CC=C1C");
 }
 
 #[test]
@@ -493,7 +497,7 @@ fn writer_refuses_what_the_reader_would_refuse() {
     text.push('C');
     // 201 atoms, 201 bonds: within the item limit, but the output must still re-read.
     let m = read(&text);
-    let written = SmilesTextCodec.write(&m).unwrap();
+    let written = write_text(&m).unwrap();
     assert_eq!(read(&written).atoms.len(), 202);
 
     let mut oversized = read("CC");
@@ -501,7 +505,7 @@ fn writer_refuses_what_the_reader_would_refuse() {
     oversized.atoms = vec![proto; MAX_SMILES_ITEMS + 1];
     oversized.bonds.clear();
     assert_eq!(
-        SmilesTextCodec.write(&oversized).unwrap_err(),
+        write_text(&oversized).unwrap_err(),
         SmilesFormatError::SizeLimit
     );
 
@@ -514,7 +518,7 @@ fn writer_refuses_what_the_reader_would_refuse() {
         kind: SmilesBondKind::Single,
     }];
     assert_eq!(
-        SmilesTextCodec.write(&chain).unwrap_err(),
+        write_text(&chain).unwrap_err(),
         SmilesFormatError::NotWritable
     );
 }
@@ -529,7 +533,7 @@ fn writer_numbers_many_rings_and_reuses_labels() {
     }
     text.pop();
     let m = read(&text);
-    let written = SmilesTextCodec.write(&m).unwrap();
+    let written = write_text(&m).unwrap();
     assert!(
         !written.contains('%'),
         "closed labels are reused: {written}"
@@ -555,7 +559,7 @@ fn writer_refuses_more_open_ring_closures_than_it_can_number() {
     };
     molecule.bonds.extend((1..101).map(|i| bond(i - 1, i)));
     molecule.bonds.extend((2..101).map(|i| bond(0, i)));
-    let written = SmilesTextCodec.write(&molecule).unwrap();
+    let written = write_text(&molecule).unwrap();
     assert_eq!(read(&written).bonds.len(), molecule.bonds.len());
     // One more ring edge needs a hundredth label.
     let mut molecule = SmilesMolecule {
@@ -565,7 +569,43 @@ fn writer_refuses_more_open_ring_closures_than_it_can_number() {
     molecule.bonds.extend((1..102).map(|i| bond(i - 1, i)));
     molecule.bonds.extend((2..102).map(|i| bond(0, i)));
     assert_eq!(
-        SmilesTextCodec.write(&molecule).unwrap_err(),
+        write_text(&molecule).unwrap_err(),
         SmilesFormatError::RingLabelLimit
+    );
+}
+
+#[test]
+fn the_written_atom_order_maps_each_text_atom_to_its_source_atom() {
+    for text in [
+        "C(CC)O",
+        "CC(C)(CC)CO",
+        "c1ccccc1C(C)(O)CC",
+        "C1CC2(CC1)CCCO2",
+        "CC.OC(N)S",
+    ] {
+        let m = read(text);
+        let written = SmilesTextCodec.write(&m).unwrap();
+        let again = read(&written.text);
+        assert_eq!(written.atom_order.len(), m.atoms.len(), "{text}");
+        for (k, &source) in written.atom_order.iter().enumerate() {
+            assert_eq!(
+                again.atoms[k].element, m.atoms[source].element,
+                "{text}: {k}"
+            );
+        }
+        for bond in &again.bonds {
+            let (a, b) = (written.atom_order[bond.begin], written.atom_order[bond.end]);
+            assert!(
+                m.bonds
+                    .iter()
+                    .any(|x| (x.begin, x.end) == (a, b) || (x.begin, x.end) == (b, a)),
+                "{text}: {} wrote a bond {a}-{b} that the source lacks",
+                written.text
+            );
+        }
+    }
+    assert_eq!(
+        SmilesTextCodec.write(&read("C(CC)O")).unwrap().atom_order,
+        [0, 3, 1, 2]
     );
 }

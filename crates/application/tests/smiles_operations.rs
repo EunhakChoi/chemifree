@@ -478,3 +478,86 @@ fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
     assert_eq!(reply["diagnostics"][0]["code"], "smiles_limit");
     assert_eq!(reason(&reply), "atom_limit");
 }
+
+/// Every atom and bond of the written text maps, through `atoms`, onto the drawing's own.
+fn assert_text_order(app: &App, id: &str, mode: &str) {
+    use chemifree_application::smiles::SmilesCodec;
+    let reply = write(app, id, mode);
+    let text = reply["result"]["smiles"].as_str().unwrap();
+    let ids: Vec<&str> = reply["result"]["atoms"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    let snapshot =
+        call(app, "document.snapshot", json!({"document_id":id}))["result"]["document"].clone();
+    let read = chemifree_providers::SmilesTextCodec
+        .read(text)
+        .unwrap()
+        .molecule;
+    assert_eq!(read.atoms.len(), ids.len(), "{mode}: {text}");
+    let element = |atom_id: &str| {
+        snapshot["atoms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == atom_id)
+            .unwrap()["element"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    for (k, atom) in read.atoms.iter().enumerate() {
+        assert_eq!(
+            atom.element.symbol(),
+            element(ids[k]),
+            "{mode}: {text}: text atom {k} is {}",
+            ids[k]
+        );
+    }
+    let bonds: Vec<(String, String)> = snapshot["bonds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| {
+            (
+                b["begin"].as_str().unwrap().to_owned(),
+                b["end"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    for bond in &read.bonds {
+        let (a, b) = (ids[bond.begin].to_owned(), ids[bond.end].to_owned());
+        assert!(
+            bonds
+                .iter()
+                .any(|(x, y)| (x == &a && y == &b) || (x == &b && y == &a)),
+            "{mode}: {text}: text bond {a}-{b} is not a drawn bond"
+        );
+    }
+    assert_eq!(read.bonds.len(), bonds.len(), "{mode}: {text}");
+}
+
+#[test]
+fn exported_atoms_follow_the_order_of_the_text() {
+    let (app, _dir) = setup();
+    // The oxygen is a smaller branch than the chain, so it is written before it.
+    let id = import(&app, "C(CC)O");
+    let reply = write(&app, &id, "recorded");
+    assert_eq!(reply["result"]["smiles"], "C(O)CC");
+    assert_eq!(reply["result"]["atoms"], json!(["a1", "a4", "a2", "a3"]));
+    for source in [
+        "C(CC)O",
+        "CC(C)(CC)CO",
+        "c1ccccc1C(C)(O)CC",
+        "OC(=O)C(N)CS",
+        "C1CC2(CC1)CCCO2",
+        "CC(C)CC(O)C(C)(C)N",
+    ] {
+        let id = import(&app, source);
+        for mode in ["recorded", "canonical"] {
+            assert_text_order(&app, &id, mode);
+        }
+    }
+}

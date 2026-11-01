@@ -518,9 +518,15 @@ pub(crate) fn write_graph(
             molecule.bonds.sort_by_key(|bond| (bond.begin, bond.end));
         }
     }
-    let text = codec.write(&molecule).map_err(format_failure)?;
+    let written = codec.write(&molecule).map_err(format_failure)?;
+    // The text names atoms in its own emission order, not in the order they were supplied.
+    let order = written
+        .atom_order
+        .iter()
+        .map(|&index| order[index])
+        .collect();
     Ok(Written {
-        text,
+        text: written.text,
         order,
         losses,
     })

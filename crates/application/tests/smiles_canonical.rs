@@ -131,6 +131,7 @@ fn permuted(text: &str, seed: u64) -> String {
     SmilesTextCodec
         .write(&SmilesMolecule { atoms, bonds })
         .expect("a permutation of a read molecule is writable")
+        .text
 }
 
 enum Expect {
