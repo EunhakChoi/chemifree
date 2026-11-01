@@ -24,6 +24,12 @@ impl MoleculeGraph {
         }
     }
 
+    /// A graph assembled from parts, for a reader that has no document. The caller supplies
+    /// distinct IDs and bonds between listed atoms, as a document guarantees.
+    pub fn from_parts(atoms: Vec<(AtomId, Atom)>, bonds: Vec<(BondId, Bond)>) -> Self {
+        Self { atoms, bonds }
+    }
+
     pub fn atoms(&self) -> impl ExactSizeIterator<Item = (AtomId, &Atom)> {
         self.atoms.iter().map(|(id, atom)| (*id, atom))
     }

@@ -13,12 +13,12 @@ mod documents;
 mod draft_schedule;
 mod draft_writer;
 mod error;
+mod format_text;
 pub mod interchange_codec;
 pub mod interchange_contract;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
-mod limit_text;
 mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
@@ -46,9 +46,11 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+pub mod smiles;
 pub mod transport_base64;
 mod turns;
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -103,7 +105,8 @@ pub use operations::{
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
     InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
     LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
-    Outcome, ProfileSupport, SemanticImpact, Severity, Support,
+    Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
+    SmilesPreviewBond, SmilesPreviewResult, SpanView, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -138,10 +141,13 @@ pub struct Application<C, R> {
     preferences: PreferenceService,
     data_registry: DataRegistry,
     interchange_codec: Option<Arc<dyn interchange_codec::InterchangeCodec>>,
-    /// Wording that quotes the connected codec's limit, built when it is connected.
-    interchange_notes: Option<limit_text::InterchangeNotes>,
+    /// Wording for the connected format codecs, rebuilt whenever one is connected.
+    format_text: Option<format_text::FormatText>,
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
+    smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
+    /// Binds SMILES previews to this service instance, as `ctfile_generation` does for CTfile.
+    smiles_generation: Option<[u8; 16]>,
     /// A process-local binding for conversion previews. If entropy is unavailable, previews
     /// are refused rather than accepting a token from an earlier service instance.
     ctfile_generation: Option<[u8; 16]>,
@@ -158,7 +164,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
             interchange_codec: None,
-            interchange_notes: None,
+            format_text: None,
             interchange_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
@@ -168,7 +174,28 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
+            smiles_codec: None,
+            smiles_generation: {
+                let mut generation = [0_u8; 16];
+                getrandom::fill(&mut generation).ok().map(|()| generation)
+            },
             property_data_readiness: properties::DataReadiness::default(),
+        }
+    }
+
+    /// Rebuilds the format wording from the codecs now connected.
+    fn with_format_text(self) -> Self {
+        let format_text = format_text::FormatText::new(format_text::Connected {
+            ctfile: self.ctfile_codec.is_some(),
+            interchange_binary_limit: self
+                .interchange_codec
+                .as_ref()
+                .map(|codec| codec.binary_input_limit()),
+            smiles: self.smiles_codec.as_ref().map(|codec| codec.limits()),
+        });
+        Self {
+            format_text,
+            ..self
         }
     }
 
@@ -179,6 +206,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ctfile_codec: Some(Arc::new(codec)),
             ..self
         }
+        .with_format_text()
+    }
+
+    /// Connects the independently implemented SMILES provider for every entry adapter.
+    #[must_use]
+    pub fn with_smiles_codec(self, codec: impl smiles::SmilesCodec + 'static) -> Self {
+        Self {
+            smiles_codec: Some(Arc::new(codec)),
+            ..self
+        }
+        .with_format_text()
     }
 
     /// Connects a checked, independently implemented rich interchange provider.
@@ -188,12 +226,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         codec: impl interchange_codec::InterchangeCodec + 'static,
     ) -> Self {
         Self {
-            interchange_notes: Some(limit_text::InterchangeNotes::new(
-                codec.binary_input_limit(),
-            )),
             interchange_codec: Some(Arc::new(codec)),
             ..self
         }
+        .with_format_text()
     }
 
     /// Retains the checked data generation for the application lifetime.
@@ -250,25 +286,24 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .capabilities()
                 .into_iter()
                 .map(|mut capability| {
-                    if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                            (true, Some(notes)) => Some(("MOL/SDF, CDXML and CDX subsets", notes.combined_description)),
-                            (true, None) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, Some(notes)) => Some(("CDXML and CDX subsets", notes.interchange_description)),
-                            (false, None) => None,
+                    if capability.id == chemifree_domain::CapabilityId::FormatConversion
+                        && let Some(text) = &self.format_text
+                    {
+                        capability.status = chemifree_domain::ImplementationStatus::Available;
+                        return CapabilityResponse {
+                            id: capability.id.as_str(),
+                            label: text.label.clone().into(),
+                            status: capability.status.as_str(),
+                            description: text.description.clone().into(),
                         };
-                        if let Some((label, description)) = supported {
-                            capability.label = label;
-                            capability.status = chemifree_domain::ImplementationStatus::Available;
-                            capability.description = description;
-                        }
                     }
                     CapabilityResponse {
-                    id: capability.id.as_str(),
-                    label: capability.label,
-                    status: capability.status.as_str(),
-                    description: capability.description,
-                }})
+                        id: capability.id.as_str(),
+                        label: capability.label.into(),
+                        status: capability.status.as_str(),
+                        description: capability.description.into(),
+                    }
+                })
                 .collect(),
             operation_catalog: self.operation_catalog(),
         }
@@ -647,7 +682,7 @@ pub struct CapabilitiesResponse {
 #[derive(Debug, Serialize)]
 pub struct CapabilityResponse {
     pub id: &'static str,
-    pub label: &'static str,
+    pub label: Cow<'static, str>,
     pub status: &'static str,
-    pub description: &'static str,
+    pub description: Cow<'static, str>,
 }

@@ -13,7 +13,7 @@ use chemifree_application::{
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
+    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, OpenSmilesCodec, V2000Codec,
     configure_selected_registry, default_data_dir,
 };
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -317,6 +317,7 @@ fn main() -> ExitCode {
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles_codec(OpenSmilesCodec)
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);
 

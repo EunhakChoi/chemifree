@@ -13,13 +13,21 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod import;
 mod interchange;
+mod smiles;
 
+use chemifree_domain::document::Command;
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
 pub use interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
+pub use smiles::{
+    SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult, SpanView,
+};
+use std::borrow::Cow;
+
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -29,7 +37,7 @@ use crate::contract::{
     TransactionSelections,
 };
 use crate::ct_projection;
-use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
+use crate::ctfile::{CtCodec, CtError, CtField, CtFormat, CtRecord, CtResult};
 use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
@@ -37,6 +45,8 @@ use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
 };
 use crate::{Application, CapabilityCatalog, DocumentRepository};
+use import::{ImportFormat, ImportRequest, Staged};
+use smiles::{SmilesExportParameters, SmilesImportParameters};
 
 /// The operation contract version this service speaks.
 pub const OPERATION_CONTRACT: u32 = 1;
@@ -190,6 +200,8 @@ pub enum OperationResult {
     InterchangeExport(Box<InterchangeExportResult>),
     CtPreview(Box<CtPreviewResult>),
     CtExport(CtExportResult),
+    SmilesPreview(Box<SmilesPreviewResult>),
+    SmilesExport(Box<SmilesExportResult>),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
     /// `chem.properties` over one immutable document snapshot.
@@ -370,13 +382,37 @@ pub struct Support {
     /// The plan entry expected to deliver what is missing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
-    pub note: &'static str,
+    pub note: Cow<'static, str>,
     /// Present on a sub-operation that is a capability rather than a command: the commands
     /// that carry it out (none while it is not implemented). Added within operation contract 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<&'static [&'static str]>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sub_operations: Vec<Support>,
+}
+
+/// Which provider serves a `document.import` or `document.export` request.
+enum Backend {
+    Smiles,
+    Interchange,
+    Ct,
+    /// The format names a provider that is not connected.
+    NotConnected(&'static str),
+}
+
+fn not_connected(provider: &str) -> Diagnostic {
+    diagnostic(
+        "unsupported_format",
+        format!("The {provider} provider is not connected."),
+        Map::new(),
+    )
+}
+
+/// An operation's entry and the wording that replaces its note while codecs are connected.
+struct Row<'a> {
+    entry: Entry,
+    parts: &'static [Entry],
+    note: Option<&'a str>,
 }
 
 /// One row of the support table.
@@ -431,15 +467,18 @@ impl Entry {
         }
     }
 
-    fn view(&self, sub_operations: &[Entry]) -> Support {
+    fn view(&self, note: Option<&str>, sub_operations: &[Entry]) -> Support {
         Support {
             id: self.id,
             representation: self.representation.as_str(),
             execution: self.execution.as_str(),
             followup: self.followup,
-            note: self.note,
+            note: note.map_or(Cow::Borrowed(self.note), |note| Cow::Owned(note.to_owned())),
             commands: self.commands,
-            sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
+            sub_operations: sub_operations
+                .iter()
+                .map(|entry| entry.view(None, &[]))
+                .collect(),
         }
     }
 }
@@ -1255,203 +1294,185 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
     (unsupported, diagnostic(code, message, details))
 }
 
+/// MOL/SDF through the shared import flow: one selected record of the source is appended.
+struct CtImportFormat<'a> {
+    codec: &'a dyn CtCodec,
+    p: &'a CtImportParameters,
+}
+
+impl CtImportFormat<'_> {
+    fn refusal_at(&self, code: &'static str, message: &str) -> Diagnostic {
+        ct_failure(CtError {
+            code,
+            message: message.into(),
+            record: self.p.record,
+            line: None,
+        })
+    }
+}
+
+impl ImportFormat for CtImportFormat<'_> {
+    type Parsed = (CtResult<Vec<CtRecord>>, usize);
+
+    fn parse(&self) -> Result<Self::Parsed, Diagnostic> {
+        let input = self
+            .codec
+            .read(self.p.format, self.p.source.as_bytes())
+            .map_err(ct_failure)?;
+        let selected = self
+            .p
+            .record
+            .checked_sub(1)
+            .filter(|index| *index < input.value.len())
+            .ok_or_else(|| {
+                ct_failure(CtError {
+                    code: "invalid_record",
+                    message: "Selected record does not exist; records are numbered from one."
+                        .into(),
+                    record: self.p.record.max(1),
+                    line: None,
+                })
+            })?;
+        Ok((input, selected))
+    }
+
+    fn stage(
+        &self,
+        (input, selected): &Self::Parsed,
+        target: &DocumentView,
+        _replayed: bool,
+    ) -> Result<Staged, Diagnostic> {
+        let record = &input.value[*selected];
+        let mut losses = input.losses.clone();
+        ct_projection::unselected_losses(&input.value, self.p.record, &mut losses);
+        let commands = ct_projection::import_commands(record, self.p.record, target, &mut losses)
+            .map_err(ct_failure)?;
+        Ok(Staged {
+            commands,
+            losses,
+            atoms: record.atoms.len(),
+            bonds: record.bonds.len(),
+        })
+    }
+
+    fn digest(
+        &self,
+        generation: [u8; 16],
+        _parsed: &Self::Parsed,
+        snapshot: &DocumentView,
+        document: &DocumentView,
+        losses: &[Loss],
+    ) -> String {
+        ct_projection::digest(&(
+            generation,
+            self.p.format,
+            self.p.record,
+            &self.p.source,
+            snapshot,
+            document,
+            losses,
+        ))
+    }
+
+    fn preview(
+        &self,
+        (input, _): Self::Parsed,
+        snapshot: DocumentResponse,
+        document: DocumentView,
+        preview_digest: String,
+    ) -> OperationResult {
+        OperationResult::CtPreview(Box::new(CtPreviewResult {
+            selected_record: self.p.record,
+            records: input.value,
+            snapshot: snapshot.into(),
+            document,
+            preview_digest,
+        }))
+    }
+
+    /// Every reported loss of a MOL/SDF import needs the caller's acceptance.
+    fn needs_accept(&self, losses: &[Loss]) -> bool {
+        !losses.is_empty()
+    }
+
+    fn refusal(&self, code: &'static str, message: &str, _losses: &[Loss]) -> Diagnostic {
+        self.refusal_at(code, message)
+    }
+
+    fn document_error(&self, known: &Known, error: &ApplicationError) -> OperationResponse {
+        known.indexed_error(error, self.p.record)
+    }
+}
+
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
-            match operation {
-                OperationId::DocumentImport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_import,
-                                (true, None) => {
-                                    "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
-                                }
-                                (false, Some(notes)) => notes.interchange_import,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                OperationId::DocumentExport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_export,
-                                (true, None) => {
-                                    "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
-                                }
-                                (false, Some(notes)) => notes.interchange_export,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                _ => {}
+    /// The provider for the request's `format`, decided once for import and export alike. A
+    /// format that no provider names goes to MOL/SDF, which refuses it as a parameter error;
+    /// with only the rich interchange provider connected, that provider refuses it.
+    fn format_backend(&self, parameters: &Value) -> Backend {
+        let (backend, provider, connected) = match parameters.get("format").and_then(Value::as_str)
+        {
+            Some("smiles") => (Backend::Smiles, "SMILES", self.smiles_codec.is_some()),
+            Some("cdxml" | "cdx") => (
+                Backend::Interchange,
+                "rich interchange",
+                self.interchange_codec.is_some(),
+            ),
+            Some("mol" | "sdf") => (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some()),
+            _ if self.ctfile_codec.is_none() && self.interchange_codec.is_some() => {
+                return Backend::Interchange;
+            }
+            _ => return Backend::Ct,
+        };
+        if connected {
+            backend
+        } else {
+            Backend::NotConnected(provider)
+        }
+    }
+
+    /// The one row of the support table for an operation, with the wording of the format
+    /// codecs connected to this application. The catalog reports it and the dispatcher runs
+    /// exactly what it marks executable.
+    fn row(&self, operation: OperationId) -> Row<'_> {
+        if let Some(text) = &self.format_text {
+            let note = match operation {
+                OperationId::DocumentImport => Some(text.import_note.as_str()),
+                OperationId::DocumentExport => Some(text.export_note.as_str()),
+                _ => None,
+            };
+            if let Some(note) = note {
+                return Row {
+                    entry: runs(operation.as_str(), ""),
+                    parts: &[],
+                    note: Some(note),
+                };
             }
         }
-        entry(operation)
+        let (entry, parts) = entry(operation);
+        Row {
+            entry,
+            parts,
+            note: None,
+        }
     }
 
     fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
         let Some(codec) = &self.ctfile_codec else {
             return known.not_running();
         };
-        let fingerprint = ct_projection::digest(&p);
-        let replay = if p.preview {
-            None
-        } else {
-            match self.documents.replay_import(
-                &p.document_id,
-                Some(&known.request_id),
-                &fingerprint,
-            ) {
-                Ok(replay) => replay,
-                Err(error) => return known.indexed_error(&error, p.record),
-            }
+        let request = ImportRequest {
+            document_id: &p.document_id,
+            expected_revision: p.expected_revision,
+            preview: p.preview,
+            preview_digest: p.preview_digest.as_deref(),
+            accept_loss: p.accept_loss,
+            fingerprint: ct_projection::digest(&p),
         };
-        let input = match codec.read(p.format, p.source.as_bytes()) {
-            Ok(input) => input,
-            Err(error) => return known.invalid(ct_failure(error)),
+        let format = CtImportFormat {
+            codec: codec.as_ref(),
+            p: &p,
         };
-        let Some(record) = p.record.checked_sub(1).and_then(|i| input.value.get(i)) else {
-            return known.invalid(ct_failure(CtError {
-                code: "invalid_record",
-                message: "Selected record does not exist; records are numbered from one.".into(),
-                record: p.record.max(1),
-                line: None,
-            }));
-        };
-        let target = match replay.as_ref() {
-            Some(response) => response.clone(),
-            None => match self.document(&p.document_id) {
-                Ok(response) => response,
-                Err(error) => return known.indexed_error(&error, p.record),
-            },
-        };
-        let mut losses = input.losses;
-        ct_projection::unselected_losses(&input.value, p.record, &mut losses);
-        let commands =
-            match ct_projection::import_commands(record, p.record, &target.document, &mut losses) {
-                Ok(commands) => commands,
-                Err(error) => return known.invalid(ct_failure(error)),
-            };
-        if let Some(response) = replay {
-            let mut result: DocumentResult = response.into();
-            result.import_mapping = Some(ct_mapping(
-                &result.document,
-                record.atoms.len(),
-                record.bonds.len(),
-            ));
-            return converted(
-                known,
-                Some(result.document.revision),
-                OperationResult::Document(Box::new(result)),
-                losses,
-            );
-        }
-        let Some(generation) = self.ctfile_generation else {
-            return known.invalid(ct_failure(CtError {
-                code: "service_identity_unavailable",
-                message: "A service identity could not be created for the preview.".into(),
-                record: p.record,
-                line: None,
-            }));
-        };
-        let (before, candidate) =
-            match self
-                .documents
-                .preview_import(&p.document_id, p.expected_revision, &commands)
-            {
-                Ok(candidate) => candidate,
-                Err(error) => return known.indexed_error(&error, p.record),
-            };
-        if before.document != target.document {
-            return known.invalid(ct_failure(CtError {
-                code: "preview_changed",
-                message: "The drawing changed while the import preview was prepared.".into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        let bind = |snapshot: &DocumentView, document: &DocumentView| {
-            ct_projection::digest(&(
-                generation, p.format, p.record, &p.source, snapshot, document, &losses,
-            ))
-        };
-        let preview_digest = bind(&before.document, &candidate.document);
-        if p.preview {
-            let revision = target.document.revision;
-            return converted(
-                known,
-                Some(revision),
-                OperationResult::CtPreview(Box::new(CtPreviewResult {
-                    selected_record: p.record,
-                    records: input.value,
-                    snapshot: before.into(),
-                    document: candidate.document,
-                    preview_digest,
-                })),
-                losses,
-            );
-        }
-        if p.preview_digest.as_deref() != Some(preview_digest.as_str()) {
-            return known.invalid(ct_failure(CtError {
-                code: "preview_changed",
-                message:
-                    "Preview is missing or does not match the current document, graph and losses."
-                        .into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        if !p.accept_loss && !losses.is_empty() {
-            return known.invalid(ct_failure(CtError {
-                code: "loss_consent_required",
-                message: "Review the reported losses and explicitly accept them before importing."
-                    .into(),
-                record: p.record,
-                line: None,
-            }));
-        }
-        let response = self.documents.import(
-            &p.document_id,
-            Some(&known.request_id),
-            p.expected_revision,
-            fingerprint,
-            &commands,
-            |current, candidate| {
-                if bind(current, candidate) == preview_digest {
-                    Ok(())
-                } else {
-                    Err(ApplicationError::new(
-                        ErrorCode::InvalidRequest,
-                        "The import preview changed before commit.",
-                    ))
-                }
-            },
-        );
-        match response {
-            Ok(response) => {
-                let mut result: DocumentResult = response.into();
-                result.import_mapping = Some(ct_mapping(
-                    &result.document,
-                    record.atoms.len(),
-                    record.bonds.len(),
-                ));
-                converted(
-                    known,
-                    Some(result.document.revision),
-                    OperationResult::Document(Box::new(result)),
-                    losses,
-                )
-            }
-            Err(error) => known.indexed_error(&error, p.record),
-        }
+        self.run_import(known, &format, request, self.ctfile_generation)
     }
 
     fn ct_export(&self, known: &Known, p: CtExportParameters) -> OperationResponse {
@@ -1526,8 +1547,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operations: OperationId::ALL
                 .into_iter()
                 .map(|operation| {
-                    let (entry, parts) = self.effective_entry(operation);
-                    let mut support = entry.view(parts);
+                    let row = self.row(operation);
+                    let mut support = row.entry.view(row.note, row.parts);
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -1831,7 +1852,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if self.effective_entry(known.operation).0.execution != Execution::Executable {
+        if self.row(known.operation).entry.execution != Execution::Executable {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());
@@ -2009,49 +2030,29 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::DocumentImport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
-                    if self.interchange_codec.is_some() {
-                        self.dispatch_interchange_import(known, parameters_value)
-                    } else {
-                        known.invalid(diagnostic(
-                            "unsupported_format",
-                            "The rich interchange provider is not connected.",
-                            Map::new(),
-                        ))
-                    }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
-                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
-                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
-                    self.dispatch_interchange_import(known, parameters_value)
-                } else {
-                    match parameters::<CtImportParameters>(parameters_value) {
-                        Ok(p) => self.ct_import(known, p),
-                        Err(invalid) => known.invalid(invalid),
-                    }
-                }
+            Op::DocumentImport => match self.format_backend(&parameters_value) {
+                Backend::Smiles => match parameters::<SmilesImportParameters>(parameters_value) {
+                    Ok(p) => self.smiles_import(known, p),
+                    Err(invalid) => known.invalid(invalid),
+                },
+                Backend::Interchange => self.dispatch_interchange_import(known, parameters_value),
+                Backend::Ct => match parameters::<CtImportParameters>(parameters_value) {
+                    Ok(p) => self.ct_import(known, p),
+                    Err(invalid) => known.invalid(invalid),
+                },
+                Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
-            Op::DocumentExport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
-                    if self.interchange_codec.is_some() {
-                        self.dispatch_interchange_export(known, parameters_value)
-                    } else {
-                        known.invalid(diagnostic(
-                            "unsupported_format",
-                            "The rich interchange provider is not connected.",
-                            Map::new(),
-                        ))
-                    }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
-                    known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
-                } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
-                    self.dispatch_interchange_export(known, parameters_value)
-                } else {
-                    match parameters::<CtExportParameters>(parameters_value) {
-                        Ok(p) => self.ct_export(known, p),
-                        Err(invalid) => known.invalid(invalid),
-                    }
-                }
+            Op::DocumentExport => match self.format_backend(&parameters_value) {
+                Backend::Smiles => match parameters::<SmilesExportParameters>(parameters_value) {
+                    Ok(p) => self.smiles_export(known, p),
+                    Err(invalid) => known.invalid(invalid),
+                },
+                Backend::Interchange => self.dispatch_interchange_export(known, parameters_value),
+                Backend::Ct => match parameters::<CtExportParameters>(parameters_value) {
+                    Ok(p) => self.ct_export(known, p),
+                    Err(invalid) => known.invalid(invalid),
+                },
+                Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
                 Ok(p) => self.chemical_properties(known, p),
