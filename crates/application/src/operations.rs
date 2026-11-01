@@ -22,6 +22,8 @@ use chemifree_domain::{graph::MoleculeGraph, identity};
 pub use interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
+use std::borrow::Cow;
+
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -365,7 +367,7 @@ pub struct Support {
     /// The plan entry expected to deliver what is missing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
-    pub note: &'static str,
+    pub note: Cow<'static, str>,
     /// Present on a sub-operation that is a capability rather than a command: the commands
     /// that carry it out (none while it is not implemented). Added within operation contract 1.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -432,7 +434,7 @@ impl Entry {
             representation: self.representation.as_str(),
             execution: self.execution.as_str(),
             followup: self.followup,
-            note: self.note,
+            note: Cow::Borrowed(self.note),
             commands: self.commands,
             sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
         }
@@ -1265,14 +1267,21 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        let note = match operation {
-            OperationId::DocumentImport => self.format_texts.import_note,
-            OperationId::DocumentExport => self.format_texts.export_note,
+        // Connected formats make import and export run; their wording is added to the catalog
+        // row by `format_note`.
+        if self.format_note(operation).is_some() {
+            return (runs(operation.as_str(), ""), &[]);
+        }
+        entry(operation)
+    }
+
+    /// The catalog note for `document.import` or `document.export` built from the connected
+    /// formats, if any is connected.
+    fn format_note(&self, operation: OperationId) -> Option<&String> {
+        match operation {
+            OperationId::DocumentImport => self.format_texts.import_note.as_ref(),
+            OperationId::DocumentExport => self.format_texts.export_note.as_ref(),
             _ => None,
-        };
-        match note {
-            Some(note) => (runs(operation.as_str(), note), &[]),
-            None => entry(operation),
         }
     }
 
@@ -1417,6 +1426,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .map(|operation| {
                     let (entry, parts) = self.effective_entry(operation);
                     let mut support = entry.view(parts);
+                    if let Some(note) = self.format_note(operation) {
+                        support.note = Cow::Owned(note.clone());
+                    }
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {

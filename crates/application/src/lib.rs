@@ -122,6 +122,8 @@ pub use repository::{
 };
 pub use turns::TURN_WAIT;
 
+use std::borrow::Cow;
+
 use documents::{Documents, SettingsMutation};
 use preferences::PreferenceService;
 
@@ -275,20 +277,29 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .catalog
                 .capabilities()
                 .into_iter()
-                .map(|mut capability| {
-                    if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = self.format_texts.label.zip(self.format_texts.description);
-                        if let Some((label, description)) = supported {
-                            capability.label = label;
-                            capability.status = chemifree_domain::ImplementationStatus::Available;
-                            capability.description = description;
-                        }
-                    }
-                    CapabilityResponse {
-                        id: capability.id.as_str(),
-                        label: capability.label,
-                        status: capability.status.as_str(),
-                        description: capability.description,
+                .map(|capability| {
+                    let connected = (capability.id
+                        == chemifree_domain::CapabilityId::FormatConversion)
+                        .then(|| {
+                            self.format_texts
+                                .label
+                                .clone()
+                                .zip(self.format_texts.description.clone())
+                        })
+                        .flatten();
+                    match connected {
+                        Some((label, description)) => CapabilityResponse {
+                            id: capability.id.as_str(),
+                            label: Cow::Owned(label),
+                            status: chemifree_domain::ImplementationStatus::Available.as_str(),
+                            description: Cow::Owned(description),
+                        },
+                        None => CapabilityResponse {
+                            id: capability.id.as_str(),
+                            label: Cow::Borrowed(capability.label),
+                            status: capability.status.as_str(),
+                            description: Cow::Borrowed(capability.description),
+                        },
                     }
                 })
                 .collect(),
@@ -669,7 +680,7 @@ pub struct CapabilitiesResponse {
 #[derive(Debug, Serialize)]
 pub struct CapabilityResponse {
     pub id: &'static str,
-    pub label: &'static str,
+    pub label: Cow<'static, str>,
     pub status: &'static str,
-    pub description: &'static str,
+    pub description: Cow<'static, str>,
 }
