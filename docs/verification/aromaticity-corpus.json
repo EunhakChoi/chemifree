@@ -2383,7 +2383,7 @@
   "aromatic_bonds": [],
   "class": "donor-only and sigma rings",
   "molblock": "\n     RDKit          2D\n\n  5  5  0  0  0  0  0  0  0  0999 V2000\n    1.2760   -0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943    1.2135    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323    0.7500    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323   -0.7500    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943   -1.2135    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\nM  END\n",
-  "name": "pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane)",
+  "name": "five-membered O-S ring (trioxadithiolane)",
   "smiles": "O1SOSO1",
   "spelling": "kekule",
   "stated_hydrogens": {}
@@ -2398,7 +2398,7 @@
   ],
   "class": "donor-only and sigma rings",
   "molblock": "\n     RDKit          2D\n\n  5  5  0  0  0  0  0  0  0  0999 V2000\n    1.2760   -0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943    1.2135    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323    0.7500    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n   -1.0323   -0.7500    0.0000 S   0  0  0  0  0  0  0  0  0  0  0  0\n    0.3943   -1.2135    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  2  3  1  0\n  3  4  1  0\n  4  5  1  0\n  5  1  1  0\nM  END\n",
-  "name": "pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane)",
+  "name": "five-membered O-S ring (trioxadithiolane)",
   "smiles": "O1SOSO1",
   "spelling": "aromatic",
   "stated_hydrogens": {}

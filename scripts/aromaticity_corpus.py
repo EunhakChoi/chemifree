@@ -142,7 +142,11 @@ _MOLECULES: list[tuple[str, str, str]] = [
     ("azulene-like", "fulvene", "C=C1C=CC=C1"),
     ("donor-only and sigma rings", "cyclotriazane", "N1NN1"),
     ("donor-only and sigma rings", "1,2-dihydro-1,2-diazete", "N1NC=C1"),
-    ("donor-only and sigma rings", "pentacyclic O-S ring (1,2,4,3,5-trioxadithiolane)", "O1SOSO1"),
+    (
+        "donor-only and sigma rings",
+        "five-membered O-S ring (trioxadithiolane)",
+        "O1SOSO1",
+    ),
     ("donor-only and sigma rings", "triazane fused to CH2 ring", "C1CN2NN12"),
     ("donor-only and sigma rings", "1,2-dithiole", "S1SC=CC1"),
     ("exocyclic double bond", "benzoquinone", "O=C1C=CC(=O)C=C1"),
