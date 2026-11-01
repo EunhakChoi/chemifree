@@ -385,3 +385,70 @@ fn kekule_benzene_fused_to_saturated_rings_is_unsupported_never_silently_non_aro
         );
     }
 }
+
+/// A ladder of `squares` fused four-membered rings (rails single, rungs double) with one
+/// saturated atom closing a three-membered ring on the first rung, so the system as a whole is
+/// not conjugated and the model must decide whether some cycle of it could be aromatic.
+fn ladder(app: &App, squares: usize) -> Vec<String> {
+    let id = new_document(app);
+    let columns = squares + 1;
+    let mut commands = Vec::new();
+    for row in 0..2 {
+        for column in 0..columns {
+            commands.push(json!({"op":"add_atom","element":"C","position":{"x":(column * 20) as f64,"y":(row * 20) as f64}}));
+        }
+    }
+    commands.push(json!({"op":"add_atom","element":"C","position":{"x":-20.0,"y":10.0}}));
+    let spur = 2 * columns;
+    let bond = |a: usize, b: usize, order: &str| json!({"op":"add_bond","begin":format!("${a}"),"end":format!("${b}"),"order":order});
+    for column in 0..columns {
+        commands.push(bond(column, columns + column, "double"));
+        if column + 1 < columns {
+            commands.push(bond(column, column + 1, "single"));
+            commands.push(bond(columns + column, columns + column + 1, "single"));
+        }
+    }
+    commands.push(bond(spur, 0, "single"));
+    commands.push(bond(spur, columns, "single"));
+    let reply = call(
+        app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands}),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    let found = call(app, "chem.aromaticity", json!({"document_id":id}))["result"]["systems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            format!(
+                "{}/{}",
+                s["classification"].as_str().unwrap(),
+                s["reason"].as_str().unwrap_or("-")
+            )
+        })
+        .collect();
+    close_document(app, &id);
+    found
+}
+
+#[test]
+fn large_fused_conjugated_systems_with_no_aromatic_cycle_stay_decided_up_to_the_size_limit() {
+    let (app, _dir) = app();
+    // Every cycle of a ladder of squares has 4n pi electrons, so none can be aromatic.
+    for squares in [2, 6, 10] {
+        assert_eq!(
+            ladder(&app, squares),
+            ["non_aromatic/not_conjugated"],
+            "{squares} squares"
+        );
+    }
+    // Up to the 127-atom size the model accepts, the cycle search stays within its budget.
+    for squares in [14, 30, 62] {
+        assert_eq!(
+            ladder(&app, squares),
+            ["non_aromatic/not_conjugated"],
+            "{squares} squares"
+        );
+    }
+}

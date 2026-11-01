@@ -456,11 +456,26 @@ fn aromatic_cycle_possible(
             Ok(false)
         }
     }
-    let participant: Vec<bool> = roles
+    let mut participant: Vec<bool> = roles
         .iter()
         .enumerate()
         .map(|(i, r)| !r.saturated && (!r.needs_double || partner[i].is_some()))
         .collect();
+    // A cycle only passes through atoms with two participating neighbours, so peel the rest:
+    // a conjugated chain or tree hanging off a ring can never close a cycle.
+    loop {
+        let peel: Vec<usize> = (0..roles.len())
+            .filter(|&i| {
+                participant[i] && inside[i].iter().filter(|&&(j, _)| participant[j]).count() < 2
+            })
+            .collect();
+        if peel.is_empty() {
+            break;
+        }
+        for i in peel {
+            participant[i] = false;
+        }
+    }
     let mut walk = Walk {
         roles,
         inside,

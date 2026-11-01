@@ -73,3 +73,7 @@ main reported each of these as `non_aromatic/not_conjugated` (the benzene ring s
 | benzodioxole `C1=CC=C2OCOC2=C1` | same | same as above |
 | indoline `C1=CC=C2NCCC2=C1` | same | same as above |
 
+## Cycle search budget
+
+The check for a possibly aromatic cycle in a fused system that is not aromatic as a whole (`aromatic_cycle_possible`) is a depth-first search with a 100,000-step budget, run only on atoms that can conjugate and that keep two conjugating neighbours (a conjugated chain or tree hanging off a ring is peeled away first). If the budget runs out the system is reported `unsupported/search_limit`; main would have called it `non_aromatic`. Measured: a ladder of up to 62 fused four-membered rings (127 atoms, every cycle 4n electrons, one saturated atom so the whole is not conjugated) is decided `non_aromatic/not_conjugated` within the budget (test `large_fused_conjugated_systems_with_no_aromatic_cycle_stay_decided_up_to_the_size_limit`); none of the 2,561 diffed inputs reached the limit. A denser conjugated fused system could still exhaust it; that is the remaining difference from main and is a refusal, not a wrong answer.
+
