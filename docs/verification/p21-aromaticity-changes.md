@@ -77,3 +77,15 @@ main reported each of these as `non_aromatic/not_conjugated` (the benzene ring s
 
 The check for a possibly aromatic cycle in a fused system that is not aromatic as a whole (`aromatic_cycle_possible`) is a depth-first search with a 100,000-step budget, run only on atoms that can conjugate and that keep two conjugating neighbours (a conjugated chain or tree hanging off a ring is peeled away first). If the budget runs out the system is reported `unsupported/search_limit`; main would have called it `non_aromatic`. Measured: a ladder of up to 62 fused four-membered rings (127 atoms, every cycle 4n electrons, one saturated atom so the whole is not conjugated) is decided `non_aromatic/not_conjugated` within the budget (test `large_fused_conjugated_systems_with_no_aromatic_cycle_stay_decided_up_to_the_size_limit`); none of the 2,561 diffed inputs reached the limit. A denser conjugated fused system could still exhaust it; that is the remaining difference from main and is a refusal, not a wrong answer.
 
+## User-visible change: aromatic conversion of documents with an unsupported system
+
+`chem.aromaticity_convert` to aromatic refuses the whole document when any ring system is `unsupported` (CONTRACT: no partial conversion). Since Kekulé benzene fused to saturated rings is now `unsupported/fused_partially_aromatic` instead of silently `non_aromatic`:
+- a lone tetralin or indane, which main accepted as a no-op, is now refused with `invalid_command` and `details.reason = fused_partially_aromatic`;
+- a document with a benzene and a separate tetralin, whose benzene main converted, is now refused as a whole and nothing changes.
+
+Both are pinned by `aromatic_conversion_refuses_the_whole_document_when_any_system_is_unsupported`. This is a deliberate consequence of the honest model, not a conversion of part of a document.
+
+## Hydrogens stated by conversion
+
+Converting a Kekulé ring to aromatic bonds states `Specified(1)` on its pyrrole-type nitrogens (inferred hydrogens, two neighbours, no double bond), so the aromatic form keeps its reading. Converting back to Kekulé returns a nitrogen's stated count to `inferred` when it equals what the valence model infers for the resulting Kekulé structure; a count the model would not infer is kept. Kekulé → aromatic → Kekulé therefore restores the original atom (test `a_kekule_round_trip_leaves_the_pyrrole_nitrogen_as_it_was`), and an aromatic drawing's `[nH]` becomes inferred in Kekulé form and is stated again by the next aromatic conversion (`a_stated_nitrogen_hydrogen_in_an_aromatic_drawing_converts_both_ways`).
+

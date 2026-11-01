@@ -452,3 +452,110 @@ fn large_fused_conjugated_systems_with_no_aromatic_cycle_stay_decided_up_to_the_
         );
     }
 }
+
+fn nitrogen_hydrogens(app: &App, id: &str) -> Value {
+    let atoms =
+        call(app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"]
+            .clone();
+    atoms
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["element"] == "N")
+        .unwrap()["hydrogens"]
+        .clone()
+}
+
+fn recorded_code(app: &App, id: &str) -> String {
+    call(
+        app,
+        "chem.identity",
+        json!({"document_id":id,"mode":"recorded"}),
+    )["result"]["identity"]["code"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn a_kekule_round_trip_leaves_the_pyrrole_nitrogen_as_it_was() {
+    let (app, _dir) = app();
+    let id = import(&app, "N1C=CC=C1");
+    let recorded = recorded_code(&app, &id);
+    let chemical = code_of(&app, &id);
+    assert_eq!(nitrogen_hydrogens(&app, &id), json!({"mode":"inferred"}));
+    assert_eq!(convert(&app, &id, "aromatic")["outcome"], "ok");
+    assert_eq!(
+        nitrogen_hydrogens(&app, &id),
+        json!({"mode":"specified","count":1}),
+        "stated so the aromatic form keeps its reading"
+    );
+    assert_eq!(convert(&app, &id, "kekule")["outcome"], "ok");
+    assert_eq!(
+        nitrogen_hydrogens(&app, &id),
+        json!({"mode":"inferred"}),
+        "the count the model would infer returns to inferred"
+    );
+    assert_eq!(
+        recorded_code(&app, &id),
+        recorded,
+        "recorded identity is restored"
+    );
+    assert_eq!(code_of(&app, &id), chemical);
+    let written = call(
+        &app,
+        "document.export",
+        json!({"document_id":id,"format":"smiles","mode":"recorded"}),
+    );
+    assert_eq!(written["result"]["smiles"], "N1C=CC=C1");
+}
+
+#[test]
+fn a_stated_nitrogen_hydrogen_in_an_aromatic_drawing_converts_both_ways() {
+    let (app, _dir) = app();
+    let id = import(&app, "[nH]1cccc1");
+    let chemical = code_of(&app, &id);
+    assert_eq!(
+        nitrogen_hydrogens(&app, &id),
+        json!({"mode":"specified","count":1})
+    );
+    assert_eq!(convert(&app, &id, "kekule")["outcome"], "ok");
+    assert_eq!(nitrogen_hydrogens(&app, &id), json!({"mode":"inferred"}));
+    assert_eq!(code_of(&app, &id), chemical);
+    assert_eq!(classes(&app, &id), ["aromatic"]);
+    assert_eq!(convert(&app, &id, "aromatic")["outcome"], "ok");
+    assert_eq!(
+        nitrogen_hydrogens(&app, &id),
+        json!({"mode":"specified","count":1})
+    );
+    assert_eq!(code_of(&app, &id), chemical);
+    // A stated count the model would not infer is information, so it is kept.
+    let id = import(&app, "[nH]1cccc1.[NH2+]1C=CC=C1");
+    assert_eq!(convert(&app, &id, "kekule")["outcome"], "ok");
+}
+
+#[test]
+fn aromatic_conversion_refuses_the_whole_document_when_any_system_is_unsupported() {
+    let (app, _dir) = app();
+    // main converted the benzene; the separate tetralin is now an unsupported system, and
+    // conversion is all or nothing.
+    let id = import(&app, "C1=CC=CC=C1.C1=CC=C2CCCCC2=C1");
+    let reply = convert(&app, &id, "aromatic");
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    assert_eq!(reply["diagnostics"][0]["code"], "invalid_command");
+    assert_eq!(
+        reply["diagnostics"][0]["details"]["reason"],
+        "fused_partially_aromatic"
+    );
+    let doc = call(&app, "document.snapshot", json!({"document_id":id}));
+    assert_eq!(
+        doc["document_revision"], 1,
+        "a refused conversion changes nothing"
+    );
+    // A lone tetralin was a no-op on main and is refused now.
+    let id = import(&app, "C1=CC=C2CCCCC2=C1");
+    assert_eq!(
+        convert(&app, &id, "aromatic")["diagnostics"][0]["details"]["reason"],
+        "fused_partially_aromatic"
+    );
+}

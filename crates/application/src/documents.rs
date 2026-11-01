@@ -893,6 +893,19 @@ impl<R: DocumentRepository> Documents<R> {
             })?;
             let existing: BTreeMap<_, _> = graph.bonds().collect();
             let mut commands = Vec::new();
+            if conversion == AromaticityConversion::Kekule {
+                // Undo the hydrogens stated for the aromatic form when the model infers the
+                // same count in the Kekule structure.
+                for atom in interpretation.inferable_nitrogen_hydrogens(&graph) {
+                    commands.push(Command::UpdateAtom {
+                        atom,
+                        edit: chemifree_domain::document::AtomEdit {
+                            hydrogens: Some(chemifree_domain::states::Hydrogens::Inferred),
+                            ..Default::default()
+                        },
+                    });
+                }
+            }
             if conversion == AromaticityConversion::Aromatic {
                 // Aromatic bonds would turn an inferred-hydrogen pyrrole-type nitrogen into a
                 // pyridine-type one; stating its hydrogens keeps the interpretation.

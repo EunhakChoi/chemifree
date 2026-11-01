@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use crate::chemistry;
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
@@ -602,6 +603,52 @@ impl Interpretation {
         result.sort_unstable();
         result.dedup();
         result
+    }
+
+    /// Nitrogens of aromatic systems with aromatic bonds whose stated hydrogens are exactly
+    /// what the valence model infers once those bonds have their Kekule orders. Converting to
+    /// Kekule form returns them to inferred, which undoes the statement that conversion to
+    /// aromatic bonds made; a count the model would not infer is information and is kept.
+    pub fn inferable_nitrogen_hydrogens(&self, graph: &MoleculeGraph) -> Vec<AtomId> {
+        let Ok(assignment) = self.kekulize() else {
+            return Vec::new();
+        };
+        let assignment: BTreeMap<_, _> = assignment.into_iter().collect();
+        let in_aromatic: BTreeSet<AtomId> = self
+            .systems
+            .iter()
+            .filter(|s| s.bonds.iter().any(|id| self.aromatic_bonds.contains(id)))
+            .flat_map(|s| s.atoms.iter().copied())
+            .collect();
+        let mut sums: BTreeMap<AtomId, Option<u16>> = BTreeMap::new();
+        for (id, bond) in graph.bonds() {
+            let order = chemistry::valence_order(&bond.order, assignment.get(&id).copied());
+            for end in [bond.begin, bond.end] {
+                let sum = sums.entry(end).or_insert(Some(0));
+                *sum = sum.zip(order).map(|(a, b)| a + b);
+            }
+        }
+        graph
+            .atoms()
+            .filter(|(id, atom)| {
+                let Hydrogens::Specified(count) = atom.hydrogens else {
+                    return false;
+                };
+                let nitrogen = atom.kind.element().filter(|e| e.symbol() == "N");
+                in_aromatic.contains(id)
+                    && atom.charge == 0
+                    && atom.isotope.is_none()
+                    && atom.radical == Radical::None
+                    && nitrogen.is_some_and(|element| {
+                        sums.get(id)
+                            .copied()
+                            .flatten()
+                            .and_then(|sum| chemistry::inferred_hydrogens(element, sum))
+                            == Some(u16::from(count))
+                    })
+            })
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Use this interpretation's own input bond set; no second perception is required.
