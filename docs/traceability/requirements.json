@@ -405,7 +405,7 @@
       "parts": [
         {
           "id": "CODEC-05.smiles-basic",
-          "summary": "Basic SMILES parse and versioned canonical or recorded output with byte-span syntax errors and an atomic, consented editor projection; stereo and query extensions remain open.",
+          "summary": "Bounded SMILES parse and versioned recorded or Chemifree-specific canonical output with byte-span syntax errors and an atomic, consented editor projection; aromatic systems outside chemifree-aromaticity-1, atoms outside chemifree-valence-2 in canonical output, stereo and query extensions remain refused or open, and canonical text is not toolkit-compatible.",
           "status": "implemented",
           "implementation": ["crates/domain/src/smiles.rs", "crates/domain/src/identity.rs", "crates/application/src/operations.rs", "apps/web/src/components/smiles-panel.tsx"],
           "evidence": ["case:smiles-basic", "check:check:rust", "check:test:contracts", "check:test:client"],
@@ -470,7 +470,7 @@
         },
         {
           "id": "CODEC-06.smiles-policy",
-          "summary": "SMILES stereo and query extensions are refused with spans; schematic placement, radical uncertainty and omitted document scene are explicitly reported.",
+          "summary": "SMILES stereo and query extensions are refused with spans; schematic placement, ignored trailing text, radical state undetermined by chemifree-valence-2 and omitted document scene are explicitly reported.",
           "status": "implemented",
           "implementation": ["crates/domain/src/smiles.rs", "crates/application/src/operations.rs"],
           "evidence": ["case:smiles-basic", "check:check:rust", "check:test:contracts"],
