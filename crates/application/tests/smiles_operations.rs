@@ -318,7 +318,9 @@ fn canonical_output_agrees_across_spellings_and_orders() {
 }
 
 fn reason(reply: &Value) -> &str {
-    reply["diagnostics"][0]["details"]["reason"].as_str().unwrap_or("?")
+    reply["diagnostics"][0]["details"]["reason"]
+        .as_str()
+        .unwrap_or("?")
 }
 
 #[test]
@@ -326,7 +328,9 @@ fn radical_states_come_from_the_shared_valence_model() {
     let (app, _dir) = setup();
     // A methyl radical has one fewer bond order than the closed shell: a doublet.
     let id = import(&app, "[CH3]");
-    let atoms = call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"].clone();
+    let atoms =
+        call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"]
+            .clone();
     assert_eq!(atoms[0]["radical"], "doublet");
     assert_eq!(text(&app, &id, "canonical"), "[CH3]");
     // Two fewer bond orders cannot be told apart as singlet or triplet: undetermined, and said so.
@@ -336,11 +340,27 @@ fn radical_states_come_from_the_shared_valence_model() {
         "document.import",
         json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"[CH2]","preview":true}),
     );
-    let loss = preview["loss_report"].as_array().unwrap().iter().find(|l| l["feature"] == "radical_state").unwrap();
-    assert!(loss["reason"].as_str().unwrap().contains("singlet from a triplet"), "{loss}");
-    assert!(!loss["reason"].as_str().unwrap().contains("incomplete"), "{loss}");
+    let loss = preview["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["feature"] == "radical_state")
+        .unwrap();
+    assert!(
+        loss["reason"]
+            .as_str()
+            .unwrap()
+            .contains("singlet from a triplet"),
+        "{loss}"
+    );
+    assert!(
+        !loss["reason"].as_str().unwrap().contains("incomplete"),
+        "{loss}"
+    );
     let id = import(&app, "[CH2]");
-    let atoms = call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"].clone();
+    let atoms =
+        call(&app, "document.snapshot", json!({"document_id":id}))["result"]["document"]["atoms"]
+            .clone();
     assert_eq!(atoms[0]["radical"], "unknown");
     assert_eq!(reason(&write(&app, &id, "canonical")), "radical_state");
     // An element outside the valence table is undetermined, with outside-the-model wording.
@@ -350,8 +370,19 @@ fn radical_states_come_from_the_shared_valence_model() {
         "document.import",
         json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"[Na+]","preview":true}),
     );
-    let loss = preview["loss_report"].as_array().unwrap().iter().find(|l| l["feature"] == "radical_state").unwrap();
-    assert!(loss["reason"].as_str().unwrap().contains("outside the valence model"), "{loss}");
+    let loss = preview["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["feature"] == "radical_state")
+        .unwrap();
+    assert!(
+        loss["reason"]
+            .as_str()
+            .unwrap()
+            .contains("outside the valence model"),
+        "{loss}"
+    );
     assert_eq!(text(&app, &import(&app, "[Na+]"), "recorded"), "[Na+]");
 }
 
@@ -385,10 +416,16 @@ fn refusals_name_the_real_cause() {
     assert_eq!(charged["outcome"], "ok", "{charged}");
     let refused = write(&app, &id, "recorded");
     assert_eq!(refused["outcome"], "unsupported");
-    assert_eq!(refused["diagnostics"][0]["code"], "smiles_write_unsupported");
+    assert_eq!(
+        refused["diagnostics"][0]["code"],
+        "smiles_write_unsupported"
+    );
     assert_eq!(reason(&refused), "hydrogens_undetermined");
     assert_eq!(refused["diagnostics"][0]["details"]["atom_id"], "a1");
-    assert_eq!(refused["diagnostics"][0]["details"]["snapshot"]["document"]["revision"], 2);
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["snapshot"]["document"]["revision"],
+        2
+    );
 }
 
 #[test]
@@ -424,7 +461,8 @@ fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
     let id = new_document(&app);
     let mut commands = Vec::new();
     for i in 0..130 {
-        let mut command = json!({"op":"add_atom","element":"C","position":{"x":(i * 20) as f64,"y":0}});
+        let mut command =
+            json!({"op":"add_atom","element":"C","position":{"x":(i * 20) as f64,"y":0}});
         if i > 0 {
             command["bond_to"] = json!({"atom": format!("${}", i - 1), "order": "single"});
         }

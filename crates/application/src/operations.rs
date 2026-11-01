@@ -19,21 +19,19 @@ mod smiles;
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
-pub use smiles::{SmilesExportResult, SmilesModels, SmilesPreviewResult};
 pub use interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+pub use smiles::{SmilesExportResult, SmilesModels, SmilesPreviewResult};
 
 use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
     TransactionSelections,
 };
 use crate::ct_projection;
-use import_flow::{ImportPlan, ImportRequest};
-use smiles::{SmilesExportParameters, SmilesImportParameters};
 use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
 use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
@@ -42,6 +40,8 @@ use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
 };
 use crate::{Application, CapabilityCatalog, DocumentRepository};
+use import_flow::{ImportPlan, ImportRequest};
+use smiles::{SmilesExportParameters, SmilesImportParameters};
 
 /// The operation contract version this service speaks.
 pub const OPERATION_CONTRACT: u32 = 1;
@@ -1361,7 +1361,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         self.import_finish(
             known,
             &request,
-            ImportPlan { replay, target, commands, losses, created },
+            ImportPlan {
+                replay,
+                target,
+                commands,
+                losses,
+                created,
+            },
             |snapshot, document, preview_digest| {
                 OperationResult::CtPreview(Box::new(CtPreviewResult {
                     selected_record,

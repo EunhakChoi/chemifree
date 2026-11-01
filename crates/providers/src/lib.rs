@@ -15,12 +15,12 @@ use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
 pub use ctfile::V2000Codec;
-pub use smiles::SmilesTextCodec;
 pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
 pub use preference_store::FilePreferenceStore;
+pub use smiles::SmilesTextCodec;
 
 /// Actual implementation status. Change an entry only together with its real operation.
 #[derive(Clone, Copy, Default)]

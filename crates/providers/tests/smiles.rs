@@ -62,7 +62,11 @@ fn reads_bracket_atoms() {
     );
     assert_eq!(a[2].charge, -2);
     assert_eq!(a[3].charge, 0, "+0 is allowed by the grammar");
-    assert_eq!(read("[N-0]").atoms[0].charge, 0, "-0 is allowed by the grammar");
+    assert_eq!(
+        read("[N-0]").atoms[0].charge,
+        0,
+        "-0 is allowed by the grammar"
+    );
     assert_eq!(a[4].charge, -2);
     assert_eq!(a[5].charge, 2);
     assert_eq!(read("[nH]1cccc1").atoms[0].hydrogens, Some(1));

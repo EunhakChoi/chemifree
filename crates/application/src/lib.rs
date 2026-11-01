@@ -102,9 +102,9 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
     InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
-    SmilesExportResult, SmilesModels, SmilesPreviewResult,
     OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesModels,
+    SmilesPreviewResult, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
