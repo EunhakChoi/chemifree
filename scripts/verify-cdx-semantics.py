@@ -66,7 +66,7 @@ def _fixture() -> bytes:
         5,
         _prop(0x0604, struct.pack("<I", 3)),
         _prop(0x0605, struct.pack("<I", 4)),
-        _prop(0x0600, struct.pack("<H", 3)),
+        _prop(0x0600, struct.pack("<H", 2)),
     )
     runs = [(3, 1, 200, 2, b"Caf\xe9 "), (4, 0, 240, 3, b"H2O")]
     text_value = struct.pack("<H", len(runs))
