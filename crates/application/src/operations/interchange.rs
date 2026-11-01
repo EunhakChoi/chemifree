@@ -148,12 +148,57 @@ fn payload<'a>(
 /// reserialization notes need no consent.
 /// Binds consent to what was shown: the digest covers the losses that need it and the exact
 /// bytes that would be returned, so a changed document cannot reuse an earlier consent.
-fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
+pub(super) fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
     let shown = serde_json::to_vec(required).expect("losses are serializable");
     let mut hasher = Sha256::new();
     hasher.update(shown);
     hasher.update(Sha256::digest(bytes));
     format!("{:x}", hasher.finalize())
+}
+
+/// The refusal that makes the caller review the losses that need consent, or `None` when none
+/// need it or the caller has accepted exactly these losses for exactly this content.
+///
+/// Every writer shares this: the `loss_digest` it returns covers the full loss entries and the
+/// bytes that would be returned, and is the `accepted_losses` that repeats the request.
+pub(super) fn consent_refusal(
+    losses: &[Loss],
+    bytes: &[u8],
+    accepted: Option<&str>,
+) -> Option<Diagnostic> {
+    let required: Vec<&Loss> = losses.iter().filter(|loss| needs_consent(loss)).collect();
+    if required.is_empty() {
+        return None;
+    }
+    let digest = consent_digest(&required, bytes);
+    if accepted == Some(digest.as_str()) {
+        return None;
+    }
+    let mut features: Vec<&str> = Vec::new();
+    for loss in &required {
+        if !features.contains(&loss.feature.as_str()) {
+            features.push(loss.feature.as_str());
+        }
+    }
+    let mut details = Map::new();
+    details.insert("features".into(), features.into());
+    details.insert(
+        "losses".into(),
+        serde_json::to_value(&required).expect("losses are serializable"),
+    );
+    details.insert("loss_digest".into(), digest.into());
+    let (code, message) = if accepted.is_some() {
+        (
+            "loss_consent_changed",
+            "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
+        )
+    } else {
+        (
+            "loss_consent_required",
+            "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
+        )
+    };
+    Some(diagnostic(code, message, details))
 }
 
 fn needs_consent(loss: &Loss) -> bool {
@@ -638,37 +683,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
             });
         }
-        let required: Vec<&Loss> = losses.iter().filter(|loss| needs_consent(loss)).collect();
-        if !required.is_empty() {
-            let digest = consent_digest(&required, &output.bytes);
-            let accepted = parameters.accepted_losses.as_deref() == Some(digest.as_str());
-            if !accepted {
-                let mut features: Vec<&str> = Vec::new();
-                for loss in &required {
-                    if !features.contains(&loss.feature.as_str()) {
-                        features.push(loss.feature.as_str());
-                    }
-                }
-                let mut details = Map::new();
-                details.insert("features".into(), features.into());
-                details.insert(
-                    "losses".into(),
-                    serde_json::to_value(&required).expect("losses are serializable"),
-                );
-                details.insert("loss_digest".into(), digest.into());
-                let (code, message) = if parameters.accepted_losses.is_some() {
-                    (
-                        "loss_consent_changed",
-                        "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
-                    )
-                } else {
-                    (
-                        "loss_consent_required",
-                        "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
-                    )
-                };
-                return known.invalid(diagnostic(code, message, details));
-            }
+        if let Some(refusal) = consent_refusal(
+            &losses,
+            &output.bytes,
+            parameters.accepted_losses.as_deref(),
+        ) {
+            return known.invalid(refusal);
         }
         let content = match format {
             InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {

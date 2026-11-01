@@ -27,14 +27,128 @@ fn projection_error(record: usize, code: &'static str, message: impl Into<String
 }
 
 fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason: &str) -> Loss {
+    loss_at(&format!("records[{record}]"), path, feature, impact, reason)
+}
+
+/// A dropped feature of whatever `root` names: a record, or a whole drawing.
+pub(crate) fn loss_at(
+    root: &str,
+    path: &str,
+    feature: &str,
+    impact: SemanticImpact,
+    reason: &str,
+) -> Loss {
     Loss {
         consent: LossConsent::NotRequired,
         feature: feature.into(),
-        source_path: format!("records[{record}]{path}"),
+        source_path: format!("{root}{path}"),
         disposition: LossDisposition::Dropped,
         reason: reason.into(),
         semantic_impact: impact,
     }
+}
+
+/// The wording of the drawing-level losses of a writer. The features are the shared
+/// vocabulary of every writer; only the reason depends on what the format can hold.
+pub(crate) struct DrawingLossWording {
+    pub native_ids: &'static str,
+    /// The first placement.
+    pub placement_id: &'static str,
+    /// Each placement after the first.
+    pub extra_placement: &'static str,
+    pub selection: &'static str,
+    pub scene_object: &'static str,
+    pub scene_references: &'static str,
+    pub settings: &'static str,
+}
+
+pub(crate) const MOL_WORDING: DrawingLossWording = DrawingLossWording {
+    native_ids: "Native atom and bond IDs are mapped to file indices and are not embedded in V2000.",
+    placement_id: "The placement ID is not embedded in V2000.",
+    extra_placement: "Only the first placement is written.",
+    selection: "The editor selection is not written.",
+    scene_object: "Groups and graphics are not represented in this V2000 profile.",
+    scene_references: "Scene references are not written.",
+    settings: "Drawing styles and settings are not represented in this V2000 profile.",
+};
+
+/// Everything a writer drops from a drawing besides atoms and bonds: native IDs, placements,
+/// selection, scene objects and references, and settings. Reports only what exists.
+pub(crate) fn drawing_export_losses(
+    doc: &DocumentView,
+    root: &str,
+    wording: &DrawingLossWording,
+    losses: &mut Vec<Loss>,
+) {
+    if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
+        losses.push(loss_at(
+            root,
+            ".ids",
+            "native_ids",
+            SemanticImpact::Document,
+            wording.native_ids,
+        ));
+    }
+    if let Some(first) = doc.scene.instances.first() {
+        losses.push(loss_at(
+            root,
+            &format!(".scene.instances[{}]", first.id),
+            "placement_id",
+            SemanticImpact::Document,
+            wording.placement_id,
+        ));
+    }
+    if !doc.selection.atoms.is_empty()
+        || !doc.selection.bonds.is_empty()
+        || !doc.selection.objects.is_empty()
+    {
+        losses.push(loss_at(
+            root,
+            ".selection",
+            "selection",
+            SemanticImpact::Document,
+            wording.selection,
+        ));
+    }
+    for instance in doc.scene.instances.iter().skip(1) {
+        losses.push(loss_at(
+            root,
+            &format!(".scene.instances[{}]", instance.id),
+            "extra_placement",
+            SemanticImpact::Geometry,
+            wording.extra_placement,
+        ));
+    }
+    for object in &doc.scene.objects {
+        match object {
+            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => {
+                losses.push(loss_at(
+                    root,
+                    &format!(".scene.objects[{id}]"),
+                    "scene_object",
+                    SemanticImpact::Rendering,
+                    wording.scene_object,
+                ))
+            }
+            SceneObjectView::Instance { .. } => {}
+        }
+    }
+    if !doc.scene.references.is_empty() {
+        losses.push(loss_at(
+            root,
+            ".scene.references",
+            "scene_references",
+            SemanticImpact::Document,
+            wording.scene_references,
+        ));
+    }
+    losses.push(loss_at(
+        root,
+        ".settings",
+        "drawing_settings",
+        SemanticImpact::Rendering,
+        wording.settings,
+    ));
 }
 
 fn implicit_hydrogen_uncertainty(record: usize) -> Loss {
@@ -259,75 +373,7 @@ pub(crate) fn export_record(
         })?;
         bonds.push(CtBond { begin, end, order });
     }
-    if !doc.atoms.is_empty() || !doc.bonds.is_empty() {
-        losses.push(loss(
-            index,
-            ".ids",
-            "native_ids",
-            SemanticImpact::Document,
-            "Native atom and bond IDs are mapped to file indices and are not embedded in V2000.",
-        ));
-    }
-    if let Some(first) = doc.scene.instances.first() {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", first.id),
-            "placement_id",
-            SemanticImpact::Document,
-            "The placement ID is not embedded in V2000.",
-        ));
-    }
-    if !doc.selection.atoms.is_empty()
-        || !doc.selection.bonds.is_empty()
-        || !doc.selection.objects.is_empty()
-    {
-        losses.push(loss(
-            index,
-            ".selection",
-            "selection",
-            SemanticImpact::Document,
-            "The editor selection is not written.",
-        ));
-    }
-    for instance in doc.scene.instances.iter().skip(1) {
-        losses.push(loss(
-            index,
-            &format!(".scene.instances[{}]", instance.id),
-            "extra_placement",
-            SemanticImpact::Geometry,
-            "Only the first placement is written.",
-        ));
-    }
-    for object in &doc.scene.objects {
-        match object {
-            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => {
-                losses.push(loss(
-                    index,
-                    &format!(".scene.objects[{id}]"),
-                    "scene_object",
-                    SemanticImpact::Rendering,
-                    "Groups and graphics are not represented in this V2000 profile.",
-                ))
-            }
-            SceneObjectView::Instance { .. } => {}
-        }
-    }
-    if !doc.scene.references.is_empty() {
-        losses.push(loss(
-            index,
-            ".scene.references",
-            "scene_references",
-            SemanticImpact::Document,
-            "Scene references are not written.",
-        ));
-    }
-    losses.push(loss(
-        index,
-        ".settings",
-        "drawing_settings",
-        SemanticImpact::Rendering,
-        "Drawing styles and settings are not represented in this V2000 profile.",
-    ));
+    drawing_export_losses(doc, &format!("records[{index}]"), &MOL_WORDING, losses);
     Ok(CtRecord {
         title: doc.title.clone(),
         program: String::new(),
@@ -339,8 +385,12 @@ pub(crate) fn export_record(
 }
 
 /// Stable binding of the complete prospective editor document, source record and losses.
+///
+/// The value is serialized straight into the hash, so a large source or document is never
+/// copied into a second buffer or a JSON `Value`.
 pub(crate) fn digest<T: Serialize>(value: &T) -> String {
-    let bytes = serde_json::to_vec(value)
+    let mut hasher = Sha256::new();
+    serde_json::to_writer(&mut hasher, value)
         .expect("validated projection contains serializable finite values");
-    format!("{:x}", Sha256::digest(bytes))
+    format!("{:x}", hasher.finalize())
 }

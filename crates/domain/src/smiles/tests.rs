@@ -425,7 +425,8 @@ fn errors_carry_the_code_and_span_of_the_offending_text() {
         .iter()
         .filter_map(|&(text, code, span)| {
             let got = fail(text);
-            (got != (code, span)).then(|| format!("{text:?}: expected {:?}, got {got:?}", (code, span)))
+            (got != (code, span))
+                .then(|| format!("{text:?}: expected {:?}, got {got:?}", (code, span)))
         })
         .collect();
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));

@@ -317,6 +317,7 @@ fn main() -> ExitCode {
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles()
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);
 

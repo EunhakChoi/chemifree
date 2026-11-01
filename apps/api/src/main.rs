@@ -58,6 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let application = LocalApplication::new(LocalCapabilities, repository)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles()
         .with_preferences(preferences)
         .with_data_registry(registry);
 

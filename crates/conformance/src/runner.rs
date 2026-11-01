@@ -208,6 +208,7 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     let application = Application::new(LocalCapabilities, repository)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
+        .with_smiles()
         .with_preferences(preferences);
     let Some(fixture) = fixture else {
         return Ok(application);

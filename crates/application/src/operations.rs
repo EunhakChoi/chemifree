@@ -14,6 +14,9 @@
 //! executable.
 
 mod interchange;
+mod smiles_operations;
+
+use std::borrow::Cow;
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
@@ -23,6 +26,9 @@ pub use interchange::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+pub use smiles_operations::{
+    SmilesCanonicalIdentity, SmilesExportResult, SmilesForm, SmilesPreviewResult,
+};
 
 use crate::contract::{
     CommandDto, DocumentResponse, DocumentView, RecoveryView, SelectionDto, SessionView,
@@ -190,6 +196,10 @@ pub enum OperationResult {
     InterchangeExport(Box<InterchangeExportResult>),
     CtPreview(Box<CtPreviewResult>),
     CtExport(CtExportResult),
+    /// `document.import` of SMILES with `preview`.
+    SmilesPreview(Box<SmilesPreviewResult>),
+    /// `document.export` of SMILES.
+    SmilesExport(Box<SmilesExportResult>),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
     /// `chem.properties` over one immutable document snapshot.
@@ -370,7 +380,7 @@ pub struct Support {
     /// The plan entry expected to deliver what is missing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followup: Option<&'static str>,
-    pub note: &'static str,
+    pub note: Cow<'static, str>,
     /// Present on a sub-operation that is a capability rather than a command: the commands
     /// that carry it out (none while it is not implemented). Added within operation contract 1.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -437,7 +447,7 @@ impl Entry {
             representation: self.representation.as_str(),
             execution: self.execution.as_str(),
             followup: self.followup,
-            note: self.note,
+            note: Cow::Borrowed(self.note),
             commands: self.commands,
             sub_operations: sub_operations.iter().map(|entry| entry.view(&[])).collect(),
         }
@@ -1256,45 +1266,27 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
+    /// The catalog row of `operation` for the codecs connected now: import and export run once
+    /// any format codec is connected, and their note then comes from `format_text`.
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
-            match operation {
-                OperationId::DocumentImport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_import,
-                                (true, None) => {
-                                    "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
-                                }
-                                (false, Some(notes)) => notes.interchange_import,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                OperationId::DocumentExport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
-                                (true, Some(notes)) => notes.combined_export,
-                                (true, None) => {
-                                    "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
-                                }
-                                (false, Some(notes)) => notes.interchange_export,
-                                (false, None) => return entry(operation),
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                _ => {}
+        match operation {
+            OperationId::DocumentImport | OperationId::DocumentExport
+                if self.format_text.is_some() =>
+            {
+                (runs(operation.as_str(), ""), &[])
             }
+            _ => entry(operation),
         }
-        entry(operation)
+    }
+
+    /// The note of a catalog row that `effective_entry` made executable.
+    fn effective_note(&self, operation: OperationId) -> Option<Cow<'static, str>> {
+        let text = self.format_text.as_ref()?;
+        match operation {
+            OperationId::DocumentImport => Some(Cow::Owned(text.import_note.clone())),
+            OperationId::DocumentExport => Some(Cow::Owned(text.export_note.clone())),
+            _ => None,
+        }
     }
 
     fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
@@ -1528,6 +1520,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .map(|operation| {
                     let (entry, parts) = self.effective_entry(operation);
                     let mut support = entry.view(parts);
+                    if let Some(note) = self.effective_note(operation) {
+                        support.note = note;
+                    }
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -2010,7 +2005,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::DocumentImport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                let format = parameters_value.get("format").and_then(Value::as_str);
+                if format == Some("smiles") {
+                    if !self.smiles {
+                        return known.invalid(diagnostic("unsupported_format", "The SMILES reader is not connected.", Map::new()));
+                    }
+                    return match parameters::<smiles_operations::SmilesImportParameters>(parameters_value) {
+                        Ok(p) => self.smiles_import(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    };
+                }
+                if self.ctfile_codec.is_none() && self.interchange_codec.is_none() {
+                    // Only SMILES is connected, and the format is something else.
+                    known.invalid(diagnostic("unsupported_format", "The format must be \"smiles\".", Map::new()))
+                } else if matches!(format, Some("cdxml" | "cdx")) {
                     if self.interchange_codec.is_some() {
                         self.dispatch_interchange_import(known, parameters_value)
                     } else {
@@ -2020,7 +2028,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                             Map::new(),
                         ))
                     }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                } else if matches!(format, Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
                     known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
                 } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
                     self.dispatch_interchange_import(known, parameters_value)
@@ -2032,7 +2040,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             },
             Op::DocumentExport => {
-                if matches!(parameters_value.get("format").and_then(Value::as_str), Some("cdxml" | "cdx")) {
+                let format = parameters_value.get("format").and_then(Value::as_str);
+                if format == Some("smiles") {
+                    if !self.smiles {
+                        return known.invalid(diagnostic("unsupported_format", "The SMILES writer is not connected.", Map::new()));
+                    }
+                    return match parameters::<smiles_operations::SmilesExportParameters>(parameters_value) {
+                        Ok(p) => self.smiles_export(known, p),
+                        Err(invalid) => known.invalid(invalid),
+                    };
+                }
+                if self.ctfile_codec.is_none() && self.interchange_codec.is_none() {
+                    known.invalid(diagnostic("unsupported_format", "The format must be \"smiles\".", Map::new()))
+                } else if matches!(format, Some("cdxml" | "cdx")) {
                     if self.interchange_codec.is_some() {
                         self.dispatch_interchange_export(known, parameters_value)
                     } else {
@@ -2042,7 +2062,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                             Map::new(),
                         ))
                     }
-                } else if matches!(parameters_value.get("format").and_then(Value::as_str), Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
+                } else if matches!(format, Some("mol" | "sdf")) && self.ctfile_codec.is_none() {
                     known.invalid(diagnostic("unsupported_format", "The MOL/SDF provider is not connected.", Map::new()))
                 } else if self.ctfile_codec.is_none() && self.interchange_codec.is_some() {
                     self.dispatch_interchange_export(known, parameters_value)
