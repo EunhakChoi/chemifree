@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE CDXML SYSTEM "file:///definitely-not-loaded.dtd">
+<CDXML>
+  <fonttable><font id="3" name="Serif" charset="utf-8"/></fonttable>
+  <colortable><color r="1" g="1" b="1"/><color r="0" g="0" b="0"/></colortable>
+  <page id="1"><fragment id="2">
+    <n id="3" p="1.5 -2" Element="6"/>
+    <n id="4" p="2 4" Element="8" Charge="-1" Isotope="18"/>
+    <b id="5" B="3" E="4" Order="2"/>
+  </fragment><t id="6" p="10 20"><s font="3" size="12" face="1">α &amp; β</s></t>
+  <graphic id="10" BoundingBox="0 2 3 4" GraphicType="Line"><represent object="4" attribute="Charge"/></graphic></page>
+  <page id="7"><fragment id="8"><n id="9" Element="7"/></fragment></page>
+</CDXML>

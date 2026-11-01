@@ -44,6 +44,23 @@ const lost = () => {
   throw new TypeError('fetch failed')
 }
 
+test('an unconfirmed CDXML creation is checked with the same request ID', async () => {
+  const output = document('imported')
+  const reply = { outcome: 'partial', diagnostics: [], loss_report: [], result: {
+    document: output.document, session: output.session, recovery: null,
+  } }
+  const scripted = service({
+    '/api/v1/operations': [lost, () => json(200, reply)],
+    'GET /api/v1/documents/imported': [() => json(200, output)],
+  })
+  const client = new DocumentClient()
+  const input = { source: '<CDXML/>', title: 'Imported', page_id: 1, fragment_id: 2 }
+  await assert.rejects(client.createInterchange(input, 'a'.repeat(64)), { code: 'unreachable' })
+  assert.equal((await client.createInterchange(input, 'a'.repeat(64))).document.id, 'imported')
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
 /** What Vite's development proxy answers when the API connection drops before a reply. */
 const proxyFailure = () => new Response('', { status: 502, headers: { 'content-type': 'text/plain' } })
 
