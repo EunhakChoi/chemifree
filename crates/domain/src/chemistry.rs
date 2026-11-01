@@ -59,7 +59,7 @@ fn targets(symbol: &str, charge: i8) -> Option<&'static [u16]> {
     }
 }
 
-fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAssessment {
+pub(crate) fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAssessment {
     let sum = orders
         .iter()
         .copied()

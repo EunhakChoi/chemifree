@@ -220,3 +220,15 @@ fn an_operation_with_another_outcome_fails_and_raw_text_is_sent_as_is() {
     );
     assert_eq!(raw, Ok(()));
 }
+
+#[test]
+fn a_missing_capture_pointer_fails_instead_of_substituting_a_default() {
+    let outcome = run(
+        "accept",
+        json!([{
+            "call":"operation", "request":operation_request("caps", "capabilities.inspect", json!({})),
+            "expect":{"outcome":"ok"}, "capture":{"missing":"/result/no_such_field"}
+        }]),
+    );
+    assert!(outcome.is_err_and(|message| message.contains("capture \"missing\": no value")));
+}

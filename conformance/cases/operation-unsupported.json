@@ -15,9 +15,9 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "op-props",
+        "request_id": "op-layout",
         "profile": "preserve-semantics",
-        "operation": "chem.properties",
+        "operation": "layout.structure",
         "parameters": {}
       },
       "expect": {
@@ -30,7 +30,7 @@
             "code": "operation_not_implemented",
             "details": {
               "execution": "not_implemented",
-              "followup": "P19"
+              "followup": "P42"
             }
           }
         ]

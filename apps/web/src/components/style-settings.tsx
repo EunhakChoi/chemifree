@@ -56,6 +56,9 @@ const CARBON_NAMES: Record<CarbonLabels, string> = {
 }
 const UNIT_NAMES: Record<DisplayUnit, string> = { pt: 'Points (pt)', mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', in: 'Inches (in)' }
 const THEME_NAMES: Record<Theme, string> = { system: 'Follow the system', light: 'Light', dark: 'Dark' }
+const MASS_DECIMAL_NAMES = Object.fromEntries(
+  Array.from({ length: 9 }, (_, value) => [String(value), value > 5 ? `${value} (set by another client)` : String(value)]),
+)
 
 function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
   if (event.key === 'Enter') event.currentTarget.blur()
@@ -358,7 +361,7 @@ function ComputationRow({ id, label, setting }: { id: string; label: string; set
 
 /**
  * The service's preferences: the theme, the style new documents start from, and the
- * computation preferences, which are not implemented. A new document copies its style once,
+ * mass display decimals, and unavailable general computation settings. A new document copies its style once,
  * when it is created; changing preferences never changes a document that exists.
  */
 export function PreferencesButton({
@@ -445,8 +448,38 @@ export function PreferencesButton({
             <FieldSet>
               <FieldLegend>Computation</FieldLegend>
               <FieldDescription>
-                These will belong to preferences, not to documents. Nothing computes with them yet, and none can be set.
+                Settings belong to preferences, apart from documents. Mass display decimals apply to new results;
+                they do not change calculation precision or earlier results.
               </FieldDescription>
+              {state.preferences.computation.mass_precision && (
+                <Field>
+                  <FieldLabel htmlFor="preferences-mass-decimals">Mass display decimal places</FieldLabel>
+                  <Select
+                    items={MASS_DECIMAL_NAMES}
+                    value={String(state.preferences.computation.mass_precision.decimals)}
+                    onValueChange={(next) => {
+                      if (next === null || !/^[0-5]$/.test(next)) return
+                      const decimals = Number(next)
+                      void preferences.set((latest) => latest.computation.mass_precision?.decimals === decimals ? null : {
+                        ui: latest.ui,
+                        new_documents: latest.new_documents,
+                        computation: { mass_precision: { decimals } },
+                      })
+                    }}
+                  >
+                    <SelectTrigger id="preferences-mass-decimals" className="w-56"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[0, 1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}
+                      {state.preferences.computation.mass_precision.decimals > 5 && (
+                        <SelectItem value={String(state.preferences.computation.mass_precision.decimals)}>
+                          {state.preferences.computation.mass_precision.decimals} (set by another client)
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>The editor offers 0–5 places; other clients may set 0–8.</FieldDescription>
+                </Field>
+              )}
               <ComputationRow id="preferences-nmr" label="NMR prediction" setting={state.preferences.computation.nmr} />
               <ComputationRow
                 id="preferences-precision"

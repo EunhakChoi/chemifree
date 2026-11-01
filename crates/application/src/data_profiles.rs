@@ -77,7 +77,7 @@ pub enum ProfileRecords {
     PreparedXlogp(Box<crate::prepared_xlogp::Weights>),
     /// Verified naming label inputs; labels are not executable dispatch rules.
     NamingLabels(Box<crate::naming_labels::NamingLabels>),
-    /// Verified mass operands; loading them does not implement a mass engine.
+    /// Verified mass operands; calculations use an explicitly identified profile.
     MassInput(Box<crate::mass_input::MassInput>),
     /// Verified NMR input operands; no prediction engine is implied.
     Nmr(Box<crate::nmr_profile::NmrData>),
@@ -95,7 +95,7 @@ pub enum ProfileRecords {
     Phase4Templates(Box<crate::phase4_templates::TemplateCandidates>),
     /// Catalog-bound lexical solubility data without a prediction model.
     Phase4AqSolDb(Box<crate::phase4_aqsoldb::AqSolData>),
-    /// Inert, catalog-bound NIST snapshot without a mass calculation.
+    /// Catalog-bound NIST snapshot; the separate mass adapter declares its conventions.
     Phase4Nist(Box<crate::phase4_nist::NistSnapshot>),
     /// Source fragment carriers without a CLogP model.
     Phase4Clogp(Box<crate::phase4_clogp::ClogpData>),

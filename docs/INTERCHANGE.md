@@ -34,9 +34,23 @@ client-supplied opaque baseline. It reports retained or dropped opaque material,
 and does not mutate the submitted document on failure. Without an original, it
 can validate only the submitted tree and cannot detect content a caller already
 omitted or prove anything about that earlier source's unknown references.
-Unknown property values and
-unimplemented graphics, styles or references remain opaque rather than being
-silently assigned another meaning.
+Numeric unqualified IDs on opaque objects in the CDXML document's own namespace
+directly under known objects are checked for duplicates and can be targets of
+known references; their other properties remain uninterpreted. Identifiers on
+foreign-namespace extensions, descendants of opaque objects and identifiers
+outside the profile's unsigned-integer spelling remain opaque. If a known
+reference could match an unqualified numeric `id` in such opaque data, the reader
+returns `unsupported_opaque_reference` instead of guessing its meaning. If discarding an opaque object would
+leave a known reference dangling, the discard fails atomically; the caller must
+resolve the reference in a valid replacement before explicitly discarding it.
+Unknown property values and unimplemented graphics, styles or references remain
+opaque rather than being silently assigned another meaning.
+
+An explicit CDXML [font table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/FontTable.htm)
+or [color table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/ColorTable.htm)
+must contain at least one corresponding entry; a missing table is distinct from
+an empty one. With no color table, the documented default indexes 0 through 3
+remain available. The binary CDX codec states its own count-zero policy below.
 
 The known CDXML subset includes 2D positions and bounds, element numbers, isotope,
 charge and radical values, node types, bond endpoints and order bitsets, basic
@@ -54,13 +68,14 @@ selected fragment, uninterpreted properties on selected nodes or bonds, and labe
 or other child content on selected nodes or bonds are refused because their
 chemical meaning is not established. The [public node specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/Node.htm)
 permits a label to carry the chemical description. Rich read and unchanged export
-remain available. Dative bonds remain in the rich tree but are refused by
-editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
+remain available. In particular, dative bonds remain in the rich tree but
+are refused by editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
 describes the first endpoint as positive, while the editor's first endpoint is a
 donor. The projection does not infer that these conventions coincide. Default
-implicit-hydrogen interpretation is uncertain because the editor's bounded
-inference need not agree with another reader. Double
-bonds report uncertainty about stereo another reader may interpret from the drawing. Original IDs and source
+implicit-hydrogen interpretation is reported as
+uncertain because the editor's bounded inference need not agree with another
+reader. Double bonds also report uncertainty about stereo another reader may
+interpret from the drawing. Original IDs and source
 paths are mapped to new editor IDs. Unselected pages and fragments, styled text,
 graphics, groups, references, unknown properties outside selected chemistry, and
 outside-root XML that the editor cannot store are reported as losses. A discarded

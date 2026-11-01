@@ -4,9 +4,8 @@
 //! from, and the place reserved for computation preferences. A new document copies the built-in
 //! defaults overlaid with `new_documents` once, when it is created; from then on its settings
 //! are its own, so changing preferences never alters an existing document, its file, or its
-//! history. Computation preferences (NMR, numeric precision) belong here, not to documents, but
-//! nothing computes with them yet: they are reported as not implemented and setting one is
-//! refused, never stored as if it took effect.
+//! history. Mass-result display decimals are stored here and copied into new results; broader
+//! computation precision and NMR settings remain unavailable and cannot be stored.
 //!
 //! Every write names the revision it is based on; a different stored revision is a conflict,
 //! whichever process wrote it.
@@ -46,6 +45,20 @@ pub struct Preferences {
     pub theme: Theme,
     /// The settings fields new documents start from; the rest take the built-in defaults.
     pub new_documents: SettingsEdit,
+    /// Decimal places for displaying new mass results, independent of document style.
+    pub mass_precision: MassPrecision,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MassPrecision {
+    pub decimals: u8,
+}
+
+impl Default for MassPrecision {
+    fn default() -> Self {
+        Self { decimals: 2 }
+    }
 }
 
 impl Preferences {
@@ -69,7 +82,9 @@ impl Preferences {
 
     /// Whether `other` holds the same preferences, whatever their revisions.
     fn same_as(&self, other: &Self) -> bool {
-        self.theme == other.theme && self.new_documents == other.new_documents
+        self.theme == other.theme
+            && self.new_documents == other.new_documents
+            && self.mass_precision == other.mass_precision
     }
 }
 
@@ -133,11 +148,20 @@ pub struct PreferencesResponse {
     pub computation: ComputationView,
 }
 
-/// Computation preferences: where each is owned and stored, and that it is not implemented.
+/// Computation preferences, including unavailable general settings and mass display decimals.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ComputationView {
     pub nmr: ComputationSetting,
     pub numeric_precision: ComputationSetting,
+    /// Added within v1; older clients ignore this scoped setting.
+    pub mass_precision: MassPrecisionView,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MassPrecisionView {
+    pub status: &'static str,
+    pub owner: &'static str,
+    pub decimals: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -163,10 +187,8 @@ const NMR: ComputationSetting = ComputationSetting {
 const NUMERIC_PRECISION: ComputationSetting = ComputationSetting {
     status: "not_implemented",
     owner: "preferences",
-    followup: "P19",
-    note: "Numeric precision and decimals shown for computed values will be stored here, \
-           apart from documents; results will record the precision they used. No value is \
-           computed yet.",
+    followup: "P60",
+    note: "General computation precision remains unimplemented. Mass display decimals are available separately as mass_precision.",
 };
 
 /// The preferences a write sets: all of them, replacing what is stored.
@@ -175,13 +197,13 @@ const NUMERIC_PRECISION: ComputationSetting = ComputationSetting {
 pub struct PreferencesChange {
     pub ui: UiPreferencesDto,
     pub new_documents: SettingsEditDto,
-    /// Naming any setting here is refused as not implemented; an empty object is accepted.
+    /// Unavailable settings are refused; an omitted mass setting preserves its current value.
     #[serde(default)]
     pub computation: ComputationChange,
 }
 
-/// Computation preferences a client asked to set. None can be stored yet. A field is `Some`
-/// whenever the body names it, `null` included, so naming one is always refused.
+/// Computation preferences a client asked to set. A field is `Some` whenever the body names it,
+/// including `null`, so invalid values cannot be mistaken for an omitted setting.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ComputationChange {
@@ -189,6 +211,8 @@ pub struct ComputationChange {
     pub nmr: Option<Value>,
     #[serde(default, deserialize_with = "named")]
     pub numeric_precision: Option<Value>,
+    #[serde(default, deserialize_with = "named")]
+    pub mass_precision: Option<Value>,
 }
 
 /// A field that is present, whatever its value: unlike `Option`'s own rule, `null` is `Some`.
@@ -302,6 +326,27 @@ impl PreferenceService {
                 ),
             ));
         }
+        let mass_precision = change
+            .computation
+            .mass_precision
+            .as_ref()
+            .map(|value| {
+                let precision: MassPrecision =
+                    serde_json::from_value(value.clone()).map_err(|_| {
+                        ApplicationError::new(
+                            ErrorCode::InvalidRequest,
+                            "computation.mass_precision must contain a decimal count from 0 to 8",
+                        )
+                    })?;
+                if precision.decimals > 8 {
+                    return Err(ApplicationError::new(
+                        ErrorCode::InvalidRequest,
+                        "computation.mass_precision.decimals must be from 0 to 8",
+                    ));
+                }
+                Ok(precision)
+            })
+            .transpose()?;
         let mutation = PreferenceMutation::Set {
             expected_revision,
             change: change.clone(),
@@ -311,6 +356,8 @@ impl PreferenceService {
                 revision: current.revision,
                 theme: change.ui.theme,
                 new_documents: to_settings_edit(&change.new_documents),
+                // A request from an older v1 client omits the new field and preserves it.
+                mass_precision: mass_precision.unwrap_or(current.mass_precision),
             };
             next.new_document_settings()?;
             Ok(next)
@@ -436,6 +483,11 @@ fn respond(preferences: &Preferences) -> Result<PreferencesResponse, Application
         computation: ComputationView {
             nmr: NMR,
             numeric_precision: NUMERIC_PRECISION,
+            mass_precision: MassPrecisionView {
+                status: "available",
+                owner: "preferences",
+                decimals: preferences.mass_precision.decimals,
+            },
         },
     })
 }

@@ -172,6 +172,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "chemifree-domain",
+ "chemifree-numerics",
  "chemifree-providers",
  "getrandom",
  "num-bigint",

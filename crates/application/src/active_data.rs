@@ -139,6 +139,9 @@ pub struct TrustedPersonalRegistration {
 pub struct PersonalDataset {
     registration_id: String,
     generation: u64,
+    dataset_id: String,
+    dataset_version: String,
+    profile_id: String,
     manifest_sha256: String,
     feature_schema_sha256: Option<String>,
     engine_contract_id: String,
@@ -297,6 +300,29 @@ struct ModelRegistration {
 }
 
 impl PersonalDataset {
+    /// Synthetic test carrier; production data can only enter through the trusted loader.
+    #[cfg(any(test, feature = "conformance-fixtures"))]
+    pub(crate) fn fixture(records: ProfileRecords) -> Self {
+        Self {
+            registration_id: "synthetic-test".into(),
+            generation: 1,
+            dataset_id: "synthetic-public-values".into(),
+            dataset_version: "fixture-v1".into(),
+            profile_id: "fixture-not-production".into(),
+            manifest_sha256: "fixture".into(),
+            feature_schema_sha256: None,
+            engine_contract_id: "fixture".into(),
+            records,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn named_fixture(registration_id: &str, records: ProfileRecords) -> Self {
+        let mut result = Self::fixture(records);
+        result.registration_id = registration_id.to_owned();
+        result
+    }
+
     #[must_use]
     pub fn registration_id(&self) -> &str {
         &self.registration_id
@@ -304,6 +330,18 @@ impl PersonalDataset {
     #[must_use]
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+    #[must_use]
+    pub fn dataset_id(&self) -> &str {
+        &self.dataset_id
+    }
+    #[must_use]
+    pub fn dataset_version(&self) -> &str {
+        &self.dataset_version
+    }
+    #[must_use]
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
     }
     #[must_use]
     pub fn manifest_sha256(&self) -> &str {
@@ -1155,6 +1193,9 @@ fn load_personal_impl_selected(
     Ok(PersonalDataset {
         registration_id: trust.registration_id.clone(),
         generation: trust.generation,
+        dataset_id: trust.dataset_id.clone(),
+        dataset_version: trust.dataset_version.clone(),
+        profile_id: trust.profile_id.clone(),
         manifest_sha256: identity.canonical_sha256,
         feature_schema_sha256: manifest.feature_schema_sha256,
         engine_contract_id: manifest.independent_engine_contract_id,

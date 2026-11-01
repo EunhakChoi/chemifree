@@ -7,11 +7,13 @@
 //! refused. A missing file means nothing is stored: revision 0 and the defaults. A file this
 //! build cannot read is reported as corrupt, never replaced by defaults.
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use chemifree_application::{PreferenceRepository, Preferences, StorageError, Theme};
+use chemifree_application::{
+    MassPrecision, PreferenceRepository, Preferences, StorageError, Theme,
+};
 use chemifree_domain::settings::{Settings, SettingsEdit};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +25,7 @@ use crate::file_store::{
 const FILE_NAME: &str = "preferences.json";
 const LOCK_FILE: &str = "locks/preferences.lock";
 const FORMAT: &str = "chemifree.preferences";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 /// Preferences are a few hundred bytes; anything far larger is not a preferences file.
 const MAX_PREFERENCES_BYTES: u64 = 64 * 1024;
 
@@ -86,6 +88,11 @@ impl PreferenceRepository for FilePreferenceStore {
     }
 
     fn save(&self, preferences: &Preferences, base_revision: u64) -> Result<(), StorageError> {
+        if preferences.mass_precision.decimals > 8 {
+            return Err(StorageError::Corrupt(
+                "mass display decimals must be from 0 to 8".into(),
+            ));
+        }
         let _lock = self.lock()?;
         let stored_revision = self.read()?.map_or(0, |stored| stored.revision);
         if stored_revision != base_revision {
@@ -94,6 +101,47 @@ impl PreferenceRepository for FilePreferenceStore {
             });
         }
         let path = self.path();
+        // A v1 file has no mass setting. Preserve its exact bytes before the first v2
+        // replacement, without overwriting an earlier saved migration of different bytes.
+        match fs::read(&path) {
+            Ok(bytes) => {
+                let header: serde_json::Value = serde_json::from_slice(&bytes)
+                    .map_err(|error| StorageError::Corrupt(error.to_string()))?;
+                if header["format_version"] == 1 {
+                    let mut retained = false;
+                    for number in 1..=u32::MAX {
+                        let name = if number == 1 {
+                            "preferences.v1.json".to_owned()
+                        } else {
+                            format!("preferences.v1.{number}.json")
+                        };
+                        let kept = self.root.join("migrated").join(name);
+                        match fs::read(&kept) {
+                            Ok(existing) if existing == bytes => {
+                                retained = true;
+                                break;
+                            }
+                            Ok(_) => continue,
+                            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                                write_atomically(&kept, &bytes).map_err(|error| {
+                                    write_failed("keep old preferences as", &kept, &error)
+                                })?;
+                                retained = true;
+                                break;
+                            }
+                            Err(error) => return Err(unavailable("read", &kept, &error)),
+                        }
+                    }
+                    if !retained {
+                        return Err(StorageError::Unavailable(
+                            "no free preferences migration name".into(),
+                        ));
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(unavailable("read", &path, &error)),
+        }
         write_atomically(&path, &encode(preferences))
             .map_err(|error| write_failed("save", &path, &error))
     }
@@ -107,6 +155,8 @@ struct StoredPreferences {
     revision: u64,
     ui: StoredUi,
     new_documents: StoredNewDocuments,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mass_precision: Option<MassPrecision>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -162,6 +212,7 @@ fn encode(preferences: &Preferences) -> Vec<u8> {
             carbon_labels: edit.carbon_labels.map(StoredCarbonLabels::from),
             display_unit: edit.display_unit.map(StoredUnit::from),
         },
+        mass_precision: Some(preferences.mass_precision),
     };
     serde_json::to_vec(&stored).expect("preferences always serialize")
 }
@@ -172,12 +223,17 @@ fn decode(bytes: &[u8]) -> Result<Preferences, String> {
     if stored.format != FORMAT {
         return Err(format!("format {:?} is not {FORMAT:?}", stored.format));
     }
-    if stored.format_version != FORMAT_VERSION {
+    if !(1..=FORMAT_VERSION).contains(&stored.format_version) {
         return Err(format!(
-            "format version {}; this build reads version {FORMAT_VERSION}",
+            "format version {}; this build reads versions 1 and {FORMAT_VERSION}",
             stored.format_version
         ));
     }
+    let mass_precision = match (stored.format_version, stored.mass_precision) {
+        (1, None) => MassPrecision::default(),
+        (2, Some(value)) if value.decimals <= 8 => value,
+        _ => return Err("invalid mass precision for this preferences version".into()),
+    };
     if stored.revision == 0 {
         return Err("a stored revision starts at 1".to_owned());
     }
@@ -202,6 +258,7 @@ fn decode(bytes: &[u8]) -> Result<Preferences, String> {
             StoredTheme::Dark => Theme::Dark,
         },
         new_documents: edit,
+        mass_precision,
     })
 }
 
@@ -229,6 +286,7 @@ mod tests {
                 display_unit: Some(DisplayUnit::Mm),
                 ..SettingsEdit::default()
             },
+            mass_precision: MassPrecision::default(),
         }
     }
 
@@ -246,7 +304,7 @@ mod tests {
         assert_eq!(store.load(), Ok(Some(chosen(1))));
         assert_eq!(
             fs::read_to_string(store.path()).unwrap(),
-            r#"{"format":"chemifree.preferences","format_version":1,"revision":1,"ui":{"theme":"dark"},"new_documents":{"bond_length_pt":42.5,"label_font":"monospace","display_unit":"mm"}}"#
+            r#"{"format":"chemifree.preferences","format_version":2,"revision":1,"ui":{"theme":"dark"},"new_documents":{"bond_length_pt":42.5,"label_font":"monospace","display_unit":"mm"},"mass_precision":{"decimals":2}}"#
         );
         let mut names: Vec<String> = fs::read_dir(directory.path())
             .unwrap()
@@ -254,6 +312,30 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["locks", "preferences.json"], "no temporary is left");
+    }
+
+    #[test]
+    fn version_one_is_read_without_writing_then_preserved_before_upgrade() {
+        let (directory, store) = scratch();
+        let original = br#"{"format":"chemifree.preferences","format_version":1,"revision":1,"ui":{"theme":"dark"},"new_documents":{}}"#;
+        fs::write(store.path(), original).unwrap();
+        let mut preferences = store.load().unwrap().unwrap();
+        assert_eq!(preferences.mass_precision.decimals, 2);
+        assert_eq!(fs::read(store.path()).unwrap(), original);
+        assert!(!directory.path().join("migrated").exists());
+        preferences.mass_precision.decimals = 5;
+        preferences.revision = 2;
+        store.save(&preferences, 1).unwrap();
+        assert_eq!(
+            fs::read(directory.path().join("migrated/preferences.v1.json")).unwrap(),
+            original
+        );
+        assert_eq!(store.load().unwrap().unwrap().mass_precision.decimals, 5);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&fs::read(store.path()).unwrap()).unwrap()
+                ["format_version"],
+            2
+        );
     }
 
     #[test]
@@ -324,8 +406,8 @@ mod tests {
         let cases = [
             ("not json".to_owned(), "expected"),
             (
-                valid.replace("\"format_version\":1", "\"format_version\":2"),
-                "this build reads version 1",
+                valid.replace("\"format_version\":2", "\"format_version\":3"),
+                "this build reads versions 1 and 2",
             ),
             (
                 valid.replace("chemifree.preferences", "chemifree.document"),

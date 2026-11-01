@@ -1,0 +1,27 @@
+{
+  "record_id": "synthetic-public-reference-carbon",
+  "source": {"path": "synthetic", "bytes": 0, "sha256": "synthetic"},
+  "source_url": "https://physics.nist.gov/PhysRefData/Compositions/",
+  "version": "fixture-1; not a production dataset",
+  "version_basis": {"path": "synthetic", "bytes": 0, "sha256": "synthetic"},
+  "source_evaluation_epochs": {"masses": "fixture", "isotopic_compositions": "fixture", "standard_atomic_weights": "fixture"},
+  "distribution_basis": {
+    "classification": "synthetic test input",
+    "classification_source": {"path": "synthetic", "bytes": 0, "sha256": "synthetic"},
+    "terms": "test fixture",
+    "terms_source": {"path": "synthetic", "bytes": 0, "sha256": "synthetic"},
+    "terms_url": "inert:fixture"
+  },
+  "citation": "NIST public carbon isotope values; fractions rounded for this test",
+  "normalization": {"quantities": "fixture", "decimal_policy": "fixture", "estimated_marker": "fixture", "bracketed_singleton": "fixture", "missing_policy": "fixture", "symbols": "fixture", "changes": "fixture"},
+  "element_count": 1,
+  "isotope_count": 3,
+  "elements": [{"atomic_number": 6, "symbol_as_served": "C", "standard_atomic_weight": {"kind": "range", "raw": null, "lower_decimal": "12.0096", "upper_decimal": "12.0116", "standard_atomic_weight_value": null}, "notes_raw": null}],
+  "isotopes": [
+    {"atomic_number": 6, "element_symbol": "C", "isotope_symbol_as_printed": null, "mass_number": 12, "relative_atomic_mass": {"raw": "12.0", "value_decimal": "12.0", "uncertainty_digits": "0", "absolute_uncertainty_decimal": "0", "estimated_marker_present": false}, "isotopic_composition": {"raw": "0.9893", "value_decimal": "0.9893", "uncertainty_digits": null, "absolute_uncertainty_decimal": null, "estimated_marker_present": false}, "source_preformatted_line": 1},
+    {"atomic_number": 6, "element_symbol": "C", "isotope_symbol_as_printed": null, "mass_number": 13, "relative_atomic_mass": {"raw": "13.00335483507", "value_decimal": "13.00335483507", "uncertainty_digits": "1", "absolute_uncertainty_decimal": "0.00000000001", "estimated_marker_present": false}, "isotopic_composition": {"raw": "0.0107", "value_decimal": "0.0107", "uncertainty_digits": null, "absolute_uncertainty_decimal": null, "estimated_marker_present": false}, "source_preformatted_line": 2},
+    {"atomic_number": 6, "element_symbol": "C", "isotope_symbol_as_printed": null, "mass_number": 14, "relative_atomic_mass": {"raw": "14.0032419884", "value_decimal": "14.0032419884", "uncertainty_digits": "1", "absolute_uncertainty_decimal": "0.0000000001", "estimated_marker_present": false}, "isotopic_composition": null, "source_preformatted_line": 3}
+  ],
+  "reported_composition_sums_decimal": {},
+  "limits": ["Synthetic subset; do not use as production element data"]
+}

@@ -781,7 +781,7 @@
    "acceptance": "전하·라디칼·동위원소·명시적 H·비정상 입력을 독립 사례로 검사하고 진단만으로 문서를 자동 수정하지 않는다.",
    "kind": "core",
    "id": "P16",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -790,7 +790,12 @@
    "depends_on": [
     "P10",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [80],
+    "merge_commit": "fb61369aeb456d6e4f7940dc13dc46d86d1c061d",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41218250815"
+   }
   },
   {
    "phase": "chemistry",
@@ -808,7 +813,7 @@
    "acceptance": "재번호·동등 표현·융합계·전하·실패 사례를 검사한다. 변환 실패가 원래 구조를 바꾸지 않고 모델·정책이 결과에 포함된다.",
    "kind": "core",
    "id": "P17",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -816,7 +821,13 @@
    ],
    "depends_on": [
     "P16"
-   ]
+   ],
+   "delivered": {
+    "prs": [82],
+    "merge_commit": "c4a8e44eafeb5f560743559d4797d0791c463eb2",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41225052724",
+    "note": "제한된 방향족 모델과 원자적 변환의 부분 납품이다. 더 넓은 융합계와 상태는 후속 범위다."
+   }
   },
   {
    "phase": "chemistry",
@@ -834,7 +845,7 @@
    "acceptance": "원자 재번호와 대칭 구조가 같은 화학적 판정을 얻고, 전하·동위원소·후속 입체 차이가 뭉개지지 않는다.",
    "kind": "core",
    "id": "P18",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -861,7 +872,7 @@
    "acceptance": "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다. 계산 정밀도 설정의 저장·적용과 기존 문서 비소급을 검사한다.",
    "kind": "core",
    "id": "P19",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -871,7 +882,13 @@
     "P16",
     "P14",
     "P15"
-   ]
+   ],
+   "delivered": {
+    "prs": [81],
+    "merge_commit": "3aa8686cc30c0c717bfbe02e94ffd2cc1a3c786d",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41223458088",
+    "note": "분자식·질량 첫 범위의 부분 납품이다. 개인 질량 프로필 호환성과 일반 정밀도는 미완료다."
+   }
   },
   {
    "phase": "chemistry",
@@ -889,7 +906,7 @@
    "acceptance": "독립 리더로 그래프를 대조하고 잘린 파일·잘못된 원자·결합·필드 길이와 다중 레코드를 검사한다. 입체·고급 객체 미지원은 명시한다.",
    "kind": "core",
    "id": "P20",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -898,7 +915,13 @@
    "depends_on": [
     "P10",
     "P13"
-   ]
+   ],
+   "delivered": {
+    "prs": [83],
+    "merge_commit": "fe443007193bfef7af16f3771cb1dde3431646a0",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41227984583",
+    "note": "V2000 MOL/SDF의 제한된 입출력 부분 납품이다. 고급 객체와 입체 해석은 후속 범위다."
+   }
   },
   {
    "phase": "chemistry",
@@ -948,7 +971,7 @@
    "acceptance": "Unicode·참조 오류·중복 ID·unknown·잘못된 XML을 검사한다. 그래프·장면·텍스트·스타일의 보존과 손실을 별도 비교한다.",
    "kind": "core",
    "id": "P22",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3629,7 +3652,7 @@
     "public-format-observations.json",
     "integration-long-caption-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P22",
     "P29",
@@ -3671,7 +3694,7 @@
     "phase3-stereo-default-contracts.md",
     "phase2-stereo-signedness-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P20",
     "P24",
@@ -3735,7 +3758,7 @@
     "deep-format-contracts.md",
     "format-boundary-observations.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P20",
     "P21",
@@ -3833,7 +3856,7 @@
     "phase6-chemprop-numerics-functional-contract.md",
     "phase7-cos-functional-supplement.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P15",
     "P19",

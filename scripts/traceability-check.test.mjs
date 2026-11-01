@@ -56,6 +56,39 @@ function setRecord(inputs, value) {
   syncDocs(inputs)
 }
 
+/** Adds a valid pending case without depending on the product suite having one. */
+function addPendingCase(inputs) {
+  const path = 'cases/synthetic-pending.json'
+  const sha256 = 'a'.repeat(64)
+  const value = {
+    id: 'synthetic-pending',
+    title: 'Synthetic pending case',
+    requirements: ['OPS-01'],
+    axis: 'graph',
+    kind: 'accept',
+    pending: { followup: 'P22', reason: 'Synthetic test fixture' },
+  }
+  inputs.suite.value.cases.push(path)
+  inputs.cases.push({ path, sha256, value, error: null })
+  const next = record(inputs)
+  next.results.push({
+    id: value.id,
+    title: value.title,
+    requirements: value.requirements,
+    axis: value.axis,
+    kind: value.kind,
+    outcome: 'not_run',
+    pending: value.pending,
+    failure: null,
+    case_sha256: sha256,
+  })
+  next.counts.total.not_run += 1
+  next.counts.accept.not_run += 1
+  setRecord(inputs, next)
+  assert.deepEqual(checkInputs(inputs), [], 'synthetic pending baseline is valid')
+  return value
+}
+
 function expectProblem(inputs, pattern) {
   const errors = checkInputs(inputs)
   assert.ok(
@@ -149,8 +182,7 @@ test('a pending case is not executing evidence', () => {
   const inputs = base()
   // A pending case cited by an implemented part of a requirement the case names. The part is
   // made implemented here: the repository need not hold such a pair.
-  const pending = inputs.cases.map((entry) => entry.value).find((value) => value.pending)
-  assert.ok(pending, 'the suite has a pending case')
+  const pending = addPendingCase(inputs)
   const [cited] = requirement(inputs, pending.requirements[0]).parts
   Object.assign(cited, { status: 'implemented', evidence: [`case:${pending.id}`], followups: [] })
   expectProblem(inputs, new RegExp(`evidence case:${pending.id} did not pass in the recorded run`))
@@ -215,8 +247,11 @@ test('case requirement ids must be traced', () => {
 
 test('a pending case follow-up must be an open roadmap row', () => {
   const inputs = base()
-  const pending = inputs.cases.find((item) => item.value.pending)
-  pending.value.pending.followup = 'A1'
+  const pending = addPendingCase(inputs)
+  pending.pending.followup = 'A1'
+  const changed = record(inputs)
+  changed.results.at(-1).pending.followup = 'A1'
+  setRecord(inputs, changed)
   expectProblem(inputs, /pending: follow-up A1 is a done roadmap row/)
 })
 
@@ -295,6 +330,7 @@ test('record: case hashes are current', () => {
 
 test('record: not_run exactly when pending', () => {
   const inputs = base()
+  addPendingCase(inputs)
   const changed = record(inputs)
   const index = changed.results.findIndex((result) => result.pending !== null)
   changed.results[index].outcome = 'passed'

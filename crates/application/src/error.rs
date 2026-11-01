@@ -112,6 +112,8 @@ pub struct ApplicationError {
     pub invalid_scene: Option<SceneError>,
     /// The invalid document or new-document style value, when one was refused.
     pub invalid_settings: Option<SettingsError>,
+    /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
+    pub invalid_aromaticity: Option<&'static str>,
 }
 
 impl ApplicationError {
@@ -125,6 +127,7 @@ impl ApplicationError {
             invalid_state: None,
             invalid_scene: None,
             invalid_settings: None,
+            invalid_aromaticity: None,
         }
     }
 
@@ -154,6 +157,7 @@ impl ApplicationError {
             .or(self.invalid_state.map(StateError::code))
             .or(self.invalid_scene.map(SceneError::code))
             .or(self.invalid_settings.map(SettingsError::code))
+            .or(self.invalid_aromaticity)
     }
 }
 

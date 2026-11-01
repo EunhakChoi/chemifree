@@ -30,7 +30,7 @@
 
 `format_default_six`는 유한 binary64의 정확한 값을 6자리 유효숫자로 표시하고 십진 중간값은 짝수로 반올림한다. 반올림한 지수가 -4 미만이거나 6 이상이면 소문자 `e` 과학 표기를 쓰고 그 밖에는 고정 표기를 쓴다. 불필요한 뒤쪽 0은 제거하며 지수 부호와 최소 두 자리, 음의 0을 유지한다. 이는 소수점이 `.`인 C-locale 방식의 명시적 정책으로, [default-float 형식의 일반 규칙](https://learn.microsoft.com/en-us/cpp/c-runtime-library/format-specification-syntax-printf-and-wprintf-functions?view=msvc-170)과 독립적으로 대조했다.
 
-`format_fixed`는 유한 binary64를 0–8자리 고정 소수로 표시하고 뒤쪽 0을 유지한다. 십진 중간값은 짝수로 반올림하고 표시 자릿수 밖은 `precision_out_of_range`다. 질량 UI의 실제 0–5 제한과 정적 선언 0–8, 로캘·환경 설정은 이 수치 함수와 별개이며 아직 화학 결과 UI를 활성화하지 않는다.
+`format_fixed`는 유한 binary64를 0–8자리 고정 소수로 표시하고 뒤쪽 0을 유지한다. 십진 중간값은 짝수로 반올림하고 표시 자릿수 밖은 `precision_out_of_range`다. 질량 결과는 저장된 환경 설정의 0–8자리 표시값을 사용하며 웹 선택지는 0–5자리다. 이 설정은 산술 정밀도가 아니라 표시 문자열에만 적용되고 기존 문서나 이전 결과를 바꾸지 않는다.
 
 `round_three_half_away_to_binary32`는 `Exact` 값을 십진 소수 셋째 자리에서 크기가 커지는 쪽으로 중간값을 반올림한 뒤, 그 십진 유리수를 binary32로 한 번 저장한다. Real48·binary64·확장 형식에서 정확히 읽은 값을 직접 전달할 수 있으며 보통 binary64 중간값을 강제하지 않는다. 저장의 binary32 반올림은 최근접·동률 짝수다. 오류는 비유한 값의 `Exact` 변환 실패, F32 오버플로 또는 자원 한도로 구분한다. 이는 명시된 유한 십진 경계이며 특정 원본 환경의 모든 부동소수점 코너나 로캘 호환성을 주장하지 않는다.
 

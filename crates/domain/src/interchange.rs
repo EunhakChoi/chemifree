@@ -161,6 +161,8 @@ pub enum ValidationError {
     DuplicateProperty,
     MissingFontIndex,
     MissingFontName,
+    EmptyFontTable,
+    EmptyColorTable,
     DuplicateFont(u16),
     UnknownFont(u16),
     DuplicateColorTable,
@@ -337,25 +339,40 @@ fn inspect_object(
             value: object.clone(),
         });
     }
+    if object.kind == ObjectKind::FontTable
+        && !object.children.iter().any(|child| {
+            matches!(
+                child,
+                Content::Object(Object {
+                    kind: ObjectKind::Font,
+                    ..
+                })
+            )
+        })
+    {
+        return Err(ValidationError::EmptyFontTable);
+    }
     if object.kind == ObjectKind::ColorTable {
         if facts.color_count.is_some() {
             return Err(ValidationError::DuplicateColorTable);
         }
-        facts.color_count = Some(
-            object
-                .children
-                .iter()
-                .filter(|child| {
-                    matches!(
-                        child,
-                        Content::Object(Object {
-                            kind: ObjectKind::Color,
-                            ..
-                        })
-                    )
-                })
-                .count(),
-        );
+        let count = object
+            .children
+            .iter()
+            .filter(|child| {
+                matches!(
+                    child,
+                    Content::Object(Object {
+                        kind: ObjectKind::Color,
+                        ..
+                    })
+                )
+            })
+            .count();
+        if count == 0 {
+            return Err(ValidationError::EmptyColorTable);
+        }
+        facts.color_count = Some(count);
     }
     let fragment_path = if object.kind == ObjectKind::Fragment {
         Some(path.clone())
