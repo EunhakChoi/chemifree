@@ -8,6 +8,8 @@ P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
+P23(진행 중)은 한정된 CDX 바이너리 코덱을 같은 공통 모델과 투영에 연결한다. 알 수 없는 객체의 참조 안전성은 추정하지 않으며 고급 객체는 후속 범위다.
+
 현재 집계: 요구사항 33개(partial 14, not_implemented 19) · 부분 70개(implemented 27, partial 8, unverified 2, not_implemented 33) · conformance 사례 33개(passed 33: accept 21·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
