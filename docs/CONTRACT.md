@@ -44,7 +44,7 @@ Capabilities: `{ api_version, capabilities: [{ id, label, status, description }]
 | `runtime_inspection` | `available` |
 | `document_editing` | `available` — drawing model only |
 | `structure_analysis` | `available` — the explicitly labeled bounded valence inspection only; operation catalog specifies other operations |
-| `format_conversion` | `available` — the explicitly labeled bounded V2000 MOL/SDF subset only |
+| `format_conversion` | `available` — the explicitly labeled bounded V2000 MOL/SDF and CDXML subsets |
 | `local_model_loading` | `not_implemented` |
 | `persistence` | `available` — local Chemifree JSON files |
 | `authentication` | `not_implemented` |
@@ -63,7 +63,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 - `document_revision`: the document's revision after a document operation that succeeded, or the current one with a revision conflict; null otherwise (no document involved, `document.close`, or a failure that reports no revision).
 - `model_id`: the model or method that produced the result; null when no model was used.
 - `diagnostics`: `[{ code, severity, message, path, details }]`, `severity` ∈ `info | warning | error`. `path` points into the request (`parameters.commands[2]`) or is null.
-- `loss_report`: `[{ feature, source_path, disposition, reason, semantic_impact }]`, `disposition` ∈ `retained | normalized | dropped | rejected | unknown`, `semantic_impact` ∈ `none | chemistry | document | geometry | stereo | rendering | unknown`. Format conversions report losses and uncertainty per record. Property calculations report conditional abundance omissions and exact-mass fallbacks here.
+- `loss_report`: `[{ feature, source_path, disposition, reason, semantic_impact }]`, `disposition` ∈ `retained | normalized | dropped | rejected | unknown`, `semantic_impact` ∈ `none | chemistry | document | geometry | stereo | rendering | unknown`. Format conversions report losses and uncertainty by source path, including the record when applicable. Property calculations report conditional abundance omissions and exact-mass fallbacks here.
 
 | Operation | Parameters | Result |
 | --- | --- | --- |
@@ -75,6 +75,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `document.close` | `{ document_id, discard_unsaved?, expected_revision? }` | `{ document_id, discarded_changes }` |
 | `document.import` | `{ document_id, expected_revision, format, source, record, preview?, preview_digest?, accept_loss? }` | MOL/SDF preview or one atomic document edit; see below |
 | `document.export` | `{ format, records: [{ document_id, fields? }] }` | Staged MOL/SDF text, source-index maps and losses; see below |
+| `document.import`, `document.export` | [Rich CDXML or editor projection](#cdxml-interchange) | Rich tree, preview, created document, or CDXML content |
 | `chem.validate` | `{ document_id }` | `{ snapshot: { document, session, recovery }, atoms: [{ atom_id, bond_order_sum, hydrogens, status, reason }] }`; [policy and limits](#valence-inspection) |
 | `chem.properties` | `{ document_id, scope, property, selection?, data_registration_id? }` | Formula, selected mass or distribution, the analyzed snapshot and calculation metadata; [policy and limits](#formula-and-mass-properties) |
 | `chem.aromaticity` | `{ document_id }` | The analyzed snapshot and cyclic systems under the policy below |
@@ -92,6 +93,12 @@ Unknown parameters are `invalid_request` (`path: "parameters"`). Every other ope
 With `preview: true`, the operation returns the pre-import snapshot captured under the session lock, a candidate document, atom/bond counts, model `chemifree-smiles-basic-1`, a loss report and `preview_digest`. SMILES has no coordinates: the preview reports schematic grid positions which may overlap existing content and are not a chemical layout. The commit repeats the source, document and revision, supplies the digest and `accept_loss: true`; it appends one undoable edit after rechecking the same candidate and losses under the lock. A changed source, graph or service generation invalidates consent. Request replay follows the normal session replay rules. The web checks the whole returned snapshot and service generation as well as revision before enabling the import.
 
 `chem.smiles_write` mode `recorded` writes the supported recorded graph in document order under `chemifree-smiles-recorded-1`; it does not claim a canonical string or chemical validity, and reports the same P16 invalid/unsupported valence findings for non-aromatic atoms. Mode `canonical` uses `chemifree-smiles-canonical-1`: it normalizes supported aromatic and Kekulé bonds and folds eligible ordinary terminal hydrogens using the bounded valence and aromaticity policies, then uses the exhaustive chemical identity ordering. Isotopes and charge remain distinct. Canonical output is stable only within that model and its 128-atom, 100,000-state and 10,000,000-work-unit limits. Unsupported states or an exhausted search return no text. Both modes return the analyzed snapshot and report that scene, positions, style, selection and title are omitted; canonical mode also reports chemical-representation normalization. Stereo, query bonds and unsupported radical states are refused, not erased. The web hides output if the drawing or service changes.
+
+## CDXML interchange
+
+With the CDXML provider connected, `document.import` accepts `{ mode: "read", format: "cdxml", source }` and returns an ordered rich `document` and selectable `choices` (page ID, fragment ID and source paths). The source is a UTF-8 string; unknown extensions and outside-root material are kept when an unchanged document is written with its `original` source. `document.export` takes `{ format: "cdxml", document, original?, discard_opaque? }` and returns `{ content }`. Edited opaque content or IDs cannot be claimed safe: a rewrite requiring the removal of opaque content must explicitly request `discard_opaque`, and reports the loss. Without `original`, the service cannot detect content the caller already omitted or verify unknown references in an earlier source. No external resources are fetched. See [interchange limits and preservation](INTERCHANGE.md).
+
+For the single-graph editor, `document.import` with `mode: "preview"`, `format`, `source`, `title`, `page_id` and `fragment_id` returns `{ document, mapping, preview_digest }` and a loss report. It creates nothing. A `mode: "create"` request repeats those fields, supplies `preview_digest` and sets `accept_loss: true` when there are losses. The service reparses and binds consent to the exact source, projection, new document settings, loss report and current service generation. Changed input, settings or a restart invalidates the preview. It creates and saves a new document only after verification; an already committed request is replayed within the process replay window. The response includes `interchange_mapping` from source paths and IDs to new document, page, molecule, atom and bond IDs. CDX and advanced chemical semantics are unsupported; a rich import can preserve information that an editor projection explicitly discards.
 
 ## Valence inspection
 

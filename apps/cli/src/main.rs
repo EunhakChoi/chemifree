@@ -11,6 +11,7 @@ use chemifree_application::{
     RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
     SettingsSource, TransactionSelections, TrashListResponse,
 };
+use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
     configure_selected_registry, default_data_dir,
@@ -314,6 +315,7 @@ fn main() -> ExitCode {
         args.model_trusted_registry.as_deref(),
     );
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
+        .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);

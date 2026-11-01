@@ -1,5 +1,5 @@
 {
-  "suite_version": 10,
+  "suite_version": 12,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -33,6 +33,7 @@
     "cases/valence-snapshot.json",
     "cases/aromaticity-conversion.json",
     "cases/graph-identity.json",
+    "cases/cdxml-rich-projection.json",
     "cases/smiles-basic.json"
   ]
 }

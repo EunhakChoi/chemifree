@@ -8,7 +8,9 @@ P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결
 
 P21은 기본 SMILES 해석과 기록 순서·버전 지정 canonical 출력을 연결한다. 동등성은 명명된 제한 화학 모델을 따르며 입력 오류의 UTF-8 바이트 위치, 임의 배치와 누락된 문서 정보, 미상 라디칼을 보고한다. 입체·query 확장과 InChI는 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 13, not_implemented 20) · 부분 68개(implemented 25, partial 8, unverified 2, not_implemented 33) · conformance 사례 32개(passed 32: accept 20·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. 고급 객체와 일반 장면 렌더링은 후속 범위다.
+
+현재 집계: 요구사항 33개(partial 15, not_implemented 18) · 부분 72개(implemented 29, partial 8, unverified 2, not_implemented 33) · conformance 사례 34개(passed 34: accept 22·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

@@ -7,6 +7,7 @@ use std::path::Path;
 use chemifree_application::{
     Application, ApplicationError, DataRegistry, ProfileRecords, phase4_nist,
 };
+use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
     FileDocumentRepository, FilePreferenceStore, LocalCapabilities, V2000Codec,
 };
@@ -205,6 +206,7 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     let preferences = FilePreferenceStore::new(directory);
     preferences.prune_stale_temporaries();
     let application = Application::new(LocalCapabilities, repository)
+        .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_preferences(preferences);
     let Some(fixture) = fixture else {

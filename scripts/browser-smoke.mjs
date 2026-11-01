@@ -280,6 +280,89 @@ await unavailableDialog.waitFor({ state: 'hidden' })
 await page.unroute('**/api/v1/preferences', unavailablePreferences)
 results.preferences_read_can_be_retried = true
 
+// Select a page and fragment, inspect losses and IDs, then explicitly create a new drawing.
+{
+  const source = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment><t id="4"><s>α</s></t></page><page id="5"><fragment id="6"><n id="7" p="10 20" Element="8"/></fragment></page></CDXML>'
+  const before = (await api('/api/v1/documents')).documents.length
+  await page.getByLabel('CDXML file').setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
+  await page.getByLabel('Page and molecule').selectOption('1')
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  const preview = page.getByTestId('cdxml-preview')
+  await preview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
+  await preview.getByText(/#7 → a1/).waitFor()
+  await preview.getByText(/not represented in the editor projection/i).first().waitFor()
+  await preview.locator('..').screenshot({ path: join(outDir, 'editor-cdxml-preview.png') })
+  assert.equal((await api('/api/v1/documents')).documents.length, before, 'preview creates no document')
+  const committed = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
+    response.request().postDataJSON()?.parameters?.mode === 'create')
+  await preview.getByRole('button', { name: 'Accept losses and create drawing' }).click()
+  const body = await (await committed).json()
+  assert.equal(body.result.document.atoms[0].element, 'O')
+  await page.getByLabel('Document title').waitFor()
+  assert.equal((await api('/api/v1/documents')).documents.length, before + 1)
+  await page.getByRole('button', { name: 'Close document' }).click()
+  await page.getByText('No document open').waitFor()
+  for (const [name, unsafe, message] of [
+    ['missing.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3"/></fragment></page></CDXML>', /has no position/],
+    ['label.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3" p="0 0"><t id="4"><s>O</s></t></n></fragment></page></CDXML>', /has a label or child object/],
+  ]) {
+    await page.getByLabel('CDXML file').setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
+    await page.getByLabel('Page and molecule').waitFor()
+    await page.getByRole('button', { name: 'Preview import' }).click()
+    await page.getByRole('alert').filter({ hasText: message }).waitFor()
+    assert.equal(await page.getByTestId('cdxml-preview').count(), 0, 'unsafe chemistry is not previewed as a different graph')
+    assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused preview creates no drawing')
+  }
+}
+// A preview from an unmounted picker cannot replace a newer file's preview.
+{
+  step = 'CDXML delayed preview after picker changes'
+  const first = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment></page></CDXML>'
+  const second = '<CDXML><page id="5"><fragment id="6"><n id="7" p="3 4" Element="8"/></fragment></page></CDXML>'
+  const before = (await api('/api/v1/documents')).documents.length
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'old.cdxml', mimeType: 'application/xml', buffer: Buffer.from(first) })
+  await page.getByLabel('Page and molecule').waitFor()
+  let arrived
+  const responseArrived = new Promise((resolve) => { arrived = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  let finished
+  const responseFinished = new Promise((resolve) => { finished = resolve })
+  let intercepted = false
+  const holdPreview = async (route) => {
+    const request = route.request().postDataJSON()
+    if (intercepted || request?.operation !== 'document.import' || request.parameters?.mode !== 'preview') return route.continue()
+    intercepted = true
+    const response = await route.fetch()
+    arrived()
+    await released
+    await route.fulfill({ response })
+    finished()
+  }
+  await page.route('**/api/v1/operations', holdPreview)
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  await responseArrived
+  await page.getByRole('button', { name: 'New document' }).click()
+  await page.getByLabel('Document title').waitFor()
+  await page.getByRole('button', { name: 'Close document' }).click()
+  await page.getByText('No document open').waitFor()
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'new.cdxml', mimeType: 'application/xml', buffer: Buffer.from(second) })
+  await page.getByLabel('Page and molecule').waitFor()
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  const currentPreview = page.getByTestId('cdxml-preview')
+  await currentPreview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
+  release()
+  await responseFinished
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+  await currentPreview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
+  assert.equal(await currentPreview.getByText('Preview: 1 atom (C), 0 bonds.').count(), 0)
+  assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'only the deliberately created document exists')
+  await page.unroute('**/api/v1/operations', holdPreview)
+  results.cdxml_delayed_preview_is_stale = true
+}
+results.cdxml_projection_with_loss_consent = true
+results.cdxml_unsafe_projection_refused = true
+
 // Create.
 const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
 await page.getByRole('button', { name: 'New document' }).click()
