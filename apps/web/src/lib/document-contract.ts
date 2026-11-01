@@ -1146,6 +1146,46 @@ export interface CtImport {
   digest: string
 }
 
+/** Same title, graph, scene, and settings, whatever revision number or selection accompanies them. */
+export function sameDrawingContent(a: DocumentView, b: DocumentView): boolean {
+  return (
+    a.id === b.id &&
+    a.title === b.title &&
+    JSON.stringify(a.atoms) === JSON.stringify(b.atoms) &&
+    JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
+    JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
+    JSON.stringify(a.settings) === JSON.stringify(b.settings)
+  )
+}
+
+export type SmilesMode = 'recorded' | 'canonical'
+
+export interface SmilesPreview {
+  digest: string
+  snapshot: DocumentView
+  atoms: number
+  bonds: number
+  losses: CtLoss[]
+}
+
+export interface SmilesImport {
+  documentId: string
+  revision: number
+  source: string
+  digest: string
+}
+
+export interface SmilesWrite {
+  smiles: string
+  mode: SmilesMode
+  snapshot: DocumentView
+  atoms: string[]
+  implementation: string
+  version: string
+  modelId: string
+  losses: CtLoss[]
+}
+
 /** Full drawing comparison for conversion previews, including scene and settings. */
 export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -1174,7 +1214,10 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
       const details = isRecord(diagnostic.details) ? diagnostic.details : {}
       const record = isCount(details.record) ? ` Record ${details.record}.` : ''
       const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+      const position = isCount(details.start) && isCount(details.end)
+        ? ` Position ${details.start}-${details.end} (UTF-8 bytes).` : ''
+      const reason = typeof details.reason === 'string' ? ` Reason: ${details.reason}.` : ''
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}${position}${reason}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
       })
     }
@@ -1425,22 +1468,27 @@ export class DocumentClient {
   }
 
   async importCt(input: CtImport): Promise<DocumentResponse> {
-    // An unanswered request might have committed. Reuse its ID only against the same service.
-    const key = JSON.stringify(input)
+    return this.commitImport(input.documentId, JSON.stringify(input), {
+      document_id: input.documentId, expected_revision: input.revision, format: input.format,
+      source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true,
+    })
+  }
+
+  /** One consented import. An unanswered request might have committed; reuse its ID only against the same service. */
+  private async commitImport(documentId: string, key: string, parameters: Record<string, unknown>): Promise<DocumentResponse> {
     const pending = this.unconfirmedImports.get(key) ?? { requestId: requestId() }
     this.unconfirmedImports.set(key, pending)
     let sentTo: string | undefined
     try {
       const reply = ctReply(await this.write('/api/v1/operations', {
         contract: 1, request_id: pending.requestId, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { document_id: input.documentId, expected_revision: input.revision, format: input.format,
-          source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true },
+        parameters,
       }, 'reload', (token) => {
         if (pending.sentTo !== undefined && pending.sentTo !== token) throw restarted(401)
         sentTo = token
       }))
       const response = DocumentClient.document({ api_version: API_VERSION, ...reply.result })
-      if (response.document.id !== input.documentId) {
+      if (response.document.id !== documentId) {
         throw new ApiError('incompatible_response', 'The import returned a different drawing.', 200)
       }
       this.unconfirmedImports.delete(key)
@@ -1452,6 +1500,52 @@ export class DocumentClient {
       }
       this.unconfirmedImports.delete(key)
       throw error
+    }
+  }
+
+  async previewSmiles(documentId: string, revision: number, source: string): Promise<SmilesPreview> {
+    const reply = ctReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
+      parameters: { document_id: documentId, expected_revision: revision, format: 'smiles', source, preview: true },
+    }, 'reload'))
+    const { result } = reply
+    if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
+        !isCount(result.atoms) || !isCount(result.bonds) || !isRecord(result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES preview.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== revision) {
+      throw new ApiError('incompatible_response', 'The SMILES preview used a different drawing or revision.', 200)
+    }
+    return { digest: result.preview_digest, snapshot, atoms: result.atoms, bonds: result.bonds, losses: reply.losses }
+  }
+
+  async importSmiles(input: SmilesImport): Promise<DocumentResponse> {
+    return this.commitImport(input.documentId, `smiles:${JSON.stringify(input)}`, {
+      document_id: input.documentId, expected_revision: input.revision, format: 'smiles',
+      source: input.source, preview_digest: input.digest, accept_loss: true,
+    })
+  }
+
+  async exportSmiles(documentId: string, mode: SmilesMode): Promise<SmilesWrite> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
+      parameters: { document_id: documentId, format: 'smiles', mode },
+    }, 'reload')
+    const reply = ctReply(value)
+    const { result } = reply
+    const modelId = isRecord(value) ? value.model_id : undefined
+    if (typeof result.smiles !== 'string' || result.mode !== mode || !isRecord(result.snapshot) ||
+        typeof modelId !== 'string' || typeof result.implementation !== 'string' ||
+        typeof result.version !== 'string' || !Array.isArray(result.atoms) ||
+        !result.atoms.every((id: unknown) => typeof id === 'string')) {
+      throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES result.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The SMILES result used a different drawing.', 200)
+    return {
+      smiles: result.smiles, mode, snapshot, atoms: result.atoms as string[], implementation: result.implementation,
+      version: result.version, modelId, losses: reply.losses,
     }
   }
 

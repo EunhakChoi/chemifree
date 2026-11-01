@@ -6,6 +6,7 @@ import {
   ApiError,
   DocumentClient,
   sameConversionSnapshot,
+  sameDrawingContent,
   type Command,
   type CopyResponse,
   type CtImport,
@@ -15,6 +16,8 @@ import {
   type InterchangeInput,
   type ListQuery,
   type SettingsSource,
+  type SmilesImport,
+  type SmilesMode,
   type TrashListResponse,
 } from '@/lib/document-contract'
 
@@ -66,18 +69,6 @@ export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 export type EditSelection = { kind: 'group'; objects: string[] }
 
 const client = new DocumentClient()
-
-/** Same title, graph, scene, and settings, whatever revision number names them. */
-function sameContent(a: DocumentView, b: DocumentView) {
-  return (
-    a.id === b.id &&
-    a.title === b.title &&
-    JSON.stringify(a.atoms) === JSON.stringify(b.atoms) &&
-    JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
-    JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
-    JSON.stringify(a.settings) === JSON.stringify(b.settings)
-  )
-}
 
 /**
  * Builds a request from the latest document. `restartedFrom` is set on the one retry after
@@ -198,7 +189,7 @@ export function useDocumentEditor() {
           // shows, the edit still means the same thing; otherwise the page must reload.
           if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
           const fresh = await client.get(document.document.id)
-          const retry = sameContent(fresh.document, document.document) ? call(fresh, document) : null
+          const retry = sameDrawingContent(fresh.document, document.document) ? call(fresh, document) : null
           if (!retry) throw failure
           setCurrent(fresh)
           next = await retry
@@ -223,7 +214,7 @@ export function useDocumentEditor() {
     adopt: useCallback(
       (response: DocumentResponse) => {
         const shown = currentRef.current
-        const same = shown?.document.revision === response.document.revision && sameContent(shown.document, response.document)
+        const same = shown?.document.revision === response.document.revision && sameDrawingContent(shown.document, response.document)
         if (same) setCurrent(response)
         return same
       },
@@ -296,6 +287,34 @@ export function useDocumentEditor() {
     [run, setCurrent, refreshList],
   )
 
+  /**
+   * Sends one consented import after checking that the drawing on screen is still the one the
+   * preview described. Returns whether the service committed it.
+   */
+  const commitImport = useCallback(
+    async (
+      input: { documentId: string; revision: number },
+      snapshot: DocumentView,
+      generation: number,
+      send: () => Promise<DocumentResponse>,
+    ) => {
+      let committed = false
+      await run(async () => {
+        const shown = currentRef.current
+        if (!shown || serviceGenerationRef.current !== generation ||
+            !sameConversionSnapshot(shown.document, snapshot) ||
+            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
+          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+        }
+        const response = await send()
+        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
+        committed = true
+      })
+      return committed
+    },
+    [run, setCurrent],
+  )
+
   return {
     list,
     listQuery,
@@ -345,27 +364,19 @@ export function useDocumentEditor() {
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
-    importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) => {
-      let committed = false
-      await run(async () => {
-        const shown = currentRef.current
-        if (!shown || serviceGenerationRef.current !== generation ||
-            !sameConversionSnapshot(shown.document, snapshot) ||
-            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
-          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
-        }
-        const response = await client.importCt(input)
-        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
-        committed = true
-      })
-      return committed
-    }, [run, setCurrent]),
+    importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
+      commitImport(input, snapshot, generation, () => client.importCt(input)), [commitImport]),
+    previewSmiles: useCallback((id: string, revision: number, source: string) =>
+      client.previewSmiles(id, revision, source), []),
+    exportSmiles: useCallback((id: string, mode: SmilesMode) => client.exportSmiles(id, mode), []),
+    importSmiles: useCallback((input: SmilesImport, snapshot: DocumentView, generation: number) =>
+      commitImport(input, snapshot, generation, () => client.importSmiles(input)), [commitImport]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)
       return mutate((document, restartedFrom) => {
         if (restartedFrom || generation !== serviceGenerationRef.current ||
-            !sameContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
+            !sameDrawingContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
         const selected = selectionSnapshot(pressed, document.document)
         return client.convertAromaticity(inspected.id, inspected.revision, to, selected)
       })
