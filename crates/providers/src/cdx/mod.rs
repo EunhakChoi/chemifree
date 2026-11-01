@@ -102,7 +102,7 @@ impl fmt::Display for CdxError {
 impl std::error::Error for CdxError {}
 
 /// Wording for model validation failures, which have no readable `Display`.
-pub(crate) fn describe_validation(
+pub fn describe_validation(
     error: &chemifree_domain::interchange::ValidationError,
 ) -> (&'static str, String) {
     use chemifree_domain::interchange::ValidationError as V;

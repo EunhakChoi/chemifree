@@ -57,7 +57,7 @@ fn sextet(byte: u8) -> Option<u32> {
 /// Returns the index of the first character that makes the text non-canonical.
 pub fn decode(text: &str) -> Result<Vec<u8>, Base64Error> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(Base64Error {
             index: bytes.len(),
             reason: "the length is not a multiple of four",

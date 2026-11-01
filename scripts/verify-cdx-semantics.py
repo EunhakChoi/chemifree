@@ -51,7 +51,10 @@ def _fixture() -> bytes:
         return struct.pack("<ii", round(y * 65536), round(x * 65536))
 
     node_one = _obj(
-        0x8004, 3, _prop(0x0200, point(10, 20)), _prop(0x0402, struct.pack("<h", 6))
+        0x8004,
+        3,
+        _prop(0x0200, point(10, 20)),
+        _prop(0x0402, struct.pack("<h", 6)),
     )
     node_two = _obj(
         0x8004,
@@ -81,7 +84,10 @@ def _fixture() -> bytes:
     graphic = _obj(
         0x8007,
         7,
-        _prop(0x0204, struct.pack("<iiii", 2 * 65536, 65536, 40 * 65536, 30 * 65536)),
+        _prop(
+            0x0204,
+            struct.pack("<iiii", 2 * 65536, 65536, 40 * 65536, 30 * 65536),
+        ),
         _prop(0x0A00, struct.pack("<h", 3)),
         _prop(0x000E, struct.pack("<IH", 4, 0x0421)),
     )
@@ -91,8 +97,12 @@ def _fixture() -> bytes:
     colors = struct.pack("<H", 3) + struct.pack(
         "<9H", 65535, 65535, 65535, 0, 0, 0, 65535, 0, 0
     )
-    page = _obj(0x8001, 1, _obj(0x8003, 2, node_one, node_two, bond), label, graphic)
-    document = _obj(0x8000, 0, _prop(0x0100, fonts), _prop(0x0300, colors), page)
+    page = _obj(
+        0x8001, 1, _obj(0x8003, 2, node_one, node_two, bond), label, graphic
+    )
+    document = _obj(
+        0x8000, 0, _prop(0x0100, fonts), _prop(0x0300, colors), page
+    )
     return header + document + b"\0\0"
 
 
@@ -147,8 +157,12 @@ class _Reader:
             (_, count) = struct.unpack_from("<HH", value)
             position = 4
             for _ in range(count):
-                font_id, charset, size = struct.unpack_from("<HHH", value, position)
-                name = value[position + 6 : position + 6 + size].decode("latin-1")
+                font_id, charset, size = struct.unpack_from(
+                    "<HHH", value, position
+                )
+                name = value[position + 6 : position + 6 + size].decode(
+                    "latin-1"
+                )
                 if charset != 1252:
                     raise ValueError("unexpected charset")
                 self.fonts[font_id] = (name, charset)
@@ -156,7 +170,9 @@ class _Reader:
         elif tag == 0x0300:
             (count,) = struct.unpack_from("<H", value)
             for index in range(count):
-                red, green, blue = struct.unpack_from("<HHH", value, 2 + 6 * index)
+                red, green, blue = struct.unpack_from(
+                    "<HHH", value, 2 + 6 * index
+                )
                 self.colors.append((red / 65535, green / 65535, blue / 65535))
 
     def _page(self) -> dict[str, Any]:
@@ -184,7 +200,9 @@ class _Reader:
                 fragment["nodes"].append(_node(child_id, properties))
             elif tag == 0x8005:
                 bits = struct.unpack("<H", properties[0x0600])[0]
-                names = " ".join(name for bit, name in _ORDER_NAMES if bits & bit)
+                names = " ".join(
+                    name for bit, name in _ORDER_NAMES if bits & bit
+                )
                 fragment["bonds"].append(
                     (
                         child_id,
@@ -225,7 +243,8 @@ class _Reader:
     def _graphic(self, object_id: int) -> dict[str, Any]:
         properties = self._properties_with_represents()
         top, left, bottom, right = (
-            value / 65536 for value in struct.unpack("<iiii", properties[0x0204])
+            value / 65536
+            for value in struct.unpack("<iiii", properties[0x0204])
         )
         target, attribute = struct.unpack("<IH", properties[0x000E])
         return {
@@ -243,8 +262,12 @@ def _node(object_id: int, properties: dict[int, bytes]) -> tuple[Any, ...]:
     return (
         object_id,
         struct.unpack("<h", properties[0x0402])[0],
-        struct.unpack("<b", properties[0x0421])[0] if 0x0421 in properties else 0,
-        struct.unpack("<h", properties[0x0420])[0] if 0x0420 in properties else 0,
+        struct.unpack("<b", properties[0x0421])[0]
+        if 0x0421 in properties
+        else 0,
+        struct.unpack("<h", properties[0x0420])[0]
+        if 0x0420 in properties
+        else 0,
         (x / 65536, y / 65536),
     )
 
@@ -276,7 +299,11 @@ def _xml_axes(source: str) -> dict[str, Any]:
                 for bond in fragment.findall("b")
             ]
             fragments.append(
-                {"id": int(fragment.attrib["id"]), "nodes": nodes, "bonds": bonds}
+                {
+                    "id": int(fragment.attrib["id"]),
+                    "nodes": nodes,
+                    "bonds": bonds,
+                }
             )
         texts = [
             {
@@ -314,7 +341,9 @@ def _xml_axes(source: str) -> dict[str, Any]:
                     ),
                 }
             )
-        pages.append({"fragments": fragments, "texts": texts, "graphics": graphics})
+        pages.append(
+            {"fragments": fragments, "texts": texts, "graphics": graphics}
+        )
     return {
         "fonts": sorted(
             (int(font.attrib["id"]), font.attrib["name"], 1252)
@@ -350,13 +379,17 @@ def main() -> None:
     own = _Reader(binary).document()
     xml_text = _convert("to-cdxml", binary).decode("utf-8")
     if _xml_axes(xml_text) != own:
-        raise RuntimeError("CDXML output disagrees with the independent CDX reading")
+        raise RuntimeError(
+            "CDXML output disagrees with the independent CDX reading"
+        )
     again = _convert("to-cdx", xml_text.encode("utf-8"))
     if _Reader(again).document() != own:
         raise RuntimeError("CDX written from CDXML disagrees with the original")
     if again != binary:
         raise RuntimeError("CDX -> CDXML -> CDX changed the bytes")
-    print("Independent CDX comparison passed for graph, text, styles and colors.")
+    print(
+        "Independent CDX comparison passed for graph, text, styles and colors."
+    )
 
 
 if __name__ == "__main__":

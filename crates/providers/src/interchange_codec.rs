@@ -100,9 +100,10 @@ impl LocalInterchangeCodec {
         original: Option<&[u8]>,
         discard_opaque: bool,
     ) -> Result<InterchangeWrite, InterchangeError> {
-        document
-            .validate()
-            .map_err(|error| fail("invalid_document", error.to_string()))?;
+        document.validate().map_err(|error| {
+            let (code, message) = cdx::describe_validation(&error);
+            fail(code, message)
+        })?;
         let parsed_original = original.map(cdx::read).transpose()?;
         let parsed = parsed_original.as_ref().map(|file| ParsedOriginal {
             document: file.document(),

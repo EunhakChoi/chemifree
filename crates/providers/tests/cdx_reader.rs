@@ -162,7 +162,7 @@ fn reserved_header_bytes_are_not_interpreted() {
 #[test]
 fn document_id_zero_reads_as_no_id_and_other_ids_are_kept() {
     let page = obj(0x8001, 1, &[]);
-    assert_eq!(read(&file(0, &[page.clone()])).unwrap().id, None);
+    assert_eq!(read(&file(0, std::slice::from_ref(&page))).unwrap().id, None);
     assert_eq!(read(&file(77, &[page])).unwrap().id, Some(77));
 }
 
