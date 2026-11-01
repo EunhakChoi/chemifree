@@ -206,16 +206,68 @@ fn seeded_cdxml_mutations_never_write_cdx_the_reader_refuses() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(20_000);
     let mut exercised = 0;
+    // Attribute value spans, so most mutations stay well-formed XML and reach the CDX writer.
+    let text = String::from_utf8(base.clone()).unwrap();
+    let spans: Vec<(usize, usize)> = text
+        .match_indices("=\"")
+        .map(|(at, _)| {
+            let start = at + 2;
+            (start, start + text[start..].find('"').unwrap())
+        })
+        .collect();
+    let values = [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "-1",
+        "-129",
+        "127",
+        "128",
+        "255",
+        "256",
+        "32767",
+        "32768",
+        "65535",
+        "65536",
+        "0.5",
+        "None",
+        "Triplet",
+        "Quartet",
+        "18",
+        "x",
+        "  ",
+        "caf\u{e9}",
+        "\u{85}",
+        "\u{1}",
+        "3 4",
+        "1e3",
+    ];
     for round in 0..rounds {
         let mut mutated = base.clone();
-        for _ in 0..=(next() % 3) {
-            let at = (next() as usize) % mutated.len();
-            match next() % 3 {
-                0 => mutated[at] = b"0123456789-. <>\"/&;#x"[(next() as usize) % 21],
-                1 => {
-                    mutated.remove(at);
+        if next() % 4 != 0 {
+            // Splice from the back so earlier spans keep their positions.
+            let mut chosen = vec![spans[(next() as usize) % spans.len()]];
+            if next() % 2 == 0 {
+                chosen.push(spans[(next() as usize) % spans.len()]);
+            }
+            chosen.sort_unstable();
+            chosen.dedup();
+            for &(start, end) in chosen.iter().rev() {
+                let value = values[(next() as usize) % values.len()];
+                mutated.splice(start..end, value.bytes());
+            }
+        } else {
+            for _ in 0..=(next() % 3) {
+                let at = (next() as usize) % mutated.len();
+                match next() % 3 {
+                    0 => mutated[at] = b"0123456789-. <>\"/&;#x"[(next() as usize) % 21],
+                    1 => {
+                        mutated.remove(at);
+                    }
+                    _ => mutated.insert(at, b"0123456789-. "[(next() as usize) % 13]),
                 }
-                _ => mutated.insert(at, b"0123456789-. "[(next() as usize) % 13]),
             }
         }
         let Ok(text) = String::from_utf8(mutated) else {
