@@ -9,11 +9,13 @@ mod file_format;
 mod file_store;
 pub mod interchange_codec;
 mod preference_store;
+mod smiles;
 
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
 
 pub use ctfile::V2000Codec;
+pub use smiles::SmilesTextCodec;
 pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };

@@ -45,6 +45,8 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+pub mod smiles;
+mod smiles_projection;
 mod turns;
 
 use std::sync::Arc;
@@ -100,6 +102,7 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
     InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
+    SmilesExportResult, SmilesModels, SmilesPreviewResult,
     OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
     ProfileSupport, SemanticImpact, Severity, Support,
 };
@@ -141,6 +144,7 @@ pub struct Application<C, R> {
     /// A process-local binding for conversion previews. If entropy is unavailable, previews
     /// are refused rather than accepting a token from an earlier service instance.
     ctfile_generation: Option<[u8; 16]>,
+    smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
     property_data_readiness: properties::DataReadiness,
 }
 
@@ -159,6 +163,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
             ctfile_codec: None,
+            smiles_codec: None,
             ctfile_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
@@ -172,6 +177,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     pub fn with_ctfile_codec(self, codec: impl ctfile::CtCodec + 'static) -> Self {
         Self {
             ctfile_codec: Some(Arc::new(codec)),
+            ..self
+        }
+    }
+
+    /// Connects the independently implemented SMILES text provider for every entry adapter.
+    #[must_use]
+    pub fn with_smiles_codec(self, codec: impl smiles::SmilesCodec + 'static) -> Self {
+        Self {
+            smiles_codec: Some(Arc::new(codec)),
             ..self
         }
     }
@@ -243,11 +257,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = match (self.ctfile_codec.is_some(), self.interchange_codec.is_some()) {
-                            (true, true) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
-                            (true, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, true) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
-                            (false, false) => None,
+                        let supported = match (
+                            self.ctfile_codec.is_some(),
+                            self.interchange_codec.is_some(),
+                            self.smiles_codec.is_some(),
+                        ) {
+                            (true, true, false) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
+                            (true, false, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
+                            (false, true, false) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
+                            (true, true, true) => Some(("MOL/SDF, CDXML and SMILES subsets", "Read and write bounded V2000 MOL/SDF, rich CDXML and SMILES connectivity subsets with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Advanced chemistry is limited; other formats are unsupported.")),
+                            (true, false, true) => Some(("MOL/SDF and SMILES subsets", "Read and write a bounded V2000 MOL/SDF subset and SMILES connectivity with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Other formats are unsupported.")),
+                            (false, true, true) => Some(("CDXML and SMILES subsets", "Read and write a bounded CDXML subset and SMILES connectivity with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Other formats are unsupported.")),
+                            (false, false, true) => Some(("SMILES subset", "Read and write SMILES connectivity (branches, rings, components, isotopes, charges, hydrogens, aromatic atoms) with explicit losses; canonical output is Chemifree's own. No stereo, query or reaction SMILES and no InChI. Other formats are unsupported.")),
+                            (false, false, false) => None,
                         };
                         if let Some((label, description)) = supported {
                             capability.label = label;
