@@ -518,11 +518,26 @@ fn refuse_ambiguous_ring_nitrogen(
     }
     let as_amine = target.with_hydrogens(&suspects, Hydrogens::Specified(1));
     let reread = aromaticity::perceive(&as_amine);
+    // The N-H reading must reproduce the same non-aromatic outcome. An aromatic result, or an
+    // unsupported one (fused systems containing a heteroatom are outside the model) for a
+    // ring system that has a double bond, means the answer depends on an unrecorded hydrogen.
+    // A fully saturated system cannot be aromatic under either reading.
     let ambiguous = flagged.iter().any(|system| {
-        reread.systems.iter().any(|other| {
-            other.atoms == system.atoms
-                && other.classification == aromaticity::Classification::Aromatic
-        })
+        let has_ring_double = target
+            .bonds()
+            .any(|(id, bond)| system.bonds.contains(&id) && bond.order == BondOrder::Double);
+        match reread
+            .systems
+            .iter()
+            .find(|other| other.atoms == system.atoms)
+        {
+            None => true,
+            Some(other) => match other.classification {
+                aromaticity::Classification::NonAromatic => false,
+                aromaticity::Classification::Aromatic => true,
+                aromaticity::Classification::Unsupported => has_ring_double,
+            },
+        }
     });
     if ambiguous {
         return Err(QueryError::AromaticTargetUnsupported(

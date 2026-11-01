@@ -829,3 +829,196 @@ fn a_sixty_four_atom_path_completes_against_a_long_chain_with_the_maximum_budget
     assert!(result.complete, "work used: {}", result.states);
     assert_eq!(target_pairs(&result).len(), 2 * (240 - 63));
 }
+
+fn aromatic_mode(query: &Document, target: &Document) -> Result<usize, QueryError> {
+    find_graphs(
+        &MoleculeGraph::from_document(query),
+        &MoleculeGraph::from_document(target),
+        &[],
+        1000,
+        100_000,
+        MatchModel::AromaticTarget,
+    )
+    .map(|result| {
+        assert!(result.complete, "a returned result must be complete");
+        result.mappings.len()
+    })
+}
+
+fn kekule(name: &str, elements: &str, bonds: &[(usize, usize, BondOrder)]) -> Document {
+    let atoms = elements.chars().map(|c| atom(&c.to_string())).collect();
+    graph(name, atoms, bonds)
+}
+
+#[test]
+fn fused_kekule_rings_with_an_inferred_nh_are_refused_not_reported_empty() {
+    use BondOrder::{Double as D, Single as S};
+    let ambiguous = Err(QueryError::AromaticTargetUnsupported(
+        "ambiguous_ring_nitrogen_hydrogen",
+    ));
+    let indole = kekule(
+        "indole",
+        "CCCCNCCCC",
+        &[
+            (0, 1, D),
+            (1, 2, S),
+            (2, 3, D),
+            (3, 4, S),
+            (4, 5, S),
+            (5, 6, D),
+            (6, 7, S),
+            (7, 3, S),
+            (7, 8, D),
+            (8, 0, S),
+        ],
+    );
+    let benzimidazole = kekule(
+        "benzimidazole",
+        "CCCCCCNCN",
+        &[
+            (0, 1, D),
+            (1, 2, S),
+            (2, 3, D),
+            (3, 4, S),
+            (4, 5, D),
+            (5, 0, S),
+            (3, 6, S),
+            (6, 7, D),
+            (7, 8, S),
+            (8, 2, S),
+        ],
+    );
+    let carbazole = kekule(
+        "carbazole",
+        "CCCCCCCCNCCCC",
+        &[
+            (0, 1, D),
+            (1, 2, S),
+            (2, 3, D),
+            (3, 4, S),
+            (4, 5, D),
+            (5, 0, S),
+            (3, 6, S),
+            (6, 7, D),
+            (7, 8, S),
+            (8, 2, S),
+            (7, 9, S),
+            (9, 10, D),
+            (10, 11, S),
+            (11, 12, D),
+            (12, 6, S),
+        ],
+    );
+    let query = aromatic_pair();
+    for target in [&indole, &benzimidazole, &carbazole] {
+        assert_eq!(
+            aromatic_mode(&query, target),
+            ambiguous,
+            "{:?}",
+            target.title()
+        );
+    }
+}
+
+#[test]
+fn unambiguous_ring_systems_still_match_in_aromatic_target_mode() {
+    use BondOrder::{Double as D, Single as S};
+    let query = aromatic_pair();
+    let benzene = kekule(
+        "benzene",
+        "CCCCCC",
+        &[
+            (0, 1, D),
+            (1, 2, S),
+            (2, 3, D),
+            (3, 4, S),
+            (4, 5, D),
+            (5, 0, S),
+        ],
+    );
+    assert_eq!(aromatic_mode(&query, &benzene), Ok(12));
+    // Naphthalene is fused and carbocyclic, so no nitrogen reading is involved.
+    let naphthalene = kekule(
+        "naphthalene",
+        "CCCCCCCCCC",
+        &[
+            (0, 1, D),
+            (1, 2, S),
+            (2, 3, D),
+            (3, 4, S),
+            (4, 5, D),
+            (5, 0, S),
+            (3, 6, S),
+            (6, 7, D),
+            (7, 8, S),
+            (8, 9, D),
+            (9, 2, S),
+        ],
+    );
+    assert!(aromatic_mode(&query, &naphthalene).is_ok());
+    // A fused ring with an N-H but no double bond cannot be aromatic under either reading.
+    let saturated = kekule(
+        "saturated-fused-amine",
+        "CCCCCNCCCC",
+        &[
+            (0, 1, S),
+            (1, 2, S),
+            (2, 3, S),
+            (3, 4, S),
+            (4, 0, S),
+            (4, 5, S),
+            (5, 6, S),
+            (6, 7, S),
+            (7, 8, S),
+            (8, 9, S),
+            (9, 3, S),
+        ],
+    );
+    let single = graph("cc", vec![atom("C"), atom("C")], &[(0, 1, S)]);
+    assert!(aromatic_mode(&single, &saturated).is_ok());
+}
+
+#[test]
+fn the_whole_target_is_refused_for_an_unsupported_atom_no_mapping_could_use() {
+    let query = graph("carbon", vec![atom("C")], &[]);
+    let mut unknown = atom("O");
+    unknown.hydrogens = Hydrogens::Unknown;
+    let target = graph("far-oxygen", vec![atom("C"), unknown], &[]);
+    assert_eq!(
+        find(&query, &target, &[], 10, 100),
+        Err(QueryError::UnsupportedTarget)
+    );
+    let mut with_query_bond = vec![atom("C"), atom("C")];
+    with_query_bond.push(atom("N"));
+    let target = graph(
+        "far-query-bond",
+        with_query_bond,
+        &[(1, 2, BondOrder::Query(BondQuery::Any))],
+    );
+    assert_eq!(
+        find(&query, &target, &[], 10, 100),
+        Err(QueryError::UnsupportedTarget)
+    );
+}
+
+#[test]
+fn undetermined_hydrogens_are_decided_per_compatible_atom_before_topology() {
+    let query = graph(
+        "ch-o",
+        vec![with_hydrogens("C", 1), atom("O")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    // No oxygen exists, so no mapping is possible, but every aromatic carbon satisfies the
+    // other conditions of the first query atom and has no determinable hydrogen count.
+    let benzene = graph(
+        "aromatic-benzene",
+        vec![atom("C"); 6],
+        &(0..6)
+            .map(|i| (i, (i + 1) % 6, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        find(&query, &benzene, &[], 10, 1000),
+        Err(QueryError::TargetHydrogensUndetermined)
+    );
+}
