@@ -13,6 +13,7 @@ mod documents;
 mod draft_schedule;
 mod draft_writer;
 mod error;
+mod format_notes;
 pub mod interchange_codec;
 pub mod interchange_contract;
 mod interchange_projection;
@@ -257,20 +258,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = match (
-                            self.ctfile_codec.is_some(),
-                            self.interchange_codec.is_some(),
-                            self.smiles_codec.is_some(),
-                        ) {
-                            (true, true, false) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
-                            (true, false, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, true, false) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
-                            (true, true, true) => Some(("MOL/SDF, CDXML and SMILES subsets", "Read and write bounded V2000 MOL/SDF, rich CDXML and SMILES connectivity subsets with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Advanced chemistry is limited; other formats are unsupported.")),
-                            (true, false, true) => Some(("MOL/SDF and SMILES subsets", "Read and write a bounded V2000 MOL/SDF subset and SMILES connectivity with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Other formats are unsupported.")),
-                            (false, true, true) => Some(("CDXML and SMILES subsets", "Read and write a bounded CDXML subset and SMILES connectivity with explicit losses. SMILES has no stereo, query or reaction support and no InChI. Other formats are unsupported.")),
-                            (false, false, true) => Some(("SMILES subset", "Read and write SMILES connectivity (branches, rings, components, isotopes, charges, hydrogens, aromatic atoms) with explicit losses; canonical output is Chemifree's own. No stereo, query or reaction SMILES and no InChI. Other formats are unsupported.")),
-                            (false, false, false) => None,
+                        let formats = format_notes::Formats {
+                            ctfile: self.ctfile_codec.is_some(),
+                            interchange: self.interchange_codec.is_some(),
+                            smiles: self.smiles_codec.is_some(),
                         };
+                        let supported = formats.label().zip(formats.description());
                         if let Some((label, description)) = supported {
                             capability.label = label;
                             capability.status = chemifree_domain::ImplementationStatus::Available;
@@ -278,11 +271,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         }
                     }
                     CapabilityResponse {
-                    id: capability.id.as_str(),
-                    label: capability.label,
-                    status: capability.status.as_str(),
-                    description: capability.description,
-                }})
+                        id: capability.id.as_str(),
+                        label: capability.label,
+                        status: capability.status.as_str(),
+                        description: capability.description,
+                    }
+                })
                 .collect(),
             operation_catalog: self.operation_catalog(),
         }

@@ -35,6 +35,7 @@ use crate::ct_projection;
 use crate::ctfile::{CtError, CtField, CtFormat, CtRecord};
 use crate::documents::{AromaticityConversion, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
+use crate::format_notes::Formats;
 use crate::json;
 use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
@@ -1265,65 +1266,20 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     fn effective_entry(&self, operation: OperationId) -> (Entry, &'static [Entry]) {
-        if self.smiles_codec.is_some() {
-            match operation {
-                OperationId::DocumentImport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            "Preview and import the connected formats (MOL/SDF, CDXML and SMILES, as connected) with explicit losses and revision-checked consent. SMILES reads connectivity only: stereo, query and reaction SMILES are refused with a position.",
-                        ),
-                        &[],
-                    );
-                }
-                OperationId::DocumentExport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            "Write the connected formats (MOL/SDF, CDXML and SMILES, as connected) with explicit losses. SMILES is written in recorded order or Chemifree's own canonical order (not compatible with other toolkits); drawings the shared valence and aromaticity models cannot interpret are refused with a reason.",
-                        ),
-                        &[],
-                    );
-                }
-                _ => {}
-            }
+        let formats = Formats {
+            ctfile: self.ctfile_codec.is_some(),
+            interchange: self.interchange_codec.is_some(),
+            smiles: self.smiles_codec.is_some(),
+        };
+        let note = match operation {
+            OperationId::DocumentImport => formats.import_note(),
+            OperationId::DocumentExport => formats.export_note(),
+            _ => None,
+        };
+        match note {
+            Some(note) => (runs(operation.as_str(), note), &[]),
+            None => entry(operation),
         }
-        if self.ctfile_codec.is_some() || self.interchange_codec.is_some() {
-            match operation {
-                OperationId::DocumentImport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses."
-                            } else if self.ctfile_codec.is_some() {
-                                "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
-                            } else {
-                                "Read CDXML as a rich tree or preview a loss-accounted editor projection."
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                OperationId::DocumentExport => {
-                    return (
-                        runs(
-                            operation.as_str(),
-                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
-                            } else if self.ctfile_codec.is_some() {
-                                "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
-                            } else {
-                                "Write rich CDXML with opaque-content safety and explicit loss reporting."
-                            },
-                        ),
-                        &[],
-                    );
-                }
-                _ => {}
-            }
-        }
-        entry(operation)
     }
 
     fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {

@@ -637,3 +637,68 @@ fn both_modes_name_the_same_cause_and_atom_for_one_drawing() {
         recorded["diagnostics"][0]["details"]["atom_id"]
     );
 }
+
+fn note(app: &App, operation: &str) -> String {
+    let catalog = call(app, "capabilities.inspect", json!({}));
+    catalog["result"]["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == operation)
+        .unwrap()["note"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn the_catalog_keeps_the_mol_sdf_and_cdxml_notes_when_smiles_is_connected() {
+    use chemifree_providers::V2000Codec;
+    use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+    let dir = tempfile::tempdir().unwrap();
+    let plain = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_ctfile_codec(V2000Codec);
+    let import_note = note(&plain, "document.import");
+    let export_note = note(&plain, "document.export");
+    assert!(
+        import_note.starts_with(
+            "Preview and append one selected record of a bounded V2000 MOL/SDF subset"
+        )
+    );
+    let with_smiles = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_ctfile_codec(V2000Codec)
+        .with_smiles_codec(SmilesTextCodec);
+    assert!(note(&with_smiles, "document.import").starts_with(&import_note));
+    assert!(note(&with_smiles, "document.export").starts_with(&export_note));
+    assert!(note(&with_smiles, "document.import").contains("SMILES"));
+    let both = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_ctfile_codec(V2000Codec)
+        .with_interchange_codec(LocalInterchangeCodec);
+    let all = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_ctfile_codec(V2000Codec)
+        .with_interchange_codec(LocalInterchangeCodec)
+        .with_smiles_codec(SmilesTextCodec);
+    assert!(note(&all, "document.export").starts_with(&note(&both, "document.export")));
+    assert!(note(&all, "document.export").contains("opaque-content safety"));
+    let capability = |app: &App| {
+        serde_json::to_value(app.capabilities()).unwrap()["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == "format_conversion")
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(capability(&plain)["label"], "MOL/SDF subset");
+    assert_eq!(capability(&both)["label"], "MOL/SDF and CDXML subsets");
+    assert_eq!(
+        capability(&all)["label"],
+        "MOL/SDF, CDXML and SMILES subsets"
+    );
+    assert!(
+        capability(&all)["description"]
+            .as_str()
+            .unwrap()
+            .starts_with(capability(&both)["description"].as_str().unwrap())
+    );
+}
