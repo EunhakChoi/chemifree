@@ -359,3 +359,99 @@ fn fused_biphenylene_is_outside_the_benzenoid_model() {
     );
     assert_eq!(interpreted.kekulize(), Err("fused_system_outside_model"));
 }
+
+fn with_hydrogens(symbol: &str, count: u8) -> Atom {
+    let mut atom = atom(symbol);
+    atom.hydrogens = Hydrogens::Specified(count);
+    atom
+}
+
+fn classify(document: &Document) -> (Classification, Option<&'static str>) {
+    let result = aromaticity::perceive(&MoleculeGraph::from_document(document));
+    assert_eq!(result.systems.len(), 1, "one ring system expected");
+    (result.systems[0].classification, result.systems[0].reason)
+}
+
+#[test]
+fn saturated_ring_atoms_with_stated_hydrogens_are_nonaromatic_not_unsupported() {
+    let propane_ring = graph(
+        vec![with_hydrogens("C", 2); 3],
+        &cycle(3, |_| BondOrder::Single),
+    );
+    assert_eq!(
+        classify(&propane_ring),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    let cyclohexane = graph(
+        vec![with_hydrogens("C", 2); 6],
+        &cycle(6, |_| BondOrder::Single),
+    );
+    assert_eq!(
+        classify(&cyclohexane),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+}
+
+#[test]
+fn quaternary_ring_carbon_with_inferred_hydrogens_is_nonaromatic() {
+    // 1,1-dimethylcyclopropane: the ring atom with two methyl neighbours is already full.
+    let mut edges = cycle(3, |_| BondOrder::Single);
+    edges.extend([(0, 3, BondOrder::Single), (0, 4, BondOrder::Single)]);
+    let ring = graph(vec![atom("C"); 5], &edges);
+    assert_eq!(
+        classify(&ring),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+}
+
+#[test]
+fn spiro_junction_atom_does_not_make_the_system_unsupported() {
+    // Spiro[2.2]pentane: the shared atom has four ring bonds.
+    let edges = [
+        (0, 1, BondOrder::Single),
+        (1, 2, BondOrder::Single),
+        (2, 0, BondOrder::Single),
+        (0, 3, BondOrder::Single),
+        (3, 4, BondOrder::Single),
+        (4, 0, BondOrder::Single),
+    ];
+    let spiro = graph(vec![atom("C"); 5], &edges);
+    let result = aromaticity::perceive(&MoleculeGraph::from_document(&spiro));
+    assert!(
+        result
+            .systems
+            .iter()
+            .all(|s| s.classification == Classification::NonAromatic),
+        "{:?}",
+        result.systems
+    );
+}
+
+#[test]
+fn saturated_atom_cannot_supply_electrons_to_a_conjugated_ring() {
+    // A quaternary atom in a five-membered ring with two double bonds is not cyclopentadienyl.
+    let mut edges = vec![
+        (0, 1, BondOrder::Double),
+        (1, 2, BondOrder::Single),
+        (2, 3, BondOrder::Double),
+        (3, 4, BondOrder::Single),
+        (4, 0, BondOrder::Single),
+    ];
+    edges.extend([(4, 5, BondOrder::Single), (4, 6, BondOrder::Single)]);
+    let ring = graph(vec![atom("C"); 7], &edges);
+    assert_eq!(
+        classify(&ring),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+}
+
+#[test]
+fn aromatic_bond_on_a_saturated_atom_stays_an_error() {
+    let mut edges = cycle(6, |_| BondOrder::Aromatic);
+    edges.extend([(0, 6, BondOrder::Single), (0, 7, BondOrder::Single)]);
+    let ring = graph(vec![atom("C"); 8], &edges);
+    assert_eq!(
+        classify(&ring),
+        (Classification::Unsupported, Some("valence_not_in_model"))
+    );
+}

@@ -48,6 +48,9 @@ pub struct Interpretation {
 struct Role {
     electrons: u16,
     needs_double: bool,
+    /// The atom's recorded neighbours and hydrogens already fill its valence, so it cannot
+    /// take part in a conjugated system and contributes no pi electrons.
+    saturated: bool,
 }
 
 fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'static str> {
@@ -77,13 +80,30 @@ fn role(atom: &Atom, ring_degree: usize, outside: usize) -> Result<Role, &'stati
             ("O" | "S", 0) => (2, false, 2),
             _ => return Err("element_or_charge"),
         };
-    let minimum = ring_degree + outside + usize::from(needs_double);
+    let neighbours = ring_degree + outside;
+    if needs_double {
+        // Without a double bond the atom is complete when its stated hydrogens, or (for inferred
+        // hydrogens) its neighbours alone, reach the target valence.
+        let filled = match stated {
+            Some(h) => neighbours + h == target,
+            None => neighbours == target,
+        };
+        if filled {
+            return Ok(Role {
+                electrons: 0,
+                needs_double: false,
+                saturated: true,
+            });
+        }
+    }
+    let minimum = neighbours + usize::from(needs_double);
     if minimum > target || stated.is_some_and(|h| minimum + h != target) {
         return Err("valence_not_in_model");
     }
     Ok(Role {
         electrons,
         needs_double,
+        saturated: false,
     })
 }
 
@@ -197,6 +217,27 @@ fn calculate(
     let mut roles = Vec::with_capacity(ring.atoms.len());
     for (i, id) in ring.atoms.iter().enumerate() {
         roles.push(role(atoms[id], inside[i].len(), outside[i])?);
+    }
+    let saturated: Vec<usize> = (0..roles.len()).filter(|&i| roles[i].saturated).collect();
+    if !saturated.is_empty() {
+        if !any_aromatic {
+            return Ok((
+                Classification::NonAromatic,
+                None,
+                None,
+                Some("not_conjugated"),
+            ));
+        }
+        let aromatic_on_saturated = saturated.iter().any(|&i| {
+            inside[i]
+                .iter()
+                .any(|&(_, id)| bonds[&id].order == BondOrder::Aromatic)
+        });
+        return Err(if aromatic_on_saturated {
+            "valence_not_in_model"
+        } else {
+            "fused_system_outside_model"
+        });
     }
     let electrons: u16 = roles.iter().map(|r| r.electrons).sum();
     let mut matched = vec![false; roles.len()];
