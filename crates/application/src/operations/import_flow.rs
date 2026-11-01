@@ -46,7 +46,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         &self,
         known: &Known,
         request: &ImportRequest<'_>,
-    ) -> Result<Option<DocumentResponse>, OperationResponse> {
+    ) -> Result<Option<DocumentResponse>, Box<OperationResponse>> {
         if request.preview {
             return Ok(None);
         }
@@ -56,7 +56,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Some(&known.request_id),
                 request.fingerprint,
             )
-            .map_err(|error| known.indexed_error(&error, request.record))
+            .map_err(|error| Box::new(known.indexed_error(&error, request.record)))
     }
 
     /// The document the edits are built against: the replayed result, or the current one.
@@ -65,12 +65,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         known: &Known,
         request: &ImportRequest<'_>,
         replay: Option<&DocumentResponse>,
-    ) -> Result<DocumentResponse, OperationResponse> {
+    ) -> Result<DocumentResponse, Box<OperationResponse>> {
         match replay {
             Some(response) => Ok(response.clone()),
             None => self
                 .document(request.document_id)
-                .map_err(|error| known.indexed_error(&error, request.record)),
+                .map_err(|error| Box::new(known.indexed_error(&error, request.record))),
         }
     }
 

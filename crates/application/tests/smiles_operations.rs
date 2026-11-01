@@ -173,7 +173,8 @@ fn a_stale_preview_digest_is_refused() {
         json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"CCO","preview":true}),
     );
     let digest = preview["result"]["preview_digest"].clone();
-    for source in ["CCN"] {
+    {
+        let source = "CCN";
         let reply = call(
             &app,
             "document.import",
@@ -432,8 +433,7 @@ fn refusals_name_the_real_cause() {
 fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
     let (app, _dir) = setup();
     let id = new_document(&app);
-    let mut revision = 0;
-    for chunk in 0..3 {
+    for (revision, chunk) in (0..3).enumerate() {
         let mut commands = Vec::new();
         for i in 0..100 {
             let mut command = json!({"op":"add_atom","element":"C","position":{"x":(i * 20) as f64,"y":(chunk * 20) as f64}});
@@ -448,7 +448,6 @@ fn output_the_reader_would_refuse_is_a_limit_error_not_an_invalid_graph() {
             json!({"document_id":id,"expected_revision":revision,"commands":commands}),
         );
         assert_eq!(reply["outcome"], "ok", "{reply}");
-        revision += 1;
     }
     // 300 atoms and 297 bonds are over the reader's 500 items, and over the identity limit of 128.
     for (mode, expected) in [("recorded", "size_limit"), ("canonical", "size_limit")] {

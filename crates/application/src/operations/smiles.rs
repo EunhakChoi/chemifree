@@ -99,35 +99,6 @@ pub struct SmilesModels {
     pub identity: Option<&'static str>,
 }
 
-fn syntax_failure(error: SmilesError, source: &str) -> Diagnostic {
-    let (outcome_code, _unsupported) = match error.code {
-        SmilesErrorCode::StereoUnsupported
-        | SmilesErrorCode::QueryUnsupported
-        | SmilesErrorCode::ReactionUnsupported
-        | SmilesErrorCode::AtomMapUnsupported
-        | SmilesErrorCode::BondKindUnsupported => ("smiles_unsupported", true),
-        SmilesErrorCode::InputTooLong
-        | SmilesErrorCode::SizeLimit
-        | SmilesErrorCode::BranchDepthLimit => ("smiles_limit", false),
-        _ => ("invalid_smiles", false),
-    };
-    let mut details = Map::new();
-    details.insert("reason".into(), error.code.code().into());
-    details.insert("start".into(), error.start.into());
-    details.insert("end".into(), error.end.into());
-    details.insert(
-        "text".into(),
-        source
-            .get(error.start..error.end)
-            .unwrap_or_default()
-            .chars()
-            .take(40)
-            .collect::<String>()
-            .into(),
-    );
-    diagnostic(outcome_code, error.code.message(), details)
-}
-
 fn unsupported_syntax(error: &SmilesError) -> bool {
     matches!(
         error.code,
@@ -137,6 +108,33 @@ fn unsupported_syntax(error: &SmilesError) -> bool {
             | SmilesErrorCode::AtomMapUnsupported
             | SmilesErrorCode::BondKindUnsupported
     )
+}
+
+fn syntax_failure(error: SmilesError, source: &str) -> Diagnostic {
+    let code = if unsupported_syntax(&error) {
+        "smiles_unsupported"
+    } else if matches!(
+        error.code,
+        SmilesErrorCode::InputTooLong
+            | SmilesErrorCode::SizeLimit
+            | SmilesErrorCode::BranchDepthLimit
+    ) {
+        "smiles_limit"
+    } else {
+        "invalid_smiles"
+    };
+    let mut details = Map::new();
+    details.insert("reason".into(), error.code.code().into());
+    details.insert("start".into(), error.start.into());
+    details.insert("end".into(), error.end.into());
+    let text: String = source
+        .get(error.start..error.end)
+        .unwrap_or_default()
+        .chars()
+        .take(40)
+        .collect();
+    details.insert("text".into(), text.into());
+    diagnostic(code, error.code.message(), details)
 }
 
 fn write_failure(
@@ -215,7 +213,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     ) -> OperationResponse {
         let replay = match self.import_replay(known, request) {
             Ok(replay) => replay,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let read = match codec.read(&p.source) {
             Ok(read) => read,
@@ -230,7 +228,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         let target = match self.import_target(known, request, replay.as_ref()) {
             Ok(target) => target,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let mut losses = Vec::new();
         let commands = match smiles_projection::import_commands(

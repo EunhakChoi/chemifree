@@ -1331,7 +1331,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         let replay = match self.import_replay(known, &request) {
             Ok(replay) => replay,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let input = match codec.read(p.format, p.source.as_bytes()) {
             Ok(input) => input,
@@ -1347,7 +1347,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         let target = match self.import_target(known, &request, replay.as_ref()) {
             Ok(target) => target,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let mut losses = input.losses;
         ct_projection::unselected_losses(&input.value, p.record, &mut losses);
