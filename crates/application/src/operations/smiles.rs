@@ -196,7 +196,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             accept_loss: p.accept_loss,
             fingerprint: &fingerprint,
             binding: serde_json::json!(["smiles", &p.source]),
-            record: 1,
+            record: None,
         };
         let model = SmilesMode::Recorded.model_id();
         let mut response = self.smiles_import_inner(known, &request, &p, codec.as_ref());
@@ -239,7 +239,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         ) {
             Ok(commands) => commands,
             Err(refusal) => {
-                return known.invalid(Self::import_failure(refusal.code, &refusal.message, 1));
+                return known.invalid(Self::import_failure(refusal.code, &refusal.message, None));
             }
         };
         let created = (read.molecule.atoms.len(), read.molecule.bonds.len());

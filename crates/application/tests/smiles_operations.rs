@@ -567,3 +567,41 @@ fn exported_atoms_follow_the_order_of_the_text() {
         }
     }
 }
+
+#[test]
+fn smiles_failures_carry_no_record_number() {
+    let (app, _dir) = setup();
+    let id = new_document(&app);
+    let preview = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"CCO","preview":true}),
+    );
+    let digest = preview["result"]["preview_digest"].clone();
+    let stale = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"CCN","preview_digest":digest,"accept_loss":true}),
+    );
+    let conflict = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":5,"format":"smiles","source":"CCO","preview":true}),
+    );
+    let consent = call(
+        &app,
+        "document.import",
+        json!({"document_id":id,"expected_revision":0,"format":"smiles","source":"CCO","preview_digest":digest}),
+    );
+    for (reply, code) in [
+        (stale, "preview_changed"),
+        (conflict, "revision_conflict"),
+        (consent, "loss_consent_required"),
+    ] {
+        assert_eq!(reply["diagnostics"][0]["code"], code, "{reply}");
+        assert!(
+            reply["diagnostics"][0]["details"].get("record").is_none(),
+            "{code}: SMILES has no records: {reply}"
+        );
+    }
+}

@@ -16,8 +16,8 @@ pub(super) struct ImportRequest<'a> {
     pub fingerprint: &'a str,
     /// The format-specific inputs the preview token must bind (source text, selection).
     pub binding: Value,
-    /// One-based record number reported in failures.
-    pub record: usize,
+    /// One-based record number reported in failures; formats without records leave it out.
+    pub record: Option<usize>,
 }
 
 /// A parsed source turned into edits.
@@ -31,13 +31,20 @@ pub(super) struct ImportPlan {
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    pub(super) fn import_failure(code: &'static str, message: &str, record: usize) -> Diagnostic {
-        ct_failure(CtError {
-            code,
-            message: message.into(),
-            record,
-            line: None,
-        })
+    pub(super) fn import_failure(
+        code: &'static str,
+        message: &str,
+        record: Option<usize>,
+    ) -> Diagnostic {
+        match record {
+            Some(record) => ct_failure(CtError {
+                code,
+                message: message.into(),
+                record,
+                line: None,
+            }),
+            None => diagnostic(code, message, Map::new()),
+        }
     }
 
     /// A completed request with the same ID and content is answered again without reading the
@@ -56,7 +63,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Some(&known.request_id),
                 request.fingerprint,
             )
-            .map_err(|error| Box::new(known.indexed_error(&error, request.record)))
+            .map_err(|error| Box::new(known.record_error(&error, request.record)))
     }
 
     /// The document the edits are built against: the replayed result, or the current one.
@@ -70,7 +77,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Some(response) => Ok(response.clone()),
             None => self
                 .document(request.document_id)
-                .map_err(|error| Box::new(known.indexed_error(&error, request.record))),
+                .map_err(|error| Box::new(known.record_error(&error, request.record))),
         }
     }
 
@@ -116,7 +123,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             &commands,
         ) {
             Ok(candidate) => candidate,
-            Err(error) => return known.indexed_error(&error, record),
+            Err(error) => return known.record_error(&error, record),
         };
         if before.document != target.document {
             return known.invalid(Self::import_failure(
@@ -179,7 +186,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     losses,
                 )
             }
-            Err(error) => known.indexed_error(&error, record),
+            Err(error) => known.record_error(&error, record),
         }
     }
 }

@@ -1028,6 +1028,19 @@ impl Known {
         )
     }
 
+    /// A failure that names a record only when the format has records.
+    fn record_error(&self, error: &ApplicationError, record: Option<usize>) -> OperationResponse {
+        match record {
+            Some(record) => self.indexed_error(error, record),
+            None => self.reply(
+                Outcome::Error,
+                error.current_revision,
+                None,
+                vec![failure(error)],
+            ),
+        }
+    }
+
     fn invalid(&self, diagnostic: Diagnostic) -> OperationResponse {
         self.reply(Outcome::Error, None, None, vec![diagnostic])
     }
@@ -1327,7 +1340,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             fingerprint: &fingerprint,
             binding: serde_json::to_value((p.format, p.record, &p.source))
                 .expect("a format, an index and text serialize"),
-            record: p.record,
+            record: Some(p.record),
         };
         let replay = match self.import_replay(known, &request) {
             Ok(replay) => replay,
