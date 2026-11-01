@@ -284,7 +284,7 @@ results.preferences_read_can_be_retried = true
 {
   const source = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment><t id="4"><s>α</s></t></page><page id="5"><fragment id="6"><n id="7" p="10 20" Element="8"/></fragment></page></CDXML>'
   const before = (await api('/api/v1/documents')).documents.length
-  await page.getByLabel('CDXML file').setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
   await page.getByLabel('Page and molecule').selectOption('1')
   await page.getByRole('button', { name: 'Preview import' }).click()
   const preview = page.getByTestId('cdxml-preview')
@@ -306,13 +306,50 @@ results.preferences_read_can_be_retried = true
     ['missing.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3"/></fragment></page></CDXML>', /has no position/],
     ['label.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3" p="0 0"><t id="4"><s>O</s></t></n></fragment></page></CDXML>', /has a label or child object/],
   ]) {
-    await page.getByLabel('CDXML file').setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
+    await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
     await page.getByLabel('Page and molecule').waitFor()
     await page.getByRole('button', { name: 'Preview import' }).click()
     await page.getByRole('alert').filter({ hasText: message }).waitFor()
     assert.equal(await page.getByTestId('cdxml-preview').count(), 0, 'unsafe chemistry is not previewed as a different graph')
     assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused preview creates no drawing')
   }
+}
+// CDX: the same picker sends base64 and shows the same preview, mapping and consent.
+{
+  step = 'CDX import'
+  const u16 = (value) => Buffer.from([value & 0xff, value >> 8])
+  const i32 = (value) => { const buffer = Buffer.alloc(4); buffer.writeInt32LE(value); return buffer }
+  const obj = (tag, id, ...parts) => Buffer.concat([u16(tag), i32(id), ...parts, u16(0)])
+  const prop = (tag, data) => Buffer.concat([u16(tag), u16(data.length), data])
+  const node = obj(0x8004, 3, prop(0x0200, Buffer.concat([i32(20 * 65536), i32(10 * 65536)])), prop(0x0402, u16(8)))
+  const document = obj(0x8000, 0, obj(0x8001, 1, obj(0x8003, 2, node)))
+  const header = Buffer.concat([Buffer.from('VjCD0100'), Buffer.from([4, 3, 2, 1]), Buffer.alloc(16)])
+  const cdx = Buffer.concat([header, document, u16(0)])
+  const before = (await api('/api/v1/documents')).documents.length
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'molecule.cdx', mimeType: 'application/octet-stream', buffer: cdx })
+  await page.getByLabel('Page and molecule').waitFor()
+  await page.getByRole('button', { name: 'Preview import' }).click()
+  const preview = page.getByTestId('cdxml-preview')
+  await preview.getByText('Preview: 1 atom (O), 0 bonds.').waitFor()
+  await preview.getByText(/#3 → a1/).waitFor()
+  assert.equal((await api('/api/v1/documents')).documents.length, before, 'CDX preview creates no document')
+  const committed = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') &&
+    response.request().postDataJSON()?.parameters?.mode === 'create')
+  await preview.getByRole('button', { name: 'Accept losses and create drawing' }).click()
+  const request = (await committed).request().postDataJSON()
+  assert.equal(request.parameters.format, 'cdx')
+  assert.equal(request.parameters.source, cdx.toString('base64'), 'CDX travels as canonical base64')
+  await page.getByLabel('Document title').waitFor()
+  assert.equal((await api('/api/v1/documents')).documents.length, before + 1)
+  await page.getByRole('button', { name: 'Close document' }).click()
+  await page.getByText('No document open').waitFor()
+  // A truncated file is refused by the service; an oversized one never leaves the browser.
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'cut.cdx', mimeType: 'application/octet-stream', buffer: cdx.subarray(0, cdx.length - 5) })
+  await page.getByRole('alert').filter({ hasText: /ends in the middle of an item/ }).waitFor()
+  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'big.cdx', mimeType: 'application/octet-stream', buffer: Buffer.alloc(121 * 1024) })
+  await page.getByRole('alert').filter({ hasText: /up to 120 KiB/ }).waitFor()
+  assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused CDX creates no drawing')
+  results.cdx_import_with_consent = true
 }
 // A preview from an unmounted picker cannot replace a newer file's preview.
 {
