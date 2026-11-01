@@ -1175,29 +1175,68 @@ function isCtSourceRecord(item: unknown): item is CtSourceRecord {
       isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
 }
 
-function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+const isLoss = (loss: unknown): loss is CtLoss =>
+  isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
+  typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string'
+
+/**
+ * The reply of a conversion operation: its result and loss report, or the refusal as an
+ * `ApiError`. `refusal` adds what a format reports about where and why (a record and line, a
+ * byte position) and may attach consent details.
+ */
+function conversionReply(
+  value: unknown,
+  noun: string,
+  refusal: (details: Record<string, unknown>, code: string) => { suffix: string; consent?: ErrorDetails['consent'] },
+): { result: Record<string, unknown>; losses: CtLoss[]; modelId: unknown } {
   if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
-    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+    throw new ApiError('incompatible_response', `The service returned an incompatible ${noun} response.`, 200)
   }
   if (value.outcome === 'error' || value.outcome === 'unsupported') {
     const diagnostic: unknown = value.diagnostics[0]
     if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
       const details = isRecord(diagnostic.details) ? diagnostic.details : {}
-      const record = isCount(details.record) ? ` Record ${details.record}.` : ''
-      const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      throw new ApiError(diagnostic.code, `${diagnostic.message}${record}${line}`, 200, {
+      const { suffix, consent } = refusal(details, diagnostic.code)
+      throw new ApiError(diagnostic.code, `${diagnostic.message}${suffix}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        consent,
       })
     }
-    throw new ApiError('conversion_failed', 'The conversion failed.', 200)
+    throw new ApiError('conversion_failed', `The ${noun} operation failed.`, 200)
   }
   if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
-      !Array.isArray(value.loss_report) || !value.loss_report.every((loss): loss is CtLoss =>
-        isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
-        typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string')) {
-    throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
+      !Array.isArray(value.loss_report) || !value.loss_report.every(isLoss)) {
+    throw new ApiError('incompatible_response', `The service returned an incompatible ${noun} response.`, 200)
   }
-  return { result: value.result, losses: value.loss_report }
+  return { result: value.result, losses: value.loss_report, modelId: value.model_id }
+}
+
+function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+  return conversionReply(value, 'conversion', (details) => {
+    const record = isCount(details.record) ? ` Record ${details.record}.` : ''
+    const line = isCount(details.line) ? ` Line ${details.line}.` : ''
+    return { suffix: `${record}${line}` }
+  })
+}
+
+/** Where in the SMILES text a refusal points, as the service reports it. */
+function smilesWhere(details: Record<string, unknown>): string {
+  const { offset, end } = details
+  if (!isCount(offset)) return ''
+  return isCount(end) && end > offset + 1 ? ` (bytes ${offset} to ${end})` : ` (byte ${offset})`
+}
+
+function smilesReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[]; modelId: unknown } {
+  return conversionReply(value, 'SMILES', (details, code) => {
+    const atom = typeof details.atom_id === 'string' ? ` Atom ${details.atom_id}.` : ''
+    const bond = typeof details.bond_id === 'string' ? ` Bond ${details.bond_id}.` : ''
+    const reason = typeof details.reason === 'string' ? ` (${details.reason})` : ''
+    const consent = (code === 'loss_consent_required' || code === 'loss_consent_changed') &&
+      Array.isArray(details.losses) && details.losses.every(isLoss) && typeof details.loss_digest === 'string'
+      ? { losses: details.losses, digest: details.loss_digest }
+      : undefined
+    return { suffix: `${smilesWhere(details)}${atom}${bond}${reason}`, consent }
+  })
 }
 
 export type SmilesForm = 'recorded' | 'canonical'
@@ -1227,47 +1266,6 @@ export interface SmilesExport {
   atoms: string[]
   foldedHydrogens: { hydrogen: string; attached_to: string }[]
   losses: CtLoss[]
-}
-
-const isLoss = (loss: unknown): loss is CtLoss =>
-  isRecord(loss) && typeof loss.feature === 'string' && typeof loss.source_path === 'string' &&
-  typeof loss.disposition === 'string' && typeof loss.reason === 'string' && typeof loss.semantic_impact === 'string'
-
-/** Where in the SMILES text a refusal points, as the service reports it. */
-function smilesWhere(details: Record<string, unknown>): string {
-  const { offset, end } = details
-  if (!isCount(offset)) return ''
-  return isCount(end) && end > offset + 1 ? ` (bytes ${offset} to ${end})` : ` (byte ${offset})`
-}
-
-function smilesReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[]; modelId: unknown } {
-  if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
-    throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES response.', 200)
-  }
-  if (value.outcome === 'error' || value.outcome === 'unsupported') {
-    const diagnostic: unknown = value.diagnostics[0]
-    if (isRecord(diagnostic) && typeof diagnostic.code === 'string' && typeof diagnostic.message === 'string') {
-      const details = isRecord(diagnostic.details) ? diagnostic.details : {}
-      const atom = typeof details.atom_id === 'string' ? ` Atom ${details.atom_id}.` : ''
-      const bond = typeof details.bond_id === 'string' ? ` Bond ${details.bond_id}.` : ''
-      const reason = typeof details.reason === 'string' ? ` (${details.reason})` : ''
-      const consent = diagnostic.code === 'loss_consent_required' || diagnostic.code === 'loss_consent_changed'
-        ? (Array.isArray(details.losses) && details.losses.every(isLoss) && typeof details.loss_digest === 'string'
-            ? { losses: details.losses, digest: details.loss_digest }
-            : undefined)
-        : undefined
-      throw new ApiError(diagnostic.code, `${diagnostic.message}${smilesWhere(details)}${atom}${bond}${reason}`, 200, {
-        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
-        consent,
-      })
-    }
-    throw new ApiError('conversion_failed', 'The SMILES operation failed.', 200)
-  }
-  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
-      !Array.isArray(value.loss_report) || !value.loss_report.every(isLoss)) {
-    throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES response.', 200)
-  }
-  return { result: value.result, losses: value.loss_report, modelId: value.model_id }
 }
 
 /** Client for the local document API. Writes carry the per-process session token. */

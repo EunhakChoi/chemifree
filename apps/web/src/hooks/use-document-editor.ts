@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
+import { RunQueue, asApiError } from '@/lib/run-queue'
 import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
@@ -89,10 +90,6 @@ function sameContent(a: DocumentView, b: DocumentView) {
  */
 type Call = (document: DocumentResponse, restartedFrom?: DocumentResponse) => Promise<DocumentResponse> | null
 
-function asApiError(error: unknown) {
-  return error instanceof ApiError ? error : new ApiError('unexpected', 'The request failed unexpectedly.', 0)
-}
-
 /**
  * Editor state backed by the local API. The server is authoritative: every edit is a
  * request carrying the revision it is based on, requests run one at a time, and the view
@@ -110,8 +107,10 @@ export function useDocumentEditor() {
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
   const currentRef = useRef<DocumentResponse | null>(null)
-  const queue = useRef<Promise<void>>(Promise.resolve())
-  const failures = useRef(0)
+  const [queue] = useState(() => new RunQueue({
+    onPending: (delta) => setPending((count) => count + delta),
+    onError: setError,
+  }))
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -163,28 +162,7 @@ export function useDocumentEditor() {
     setListRequest((count) => count + 1)
   }, [])
 
-  /**
-   * Queues a task behind earlier ones. A success clears an error the user had already seen
-   * when this task was queued, never one from a request that failed while it waited.
-   */
-  const run = useCallback((task: () => Promise<void>) => {
-    setPending((count) => count + 1)
-    const failuresSeen = failures.current
-    const next = queue.current
-      .then(task)
-      .then(
-        () => {
-          if (failures.current === failuresSeen) setError(null)
-        },
-        (failure: unknown) => {
-          failures.current += 1
-          setError(asApiError(failure))
-        },
-      )
-      .finally(() => setPending((count) => count - 1))
-    queue.current = next
-    return next
-  }, [])
+  const run = useCallback((task: () => Promise<void>) => queue.run(task), [queue])
 
   const mutate = useCallback(
     (call: Call, onReply?: (response: DocumentResponse) => void) =>
@@ -217,10 +195,7 @@ export function useDocumentEditor() {
   const id = () => currentRef.current?.document.id ?? ''
   const revision = (document: DocumentResponse) => document.document.revision
 
-  const report = useCallback((failure: ApiError) => {
-    failures.current += 1
-    setError(failure)
-  }, [])
+  const report = useCallback((failure: ApiError) => queue.report(failure), [queue])
   const autosave = useAutosave(client, current, {
     shown: useCallback(() => currentRef.current, []),
     adopt: useCallback(
@@ -372,9 +347,8 @@ export function useDocumentEditor() {
      * missing consent, a revision conflict) is thrown to the caller, whose panel shows it,
      * and is not reported as the page's error.
      */
-    importSmiles: useCallback((input: SmilesImport, snapshot: DocumentView, generation: number) => {
-      setPending((count) => count + 1)
-      const committed = queue.current.then(async () => {
+    importSmiles: useCallback((input: SmilesImport, snapshot: DocumentView, generation: number) =>
+      queue.runOrThrow(async () => {
         const shown = currentRef.current
         if (!shown || serviceGenerationRef.current !== generation ||
             !sameConversionSnapshot(shown.document, snapshot) ||
@@ -383,10 +357,7 @@ export function useDocumentEditor() {
         }
         const response = await client.importSmiles(input)
         if (currentRef.current?.document.id === input.documentId) setCurrent(response)
-      })
-      queue.current = committed.then(() => undefined, () => undefined)
-      return committed.finally(() => setPending((count) => count - 1))
-    }, [setCurrent]),
+      }), [queue, setCurrent]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

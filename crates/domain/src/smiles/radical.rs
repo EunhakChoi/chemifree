@@ -16,14 +16,16 @@ pub enum RadicalNote {
     Stated,
     /// One valence is open and the model reads it as a doublet.
     Inferred,
-    /// The model cannot decide: the atom or charge is outside its table, or two open
-    /// valences could be a singlet or a triplet. The drawing records an unknown radical.
+    /// No single state fits: the atom or charge is outside the model's table, two open
+    /// valences could be a singlet or a triplet, or no radical state fills a valence at all.
+    /// The drawing records an unknown radical.
     Undetermined,
 }
 
 /// The radical state of `atom` (whose hydrogens are the bracket's count) given its incident
-/// bond orders, and how it was decided. A state that fits no valence (such as a carbon with
-/// one hydrogen and no bond) is recorded as no radical; the valence inspection reports it.
+/// bond orders, and how it was decided. Every result other than a filled valence is reported by
+/// the caller: when no single valence-consistent state exists (`[C]`, `[CH]`, `[N]`, `[CH2]`,
+/// `[Na+]`) the radical is unknown, never silently none.
 pub(crate) fn infer(atom: &Atom, hydrogens: u8, orders: &[Option<u16>]) -> (Radical, RadicalNote) {
     let id = AtomId::from_serial(1).expect("serial 1 is a valid atom ID");
     let assess = |radical: Radical| {
@@ -39,12 +41,8 @@ pub(crate) fn infer(atom: &Atom, hydrogens: u8, orders: &[Option<u16>]) -> (Radi
         Finding::Invalid => {
             if assess(Radical::Doublet).finding == Finding::Valid {
                 (Radical::Doublet, RadicalNote::Inferred)
-            } else if assess(Radical::Singlet).finding == Finding::Valid
-                && assess(Radical::Triplet).finding == Finding::Valid
-            {
-                (Radical::Unknown, RadicalNote::Undetermined)
             } else {
-                (Radical::None, RadicalNote::Stated)
+                (Radical::Unknown, RadicalNote::Undetermined)
             }
         }
     }

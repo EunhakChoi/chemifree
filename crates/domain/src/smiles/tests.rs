@@ -367,7 +367,12 @@ fn errors_carry_the_code_and_span_of_the_offending_text() {
         ("C(C)=1", E::RingDigitAfterBranchClose, (5, 6)),
         ("C%1C", E::RingLabelSyntax, (1, 3)),
         ("C%", E::RingLabelSyntax, (1, 2)),
-        ("C%(12)", E::RingLabelSyntax, (1, 2)),
+        ("C%(12)", E::ExtendedRingLabelUnsupported, (1, 6)),
+        ("C%(123456)C", E::ExtendedRingLabelUnsupported, (1, 10)),
+        ("C%(", E::RingLabelSyntax, (1, 2)),
+        ("C%(1", E::RingLabelSyntax, (1, 2)),
+        ("C%()", E::RingLabelSyntax, (1, 2)),
+        ("C%(x)", E::RingLabelSyntax, (1, 2)),
         ("C11", E::RingClosureSelf, (2, 3)),
         ("C1C1", E::RingClosureDuplicateBond, (3, 4)),
         ("C12C12", E::RingClosureDuplicateBond, (4, 5)),
@@ -390,8 +395,12 @@ fn errors_carry_the_code_and_span_of_the_offending_text() {
         ("[q]", E::UnknownElement, (1, 2)),
         ("[CH2x]", E::BracketUnexpectedCharacter, (4, 5)),
         ("[1234C]", E::IsotopeTooLong, (1, 5)),
-        ("[C+9]", E::ChargeOutOfRange, (2, 4)),
-        ("[C-9]", E::ChargeOutOfRange, (2, 4)),
+        ("[C+9]", E::ChargeBeyondDrawingUnsupported, (2, 4)),
+        ("[C-9]", E::ChargeBeyondDrawingUnsupported, (2, 4)),
+        ("[C+15]", E::ChargeBeyondDrawingUnsupported, (2, 5)),
+        ("[C-15]", E::ChargeBeyondDrawingUnsupported, (2, 5)),
+        ("[C+16]", E::ChargeOutOfRange, (2, 5)),
+        ("[C+++++++++]", E::ChargeBeyondDrawingUnsupported, (2, 11)),
         ("[C+99]", E::ChargeOutOfRange, (2, 5)),
         ("[C+123]", E::ChargeSyntax, (2, 6)),
         ("[C+-]", E::ChargeSyntax, (2, 4)),
@@ -540,7 +549,7 @@ fn input_longer_than_the_limit_is_refused_at_a_character_boundary() {
 #[test]
 fn a_bracket_atoms_radical_state_comes_from_the_valence_model() {
     use RadicalNote::{Inferred, Stated, Undetermined};
-    let cases: [(&str, usize, Radical, RadicalNote); 9] = [
+    let cases: [(&str, usize, Radical, RadicalNote); 10] = [
         ("[CH4]", 0, Radical::None, Stated),
         ("[CH3]", 0, Radical::Doublet, Inferred),
         ("C[CH2]", 1, Radical::Doublet, Inferred),
@@ -551,8 +560,9 @@ fn a_bracket_atoms_radical_state_comes_from_the_valence_model() {
         ("[CH2]", 0, Radical::Unknown, Undetermined),
         // Outside the valence model's table: honestly undetermined.
         ("[Na+]", 0, Radical::Unknown, Undetermined),
-        // A state that fits no valence is recorded as stated, with no radical.
-        ("[CH]", 0, Radical::None, Stated),
+        // No single valence-consistent state: unknown, and reported, never silently none.
+        ("[CH]", 0, Radical::Unknown, Undetermined),
+        ("[C]", 0, Radical::Unknown, Undetermined),
     ];
     for (text, index, radical, note) in cases {
         let read = read(text).unwrap();
@@ -892,35 +902,6 @@ fn the_writer_refuses_what_the_reader_would_not_accept_and_says_why() {
         E::HydrogenCountNotWritable
     );
 
-    // A metal ion has no valence in the model, so its hydrogens are undetermined...
-    let mut sodium = element_atom("Na");
-    sodium.charge = 1;
-    let error = refused(build(vec![sodium.clone()], vec![]));
-    assert_eq!(
-        (error.code, error.reason),
-        (E::HydrogensUndetermined, Some("element_or_charge"))
-    );
-    // ...and with them stated, the radical state the reader would infer is "unknown".
-    sodium.hydrogens = Hydrogens::Specified(0);
-    assert_eq!(
-        refused(build(vec![sodium.clone()], vec![])).code,
-        E::RadicalNotWritable
-    );
-    sodium.radical = Radical::Unknown;
-    assert_eq!(
-        write_recorded(&build(vec![sodium], vec![])).unwrap().text,
-        "[Na+]"
-    );
-
-    // A singlet carbene would read back as an unknown radical.
-    let mut singlet = carbon();
-    singlet.radical = Radical::Singlet;
-    singlet.hydrogens = Hydrogens::Specified(2);
-    assert_eq!(
-        refused(build(vec![singlet], vec![])).code,
-        E::RadicalNotWritable
-    );
-
     for order in [BondOrder::Dative, BondOrder::Unknown] {
         let error = refused(build(vec![carbon(), carbon()], vec![(0, 1, order)]));
         assert_eq!(
@@ -928,6 +909,109 @@ fn the_writer_refuses_what_the_reader_would_not_accept_and_says_why() {
             (E::BondKindNotWritable, Some(Subject::Bond(bond_id(1))))
         );
     }
+}
+
+#[test]
+fn ions_and_metals_outside_the_valence_table_are_written_with_their_assumptions_reported() {
+    // A drawn Na+ with default (inferred) hydrogens and no radical.
+    let mut sodium = element_atom("Na");
+    sodium.charge = 1;
+    let written = write_recorded(&build(vec![sodium.clone()], vec![])).unwrap();
+    assert_eq!(written.text, "[Na+]");
+    assert_eq!(written.hydrogen_assumptions, vec![atom_id(1)]);
+    assert_eq!(
+        written.radical_changes,
+        vec![RadicalChange {
+            atom: atom_id(1),
+            recorded: Radical::None,
+            read_back: Radical::Unknown
+        }]
+    );
+    // Iron with default settings, neutral.
+    let iron = write_recorded(&build(vec![element_atom("Fe")], vec![])).unwrap();
+    assert_eq!(iron.text, "[Fe]");
+    assert_eq!(iron.hydrogen_assumptions.len(), 1);
+    // With hydrogens stated there is no assumption; with the radical unknown nothing changes.
+    sodium.hydrogens = Hydrogens::Specified(0);
+    sodium.radical = Radical::Unknown;
+    let exact = write_recorded(&build(vec![sodium.clone()], vec![])).unwrap();
+    assert_eq!(exact.text, "[Na+]");
+    assert!(exact.hydrogen_assumptions.is_empty() && exact.radical_changes.is_empty());
+    // Stated hydrogens and a recorded "none": only the radical is reported.
+    sodium.radical = Radical::None;
+    let stated = write_recorded(&build(vec![sodium], vec![])).unwrap();
+    assert!(stated.hydrogen_assumptions.is_empty());
+    assert_eq!(stated.radical_changes.len(), 1);
+    // The reader accepts the text, and a salt written in recorded order reads back.
+    let mut chloride = element_atom("Cl");
+    chloride.charge = -1;
+    let mut cation = element_atom("Na");
+    cation.charge = 1;
+    let salt = write_recorded(&build(vec![cation, chloride], vec![])).unwrap();
+    assert_eq!(salt.text, "[Na+].[Cl-]");
+    assert_eq!(salt.hydrogen_assumptions, vec![atom_id(1)]);
+    // The canonical form still has no answer: the identity model needs a valence entry.
+    let error = write_canonical(&graph_of("[Na+].[Cl-]")).unwrap_err();
+    assert_eq!(
+        (error.code, error.reason),
+        (ErrorCode::CanonicalUnsupported, Some("element_or_charge"))
+    );
+}
+
+#[test]
+fn a_recorded_radical_the_reader_would_not_infer_is_written_and_reported() {
+    // A singlet carbene reads back as an unknown radical: written, and the change named.
+    let mut singlet = element_atom("C");
+    singlet.radical = Radical::Singlet;
+    singlet.hydrogens = Hydrogens::Specified(2);
+    let written = write_recorded(&build(vec![singlet], vec![])).unwrap();
+    assert_eq!(written.text, "[CH2]");
+    assert_eq!(
+        written.radical_changes,
+        vec![RadicalChange {
+            atom: atom_id(1),
+            recorded: Radical::Singlet,
+            read_back: Radical::Unknown
+        }]
+    );
+    // A drawn doublet methyl needs no report.
+    let mut methyl = element_atom("C");
+    methyl.radical = Radical::Doublet;
+    assert!(
+        write_recorded(&build(vec![methyl], vec![]))
+            .unwrap()
+            .radical_changes
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_bracket_atom_with_no_valence_consistent_radical_is_unknown_not_none() {
+    for text in ["[C]", "[CH]", "[N]", "[CH2]", "[CH5]"] {
+        let read = read(text).unwrap();
+        assert_eq!(read.atoms[0].atom.radical, Radical::Unknown, "{text}");
+        assert_eq!(
+            read.atoms[0].radical_note,
+            RadicalNote::Undetermined,
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn an_aromatic_system_error_points_into_the_system_that_failed() {
+    // The first ring is benzene; the second, five aromatic carbons, is not supported.
+    let error = read("c1ccccc1.c1cccc1").unwrap_err();
+    assert_eq!(error.code, ErrorCode::AromaticSystemUnsupported);
+    let span = error.span.unwrap();
+    assert!(
+        span.start >= 9,
+        "the span {span:?} is in the first component"
+    );
+    assert_eq!((span.start, span.end), (9, 10));
+    // Written the other way round, the span moves with the failing system.
+    let error = read("c1cccc1.c1ccccc1").unwrap_err();
+    assert_eq!(error.span.map(|s| s.start), Some(0));
 }
 
 #[test]
@@ -1600,4 +1684,60 @@ fn random_molecules_write_to_text_the_reader_accepts_or_are_refused_specifically
         "only {valid_canonical} valid molecules had a canonical form"
     );
     assert!(refused.len() >= 4, "refusals were not varied: {refused:?}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The read-back check
+
+fn methanol_vertices(
+    expected_carbon: Option<u16>,
+) -> (Vec<super::write::Vertex>, Vec<super::write::Edge>) {
+    use super::write::{Edge, Kind, bare_vertex};
+    let carbon = Element::from_symbol("C").unwrap();
+    let oxygen = Element::from_symbol("O").unwrap();
+    (
+        vec![
+            bare_vertex(atom_id(1), carbon, false, expected_carbon, false),
+            bare_vertex(atom_id(2), oxygen, false, Some(1), false),
+        ],
+        vec![Edge {
+            id: bond_id(1),
+            a: 0,
+            b: 1,
+            kind: Kind::Single,
+        }],
+    )
+}
+
+#[test]
+fn the_read_back_compares_the_hydrogens_of_bare_atoms_too() {
+    use super::write::{Roots, emit, read_back_mismatches, render};
+    // Intended hydrogens that match what the reader infers: nothing to report.
+    let (vertices, edges) = methanol_vertices(Some(3));
+    let (text, emitted) = emit(&vertices, &edges, Roots::First).unwrap();
+    assert_eq!(text, "CO");
+    assert!(
+        read_back_mismatches(&text, &vertices, &edges, &emitted)
+            .unwrap()
+            .is_empty()
+    );
+    // A wrong bare decision (two hydrogens meant, three inferred) is found...
+    let (mut vertices, edges) = methanol_vertices(Some(2));
+    let (text, emitted) = emit(&vertices, &edges, Roots::First).unwrap();
+    assert_eq!(
+        read_back_mismatches(&text, &vertices, &edges, &emitted).unwrap(),
+        vec![0]
+    );
+    // ...and is never written as if it were right: bracketing it changes the radical state the
+    // reader gives back, which is a writer fault, not a result.
+    let error = render(&mut vertices, &edges, Roots::First).unwrap_err();
+    assert_eq!(error.code, ErrorCode::WriterInconsistent);
+    // Where the model cannot resolve the hydrogens, nothing is compared.
+    let (vertices, edges) = methanol_vertices(None);
+    let (text, emitted) = emit(&vertices, &edges, Roots::First).unwrap();
+    assert!(
+        read_back_mismatches(&text, &vertices, &edges, &emitted)
+            .unwrap()
+            .is_empty()
+    );
 }

@@ -528,7 +528,7 @@ fn attachment_points_need_consent_bound_to_the_losses_and_the_content() {
 }
 
 #[test]
-fn writer_refusals_name_the_cause_the_atom_and_the_revision() {
+fn a_drawn_ion_is_written_with_its_assumptions_named_and_needing_consent() {
     let (application, _dir, id) = setup();
     let edit = call(
         &application,
@@ -543,17 +543,60 @@ fn writer_refusals_name_the_cause_the_atom_and_the_revision() {
         "document.transaction",
         json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_atom","atom":"a1","charge":1}]}),
     );
-    let refused = export(&application, &id, "recorded");
-    assert_eq!(refused["outcome"], "unsupported");
-    assert_eq!(refused["document_revision"], 2);
-    assert_eq!(refused["model_id"], "chemifree-smiles-recorded-1");
-    let problem = &refused["diagnostics"][0];
-    assert_eq!(problem["code"], "hydrogens_undetermined");
-    assert_eq!(problem["details"]["atom_id"], "a1");
-    assert_eq!(problem["details"]["reason"], "element_or_charge");
-    // The canonical form names the model that cannot decide.
+    let first = export(&application, &id, "recorded");
+    assert_eq!(
+        first["outcome"], "error",
+        "consent is asked for, not a refusal: {first}"
+    );
+    assert_eq!(first["document_revision"], 2);
+    assert_eq!(first["model_id"], "chemifree-smiles-recorded-1");
+    let problem = &first["diagnostics"][0];
+    assert_eq!(problem["code"], "loss_consent_required");
+    assert_eq!(
+        problem["details"]["features"],
+        json!(["radical_state", "hydrogen_assumption"])
+    );
+    assert_eq!(
+        problem["details"]["losses"][0]["source_path"],
+        "document.atoms[a1].radical"
+    );
+    assert_eq!(
+        problem["details"]["losses"][1]["source_path"],
+        "document.atoms[a1].hydrogens"
+    );
+    let digest = problem["details"]["loss_digest"].as_str().unwrap();
+    let accepted = call(
+        &application,
+        "accepted",
+        "document.export",
+        json!({"format":"smiles","document_id":id,"form":"recorded","accepted_losses":digest}),
+    );
+    assert_eq!(accepted["result"]["content"], "[Na+]", "{accepted}");
+    assert!(features(&accepted).contains(&"hydrogen_assumption".to_owned()));
+    // The canonical form still has no answer, and says why.
     let canonical = export(&application, &id, "canonical");
+    assert_eq!(canonical["outcome"], "unsupported");
     assert_eq!(canonical["diagnostics"][0]["code"], "canonical_unsupported");
+    assert_eq!(
+        canonical["diagnostics"][0]["details"]["reason"],
+        "element_or_charge"
+    );
+}
+
+#[test]
+fn bracket_atoms_without_a_consistent_radical_are_unknown_and_reported() {
+    let (application, _dir, id) = setup();
+    let reply = preview(&application, &id, 0, "[C].[CH].[N].[CH2]");
+    let atoms = reply["result"]["document"]["atoms"].as_array().unwrap();
+    assert!(
+        atoms.iter().all(|atom| atom["radical"] == "unknown"),
+        "{atoms:?}"
+    );
+    let radicals = features(&reply)
+        .iter()
+        .filter(|f| *f == "radical_state")
+        .count();
+    assert_eq!(radicals, 4, "every inference is reported: {reply}");
 }
 
 #[test]

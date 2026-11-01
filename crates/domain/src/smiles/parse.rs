@@ -25,7 +25,10 @@ use crate::states::{AtomKind, Hydrogens, Radical};
 use super::error::{ErrorCode, SmilesError, Span};
 use super::graph_build::bridges;
 pub use super::radical::RadicalNote;
-use super::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_ISOTOPE_DIGITS, MAX_OPEN_RINGS, radical};
+use super::{
+    MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_ISOTOPE_DIGITS, MAX_OPEN_RINGS, SMILES_MAX_CHARGE,
+    radical,
+};
 
 /// A successfully read structure, in input order.
 #[derive(Clone, Debug, PartialEq)]
@@ -528,9 +531,16 @@ impl Parser<'_> {
             return Err(SmilesError::at(ErrorCode::ChargeSyntax, start, i + 1));
         }
         let value = if sign == b'+' { magnitude } else { -magnitude };
+        if value.abs() > SMILES_MAX_CHARGE {
+            return Err(SmilesError::at(ErrorCode::ChargeOutOfRange, start, i));
+        }
         match i8::try_from(value) {
             Ok(charge) if (MIN_CHARGE..=MAX_CHARGE).contains(&charge) => Ok((charge, i)),
-            _ => Err(SmilesError::at(ErrorCode::ChargeOutOfRange, start, i)),
+            _ => Err(SmilesError::at(
+                ErrorCode::ChargeBeyondDrawingUnsupported,
+                start,
+                i,
+            )),
         }
     }
 
@@ -601,6 +611,22 @@ impl Parser<'_> {
     /// 3.4: a digit or `%nn` directly after its atom (or after that atom's bond symbol).
     fn ring_token(&mut self) -> Result<(), SmilesError> {
         let at = self.pos;
+        if self.bytes[at] == b'%' && at + 1 < self.end && self.bytes[at + 1] == b'(' {
+            // %(nnn): valid in some dialects, not implemented here. Anything else after %( is
+            // malformed.
+            let digits = self.bytes[at + 2..self.end]
+                .iter()
+                .take_while(|byte| byte.is_ascii_digit())
+                .count();
+            let close = at + 2 + digits;
+            return Err(
+                if digits > 0 && close < self.end && self.bytes[close] == b')' {
+                    SmilesError::at(ErrorCode::ExtendedRingLabelUnsupported, at, close + 1)
+                } else {
+                    SmilesError::at(ErrorCode::RingLabelSyntax, at, at + 1)
+                },
+            );
+        }
         let (label, length) = if self.bytes[at] == b'%' {
             let mut digits = 0;
             while digits < 2
@@ -762,16 +788,12 @@ impl Parser<'_> {
         let graph = read.graph();
         let assignment: BTreeMap<_, _> =
             if read.bonds.iter().any(|b| b.order == BondOrder::Aromatic) {
-                let first = self
-                    .atoms
-                    .iter()
-                    .position(|a| a.aromatic)
-                    .or_else(|| aromatic_bond.iter().position(|&marked| marked))
-                    .unwrap_or(0);
-                match aromaticity::perceive(&graph).kekulize() {
+                let interpretation = aromaticity::perceive(&graph);
+                match interpretation.kekulize() {
                     Ok(assignment) => assignment.into_iter().collect(),
                     Err(reason) => {
-                        let span = self.atoms[first].span;
+                        let atom = failing_atom(&interpretation, &read);
+                        let span = self.atoms[atom].span;
                         return Err(SmilesError::at(
                             ErrorCode::AromaticSystemUnsupported,
                             span.start,
@@ -824,4 +846,35 @@ fn components(count: usize, edges: &[(usize, usize)]) -> usize {
         }
     }
     parts
+}
+
+/// The first atom (in input order) of an aromatic bond in a system the model could not
+/// interpret, so the error points into the system that failed and not at the first aromatic
+/// atom of the input.
+fn failing_atom(interpretation: &aromaticity::Interpretation, read: &Read) -> usize {
+    let aromatic_ends = |system: &aromaticity::System| {
+        system
+            .bonds
+            .iter()
+            .filter_map(|id| {
+                let index = usize::try_from(id.serial()).ok()?.checked_sub(1)?;
+                read.bonds.get(index)
+            })
+            .filter(|bond| bond.order == BondOrder::Aromatic)
+            .map(|bond| bond.begin.min(bond.end))
+            .min()
+    };
+    interpretation
+        .systems
+        .iter()
+        .filter(|system| system.classification != aromaticity::Classification::Aromatic)
+        .find_map(aromatic_ends)
+        .or_else(|| {
+            read.bonds
+                .iter()
+                .filter(|bond| bond.order == BondOrder::Aromatic)
+                .map(|bond| bond.begin.min(bond.end))
+                .min()
+        })
+        .unwrap_or(0)
 }

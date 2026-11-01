@@ -3,6 +3,7 @@
 
 use chemifree_domain::document::{Atom, AtomRef, BondOrder, Command, NewAtomPositions, Point};
 use chemifree_domain::smiles::{RadicalNote, Read, Written};
+use chemifree_domain::states::Radical;
 use serde_json::Map;
 
 use crate::contract::DocumentView;
@@ -67,7 +68,7 @@ pub(crate) fn read_losses(read: &Read) -> Vec<Loss> {
             ),
             RadicalNote::Undetermined => (
                 LossDisposition::Unknown,
-                "The valence model cannot decide this bracket atom's radical state (the atom or charge is outside its table, or two open valences could be a singlet or a triplet); it is recorded as unknown.",
+                "No single valence-consistent radical state exists for this bracket atom (the atom or charge is outside the valence model's table, two open valences could be a singlet or a triplet, or no radical state fills a valence); the radical is recorded as unknown.",
             ),
         };
         losses.push(Loss {
@@ -198,6 +199,30 @@ pub(crate) fn export_losses(doc: &DocumentView, written: &Written, canonical: bo
             semantic_impact: SemanticImpact::None,
         });
     }
+    for change in &written.radical_changes {
+        losses.push(Loss {
+            consent: LossConsent::Required,
+            feature: "radical_state".into(),
+            source_path: format!("{root}.atoms[{}].radical", change.atom),
+            disposition: LossDisposition::Normalized,
+            reason: format!(
+                "The drawing records {}. SMILES has no radical field, and a reader infers {} from the bracket's hydrogens and bonds.",
+                radical_name(change.recorded),
+                radical_name(change.read_back)
+            ),
+            semantic_impact: SemanticImpact::Chemistry,
+        });
+    }
+    for id in &written.hydrogen_assumptions {
+        losses.push(Loss {
+            consent: LossConsent::Required,
+            feature: "hydrogen_assumption".into(),
+            source_path: format!("{root}.atoms[{id}].hydrogens"),
+            disposition: LossDisposition::Unknown,
+            reason: "The drawing infers this atom's hydrogens, but the valence model has no entry for the atom and charge, so they cannot be determined. The bracket states 0 hydrogens, which is an assumption.".into(),
+            semantic_impact: SemanticImpact::Chemistry,
+        });
+    }
     if canonical {
         if !written.folded_hydrogens.is_empty() {
             losses.push(Loss {
@@ -227,4 +252,14 @@ pub(crate) fn export_losses(doc: &DocumentView, written: &Written, canonical: bo
         }
     }
     losses
+}
+
+fn radical_name(radical: Radical) -> &'static str {
+    match radical {
+        Radical::None => "no radical",
+        Radical::Singlet => "a singlet radical",
+        Radical::Doublet => "a doublet radical",
+        Radical::Triplet => "a triplet radical",
+        Radical::Unknown => "an unknown radical state",
+    }
 }

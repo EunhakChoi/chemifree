@@ -89,7 +89,8 @@ error_codes! {
     IsotopeTooLong, Syntax, "isotope_too_long", "An isotope has at most three digits.";
     IsotopeZeroUnsupported, Unsupported, "isotope_zero_unsupported", "Isotope 0 is not supported: the drawing records mass numbers 1 to 999 only.";
     ChargeSyntax, Syntax, "charge_syntax", "A charge is + or - with an optional number of at most two digits, or a repeated sign.";
-    ChargeOutOfRange, Syntax, "charge_out_of_range", "The charge is outside the range the drawing records.";
+    ChargeOutOfRange, Syntax, "charge_out_of_range", "The charge is beyond the range any SMILES charge can have.";
+    ChargeBeyondDrawingUnsupported, Unsupported, "charge_beyond_drawing_range", "This charge is valid SMILES but outside the range the drawing records.";
     // Bonds, dots and branches.
     DanglingBond, Syntax, "dangling_bond", "This bond symbol is not followed by an atom or ring closure.";
     BondWithoutAtom, Syntax, "bond_without_atom", "A bond symbol needs an atom before it.";
@@ -105,7 +106,8 @@ error_codes! {
     RingDigitWithoutAtom, Syntax, "ring_digit_without_atom", "A ring closure digit needs an atom before it.";
     RingDigitAfterBranchOpen, Syntax, "ring_digit_after_branch_open", "A ring closure digit cannot directly follow (.";
     RingDigitAfterBranchClose, Syntax, "ring_digit_after_branch_close", "A ring closure digit must follow its atom, not a closed branch.";
-    RingLabelSyntax, Syntax, "ring_label_syntax", "A % ring label is followed by exactly two digits.";
+    RingLabelSyntax, Syntax, "ring_label_syntax", "A % ring label is followed by exactly two digits, or by digits in parentheses.";
+    ExtendedRingLabelUnsupported, Unsupported, "extended_ring_label_unsupported", "Extended ring labels (%(nnn)) are not supported; use at most %99.";
     RingClosureSelf, Syntax, "ring_closure_self", "A ring closure cannot bond an atom to itself.";
     RingClosureDuplicateBond, Syntax, "ring_closure_duplicate_bond", "These two atoms are already bonded.";
     RingBondConflict, Syntax, "ring_bond_conflict", "The two ends of a ring closure name different bonds.";
@@ -133,7 +135,6 @@ error_codes! {
     HydrogensUnknownNotWritable, NotWritable, "hydrogens_unknown_not_writable", "An atom with stated unknown hydrogens cannot be written.";
     HydrogensUndetermined, NotWritable, "hydrogens_undetermined", "The valence model cannot determine this atom's hydrogen count, which its bracket needs.";
     HydrogenCountNotWritable, NotWritable, "hydrogen_count_not_writable", "A bracket atom's hydrogen count is a single digit, 0 to 9.";
-    RadicalNotWritable, NotWritable, "radical_not_writable", "The radical state is not the one the reader would infer from the bracket atom's hydrogens.";
     IsotopeNotWritable, NotWritable, "isotope_not_writable", "The isotope is outside 1 to 999.";
     ChargeNotWritable, NotWritable, "charge_not_writable", "The charge is outside the range the reader accepts.";
     RingLabelLimit, Limit, "ring_label_limit", "More rings are open at once than SMILES has ring labels.";

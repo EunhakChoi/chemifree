@@ -15,6 +15,9 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
+const { currentSmilesExport } = await import('../apps/web/src/lib/smiles-state.ts')
+const { RunQueue } = await import('../apps/web/src/lib/run-queue.ts')
+const { ApiError } = await import('../apps/web/src/lib/document-contract.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -1924,6 +1927,35 @@ test('a SMILES preview carries the snapshot, the prospective drawing and the los
   assert.equal(preview.document.atoms.length, 1)
   assert.deepEqual(preview.losses, [loss])
   assert.equal(preview.digest, 'a'.repeat(64))
+})
+
+test('a written SMILES is current only for the form that was asked for', () => {
+  const shown = document('doc-1', 3).document
+  const written = { generation: 2, result: { content: 'CCO', form: 'canonical', modelId: 'm', canonical: null, snapshot: shown, atoms: [], foldedHydrogens: [], losses: [] } }
+  assert.equal(currentSmilesExport(written, 'canonical', 2, shown), written)
+  assert.equal(currentSmilesExport(written, 'recorded', 2, shown), null, 'the other form is neither shown nor copyable')
+  assert.equal(currentSmilesExport(written, 'canonical', 3, shown), null, 'another service generation')
+  assert.equal(currentSmilesExport(written, 'canonical', 2, { ...shown, revision: 4 }), null, 'a changed drawing')
+  assert.equal(currentSmilesExport(null, 'canonical', 2, shown), null)
+})
+
+test('a SMILES import that succeeds clears the page error, and one that fails is not the page error', async () => {
+  const errors = []
+  let pending = 0
+  const queue = new RunQueue({ onPending: (delta) => { pending += delta }, onError: (error) => errors.push(error?.code ?? null) })
+  await queue.run(async () => { throw new ApiError('revision_conflict', 'Stale.', 409) })
+  assert.deepEqual(errors, ['revision_conflict'], 'an earlier edit failed and the page shows it')
+  await assert.rejects(queue.runOrThrow(async () => { throw new ApiError('preview_changed', 'Changed.', 200) }), { code: 'preview_changed' })
+  assert.deepEqual(errors, ['revision_conflict'], 'the panel shows its own failure; the page error is untouched')
+  const value = await queue.runOrThrow(async () => 7)
+  assert.equal(value, 7)
+  assert.deepEqual(errors, ['revision_conflict', null], 'a success clears the stale page error')
+  assert.equal(pending, 0)
+  // A failure that happens while a later task waits is not cleared by that task's success.
+  const slow = queue.run(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); throw new ApiError('storage_failed', 'Disk.', 500) })
+  const waiting = queue.runOrThrow(async () => 1)
+  await Promise.all([slow, waiting])
+  assert.deepEqual(errors, ['revision_conflict', null, 'storage_failed'])
 })
 
 

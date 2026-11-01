@@ -21,7 +21,7 @@ mod write;
 
 pub use error::{ErrorClass, ErrorCode, SmilesError, Span, Subject};
 pub use parse::{RadicalNote, Read, ReadAtom, ReadBond, read};
-pub use write::{Written, write_canonical, write_recorded};
+pub use write::{RadicalChange, Written, write_canonical, write_recorded};
 
 use crate::identity;
 
@@ -31,6 +31,10 @@ pub const MAX_INPUT_BYTES: usize = 4096;
 pub const MAX_BRANCH_DEPTH: usize = 64;
 /// Ring labels are `0`-`9` and `%10`-`%99`; at most this many rings are open at once.
 pub const MAX_OPEN_RINGS: usize = 100;
+/// OpenSMILES (Charge): a parser accepts charges from minus this to plus this. Charges in this
+/// range but outside the drawing's `MIN_CHARGE`..`MAX_CHARGE` are valid SMILES the drawing
+/// cannot record.
+pub const SMILES_MAX_CHARGE: i32 = 15;
 /// OpenSMILES bracket atoms: an isotope has at most three digits.
 pub const MAX_ISOTOPE_DIGITS: usize = 3;
 /// The canonical implementation, bound to [`CANONICAL_GRAPH_MODEL`].

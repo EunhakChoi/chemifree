@@ -42,32 +42,54 @@ pub struct Written {
     pub hydrogen_state_changes: Vec<AtomId>,
     /// Bonds drawn as single or double that the text writes as aromatic. Canonical only.
     pub kekule_bonds_aromatized: Vec<BondId>,
+    /// Bracket atoms whose recorded radical state differs from the one the reader infers from
+    /// the written hydrogens and bonds. The text is still written; the reader's state is what
+    /// comes back.
+    pub radical_changes: Vec<RadicalChange>,
+    /// Bracket atoms whose hydrogens are recorded as inferred although the valence model has no
+    /// entry for them: the text states 0 hydrogens, which is an assumption, not a result.
+    pub hydrogen_assumptions: Vec<AtomId>,
+}
+
+/// A recorded radical state that does not survive the text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RadicalChange {
+    pub atom: AtomId,
+    pub recorded: Radical,
+    pub read_back: Radical,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Kind {
+pub(super) enum Kind {
     Single,
     Double,
     Triple,
     Aromatic,
 }
 
-struct Vertex {
+pub(super) struct Vertex {
     id: AtomId,
     element: Element,
     charge: i8,
     isotope: Option<u16>,
+    /// The radical state the reader gives this atom back.
     radical: Radical,
+    /// The count a bracket states.
     hydrogens: u16,
     aromatic: bool,
     bracket: bool,
+    /// The resolved hydrogens the drawing implies, which the read-back must reproduce for every
+    /// atom, bare or not. `None` where the valence model cannot resolve them.
+    expected: Option<u16>,
+    /// The drawing states this atom's hydrogens (as opposed to inferring them).
+    stated: bool,
 }
 
-struct Edge {
-    id: BondId,
-    a: usize,
-    b: usize,
-    kind: Kind,
+pub(super) struct Edge {
+    pub(super) id: BondId,
+    pub(super) a: usize,
+    pub(super) b: usize,
+    pub(super) kind: Kind,
 }
 
 const ORGANIC: [&str; 10] = ["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"];
@@ -157,16 +179,23 @@ fn bare_kind(atom: &Atom, element: Element) -> bool {
         && atom.radical == Radical::None
 }
 
-fn bracket_hydrogens(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> Result<u16, SmilesError> {
-    let count = match atom.hydrogens {
-        Hydrogens::Specified(count) => u16::from(count),
+/// The hydrogens a bracket states for `atom`, and whether that count is an assumption: an
+/// inferred count for an atom the valence model has no entry for is written as 0.
+fn bracket_hydrogens(
+    id: AtomId,
+    atom: &Atom,
+    orders: &[Option<u16>],
+) -> Result<(u16, bool), SmilesError> {
+    let (count, assumed) = match atom.hydrogens {
+        Hydrogens::Specified(count) => (u16::from(count), false),
         Hydrogens::Inferred => {
             let assessed = chemistry::assess(id, atom, orders);
-            match (assessed.finding, assessed.hydrogen_count) {
-                (Finding::Valid, Some(count)) => count,
-                _ => {
+            match (assessed.finding, assessed.hydrogen_count, assessed.reason) {
+                (Finding::Valid, Some(count), _) => (count, false),
+                (Finding::Unsupported, _, Some("element_or_charge")) => (0, true),
+                (_, _, reason) => {
                     return Err(about_atom(ErrorCode::HydrogensUndetermined, id)
-                        .because(assessed.reason.unwrap_or("unusual_valence")));
+                        .because(reason.unwrap_or("unusual_valence")));
                 }
             }
         }
@@ -177,11 +206,12 @@ fn bracket_hydrogens(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> Result<
     if count > 9 {
         return Err(about_atom(ErrorCode::HydrogenCountNotWritable, id));
     }
-    Ok(count)
+    Ok((count, assumed))
 }
 
-/// The vertex of one atom written in brackets with `hydrogens`, after checking that the reader
-/// derives the recorded radical state from them.
+/// The vertex of one atom written in brackets with `hydrogens`. The reader derives the radical
+/// state from the hydrogens and bonds; where that differs from the recorded one the change is
+/// returned so it can be reported.
 fn bracket_vertex(
     id: AtomId,
     atom: &Atom,
@@ -189,26 +219,57 @@ fn bracket_vertex(
     hydrogens: u16,
     aromatic: bool,
     orders: &[Option<u16>],
-) -> Result<Vertex, SmilesError> {
+) -> (Vertex, Option<RadicalChange>) {
     let stated = u8::try_from(hydrogens).expect("a bracket count is at most nine");
-    if radical::infer(atom, stated, orders).0 != atom.radical {
-        return Err(about_atom(ErrorCode::RadicalNotWritable, id));
-    }
-    Ok(Vertex {
+    let (read_back, _) = radical::infer(atom, stated, orders);
+    let change = (read_back != atom.radical).then_some(RadicalChange {
+        atom: id,
+        recorded: atom.radical,
+        read_back,
+    });
+    let vertex = Vertex {
         id,
         element,
         charge: atom.charge,
         isotope: atom.isotope,
-        radical: atom.radical,
+        radical: read_back,
         hydrogens,
         aromatic,
         bracket: true,
-    })
+        expected: Some(hydrogens),
+        stated: matches!(atom.hydrogens, Hydrogens::Specified(_)),
+    };
+    (vertex, change)
+}
+
+/// A bare organic atom: the reader gives back inferred hydrogens and no radical.
+pub(super) fn bare_vertex(
+    id: AtomId,
+    element: Element,
+    aromatic: bool,
+    expected: Option<u16>,
+    stated: bool,
+) -> Vertex {
+    Vertex {
+        id,
+        element,
+        charge: 0,
+        isotope: None,
+        radical: Radical::None,
+        hydrogens: 0,
+        aromatic,
+        bracket: false,
+        expected,
+        stated,
+    }
 }
 
 /// Writes the drawing's atoms in their recorded order, keeping recorded bond kinds and hydrogen
 /// states. Inferred hydrogens of an atom that needs brackets are written as the count the
-/// valence model determines.
+/// valence model determines. Where the model has no entry (a metal, an ion such as `Na+`) the
+/// bracket states 0 hydrogens and the assumption is reported in `hydrogen_assumptions`, and a
+/// radical state the reader would not give back is reported in `radical_changes`; neither is
+/// refused.
 pub fn write_recorded(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
     let kinds = check_basics(graph)?;
     let assignment = kekule_assignment(graph, &kinds)?;
@@ -236,7 +297,8 @@ pub fn write_recorded(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
         aromatic[edge.a] = true;
         aromatic[edge.b] = true;
     }
-    let mut changes = Vec::new();
+    let mut radical_changes = Vec::new();
+    let mut assumptions = Vec::new();
     let mut vertices = Vec::with_capacity(positions.len());
     for (index, (id, atom)) in graph.atoms().enumerate() {
         let AtomKind::Element(element) = atom.kind else {
@@ -246,46 +308,35 @@ pub fn write_recorded(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
             && bare_kind(atom, element)
             && (!aromatic[index] || matches!(element.symbol(), "B" | "C" | "N" | "O" | "P" | "S"));
         if bare {
-            vertices.push(Vertex {
-                id,
-                element,
-                charge: 0,
-                isotope: None,
-                radical: Radical::None,
-                hydrogens: 0,
-                aromatic: aromatic[index],
-                bracket: false,
-            });
+            let expected = chemistry::assess(id, atom, &orders[&id]).hydrogen_count;
+            vertices.push(bare_vertex(id, element, aromatic[index], expected, false));
             continue;
         }
-        let count = bracket_hydrogens(id, atom, &orders[&id])?;
-        if atom.hydrogens == Hydrogens::Inferred {
-            changes.push(id);
+        let (count, assumed) = bracket_hydrogens(id, atom, &orders[&id])?;
+        if assumed {
+            assumptions.push(id);
         }
-        vertices.push(bracket_vertex(
-            id,
-            atom,
-            element,
-            count,
-            aromatic[index],
-            &orders[&id],
-        )?);
+        let (vertex, change) =
+            bracket_vertex(id, atom, element, count, aromatic[index], &orders[&id]);
+        radical_changes.extend(change);
+        vertices.push(vertex);
     }
-    let (text, emitted) = emit(&vertices, &edges, Roots::First)?;
-    verify(&text, &vertices, &edges, &emitted)?;
+    let (text, emitted) = render(&mut vertices, &edges, Roots::First)?;
     Ok(Written {
         text,
         order: emitted.iter().map(|&v| vertices[v].id).collect(),
         folded_hydrogens: Vec::new(),
-        hydrogen_state_changes: changes,
+        hydrogen_state_changes: hydrogen_state_changes(&vertices),
         kekule_bonds_aromatized: Vec::new(),
+        radical_changes,
+        hydrogen_assumptions: assumptions,
     })
 }
 
 /// Writes the canonical SMILES: Chemifree's own, stable under atom order and Kekulé/aromatic
 /// spelling, defined for exactly the structures `chemifree-chemical-graph-2` can identify.
 pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
-    let kinds = check_basics(graph)?;
+    check_basics(graph)?;
     let canonical = identity::canonicalize_chemical(graph).map_err(|error| match error {
         IdentityError::AtomLimit => SmilesError::refused(ErrorCode::AtomLimit),
         IdentityError::SearchLimit => SmilesError::refused(ErrorCode::SearchLimit),
@@ -295,7 +346,7 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
     })?;
     let atoms: BTreeMap<AtomId, &Atom> = graph.atoms().collect();
     let bonds: BTreeMap<BondId, &Bond> = graph.bonds().collect();
-    let assignment = kekule_assignment(graph, &kinds)?;
+    let assignment: BTreeMap<BondId, KekuleOrder> = canonical.kekule.iter().copied().collect();
     let numbered: HashMap<AtomId, usize> = canonical
         .numbering
         .iter()
@@ -315,7 +366,12 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
             }
             Kind::Aromatic
         } else {
-            kinds[&id]
+            match bond.order {
+                BondOrder::Single => Kind::Single,
+                BondOrder::Double => Kind::Double,
+                BondOrder::Triple => Kind::Triple,
+                _ => return Err(SmilesError::refused(ErrorCode::WriterInconsistent)),
+            }
         };
         edges.push(Edge { id, a, b, kind });
     }
@@ -327,19 +383,14 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
     // Heavy-atom bond orders: the folded hydrogens' bonds are not in the text.
     let mut orders: Vec<Vec<Option<u16>>> = vec![Vec::new(); numbered.len()];
     for edge in &edges {
-        let value = match edge.kind {
-            Kind::Single => 1,
-            Kind::Double => 2,
-            Kind::Triple => 3,
-            Kind::Aromatic => bonds
-                .get(&edge.id)
-                .and_then(|bond| aromaticity::kekule_order_value(&assignment, edge.id, bond))
-                .ok_or_else(|| SmilesError::refused(ErrorCode::WriterInconsistent))?,
-        };
+        let value = bonds
+            .get(&edge.id)
+            .and_then(|bond| aromaticity::kekule_order_value(&assignment, edge.id, bond))
+            .ok_or_else(|| SmilesError::refused(ErrorCode::WriterInconsistent))?;
         orders[edge.a].push(Some(value));
         orders[edge.b].push(Some(value));
     }
-    let mut changes = Vec::new();
+    let mut radical_changes = Vec::new();
     let mut vertices = Vec::with_capacity(numbered.len());
     for (index, &id) in canonical.numbering.iter().enumerate() {
         let atom = atoms[&id];
@@ -347,8 +398,13 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
             return Err(about_atom(ErrorCode::QueryAtomNotWritable, id));
         };
         let hydrogens = canonical.hydrogens[index];
-        // A bare atom must read back as exactly this count. The reader reads an unbracketed
-        // aromatic nitrogen as pyridine-type, so a nitrogen with hydrogen needs its bracket.
+        // A bare atom is a first guess: the hydrogens the shared valence model infers for it
+        // must be the canonical count, and `render` reads the text back and brackets any bare
+        // atom whose read-back hydrogens differ. One case cannot be left to that check, because
+        // the reader refuses the text outright: an unbracketed aromatic nitrogen is
+        // pyridine-type in `chemifree-aromaticity-2` (`aromaticity::role`), so a nitrogen with
+        // hydrogen in an aromatic ring (pyrrole) must be bracketed. This line is coupled to
+        // that rule; the read-back check is what catches it if the model changes.
         let mut probe = (*atom).clone();
         probe.hydrogens = Hydrogens::Inferred;
         probe.radical = Radical::None;
@@ -359,45 +415,79 @@ pub fn write_canonical(graph: &MoleculeGraph) -> Result<Written, SmilesError> {
             && !(aromatic[index] && element.symbol() == "N" && hydrogens > 0);
         let stated = matches!(atom.hydrogens, Hydrogens::Specified(_));
         if bare {
-            if stated {
-                changes.push(id);
-            }
-            vertices.push(Vertex {
+            vertices.push(bare_vertex(
                 id,
                 element,
-                charge: 0,
-                isotope: None,
-                radical: Radical::None,
-                hydrogens: 0,
-                aromatic: aromatic[index],
-                bracket: false,
-            });
+                aromatic[index],
+                Some(hydrogens),
+                stated,
+            ));
             continue;
-        }
-        if !stated {
-            changes.push(id);
         }
         if hydrogens > 9 {
             return Err(about_atom(ErrorCode::HydrogenCountNotWritable, id));
         }
-        vertices.push(bracket_vertex(
+        let (vertex, change) = bracket_vertex(
             id,
             atom,
             element,
             hydrogens,
             aromatic[index],
             &orders[index],
-        )?);
+        );
+        radical_changes.extend(change);
+        vertices.push(vertex);
     }
-    let (text, emitted) = emit(&vertices, &edges, Roots::Terminal)?;
-    verify(&text, &vertices, &edges, &emitted)?;
+    let (text, emitted) = render(&mut vertices, &edges, Roots::Terminal)?;
     Ok(Written {
         text,
         order: emitted.iter().map(|&v| vertices[v].id).collect(),
         folded_hydrogens: canonical.folded_hydrogens,
-        hydrogen_state_changes: changes,
+        hydrogen_state_changes: hydrogen_state_changes(&vertices),
         kekule_bonds_aromatized: aromatized,
+        radical_changes,
+        hydrogen_assumptions: Vec::new(),
     })
+}
+
+/// Atoms whose hydrogens are stated in the text but inferred in the drawing, or the reverse.
+fn hydrogen_state_changes(vertices: &[Vertex]) -> Vec<AtomId> {
+    vertices
+        .iter()
+        .filter(|vertex| vertex.bracket != vertex.stated)
+        .map(|vertex| vertex.id)
+        .collect()
+}
+
+/// How many times a text is re-emitted after bare atoms are turned into bracket atoms.
+const MAX_RENDER_ROUNDS: usize = 4;
+
+/// Emits the text and reads it back. A bare atom whose resolved hydrogens do not come back as
+/// intended is written in brackets with its count and the text is emitted again: whether a bare
+/// atom reads back right is decided by the reader and the shared valence and aromaticity
+/// models. Anything else that differs is a writer fault.
+pub(super) fn render(
+    vertices: &mut [Vertex],
+    edges: &[Edge],
+    roots: Roots,
+) -> Result<(String, Vec<usize>), SmilesError> {
+    for _ in 0..MAX_RENDER_ROUNDS {
+        let (text, emitted) = emit(vertices, edges, roots)?;
+        let mismatched = read_back_mismatches(&text, vertices, edges, &emitted)?;
+        if mismatched.is_empty() {
+            return Ok((text, emitted));
+        }
+        for vertex in mismatched {
+            let entry = &mut vertices[vertex];
+            let count = entry
+                .expected
+                .filter(|count| *count <= 9)
+                .ok_or_else(|| about_atom(ErrorCode::HydrogenCountNotWritable, entry.id))?;
+            entry.bracket = true;
+            entry.hydrogens = count;
+        }
+    }
+    Err(SmilesError::refused(ErrorCode::WriterInconsistent))
 }
 
 struct Emitter<'a> {
@@ -413,7 +503,7 @@ struct Emitter<'a> {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum Roots {
+pub(super) enum Roots {
     /// Each component starts at its first recorded atom.
     First,
     /// Each component starts at its lowest-index vertex of fewest neighbours.
@@ -423,7 +513,7 @@ enum Roots {
 /// Depth-first text of every component. Vertices are visited from the lowest index, neighbours
 /// in index order; the last child continues the chain and earlier ones are branches. Only
 /// vertex indices and the labelled edges decide the text.
-fn emit(
+pub(super) fn emit(
     vertices: &[Vertex],
     edges: &[Edge],
     policy: Roots,
@@ -609,7 +699,8 @@ impl Emitter<'_> {
             self.out.push_str(symbol);
             self.label_text(label);
         }
-        let children = self.children[vertex].clone();
+        // Each vertex is written once, so its children can be taken.
+        let children = std::mem::take(&mut self.children[vertex]);
         for (position, &(child, edge)) in children.iter().enumerate() {
             let branch = position + 1 < children.len();
             if branch {
@@ -629,28 +720,68 @@ impl Emitter<'_> {
     }
 }
 
-/// Reads `text` back and compares it with what was meant: atoms, bracket counts, radical
-/// states and the bond set, in the order the text names them.
-fn verify(
+/// The resolved hydrogens of every atom the reader gives back, by the shared valence and
+/// aromaticity models.
+fn resolved_hydrogens(read: &super::Read) -> Result<Vec<Option<u16>>, SmilesError> {
+    let graph = read.graph();
+    let assignment: BTreeMap<BondId, KekuleOrder> = if read
+        .bonds
+        .iter()
+        .any(|bond| bond.order == BondOrder::Aromatic)
+    {
+        aromaticity::perceive(&graph)
+            .kekulize()
+            .map_err(|reason| SmilesError::refused(ErrorCode::WriterInconsistent).because(reason))?
+            .into_iter()
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    let orders = chemistry::incident_orders(
+        graph.atoms().map(|(id, _)| id),
+        graph.bonds(),
+        |id, bond| aromaticity::kekule_order_value(&assignment, id, bond),
+    );
+    Ok(graph
+        .atoms()
+        .map(|(id, atom)| chemistry::assess(id, atom, &orders[&id]).hydrogen_count)
+        .collect())
+}
+
+fn order_code(order: &BondOrder) -> u8 {
+    match order {
+        BondOrder::Single => 1,
+        BondOrder::Double => 2,
+        BondOrder::Triple => 3,
+        BondOrder::Aromatic => 4,
+        BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => 0,
+    }
+}
+
+/// Reads `text` back and compares it with what was meant: every atom's element, charge,
+/// isotope, radical state and resolved hydrogens, and the bond set, in the order the text names
+/// them. Returns the bare atoms whose hydrogens differ (the writer can bracket those); any
+/// other difference is a writer fault.
+pub(super) fn read_back_mismatches(
     text: &str,
     vertices: &[Vertex],
     edges: &[Edge],
     emitted: &[usize],
-) -> Result<(), SmilesError> {
+) -> Result<Vec<usize>, SmilesError> {
     let inconsistent = || SmilesError::refused(ErrorCode::WriterInconsistent);
-    let read = read(text).map_err(|error| {
-        SmilesError::refused(ErrorCode::WriterInconsistent).because(error.code.code())
-    })?;
+    let read = read(text).map_err(|error| inconsistent().because(error.code.code()))?;
     if read.atoms.len() != vertices.len()
         || read.bonds.len() != edges.len()
         || read.ignored_text.is_some()
     {
         return Err(inconsistent());
     }
+    let resolved = resolved_hydrogens(&read)?;
     let mut position = vec![0_usize; vertices.len()];
-    for (at, &vertex) in emitted.iter().enumerate() {
-        position[vertex] = at;
-        let vertex = &vertices[vertex];
+    let mut mismatched = Vec::new();
+    for (at, &index) in emitted.iter().enumerate() {
+        position[index] = at;
+        let vertex = &vertices[index];
         let atom = &read.atoms[at].atom;
         let same = atom.kind == AtomKind::Element(vertex.element)
             && atom.charge == vertex.charge
@@ -665,35 +796,41 @@ fn verify(
         if !same {
             return Err(inconsistent());
         }
+        if vertex.expected.is_some() && resolved[at] != vertex.expected {
+            if vertex.bracket {
+                return Err(inconsistent());
+            }
+            mismatched.push(index);
+        }
     }
-    let wanted = |kind: Kind| match kind {
-        Kind::Single => BondOrder::Single,
-        Kind::Double => BondOrder::Double,
-        Kind::Triple => BondOrder::Triple,
-        Kind::Aromatic => BondOrder::Aromatic,
-    };
-    let mut expected: Vec<(usize, usize, String)> = edges
+    let mut expected: Vec<(usize, usize, u8)> = edges
         .iter()
         .map(|edge| {
             let (a, b) = (position[edge.a], position[edge.b]);
-            (a.min(b), a.max(b), format!("{:?}", wanted(edge.kind)))
+            let code = match edge.kind {
+                Kind::Single => 1,
+                Kind::Double => 2,
+                Kind::Triple => 3,
+                Kind::Aromatic => 4,
+            };
+            (a.min(b), a.max(b), code)
         })
         .collect();
-    let mut actual: Vec<(usize, usize, String)> = read
+    let mut actual: Vec<(usize, usize, u8)> = read
         .bonds
         .iter()
         .map(|bond| {
             (
                 bond.begin.min(bond.end),
                 bond.begin.max(bond.end),
-                format!("{:?}", bond.order),
+                order_code(&bond.order),
             )
         })
         .collect();
     expected.sort_unstable();
     actual.sort_unstable();
     if expected == actual {
-        Ok(())
+        Ok(mismatched)
     } else {
         Err(inconsistent())
     }

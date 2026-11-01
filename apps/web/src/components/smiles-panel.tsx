@@ -6,12 +6,12 @@ import { Input } from '@/components/ui/input'
 import { LossList } from '@/components/loss-list'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
+import { currentSmilesExport, type WrittenSmiles } from '@/lib/smiles-state'
 import {
   ApiError,
   sameConversionSnapshot,
   type CtLoss,
   type DocumentView,
-  type SmilesExport,
   type SmilesForm,
   type SmilesImport,
   type SmilesPreview,
@@ -22,11 +22,6 @@ interface PreparedImport {
   source: string
   snapshot: DocumentView
   preview: SmilesPreview
-  generation: number
-}
-
-interface PreparedExport {
-  result: SmilesExport
   generation: number
 }
 
@@ -50,7 +45,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const [text, setText] = useState('')
   const [form, setForm] = useState<SmilesForm>('canonical')
   const [prepared, setPrepared] = useState<PreparedImport | null>(null)
-  const [written, setWritten] = useState<PreparedExport | null>(null)
+  const [written, setWritten] = useState<WrittenSmiles | null>(null)
   const [consent, setConsent] = useState<Consent | null>(null)
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -72,8 +67,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     sameConversionSnapshot(document, prepared.snapshot)
   const sameText = prepared !== null && prepared.source === text
   const importable = prepared !== null && sameDrawing && sameText ? prepared : null
-  const exportCurrent = written !== null && written.generation === editor.serviceGeneration &&
-    sameConversionSnapshot(document, written.result.snapshot) ? written : null
+  const exportCurrent = currentSmilesExport(written, form, editor.serviceGeneration, document)
 
   async function previewImport() {
     const snapshot = document
@@ -183,7 +177,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       <LossList losses={consent.losses} />
       <Button size="sm" disabled={busy} onClick={() => void write(consent)}>Accept these losses and write</Button>
     </div>}
-    {written && !exportCurrent && <p>The drawing changed. Write the SMILES again.</p>}
+    {written && !exportCurrent && <p>The drawing, service or form changed. Write the SMILES again.</p>}
     {exportCurrent && <div className="flex max-h-64 flex-col gap-2 overflow-auto" aria-live="polite" data-testid="smiles-output">
       <Input readOnly aria-label="Written SMILES" value={exportCurrent.result.content} />
       <p>

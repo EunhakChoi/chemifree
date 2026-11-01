@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::aromaticity::{self, Classification};
+use crate::aromaticity::{self, Classification, KekuleOrder};
 use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
@@ -52,6 +52,8 @@ pub struct CanonicalGraph {
     pub hydrogens: Vec<u16>,
     /// Chemical profile only: the bonds the aromaticity model normalizes to aromatic.
     pub aromatic_bonds: Vec<BondId>,
+    /// Chemical profile only: the Kekulé assignment of the recorded aromatic bonds.
+    pub kekule: Vec<(BondId, KekuleOrder)>,
 }
 
 type Label = Vec<u8>;
@@ -141,6 +143,7 @@ struct Graph {
     /// Chemical profile: resolved hydrogens per vertex, and the normalized aromatic bonds.
     hydrogens: Vec<u16>,
     aromatic_bonds: Vec<BondId>,
+    kekule: Vec<(BondId, KekuleOrder)>,
 }
 
 impl Graph {
@@ -171,6 +174,7 @@ impl Graph {
             folded: Vec::new(),
             hydrogens: Vec::new(),
             aromatic_bonds: Vec::new(),
+            kekule: Vec::new(),
         })
     }
 
@@ -313,6 +317,7 @@ impl Graph {
             folded,
             hydrogens: resolved,
             aromatic_bonds: aromatic_bonds.iter().copied().collect(),
+            kekule: assignment.iter().map(|(&id, &order)| (id, order)).collect(),
         })
     }
 }
@@ -516,6 +521,7 @@ fn finish(graph: Graph) -> Result<CanonicalGraph, IdentityError> {
         numbering: order.into_iter().map(|i| graph.ids[i]).collect(),
         hydrogens: resolved,
         aromatic_bonds: graph.aromatic_bonds.clone(),
+        kekule: graph.kekule.clone(),
         symmetry,
         folded_hydrogens: graph.folded,
     })
