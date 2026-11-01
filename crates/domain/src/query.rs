@@ -369,29 +369,8 @@ pub fn find_graphs(
     state_limit: usize,
     model: MatchModel,
 ) -> Result<SearchResult, QueryError> {
-    let perceived_aromatic = if model == MatchModel::AromaticTarget {
-        let interpretation = aromaticity::perceive(target);
-        interpretation
-            .kekulize()
-            .map_err(QueryError::AromaticTargetUnsupported)?;
-        let bonds: BTreeSet<_> = interpretation
-            .aromatize()
-            .map_err(QueryError::AromaticTargetUnsupported)?
-            .into_iter()
-            .collect();
-        target
-            .bonds()
-            .filter_map(|(id, bond)| {
-                bonds
-                    .contains(&id)
-                    .then_some((bond.begin.min(bond.end), bond.begin.max(bond.end)))
-            })
-            .collect()
-    } else {
-        BTreeSet::new()
-    };
     let query = Graph::new(query, BTreeSet::new());
-    let target = Graph::new(target, perceived_aromatic);
+    let mut target_graph = Graph::new(target, BTreeSet::new());
     if query.ids.is_empty() {
         return Err(QueryError::EmptyQuery);
     }
@@ -426,12 +405,12 @@ pub fn find_graphs(
     {
         return Err(QueryError::UnsupportedQuery);
     }
-    if target.atoms.iter().any(|a| {
+    if target_graph.atoms.iter().any(|a| {
         a.kind.element().is_none()
             || a.radical == Radical::Unknown
             || a.hydrogens == Hydrogens::Unknown
             || !a.attachment_points.is_empty()
-    }) || target
+    }) || target_graph
         .adjacent
         .iter()
         .flatten()
@@ -439,6 +418,28 @@ pub fn find_graphs(
     {
         return Err(QueryError::UnsupportedTarget);
     }
+    // Perception is the costliest step, so it runs only after every cheap query-side and
+    // target-state check has passed and those errors are not masked by a target failure.
+    if model == MatchModel::AromaticTarget {
+        let interpretation = aromaticity::perceive(target);
+        interpretation
+            .kekulize()
+            .map_err(QueryError::AromaticTargetUnsupported)?;
+        let bonds: BTreeSet<_> = interpretation
+            .aromatize()
+            .map_err(QueryError::AromaticTargetUnsupported)?
+            .into_iter()
+            .collect();
+        target_graph.perceived_aromatic = target
+            .bonds()
+            .filter_map(|(id, bond)| {
+                bonds
+                    .contains(&id)
+                    .then_some((bond.begin.min(bond.end), bond.begin.max(bond.end)))
+            })
+            .collect();
+    }
+    let target = target_graph;
     let mut order: Vec<_> = (0..query.ids.len()).collect();
     order.sort_by_key(|&i| (std::cmp::Reverse(query.adjacent[i].len()), query.ids[i]));
     let predicates = predicates.iter().map(|p| (p.atom, p)).collect();

@@ -446,3 +446,43 @@ fn any_bond_and_acyclic_neighbor_bound_are_independent_predicates() {
         vec![vec![(id(1), id(1)), (id(2), id(2))]]
     );
 }
+
+#[test]
+fn query_side_errors_take_precedence_over_target_aromaticity_failures() {
+    let invalid_target = graph(
+        "invalid-aromatic-target",
+        vec![atom("C"); 4],
+        &(0..4)
+            .map(|i| (i, (i + 1) % 4, BondOrder::Aromatic))
+            .collect::<Vec<_>>(),
+    );
+    let empty_query = Document::new(DocumentId::parse("empty-query").unwrap(), "empty").unwrap();
+    let one = graph("one-atom-query", vec![atom("C")], &[]);
+    let target = MoleculeGraph::from_document(&invalid_target);
+    let bad_predicate = [AtomPredicate {
+        atom: id(99),
+        ring: None,
+        min_neighbors: None,
+        max_neighbors: None,
+        charge: None,
+    }];
+    for (query, predicates, limit, expected) in [
+        (&empty_query, &[][..], 10, QueryError::EmptyQuery),
+        (&one, &[][..], 0, QueryError::InvalidBounds),
+        (&one, &bad_predicate[..], 10, QueryError::InvalidPredicate),
+    ] {
+        let result = find_graphs(
+            &MoleculeGraph::from_document(query),
+            &target,
+            predicates,
+            limit,
+            10_000,
+            MatchModel::AromaticTarget,
+        );
+        assert_eq!(
+            result,
+            Err(expected),
+            "query-side error must be reported first"
+        );
+    }
+}
