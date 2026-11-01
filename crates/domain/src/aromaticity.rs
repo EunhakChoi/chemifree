@@ -12,7 +12,7 @@ use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomEdit, AtomId, Bond, BondId, BondOrder, Command};
 use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
-use crate::states::Hydrogens;
+use crate::states::{Hydrogens, Radical};
 
 pub const MODEL_ID: &str = "chemifree-aromaticity-2";
 const MAX_SYSTEM_ATOMS: usize = 128;
@@ -95,9 +95,13 @@ struct Role {
 }
 
 /// The single rule deciding what a ring atom contributes. `Ok(None)` is an atom outside the
-/// conjugated system (saturated); `Err` is a state the model cannot read. Every ring atom,
-/// saturated or not, is checked by the valence model first, so an overvalent or
-/// inconsistently stated atom is never silently dropped from the system.
+/// conjugated system (saturated); `Err` is a state the model cannot read.
+///
+/// The valence model only answers whether an atom's valence is a recognised state and, when
+/// the bonds are integral, how many hydrogens fill it. It does not decide which atoms this
+/// aromaticity model supports: that is the explicit table below, applied identically to
+/// Kekulé and aromatic spellings. Each supported (element, charge) has one total valence
+/// (bond orders plus hydrogens); radicals, carbenes and hypervalent atoms are refused.
 ///
 /// A neutral nitrogen is pyrrole-type (a two-electron donor) when it carries hydrogen or
 /// has three sigma bonds. Its hydrogen count is the stated one, or the one the valence
@@ -107,6 +111,9 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
     let Some(element) = atom.kind.element() else {
         return Err("query_atom");
     };
+    if atom.radical != Radical::None {
+        return Err("radical_state");
+    }
     let assessed = chemistry::assess(id, atom, &incidence.orders);
     let integral = match (assessed.finding, assessed.reason) {
         (Finding::Valid, _) => true,
@@ -118,49 +125,55 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
     let degree = incidence.ring_degree + incidence.outside;
     let takes_part = incidence.ring_double + incidence.ring_aromatic > 0;
     let hydrogens = assessed.hydrogen_count.map_or(0, usize::from);
-    let (electrons, needs_double, target, inferred_hydrogens): (u16, bool, usize, Option<u8>) =
+    // (π electrons, needs a double bond, inferred hydrogens), or None for a saturated atom,
+    // with the one supported total valence.
+    let (pi, target): (Option<(u16, bool, Option<u8>)>, usize) =
         match (element.symbol(), atom.charge) {
-            ("C", 0) if takes_part => (1, true, 4, None),
-            ("C", 0) | ("N", 1) if !takes_part => return Ok(None),
-            ("C", 1) => (0, false, 3, None),
-            ("C", -1) => (2, false, 3, None),
-            ("N", 0) => {
-                if hydrogens > 0 || degree == 3 {
-                    let inferred =
-                        (atom.hydrogens == Hydrogens::Inferred && integral && hydrogens > 0)
-                            .then(|| u8::try_from(hydrogens).ok())
-                            .flatten();
-                    (2, false, 3, inferred)
-                } else if takes_part {
-                    (1, true, 3, None)
-                } else {
-                    return Err("valence_not_in_model");
-                }
+            ("C", 0) if takes_part => (Some((1, true, None)), 4),
+            ("C", 0) | ("N", 1) if !takes_part => (None, 4),
+            ("C", 1) => (Some((0, false, None)), 3),
+            ("C", -1) => (Some((2, false, None)), 3),
+            ("N", 0) if hydrogens > 0 || degree == 3 => {
+                let inferred = (atom.hydrogens == Hydrogens::Inferred && integral)
+                    .then(|| u8::try_from(hydrogens).ok())
+                    .flatten()
+                    .filter(|&h| h > 0);
+                (Some((2, false, inferred)), 3)
             }
-            ("N", 1) => (1, true, 4, None),
-            ("N", -1) => (2, false, 2, None),
-            ("O" | "S", 0) => (2, false, 2, None),
+            ("N", 0) if takes_part => (Some((1, true, None)), 3),
+            ("N", 0) => return Err("valence_not_in_model"),
+            ("N", 1) => (Some((1, true, None)), 4),
+            ("N", -1) => (Some((2, false, None)), 2),
+            ("O" | "S", 0) => (Some((2, false, None)), 2),
             _ => return Err("element_or_charge"),
         };
-    if incidence.ring_double > 0 && !needs_double {
+    if incidence.ring_double > 0 && pi.is_some_and(|(_, needs_double, _)| !needs_double) {
         return Err("valence_not_in_model");
     }
-    if !integral {
-        // An aromatic bond has no integral order; check the atom against its target instead.
-        let stated = match atom.hydrogens {
-            Hydrogens::Specified(count) => Some(usize::from(count)),
-            _ => None,
-        };
-        let minimum = degree + usize::from(needs_double);
-        if minimum > target || stated.is_some_and(|h| minimum + h != target) {
-            return Err("valence_not_in_model");
+    let needs_double = pi.is_some_and(|(_, needs_double, _)| needs_double);
+    match assessed.bond_order_sum {
+        // Integral bonds: bond orders plus hydrogens must equal the supported valence.
+        Some(sum) if usize::from(sum) + hydrogens != target => return Err("valence_not_in_model"),
+        Some(_) => {}
+        // An aromatic bond has no integral order; bound the atom by its target instead.
+        None => {
+            let stated = match atom.hydrogens {
+                Hydrogens::Specified(count) => Some(usize::from(count)),
+                _ => None,
+            };
+            let minimum = degree + usize::from(needs_double);
+            if minimum > target || stated.is_some_and(|h| minimum + h != target) {
+                return Err("valence_not_in_model");
+            }
         }
     }
-    Ok(Some(Role {
-        electrons,
-        needs_double,
-        inferred_hydrogens,
-    }))
+    Ok(
+        pi.map(|(electrons, needs_double, inferred_hydrogens)| Role {
+            electrons,
+            needs_double,
+            inferred_hydrogens,
+        }),
+    )
 }
 
 /// Classify cyclic biconnected systems. This is a named policy, not a universal test of

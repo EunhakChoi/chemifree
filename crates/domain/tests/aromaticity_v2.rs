@@ -8,7 +8,7 @@ use chemifree_domain::document::{
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::{self, IdentityError};
-use chemifree_domain::states::Hydrogens;
+use chemifree_domain::states::{Hydrogens, Radical};
 
 /// Atoms are written `C`, `N` (inferred hydrogens) or `NH1` (stated hydrogen count).
 /// Bonds are `-` single, `=` double and `:` aromatic.
@@ -17,11 +17,18 @@ fn mol(atoms: &[&str], bonds: &[(usize, usize, char)]) -> MoleculeGraph {
     let mut commands: Vec<Command> = atoms
         .iter()
         .map(|spec| {
+            // A trailing `.` marks a doublet radical and `!` a singlet (carbene).
+            let (spec, radical) = match spec.as_bytes().last() {
+                Some(b'.') => (&spec[..spec.len() - 1], Radical::Doublet),
+                Some(b'!') => (&spec[..spec.len() - 1], Radical::Singlet),
+                _ => (&spec[..], Radical::None),
+            };
             let (symbol, hydrogens) = match spec.split_once('H') {
                 Some((symbol, count)) => (symbol, Some(count.parse::<u8>().unwrap())),
-                None => (*spec, None),
+                None => (spec, None),
             };
             let mut atom = Atom::from(Element::from_symbol(symbol).unwrap());
+            atom.radical = radical;
             if let Some(count) = hydrogens {
                 atom.hydrogens = Hydrogens::Specified(count);
             }
@@ -723,4 +730,109 @@ fn unstated_aromatic_nitrogen_hydrogen_differs_from_the_kekule_spelling_by_desig
         identity::canonicalize_chemical(&aromatic).unwrap_err(),
         IdentityError::Unsupported("aromaticity_unsupported")
     );
+}
+
+// ---- Review round 2 ----
+
+const KEKULE_SIX: [(usize, usize, char); 6] = [
+    (0, 1, '='),
+    (1, 2, '-'),
+    (2, 3, '='),
+    (3, 4, '-'),
+    (4, 5, '='),
+    (5, 0, '-'),
+];
+
+#[test]
+fn radical_ring_atoms_are_unsupported_in_both_spellings() {
+    // A doublet carbon in Kekule benzene.
+    let radical_benzene = mol(&["C.", "C", "C", "C", "C", "C"], &KEKULE_SIX);
+    assert_eq!(
+        only(&radical_benzene),
+        (Classification::Unsupported, Some("radical_state"))
+    );
+    // Cyclopentadienyl radical.
+    let cyclopentadienyl = mol(
+        &["C.", "C", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '='),
+            (2, 3, '-'),
+            (3, 4, '='),
+            (4, 0, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&cyclopentadienyl),
+        (Classification::Unsupported, Some("radical_state"))
+    );
+    // A doublet-radical aromatic pyridine nitrogen.
+    let radical_pyridine = mol(&["N.", "C", "C", "C", "C", "C"], &ring_bonds(6, ':'));
+    assert_eq!(
+        only(&radical_pyridine),
+        (Classification::Unsupported, Some("radical_state"))
+    );
+    // Cycloheptatrienylidene: a singlet carbene closing a triene.
+    let carbene = mol(
+        &["C!", "C", "C", "C", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '='),
+            (2, 3, '-'),
+            (3, 4, '='),
+            (4, 5, '-'),
+            (5, 6, '='),
+            (6, 0, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&carbene),
+        (Classification::Unsupported, Some("radical_state"))
+    );
+    // A saturated radical or carbene in a block is not peeled away.
+    let saturated = mol(&["C.", "C", "C", "C", "C", "C"], &ring_bonds(6, '-'));
+    assert_eq!(
+        only(&saturated),
+        (Classification::Unsupported, Some("radical_state"))
+    );
+    assert_eq!(
+        identity::canonicalize_chemical(&radical_benzene).unwrap_err(),
+        IdentityError::Unsupported("radical_state")
+    );
+}
+
+#[test]
+fn hypervalent_donors_get_the_same_refusal_in_both_spellings() {
+    let kekule_bonds = [
+        (0, 1, '-'),
+        (1, 2, '='),
+        (2, 3, '-'),
+        (3, 4, '='),
+        (4, 0, '-'),
+    ];
+    let aromatic_bonds = ring_bonds(5, ':');
+    let refused = (Classification::Unsupported, Some("valence_not_in_model"));
+    // Ring N with two extra single bonds (valence 5).
+    for (label, bonds) in [
+        ("kekule", &kekule_bonds[..]),
+        ("aromatic", &aromatic_bonds[..]),
+    ] {
+        let mut atoms = vec!["N", "C", "C", "C", "C", "C", "C"];
+        let mut all = bonds.to_vec();
+        all.extend([(0, 5, '-'), (0, 6, '-')]);
+        let graph = mol(&atoms, &all);
+        assert_eq!(only(&graph), refused, "N with two extra bonds, {label}");
+        // N stated Specified(2) with three single bonds.
+        atoms = vec!["NH2", "C", "C", "C", "C", "C"];
+        let mut all = bonds.to_vec();
+        all.push((0, 5, '-'));
+        let graph = mol(&atoms, &all);
+        assert_eq!(only(&graph), refused, "NH2 with three bonds, {label}");
+        // Thiophene S with two exocyclic single bonds to O (valence 4).
+        let atoms = vec!["S", "C", "C", "C", "C", "O", "O"];
+        let mut all = bonds.to_vec();
+        all.extend([(0, 5, '-'), (0, 6, '-')]);
+        let graph = mol(&atoms, &all);
+        assert_eq!(only(&graph), refused, "S with two exocyclic bonds, {label}");
+    }
 }
