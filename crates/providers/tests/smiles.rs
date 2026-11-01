@@ -120,10 +120,7 @@ fn empty_and_leading_whitespace_have_their_own_errors_and_spans() {
     assert_eq!(error(""), (SmilesErrorCode::EmptyInput, 0, 0));
     assert_eq!(error("   "), (SmilesErrorCode::LeadingWhitespace, 0, 3));
     assert_eq!(error(" CCO"), (SmilesErrorCode::LeadingWhitespace, 0, 1));
-    assert_eq!(
-        error("\u{a0}\tC"),
-        (SmilesErrorCode::LeadingWhitespace, 0, 3)
-    );
+    assert_eq!(error("\t C"), (SmilesErrorCode::LeadingWhitespace, 0, 2));
 }
 
 #[test]
@@ -608,4 +605,44 @@ fn the_written_atom_order_maps_each_text_atom_to_its_source_atom() {
         SmilesTextCodec.write(&read("C(CC)O")).unwrap().atom_order,
         [0, 3, 1, 2]
     );
+}
+
+#[test]
+fn only_ascii_blanks_end_the_smiles_and_other_whitespace_is_a_syntax_error() {
+    // OpenSMILES ends a SMILES at a space, tab or line end; anything else is not silently cut.
+    assert_eq!(
+        error("C\u{a0}C"),
+        (SmilesErrorCode::UnexpectedCharacter, 1, 3)
+    );
+    assert_eq!(
+        error("C\u{3000}C"),
+        (SmilesErrorCode::UnexpectedCharacter, 1, 4)
+    );
+    assert_eq!(
+        error("C\u{85}"),
+        (SmilesErrorCode::UnexpectedCharacter, 1, 3)
+    );
+    assert_eq!(
+        error("\u{a0}C"),
+        (SmilesErrorCode::UnexpectedCharacter, 0, 2)
+    );
+    assert_eq!(
+        error("[C\u{a0}]"),
+        (SmilesErrorCode::InvalidBracketContent, 2, 4)
+    );
+    for end in [" ", "\t", "\n", "\r\n"] {
+        let text = format!("CC{end}name");
+        let read = SmilesTextCodec.read(&text).unwrap();
+        assert_eq!(read.molecule.atoms.len(), 2, "{text:?}");
+        assert!(read.ignored.is_some(), "{text:?}");
+    }
+}
+
+#[test]
+fn isotopes_may_have_leading_zeros_up_to_three_digits() {
+    // The isotope is one to three digits; the zeros carry no meaning.
+    assert_eq!(read("[013C]").atoms[0].isotope, Some(13));
+    assert_eq!(read("[002H]").atoms[0].isotope, Some(2));
+    assert_eq!(error("[0013C]").0, SmilesErrorCode::InvalidIsotope);
+    assert_eq!(error("[000C]").0, SmilesErrorCode::InvalidIsotope);
 }

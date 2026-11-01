@@ -72,6 +72,12 @@ struct Reader<'a> {
     dot: usize,
 }
 
+/// The characters that end a SMILES (OpenSMILES): space, tab and line ends. Other Unicode
+/// whitespace is not a terminator and is refused where it appears.
+fn is_blank(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r')
+}
+
 fn fail<T>(code: SmilesErrorCode, start: usize, end: usize) -> Result<T, SmilesError> {
     Err(SmilesError { code, start, end })
 }
@@ -182,16 +188,16 @@ impl<'a> Reader<'a> {
         if self.text.is_empty() {
             return fail(SmilesErrorCode::EmptyInput, 0, 0);
         }
-        if self.text.starts_with(char::is_whitespace) {
+        if self.text.starts_with(is_blank) {
             let end = self
                 .text
                 .char_indices()
-                .find(|(_, c)| !c.is_whitespace())
+                .find(|(_, c)| !is_blank(*c))
                 .map_or(self.text.len(), |(i, _)| i);
             return fail(SmilesErrorCode::LeadingWhitespace, 0, end);
         }
         while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+            if is_blank(c) {
                 break;
             }
             self.step(c)?;
@@ -433,7 +439,7 @@ impl<'a> Reader<'a> {
                 start: open,
                 end: self.position,
             },
-            Some(c) if c.is_whitespace() => SmilesError {
+            Some(c) if is_blank(c) => SmilesError {
                 code: SmilesErrorCode::UnterminatedBracket,
                 start: open,
                 end: self.position,
@@ -659,9 +665,9 @@ impl<'a> Reader<'a> {
             );
         }
         let rest = &self.text[self.position..];
-        let trimmed = rest.trim();
+        let trimmed = rest.trim_matches(is_blank);
         let ignored = (!trimmed.is_empty()).then(|| {
-            let start = self.position + (rest.len() - rest.trim_start().len());
+            let start = self.position + (rest.len() - rest.trim_start_matches(is_blank).len());
             (start, start + trimmed.len())
         });
         let atoms = std::mem::take(&mut self.atoms);
