@@ -35,6 +35,7 @@
     "cases/aromaticity-kekule-nitrogen-hydrogen.json",
     "cases/aromaticity-partially-aromatic-fused-refused.json",
     "cases/graph-identity.json",
-    "cases/cdxml-rich-projection.json"
+    "cases/cdxml-rich-projection.json",
+    "cases/cdx-binary-interchange.json"
   ]
 }

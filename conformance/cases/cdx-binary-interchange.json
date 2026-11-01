@@ -1,0 +1,351 @@
+{
+  "id": "cdx-binary-interchange",
+  "title": "CDX is read, exported and projected through the same operations as CDXML, with canonical base64 and consent for rounded or dropped content",
+  "requirements": [
+    "CODEC-02",
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "read-cdx",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA"
+        }
+      },
+      "capture": {
+        "tree": "/result/document"
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "choices": [
+            {
+              "page_id": 1,
+              "fragment_id": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export-cdx-unchanged",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "document": null,
+          "original": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA"
+        }
+      },
+      "substitute": {
+        "/parameters/document": "tree"
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "content": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA"
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview-cdx",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA"
+        }
+      },
+      "capture": {
+        "digest": "/result/preview_digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "C",
+                "position": {
+                  "x": 10,
+                  "y": 20
+                }
+              },
+              {
+                "element": "O",
+                "position": {
+                  "x": 25.5,
+                  "y": -20
+                }
+              }
+            ]
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "styled_text"
+            },
+            {
+              "feature": "implicit_hydrogen_interpretation"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-without-consent",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
+          "preview_digest": null,
+          "accept_loss": false
+        }
+      },
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "loss_consent_required"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-with-another-digest",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
+          "preview_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "preview_changed"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-accepted",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdx",
+          "title": "Projected",
+          "page_id": 1,
+          "fragment_id": 2,
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA",
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "atoms": [
+              {
+                "element": "C"
+              },
+              {
+                "element": "O"
+              }
+            ]
+          },
+          "interchange_mapping": {
+            "atoms": [
+              {
+                "source_id": 3,
+                "target_id": "a1"
+              },
+              {
+                "source_id": 4,
+                "target_id": "a2"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "read-truncated",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAh"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "truncated"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "read-noncanonical",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdx",
+          "source": "VmpDRDAxMDAEAwIBAAAAAAAAAAAAAAAAAAAAAACAAAAAAAABJAABAAIAAwDkBAUAQXJpYWwEAOQEDwBUaW1lcyBOZXcgUm9tYW4AAxQAAwD///////8AAAAAAAD//wAAAAABgAEAAAADgAIAAAAEgAMAAAAAAggAAAAUAAAACgACBAIABgAAAASABAAAAAACCAAAAOz/AIAZAAIEAgAIACEEAQD/IAQCABIAAAAFgAUAAAAEBgQAAwAAAAUGBAAEAAAAAAYCAAIAAAAAAAaABgAAAAACCAAAADIAAAAoAAAHHgACAAAAAwABAMgAAgAFAAQAAADwAAMAQ2Fm6SBIMk8AAAeABwAAAAQCEAAAAAIAAAABAAAAKAAAAB4AAAoCAAMADgAGAAQAAAAhBAAAAAAAAAAA\n"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "invalid_base64"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "read-cdxml-for-cdx",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "read",
+          "format": "cdxml",
+          "source": "<CDXML xmlns=\"urn:example:cdxml\"><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"0.1 2\"/></fragment></page></CDXML>"
+        }
+      },
+      "capture": {
+        "xmltree": "/result/document"
+      },
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export-cdx-needs-consent",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "document": null
+        }
+      },
+      "substitute": {
+        "/parameters/document": "xmltree"
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "precision"
+              ]
+            }
+          }
+        ]
+      },
+      "capture": {
+        "consent": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export-cdx-accepted",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "document": null,
+          "accepted_losses": null
+        }
+      },
+      "substitute": {
+        "/parameters/document": "xmltree",
+        "/parameters/accepted_losses": "consent"
+      },
+      "expect": {
+        "outcome": "partial",
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "precision",
+              "disposition": "normalized"
+            },
+            {
+              "feature": "xml_namespace",
+              "disposition": "dropped"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

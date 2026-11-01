@@ -94,6 +94,20 @@ pub struct Loss {
     pub disposition: LossDisposition,
     pub reason: String,
     pub semantic_impact: SemanticImpact,
+    /// Whether the content may only be returned after the caller accepts this loss. The
+    /// provider that causes a loss decides; it is not part of the wire report.
+    #[serde(skip)]
+    pub consent: LossConsent,
+}
+
+/// The consent a reported loss needs before an export returns its content.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LossConsent {
+    /// Reported only; the content is returned.
+    #[default]
+    NotRequired,
+    /// The caller must accept the loss (`accept_loss`) first.
+    Required,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -1249,12 +1263,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Preview and import bounded MOL/SDF records or rich CDXML with explicit losses."
-                            } else if self.ctfile_codec.is_some() {
-                                "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
-                            } else {
-                                "Read CDXML as a rich tree or preview a loss-accounted editor projection."
+                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
+                                (true, Some(notes)) => notes.combined_import,
+                                (true, None) => {
+                                    "Preview and append one selected record of a bounded V2000 MOL/SDF subset, with explicit losses and revision-checked consent."
+                                }
+                                (false, Some(notes)) => notes.interchange_import,
+                                (false, None) => return entry(operation),
                             },
                         ),
                         &[],
@@ -1264,12 +1279,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     return (
                         runs(
                             operation.as_str(),
-                            if self.ctfile_codec.is_some() && self.interchange_codec.is_some() {
-                                "Write bounded MOL/SDF or rich CDXML with explicit losses and opaque-content safety."
-                            } else if self.ctfile_codec.is_some() {
-                                "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
-                            } else {
-                                "Write rich CDXML with opaque-content safety and explicit loss reporting."
+                            match (self.ctfile_codec.is_some(), self.interchange_notes) {
+                                (true, Some(notes)) => notes.combined_export,
+                                (true, None) => {
+                                    "Write a bounded V2000 MOL/SDF subset with per-record losses; other formats and advanced chemistry are unsupported."
+                                }
+                                (false, Some(notes)) => notes.interchange_export,
+                                (false, None) => return entry(operation),
                             },
                         ),
                         &[],
@@ -1759,14 +1775,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     || !mass.exact_omitted_abundances.is_empty()
             }) || !component.omitted_abundances.is_empty()
             {
-                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+                losses.push(Loss { feature: "unreported_isotope_abundances".into(), source_path: format!("components[{index}]"), disposition: LossDisposition::Unknown, reason: "The calculation is conditional on reported isotope fractions; missing fractions are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry, consent: LossConsent::NotRequired });
             }
             if component
                 .mass
                 .as_ref()
                 .is_some_and(|mass| !mass.exact_natural_weight_fallbacks.is_empty())
             {
-                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry });
+                losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry, consent: LossConsent::NotRequired });
             }
         }
         let revision = snapshot.document.revision;

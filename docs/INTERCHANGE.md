@@ -2,8 +2,8 @@
 
 The rich CDXML tree is available through operation contract 1 in the Rust
 application, HTTP and CLI. The browser can preview a selected page and molecule
-and create a new editable drawing after the user accepts its loss report. CDX is
-not yet implemented.
+and create a new editable drawing after the user accepts its loss report. A bounded
+CDX codec feeds the same tree and operations; see [CDX](#cdx-binary-codec).
 
 `chemifree_domain::interchange::Document` is an ordered tree independent of the
 editor's single-graph document. It can hold a document with several pages, nested
@@ -50,14 +50,13 @@ An explicit CDXML [font table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/Fo
 or [color table](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/ColorTable.htm)
 must contain at least one corresponding entry; a missing table is distinct from
 an empty one. With no color table, the documented default indexes 0 through 3
-remain available. A future binary codec using these common-model table objects
-must state its own count-zero profile policy.
+remain available. The CDX codec's own policy is below: a count-zero table is refused.
 
 The known CDXML subset includes 2D positions and bounds, element numbers, isotope,
 charge and radical values, node types, bond endpoints and order bitsets, basic
 graphic type/bounds, represented-property targets, font and color table entries,
-and styled text. Advanced chemistry, additional object properties, external
-resources and CDX are not implemented by this CDXML core. A CDX unspecified bond
+and styled text. Advanced chemistry, additional object properties and external
+resources are not implemented by this CDXML core. A CDX unspecified bond
 order is refused when it has no unambiguous CDXML representation; it is not
 silently emitted as a single bond.
 
@@ -99,3 +98,91 @@ Public format references: [CDXML introduction](https://iupac.github.io/IUPAC-FAI
 [graphics](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Graphic_Type.htm),
 [bond orders](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm),
 and [represented-property references](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/Represent.htm).
+
+## CDX binary codec
+
+`crates/providers/src/cdx/` reads and writes the public
+[CDX file format](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/IntroCDX.htm) into the same
+`Document` tree as CDXML. It was written from the public documentation only. Opaque
+policy is shared with the CDXML write path (`opaque_policy.rs`): an unchanged original is
+returned byte for byte, an edited document with opaque content is refused
+(`unsafe_unknown_rewrite`) unless `discard_opaque`, and a discard is reported as a
+`dropped` `opaque_extensions` loss. The recorded CDXML outputs in
+`crates/providers/tests/data/cdxml-golden/` pin the P22 results taken before the CDX code existed.
+
+**Framing.** A 28-byte header (`VjCD0100`, then 20 reserved bytes that are not interpreted; a rewrite
+keeps those of the `original` and, with none, writes the values the specification shows), a Document object (tag `0x8000`, ID, properties,
+child objects, `0000`) and the two-byte end-of-file marker. The marker is required, so every
+proper prefix of a file is refused as `truncated` (or `invalid_*`), and bytes after it are
+`trailing_data`. Property lengths use the 16-bit field, or `0xFFFF` plus a 32-bit length; the
+writer uses the extended form exactly from 65535 bytes, the reader also accepts it for shorter
+values. Lengths are checked against the remaining bytes before use. A Document ID of 0 means "no
+ID assigned" and reads as no ID (the model cannot tell them apart; CDXML `id="0"` does the
+same); the writer always emits the header and a Document object, with ID 0 when the root has
+none. Object IDs must be unique across the document (the format asks only for uniqueness within
+a container, a looser rule this codec does not accept).
+
+**Limits**, checked before allocation and counted as the common model counts them: 1 MiB of
+bytes, depth 128 (root is depth 0), 100,000 objects including the objects the model creates from
+properties (font table + fonts, color table + colors, style runs, Represents). The refusal is
+`resource_limit` with the offset of the first item that exceeds the limit.
+
+**Interpreted subset**, mirroring the CDXML reader: Document, Page, Group, Fragment, Node, Bond,
+Text, Graphic; bounding box, 2D position, node type, element, isotope, charge, radical, bond
+order, bond endpoints, graphic type, font table (`0x0100`), color table (`0x0300`), text string
+(`0x0700`) and Represents (`0x000E`). Everything else, a known tag on an object the CDXML
+reader would not interpret it on, and every descendant of an unknown object, stays opaque
+binary. Coordinates are 1/65536 point (y before x; rectangles top, left, bottom, right).
+Integers are read by the width the file gives them (1, 2 or 4 bytes). A known value outside
+its documented range (node type 0..13, element 1..118, isotope 0..32767, radical 0..3, graphic
+type 0..7, bond order 1..65535) is refused with `out_of_range` and its offset; this differs from
+CDXML, where an unknown enumeration *name* stays opaque, because a number outside the table
+has no name to keep. A 4-byte charge is `saved >> 24` and refused when its low 24 bits are not
+zero. Bond order `0xFFFF` (unspecified) is kept and cannot be written as CDXML. A Represents
+property naming a tag without a verified CDXML attribute name stays opaque; a second such
+property on one graphic is refused.
+
+**Text.** The public documentation names no character sets beyond the example pairing code page
+1252 with CDXML `iso-8859-1`, so that is the only pairing accepted; a font table entry with
+another character set is refused with `unsupported_charset` at the entry, even if no text uses
+the font. A string without style runs is ISO Latin 1. Bytes 0x80 to 0x9F are refused in styled
+and unstyled text (`unsupported_text_encoding`), control characters XML 1.0 cannot carry are
+`invalid_text` (the character rule is the CDXML one), and text of a Macintosh-platform font
+(table platform 0) is accepted only as ASCII. Style runs must start at 0 in order within the
+text and use a known font and color. A run with no characters has no children, exactly as in
+the CDXML reader, so CDX to CDXML to CDX and back give identical trees. An empty font table
+or color table is refused (the specification requires at least one font; the model requires one
+color).
+
+**Writer.** Font and color tables become document properties ahead of the objects (a
+CDXML table after a page is moved and `child_order` is reported). Font tables are written for
+platform 1; `font_platform` is reported whenever a written table is not known, from the
+re-parsed original, to be an unchanged platform-1 table, and never for a plain read. Numbers
+that are not exact steps are rounded to the nearest one and reported as `precision`:
+coordinates to 1/65536 point (error at most 1/131072), color components to 1/65535, font
+sizes to 1/20 point. Values outside the range (coordinates beyond +-32768 pt, sizes above
+3276.75, colors) are refused (`out_of_range`). Text must be Latin 1 without U+0080 to U+009F
+(`unsupported_text`); fonts need a supported charset (`unsupported_charset`,
+`missing_property`). A single style run without attributes is an unstyled string; otherwise
+each run needs font, size and color (`unsupported_style_run`) and a missing face is written as
+plain and reported as `style_defaults`. Whitespace-only text between runs is ignored; XML
+comments, instructions, stray text outside runs, the root namespace and Represents objects
+naming an unverified attribute have no CDX encoding and are reported as `dropped`
+(`xml_content`, `xml_namespace`, `represents`); all but the namespace, which carries no
+meaning, need the caller's consent (`accepted_losses`, bound to what was shown).
+A Represents object with its own ID is refused. Object IDs on style runs, font and color tables and their entries cannot be written (CDX numbers only real objects); they are dropped with a reported `object_ids` loss, and a reference that names one is refused (`unsupported_object_id`). A font-table or Represents property repeated where it has no meaning, a Text without its string, and a Represents at the depth limit are refused with `duplicate_property`, `missing_property` and `resource_limit` at the property or object offset. What the writer emits is re-read to the same
+tree by the reader.
+
+**Model errors.** CDX reports a failure found only by the common model with the domain's specific code and message; CDXML keeps its P22 code and wording. The difference and the reason are stated once, in [CONTRACT.md](CONTRACT.md#cdx-over-the-same-operations).
+
+**Not implemented:** CDX objects beyond the subset (reactions, brackets, curves, embedded
+objects, tables...), other character sets, Macintosh text beyond ASCII, 3D positions, and any
+chemistry interpretation. The fixture `multi-page.cdxml` uses charset `utf-8` and so cannot be
+written as CDX.
+
+Checks: `crates/providers/tests/cdx_reader.rs`, `cdx_writer.rs`, `cdx_cross_format.rs` (seeded
+CDX/CDXML sweeps over 400 documents plus truncation and mutation sweeps),
+`crates/application/tests/cdx_operations.rs`, `apps/api/tests/cdx_transport.rs`,
+`apps/cli/tests/cdx_transport.rs`, conformance case `cdx-binary-interchange`, and
+`scripts/verify-cdx-semantics.py`, which parses CDX bytes with its own code and compares graph,
+text runs, styles and colors with the CDXML reading.

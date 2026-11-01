@@ -12,6 +12,7 @@ import {
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
+  type InterchangeFormat,
   type InterchangeInput,
   type ListQuery,
   type SettingsSource,
@@ -327,7 +328,7 @@ export function useDocumentEditor() {
     }, [run]),
     busy: pending > 0,
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
-    readInterchange: useCallback((source: string) => client.readInterchange(source), []),
+    readInterchange: useCallback((source: string, format: InterchangeFormat) => client.readInterchange(source, format), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
     createInterchange: useCallback((input: InterchangeInput, digest: string) => run(async () => {
       try {

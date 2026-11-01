@@ -18,6 +18,7 @@ pub mod interchange_contract;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
+mod limit_text;
 mod mass_data;
 pub mod mass_input;
 pub mod mass_sources;
@@ -45,6 +46,7 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+pub mod transport_base64;
 mod turns;
 
 use std::sync::Arc;
@@ -99,9 +101,9 @@ pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
     FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossDisposition,
-    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome,
-    ProfileSupport, SemanticImpact, Severity, Support,
+    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
+    LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
+    Outcome, ProfileSupport, SemanticImpact, Severity, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -136,6 +138,8 @@ pub struct Application<C, R> {
     preferences: PreferenceService,
     data_registry: DataRegistry,
     interchange_codec: Option<Arc<dyn interchange_codec::InterchangeCodec>>,
+    /// Wording that quotes the connected codec's limit, built when it is connected.
+    interchange_notes: Option<limit_text::InterchangeNotes>,
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
     /// A process-local binding for conversion previews. If entropy is unavailable, previews
@@ -154,6 +158,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preferences: PreferenceService::new(Box::new(MemoryPreferences::default())),
             data_registry: DataRegistry::not_configured(),
             interchange_codec: None,
+            interchange_notes: None,
             interchange_generation: {
                 let mut generation = [0_u8; 16];
                 getrandom::fill(&mut generation).ok().map(|()| generation)
@@ -183,6 +188,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         codec: impl interchange_codec::InterchangeCodec + 'static,
     ) -> Self {
         Self {
+            interchange_notes: Some(limit_text::InterchangeNotes::new(
+                codec.binary_input_limit(),
+            )),
             interchange_codec: Some(Arc::new(codec)),
             ..self
         }
@@ -243,11 +251,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|mut capability| {
                     if capability.id == chemifree_domain::CapabilityId::FormatConversion {
-                        let supported = match (self.ctfile_codec.is_some(), self.interchange_codec.is_some()) {
-                            (true, true) => Some(("MOL/SDF and CDXML subsets", "Read and write bounded V2000 MOL/SDF and rich CDXML subsets with explicit losses. Advanced chemistry is limited; other formats are unsupported.")),
-                            (true, false) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
-                            (false, true) => Some(("CDXML subset", "Read and write a bounded CDXML subset and preview editor projection with explicit losses. Other formats and advanced objects remain unsupported.")),
-                            (false, false) => None,
+                        let supported = match (self.ctfile_codec.is_some(), self.interchange_notes) {
+                            (true, Some(notes)) => Some(("MOL/SDF, CDXML and CDX subsets", notes.combined_description)),
+                            (true, None) => Some(("MOL/SDF subset", "Read and write a bounded V2000 MOL/SDF subset with explicit loss reports. Other formats, stereo and advanced objects remain unsupported.")),
+                            (false, Some(notes)) => Some(("CDXML and CDX subsets", notes.interchange_description)),
+                            (false, None) => None,
                         };
                         if let Some((label, description)) = supported {
                             capability.label = label;

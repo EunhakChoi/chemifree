@@ -12,7 +12,7 @@ use crate::contract::{
     AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto, SceneObjectView,
 };
 use crate::ctfile::{CtAtom, CtBond, CtError, CtField, CtRadical, CtRecord};
-use crate::{Loss, LossDisposition, SemanticImpact};
+use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 /// V2000 coordinates are in angstroms; the editor's positions are points with y increasing down.
 const POINTS_PER_ANGSTROM: f64 = 20.0;
@@ -28,6 +28,7 @@ fn projection_error(record: usize, code: &'static str, message: impl Into<String
 
 fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason: &str) -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: feature.into(),
         source_path: format!("records[{record}]{path}"),
         disposition: LossDisposition::Dropped,
@@ -38,6 +39,7 @@ fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason
 
 fn implicit_hydrogen_uncertainty(record: usize) -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: "default_hydrogen_interpretation".into(),
         source_path: format!("records[{record}].atoms"),
         disposition: LossDisposition::Unknown,
