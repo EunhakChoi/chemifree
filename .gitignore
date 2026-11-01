@@ -29,3 +29,5 @@ analysis/
 evidence/
 *.pem
 *.key
+__pycache__/
+*.pyc

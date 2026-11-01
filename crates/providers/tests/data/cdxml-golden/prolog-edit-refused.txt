@@ -1,0 +1,3 @@
+read-loss opaque_extensions document Retained Unknown Original opaque entries: 0; submitted opaque entries: not supplied; each subtree counts once and the sets may overlap. Outside-root material: true. Unknown references cannot be verified or safely rewritten.
+outside-root true
+error unsafe_unknown_rewrite An edited document contains or originally contained opaque content. Explicitly discard it before rewriting.

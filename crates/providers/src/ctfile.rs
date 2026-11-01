@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use chemifree_application::ctfile::{
     CtAtom, CtBond, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord, CtResult,
 };
-use chemifree_application::{Loss, LossDisposition, SemanticImpact};
+use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::element::Element;
 
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -44,6 +44,7 @@ fn loss(
     reason: &str,
 ) -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: feature.into(),
         source_path: format!("records[{record}]{path}"),
         disposition,

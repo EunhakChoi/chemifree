@@ -6,12 +6,20 @@ use super::*;
 use crate::interchange_codec::{InterchangeCodec, InterchangeError, InterchangeFormat};
 use crate::interchange_contract::InterchangeDocumentDto;
 use crate::interchange_projection::{self, Projection, SourceObject};
+use crate::transport_base64;
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 enum ImportParameters {
     /// Read into the rich interchange tree without creating a drawing.
-    Read { format: String, source: String },
+    Read {
+        format: String,
+        source: String,
+        /// Write opaque binary property values as base64 text (default: number arrays).
+        #[serde(default)]
+        compact_bytes: bool,
+    },
     /// Inspect a proposed single-page/fragment projection.
     Preview {
         format: String,
@@ -41,6 +49,11 @@ struct ExportParameters {
     original: Option<String>,
     #[serde(default)]
     discard_opaque: bool,
+    /// The `loss_digest` of the refusal that showed the dropped or rounded content, which
+    /// the caller accepts by repeating it. A digest of other losses or other output does not
+    /// match.
+    #[serde(default)]
+    accepted_losses: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -83,11 +96,68 @@ fn format(name: &str) -> Result<InterchangeFormat, InterchangeError> {
         "cdx" => Ok(InterchangeFormat::Cdx),
         _ => Err(InterchangeError {
             code: "unsupported_format",
-            message: "Only CDXML is available in this profile.".into(),
+            message: "The format must be \"cdxml\" or \"cdx\".".into(),
             line: None,
             column: None,
+            offset: None,
         }),
     }
+}
+
+/// Payload bytes of a request string: CDXML text is its UTF-8 bytes, CDX is canonical base64.
+///
+/// A JSON transport may be stricter than the codec: the HTTP body limit and the CLI request
+/// limit apply to the base64 text, which is a third larger than the bytes.
+fn payload<'a>(
+    codec: &dyn InterchangeCodec,
+    format: InterchangeFormat,
+    text: &'a str,
+) -> Result<Cow<'a, [u8]>, InterchangeError> {
+    match format {
+        InterchangeFormat::Cdxml => Ok(Cow::Borrowed(text.as_bytes())),
+        InterchangeFormat::Cdx => {
+            let limit = codec.binary_input_limit();
+            if text.len() > transport_base64::encoded_len(limit) {
+                // The text length is not a byte position, so no offset is reported.
+                return Err(InterchangeError {
+                    code: "resource_limit",
+                    message: format!("CDX input exceeds {limit} bytes."),
+                    line: None,
+                    column: None,
+                    offset: None,
+                });
+            }
+            transport_base64::decode(text)
+                .map(Cow::Owned)
+                .map_err(|error| InterchangeError {
+                    code: "invalid_base64",
+                    message: format!(
+                        "CDX input must be canonical base64: {} (character {}).",
+                        error.reason, error.index
+                    ),
+                    line: None,
+                    column: None,
+                    offset: None,
+                })
+        }
+    }
+}
+
+/// Changes a writer reports that the caller must accept before the content is returned. The
+/// provider that causes a loss marks it; opaque content is covered by `discard_opaque` and
+/// reserialization notes need no consent.
+/// Binds consent to what was shown: the digest covers the losses that need it and the exact
+/// bytes that would be returned, so a changed document cannot reuse an earlier consent.
+fn consent_digest(required: &[&Loss], bytes: &[u8]) -> String {
+    let shown = serde_json::to_vec(required).expect("losses are serializable");
+    let mut hasher = Sha256::new();
+    hasher.update(shown);
+    hasher.update(Sha256::digest(bytes));
+    format!("{:x}", hasher.finalize())
+}
+
+fn needs_consent(loss: &Loss) -> bool {
+    loss.consent == LossConsent::Required
 }
 
 fn digest<T: Serialize>(value: &T) -> String {
@@ -103,6 +173,9 @@ fn issue(error: InterchangeError) -> Diagnostic {
     }
     if let Some(column) = error.column {
         details.insert("column".into(), column.into());
+    }
+    if let Some(offset) = error.offset {
+        details.insert("offset".into(), offset.into());
     }
     Diagnostic {
         code: error.code,
@@ -156,6 +229,7 @@ fn mapping(
             message: "The created graph does not match its projection.".into(),
             line: None,
             column: None,
+            offset: None,
         });
     }
     Ok(InterchangeMapping {
@@ -179,6 +253,7 @@ fn mapping(
 
 fn outside_root_loss() -> Loss {
     Loss {
+        consent: LossConsent::NotRequired,
         feature: "outside_root".into(),
         source_path: "source".into(),
         disposition: LossDisposition::Dropped,
@@ -192,7 +267,8 @@ fn read(
     name: &str,
     source: &str,
 ) -> Result<crate::interchange_codec::InterchangeRead, InterchangeError> {
-    codec.read(format(name)?, source.as_bytes())
+    let format = format(name)?;
+    codec.read(format, &payload(codec, format, source)?)
 }
 
 fn normalized_document(document: &DocumentView) -> DocumentView {
@@ -215,12 +291,21 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             return known.not_running();
         };
         match &parameters {
-            ImportParameters::Read { format, source } => match read(codec.as_ref(), format, source)
-            {
+            ImportParameters::Read {
+                format,
+                source,
+                compact_bytes,
+            } => match read(codec.as_ref(), format, source) {
                 Ok(read) => response(
                     known,
                     OperationResult::InterchangeRead(Box::new(InterchangeReadResult {
-                        document: InterchangeDocumentDto::from(&read.document),
+                        document: {
+                            let mut document = InterchangeDocumentDto::from(&read.document);
+                            if *compact_bytes {
+                                document.compact_bytes();
+                            }
+                            document
+                        },
                         choices: interchange_projection::choices(&read.document),
                     })),
                     None,
@@ -495,32 +580,107 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let document = match chemifree_domain::interchange::Document::try_from(parameters.document)
         {
             Ok(document) => document,
-            Err(error) => return known.invalid(refused("invalid_document", &error.to_string())),
+            Err(error) => {
+                // CDXML keeps its contract 1 wording; see CONTRACT.md on model validation codes.
+                return known.invalid(match format {
+                    InterchangeFormat::Cdxml => refused("invalid_document", &error.to_string()),
+                    InterchangeFormat::Cdx => diagnostic(error.code(), error.message(), Map::new()),
+                });
+            }
         };
-        let original = parameters.original.as_deref().map(str::as_bytes);
-        let output = match codec.write(format, &document, original, parameters.discard_opaque) {
+        let original = match parameters.original.as_deref() {
+            Some(text) => match payload(codec.as_ref(), format, text) {
+                Ok(bytes) => Some(bytes),
+                // The fault is in the caller's original, not in the document being exported.
+                Err(error) => {
+                    return known.invalid(issue(InterchangeError {
+                        code: "invalid_original",
+                        message: format!("The original source is invalid: {}", error.message),
+                        ..error
+                    }));
+                }
+            },
+            None => None,
+        };
+        let output = match codec.write(
+            format,
+            &document,
+            original.as_deref(),
+            parameters.discard_opaque,
+        ) {
             Ok(output) => output,
             Err(error) => return known.invalid(issue(error)),
         };
         let mut losses = output.loss_report;
-        if original.is_some_and(|bytes| bytes != output.bytes.as_slice()) {
-            losses.push(Loss {
-                feature: "xml_serialization".into(),
-                source_path: "source".into(),
-                disposition: LossDisposition::Normalized,
-                reason: "The edited document was reserialized; lexical XML formatting may differ."
-                    .into(),
-                semantic_impact: SemanticImpact::None,
+        if original
+            .as_deref()
+            .is_some_and(|bytes| bytes != output.bytes.as_slice())
+        {
+            losses.push(match format {
+                InterchangeFormat::Cdxml => Loss {
+                    consent: LossConsent::NotRequired,
+                    feature: "xml_serialization".into(),
+                    source_path: "source".into(),
+                    disposition: LossDisposition::Normalized,
+                    reason:
+                        "The edited document was reserialized; lexical XML formatting may differ."
+                            .into(),
+                    semantic_impact: SemanticImpact::None,
+                },
+                InterchangeFormat::Cdx => Loss {
+                    consent: LossConsent::NotRequired,
+                    feature: "binary_serialization".into(),
+                    source_path: "source".into(),
+                    disposition: LossDisposition::Normalized,
+                    reason: "The edited document was reserialized; extended-length spelling and property order may differ from the original; reserved header bytes are kept."
+                        .into(),
+                    semantic_impact: SemanticImpact::None,
+                },
             });
         }
-        let content = match String::from_utf8(output.bytes) {
-            Ok(content) => content,
-            Err(_) => {
-                return known.invalid(refused(
-                    "invalid_output",
-                    "The provider returned non-UTF-8 CDXML.",
-                ));
+        let required: Vec<&Loss> = losses.iter().filter(|loss| needs_consent(loss)).collect();
+        if !required.is_empty() {
+            let digest = consent_digest(&required, &output.bytes);
+            let accepted = parameters.accepted_losses.as_deref() == Some(digest.as_str());
+            if !accepted {
+                let mut features: Vec<&str> = Vec::new();
+                for loss in &required {
+                    if !features.contains(&loss.feature.as_str()) {
+                        features.push(loss.feature.as_str());
+                    }
+                }
+                let mut details = Map::new();
+                details.insert("features".into(), features.into());
+                details.insert(
+                    "losses".into(),
+                    serde_json::to_value(&required).expect("losses are serializable"),
+                );
+                details.insert("loss_digest".into(), digest.into());
+                let (code, message) = if parameters.accepted_losses.is_some() {
+                    (
+                        "loss_consent_changed",
+                        "The accepted losses are not the losses of this export; review the listed losses and repeat with their loss_digest as accepted_losses.",
+                    )
+                } else {
+                    (
+                        "loss_consent_required",
+                        "The export would drop or round content. Review the listed losses and repeat with their loss_digest as accepted_losses.",
+                    )
+                };
+                return known.invalid(diagnostic(code, message, details));
             }
+        }
+        let content = match format {
+            InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {
+                Ok(content) => content,
+                Err(_) => {
+                    return known.invalid(refused(
+                        "invalid_output",
+                        "The provider returned non-UTF-8 CDXML.",
+                    ));
+                }
+            },
+            InterchangeFormat::Cdx => transport_base64::encode(&output.bytes),
         };
         response(
             known,

@@ -304,17 +304,24 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-02.cdx-bounded",
+          "summary": "For the bounded CDX subset, the header, tagged objects and properties, 0xFFFF extended lengths, nesting, strings and references are read and written with limits enforced before allocation, byte offsets on errors and a loss report.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/cdx/mod.rs", "crates/providers/src/cdx/raw.rs", "crates/providers/src/cdx/read.rs", "crates/providers/src/cdx/text.rs", "crates/providers/src/cdx/write.rs", "crates/application/src/transport_base64.rs"],
+          "evidence": ["case:cdx-binary-interchange", "check:check:rust"],
+          "followups": []
+        },
+        {
           "id": "CODEC-02.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Other binary formats, and CDX content beyond the bounded subset, remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P23",
             "P29",
             "P48",
             "P80"
@@ -461,6 +468,14 @@
           "followups": []
         },
         {
+          "id": "CODEC-06.cdx-policy",
+          "summary": "For bounded CDX, unknown objects and properties stay opaque binary, an unchanged original is returned byte for byte, edits need an explicit discard, and content with no CDX encoding is dropped or rounded only with reported consent.",
+          "status": "implemented",
+          "implementation": ["crates/providers/src/opaque_policy.rs", "crates/providers/src/cdx/read.rs", "crates/providers/src/cdx/write.rs", "crates/providers/src/interchange_codec.rs"],
+          "evidence": ["case:cdx-binary-interchange", "check:check:rust"],
+          "followups": []
+        },
+        {
           "id": "CODEC-06.rest",
           "summary": "Advanced unknown and unsupported objects across formats remain open.",
           "status": "not_implemented",
@@ -471,7 +486,6 @@
             "P20",
             "P21",
             "P22",
-            "P23",
             "P33",
             "P38",
             "P48",

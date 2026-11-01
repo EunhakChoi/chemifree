@@ -998,7 +998,7 @@
    "acceptance": "절단·확장 길이·signed 값·긴 텍스트·알 수 없는 속성을 검사하고 CDXML과 의미를 교차 비교한다. 미해석 참조의 안전성을 추정하지 않는다.",
    "kind": "core",
    "id": "P23",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -3672,7 +3672,7 @@
     "format-boundary-observations.json",
     "integration-long-caption-contracts.json"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P23",
     "P29",

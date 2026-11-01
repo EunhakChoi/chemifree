@@ -1060,7 +1060,11 @@ export interface InterchangeChoice {
   fragment_path: string
 }
 
+/** CDXML travels as text; CDX travels as canonical base64 of its bytes. */
+export type InterchangeFormat = 'cdxml' | 'cdx'
+
 export interface InterchangeInput {
+  format: InterchangeFormat
   source: string
   title: string
   page_id: number
@@ -1107,7 +1111,10 @@ function interchangeReply(value: unknown): { result: Record<string, unknown>; lo
   if (value.outcome === 'error' || value.outcome === 'unsupported') {
     const problem: unknown = value.diagnostics[0]
     if (isRecord(problem) && typeof problem.code === 'string' && typeof problem.message === 'string') {
-      throw new ApiError(problem.code, problem.message, 200)
+      // A binary format names the offending byte; the server keeps it out of the message.
+      const offset = isRecord(problem.details) ? problem.details.offset : undefined
+      const where = typeof offset === 'number' && Number.isSafeInteger(offset) && offset >= 0 ? ` (byte offset ${offset})` : ''
+      throw new ApiError(problem.code, `${problem.message}${where}`, 200)
     }
     throw new ApiError('conversion_failed', 'The interchange operation failed.', 200)
   }
@@ -1346,10 +1353,10 @@ export class DocumentClient {
     return { model: value.model_id, snapshot, atoms }
   }
 
-  async readInterchange(source: string): Promise<InterchangeChoice[]> {
+  async readInterchange(source: string, format: InterchangeFormat): Promise<InterchangeChoice[]> {
     const { result } = interchangeReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
-      parameters: { mode: 'read', format: 'cdxml', source },
+      parameters: { mode: 'read', format, source },
     }, 'reload'))
     if (!Array.isArray(result.choices) || !result.choices.every((choice): choice is InterchangeChoice =>
       isRecord(choice) && isCount(choice.page_id) && choice.page_id > 0 &&
@@ -1363,7 +1370,7 @@ export class DocumentClient {
   async previewInterchange(input: InterchangeInput): Promise<InterchangePreview> {
     const { result, losses } = interchangeReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
-      parameters: { mode: 'preview', format: 'cdxml', ...input },
+      parameters: { mode: 'preview', ...input },
     }, 'reload'))
     const document = result.document
     if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
@@ -1384,7 +1391,7 @@ export class DocumentClient {
       key,
       '/api/v1/operations',
       { contract: 1, profile: 'preserve-semantics', operation: 'document.import',
-        parameters: { mode: 'create', format: 'cdxml', ...input, preview_digest: digest, accept_loss: true } },
+        parameters: { mode: 'create', ...input, preview_digest: digest, accept_loss: true } },
       new ApiError('create_unconfirmed', 'The service restarted before confirming the imported drawing. Check Saved documents before creating another.', 401),
       async (value, replayed) => {
         const result = interchangeReply(value).result

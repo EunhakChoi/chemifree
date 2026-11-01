@@ -37,6 +37,13 @@ pub enum ObjectKind {
     UnknownBinary(u16),
 }
 
+impl ObjectKind {
+    /// Whether the common model allows `child` directly inside this kind of object.
+    pub fn may_contain(&self, child: &ObjectKind) -> bool {
+        allowed_child(self, child)
+    }
+}
+
 /// A supported property or an uninterpreted format-specific property.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PropertyKind {
@@ -181,8 +188,96 @@ impl fmt::Display for ValidationError {
 }
 impl std::error::Error for ValidationError {}
 
-const MAX_DEPTH: usize = 128;
-const MAX_OBJECTS: usize = 100_000;
+impl ValidationError {
+    /// A stable machine-readable code. Binary codecs use it to name the failure; a variant
+    /// that a reader can attribute to one item is better reported by that reader with an
+    /// offset, so these codes name the rule, not a position.
+    pub fn code(&self) -> &'static str {
+        use ValidationError as V;
+        match self {
+            V::RootMustBeDocument => "invalid_root",
+            V::PageRequired => "page_required",
+            V::ZeroId => "invalid_reference",
+            V::DuplicateId(_) => "duplicate_id",
+            V::DanglingReference(_) => "dangling_reference",
+            V::BondEndpointNotNode(_) | V::CrossFragmentBond(_) | V::SelfBond => {
+                "invalid_reference"
+            }
+            V::BondOutsideFragment | V::NodeOutsideFragment | V::InvalidContainment => {
+                "invalid_containment"
+            }
+            V::MissingBondEndpoint
+            | V::MissingGraphicBounds
+            | V::MissingRepresentProperty
+            | V::MissingTextStyle
+            | V::MissingFontIndex
+            | V::MissingFontName => "missing_property",
+            V::DuplicateProperty => "duplicate_property",
+            V::EmptyFontTable => "invalid_font_table",
+            V::EmptyColorTable => "invalid_color_table",
+            V::DuplicateFont(_) => "duplicate_font",
+            V::DuplicateColorTable => "duplicate_color_table",
+            V::UnknownFont(_) => "unknown_font",
+            V::UnknownColor(_) => "unknown_color",
+            V::InvalidProperty => "invalid_property",
+            V::DepthLimit | V::ObjectLimit => "resource_limit",
+            V::UnsafeIdRewrite | V::OpaqueContentChanged => "unsafe_unknown_rewrite",
+        }
+    }
+
+    /// A sentence describing the failure, without internal names.
+    pub fn message(&self) -> String {
+        use ValidationError as V;
+        match self {
+            V::RootMustBeDocument => "The root object must be a document.".into(),
+            V::PageRequired => "A document needs at least one page.".into(),
+            V::ZeroId => "A reference cannot name object 0.".into(),
+            V::DuplicateId(id) => format!("Object ID {id} is used more than once."),
+            V::DanglingReference(id) => {
+                format!("A reference names object {id}, which does not exist.")
+            }
+            V::BondEndpointNotNode(id) => {
+                format!("A bond endpoint names object {id}, which is not a node.")
+            }
+            V::CrossFragmentBond(id) => {
+                format!("A bond endpoint names node {id} from a different fragment.")
+            }
+            V::SelfBond => "A bond connects a node to itself.".into(),
+            V::BondOutsideFragment => "A bond is outside a fragment.".into(),
+            V::NodeOutsideFragment => "A node is outside a fragment.".into(),
+            V::InvalidContainment => {
+                "An object is inside a kind of object that cannot contain it.".into()
+            }
+            V::MissingBondEndpoint => "A bond needs a begin and an end node.".into(),
+            V::MissingGraphicBounds => "A graphic needs a bounding box.".into(),
+            V::MissingRepresentProperty => {
+                "A Represents object needs an object and an attribute.".into()
+            }
+            V::MissingTextStyle => "A text object needs at least one style run.".into(),
+            V::MissingFontIndex => "A font needs an ID.".into(),
+            V::MissingFontName => "A font needs a name.".into(),
+            V::DuplicateProperty => "A property appears more than once in one object.".into(),
+            V::EmptyFontTable => "A font table needs at least one font.".into(),
+            V::EmptyColorTable => "A color table needs at least one color.".into(),
+            V::DuplicateFont(id) => format!("Font ID {id} is defined more than once."),
+            V::DuplicateColorTable => "The document has more than one color table.".into(),
+            V::UnknownFont(id) => format!("Font {id} is not in a font table."),
+            V::UnknownColor(index) => format!("Color index {index} is not available."),
+            V::InvalidProperty => "A property value or its place is not valid.".into(),
+            V::DepthLimit => format!("Nesting exceeds {MAX_DEPTH} levels."),
+            V::ObjectLimit => format!("The document holds more than {MAX_OBJECTS} objects."),
+            V::UnsafeIdRewrite => "An ID would change while opaque content may refer to it.".into(),
+            V::OpaqueContentChanged => {
+                "Opaque content would be changed without an explicit discard.".into()
+            }
+        }
+    }
+}
+
+/// Deepest allowed nesting: the root is at depth zero.
+pub const MAX_DEPTH: usize = 128;
+/// Most objects a document may hold, counting every object in the tree.
+pub const MAX_OBJECTS: usize = 100_000;
 
 impl Document {
     /// Creates a document only after checking global IDs and known references.
@@ -843,5 +938,55 @@ mod tests {
         })
         .unwrap();
         assert_eq!(doc.validate(), Ok(()));
+    }
+
+    #[test]
+    fn every_validation_error_has_a_specific_code_and_a_plain_message() {
+        use ValidationError as V;
+        let all = [
+            V::RootMustBeDocument,
+            V::PageRequired,
+            V::ZeroId,
+            V::DuplicateId(1),
+            V::DanglingReference(1),
+            V::BondEndpointNotNode(1),
+            V::BondOutsideFragment,
+            V::NodeOutsideFragment,
+            V::MissingBondEndpoint,
+            V::MissingGraphicBounds,
+            V::MissingRepresentProperty,
+            V::MissingTextStyle,
+            V::InvalidContainment,
+            V::SelfBond,
+            V::CrossFragmentBond(1),
+            V::DuplicateProperty,
+            V::MissingFontIndex,
+            V::MissingFontName,
+            V::EmptyFontTable,
+            V::EmptyColorTable,
+            V::DuplicateFont(1),
+            V::UnknownFont(1),
+            V::DuplicateColorTable,
+            V::UnknownColor(1),
+            V::InvalidProperty,
+            V::DepthLimit,
+            V::ObjectLimit,
+            V::UnsafeIdRewrite,
+            V::OpaqueContentChanged,
+        ];
+        for error in all {
+            let debug = format!("{error:?}");
+            let name = debug.split('(').next().unwrap();
+            let message = error.message();
+            assert!(
+                !message.is_empty() && message.ends_with('.'),
+                "{debug}: {message}"
+            );
+            assert!(!message.contains(name), "{debug} leaks its name: {message}");
+            assert!(
+                error.code() != "invalid_document",
+                "{debug} has the generic code"
+            );
+        }
     }
 }

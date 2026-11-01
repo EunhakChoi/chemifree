@@ -9,7 +9,8 @@
 - 스캐폴딩·설계 기준 커밋: 90f2b99([CI](https://github.com/EunhakChoi/chemifree/actions/runs/40362091650)), 인계 문서 007a185.
 - 그 이후 첫 수직 기능(문서 생성 → 원자·결합 편집 → Undo/Redo → 저장 → 다시 열기)을 구현했고, 이어서 저장·복구 보강(프로세스 간 저장 잠금, 복구용 자동 저장, 비정상 종료 후 복구, 사본으로 저장)과 저장 피드백(실패 사유, 대기 상한, 응답을 잃은 요청의 결과 확인)을 더했다. 커밋과 CI 결과는 git log와 GitHub Actions에서 확인한다.
 - P20 진행: 제한된 V2000 MOL/SDF를 독립 codec으로 읽고 쓴다. HTTP·CLI 연산과 웹에서 선택 레코드 미리보기, 손실 동의, 원자적 가져오기, 손실이 명시된 내보내기를 제공한다. CTfile 범위·동위원소 표 불확실성·좌표 기반 이중결합 입체 손실·필드 및 크기 제한은 CONTRACT.md를 따른다. 미지원 지시자는 조용히 버리지 않고 거절한다.
-- P22 진행: `crates/providers/src/cdxml.rs`, `crates/application/src/operations/interchange.rs`, `crates/application/src/interchange_projection.rs`가 CDXML rich 읽기·쓰기와 손실 미리보기·새 문서 생성을 연결한다. HTTP `POST /api/v1/operations`, CLI `chemifree operations`, 웹 `apps/web/src/components/cdxml-import.tsx`가 같은 Application을 사용한다. 원본과 같은 rich 트리는 BOM을 포함한 원시 바이트를 유지한다. unknown 속성·객체의 참조 안전성은 추정하지 않으며 변경된 opaque 데이터는 명시적 폐기 없이 다시 쓰지 않는다. 해석한 부모에 직접 속한 같은 CDXML namespace의 opaque 객체도 숫자 ID 중복과 알려진 참조를 검사하며, 다른 namespace나 opaque 내부의 ID와 참조가 겹치면 대상 의미를 추정하지 않고 거절한다. 참조 중인 opaque 객체의 폐기로 참조가 끊기면 변경 없이 거절한다. 선택한 화학 객체의 미해석 내용, 위치 누락과 불확실한 dative 방향은 동의 여부와 관계없이 거절한다. `crates/providers/tests/data/cdxml/multi-page.cdxml`과 `scripts/verify-cdxml-xml.py`는 독립 XML 판독으로 그래프·페이지·스타일·Unicode·참조를 비교한다. CDX는 P23, 일반 장면 렌더링은 후속 범위다.
+- P22 진행: `crates/providers/src/cdxml.rs`, `crates/application/src/operations/interchange.rs`, `crates/application/src/interchange_projection.rs`가 CDXML rich 읽기·쓰기와 손실 미리보기·새 문서 생성을 연결한다. HTTP `POST /api/v1/operations`, CLI `chemifree operations`, 웹 `apps/web/src/components/cdxml-import.tsx`가 같은 Application을 사용한다. 원본과 같은 rich 트리는 BOM을 포함한 원시 바이트를 유지한다. unknown 속성·객체의 참조 안전성은 추정하지 않으며 변경된 opaque 데이터는 명시적 폐기 없이 다시 쓰지 않는다. 해석한 부모에 직접 속한 같은 CDXML namespace의 opaque 객체도 숫자 ID 중복과 알려진 참조를 검사하며, 다른 namespace나 opaque 내부의 ID와 참조가 겹치면 대상 의미를 추정하지 않고 거절한다. 참조 중인 opaque 객체의 폐기로 참조가 끊기면 변경 없이 거절한다. 선택한 화학 객체의 미해석 내용, 위치 누락과 불확실한 dative 방향은 동의 여부와 관계없이 거절한다. `crates/providers/tests/data/cdxml/multi-page.cdxml`과 `scripts/verify-cdxml-xml.py`는 독립 XML 판독으로 그래프·페이지·스타일·Unicode·참조를 비교한다. 일반 장면 렌더링은 후속 범위다.
+- P23 진행: `crates/providers/src/cdx/`(raw·read·text·write)가 CDX 28바이트 헤더, 태그 객체·속성, 0xFFFF 확장 길이, 중첩, 문자열·스타일 런, 글꼴·색상 표와 Represents를 공개 명세만으로 읽고 쓰며 CDXML과 같은 공통 문서 트리·`document.import`/`document.export`(format `cdx`)에 연결한다. 바이너리는 JSON에서 정규(canonical) base64 문자열이다(전송 한도: 코덱 1 MiB, HTTP 본문 256 KiB, CLI 요청 1 MiB, 웹 120 KiB). opaque 정책은 CDXML 쓰기와 공유하는 `opaque_policy.rs` 하나이며 P22 CDXML 결과는 `crates/providers/tests/data/cdxml-golden/`으로 고정했다. 알 수 없는 객체·속성은 opaque 바이너리로 보존하고, 알려진 값이 문서화된 범위를 벗어나면 `out_of_range`와 바이트 오프셋으로 거절한다. 문자 인코딩은 추정하지 않는다: 공개 예시로 확인된 코드 페이지 1252↔`iso-8859-1`만 받고, 0x80~0x9F 바이트와 그 밖의 글꼴 문자 집합(미사용 항목 포함)과 Macintosh 글꼴의 비ASCII 텍스트는 거절한다. 쓰기에서 좌표·색·글꼴 크기는 가장 가까운 표현값으로 반올림하고 `precision` 손실로 보고하며, XML 주석·namespace·검증되지 않은 Represents 속성은 `dropped`로 보고한다. 이런 손실은 거절 응답이 보여준 `loss_digest`를 `accepted_losses`로 되돌려 보내야(보여준 손실·출력에 묶인 동의) 내용을 돌려준다. 불투명 바이너리 값은 계약 1의 숫자 배열을 유지하고 읽기의 `compact_bytes`로 base64를 고를 수 있다. 글꼴 표의 원 플랫폼을 알 수 없으면 `font_platform`을 보고한다. 점검은 `cdx_reader/cdx_writer/cdx_cross_format` 테스트(절단·변이·400개 시드 교차 스윕), `cdx_operations`, HTTP·CLI 한도 테스트, 적합성 사례 `cdx-binary-interchange`, 독립 `scripts/verify-cdx-semantics.py`다. 한계와 거절 코드는 docs/INTERCHANGE.md의 CDX 절이 기준이다. 반응·괄호·곡선 등 나머지 CDX 객체와 다른 문자 집합은 후속 범위다.
 - P16 완료(#80, 병합 후 main CI 통과): `chem.validate`는 `chemifree-valence-2` 정책으로 제한된 원자가·비정점 수소를 읽기 전용으로 검사한다. 결과는 실제 검사한 문서 snapshot을 포함해 재시작 후 같은 revision에 다른 그래프가 들어와도 웹이 이전 결과를 현재 결과로 보이지 않게 한다. query·미상 결합과 지원 밖 원자 상태는 진단한다. 세부 범위는 CONTRACT.md를 따른다. 아래 P09/P10 설명은 당시 기록이다.
 - P17 진행(#82 부분 납품, 병합 후 main CI 통과): `chem.aromaticity`는 입력 그래프를 바꾸지 않고 고리 블록과 `chemifree-aromaticity-1`의 한정된 해석을 반환한다. `chem.aromaticity_convert`는 지원되는 방향족·Kekulé 표현을 선택한 뒤 하나의 원자적 편집으로 변환하며 실패할 때 입력과 이력을 유지한다. 모델 범위와 제한은 CONTRACT.md를 따른다.
 - P18 진행(#84 부분 납품, 병합 후 main CI 통과): `chem.identity`는 기록 그래프 또는 제한된 화학 모델을 선택해 canonical 코드·번호·대칭군을 계산하고, 선택한 다른 문서와 실제 검사 snapshot을 함께 비교한다. ID와 좌표는 화학적 라벨이 아니며, 대칭 원자의 번호는 서로 바뀔 수 있다. 탐색 한도 또는 미지원 상태는 부분 결과 없이 진단한다.
@@ -57,7 +58,7 @@
 
 HTTP 계약은 health·capabilities·session과 /api/v1/documents 아래 생성·조회·transactions·undo·redo·save·close·autosave·save-as·recover·recover-as-copy·discard-draft다. CLI는 status·capabilities·documents 하위 명령으로 같은 Application을 호출한다. 모든 JSON에는 api_version: v1이 있다. 세부 내용은 CONTRACT.md에 있다.
 
-runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), format_conversion(MOL/SDF V2000과 CDXML의 명시된 부분), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. local_model_loading, authentication, windows_bridge는 not_implemented다.
+runtime_inspection, document_editing, structure_analysis(Valence inspection으로 범위가 지정된 검사), format_conversion(MOL/SDF V2000, CDXML과 CDX의 명시된 부분), persistence가 available이다. 연산별 실행 여부는 operation_catalog가 기준이다. local_model_loading, authentication, windows_bridge는 not_implemented다.
 
 ## UI 결정
 
@@ -133,16 +134,16 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 14, not_implemented 19) · 부분 70개(implemented 27, partial 8, unverified 2, not_implemented 33) · conformance 사례 33개(passed 33: accept 21·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 15, not_implemented 18) · 부분 72개(implemented 29, partial 8, unverified 2, not_implemented 33) · conformance 사례 34개(passed 34: accept 22·reject 12, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-03, CODEC-06, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 
 사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다. 그 밖의 후보:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
-2. 형식 입출력: 구현된 MOL/SDF V2000과 CDXML 부분을 유지하고 CDX·SMILES 및 고급 필드는 별도 작업으로 진행한다. 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
+2. 형식 입출력: 구현된 MOL/SDF V2000, CDXML과 CDX 부분을 유지하고 SMILES 및 고급 필드는 별도 작업으로 진행한다. 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 제한된 원자가·물성·방향족·그래프 동등성 검사에 더해 query 매칭을 독립 사례로 구현하고 더 넓은 모델을 검증한다.
 4. 편집기 확장: 고리 템플릿, 확대·화면 이동과 추가 장면 객체.
 5. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.

@@ -12,7 +12,7 @@ use chemifree_domain::interchange::{
 };
 use roxmltree::{Node, NodeType, ParsingOptions};
 
-const MAX_XML_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_XML_BYTES: usize = 1024 * 1024;
 const MAX_XML_NODES: u32 = 100_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -943,8 +943,13 @@ fn property_text(property: &Property) -> Result<String, CdxmlError> {
     })
 }
 
+/// The XML 1.0 `Char` production, shared with the binary codec.
+pub(crate) fn is_xml_char(character: char) -> bool {
+    matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}')
+}
+
 fn xml_characters(text: &str) -> bool {
-    text.chars().all(|character| matches!(character, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..='\u{10ffff}'))
+    text.chars().all(is_xml_char)
 }
 
 fn escape(text: &str, attribute: bool) -> Result<String, CdxmlError> {

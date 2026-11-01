@@ -19,8 +19,8 @@ fn catalog_and_dispatch_follow_the_providers_actually_connected() {
     for (ct, rich, label) in [
         (false, false, "Import and export"),
         (true, false, "MOL/SDF subset"),
-        (false, true, "CDXML subset"),
-        (true, true, "MOL/SDF and CDXML subsets"),
+        (false, true, "CDXML and CDX subsets"),
+        (true, true, "MOL/SDF, CDXML and CDX subsets"),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let mut app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()));
@@ -128,4 +128,65 @@ fn catalog_and_dispatch_follow_the_providers_actually_connected() {
         );
         assert_eq!(before["result"], after["result"]);
     }
+}
+
+#[test]
+fn capability_and_catalog_text_names_cdx_and_its_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_ctfile_codec(V2000Codec)
+        .with_interchange_codec(LocalInterchangeCodec);
+    let caps = serde_json::to_value(app.capabilities()).unwrap();
+    let conversion = caps["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "format_conversion")
+        .unwrap();
+    let description = conversion["description"].as_str().unwrap();
+    for needed in ["CDX", "base64", "1 MiB", "other formats are unsupported"] {
+        assert!(
+            description.contains(needed),
+            "{needed:?} missing from {description:?}"
+        );
+    }
+    let operations = caps["operation_catalog"]["operations"].as_array().unwrap();
+    for (id, needed) in [
+        ("document.import", ["CDX", "base64", "1 MiB"]),
+        (
+            "document.export",
+            ["CDX", "accepted_losses", "opaque-content"],
+        ),
+    ] {
+        let note = operations
+            .iter()
+            .find(|operation| operation["id"] == id)
+            .and_then(|operation| operation["note"].as_str())
+            .unwrap();
+        for word in needed {
+            assert!(
+                note.contains(word),
+                "{word:?} missing from the {id} note {note:?}"
+            );
+        }
+    }
+    // A CDXML-only configuration still names CDX, because one codec serves both formats.
+    let only = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(LocalInterchangeCodec);
+    let note = serde_json::to_value(only.operation_catalog()).unwrap();
+    let text = note.to_string();
+    assert!(text.contains("bounded CDX subset"), "{text}");
+}
+
+#[test]
+fn the_quoted_limit_is_the_codecs_limit() {
+    use chemifree_application::interchange_codec::InterchangeCodec;
+    let codec = LocalInterchangeCodec;
+    assert_eq!(codec.binary_input_limit(), 1024 * 1024);
+    let dir = tempfile::tempdir().unwrap();
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()))
+        .with_interchange_codec(codec);
+    let caps = serde_json::to_value(app.capabilities()).unwrap();
+    let text = caps.to_string();
+    assert!(text.contains("at most 1 MiB"), "{text}");
 }
