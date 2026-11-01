@@ -55,7 +55,10 @@ fn round_trip(source: &str) -> Result<Document, cdx::CdxError> {
 #[test]
 fn coordinate_extremes_round_trip_and_one_step_past_is_refused() {
     // 2147483647 / 65536 and -2147483648 / 65536 are the exact 16.16 limits.
-    for p in ["-32768 -32768", "32767.9999847412109375 32767.9999847412109375"] {
+    for p in [
+        "-32768 -32768",
+        "32767.9999847412109375 32767.9999847412109375",
+    ] {
         round_trip(&format!(
             "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"{p}\"/></fragment></page></CDXML>"
         ))
