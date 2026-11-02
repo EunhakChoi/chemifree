@@ -2,7 +2,7 @@
 //! reader, and every atom's element, charge, isotope, hydrogens and radical, and every bond,
 //! must come back as written. A string that fails the check is never returned.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chemifree_application::smiles::{SmilesCode, SmilesError, SmilesStyle, SmilesWrite};
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
@@ -43,6 +43,8 @@ struct Plan {
     /// The valence model finds the valence unusual and so gives no hydrogen count for inferred
     /// hydrogens; a stated count would be a guess.
     guessed_hydrogens: bool,
+    /// The valence model finds the valence unusual, whatever the hydrogens.
+    invalid_valence: bool,
 }
 
 impl Plan {
@@ -224,6 +226,9 @@ fn compare(
         position[plan] = at;
     }
     let mut bracketed = Vec::new();
+    // Faults no bracket can repair, by the atom's index in the drawing's (or the canonical)
+    // numbering. The lowest-numbered atom decides the code, whatever order the text is in.
+    let mut faults: Vec<(usize, Fail)> = Vec::new();
     for (at, &index) in order.iter().enumerate() {
         let plan = &plans[index];
         let read = &parsed.read.atoms[at].atom;
@@ -232,7 +237,8 @@ fn compare(
             || read.charge != plan.charge
             || read.isotope != plan.isotope
         {
-            return Err(mismatch("an element, charge or isotope differs"));
+            faults.push((index, mismatch("an element, charge or isotope differs")));
+            continue;
         }
         let resolved = parsed.resolved[at];
         if resolved.hydrogens == Some(plan.hydrogens) && resolved.radical == plan.radical {
@@ -241,10 +247,25 @@ fn compare(
         if !bracket[index] {
             bracketed.push(index);
         } else if resolved.hydrogens != Some(plan.hydrogens) {
-            return Err(fail(SmilesCode::HydrogensNotWritable));
+            faults.push((
+                index,
+                fail(SmilesCode::HydrogensNotWritable)
+                    .because(format!("{}: the text states other hydrogens", plan.id)),
+            ));
         } else {
-            return Err(fail(SmilesCode::RadicalNotWritable));
+            let why = if plan.invalid_valence {
+                "its valence is outside the valence model, so a reader records the radical as unknown"
+            } else {
+                "SMILES cannot state this radical so that it reads back the same"
+            };
+            faults.push((
+                index,
+                fail(SmilesCode::RadicalNotWritable).because(format!("{}: {why}", plan.id)),
+            ));
         }
+    }
+    if let Some((_, fault)) = faults.into_iter().min_by_key(|(index, _)| *index) {
+        return Err(fault);
     }
     let written: BTreeSet<(usize, usize, u8)> = links
         .iter()
@@ -283,6 +304,13 @@ fn kind_code(order: &BondOrder) -> u8 {
 pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, Fail> {
     if graph.atoms().len() == 0 {
         return Err(fail(SmilesCode::EmptyGraph));
+    }
+    // A graph assembled from parts can break what a document guarantees.
+    let known: HashSet<AtomId> = graph.atoms().map(|(id, _)| id).collect();
+    if graph.bonds().any(|(_, bond)| {
+        bond.begin == bond.end || !known.contains(&bond.begin) || !known.contains(&bond.end)
+    }) {
+        return Err(fail(SmilesCode::BondEndpointsInvalid));
     }
     match style {
         SmilesStyle::Recorded => recorded(graph),
@@ -345,16 +373,22 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         } else {
             element
         };
-        let guessed_hydrogens =
-            assessment.finding == Finding::Invalid && atom.hydrogens == Hydrogens::Inferred;
+        let invalid_valence = assessment.finding == Finding::Invalid;
+        let guessed_hydrogens = invalid_valence && atom.hydrogens == Hydrogens::Inferred;
         let (hydrogens, radical, assumed_hydrogens, assumed_radical) =
             match (assessment.finding, assessment.reason) {
-                (Finding::Valid | Finding::Invalid, _) => (
-                    assessment.hydrogen_count.unwrap_or(0),
-                    atom.radical,
-                    false,
-                    false,
-                ),
+                (Finding::Valid | Finding::Invalid, _) => {
+                    // The drawing's own count wins; the model's is for inferred hydrogens.
+                    let stated = match atom.hydrogens {
+                        Hydrogens::Specified(count) => Some(u16::from(count)),
+                        _ => None,
+                    };
+                    let count = stated.or(assessment.hydrogen_count).ok_or_else(|| {
+                        fail(SmilesCode::HydrogensNotWritable)
+                            .because(format!("{id}: no hydrogen count is stated or determined"))
+                    })?;
+                    (count, atom.radical, false, false)
+                }
                 (Finding::Unsupported, Some("element_or_charge")) => {
                     // A reader records the radical of such an atom as unknown, so an unknown
                     // radical is written as it is and a drawn "none" is an assumption.
@@ -396,6 +430,7 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
             assumed_hydrogens,
             assumed_radical,
             guessed_hydrogens,
+            invalid_valence,
         });
     }
     let index: HashMap<AtomId, usize> = plans.iter().enumerate().map(|(i, p)| (p.id, i)).collect();
@@ -555,6 +590,7 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
             assumed_hydrogens: false,
             assumed_radical: false,
             guessed_hydrogens: false,
+            invalid_valence: false,
         });
     }
     let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
@@ -644,6 +680,7 @@ mod tests {
                 assumed_hydrogens: false,
                 assumed_radical: false,
                 guessed_hydrogens: false,
+                invalid_valence: false,
             })
             .collect();
         let links: Vec<Link> = (0..3)

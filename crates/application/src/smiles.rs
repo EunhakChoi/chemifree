@@ -120,6 +120,7 @@ codes! {
     UnknownElement = "unknown_element", Syntax, "This is not an element symbol.";
     InvalidBracketContent = "invalid_bracket_content", Syntax, "A bracket atom is isotope, symbol, hydrogen count, charge and atom class, in that order.";
     HydrogenCountOnHydrogen = "hydrogen_count_on_hydrogen", Syntax, "A hydrogen atom cannot have a hydrogen count; write [H][H] for hydrogen gas.";
+    InvalidHydrogenCount = "invalid_hydrogen_count", Syntax, "A hydrogen count is H or H and one digit.";
     InvalidRingLabel = "invalid_ring_label", Syntax, "A ring label is one digit, or % and two digits.";
     RingDigitAtStart = "ring_digit_at_start", Syntax, "A ring label must follow the atom it belongs to; there is no atom yet.";
     RingDigitAfterBranchOpen = "ring_digit_after_branch_open", Syntax, "A ring label cannot follow ( ; it belongs right after an atom.";
@@ -157,6 +158,7 @@ codes! {
     CanonicalLimit = "canonical_limit", Limit, "The canonical search exceeded its size or work limit.";
     EmptyGraph = "empty_graph", NotWritable, "A drawing with no atoms has no SMILES.";
     QueryAtomNotWritable = "query_atom_not_writable", NotWritable, "A query atom has no SMILES form here.";
+    BondEndpointsInvalid = "bond_endpoints_invalid", NotWritable, "A bond must join two different atoms of the drawing.";
     BondKindNotWritable = "bond_kind_not_writable", NotWritable, "Only single, double, triple and aromatic bonds can be written.";
     AromaticNotWritable = "aromatic_not_writable", NotWritable, "The aromatic bonds are not an aromatic ring system under the aromaticity model.";
     AromaticElementNotWritable = "aromatic_element_not_writable", NotWritable, "This element has no lower-case aromatic symbol.";

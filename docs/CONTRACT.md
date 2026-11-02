@@ -137,7 +137,7 @@ The codec accepts at most 4 MiB input or output, 128 records, 999 atoms and 999 
 
 The grammar follows the [OpenSMILES specification](https://opensmiles.github.io/opensmiles/opensmiles.html), section "Formal Grammar" for the productions, "Rings" for ring labels, "Branches", "Bonds", "Disconnected Structures" for dots, "Charge", "Isotopes" and "Hydrogens" for bracket atoms, "Aromaticity" for aromatic atoms and "Parsing Termination" for the end of the string.
 
-- **Atoms.** Bare `B C N O P S F Cl Br I` and aromatic `b c n o p s`; bracket atoms `[isotope? symbol hcount? charge? class?]` with any element symbol of the periodic table (aromatic `b c n o p s se as` in lower case). A bare atom has inferred hydrogens and no radical. A bracket atom states its hydrogens (`H`, `H1` to `H9`; none means 0). An atom class (`:5`) is dropped with an `atom_class` loss.
+- **Atoms.** Bare `B C N O P S F Cl Br I` and aromatic `b c n o p s`; bracket atoms `[isotope? symbol hcount? charge? class?]` with any element symbol of the periodic table (aromatic `b c n o p s se as` in lower case). A bare atom has inferred hydrogens and no radical. A bracket atom states its hydrogens (`H`, `H1` to `H9`; none means 0); a second digit, as in `[CH10]`, is `invalid_hydrogen_count` (OpenSMILES "Hydrogens": `H` or `H` and one digit). An atom class (`:5`) is dropped with an `atom_class` loss.
 - **Isotopes.** Digits with leading zeros allowed, so `[002H]` is `[2H]`. The drawing records mass numbers 1 to 999 only, so `[0C]` is refused as `isotope_zero` and a larger number as `isotope_out_of_range`.
 - **Charges.** `+`, `-`, `++`, `--`, `+n` and `-n` with one or two digits; `+0` and `-0` are charge 0. The accepted range is the drawing's, `MIN_CHARGE` to `MAX_CHARGE` (−8 to +8); a charge written in the grammar but outside it, such as `[C+9]` or `[Fe-15]`, is refused as `charge_out_of_range`.
 - **Bonds.** `-` `=` `#` `:` (aromatic) and the dot. `$` is refused as `quadruple_bond_unsupported`. A bond symbol directly before `(`, `)`, `.` or the end is a `dangling_bond` at the symbol.
@@ -152,13 +152,13 @@ The grammar follows the [OpenSMILES specification](https://opensmiles.github.io/
 
 `document.import` with `format: "smiles"`, `document_id`, `expected_revision`, `source`, and `preview: true` returns `{ atoms, bonds, ignored_text, snapshot, document, preview_digest, valence_model, aromaticity_model }` and the loss report, without changing the document. The digest binds the service instance, the source, the exact pre-import snapshot, the prospective document and the complete loss report, and is rechecked under the document lock; a digest from before a restart, or made for other text or for another state of the drawing at the same revision, is refused as `preview_changed`; an `expected_revision` that is no longer current is `revision_conflict`. To commit, repeat the request with `preview_digest` and, when a loss needs it, `accept_loss: true`. Only losses that change the chemistry or drop text need acceptance: `radical_state`, `ignored_text` and `atom_class`. Without acceptance the commit is refused as `loss_consent_required` with `details.features` and the full `details.losses` that need it, and nothing changes. `generated_layout`, always reported, needs none: a plain `CCO` with its digest commits with `accept_loss` absent. The import appends to the drawing as one undoable transaction and replies with the document and `import_mapping`. Repeating a request ID returns the committed reply and does not place atoms again.
 
-SMILES has no coordinates and no structure layout exists yet, so new atoms are placed on a grid of 10 columns, 30 points apart, in input order: starting at (40, 40) in a drawing with no atoms, otherwise at the x of the leftmost existing atom and 60 points below the lowest one. A position outside the drawing's coordinate range is `coordinate_out_of_range`. The document must have exactly one placement (`unsupported_scene`).
+SMILES has no coordinates and no structure layout exists yet, so new atoms are placed on a grid of 10 columns, 30 points apart, in input order: starting at (40, 40) in a drawing with no atoms, otherwise at the x of the leftmost existing atom or graphic point and 60 points below the lowest one (atoms and the end points of lines, rectangles and arrows count; groups have no extent of their own). A position outside the drawing's coordinate range is `coordinate_out_of_range`. The document must have exactly one placement (`unsupported_scene`).
 
 ### Export
 
 `document.export` with `format: "smiles"`, `document_id`, `style` (`recorded` or `canonical`, required) and optionally `accepted_losses` returns `{ content, style, snapshot, atom_order, folded_hydrogens, valence_model, aromaticity_model, graph_model }`. It is read-only: it changes neither the document nor its undo history, and `snapshot` is the exact working copy written. A reply's `model_id` is `chemifree-smiles-1` or `chemifree-smiles-canonical-1`.
 
-Every string either writer returns is accepted by the same reader: the codec reads its own text back and compares every atom's element, charge, isotope, hydrogens and radical, and every bond, before returning it. A graph for which no such string exists is refused with a `not_writable` or `limit` code and the real cause (for example the aromaticity model's reason is checked before any atom is formatted).
+Every string either writer returns is accepted by the same reader: the codec reads its own text back and compares every atom's element, charge, isotope, hydrogens and radical, and every bond, before returning it. The code of a read-back fault is decided by the lowest-numbered faulty atom of the drawing (of the canonical numbering for canonical text), whatever the order of the text, and the reason names that atom. A bond that does not join two different atoms of the graph is `bond_endpoints_invalid`. A graph for which no such string exists is refused with a `not_writable` or `limit` code and the real cause (for example the aromaticity model's reason is checked before any atom is formatted).
 
 - **Recorded** keeps the drawing's atoms and bonds as recorded: Kekulé bonds stay Kekulé and aromatic bonds stay aromatic. The text is a depth-first walk from the first atom of the document, visiting neighbours in document order, starting each further component at its first unwritten atom; the last child of an atom continues the chain and earlier children are branches. `atom_order` lists the drawing's atom for each written atom, in text order. Ring labels are the lowest free number from 1; a label that closes at an atom is free for the rings that open at that atom.
 - **Canonical** writes one text for every drawing of the same chemical graph under `chemifree-chemical-graph-2`: it is the same walk in the canonical numbering of that model, so atom order, Kekulé or aromatic spelling and explicit hydrogen vertices do not change it. It is refused (`canonical_unsupported`, with the model's reason in `details.reason`) wherever the graph model has no identity: atoms outside the valence model (ions such as `[Na+]`, metals), a radical the model cannot state, unknown hydrogens, query atoms, dative or unknown bonds, or an aromatic system the aromaticity model cannot class. More than 128 atoms, or a search beyond its work limit, is `canonical_limit`. Terminal explicit hydrogens are folded into their neighbour's count and listed in `folded_hydrogens`, not in `atom_order`. Doublet radicals such as `[CH3]` and `[OH]` have a canonical form; `[CH2]`, `[C]` and `[CH]` have none, and drawn singlet and triplet radicals are `radical_not_writable`.
@@ -182,6 +182,7 @@ Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsup
 | `unknown_element` | syntax | This is not an element symbol. |
 | `invalid_bracket_content` | syntax | A bracket atom is isotope, symbol, hydrogen count, charge and atom class, in that order. |
 | `hydrogen_count_on_hydrogen` | syntax | A hydrogen atom cannot have a hydrogen count; write [H][H] for hydrogen gas. |
+| `invalid_hydrogen_count` | syntax | A hydrogen count is H or H and one digit. |
 | `invalid_ring_label` | syntax | A ring label is one digit, or % and two digits. |
 | `ring_digit_at_start` | syntax | A ring label must follow the atom it belongs to; there is no atom yet. |
 | `ring_digit_after_branch_open` | syntax | A ring label cannot follow ( ; it belongs right after an atom. |
@@ -219,6 +220,7 @@ Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsup
 | `canonical_limit` | limit | The canonical search exceeded its size or work limit. |
 | `empty_graph` | not_writable | A drawing with no atoms has no SMILES. |
 | `query_atom_not_writable` | not_writable | A query atom has no SMILES form here. |
+| `bond_endpoints_invalid` | not_writable | A bond must join two different atoms of the drawing. |
 | `bond_kind_not_writable` | not_writable | Only single, double, triple and aromatic bonds can be written. |
 | `aromatic_not_writable` | not_writable | The aromatic bonds are not an aromatic ring system under the aromaticity model. |
 | `aromatic_element_not_writable` | not_writable | This element has no lower-case aromatic symbol. |
@@ -247,6 +249,7 @@ Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsup
 | `C.(C)C` | `branch_without_atom` | 2 |
 | `C(.)C` | `dangling_dot` | 2 |
 | `.C` | `dot_without_atom` | 0 |
+| `[CH10]` | `invalid_hydrogen_count` | 4 |
 | `c` | `aromatic_atom_outside_ring` | 0 |
 | `c:c` | `aromatic_bond_outside_ring` | 1 |
 | `c1ccccc1:c1ccccc1` | `aromatic_bond_outside_ring` | 8 |

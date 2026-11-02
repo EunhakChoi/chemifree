@@ -532,6 +532,10 @@ impl Reader<'_> {
                 }
                 None => 1,
             };
+            // OpenSMILES "Hydrogens": the count is `H` or `H` and one digit.
+            if let Some(extra) = self.digits() {
+                return Err(at(SmilesCode::InvalidHydrogenCount, extra.1));
+            }
         }
         if let Some(sign) = self.peek(0).filter(|b| matches!(b, b'+' | b'-')) {
             bracket.charge = Some(self.charge(sign));

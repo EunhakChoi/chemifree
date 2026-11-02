@@ -150,6 +150,8 @@ fn spans_of_syntax_errors_are_exact() {
         ("[]", (SmilesCode::MissingElementSymbol, 1, 1)),
         ("[Xx]", (SmilesCode::UnknownElement, 1, 1)),
         ("[HH]", (SmilesCode::HydrogenCountOnHydrogen, 2, 1)),
+        ("[CH10]", (SmilesCode::InvalidHydrogenCount, 4, 1)),
+        ("[CH123]", (SmilesCode::InvalidHydrogenCount, 4, 2)),
         ("[CH2+x]", (SmilesCode::InvalidBracketContent, 5, 1)),
         ("[C+H]", (SmilesCode::InvalidBracketContent, 3, 1)),
         ("[C:]", (SmilesCode::InvalidBracketContent, 3, 1)),
@@ -484,4 +486,39 @@ fn an_unsupported_system_in_the_second_component_is_reported_at_its_first_atom()
         refused("c1cccc1.c1ccccc1"),
         (SmilesCode::AromaticSystemUnsupported, 0, 1)
     );
+}
+
+#[test]
+fn every_element_symbol_reads_in_brackets_so_a_pair_never_clashes_with_a_continuation() {
+    // The reader takes a two-letter element whenever the pair exists. That is safe only while
+    // the second letter of every such symbol is a lower-case letter, which no bracket
+    // continuation (`@`, `H`, a sign, a digit, `:` or `]`) is. A symbol that broke this would
+    // read as the wrong element, so every symbol is read back here.
+    for number in 1..=118_u8 {
+        let element = chemifree_domain::element::Element::from_atomic_number(number).unwrap();
+        let symbol = element.symbol();
+        if symbol.len() == 2 {
+            assert!(
+                symbol.as_bytes()[1].is_ascii_lowercase(),
+                "{symbol}: a second letter that is not lower case could clash"
+            );
+        }
+        let text = format!("[{symbol}]");
+        let parsed = read(&text);
+        assert_eq!(
+            parsed.atoms[0].atom.kind.element().map(|e| e.symbol()),
+            Some(symbol),
+            "{text}"
+        );
+        // With the hydrogens and charge that follow a symbol (hydrogen itself takes no count).
+        if symbol == "H" {
+            continue;
+        }
+        let full = read(&format!("[{symbol}H2+]"));
+        assert_eq!(
+            full.atoms[0].atom.kind.element().map(|e| e.symbol()),
+            Some(symbol)
+        );
+        assert_eq!(full.atoms[0].atom.hydrogens, Hydrogens::Specified(2));
+    }
 }

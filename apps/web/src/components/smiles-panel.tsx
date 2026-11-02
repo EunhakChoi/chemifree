@@ -8,6 +8,7 @@ import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
   ConsentRequired,
   describeSpan,
+  outcomeOpen,
   type CtLoss,
   sameConversionSnapshot,
   type DocumentView,
@@ -65,6 +66,8 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const [styleVersion, setStyleVersion] = useState(0)
   const [prepared, setPrepared] = useState<Prepared | null>(null)
   const [importOffer, setImportOffer] = useState<(Offer & { preview: string }) | null>(null)
+  // A commit whose reply was lost: it may have happened, and only the same request can say.
+  const [unconfirmed, setUnconfirmed] = useState<(Offer & { preview: string; acceptLoss: boolean }) | null>(null)
   const [written, setWritten] = useState<Written | null>(null)
   const [exportOffer, setExportOffer] = useState<(Offer & { styleVersion: number }) | null>(null)
   const [pending, setPending] = useState(0)
@@ -98,6 +101,9 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared, preparedShown) ? prepared : null
   const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer, importOfferShown)
     ? importOffer : null
+  const unconfirmedShown = useStillShown(document, unconfirmed)
+  const liveUnconfirmed = livePreview && unconfirmed && unconfirmed.preview === livePreview.data.digest &&
+    current(unconfirmed, unconfirmedShown) ? unconfirmed : null
   const liveWritten = written && written.styleVersion === styleVersion && current(written, writtenShown) ? written : null
   const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer, exportOfferShown) ? exportOffer : null
   const stale = (prepared && !livePreview) || (written && !liveWritten)
@@ -108,6 +114,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setSourceVersion((version) => version + 1)
     setPrepared(null)
     setImportOffer(null)
+    setUnconfirmed(null)
     setError(null)
     if (previewing.current > 0) {
       previewRequest.current += 1
@@ -140,6 +147,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setNotice(null)
     setPrepared(null)
     setImportOffer(null)
+    setUnconfirmed(null)
     try {
       const data = await editor.previewSmiles(document.id, document.revision, asked.source)
       // The service must have previewed the very drawing the request named.
@@ -174,6 +182,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       if (result.committed) {
         setPrepared(null)
         setImportOffer(null)
+        setUnconfirmed(null)
         setNotice('Imported. The drawing now holds the new atoms; undo reverts the import.')
       } else if (result.failure instanceof ConsentRequired) {
         // A new refusal to proceed without consent replaces any earlier offer for this preview.
@@ -181,10 +190,19 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
           preview: ready.data.digest, drawing: ready.drawing, generation: ready.generation, digest: ready.data.digest,
           features: result.failure.features, losses: result.failure.losses,
         })
+      } else if (result.failure && outcomeOpen(result.failure)) {
+        // The import may have happened. The preview stays so that the same request can be
+        // sent again; the service answers it with what it committed, or commits it once.
+        setUnconfirmed({
+          preview: ready.data.digest, acceptLoss, drawing: ready.drawing, generation: ready.generation,
+          digest: ready.data.digest, features: [], losses: [],
+        })
+        setError(result.failure.message)
       } else {
         // Any other refusal leaves nothing to commit: the preview and its offer are void.
         setPrepared(null)
         setImportOffer(null)
+        setUnconfirmed(null)
         setError(result.failure?.message ?? 'The import failed.')
       }
     } catch (failure) {
@@ -192,6 +210,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       if (alive.current) {
         setPrepared(null)
         setImportOffer(null)
+        setUnconfirmed(null)
         setError(message(failure, 'The import failed.'))
       }
     } finally {
@@ -266,10 +285,16 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       <p className="text-muted-foreground">
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
       </p>
-      {!liveImportOffer && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
+      {liveUnconfirmed && <div role="group" aria-label="Import not confirmed" className="flex flex-col gap-2">
+        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once.</p>
+        <Button size="sm" disabled={busy} onClick={() => void commitImport(liveUnconfirmed.acceptLoss)}>
+          Retry the same import
+        </Button>
+      </div>}
+      {!liveImportOffer && !liveUnconfirmed && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
         Import SMILES
       </Button>}
-      {liveImportOffer && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
+      {liveImportOffer && !liveUnconfirmed && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
         <p>These losses change the chemistry or drop text and must be accepted: {liveImportOffer.features.join(', ')}.</p>
         <LossList losses={liveImportOffer.losses} />
         <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import SMILES</Button>

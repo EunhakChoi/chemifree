@@ -12,7 +12,7 @@ use chemifree_domain::states::AttachmentPoints;
 use super::import::{ImportFormat, ImportRequest, Staged};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
 use super::*;
-use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto};
+use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto, SceneObjectView};
 use crate::smiles::{SmilesCodec, SmilesError, SmilesRead, SmilesStyle, Span};
 
 /// Where new atoms go: a grid, in input order, below whatever the drawing already holds.
@@ -56,23 +56,24 @@ pub struct SpanView {
     pub character_length: usize,
 }
 
-/// Converts byte offsets of one source to character offsets by scanning it, without building a
-/// table the size of the input.
-struct Characters<'a> {
-    source: &'a str,
+/// Converts byte offsets of one source to character offsets: by one scan for a single span, or
+/// through the table of where each character starts for the many spans of a preview.
+struct Characters {
+    /// The byte offset at which each character starts, in order.
+    starts: Vec<usize>,
 }
 
-impl<'a> Characters<'a> {
-    fn new(source: &'a str) -> Self {
-        Self { source }
+impl Characters {
+    /// The table for a source already known to be within the codec's input limit.
+    fn new(source: &str) -> Self {
+        Self {
+            starts: source.char_indices().map(|(start, _)| start).collect(),
+        }
     }
 
     /// The number of characters that start before `byte`; a position past the end counts all.
     fn before(&self, byte: usize) -> usize {
-        self.source
-            .char_indices()
-            .take_while(|(start, _)| *start < byte)
-            .count()
+        self.starts.partition_point(|start| *start < byte)
     }
 
     fn view(&self, span: Span) -> SpanView {
@@ -84,6 +85,25 @@ impl<'a> Characters<'a> {
             character_offset: first,
             character_length: last.saturating_sub(first),
         }
+    }
+}
+
+/// The same conversion for one span of a source of any length, with one scan and no table:
+/// refusals of an oversize source must not allocate in proportion to it.
+fn view_once(source: &str, span: Span) -> SpanView {
+    let before = |byte: usize| {
+        source
+            .char_indices()
+            .take_while(|(start, _)| *start < byte)
+            .count()
+    };
+    let first = before(span.offset);
+    let last = before(span.offset.saturating_add(span.length));
+    SpanView {
+        offset: span.offset,
+        length: span.length,
+        character_offset: first,
+        character_length: last.saturating_sub(first),
     }
 }
 
@@ -149,7 +169,7 @@ fn smiles_diagnostic(error: &SmilesError, source: Option<&str>) -> Diagnostic {
         details.insert("offset".into(), span.offset.into());
         details.insert("length".into(), span.length.into());
         if let Some(source) = source {
-            let view = Characters::new(source).view(span);
+            let view = view_once(source, span);
             details.insert("character_offset".into(), view.character_offset.into());
             details.insert("character_length".into(), view.character_length.into());
         }
@@ -168,13 +188,20 @@ struct SmilesImportFormat<'a> {
 
 /// Grid positions for new atoms, below `target`'s atoms, or `None` when one is out of range.
 fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command>, Diagnostic> {
+    // Everything the drawing holds that has a position: atoms and the points of graphics.
+    let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
+        SceneObjectView::Graphic { points, .. } => points.iter().collect::<Vec<_>>(),
+        SceneObjectView::Instance { .. } | SceneObjectView::Group { .. } => Vec::new(),
+    });
     let (left, bottom) = target
         .atoms
         .iter()
-        .fold(None, |extent: Option<(f64, f64)>, atom| {
+        .map(|atom| &atom.position)
+        .chain(graphic_points)
+        .fold(None, |extent: Option<(f64, f64)>, position| {
             Some(match extent {
-                Some((left, bottom)) => (left.min(atom.position.x), bottom.max(atom.position.y)),
-                None => (atom.position.x, atom.position.y),
+                Some((left, bottom)) => (left.min(position.x), bottom.max(position.y)),
+                None => (position.x, position.y),
             })
         })
         .map_or(
@@ -492,25 +519,53 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
 mod tests {
     use super::*;
 
+    fn both(source: &str, span: Span) -> (SpanView, SpanView) {
+        (Characters::new(source).view(span), view_once(source, span))
+    }
+
     #[test]
     fn character_offsets_count_characters_not_bytes() {
-        let view = Characters::new("C\u{e9}O").view(Span::new(1, 2));
-        assert_eq!((view.character_offset, view.character_length), (1, 1));
-        let after = Characters::new("C\u{e9}O").view(Span::new(3, 1));
-        assert_eq!((after.character_offset, after.character_length), (2, 1));
+        let (table, scan) = both("C\u{e9}O", Span::new(1, 2));
+        assert_eq!((table.character_offset, table.character_length), (1, 1));
+        assert_eq!(table, scan);
+        let (table, scan) = both("C\u{e9}O", Span::new(3, 1));
+        assert_eq!((table.character_offset, table.character_length), (2, 1));
+        assert_eq!(table, scan);
     }
 
     #[test]
     fn a_span_past_the_end_neither_underflows_nor_panics() {
-        let characters = Characters::new("CCO");
-        let past = characters.view(Span::new(10, 5));
-        assert_eq!((past.character_offset, past.character_length), (3, 0));
-        let straddling = characters.view(Span::new(2, usize::MAX));
-        assert_eq!(
-            (straddling.character_offset, straddling.character_length),
-            (2, 1)
+        for (source, span, expected) in [
+            ("CCO", Span::new(10, 5), (3, 0)),
+            ("CCO", Span::new(2, usize::MAX), (2, 1)),
+            ("", Span::new(0, 0), (0, 0)),
+        ] {
+            let (table, scan) = both(source, span);
+            assert_eq!((table.character_offset, table.character_length), expected);
+            assert_eq!(table, scan);
+        }
+    }
+
+    #[test]
+    fn a_table_converts_many_spans_of_a_large_source_in_linear_time() {
+        // 8,192 two-byte characters fill the 16 KiB input limit. A scan from the start for
+        // each of 200,000 views would take about 8e8 steps (many seconds in a test build);
+        // the table takes a binary search each.
+        let source = "\u{e9}".repeat(8192);
+        let table = Characters::new(&source);
+        let started = std::time::Instant::now();
+        let mut total = 0;
+        for index in 0..200_000_usize {
+            total += table
+                .view(Span::new((index * 2) % 16_384, 2))
+                .character_offset;
+        }
+        assert!(total > 0);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
         );
-        let empty = Characters::new("").view(Span::new(0, 0));
-        assert_eq!((empty.character_offset, empty.character_length), (0, 0));
+        assert_eq!(table.view(Span::new(16_382, 2)).character_offset, 8191);
     }
 }

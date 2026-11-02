@@ -554,3 +554,70 @@ fn a_hydrogen_count_the_model_does_not_determine_is_never_written_as_if_it_were(
         "C(C)(C)(C)(C)C"
     );
 }
+
+#[test]
+fn a_bond_that_joins_no_two_atoms_is_refused_not_walked() {
+    for style in [SmilesStyle::Recorded, SmilesStyle::Canonical] {
+        let to_itself = build(vec![atom("C")], vec![(0, 0, BondOrder::Single)]);
+        assert_eq!(refusal(&to_itself, style), SmilesCode::BondEndpointsInvalid);
+        let dangling = MoleculeGraph::from_parts(
+            vec![(id(0), atom("C"))],
+            vec![(
+                BondId::from_serial(1).unwrap(),
+                Bond {
+                    begin: id(0),
+                    end: id(5),
+                    order: BondOrder::Single,
+                },
+            )],
+        );
+        assert_eq!(refusal(&dangling, style), SmilesCode::BondEndpointsInvalid);
+    }
+}
+
+fn two_carbenes(first: Radical, second: Radical) -> MoleculeGraph {
+    let mut a = atom("C");
+    a.radical = first;
+    let mut b = atom("C");
+    b.radical = second;
+    build(vec![a, b], vec![])
+}
+
+#[test]
+fn the_lowest_numbered_faulty_atom_decides_the_code_and_is_named() {
+    // Both atoms read back differently; a bracket cannot repair either. Whichever order the
+    // two kinds of fault come in, the error names the lower-numbered atom (a1).
+    for graph in [
+        two_carbenes(Radical::Singlet, Radical::Triplet),
+        two_carbenes(Radical::Triplet, Radical::Singlet),
+    ] {
+        let error = OpenSmilesCodec
+            .write(&graph, SmilesStyle::Recorded)
+            .unwrap_err();
+        assert_eq!(error.code, SmilesCode::RadicalNotWritable);
+        let reason = error.reason.unwrap();
+        assert!(reason.starts_with("a1:"), "{reason}");
+    }
+}
+
+#[test]
+fn stated_hydrogens_on_an_over_valent_atom_are_kept_and_its_real_cause_is_reported() {
+    // A carbon with five single bonds and two stated hydrogens. Dropping the stated count
+    // would let the bare atom read back as an over-valent carbon with none, and be written.
+    let mut centre = atom("C");
+    centre.hydrogens = Hydrogens::Specified(2);
+    let mut atoms = vec![centre];
+    atoms.extend((0..5).map(|_| atom("C")));
+    let bonds = (1..=5).map(|i| (0, i, BondOrder::Single)).collect();
+    let error = OpenSmilesCodec
+        .write(&build(atoms, bonds), SmilesStyle::Recorded)
+        .unwrap_err();
+    assert_eq!(error.code, SmilesCode::RadicalNotWritable);
+    assert!(
+        error
+            .reason
+            .unwrap()
+            .contains("valence is outside the valence model"),
+        "the real cause is named"
+    );
+}

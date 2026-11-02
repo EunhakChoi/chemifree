@@ -411,3 +411,34 @@ fn documented_hydrogen_state_claims_hold() {
         .unwrap_err();
     assert_eq!(error.code.as_str(), "hydrogens_not_writable");
 }
+
+#[test]
+fn documented_hydrogen_count_placement_and_fault_claims_hold() {
+    let section = contract_section();
+    for claim in [
+        "a second digit, as in `[CH10]`, is `invalid_hydrogen_count`",
+        "atoms and the end points of lines, rectangles and arrows count",
+        "decided by the lowest-numbered faulty atom",
+        "`bond_endpoints_invalid`",
+    ] {
+        assert!(
+            section.contains(claim),
+            "the contract no longer says {claim:?}"
+        );
+    }
+    assert_eq!(
+        OpenSmilesCodec.read("[CH10]").unwrap_err().code.as_str(),
+        "invalid_hydrogen_count"
+    );
+    assert_eq!(
+        OpenSmilesCodec.read("[CH9]").unwrap().atoms[0]
+            .atom
+            .hydrogens,
+        Hydrogens::Specified(9)
+    );
+    let to_itself = build(vec![element("C")], vec![(0, 0, BondOrder::Single)]);
+    let error = OpenSmilesCodec
+        .write(&to_itself, SmilesStyle::Recorded)
+        .unwrap_err();
+    assert_eq!(error.code.as_str(), "bond_endpoints_invalid");
+}

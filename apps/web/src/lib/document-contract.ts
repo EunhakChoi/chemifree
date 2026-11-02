@@ -1023,7 +1023,7 @@ function pause(ms: number) {
 }
 
 /** No reply arrived, or the service still runs the request: either way it may take effect. */
-function outcomeOpen(error: ApiError) {
+export function outcomeOpen(error: ApiError) {
   return error.status === 0 || error.code === 'request_in_progress'
 }
 

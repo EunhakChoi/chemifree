@@ -105,6 +105,12 @@ struct Walk {
 }
 
 fn walk(count: usize, links: &[Link]) -> Walk {
+    debug_assert!(
+        links
+            .iter()
+            .all(|link| link.begin != link.end && link.begin.max(link.end) < count),
+        "the writer refuses bonds that do not join two different atoms"
+    );
     let mut adjacent: Vec<Vec<(usize, usize)>> = vec![Vec::new(); count];
     for (index, link) in links.iter().enumerate() {
         adjacent[link.begin].push((link.end, index));

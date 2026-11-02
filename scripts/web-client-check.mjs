@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { ConsentRequired, DocumentClient, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { ConsentRequired, DocumentClient, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -1951,5 +1951,28 @@ test('a conversion snapshot is the same drawing whatever its key order or absent
   moved.title = 'Other'
   assert.equal(sameConversionSnapshot(moved, first), false)
   assert.equal(sameConversionSnapshot({ ...first, atoms: [...first.atoms].reverse(), bonds: first.bonds }, { ...first, atoms: [{ id: 'a2' }, { id: 'a1' }], bonds: first.bonds }), false, 'array order matters')
+})
+
+test('an unanswered SMILES import is an open outcome and is retried with the same request ID', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [], model_id: 'chemifree-smiles-1',
+  })] })
+  const client = new DocumentClient()
+  const input = { documentId: 'doc-1', revision: 0, source: 'CCO', digest: 'a'.repeat(64), acceptLoss: false }
+  const failure = await client.importSmiles(input).catch((error) => error)
+  assert.equal(failure.code, 'unreachable')
+  assert.equal(outcomeOpen(failure), true, 'a lost reply leaves the outcome open')
+  const result = await client.importSmiles(input)
+  assert.equal(result.document.revision, 1)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId, 'the retry is the same request')
+  // A refusal is definite: the next attempt is a new request.
+  const refused = service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null, loss_report: [],
+    diagnostics: [{ code: 'preview_changed', message: 'Changed.', details: {} }] }), () => json(200, {
+    outcome: 'partial', result: document('doc-1', 1), diagnostics: [], loss_report: [], model_id: 'chemifree-smiles-1' })] })
+  const second = new DocumentClient()
+  assert.equal(outcomeOpen(await second.importSmiles(input).catch((error) => error)), false)
+  await second.importSmiles(input)
+  assert.notEqual(refused.writes[0].requestId, refused.writes[1].requestId)
 })
 

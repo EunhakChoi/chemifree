@@ -3019,6 +3019,25 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByTestId('smiles-preview-summary').waitFor()
   await panel.getByRole('button', { name: 'Import SMILES' }).isEnabled()
 
+  // A commit whose reply is lost may have happened. The preview stays, and the same request
+  // is retried: the service answers with what it committed, so nothing is imported twice.
+  const before = await atomCount()
+  const loseReply = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.import' || request?.parameters?.preview === true) return route.continue()
+    await route.fetch()
+    return route.abort('connectionreset')
+  }
+  await page.route('**/api/v1/operations', loseReply)
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByRole('button', { name: 'Retry the same import' }).waitFor()
+  await page.unroute('**/api/v1/operations', loseReply)
+  assert.equal(await atomCount(), before + 2, 'the first request did commit')
+  await panel.getByRole('button', { name: 'Retry the same import' }).click()
+  await panel.getByText(/Imported\./).waitFor()
+  assert.equal(await atomCount(), before + 2, 'the retry was answered from the committed reply, not imported again')
+  await panel.getByRole('button', { name: 'Retry the same import' }).waitFor({ state: 'hidden' })
+
   // A restart between the preview and the import refuses the import in the panel.
   await source.fill('CC')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()

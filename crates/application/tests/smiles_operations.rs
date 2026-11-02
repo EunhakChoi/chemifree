@@ -767,3 +767,27 @@ fn a_consent_refusal_has_one_envelope_in_every_format() {
 fn cdxml_with_loss() -> &'static str {
     "\u{feff}<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--outside-->\n<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"1 2\"/><n id=\"4\" p=\"3 4\" Element=\"8\" Charge=\"-1\"/><b id=\"5\" B=\"3\" E=\"4\" Order=\"2\"/></fragment><t id=\"6\"><s>α &amp; β</s></t></page><page id=\"7\"><fragment id=\"8\"><n id=\"9\"/></fragment></page></CDXML>"
 }
+
+#[test]
+fn new_atoms_are_placed_below_graphics_as_well_as_atoms() {
+    let (application, _directory, id) = setup();
+    let edit = call(
+        &application,
+        "edit",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[
+            {"op":"add_atom","element":"N","position":{"x":50,"y":70}},
+            {"op":"add_graphic","shape":"line","points":[{"x":-30,"y":80},{"x":10,"y":400}]}
+        ]}),
+    );
+    assert_eq!(edit["outcome"], "ok", "{edit}");
+    let report = preview(&application, "p", &id, 1, "CCO");
+    let placed = report["result"]["document"]["atoms"].as_array().unwrap();
+    assert_eq!(placed.len(), 4);
+    for atom in &placed[1..] {
+        // Below the line's lowest point (400), starting at its leftmost (-30).
+        assert!(atom["position"]["y"].as_f64().unwrap() >= 460.0, "{atom}");
+        assert!(atom["position"]["x"].as_f64().unwrap() >= -30.0, "{atom}");
+    }
+    assert_eq!(placed[1]["position"]["x"], -30.0);
+}
