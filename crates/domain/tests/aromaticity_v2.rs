@@ -1250,3 +1250,95 @@ fn a_fused_block_with_mixed_ring_bonds_and_adjacent_donors_reports_mixed_ring_bo
         (Classification::Unsupported, Some("adjacent_donors"))
     );
 }
+
+// ---- Review round 2: the two-coordinate nitrogen exception is exact ----
+
+/// A five-membered ring N0-C1-C2-C3-C4 whose atom 0 and bonds are given; the carbons are plain.
+fn ring_with_nitrogen(nitrogen: Atom, bonds: [BondOrder; 5]) -> MoleculeGraph {
+    let mut document = Document::new(DocumentId::parse("n-test").unwrap(), "n").unwrap();
+    let mut commands: Vec<Command> = std::iter::once(nitrogen)
+        .chain((0..4).map(|_| Atom::from(Element::from_symbol("C").unwrap())))
+        .map(|atom| Command::AddAtom {
+            atom,
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        })
+        .collect();
+    commands.extend(
+        bonds
+            .into_iter()
+            .enumerate()
+            .map(|(i, order)| Command::AddBond {
+                begin: AtomRef::Created(i),
+                end: AtomRef::Created((i + 1) % 5),
+                order,
+            }),
+    );
+    document.apply(&commands).unwrap();
+    MoleculeGraph::from_document(&document)
+}
+
+fn all_single() -> [BondOrder; 5] {
+    std::array::from_fn(|_| BondOrder::Single)
+}
+
+fn nitrogen_with_stated_zero() -> Atom {
+    let mut atom = Atom::from(Element::from_symbol("N").unwrap());
+    atom.hydrogens = Hydrogens::Specified(0);
+    atom
+}
+
+#[test]
+fn the_two_single_bond_nitrogen_exception_does_not_cover_other_invalid_states() {
+    use BondOrder::{Aromatic, Dative, Single, Triple, Unknown};
+    let refused = |graph: &MoleculeGraph| {
+        let (class, reason) = only(graph);
+        assert_eq!(class, Classification::Unsupported, "{reason:?}");
+        reason
+    };
+    // The exception itself.
+    assert_eq!(
+        only(&ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            all_single()
+        )),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    // A triple, dative or unknown bond on the nitrogen is refused for the bond.
+    for (name, order) in [("triple", Triple), ("dative", Dative), ("unknown", Unknown)] {
+        let on_first = ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            [order.clone(), Single, Single, Single, Single],
+        );
+        assert_eq!(refused(&on_first), Some("unsupported_ring_bond"), "{name}");
+        let on_last = ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            [Single, Single, Single, Single, order],
+        );
+        assert_eq!(
+            refused(&on_last),
+            Some("unsupported_ring_bond"),
+            "{name} (other bond)"
+        );
+    }
+    // A triple bond beside aromatic bonds is refused for the same reason.
+    let aromatic_side = ring_with_nitrogen(
+        nitrogen_with_stated_zero(),
+        [Triple, Aromatic, Aromatic, Aromatic, Single],
+    );
+    assert_eq!(refused(&aromatic_side), Some("unsupported_ring_bond"));
+    // A charged nitrogen keeps its valence refusal.
+    let mut cation = nitrogen_with_stated_zero();
+    cation.charge = 1;
+    assert_eq!(
+        refused(&ring_with_nitrogen(cation, all_single())),
+        Some("valence_not_in_model")
+    );
+    // An attachment point is refused by the valence model before any exception.
+    let mut attached = nitrogen_with_stated_zero();
+    attached.attachment_points = chemifree_domain::states::AttachmentPoints::new(&[1]).unwrap();
+    assert_eq!(
+        refused(&ring_with_nitrogen(attached, all_single())),
+        Some("attachment_point")
+    );
+}

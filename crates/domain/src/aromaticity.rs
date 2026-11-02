@@ -119,14 +119,14 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
     let assessed = chemistry::assess(id, atom, &incidence.orders);
     let degree = incidence.ring_degree + incidence.outside;
     let takes_part = incidence.ring_double + incidence.ring_aromatic > 0;
-    // A neutral nitrogen with two single bonds and a stated hydrogen count of 0 has valence
-    // 2: no π electrons can be assigned to it, and nothing is conjugated through it. As in
-    // model 1 it is outside the conjugated system, so a ring through it is not aromatic.
+    // A neutral nitrogen with exactly two bonds, both single, and a stated hydrogen count of 0
+    // has valence 2: no π electrons can be assigned to it, and nothing is conjugated through
+    // it. As in model 1 it is outside the conjugated system, so a ring through it is not
+    // aromatic. Any other state that the valence model calls invalid stays refused.
     if element.symbol() == "N"
         && atom.charge == 0
         && atom.hydrogens == Hydrogens::Specified(0)
-        && degree == 2
-        && !takes_part
+        && incidence.orders == [Some(1), Some(1)]
         && assessed.finding == Finding::Invalid
     {
         return Ok(None);
