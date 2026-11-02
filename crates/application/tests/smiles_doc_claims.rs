@@ -482,7 +482,10 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
         chemifree_providers::MAX_INPUT_BYTES / 1024,
         chemifree_providers::MAX_BRANCH_DEPTH
     );
-    assert!(bullet.contains(&limits), "the bullet no longer says {limits:?}");
+    assert!(
+        bullet.contains(&limits),
+        "the bullet no longer says {limits:?}"
+    );
     for id in [SMILES_CANONICAL_MODEL, "chemifree-chemical-graph-2"] {
         assert!(bullet.contains(id), "{id}");
     }
@@ -501,7 +504,11 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
             "{code} is not a code of the codec"
         );
     }
-    let accepted = |text: &str| OpenSmilesCodec.read(text).unwrap_or_else(|e| panic!("{text}: {e}"));
+    let accepted = |text: &str| {
+        OpenSmilesCodec
+            .read(text)
+            .unwrap_or_else(|e| panic!("{text}: {e}"))
+    };
     let refusal = |text: &str| OpenSmilesCodec.read(text).err().map(|e| e.code.as_str());
     // A dot may follow `(`, and `(` may not follow a dot.
     assert!(bullet.contains("`C(.C)C`") && bullet.contains("`C.(C)C`"));
@@ -529,11 +536,19 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     for style in [SmilesStyle::Recorded, SmilesStyle::Canonical] {
         let written = OpenSmilesCodec.write(&graph, style).unwrap();
         assert_eq!(written.text, "[Na+].[Cl-]", "{style:?}");
-        assert!(written.losses.iter().all(|loss| loss.consent != chemifree_application::LossConsent::Required));
+        assert!(
+            written
+                .losses
+                .iter()
+                .all(|loss| loss.consent != chemifree_application::LossConsent::Required)
+        );
     }
     let fe = graph_of("[Fe]").unwrap();
     assert_eq!(
-        OpenSmilesCodec.write(&fe, SmilesStyle::Canonical).err().map(|e| e.code),
+        OpenSmilesCodec
+            .write(&fe, SmilesStyle::Canonical)
+            .err()
+            .map(|e| e.code),
         Some(SmilesCode::CanonicalUnsupported)
     );
     // The canonical refusal for more than 128 atoms is the limit, not an unsupported graph.
@@ -542,19 +557,38 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
         (1..129).map(|i| (i - 1, i, BondOrder::Single)).collect(),
     );
     assert_eq!(
-        OpenSmilesCodec.write(&chain, SmilesStyle::Canonical).err().map(|e| e.code),
+        OpenSmilesCodec
+            .write(&chain, SmilesStyle::Canonical)
+            .err()
+            .map(|e| e.code),
         Some(SmilesCode::CanonicalLimit)
     );
     // The two doublet radicals it names have a canonical text; `[CH2]` has none.
     for text in ["[CH3]", "[OH]"] {
         let graph = graph_of(text).unwrap();
-        assert!(OpenSmilesCodec.write(&graph, SmilesStyle::Canonical).is_ok(), "{text}");
+        assert!(
+            OpenSmilesCodec
+                .write(&graph, SmilesStyle::Canonical)
+                .is_ok(),
+            "{text}"
+        );
     }
-    assert!(OpenSmilesCodec.write(&graph_of("[CH2]").unwrap(), SmilesStyle::Canonical).is_err());
+    assert!(
+        OpenSmilesCodec
+            .write(&graph_of("[CH2]").unwrap(), SmilesStyle::Canonical)
+            .is_err()
+    );
     // The web client check and the browser smoke it cites exist.
     assert!(bullet.contains("smiles_panel"));
-    let smoke = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/browser-smoke.mjs")).unwrap();
+    let smoke = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/browser-smoke.mjs"
+    ))
+    .unwrap();
     assert!(smoke.contains("results.smiles_panel = true"));
     // What it says about the panel's retry is what the smoke checks.
-    assert!(bullet.contains("Retry the same import") && smoke.contains("no new preview while the commit outcome is open"));
+    assert!(
+        bullet.contains("Retry the same import")
+            && smoke.contains("a refused re-preview keeps the retry")
+    );
 }

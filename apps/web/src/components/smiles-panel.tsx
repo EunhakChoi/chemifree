@@ -133,19 +133,21 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }
 
   async function previewImport() {
-    // While a commit's outcome is open, the retry of that very request is the way to learn it.
-    // A new preview would drop the retry before it succeeds, and if the first commit did go
-    // through, the new preview would name a stale revision and be refused.
-    if (liveUnconfirmed) return
+    // While a commit's outcome is open, its retry is the way to learn what happened. If that
+    // commit did go through, a new preview names a stale revision and is refused, so the retry
+    // and the preview it belongs to stay until a new preview has succeeded.
+    const keepRetry = liveUnconfirmed !== null
     const sequence = ++previewRequest.current
     const asked = { source, sourceVersion, generation, drawing: document }
     previewing.current += 1
     setPending((count) => count + 1)
     setError(null)
     setNotice(null)
-    setPrepared(null)
-    setImportOffer(null)
-    setUnconfirmed(null)
+    if (!keepRetry) {
+      setPrepared(null)
+      setImportOffer(null)
+      setUnconfirmed(null)
+    }
     try {
       const data = await editor.previewSmiles(document.id, document.revision, asked.source)
       // The service must have previewed the very drawing the request named.
@@ -154,6 +156,8 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       }
       if (alive.current && previewRequest.current === sequence) {
         setPrepared({ ...asked, data, drawing: data.snapshot })
+        setImportOffer(null)
+        setUnconfirmed(null)
       }
     } catch (failure) {
       if (alive.current && previewRequest.current === sequence) setError(message(failure, 'Preview failed.'))
@@ -268,8 +272,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         Line breaks are kept: text after the first whitespace is not read, and is reported as a loss.
       </FieldDescription>
     </Field>
-    <Button size="sm" variant="outline" disabled={source === '' || busy || composing || liveUnconfirmed !== null}
-      onClick={() => void previewImport()}>
+    <Button size="sm" variant="outline" disabled={source === '' || busy || composing} onClick={() => void previewImport()}>
       Preview SMILES import
     </Button>
     {error && <p role="alert">{error}</p>}
@@ -285,7 +288,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
       </p>
       {liveUnconfirmed && <div role="group" aria-label="Import not confirmed" className="flex flex-col gap-2">
-        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once. Previewing again is off until then; changing the text drops this retry.</p>
+        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once.</p>
         <Button size="sm" disabled={busy} onClick={() => void commitImport(liveUnconfirmed.acceptLoss)}>
           Retry the same import
         </Button>

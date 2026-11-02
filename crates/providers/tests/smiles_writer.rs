@@ -255,7 +255,10 @@ fn ions_and_metals_are_written_with_named_consent_required_losses() {
     let written = write(&build(vec![sodium.clone()], vec![]), SmilesStyle::Recorded);
     assert_eq!(written.text, "[Na+]");
     assert!(
-        !written.losses.iter().any(|l| l.feature.ends_with("_assumption")),
+        !written
+            .losses
+            .iter()
+            .any(|l| l.feature.ends_with("_assumption")),
         "{:?}",
         written.losses
     );
@@ -276,7 +279,12 @@ fn ions_and_metals_are_written_with_named_consent_required_losses() {
     sodide.charge = 2;
     let unlisted = write(&build(vec![sodide], vec![]), SmilesStyle::Recorded);
     assert_eq!(unlisted.text, "[Na+2]");
-    assert!(unlisted.losses.iter().any(|l| l.feature == "radical_assumption"));
+    assert!(
+        unlisted
+            .losses
+            .iter()
+            .any(|l| l.feature == "radical_assumption")
+    );
     // With the hydrogens stated and the radical unknown, nothing is assumed.
     let mut stated = atom("Fe");
     stated.hydrogens = Hydrogens::Specified(0);

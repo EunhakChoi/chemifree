@@ -406,7 +406,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f588ecb578d7e086cb8be76a4f24c41dfbbd1a16a0b291886dae62f1f05153b7"
+      "case_sha256": "5b0526a86864828d4d6f76df1f983d7b32e972b5f6c3b1c088b01defe2147421"
     },
     {
       "id": "aromaticity-conversion",
@@ -503,7 +503,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "aa8c99ca559cb8374896c6c28005a020a9050ea4b322e8afca70e06f1b91fc3d"
+      "case_sha256": "97b421553e40cc5053362f904997c543137a4a95941a197005ee049ba2fd0ea1"
     },
     {
       "id": "smiles-malformed-and-unsupported-refused",

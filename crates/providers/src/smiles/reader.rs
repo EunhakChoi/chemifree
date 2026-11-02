@@ -214,7 +214,10 @@ impl Reader<'_> {
     fn dangling(&self) -> Option<Fail> {
         match self.previous {
             Prev::Bond | Prev::DetachedBond => {
-                let span = self.pending.as_ref().map_or_else(|| self.here(), |(_, span)| *span);
+                let span = self
+                    .pending
+                    .as_ref()
+                    .map_or_else(|| self.here(), |(_, span)| *span);
                 Some(at(SmilesCode::DanglingBond, span))
             }
             Prev::Dot => Some(at(

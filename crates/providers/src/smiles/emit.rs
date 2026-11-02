@@ -178,11 +178,10 @@ fn nesting(walk: &mut Walk, minimise: bool) -> Vec<usize> {
     // Children are reached after their parent, so the reverse order sees children first.
     for &atom in walk.reached.iter().rev() {
         let children = &mut walk.children[atom];
-        if minimise {
-            if let Some(deepest) = (0..children.len()).max_by_key(|&i| depth[children[i].0]) {
-                let child = children.remove(deepest);
-                children.push(child);
-            }
+        if minimise && let Some(deepest) = (0..children.len()).max_by_key(|&i| depth[children[i].0])
+        {
+            let child = children.remove(deepest);
+            children.push(child);
         }
         depth[atom] = match children.split_last() {
             None => 0,

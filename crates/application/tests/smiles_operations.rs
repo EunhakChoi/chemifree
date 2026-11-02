@@ -145,7 +145,15 @@ fn a_plain_salt_imports_without_consent_and_a_metal_does_not() {
     assert_eq!(features(&report), ["generated_layout"]);
     assert_eq!(report["result"]["valence_model"], "chemifree-valence-3");
     let digest = report["result"]["preview_digest"].as_str().unwrap();
-    let done = commit(&application, "salt-commit", &id, 0, "[Na+].[Cl-]", digest, false);
+    let done = commit(
+        &application,
+        "salt-commit",
+        &id,
+        0,
+        "[Na+].[Cl-]",
+        digest,
+        false,
+    );
     assert_eq!(done["outcome"], "partial", "{done}");
     assert_eq!(atoms(&done["result"]["document"]), 2);
     // Both atoms are recorded without a radical, as the valence model reads them.
@@ -714,15 +722,7 @@ fn a_consent_refusal_has_one_envelope_in_every_format() {
     // Imports: SMILES, MOL records and CDXML creation each ask for acceptance.
     let report = preview(&application, "pre", &id, 1, "[Fe]");
     let digest = report["result"]["preview_digest"].as_str().unwrap();
-    let smiles_import = commit(
-        &application,
-        "smiles-import",
-        &id,
-        1,
-        "[Fe]",
-        digest,
-        false,
-    );
+    let smiles_import = commit(&application, "smiles-import", &id, 1, "[Fe]", digest, false);
     let mol = "Ammonium\n\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n    0.0000    1.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n    1.0000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0  0  0  0\nM  CHG  1   1   1\nM  END\n";
     let mol_report = call(
         &application,
