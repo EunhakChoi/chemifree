@@ -447,12 +447,16 @@ fn conversion_commands_count_changed_bonds_plus_nitrogen_hydrogen_updates() {
     let refused = convert(&app, &id, "too-many", revision, "aromatic");
     assert_eq!(refused["outcome"], "error", "{refused}");
     assert_eq!(refused["diagnostics"][0]["code"], "invalid_command");
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["reason"], "conversion_command_limit",
+        "the refusal is the conversion's own, not the generic transaction error: {refused}"
+    );
     assert!(
-        refused["diagnostics"][0]["message"]
+        !refused["diagnostics"][0]["message"]
             .as_str()
             .unwrap()
-            .contains("at most 500 commands"),
-        "the refusal names the transaction bound: {refused}"
+            .contains("transaction accepts"),
+        "the generic transaction message is not used: {refused}"
     );
     assert_eq!(
         serde_json::to_value(app.document(&id).unwrap()).unwrap(),

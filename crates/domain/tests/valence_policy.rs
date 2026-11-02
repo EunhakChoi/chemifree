@@ -137,3 +137,29 @@ fn uncertain_atoms_and_bonds_never_become_single_bond_guesses() {
     assert_eq!(assessed[4].bond_order_sum, None);
     assert_eq!(doc, before);
 }
+
+#[test]
+fn restricted_target_is_the_ordinary_valence_the_aromaticity_model_accepts() {
+    use chemifree_domain::chemistry::restricted_target;
+    // Expected totals come from the ring-atom table of the aromaticity model.
+    let expected = [
+        ("C", 0, 4),
+        ("C", 1, 3),
+        ("C", -1, 3),
+        ("N", 0, 3),
+        ("N", 1, 4),
+        ("N", -1, 2),
+        ("O", 0, 2),
+        ("S", 0, 2),
+    ];
+    for (symbol, charge, target) in expected {
+        assert_eq!(
+            restricted_target(symbol, charge),
+            Some(target),
+            "{symbol} charge {charge}"
+        );
+    }
+    // The valence model lists higher states for N and S; the restricted lookup excludes them.
+    assert_eq!(restricted_target("Xx", 0), None);
+    assert_eq!(restricted_target("O", 5), None);
+}
