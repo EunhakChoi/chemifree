@@ -942,6 +942,82 @@ fn repeated_font_table_or_represents_properties_are_only_allowed_where_they_mean
 }
 
 #[test]
+fn an_unknown_object_keeps_repeated_properties_in_order_while_known_objects_refuse_repeats() {
+    let unknown = obj(
+        0x8030,
+        20,
+        &[
+            prop(0x0990, &[1]),
+            prop(0x0991, &[2]),
+            prop(0x0990, &[3]),
+            // A known tag on an unknown object is opaque too, and so are its repeats.
+            prop(0x0402, &i16le(6)),
+            prop(0x0402, &i16le(7)),
+            obj(0x8004, 21, &[prop(0x0990, &[4]), prop(0x0990, &[5])]),
+        ],
+    );
+    let doc = file(0, &[obj(0x8001, 1, &[unknown])]);
+    let root = read(&doc).unwrap();
+    let opaque = child_objects(child_objects(&root)[0])[0];
+    let bytes = |value: u8| PropertyValue::Bytes(vec![value]);
+    let kept: Vec<_> = opaque
+        .properties
+        .iter()
+        .map(|item| (&item.kind, &item.value))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (&PropertyKind::UnknownBinary(0x0990), &bytes(1)),
+            (&PropertyKind::UnknownBinary(0x0991), &bytes(2)),
+            (&PropertyKind::UnknownBinary(0x0990), &bytes(3)),
+            (
+                &PropertyKind::UnknownBinary(0x0402),
+                &PropertyValue::Bytes(i16le(6).to_vec())
+            ),
+            (
+                &PropertyKind::UnknownBinary(0x0402),
+                &PropertyValue::Bytes(i16le(7).to_vec())
+            ),
+        ],
+        "original order, repeats kept"
+    );
+    let inner = child_objects(opaque)[0];
+    assert_eq!(inner.properties.len(), 2);
+    assert_eq!(inner.properties[0].value, bytes(4));
+    assert_eq!(inner.properties[1].value, bytes(5));
+    // The same repeat on a known object stays refused, at the second property.
+    let page = file(
+        0,
+        &[obj(0x8001, 1, &[prop(0x0990, &[1]), prop(0x0990, &[2])])],
+    );
+    let error = refused(&page);
+    assert_eq!(error.code, "duplicate_property");
+    // Header 28 + document 6 + page 6 + first property (4 + 1).
+    assert_eq!(error.offset, Some(28 + 6 + 6 + 5));
+    let node = with_node(&[prop(0x0402, &i16le(6)), prop(0x0402, &i16le(7))]);
+    assert_eq!(refused(&node).code, "duplicate_property");
+}
+
+#[test]
+fn the_end_of_file_marker_is_required_until_the_specification_says_otherwise() {
+    // The public documentation says the file "is marked" with two zero bytes but not whether
+    // a reader must refuse a file without them; this codec does (docs/INTERCHANGE.md).
+    let with_marker = rich_file();
+    cdx::read(&with_marker).unwrap();
+    let without = &with_marker[..with_marker.len() - 2];
+    let error = refused(without);
+    assert_eq!(error.code, "truncated");
+    assert_eq!(error.offset, Some(without.len() as u64));
+    let half = refused(&with_marker[..with_marker.len() - 1]);
+    assert_eq!(half.code, "truncated");
+    let mut wrong = with_marker.clone();
+    let end = wrong.len();
+    wrong[end - 2] = 1;
+    assert_eq!(refused(&wrong).code, "invalid_end_marker");
+}
+
+#[test]
 fn a_text_object_without_its_string_is_refused_at_the_object() {
     let doc = file(
         0,

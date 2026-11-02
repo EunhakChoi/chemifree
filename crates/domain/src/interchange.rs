@@ -42,6 +42,12 @@ impl ObjectKind {
     pub fn may_contain(&self, child: &ObjectKind) -> bool {
         allowed_child(self, child)
     }
+
+    /// Whether this kind is uninterpreted content (an unknown XML or binary object) that is
+    /// kept, never rewritten, unless the caller explicitly discards it.
+    pub fn is_opaque(&self) -> bool {
+        matches!(self, Self::UnknownXml(_) | Self::UnknownBinary(_))
+    }
 }
 
 /// A supported property or an uninterpreted format-specific property.
@@ -425,10 +431,7 @@ fn inspect_object(
     if facts.count > MAX_OBJECTS {
         return Err(ValidationError::ObjectLimit);
     }
-    if matches!(
-        object.kind,
-        ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
-    ) {
+    if object.kind.is_opaque() {
         facts.opaque_parts.push(OpaquePart::Object {
             path: path.clone(),
             value: object.clone(),
@@ -494,9 +497,13 @@ fn inspect_object(
         facts.ids_by_path.push((path.clone(), id));
     }
     for (index, property) in object.properties.iter().enumerate() {
-        if object.properties[..index]
-            .iter()
-            .any(|previous| previous.kind == property.kind)
+        // An unknown binary object keeps its properties exactly as found, in order, and the
+        // same tag may repeat there because its meaning is not known. Everywhere else a
+        // repeat is an error (XML attributes cannot repeat either).
+        if !matches!(object.kind, ObjectKind::UnknownBinary(_))
+            && object.properties[..index]
+                .iter()
+                .any(|previous| previous.kind == property.kind)
         {
             return Err(ValidationError::DuplicateProperty);
         }
@@ -655,10 +662,10 @@ fn inspect_object(
 
 fn allowed_child(parent: &ObjectKind, child: &ObjectKind) -> bool {
     use ObjectKind as O;
-    if matches!(parent, O::UnknownXml(_) | O::UnknownBinary(_)) {
-        return matches!(child, O::UnknownXml(_) | O::UnknownBinary(_));
+    if parent.is_opaque() {
+        return child.is_opaque();
     }
-    if matches!(child, O::UnknownXml(_) | O::UnknownBinary(_)) {
+    if child.is_opaque() {
         return true;
     }
     match parent {
@@ -684,12 +691,7 @@ fn discard_opaque_from(object: &mut Object) -> usize {
     });
     let mut removed = before - object.properties.len();
     object.children.retain_mut(|child| match child {
-        Content::Object(child)
-            if matches!(
-                child.kind,
-                ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
-            ) =>
-        {
+        Content::Object(child) if child.kind.is_opaque() => {
             removed += 1;
             false
         }
@@ -938,6 +940,125 @@ mod tests {
         })
         .unwrap();
         assert_eq!(doc.validate(), Ok(()));
+    }
+
+    #[test]
+    fn only_unknown_xml_and_unknown_binary_objects_are_opaque() {
+        let xml = ObjectKind::UnknownXml(XmlName {
+            namespace: None,
+            local: "x".into(),
+        });
+        assert!(xml.is_opaque());
+        assert!(ObjectKind::UnknownBinary(0x8030).is_opaque());
+        for kind in [
+            ObjectKind::Document,
+            ObjectKind::Page,
+            ObjectKind::Group,
+            ObjectKind::Fragment,
+            ObjectKind::Node,
+            ObjectKind::Bond,
+            ObjectKind::Graphic,
+            ObjectKind::Text,
+            ObjectKind::StyleRun,
+            ObjectKind::FontTable,
+            ObjectKind::Font,
+            ObjectKind::ColorTable,
+            ObjectKind::Color,
+            ObjectKind::Represents,
+        ] {
+            assert!(!kind.is_opaque(), "{kind:?} is interpreted content");
+        }
+    }
+
+    fn page_of(root: &mut Object) -> &mut Object {
+        let Content::Object(page) = &mut root.children[0] else {
+            panic!("page expected")
+        };
+        page
+    }
+
+    fn unknown_property(tag: u16, byte: u8) -> Property {
+        Property {
+            kind: PropertyKind::UnknownBinary(tag),
+            value: PropertyValue::Bytes(vec![byte]),
+        }
+    }
+
+    #[test]
+    fn an_unknown_binary_object_may_repeat_a_property_everywhere_else_a_repeat_is_refused() {
+        let repeated = || {
+            vec![
+                unknown_property(7, 1),
+                unknown_property(8, 2),
+                unknown_property(7, 3),
+            ]
+        };
+        let mut root = tree();
+        let mut opaque = object(ObjectKind::UnknownBinary(0x8030), None, Vec::new());
+        opaque.properties = repeated();
+        page_of(&mut root).children.push(Content::Object(opaque));
+        let document = Document::new(root).unwrap();
+        let Content::Object(page) = &document.root().children[0] else {
+            panic!()
+        };
+        let Some(Content::Object(kept)) = page.children.last() else {
+            panic!("opaque object expected")
+        };
+        assert_eq!(kept.properties, repeated(), "order and repeats are kept");
+
+        // The same repeat on a known object, or on an unknown XML object, is still refused.
+        let mut known = tree();
+        let Content::Object(page) = &mut known.children[0] else {
+            panic!()
+        };
+        let Content::Object(text) = &mut page.children[1] else {
+            panic!()
+        };
+        text.properties = repeated();
+        assert_eq!(
+            Document::new(known).unwrap_err(),
+            ValidationError::DuplicateProperty
+        );
+        let mut xml = tree();
+        let mut object_xml = object(
+            ObjectKind::UnknownXml(XmlName {
+                namespace: None,
+                local: "x".into(),
+            }),
+            None,
+            Vec::new(),
+        );
+        object_xml.properties = repeated();
+        page_of(&mut xml).children.push(Content::Object(object_xml));
+        assert_eq!(
+            Document::new(xml).unwrap_err(),
+            ValidationError::DuplicateProperty
+        );
+    }
+
+    #[test]
+    fn a_text_object_without_a_style_run_never_validates_so_writers_never_see_one() {
+        // Neither construction, nor an edit that removes the last run, nor a discard can
+        // produce a `Document` whose text object has no style run; the CDX writer relies on it.
+        let mut bare = tree();
+        let Content::Object(text) = &mut page_of(&mut bare).children[1] else {
+            panic!()
+        };
+        text.children.clear();
+        assert_eq!(
+            Document::new(bare).unwrap_err(),
+            ValidationError::MissingTextStyle
+        );
+        let mut document = Document::new(tree()).unwrap();
+        let before = document.clone();
+        let result = document.edit(|root| {
+            let Content::Object(text) = &mut page_of(root).children[1] else {
+                panic!()
+            };
+            text.children.clear();
+        });
+        assert_eq!(result, Err(ValidationError::MissingTextStyle));
+        assert_eq!(document, before, "a refused edit changes nothing");
     }
 
     #[test]

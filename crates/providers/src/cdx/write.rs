@@ -4,7 +4,7 @@
 //! numbers that are not exact multiples of the binary resolution, are reported as losses
 //! rather than rewritten silently; values that cannot be stored at all are refused.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::interchange::{
@@ -12,7 +12,7 @@ use chemifree_domain::interchange::{
 };
 
 use super::read::CdxDocument;
-use super::text::{self, PLATFORM_WINDOWS};
+use super::text::{self, PLATFORM_MACINTOSH, PLATFORM_WINDOWS};
 use super::{CdxError, HEADER_LEN, MAGIC, MAX_BYTES, REPRESENTED_ATTRIBUTES, RESERVED_PREFIX, tag};
 
 /// Bytes and the losses incurred writing them.
@@ -28,6 +28,12 @@ const COORDINATE_BOUND: f64 = 0.5 / 65536.0;
 const COLOR_BOUND: f64 = 0.5 / 65535.0;
 /// Resolution of font sizes: 1/20 point.
 const SIZE_BOUND: f64 = 0.5 / 20.0;
+/// The color index written for a style run that names none. The public CDX documentation fixes
+/// indexes 0 and 1 as black and white in every document, whatever its color table holds, so
+/// index 0 (black) is the one default that exists in every document and means the same
+/// thing everywhere. The document foreground (index 3) is not used: it is the table's
+/// second entry and does not exist in a one-entry table.
+const DEFAULT_COLOR_INDEX: u16 = 0;
 
 /// Writes `document`. `original` is the re-parsed source when one exists; it tells the
 /// writer which font-table platform it may treat as known.
@@ -94,9 +100,14 @@ struct Writer<'a> {
     dropped_namespace: bool,
     xml_content: Counted,
     represents: Counted,
+    /// Style properties that were missing and given a default: faces and colors together.
     style_defaults: Counted,
+    defaulted_faces: usize,
+    defaulted_colors: usize,
     child_order: Counted,
     platform_unknown: Counted,
+    /// The platform each written font was given, so text in it is encoded as that platform allows.
+    font_platforms: HashMap<u16, u16>,
     dropped_ids: Counted,
 }
 
@@ -160,8 +171,11 @@ impl<'a> Writer<'a> {
             xml_content: Counted::default(),
             represents: Counted::default(),
             style_defaults: Counted::default(),
+            defaulted_faces: 0,
+            defaulted_colors: 0,
             child_order: Counted::default(),
             platform_unknown: Counted::default(),
+            font_platforms: HashMap::new(),
             dropped_ids: Counted::default(),
         }
     }
@@ -540,12 +554,15 @@ impl Writer<'_> {
 
     fn font_table(&mut self, table: &Object, index: usize) -> Result<Vec<u8>, CdxError> {
         self.note_markup(table);
-        let known_platform = self.original.is_some_and(|original| {
+        // A table equal to the re-parsed original's keeps the platform it was read with;
+        // any other table has no known platform and is written for Windows, which is reported.
+        let kept_platform = self.original.and_then(|original| {
             original
                 .font_table(index)
-                .is_some_and(|(source, platform)| platform == PLATFORM_WINDOWS && source == table)
+                .and_then(|(source, platform)| (source == table).then_some(platform))
         });
-        if !known_platform {
+        let platform = kept_platform.unwrap_or(PLATFORM_WINDOWS);
+        if kept_platform.is_none() {
             self.platform_unknown.note(|| self.stack.join("/"));
         }
         let fonts: Vec<&Object> = table
@@ -558,7 +575,7 @@ impl Writer<'_> {
             .collect();
         let count = u16::try_from(fonts.len())
             .map_err(|_| self.refuse("out_of_range", "A font table holds at most 65535 fonts"))?;
-        let mut data = PLATFORM_WINDOWS.to_le_bytes().to_vec();
+        let mut data = platform.to_le_bytes().to_vec();
         data.extend_from_slice(&count.to_le_bytes());
         for font in fonts {
             self.note_markup(font);
@@ -592,6 +609,7 @@ impl Writer<'_> {
             })?;
             let id = u16::try_from(*id)
                 .map_err(|_| self.refuse("out_of_range", "A font ID does not fit 16 bits"))?;
+            self.font_platforms.insert(id, platform);
             data.extend_from_slice(&id.to_le_bytes());
             data.extend_from_slice(&charset.to_le_bytes());
             data.extend_from_slice(&length.to_le_bytes());
@@ -678,8 +696,10 @@ impl Writer<'_> {
                 _ => None,
             })
             .collect();
-        // The model requires a style run in every text object; a string written without one
-        // would read back with an invented empty run.
+        // `Document::validate` rejects a text object without a style run (`MissingTextStyle`),
+        // and a `Document` cannot be built or edited without passing it, so this is not
+        // reachable. It stays as a refusal rather than a panic because the alternative is a
+        // string written with no runs, which would read back with an invented empty run.
         if runs.is_empty() {
             return Err(self.refuse("missing_property", "A text object has no style run"));
         }
@@ -727,18 +747,19 @@ impl Writer<'_> {
                         ));
                     }
                 };
-                let color = self
-                    .run_integer(run, &PropertyKind::ColorIndex, "color")?
-                    .ok_or_else(|| {
-                        self.refuse(
-                            "unsupported_style_run",
-                            format!("Style run {index} has no color, and CDX requires one"),
-                        )
-                    })?;
+                let color = match self.run_integer(run, &PropertyKind::ColorIndex, "color")? {
+                    Some(color) => color,
+                    None => {
+                        self.style_defaults.note(|| self.stack.join("/"));
+                        self.defaulted_colors += 1;
+                        DEFAULT_COLOR_INDEX
+                    }
+                };
                 let face = match self.run_integer(run, &PropertyKind::FontFace, "face")? {
                     Some(face) => face,
                     None => {
                         self.style_defaults.note(|| self.stack.join("/"));
+                        self.defaulted_faces += 1;
                         0
                     }
                 };
@@ -746,6 +767,18 @@ impl Writer<'_> {
                 for value in [font, face, size, color] {
                     header.extend_from_slice(&value.to_le_bytes());
                 }
+            }
+            // The reader accepts only ASCII in text of a Macintosh-platform font, and a kept
+            // table may still have that platform, so the writer holds to the same rule.
+            if !unstyled
+                && !content.is_ascii()
+                && let Some(font) = self.run_integer(run, &PropertyKind::FontIndex, "font")?
+                && self.font_platforms.get(&font) == Some(&PLATFORM_MACINTOSH)
+            {
+                return Err(self.refuse(
+                    "unsupported_text",
+                    format!("Style run {index} uses a Macintosh-platform font, whose non-ASCII text has no established encoding"),
+                ));
             }
             text::encode_text(&content, &mut body)
                 .map_err(|reason| self.refuse("unsupported_text", reason))?;
@@ -770,6 +803,23 @@ impl Writer<'_> {
             }),
             _ => Ok(None),
         }
+    }
+
+    fn style_defaults_reason(&self) -> String {
+        let mut parts = Vec::new();
+        if self.defaulted_faces > 0 {
+            parts.push(format!(
+                "{} style run(s) had no face; the plain face (0) was written",
+                self.defaulted_faces
+            ));
+        }
+        if self.defaulted_colors > 0 {
+            parts.push(format!(
+                "{} style run(s) had no color; color index {DEFAULT_COLOR_INDEX} (black, defined in every document) was written",
+                self.defaulted_colors
+            ));
+        }
+        format!("{}.", parts.join("; "))
     }
 
     fn losses(&self) -> Vec<Loss> {
@@ -862,10 +912,7 @@ impl Writer<'_> {
                 feature: "style_defaults".into(),
                 source_path: self.style_defaults.first.clone().unwrap_or_default(),
                 disposition: LossDisposition::Normalized,
-                reason: format!(
-                    "{} style run(s) had no face; the plain face (0) was written.",
-                    self.style_defaults.count
-                ),
+                reason: self.style_defaults_reason(),
                 semantic_impact: SemanticImpact::Rendering,
                 consent: LossConsent::NotRequired,
             });

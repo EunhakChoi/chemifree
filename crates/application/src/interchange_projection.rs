@@ -405,10 +405,7 @@ fn nested_semantic_losses(
     is_subtree_root: bool,
     losses: &mut Vec<Loss>,
 ) {
-    if matches!(
-        object.kind,
-        ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
-    ) {
+    if object.kind.is_opaque() {
         if !is_subtree_root {
             losses.push(dropped(
                 path(indices),
@@ -583,11 +580,18 @@ pub(crate) fn project(
     let (page_path, fragment_path) = selection(document, page_id, fragment_id)?;
     let root = document.root();
     let selected = at(root, &fragment_path);
-    if has_opaque_property(selected) || selected.children.iter().any(|child| matches!(child,
-        Content::Object(child) if matches!(child.kind, ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)))) {
+    if has_opaque_property(selected)
+        || selected.children.iter().any(|child| {
+            matches!(child,
+        Content::Object(child) if child.kind.is_opaque())
+        })
+    {
         return Err(fail(
             "unsupported_fragment",
-            format!("{} has unrecognized molecular attributes or child objects.", path(&fragment_path)),
+            format!(
+                "{} has unrecognized molecular attributes or child objects.",
+                path(&fragment_path)
+            ),
         ));
     }
     let mut losses = Vec::new();
