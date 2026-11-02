@@ -115,6 +115,9 @@ pub(super) fn parse(bytes: &[u8]) -> Result<RawFile, CdxError> {
     }
     let mut objects = 0;
     let root = parse_object(&mut cursor, root_tag, root_offset, 0, &mut objects)?;
+    // The public documentation says the end of the file "is marked with two bytes of 0" but
+    // not whether a reader must refuse a file without them. Requiring the marker is this
+    // codec's choice and is unverified against the specification (docs/INTERCHANGE.md).
     let marker_offset = cursor.position as u64;
     if cursor.u16()? != 0 {
         return Err(CdxError::at(

@@ -3,7 +3,8 @@
 //! numbers it quotes.
 
 use chemifree_application::MATCH_CODES;
-use chemifree_domain::document::{AtomId, BondId};
+use chemifree_domain::aromaticity::{MAX_MATCH_STEPS, MAX_SYSTEM_ATOMS};
+use chemifree_domain::document::{AtomId, BondId, MAX_ATOMS, MAX_BONDS};
 use chemifree_domain::substructure::{
     Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SCANNED_CANDIDATES, MAX_SEARCH_STEPS, MatchError, Side,
 };
@@ -317,4 +318,61 @@ fn the_contract_states_what_an_empty_answer_and_a_query_bond_in_a_ring_mean() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn the_contract_states_what_the_refusal_precedence_and_the_perception_cost_are() {
+    let section = contract_section();
+    // A known refusal wins over a limit: the old precedence is gone, the new one is stated,
+    // and so is what it costs (which assignments a limit reaches depends on the drawing order).
+    assert!(
+        !section.contains("A limit takes precedence over a refusal"),
+        "the old precedence is gone"
+    );
+    assert!(section.contains("**A refusal that is known wins over a limit.**"));
+    assert!(section.contains("never `match_limit`"));
+    assert!(
+        section.contains(
+            "the assignment that would be the 1,001st is read before the limit is reported"
+        )
+    );
+    assert!(section.contains("only a search that runs to its end names that one"));
+    assert!(
+        section
+            .contains("When the search runs to its end, neither the order the atoms were drawn in")
+    );
+    // Perceiving the drawings is outside the counted limits, and the caps that bound it are
+    // the code's.
+    assert!(section.contains("**Perceiving the drawings is not counted in these limits.**"));
+    for quoted in [
+        format!(
+            "at most {} atoms and {} bonds",
+            grouped(MAX_ATOMS),
+            grouped(MAX_BONDS)
+        ),
+        format!("more than {MAX_SYSTEM_ATOMS} atoms is not read (`system_limit`"),
+        format!(
+            "fixed budget of {} steps for each such system (`search_limit`",
+            grouped(MAX_MATCH_STEPS)
+        ),
+    ] {
+        assert!(section.contains(&quoted), "{quoted}");
+    }
+    // A lookup failure names no revision; a query atom with a charge or isotope is refused.
+    assert!(section.contains("has `document_revision: null`"));
+    for reason in ["query_atom_charge", "query_atom_isotope"] {
+        assert!(section.contains(&format!("`{reason}`")), "{reason}");
+    }
+}
+
+#[test]
+fn the_rdkit_comparison_says_how_and_when_to_run_it() {
+    let section = contract_section();
+    assert!(section.contains(
+        "`python -I scripts/verify-query-rdkit.py target/debug/chemifree`) whenever a fixture, the matcher's rules or the aromaticity model change"
+    ));
+    assert!(
+        repository_file("README.md")
+            .contains("whenever a fixture, the matcher's rules or the aromaticity model change")
+    );
 }

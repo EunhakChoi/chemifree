@@ -9,14 +9,17 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::chemistry::{self, Finding};
-use crate::document::{Atom, AtomEdit, AtomId, Bond, BondId, BondOrder, Command};
+use crate::document::{Atom, AtomEdit, AtomId, Bond, BondId, BondOrder, Command, MAX_COMMANDS};
 use crate::graph::MoleculeGraph;
 use crate::rings::{self, RingSystem};
 use crate::states::{Hydrogens, Radical};
 
 pub const MODEL_ID: &str = "chemifree-aromaticity-2";
-const MAX_SYSTEM_ATOMS: usize = 128;
-const MAX_MATCH_STEPS: usize = 100_000;
+/// The most atoms one ring system may have; a larger one is `system_limit`.
+pub const MAX_SYSTEM_ATOMS: usize = 128;
+/// The Kekulé assignment steps one ring system with recorded aromatic bonds may take; more is
+/// `search_limit`.
+pub const MAX_MATCH_STEPS: usize = 100_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Classification {
@@ -106,7 +109,9 @@ struct Role {
 /// A neutral nitrogen is pyrrole-type (a two-electron donor) when it carries hydrogen or
 /// has three sigma bonds. Its hydrogen count is the stated one, or the one the valence
 /// model infers from its bonds; with an aromatic bond nothing can be inferred, so an
-/// aromatic nitrogen without a stated hydrogen is pyridine-type.
+/// aromatic nitrogen without a stated hydrogen is pyridine-type. A neutral two-coordinate
+/// nitrogen with a stated hydrogen count of 0 and only single bonds has valence 2, which the
+/// valence model calls unusual; it is read as outside the conjugated system, not refused.
 fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, &'static str> {
     let Some(element) = atom.kind.element() else {
         return Err("query_atom");
@@ -115,6 +120,20 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
         return Err("radical_state");
     }
     let assessed = chemistry::assess(id, atom, &incidence.orders);
+    let degree = incidence.ring_degree + incidence.outside;
+    let takes_part = incidence.ring_double + incidence.ring_aromatic > 0;
+    // A neutral nitrogen with exactly two bonds, both single, and a stated hydrogen count of 0
+    // has valence 2: no π electrons can be assigned to it, and nothing is conjugated through
+    // it. As in model 1 it is outside the conjugated system, so a ring through it is not
+    // aromatic. Any other state that the valence model calls invalid stays refused.
+    if element.symbol() == "N"
+        && atom.charge == 0
+        && atom.hydrogens == Hydrogens::Specified(0)
+        && incidence.orders == [Some(1), Some(1)]
+        && assessed.finding == Finding::Invalid
+    {
+        return Ok(None);
+    }
     let integral = match (assessed.finding, assessed.reason) {
         (Finding::Valid, _) => true,
         (Finding::Invalid, _) => return Err("valence_not_in_model"),
@@ -122,31 +141,30 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
         (Finding::Unsupported, Some(reason)) => return Err(reason),
         (Finding::Unsupported, None) => return Err("valence_not_in_model"),
     };
-    let degree = incidence.ring_degree + incidence.outside;
-    let takes_part = incidence.ring_double + incidence.ring_aromatic > 0;
     let hydrogens = assessed.hydrogen_count.map_or(0, usize::from);
-    // (π electrons, needs a double bond, inferred hydrogens), or None for a saturated atom,
-    // with the one supported total valence.
-    let (pi, target): (Option<(u16, bool, Option<u8>)>, usize) =
-        match (element.symbol(), atom.charge) {
-            ("C", 0) if takes_part => (Some((1, true, None)), 4),
-            ("C", 0) | ("N", 1) if !takes_part => (None, 4),
-            ("C", 1) => (Some((0, false, None)), 3),
-            ("C", -1) => (Some((2, false, None)), 3),
-            ("N", 0) if hydrogens > 0 || degree == 3 => {
-                let inferred = (atom.hydrogens == Hydrogens::Inferred && integral)
-                    .then(|| u8::try_from(hydrogens).ok())
-                    .flatten()
-                    .filter(|&h| h > 0);
-                (Some((2, false, inferred)), 3)
-            }
-            ("N", 0) if takes_part => (Some((1, true, None)), 3),
-            ("N", 0) => return Err("valence_not_in_model"),
-            ("N", 1) => (Some((1, true, None)), 4),
-            ("N", -1) => (Some((2, false, None)), 2),
-            ("O" | "S", 0) => (Some((2, false, None)), 2),
-            _ => return Err("element_or_charge"),
-        };
+    // (π electrons, needs a double bond, inferred hydrogens), or None for a saturated atom.
+    let pi: Option<(u16, bool, Option<u8>)> = match (element.symbol(), atom.charge) {
+        ("C", 0) if takes_part => Some((1, true, None)),
+        ("C", 0) | ("N", 1) if !takes_part => None,
+        ("C", 1) => Some((0, false, None)),
+        ("C", -1) => Some((2, false, None)),
+        ("N", 0) if hydrogens > 0 || degree == 3 => {
+            let inferred = (atom.hydrogens == Hydrogens::Inferred && integral)
+                .then(|| u8::try_from(hydrogens).ok())
+                .flatten()
+                .filter(|&h| h > 0);
+            Some((2, false, inferred))
+        }
+        ("N", 0) if takes_part => Some((1, true, None)),
+        ("N", 0) => return Err("valence_not_in_model"),
+        ("N", 1) => Some((1, true, None)),
+        ("N", -1) => Some((2, false, None)),
+        ("O" | "S", 0) => Some((2, false, None)),
+        _ => return Err("element_or_charge"),
+    };
+    let target = chemistry::restricted_target(element.symbol(), atom.charge)
+        .map(usize::from)
+        .ok_or("element_or_charge")?;
     if incidence.ring_double > 0 && pi.is_some_and(|(_, needs_double, _)| !needs_double) {
         return Err("valence_not_in_model");
     }
@@ -179,6 +197,12 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
 /// Classify cyclic biconnected systems. This is a named policy, not a universal test of
 /// aromaticity. The model and work limits are described in the public contract.
 pub fn perceive(document: &MoleculeGraph) -> Interpretation {
+    perceive_in(document).0
+}
+
+/// [`perceive`] together with the atom and bond lookups it built, so a caller that goes on to
+/// read the same graph does not build them again.
+fn perceive_in(document: &MoleculeGraph) -> (Interpretation, Context<'_>) {
     let atoms: BTreeMap<_, _> = document.atoms().collect();
     let bonds: BTreeMap<_, _> = document.bonds().collect();
     let mut incident: BTreeMap<AtomId, Vec<BondId>> =
@@ -196,14 +220,18 @@ pub fn perceive(document: &MoleculeGraph) -> Interpretation {
         .into_iter()
         .map(|ring| interpret_ring(&ring, &context))
         .collect();
-    let aromatic_bonds = document
-        .bonds()
-        .filter_map(|(id, b)| (b.order == BondOrder::Aromatic).then_some(id))
+    let aromatic_bonds = context
+        .bonds
+        .iter()
+        .filter_map(|(&id, b)| (b.order == BondOrder::Aromatic).then_some(id))
         .collect();
-    Interpretation {
-        systems,
-        aromatic_bonds,
-    }
+    (
+        Interpretation {
+            systems,
+            aromatic_bonds,
+        },
+        context,
+    )
 }
 
 struct Context<'a> {
@@ -388,14 +416,6 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         // Every atom donates but no bond carries π: nothing is conjugated.
         return Ok(Verdict::non_aromatic(None, "not_conjugated"));
     }
-    let donates = |r: &Role| r.electrons == 2 && !r.needs_double;
-    if inside
-        .iter()
-        .enumerate()
-        .any(|(a, edges)| donates(&roles[a]) && edges.iter().any(|&(b, _)| donates(&roles[b])))
-    {
-        return Err("adjacent_donors");
-    }
     if any_aromatic && !all_aromatic {
         return Err("mixed_ring_bonds");
     }
@@ -417,11 +437,23 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
             return Ok(Verdict::non_aromatic(None, "not_conjugated"));
         }
     }
+    // The electron count is decided before neighbouring donors are. The model counts every
+    // donor as two electrons; a count that is not 4n+2 is `non_aromatic` (as in
+    // `chemifree-aromaticity-1`), and a 4n+2 count with adjacent donors stays `unsupported`
+    // because the model does not decide their lone-pair arrangement.
+    let donates = |r: &Role| r.electrons == 2 && !r.needs_double;
+    let adjacent_donors = inside
+        .iter()
+        .enumerate()
+        .any(|(a, edges)| donates(&roles[a]) && edges.iter().any(|&(b, _)| donates(&roles[b])));
     // Hückel's 4n+2 rule applies to a single circuit, not to the total π count of an
     // arbitrary fused system. For fused systems this version only recognizes neutral
     // carbocyclic benzenoids whose shortest alternate path at every edge forms a
     // six-membered ring. A shorter alternate path is conservatively unsupported.
     if ring.cycle_rank > 1 {
+        if adjacent_donors {
+            return Err("adjacent_donors");
+        }
         if ring.atoms.iter().any(|id| {
             context.atoms[id].kind.element().map(|e| e.symbol()) != Some("C")
                 || context.atoms[id].charge != 0
@@ -431,6 +463,8 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         }
     } else if electrons < 2 || electrons % 4 != 2 {
         return Ok(Verdict::non_aromatic(Some(electrons), "electron_count"));
+    } else if adjacent_donors {
+        return Err("adjacent_donors");
     }
     let inferred_donors: Vec<_> = ring
         .atoms
@@ -634,10 +668,7 @@ pub fn redundant_nitrogen_hydrogens(
         .collect();
     let orders =
         chemistry::incident_orders(candidates.keys().copied(), graph.bonds(), |id, bond| {
-            converted
-                .get(&id)
-                .map(|order| order.valence())
-                .or_else(|| chemistry::bond_order_value(&bond.order))
+            kekule_order_value(&converted, id, bond)
         });
     candidates
         .into_iter()
@@ -679,12 +710,14 @@ pub enum Target {
 /// The complete edit for one conversion of the whole graph: bond orders, plus the nitrogen
 /// hydrogen statements that keep the meaning of each ring nitrogen. Commands that would
 /// change nothing are omitted, so an already converted graph gives an empty list. Fails
-/// with the model's reason, and without a partial result, if any system is unsupported.
+/// with the model's reason, and without a partial result, if any system is unsupported, or
+/// with `conversion_command_limit` if the edit needs more commands than one transaction
+/// accepts ([`MAX_COMMANDS`]).
 pub fn conversion_commands(
     graph: &MoleculeGraph,
     target: Target,
 ) -> Result<Vec<Command>, &'static str> {
-    let interpretation = perceive(graph);
+    let (interpretation, context) = perceive_in(graph);
     let (bonds, hydrogens): ConversionPlan = match target {
         Target::Aromatic => {
             let plan = interpretation.aromatize()?;
@@ -712,16 +745,33 @@ pub fn conversion_commands(
             (bonds, hydrogens)
         }
     };
-    let current_bonds: BTreeMap<_, _> = graph.bonds().collect();
-    let current_atoms: BTreeMap<_, _> = graph.atoms().collect();
+    let commands = changed_commands(&context, bonds, hydrogens)?;
+    // The same constant `Document::apply_selecting` checks (`TooManyCommands`); checking here
+    // gives the conversion its own reason instead of the generic transaction error.
+    if commands.len() > MAX_COMMANDS {
+        return Err("conversion_command_limit");
+    }
+    Ok(commands)
+}
+
+/// The commands that change a recorded bond order or hydrogen state, looked up in the graph
+/// the plan was made for. An identifier the graph does not hold is an error, not a panic:
+/// perception only names recorded items, so this guards a future defect there.
+fn changed_commands(
+    context: &Context<'_>,
+    bonds: Vec<(BondId, BondOrder)>,
+    hydrogens: Vec<(AtomId, Hydrogens)>,
+) -> Result<Vec<Command>, &'static str> {
     let mut commands = Vec::new();
     for (bond, order) in bonds {
-        if current_bonds[&bond].order != order {
+        let current = context.bonds.get(&bond).ok_or("invalid_graph")?;
+        if current.order != order {
             commands.push(Command::UpdateBond { bond, order });
         }
     }
     for (atom, state) in hydrogens {
-        if current_atoms[&atom].hydrogens != state {
+        let current = context.atoms.get(&atom).ok_or("invalid_graph")?;
+        if current.hydrogens != state {
             commands.push(Command::UpdateAtom {
                 atom,
                 edit: AtomEdit {
@@ -732,4 +782,35 @@ pub fn conversion_commands(
         }
     }
     Ok(commands)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Perception only names items of the graph it read, so a lookup that misses is a defect
+    /// elsewhere. The conversion must report it as an error instead of panicking, because
+    /// it runs while the application holds its session lock.
+    #[test]
+    fn a_plan_naming_an_item_the_graph_lacks_is_an_error_not_a_panic() {
+        let context = Context {
+            atoms: BTreeMap::new(),
+            bonds: BTreeMap::new(),
+            incident: BTreeMap::new(),
+        };
+        let bond = BondId::from_serial(1).unwrap();
+        let atom = AtomId::from_serial(1).unwrap();
+        assert_eq!(
+            changed_commands(&context, vec![(bond, BondOrder::Aromatic)], Vec::new()),
+            Err("invalid_graph")
+        );
+        assert_eq!(
+            changed_commands(&context, Vec::new(), vec![(atom, Hydrogens::Inferred)]),
+            Err("invalid_graph")
+        );
+        assert_eq!(
+            changed_commands(&context, Vec::new(), Vec::new()),
+            Ok(Vec::new())
+        );
+    }
 }

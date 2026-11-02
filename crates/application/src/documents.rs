@@ -7,8 +7,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
 use chemifree_domain::document::{
-    Command, Document, DocumentId, EditError, HistoryError, MAX_TITLE_CHARS, Numbering, Outcome,
-    RevisionsExhausted, TransactionError, validated_title,
+    Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS, MAX_TITLE_CHARS,
+    Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
@@ -897,15 +897,8 @@ impl<R: DocumentRepository> Documents<R> {
                 AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
                 AromaticityConversion::Kekule => aromaticity::Target::Kekule,
             };
-            let commands = aromaticity::conversion_commands(&graph, target).map_err(|reason| {
-                ApplicationError {
-                    invalid_aromaticity: Some(reason),
-                    ..ApplicationError::new(
-                        ErrorCode::InvalidCommand,
-                        "Aromaticity conversion could not be completed under the selected model.",
-                    )
-                }
-            })?;
+            let commands =
+                aromaticity::conversion_commands(&graph, target).map_err(aromaticity_refusal)?;
             if commands.is_empty() {
                 return Ok(());
             }
@@ -2350,6 +2343,27 @@ fn unsaved_before(action: &str, session: &Session) -> ApplicationError {
     )
 }
 
+/// The refusal of an aromaticity conversion, with the model's reason. The message says what
+/// the caller can act on; the reason carries the detail.
+fn aromaticity_refusal(reason: &'static str) -> ApplicationError {
+    // Two reasons are not limits of the model, so their messages name the cause: an internal
+    // defect, and the transaction bound that the conversion would exceed.
+    let message = match reason {
+        "invalid_graph" => {
+            "Aromaticity conversion found an internal inconsistency in the graph; nothing was changed."
+                .to_owned()
+        }
+        "conversion_command_limit" => format!(
+            "Aromaticity conversion needs more than {MAX_COMMANDS} commands and a transaction accepts at most {MAX_COMMANDS}; nothing was changed."
+        ),
+        _ => "Aromaticity conversion could not be completed under the selected model.".to_owned(),
+    };
+    ApplicationError {
+        invalid_aromaticity: Some(reason),
+        ..ApplicationError::new(ErrorCode::InvalidCommand, message)
+    }
+}
+
 fn rejected_edit(error: TransactionError) -> ApplicationError {
     let code = match error.error {
         EditError::RevisionLimit => ErrorCode::ResourceLimit,
@@ -2476,5 +2490,37 @@ fn refused(refusal: Refusal) -> ApplicationError {
                 TURN_WAIT.as_secs()
             ),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aromaticity_refusals_that_are_not_model_limits_name_their_cause() {
+        let error = aromaticity_refusal("invalid_graph");
+        assert_eq!(error.code, ErrorCode::InvalidCommand);
+        assert_eq!(error.reason_code(), Some("invalid_graph"));
+        assert!(
+            error.message.contains("internal") && error.message.contains("nothing was changed"),
+            "the message names an internal defect and that nothing changed: {}",
+            error.message
+        );
+        // The command bound names its cause and the shared limit.
+        let limit = aromaticity_refusal("conversion_command_limit");
+        assert_eq!(limit.reason_code(), Some("conversion_command_limit"));
+        assert_eq!(
+            limit.message,
+            format!(
+                "Aromaticity conversion needs more than {MAX_COMMANDS} commands and a transaction accepts at most {MAX_COMMANDS}; nothing was changed."
+            )
+        );
+        // Every other reason keeps the model message.
+        assert!(
+            aromaticity_refusal("adjacent_donors")
+                .message
+                .contains("selected model")
+        );
     }
 }

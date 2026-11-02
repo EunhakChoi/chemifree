@@ -62,6 +62,13 @@ fn targets(symbol: &str, charge: i8) -> Option<&'static [u16]> {
     }
 }
 
+/// The one total valence (bond orders plus hydrogens) that the ring-aromaticity model accepts
+/// for an element and charge: the lowest value `targets` lists. Higher listed values (N 5,
+/// S 4 and 6) are hypervalent states that model refuses. `None` where the table has no entry.
+pub fn restricted_target(symbol: &str, charge: i8) -> Option<u16> {
+    targets(symbol, charge)?.first().copied()
+}
+
 /// Assess one atom given the integral valence contribution of each incident bond (`None`
 /// where a bond has no integral value). This is the one place hydrogen counts are derived
 /// from valence; callers outside the crate use it for atoms that are not in a document.

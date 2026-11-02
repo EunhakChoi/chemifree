@@ -207,14 +207,8 @@ impl Graph {
             .map_err(IdentityError::Unsupported)?
             .into_iter()
             .collect();
-        // `kekulize` assigns every recorded aromatic bond or fails, so this cannot trigger; it
-        // keeps an aromaticity failure from ever surfacing as a bond or valence reason.
-        if input
-            .bonds()
-            .any(|(id, bond)| bond.order == BondOrder::Aromatic && !assignment.contains_key(&id))
-        {
-            return Err(IdentityError::Unsupported("aromaticity_unsupported"));
-        }
+        // `kekulize` is `Ok` only when it assigned every recorded aromatic bond (it compares
+        // the assigned set with all of them), so `assignment` holds each one.
         let orders =
             chemistry::incident_orders(atoms.keys().copied(), input.bonds(), |id, bond| {
                 aromaticity::kekule_order_value(&assignment, id, bond)

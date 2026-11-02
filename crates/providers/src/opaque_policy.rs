@@ -3,11 +3,11 @@
 //! Uninterpreted content may hold references or namespace-sensitive text, so a changed
 //! document that has it, or originally had it, is rewritten only after an explicit discard,
 //! and every discard is reported. A document equal to its re-parsed original is returned
-//! as the original bytes.
+//! as the original bytes, also when a discard was requested but there is nothing to discard.
 
 use chemifree_application::interchange_codec::InterchangeError;
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
-use chemifree_domain::interchange::{Content, Document, Object, ObjectKind, PropertyKind};
+use chemifree_domain::interchange::{Content, Document, Object, PropertyKind};
 
 /// What a format-specific reader found when it re-parsed the caller's original.
 pub(crate) struct ParsedOriginal<'a> {
@@ -27,13 +27,6 @@ pub(crate) enum Plan {
     },
 }
 
-fn is_opaque_kind(kind: &ObjectKind) -> bool {
-    matches!(
-        kind,
-        ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
-    )
-}
-
 /// Opaque entries in a tree; each opaque subtree counts once.
 pub(crate) fn opaque_count(object: &Object) -> usize {
     let properties = object
@@ -51,7 +44,7 @@ pub(crate) fn opaque_count(object: &Object) -> usize {
             .children
             .iter()
             .map(|child| match child {
-                Content::Object(child) if is_opaque_kind(&child.kind) => 1,
+                Content::Object(child) if child.kind.is_opaque() => 1,
                 Content::Object(child) => opaque_count(child),
                 _ => 0,
             })
@@ -105,12 +98,16 @@ pub(crate) fn plan(
         .as_ref()
         .is_some_and(|original| original.unrewritable_outside);
     if let Some(original) = &original
-        && !discard_opaque
         && original.document.root() == submitted.root()
     {
-        return Ok(Plan::KeepOriginal {
-            losses: retained_losses(opaque_count(submitted.root()), outside),
-        });
+        let count = opaque_count(submitted.root());
+        // An explicit discard changes nothing when there is nothing to discard, so the
+        // unchanged original is still returned as it was.
+        if !discard_opaque || (count == 0 && !outside) {
+            return Ok(Plan::KeepOriginal {
+                losses: retained_losses(count, outside),
+            });
+        }
     }
     let source_count = original
         .as_ref()

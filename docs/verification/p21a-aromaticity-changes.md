@@ -103,9 +103,54 @@ What changed, grouped:
   and the conformance case `aromaticity-partially-aromatic-fused-refused`.
 - Aromatic conversion adds a hydrogen statement to Kekule pyrrole-type nitrogens, so a
   conversion that changes five bonds of a pyrrole is six commands. A conversion that
-  needs more than 500 commands is refused whole.
-- Chemical identity changes for the records above; model ids are bumped so stored
-  comparisons are not confused.
+  needs more than 500 commands is refused whole, with the reason `conversion_command_limit`
+  (not the generic transaction message).
+- Chemical identity changes for the records above. Those are changes to classifications,
+  identities and conversions that succeeded on revision 1, which is why the model ids were
+  bumped to `chemifree-aromaticity-2` and `chemifree-chemical-graph-2` so stored
+  comparisons are not confused. The rule from then on, under one model id: every
+  classification, identity and conversion that succeeds is identical, and a refusal
+  (`unsupported`) may later become a result without a new id, so a stored refusal is only
+  valid for the build that produced it (see the next section).
+
+## Refusals turned into results after this record (issue 93)
+
+Two refusals of the revision-2 record above were narrowed afterwards. Under one model id
+every classification, identity and conversion that succeeds is identical, and a refusal
+(`unsupported`) may later become a result without a new id, so a stored refusal is only
+valid for the build that produced it. 1,2-dithiin is the example: it was refused
+(`adjacent_donors`) in the first builds of revision 2 and is `non_aromatic` now. Neither
+narrowing changes a classification, identity or conversion that succeeded before, so the model ids stay
+`chemifree-aromaticity-2` and `chemifree-chemical-graph-2`, and the generated tables below
+are unchanged (the corpus gives the same output before and after; the corpus has no input
+of either kind). Both restore the answer `chemifree-aromaticity-1` gave.
+
+- **Adjacent donors are decided after the electron count.** A single circuit with adjacent
+  donors whose count (every donor as two electrons) is not 4n+2 is `non_aromatic`
+  (`electron_count`) instead of `unsupported` (`adjacent_donors`): 1,2-dithiin (8 electrons)
+  is `non_aromatic` again, so it no longer blocks whole-document conversion; the same holds
+  for the O/S and N/N analogues. A Kekule double-bond pattern that cannot alternate is
+  `non_aromatic` (`not_conjugated`) before adjacent donors are considered. A count of 4n+2
+  (1,2-dihydro-1,2-diazete, cyclotriazane in aromatic spelling and the O/S ring above, 6 and
+  10 electrons) and any fused block stay `unsupported` (`adjacent_donors`), as in the tables
+  below, because the model does not decide that lone-pair arrangement.
+- **A two-coordinate ring nitrogen with a stated hydrogen count of 0 and only single bonds**
+  (valence 2) is outside the conjugated system again, like a saturated atom: a block with no
+  remaining conjugated cycle is `non_aromatic` (`not_conjugated`) instead of `unsupported`
+  (`valence_not_in_model`). Beside an aromatic sub-ring it is `unsupported`
+  (`fused_partially_aromatic`), like a secondary amine, and with aromatic bonds on the
+  other atoms it is `unsupported` (`mixed_ring_bonds`). Its
+  chemical identity is still refused (`unusual_valence`).
+
+Two reasons differ between refusals; no result does. The `mixed_ring_bonds` check still
+runs after the atom roles are assessed, so a ring that mixes bond orders and holds an atom
+the model cannot read reports that atom's reason (`chemifree-aromaticity-1` reported
+`mixed_ring_bonds`); running it first would make the aromatic spelling of tetralin-like
+blocks report `mixed_ring_bonds` instead of `fused_partially_aromatic` (item 1 above). Among
+the checks of a fully conjugated block `mixed_ring_bonds` now precedes `adjacent_donors`
+(which only changes the reason of an input that is refused either way). A conversion over
+the 500-command bound reports `conversion_command_limit` instead of the generic
+transaction error.
 
 ## Detailed results (generated)
 

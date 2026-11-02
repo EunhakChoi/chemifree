@@ -836,3 +836,510 @@ fn hypervalent_donors_get_the_same_refusal_in_both_spellings() {
         assert_eq!(only(&graph), refused, "S with two exocyclic bonds, {label}");
     }
 }
+
+// ---- Follow-ups of issue 93: decide the electron count first ----
+
+use chemifree_domain::aromaticity::Target;
+
+fn dithiin(donors: [&'static str; 2], kekule: bool) -> MoleculeGraph {
+    let atoms = [donors[0], donors[1], "C", "C", "C", "C"];
+    if kekule {
+        mol(
+            &atoms,
+            &[
+                (0, 1, '-'),
+                (1, 2, '-'),
+                (2, 3, '='),
+                (3, 4, '-'),
+                (4, 5, '='),
+                (5, 0, '-'),
+            ],
+        )
+    } else {
+        mol(&atoms, &ring_bonds(6, ':'))
+    }
+}
+
+#[test]
+fn adjacent_donors_do_not_hide_a_ring_that_fails_the_electron_count() {
+    // 1,2-dithiin, its oxathiin and dihydropyridazine analogues: 2 + 2 + 4 = 8 electrons.
+    for donors in [["S", "S"], ["O", "S"], ["NH1", "NH1"]] {
+        for kekule in [true, false] {
+            let graph = dithiin(donors, kekule);
+            let result = aromaticity::perceive(&graph);
+            assert_eq!(result.systems.len(), 1);
+            assert_eq!(
+                (
+                    result.systems[0].classification,
+                    result.systems[0].reason,
+                    result.systems[0].electrons
+                ),
+                (Classification::NonAromatic, Some("electron_count"), Some(8)),
+                "{donors:?} kekule={kekule}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_non_aromatic_dithiin_does_not_block_whole_document_conversion() {
+    // 1,2-dithiin beside a separate Kekule benzene: the benzene converts, the dithiin is left.
+    let mut atoms = vec!["S", "S", "C", "C", "C", "C"];
+    atoms.extend(["C"; 6]);
+    let mut bonds = vec![
+        (0, 1, '-'),
+        (1, 2, '-'),
+        (2, 3, '='),
+        (3, 4, '-'),
+        (4, 5, '='),
+        (5, 0, '-'),
+    ];
+    bonds.extend((0..6).map(|i| (6 + i, 6 + (i + 1) % 6, if i % 2 == 0 { '=' } else { '-' })));
+    let graph = mol(&atoms, &bonds);
+    let commands = aromaticity::conversion_commands(&graph, Target::Aromatic).unwrap();
+    assert_eq!(
+        commands.len(),
+        6,
+        "the six benzene bonds only: {commands:?}"
+    );
+    assert!(
+        aromaticity::conversion_commands(&graph, Target::Kekule)
+            .unwrap()
+            .is_empty()
+    );
+    // The same dithiin drawn with aromatic bonds is not an aromatic system, so it cannot be
+    // given a Kekule assignment; the reason is the electron count, not adjacent donors.
+    assert_eq!(
+        aromaticity::kekulize(&dithiin(["S", "S"], false)),
+        Err("electron_count")
+    );
+}
+
+#[test]
+fn adjacent_donors_with_an_impossible_double_bond_pattern_are_not_conjugated() {
+    // S-S-C=C=C: the middle carbon would need two double bonds, so no alternating pattern.
+    let graph = mol(
+        &["S", "S", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '='),
+            (4, 0, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&graph),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+}
+
+#[test]
+fn adjacent_donors_are_still_unsupported_when_the_count_is_four_n_plus_two() {
+    // The count 4n+2 would make the ring aromatic, and the model does not decide the
+    // lone-pair arrangement of neighbouring donors: this stays a refusal.
+    let unsupported = (Classification::Unsupported, Some("adjacent_donors"));
+    // 1,2-dihydro-1,2-diazete: 2 + 2 + 1 + 1 = 6.
+    let diazete = mol(
+        &["N", "N", "C", "C"],
+        &[(0, 1, '-'), (1, 2, '-'), (2, 3, '='), (3, 0, '-')],
+    );
+    assert_eq!(only(&diazete), unsupported);
+    // Cyclotriazane drawn with aromatic bonds and stated hydrogens: 6.
+    let triazane = mol(&["NH1", "NH1", "NH1"], &ring_bonds(3, ':'));
+    assert_eq!(only(&triazane), unsupported);
+    // Five donors around aromatic bonds: 10.
+    let donors = mol(&["O", "S", "O", "S", "O"], &ring_bonds(5, ':'));
+    assert_eq!(only(&donors), unsupported);
+    // A fused block has no electron rule in this model, so it keeps the earlier refusal:
+    // benzo-1,2-dithiete.
+    let benzodithiete = mol(
+        &["C", "C", "C", "C", "C", "C", "S", "S"],
+        &[
+            (0, 1, '='),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+            (0, 6, '-'),
+            (6, 7, '-'),
+            (7, 5, '-'),
+        ],
+    );
+    assert_eq!(only(&benzodithiete), unsupported);
+}
+
+#[test]
+fn mixed_ring_bonds_are_refused_before_the_electron_count_is_decided() {
+    // A dithiin with one aromatic bond among single and double bonds.
+    let graph = mol(
+        &["S", "S", "C", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '-'),
+            (2, 3, ':'),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&graph),
+        (Classification::Unsupported, Some("mixed_ring_bonds"))
+    );
+}
+
+#[test]
+fn two_coordinate_ring_nitrogen_with_stated_zero_hydrogens_is_non_aromatic() {
+    // N(H0) with two single bonds has valence 2; with only single bonds nothing can be
+    // conjugated through it, as in model 1.
+    let saturated = mol(&["NH0", "C", "C", "C", "C"], &ring_bonds(5, '-'));
+    assert_eq!(
+        only(&saturated),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    let diene = mol(
+        &["NH0", "C", "C", "C", "C"],
+        &[
+            (0, 1, '-'),
+            (1, 2, '='),
+            (2, 3, '-'),
+            (3, 4, '='),
+            (4, 0, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&diene),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    // It no longer blocks whole-document conversion of a benzene beside it.
+    let mut atoms = vec!["NH0", "C", "C", "C", "C"];
+    atoms.extend(["C"; 6]);
+    let mut bonds = ring_bonds(5, '-');
+    bonds.extend((0..6).map(|i| (5 + i, 5 + (i + 1) % 6, if i % 2 == 0 { '=' } else { '-' })));
+    let both = mol(&atoms, &bonds);
+    assert_eq!(
+        aromaticity::conversion_commands(&both, Target::Aromatic)
+            .unwrap()
+            .len(),
+        6
+    );
+    // The chemical identity is still refused: the valence model does not know this nitrogen.
+    assert_eq!(
+        identity::canonicalize_chemical(&saturated).unwrap_err(),
+        IdentityError::Unsupported("unusual_valence")
+    );
+}
+
+#[test]
+fn two_coordinate_ring_nitrogen_with_stated_zero_hydrogens_beside_a_benzene_is_still_partial() {
+    // An indoline-like block: the benzene could be aromatic, so the block is not non-aromatic.
+    let extra = ["NH0", "C", "C"];
+    let ring = [(0, 6, '-'), (6, 7, '-'), (7, 8, '-'), (8, 5, '-')];
+    for kekule in [true, false] {
+        let graph = benzo(&extra, &ring, kekule);
+        assert_eq!(
+            only(&graph),
+            (
+                Classification::Unsupported,
+                Some("fused_partially_aromatic")
+            ),
+            "kekule={kekule}"
+        );
+    }
+}
+
+#[test]
+fn a_kekule_search_that_exhausts_the_step_budget_is_search_limit_not_an_answer() {
+    // An aromatic system of 93 atoms and 121 bonds (one block, cycle rank 29, atoms of at most
+    // three ring bonds). An odd number of atoms has no perfect
+    // matching, so no Kekule assignment exists, but the search has to run through more than
+    // the fixed 100,000-step budget to find that out (the same search takes 371,242 steps
+    // with these atom numbers). The budget answer is therefore "undecided", not a false
+    // `no_kekule_assignment`. The patch was chosen with an independent model of the search.
+    const EDGES: [(usize, usize); 121] = [
+        (0, 15),
+        (0, 31),
+        (0, 34),
+        (1, 39),
+        (1, 52),
+        (2, 53),
+        (2, 73),
+        (2, 75),
+        (3, 9),
+        (3, 44),
+        (3, 68),
+        (4, 33),
+        (4, 35),
+        (4, 73),
+        (5, 21),
+        (5, 42),
+        (5, 61),
+        (6, 28),
+        (6, 62),
+        (6, 92),
+        (7, 68),
+        (7, 71),
+        (8, 25),
+        (8, 31),
+        (8, 67),
+        (9, 18),
+        (9, 45),
+        (10, 29),
+        (10, 41),
+        (10, 43),
+        (11, 45),
+        (11, 81),
+        (11, 87),
+        (12, 43),
+        (12, 56),
+        (13, 30),
+        (13, 65),
+        (13, 84),
+        (14, 67),
+        (14, 78),
+        (14, 91),
+        (15, 21),
+        (15, 22),
+        (16, 55),
+        (16, 59),
+        (16, 67),
+        (17, 61),
+        (17, 86),
+        (17, 92),
+        (18, 71),
+        (19, 22),
+        (19, 79),
+        (19, 87),
+        (20, 24),
+        (20, 49),
+        (20, 89),
+        (21, 70),
+        (22, 48),
+        (23, 59),
+        (23, 63),
+        (24, 77),
+        (24, 90),
+        (25, 27),
+        (26, 48),
+        (26, 66),
+        (26, 75),
+        (27, 34),
+        (28, 29),
+        (29, 86),
+        (30, 35),
+        (30, 52),
+        (31, 80),
+        (32, 55),
+        (32, 63),
+        (33, 61),
+        (33, 84),
+        (34, 87),
+        (35, 46),
+        (36, 45),
+        (36, 79),
+        (37, 58),
+        (37, 65),
+        (37, 72),
+        (38, 47),
+        (38, 83),
+        (39, 65),
+        (40, 41),
+        (40, 50),
+        (40, 56),
+        (41, 58),
+        (42, 48),
+        (42, 73),
+        (44, 77),
+        (44, 81),
+        (46, 53),
+        (47, 77),
+        (49, 54),
+        (50, 72),
+        (51, 57),
+        (51, 60),
+        (51, 74),
+        (54, 85),
+        (55, 82),
+        (57, 66),
+        (58, 76),
+        (60, 64),
+        (62, 78),
+        (64, 88),
+        (66, 79),
+        (69, 74),
+        (69, 88),
+        (70, 80),
+        (70, 92),
+        (74, 75),
+        (76, 84),
+        (76, 86),
+        (78, 80),
+        (81, 89),
+        (82, 91),
+        (83, 90),
+        (85, 90),
+    ];
+    let bonds: Vec<(usize, usize, char)> = EDGES.iter().map(|&(a, b)| (a, b, ':')).collect();
+    let graph = mol(&vec!["C"; 93], &bonds);
+    let result = aromaticity::perceive(&graph);
+    assert_eq!(result.systems.len(), 1);
+    assert_eq!(result.systems[0].atoms.len(), 93);
+    assert_eq!(result.systems[0].cycle_rank, 29);
+    assert_eq!(
+        kinds(&result.systems[0]),
+        (Classification::Unsupported, Some("search_limit"))
+    );
+    assert_eq!(result.kekulize(), Err("search_limit"));
+    assert_eq!(
+        result.aromatize().map(|plan| plan.bonds),
+        Err("search_limit")
+    );
+    assert_eq!(
+        identity::canonicalize_chemical(&graph).unwrap_err(),
+        IdentityError::Unsupported("search_limit")
+    );
+    assert_eq!(
+        aromaticity::conversion_commands(&graph, Target::Kekule),
+        Err("search_limit")
+    );
+}
+
+#[test]
+fn a_fused_block_with_mixed_ring_bonds_and_adjacent_donors_reports_mixed_ring_bonds() {
+    // Benzo-1,2-dithiete (a fused block with adjacent S-S donors) with one aromatic bond
+    // among single and double bonds: the mixed bonds are reported first.
+    let graph = mol(
+        &["C", "C", "C", "C", "C", "C", "S", "S"],
+        &[
+            (0, 1, ':'),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+            (0, 6, '-'),
+            (6, 7, '-'),
+            (7, 5, '-'),
+        ],
+    );
+    let result = aromaticity::perceive(&graph);
+    assert_eq!(result.systems.len(), 1);
+    assert_eq!(result.systems[0].cycle_rank, 2, "a fused block");
+    assert_eq!(
+        kinds(&result.systems[0]),
+        (Classification::Unsupported, Some("mixed_ring_bonds"))
+    );
+    // Without the aromatic bond the same block reports the donors.
+    let kekule = mol(
+        &["C", "C", "C", "C", "C", "C", "S", "S"],
+        &[
+            (0, 1, '='),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+            (0, 6, '-'),
+            (6, 7, '-'),
+            (7, 5, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&kekule),
+        (Classification::Unsupported, Some("adjacent_donors"))
+    );
+}
+
+// ---- Review round 2: the two-coordinate nitrogen exception is exact ----
+
+/// A five-membered ring N0-C1-C2-C3-C4 whose atom 0 and bonds are given; the carbons are plain.
+fn ring_with_nitrogen(nitrogen: Atom, bonds: [BondOrder; 5]) -> MoleculeGraph {
+    let mut document = Document::new(DocumentId::parse("n-test").unwrap(), "n").unwrap();
+    let mut commands: Vec<Command> = std::iter::once(nitrogen)
+        .chain((0..4).map(|_| Atom::from(Element::from_symbol("C").unwrap())))
+        .map(|atom| Command::AddAtom {
+            atom,
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        })
+        .collect();
+    commands.extend(
+        bonds
+            .into_iter()
+            .enumerate()
+            .map(|(i, order)| Command::AddBond {
+                begin: AtomRef::Created(i),
+                end: AtomRef::Created((i + 1) % 5),
+                order,
+            }),
+    );
+    document.apply(&commands).unwrap();
+    MoleculeGraph::from_document(&document)
+}
+
+fn all_single() -> [BondOrder; 5] {
+    std::array::from_fn(|_| BondOrder::Single)
+}
+
+fn nitrogen_with_stated_zero() -> Atom {
+    let mut atom = Atom::from(Element::from_symbol("N").unwrap());
+    atom.hydrogens = Hydrogens::Specified(0);
+    atom
+}
+
+#[test]
+fn the_two_single_bond_nitrogen_exception_does_not_cover_other_invalid_states() {
+    use BondOrder::{Aromatic, Dative, Single, Triple, Unknown};
+    let refused = |graph: &MoleculeGraph| {
+        let (class, reason) = only(graph);
+        assert_eq!(class, Classification::Unsupported, "{reason:?}");
+        reason
+    };
+    // The exception itself.
+    assert_eq!(
+        only(&ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            all_single()
+        )),
+        (Classification::NonAromatic, Some("not_conjugated"))
+    );
+    // A triple, dative or unknown bond on the nitrogen is refused for the bond.
+    for (name, order) in [("triple", Triple), ("dative", Dative), ("unknown", Unknown)] {
+        let on_first = ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            [order.clone(), Single, Single, Single, Single],
+        );
+        assert_eq!(refused(&on_first), Some("unsupported_ring_bond"), "{name}");
+        let on_last = ring_with_nitrogen(
+            nitrogen_with_stated_zero(),
+            [Single, Single, Single, Single, order],
+        );
+        assert_eq!(
+            refused(&on_last),
+            Some("unsupported_ring_bond"),
+            "{name} (other bond)"
+        );
+    }
+    // A triple bond beside aromatic bonds is refused for the same reason.
+    let aromatic_side = ring_with_nitrogen(
+        nitrogen_with_stated_zero(),
+        [Triple, Aromatic, Aromatic, Aromatic, Single],
+    );
+    assert_eq!(refused(&aromatic_side), Some("unsupported_ring_bond"));
+    // A charged nitrogen keeps its valence refusal.
+    let mut cation = nitrogen_with_stated_zero();
+    cation.charge = 1;
+    assert_eq!(
+        refused(&ring_with_nitrogen(cation, all_single())),
+        Some("valence_not_in_model")
+    );
+    // An attachment point is refused by the valence model before any exception.
+    let mut attached = nitrogen_with_stated_zero();
+    attached.attachment_points = chemifree_domain::states::AttachmentPoints::new(&[1]).unwrap();
+    assert_eq!(
+        refused(&ring_with_nitrogen(attached, all_single())),
+        Some("attachment_point")
+    );
+}

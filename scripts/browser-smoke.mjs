@@ -3177,6 +3177,20 @@ step = 'after short_wide_bond_is_selectable'
   await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
   assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'selecting does not mark the result stale')
 
+  // An edit to the OTHER drawing, made elsewhere, is noticed once the document list is refreshed:
+  // the result is hidden with a notice, as for this drawing, and a new search sees the edit.
+  const otherEdit = await apiWrite(`/api/v1/documents/${ethanol.id}/transactions`, {
+    request_id: 'match-ethanol-edit', expected_revision: 1,
+    commands: [{ op: 'add_atom', element: 'N', position: { x: 0, y: 90 } }],
+  })
+  assert.equal(otherEdit.status, 200)
+  await panel.getByRole('button', { name: 'Refresh documents' }).click()
+  await panel.getByTestId('substructure-stale').getByText('The other drawing changed since the last search. Search again.', { exact: true }).waitFor()
+  assert.equal(await result.count(), 0, 'an edit to the other drawing hides the earlier result')
+  await search.click()
+  await result.getByText(new RegExp(`target ${ethanol.id} revision 2`)).waitFor()
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'the new search is about the edited drawing')
+
   // A charge on the query atom is a condition: C+ does not occur in an uncharged target.
   await tool('Select and move')
   await canvas.scrollIntoViewIfNeeded()
@@ -3267,6 +3281,11 @@ step = 'after short_wide_bond_is_selectable'
     await route.fulfill({ response })
   }
   await page.route('**/api/v1/operations', holdCopy)
+  // The direction is part of the form too: choose the other one for this drawing, and see below
+  // that the copy starts again from the default.
+  await panel.getByLabel('This drawing is the').click()
+  await page.getByRole('option', { name: 'target (search another drawing in it)', exact: true }).click()
+  await panel.getByLabel('This drawing is the').getByText('target (search another drawing in it)', { exact: true }).waitFor()
   await panel.getByRole('button', { name: 'Search', exact: true }).click()
   await copyArrived
   await panel.getByRole('button', { name: 'Searching…' }).waitFor()
@@ -3276,6 +3295,7 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
   await page.getByTestId('copy-notice').waitFor()
   await panel.getByLabel('Other drawing').getByText('Choose a drawing', { exact: true }).waitFor()
+  await panel.getByLabel('This drawing is the').getByText('query (search it in another drawing)', { exact: true }).waitFor()
   assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'the copy shows no result')
   assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'the copy shows no refusal')
   assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'the copy is not stale: it has no earlier search')

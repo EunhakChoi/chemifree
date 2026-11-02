@@ -62,6 +62,19 @@ test('an unconfirmed CDXML creation is checked with the same request ID', async 
   assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
 })
 
+test('reading a CDX or CDXML source asks for compact bytes', async () => {
+  const choice = { page_id: 1, fragment_id: 2, page_path: 'page 1', fragment_path: 'page 1/fragment 2' }
+  const reply = { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }
+  const scripted = service({ '/api/v1/operations': [() => json(200, reply), () => json(200, reply)] })
+  const client = new DocumentClient()
+  assert.deepEqual(await client.readInterchange('VjCD0100AA==', 'cdx'), [choice])
+  assert.deepEqual(await client.readInterchange('<CDXML/>', 'cdxml'), [choice])
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [
+    { mode: 'read', format: 'cdx', source: 'VjCD0100AA==', compact_bytes: true },
+    { mode: 'read', format: 'cdxml', source: '<CDXML/>', compact_bytes: true },
+  ])
+})
+
 /** What Vite's development proxy answers when the API connection drops before a reply. */
 const proxyFailure = () => new Response('', { status: 502, headers: { 'content-type': 'text/plain' } })
 
@@ -100,7 +113,7 @@ function service(answers) {
     }
     const sentWith = init.headers['x-chemifree-session']
     const body = JSON.parse(init.body)
-    writes.push({ path, token: sentWith, requestId: body.request_id })
+    writes.push({ path, token: sentWith, requestId: body.request_id, parameters: body.parameters })
     if (sentWith !== token) return error(401, 'unauthorized')
     const suffix = Object.keys(answers).find((key) => !key.startsWith('GET ') && path.endsWith(key))
     assert.ok(suffix, `no scripted answer for ${path}`)
@@ -1041,6 +1054,20 @@ test('a search that does not end for one document does not stop another document
   leaveAll(searches)
   assert.equal(isLatest(searches, 'doc-a', second), false)
   assert.equal(finishRunning(new Map(), 'doc-a', second).size, 0)
+})
+
+test('the other drawing of a result is judged changed by the document list, and only when the list says so', () => {
+  const { otherDrawingChanged } = searchRequests
+  const searched = { id: 'doc-b', title: 'B', revision: 3, atoms: [{ id: 'a1' }, { id: 'a2' }], bonds: [{ id: 'b1' }] }
+  const summary = (changes = {}) => ({ id: 'doc-b', title: 'B', revision: 3, atom_count: 2, bond_count: 1, open: false, unsaved_changes: false, recovery: null, saved_at_ms: null, ...changes })
+  assert.equal(otherDrawingChanged(searched, [summary()]), false, 'the list still holds the searched snapshot')
+  assert.equal(otherDrawingChanged(searched, [summary({ revision: 4 })]), true, 'a later revision')
+  assert.equal(otherDrawingChanged(searched, [summary({ revision: 2 })]), true, 'an earlier revision is also not the searched drawing')
+  assert.equal(otherDrawingChanged(searched, [summary({ atom_count: 3 })]), true, 'an atom added at the same revision (a restart reused it)')
+  assert.equal(otherDrawingChanged(searched, [summary({ bond_count: 0 })]), true, 'a bond removed')
+  assert.equal(otherDrawingChanged(searched, []), false, 'a drawing the list does not hold is not judged (a filter looks the same)')
+  assert.equal(otherDrawingChanged(searched, [summary({ id: 'doc-c', revision: 9 })]), false, 'another document changing says nothing')
+  assert.equal(otherDrawingChanged(null, [summary({ revision: 9 })]), false, 'a drawing searched in itself is judged by its own snapshot')
 })
 
 test('a substructure search after a service restart is asked about, not answered from the old token', async () => {

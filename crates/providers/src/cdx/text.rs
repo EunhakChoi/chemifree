@@ -28,7 +28,8 @@ pub(super) fn charset_code(name: &str) -> Option<u16> {
         .then_some(CHARSET_WINDOWS_1252)
 }
 
-/// Platform value of a font table: 0 Macintosh, 1 Windows.
+/// Platform values of a font table.
+pub(super) const PLATFORM_MACINTOSH: u16 = 0;
 pub(super) const PLATFORM_WINDOWS: u16 = 1;
 
 #[derive(Clone, Copy)]
