@@ -11,7 +11,7 @@ use chemifree_domain::states::{
     AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
 use chemifree_domain::substructure::{
-    self, Item, MAX_QUERY_ATOMS, MAX_SEARCH_STEPS, MatchError, Matches, Side,
+    self, Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SEARCH_STEPS, MatchError, Matches, Side,
 };
 
 /// An atom: `C`, `N+`, `O-`, `13C`, `N@1` (one stated hydrogen), `*`, `A`, `Q`, `X`,
@@ -1386,4 +1386,48 @@ fn seeded_larger_random_graphs_give_verified_mappings_or_a_refusal_never_a_panic
         verified > 100 && refusals > 20,
         "{verified} verified, {refusals} refused"
     );
+}
+
+#[test]
+fn exactly_the_mapping_limit_is_an_answer_and_one_more_is_a_limit() {
+    let carbon = mol(&["C"], &[]);
+    let at_limit = substructure::find(&carbon, &mol(&vec!["C"; MAX_MAPPINGS], &[])).unwrap();
+    assert_eq!(at_limit.mappings.len(), MAX_MAPPINGS);
+    assert_eq!(
+        substructure::find(&carbon, &mol(&vec!["C"; MAX_MAPPINGS + 1], &[])),
+        Err(MatchError::MappingLimit)
+    );
+}
+
+#[test]
+fn a_mapping_is_ordered_by_id_whatever_order_the_graph_lists_its_atoms_in() {
+    // The same ethanol, listed with its atoms and bonds in descending ID order.
+    let atom_of = |symbol: &str| Atom::from(Element::from_symbol(symbol).unwrap());
+    let bond_of = |begin: u32, end: u32| chemifree_domain::document::Bond {
+        begin: id(begin),
+        end: id(end),
+        order: BondOrder::Single,
+    };
+    let backwards = MoleculeGraph::from_parts(
+        vec![
+            (id(3), atom_of("O")),
+            (id(2), atom_of("C")),
+            (id(1), atom_of("C")),
+        ],
+        vec![(bond_id(2), bond_of(2, 3)), (bond_id(1), bond_of(1, 2))],
+    );
+    let query = mol(&["C", "O"], &[(0, 1, "-")]);
+    let matches = substructure::find(&query, &backwards).unwrap();
+    assert_eq!(matches.mappings.len(), 1);
+    assert_eq!(
+        matches.mappings[0].atoms,
+        vec![(id(1), id(2)), (id(2), id(3))]
+    );
+    // The query listed backwards gives the same mapping, ordered by query atom ID.
+    let reversed_query = MoleculeGraph::from_parts(
+        vec![(id(2), atom_of("O")), (id(1), atom_of("C"))],
+        vec![(bond_id(1), bond_of(1, 2))],
+    );
+    let again = substructure::find(&reversed_query, &backwards).unwrap();
+    assert_eq!(again.mappings, matches.mappings);
 }

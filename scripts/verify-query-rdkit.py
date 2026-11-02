@@ -7,7 +7,8 @@ Run after building the CLI and pass its absolute path:
 Every fixture in crates/application/tests/data/query-fixtures.json declares its
 expected outcome: either the exact set of atom mappings (the target atom for
 each query atom, in query-atom order) or a specific refusal (code, side and
-reason). For a fixture with mappings, RDKit's GetSubstructMatches(uniquify=False)
+reason). For a fixture with mappings, RDKit's
+GetSubstructMatches(uniquify=False)
 and Chemifree's `chem.substructure` must both give exactly that set. For a
 refusal, Chemifree must give exactly that refusal, and the fixture states how
 many mappings RDKit finds, so a refusal cannot hide a query that RDKit answers
@@ -199,64 +200,82 @@ def rdkit_mappings(fixture: dict[str, Any]) -> set[tuple[int, ...]]:
     return {tuple(match) for match in matches}
 
 
+_ORDERS = {"-": "single", "=": "double", "#": "triple", ":": "aromatic"}
+_QUERY_NAMES = {
+    "*": "any",
+    "A": "any_heavy",
+    "Q": "heteroatom",
+    "X": "halogen",
+}
+
+
+def _atom_commands(index: int, text: str) -> list[dict[str, Any]]:
+    """The `add_atom` command for an atom spec, then any `update_atom`."""
+    add: dict[str, Any] = {
+        "op": "add_atom",
+        "position": {"x": 30 * index, "y": 0},
+    }
+    if text in _QUERY_NAMES:
+        add["query"] = {"kind": _QUERY_NAMES[text]}
+        return [add]
+    if text.lstrip("!").startswith("["):
+        add["query"] = {
+            "kind": "list",
+            "elements": text.lstrip("!").strip("[]").split(","),
+            "negated": text.startswith("!"),
+        }
+        return [add]
+    isotope, symbol, charge, hydrogens = _parse_element(text)
+    add["element"] = symbol
+    if hydrogens is not None:
+        add["hydrogens"] = {"mode": "specified", "count": hydrogens}
+    change: dict[str, Any] = {}
+    if charge:
+        change["charge"] = charge
+    if isotope:
+        change["isotope"] = isotope
+    if not change:
+        return [add]
+    return [add, {"op": "update_atom", "atom": f"a{index + 1}", **change}]
+
+
+def _bond_command(first: int, second: int, kind: str) -> dict[str, Any]:
+    bond: dict[str, Any] = {
+        "op": "add_bond",
+        "begin": f"${first}",
+        "end": f"${second}",
+    }
+    if kind in _ORDERS:
+        bond["order"] = _ORDERS[kind]
+    elif kind == ">":
+        bond["order"] = "dative"
+    elif kind == "?":
+        bond["order"] = "unknown"
+    elif kind == "~":
+        bond.update(order="query", query={"kind": "any"})
+    else:
+        bond.update(
+            order="query",
+            query={"kind": "list", "orders": [_ORDERS[c] for c in kind]},
+        )
+    return bond
+
+
 def _commands(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    commands: list[dict[str, Any]] = []
+    """Atoms first (a1, a2, ... in order), their updates, then the bonds."""
+    adds: list[dict[str, Any]] = []
     updates: list[dict[str, Any]] = []
     for index, text in enumerate(spec["atoms"]):
-        add: dict[str, Any] = {
-            "op": "add_atom",
-            "position": {"x": 30 * index, "y": 0},
-        }
-        if text in ("*", "A", "Q", "X"):
-            names = {"*": "any", "A": "any_heavy", "Q": "heteroatom", "X": "halogen"}
-            add["query"] = {"kind": names[text]}
-        elif text.lstrip("!").startswith("["):
-            add["query"] = {
-                "kind": "list",
-                "elements": text.lstrip("!").strip("[]").split(","),
-                "negated": text.startswith("!"),
-            }
-        else:
-            isotope, symbol, charge, hydrogens = _parse_element(text)
-            add["element"] = symbol
-            if hydrogens is not None:
-                add["hydrogens"] = {"mode": "specified", "count": hydrogens}
-            change: dict[str, Any] = {}
-            if charge:
-                change["charge"] = charge
-            if isotope:
-                change["isotope"] = isotope
-            if change:
-                updates.append(
-                    {"op": "update_atom", "atom": f"a{index + 1}", **change}
-                )
-        commands.append(add)
-    orders = {"-": "single", "=": "double", "#": "triple", ":": "aromatic"}
-    for first, second, kind in spec["bonds"]:
-        bond: dict[str, Any] = {
-            "op": "add_bond",
-            "begin": f"${first}",
-            "end": f"${second}",
-        }
-        if kind in orders:
-            bond["order"] = orders[kind]
-        elif kind == ">":
-            bond["order"] = "dative"
-        elif kind == "?":
-            bond["order"] = "unknown"
-        elif kind == "~":
-            bond.update(order="query", query={"kind": "any"})
-        else:
-            bond.update(
-                order="query",
-                query={"kind": "list", "orders": [orders[c] for c in kind]},
-            )
-        commands.append(bond)
-    count = len(spec["atoms"])
-    return commands[:count] + updates + commands[count:]
+        add, *update = _atom_commands(index, text)
+        adds.append(add)
+        updates.extend(update)
+    bonds = [_bond_command(*bond) for bond in spec["bonds"]]
+    return adds + updates + bonds
 
 
-def _request(identifier: str, operation: str, parameters: dict[str, Any]) -> str:
+def _request(
+    identifier: str, operation: str, parameters: dict[str, Any]
+) -> str:
     return json.dumps(
         {
             "contract": 1,
@@ -271,7 +290,7 @@ def _request(identifier: str, operation: str, parameters: dict[str, Any]) -> str
 def _pairs(mapping: dict[str, Any]) -> tuple[int, ...]:
     """A reply mapping as target indices in query-atom order."""
     atoms = sorted(
-        ((int(p["query"][1:]), int(p["target"][1:])) for p in mapping["atoms"])
+        (int(p["query"][1:]), int(p["target"][1:])) for p in mapping["atoms"]
     )
     return tuple(target - 1 for _, target in atoms)
 
@@ -286,7 +305,9 @@ def check(cli: pathlib.Path, fixture: dict[str, Any], fill: bool) -> list[str]:
     refused = fixture.get("refused")
     if refused is None:
         if rdkit_found is None:
-            problems.append(f"{name}: a fixture with mappings must be comparable with RDKit")
+            problems.append(
+                f"{name}: a fixture with mappings must be comparable with RDKit"
+            )
             return problems
         if fill and "expect" not in fixture:
             fixture["expect"] = {"mappings": sorted(rdkit_found)}
@@ -294,16 +315,25 @@ def check(cli: pathlib.Path, fixture: dict[str, Any], fill: bool) -> list[str]:
         if len(expected) != len(fixture["expect"]["mappings"]):
             problems.append(f"{name}: expected mappings repeat")
         if reply["outcome"] != "ok":
-            problems.append(f"{name}: Chemifree answered {reply['outcome']}: {reply['diagnostics']}")
+            problems.append(
+                f"{name}: Chemifree answered {reply['outcome']}: "
+                f"{reply['diagnostics']}"
+            )
             return problems
         mappings = reply["result"]["mappings"]
         ours = {_pairs(m) for m in mappings}
         if len(ours) != len(mappings):
             problems.append(f"{name}: Chemifree repeated a mapping")
         if ours != expected:
-            problems.append(f"{name}: Chemifree {sorted(ours)} != expected {sorted(expected)}")
+            problems.append(
+                f"{name}: Chemifree {sorted(ours)} != "
+                f"expected {sorted(expected)}"
+            )
         if rdkit_found != expected:
-            problems.append(f"{name}: RDKit {sorted(rdkit_found)} != expected {sorted(expected)}")
+            problems.append(
+                f"{name}: RDKit {sorted(rdkit_found)} != "
+                f"expected {sorted(expected)}"
+            )
         if reply["model_id"] != "chemifree-substructure-1":
             problems.append(f"{name}: model_id {reply['model_id']}")
         return problems
@@ -314,7 +344,8 @@ def check(cli: pathlib.Path, fixture: dict[str, Any], fill: bool) -> list[str]:
     problems.extend(_refusal_problems(name, reply, refused))
     if len(rdkit_found) != refused["rdkit_matches"]:
         problems.append(
-            f"{name}: RDKit finds {len(rdkit_found)}, fixture says {refused['rdkit_matches']}"
+            f"{name}: RDKit finds {len(rdkit_found)}, "
+            f"fixture says {refused['rdkit_matches']}"
         )
     return problems
 
@@ -338,7 +369,37 @@ def _refusal_problems(
     return problems
 
 
-def chemifree_reply(cli: pathlib.Path, fixture: dict[str, Any]) -> dict[str, Any]:
+class _Session:
+    """One CLI `operations` process: a line in, a line out."""
+
+    def __init__(self, cli: pathlib.Path, data: str) -> None:
+        self._process = subprocess.Popen(  # noqa: S603 - the CLI under test
+            [str(cli), "--data-dir", data, "operations"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        if self._process.stdin is None or self._process.stdout is None:
+            raise FixtureError("the CLI has no standard streams")
+        self._stdin = self._process.stdin
+        self._stdout = self._process.stdout
+
+    def ask(self, line: str) -> dict[str, Any]:
+        """Sends one request line and reads its reply."""
+        self._stdin.write(line + "\n")
+        self._stdin.flush()
+        reply: dict[str, Any] = json.loads(self._stdout.readline())
+        return reply
+
+    def close(self) -> None:
+        """Ends the process by closing its input."""
+        self._stdin.close()
+        self._process.wait(timeout=60)
+
+
+def chemifree_reply(
+    cli: pathlib.Path, fixture: dict[str, Any]
+) -> dict[str, Any]:
     """Draws both graphs and asks `chem.substructure` in one CLI process.
 
     A CLI process is its own session, so drawing and matching share it. The
@@ -347,29 +408,18 @@ def chemifree_reply(cli: pathlib.Path, fixture: dict[str, Any]) -> dict[str, Any
     `a2`, ... in creation order, which is how the reply is read back as
     fixture indices.
     """
+    names = ("query", "target")
     with tempfile.TemporaryDirectory(prefix="chemifree-query-") as data:
-        process = subprocess.Popen(
-            [str(cli), "--data-dir", data, "operations"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
-        )
-        assert process.stdin is not None and process.stdout is not None
-
-        def ask(line: str) -> dict[str, Any]:
-            process.stdin.write(line + "\n")
-            process.stdin.flush()
-            return json.loads(process.stdout.readline())
-
+        session = _Session(cli, data)
         try:
             ids = [
-                ask(_request(f"create-{n}", "document.create", {}))["result"][
-                    "document"
-                ]["id"]
-                for n in ("query", "target")
+                session.ask(_request(f"create-{n}", "document.create", {}))[
+                    "result"
+                ]["document"]["id"]
+                for n in names
             ]
-            for name, identifier in zip(("query", "target"), ids):
-                drawn = ask(
+            for name, identifier in zip(names, ids, strict=True):
+                drawn = session.ask(
                     _request(
                         f"draw-{name}",
                         "document.transaction",
@@ -381,8 +431,10 @@ def chemifree_reply(cli: pathlib.Path, fixture: dict[str, Any]) -> dict[str, Any
                     )
                 )
                 if drawn["outcome"] != "ok":
-                    raise FixtureError(f"{fixture['name']}: drawing failed: {drawn}")
-            return ask(
+                    raise FixtureError(
+                        f"{fixture['name']}: drawing failed: {drawn}"
+                    )
+            return session.ask(
                 _request(
                     "match",
                     "chem.substructure",
@@ -390,24 +442,33 @@ def chemifree_reply(cli: pathlib.Path, fixture: dict[str, Any]) -> dict[str, Any
                 )
             )
         finally:
-            process.stdin.close()
-            process.wait(timeout=60)
+            session.close()
+
+
+def _report(line: str) -> None:
+    sys.stderr.write(line + "\n")
 
 
 def main() -> int:
     """Checks every fixture; prints a summary and returns the exit status."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("cli", type=pathlib.Path, help="path to the chemifree CLI")
+    parser.add_argument(
+        "cli", type=pathlib.Path, help="path to the chemifree CLI"
+    )
     parser.add_argument("--fixtures", type=pathlib.Path, default=_FIXTURES)
-    parser.add_argument("--fill", action="store_true", help="print the fixture file with RDKit's answers filled in")
+    parser.add_argument(
+        "--fill",
+        action="store_true",
+        help="print the fixture file with RDKit's answers filled in",
+    )
     arguments = parser.parse_args()
     if rdkit.__version__ != _EXPECTED_RDKIT:
-        print(f"expected RDKit {_EXPECTED_RDKIT}, found {rdkit.__version__}", file=sys.stderr)
+        _report(f"expected RDKit {_EXPECTED_RDKIT}, found {rdkit.__version__}")
         return 2
     document = json.loads(arguments.fixtures.read_text(encoding="utf-8"))
     names = [fixture["name"] for fixture in document["fixtures"]]
     if len(set(names)) != len(names):
-        print("fixture names repeat", file=sys.stderr)
+        _report("fixture names repeat")
         return 1
     problems: list[str] = []
     answered = refused = 0
@@ -418,13 +479,12 @@ def main() -> int:
         else:
             answered += 1
     if arguments.fill:
-        print(json.dumps(document, indent=1))
+        sys.stdout.write(json.dumps(document, indent=1) + "\n")
     for problem in problems:
-        print(problem, file=sys.stderr)
-    print(
+        _report(problem)
+    _report(
         f"{answered} answered and {refused} refused fixtures, "
-        f"{len(problems)} problems",
-        file=sys.stderr,
+        f"{len(problems)} problems"
     )
     return 1 if problems else 0
 
