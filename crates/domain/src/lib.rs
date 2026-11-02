@@ -14,6 +14,7 @@ pub mod rings;
 pub mod scene;
 pub mod settings;
 pub mod states;
+pub mod substructure;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityId {
