@@ -3021,7 +3021,9 @@ step = 'after short_wide_bond_is_selectable'
 
   // A commit whose reply is lost may have happened. The preview stays, and the same request
   // is retried: the service answers with what it committed, so nothing is imported twice.
-  const before = await atomCount()
+  // The panel is on the Metal document by now.
+  const metalAtoms = async () => (await api(`/api/v1/documents/${metalId}`)).document.atoms.length
+  const before = await metalAtoms()
   const loseReply = async (route) => {
     const request = route.request().postDataJSON()
     if (request?.operation !== 'document.import' || request?.parameters?.preview === true) return route.continue()
@@ -3032,10 +3034,10 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Import SMILES' }).click()
   await panel.getByRole('button', { name: 'Retry the same import' }).waitFor()
   await page.unroute('**/api/v1/operations', loseReply)
-  assert.equal(await atomCount(), before + 2, 'the first request did commit')
+  assert.equal(await metalAtoms(), before + 2, 'the first request did commit')
   await panel.getByRole('button', { name: 'Retry the same import' }).click()
   await panel.getByText(/Imported\./).waitFor()
-  assert.equal(await atomCount(), before + 2, 'the retry was answered from the committed reply, not imported again')
+  assert.equal(await metalAtoms(), before + 2, 'the retry was answered from the committed reply, not imported again')
   await panel.getByRole('button', { name: 'Retry the same import' }).waitFor({ state: 'hidden' })
 
   // A restart between the preview and the import refuses the import in the panel.
