@@ -3000,6 +3000,25 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByLabel('Written SMILES').waitFor()
   assert.equal(await panel.getByLabel('Written SMILES').inputValue(), '[Fe]')
 
+  // A commit whose request fails leaves the panel usable: the error shows in the panel, the
+  // buttons work again, and a new preview and import go through.
+  await source.fill('CC')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByTestId('smiles-preview-summary').waitFor()
+  const failCommit = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation === 'document.import' && request?.parameters?.preview !== true) return route.abort('failed')
+    return route.continue()
+  }
+  await page.route('**/api/v1/operations', failCommit)
+  await panel.getByRole('button', { name: 'Import SMILES' }).click()
+  await panel.getByRole('alert').waitFor()
+  await page.unroute('**/api/v1/operations', failCommit)
+  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isEnabled(), true, 'the panel is usable again')
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await panel.getByTestId('smiles-preview-summary').waitFor()
+  await panel.getByRole('button', { name: 'Import SMILES' }).isEnabled()
+
   // A restart between the preview and the import refuses the import in the panel.
   await source.fill('CC')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()

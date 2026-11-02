@@ -497,17 +497,13 @@ pub fn chemical_form(input: &MoleculeGraph) -> Result<ChemicalForm, IdentityErro
     let (canonical, normalized) = finish(Graph::chemical(input)?)?;
     let normalized = normalized.expect("a chemical graph records its normalized parts");
     let mut position = vec![0; canonical.numbering.len()];
-    let order: Vec<usize> = canonical
-        .numbering
+    let index_of: BTreeMap<AtomId, usize> = normalized
+        .ids
         .iter()
-        .map(|id| {
-            normalized
-                .ids
-                .iter()
-                .position(|candidate| candidate == id)
-                .expect("canonical numbering lists the graph's own atoms")
-        })
+        .enumerate()
+        .map(|(index, id)| (*id, index))
         .collect();
+    let order: Vec<usize> = canonical.numbering.iter().map(|id| index_of[id]).collect();
     for (rank, &index) in order.iter().enumerate() {
         position[index] = rank;
     }

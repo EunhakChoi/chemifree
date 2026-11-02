@@ -793,13 +793,12 @@ impl Reader<'_> {
             })?;
             Some(found)
         };
-        let analysed = analysis::analyse(&graph, interpretation.as_ref()).map_err(|reason| {
-            let first = self.bonds[aromatic.first().map_or(0, |id| id.serial() as usize - 1)].begin;
+        let analysed = analysis::analyse(&graph, interpretation.as_ref()).map_err(|failure| {
             at(
                 SmilesCode::AromaticSystemUnsupported,
-                self.atoms[first].span,
+                aromatic_span(failure.atom),
             )
-            .because(reason)
+            .because(failure.reason)
         })?;
         let mut atoms = self.atoms;
         let mut losses = Vec::new();

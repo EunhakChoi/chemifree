@@ -1937,3 +1937,19 @@ test('a SMILES preview of a different drawing or revision is refused', async () 
   await assert.rejects(client.previewSmiles('doc-1', 0, 'C'), { code: 'incompatible_response' })
 })
 
+test('a conversion snapshot is the same drawing whatever its key order or absent fields', () => {
+  const first = document('doc-1', 1).document
+  const reordered = Object.fromEntries(Object.entries(first).reverse())
+  reordered.atoms = first.atoms.map((atom) => Object.fromEntries(Object.entries(atom).reverse()))
+  assert.notEqual(JSON.stringify(reordered), JSON.stringify(first), 'the fixture really differs as text')
+  assert.equal(sameConversionSnapshot(reordered, first), true)
+  assert.equal(sameConversionSnapshot({ ...first, note: undefined }, first), true, 'a key holding undefined is absent')
+  const changed = structuredClone(first)
+  changed.atoms = [...changed.atoms, { id: 'a9', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 } }]
+  assert.equal(sameConversionSnapshot(changed, first), false)
+  const moved = structuredClone(first)
+  moved.title = 'Other'
+  assert.equal(sameConversionSnapshot(moved, first), false)
+  assert.equal(sameConversionSnapshot({ ...first, atoms: [...first.atoms].reverse(), bonds: first.bonds }, { ...first, atoms: [{ id: 'a2' }, { id: 'a1' }], bonds: first.bonds }), false, 'array order matters')
+})
+

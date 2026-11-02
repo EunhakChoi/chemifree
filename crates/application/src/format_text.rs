@@ -57,14 +57,20 @@ impl FormatText {
         let mut read_write = Vec::new();
         let mut import = Vec::new();
         let mut export = Vec::new();
+        // What each connected format does not do, stated for that format only.
+        let mut refused = Vec::new();
         if connected.ctfile {
             names.push("MOL/SDF".to_owned());
+            refused.push("MOL/SDF stereo, query and advanced fields are refused");
             read_write.push("bounded V2000 MOL/SDF".to_owned());
             import.push("append one selected record of a bounded V2000 MOL/SDF subset".to_owned());
             export.push("bounded V2000 MOL/SDF with per-record losses".to_owned());
         }
         if let Some(limit) = connected.interchange_binary_limit {
             let limit = describe_limit(limit);
+            refused.push(
+                "CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss",
+            );
             names.push("CDXML".to_owned());
             names.push("CDX".to_owned());
             read_write.push("rich CDXML".to_owned());
@@ -74,6 +80,7 @@ impl FormatText {
         }
         if let Some(limits) = connected.smiles {
             let limit = describe_limit(limits.max_input_bytes);
+            refused.push("SMILES stereochemistry, query atoms and reaction SMILES are refused");
             names.push("SMILES".to_owned());
             read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit} and {} nested branches, written in recorded or canonical form)", limits.max_branch_depth));
             import.push(format!("append one SMILES string (at most {limit})"));
@@ -90,8 +97,9 @@ impl FormatText {
         Some(Self {
             label: format!("{} {subsets}", list(&names)),
             description: format!(
-                "Read and write {} with explicit losses. Stereochemistry, query and reaction forms and advanced chemistry are not read or written; other formats are unsupported.",
-                list(&read_write)
+                "Read and write {} with explicit losses. {}; other formats are unsupported.",
+                list(&read_write),
+                refused.join("; ")
             ),
             import_note: format!(
                 "Preview, then import with explicit losses and revision-checked consent: {}.",

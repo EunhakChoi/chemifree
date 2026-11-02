@@ -68,12 +68,23 @@ pub(super) struct Analysis {
 /// Assess every atom of `graph`. Aromatic bonds are given the assignment `interpretation`
 /// finds; it must come from [`interpret`] on the same graph, and is `None` exactly when the
 /// graph has no aromatic bond.
+///
+/// `interpret` has already required every ring system holding an aromatic bond to be
+/// aromatic, so a Kekulé assignment exists for each. Should the model still find none, the
+/// failure names the first atom of the first ring system that holds an aromatic bond.
 pub(super) fn analyse(
     graph: &MoleculeGraph,
     interpretation: Option<&Interpretation>,
-) -> Result<Analysis, &'static str> {
+) -> Result<Analysis, AromaticFailure> {
     let assignment: BTreeMap<_, _> = match interpretation {
-        Some(interpretation) => interpretation.kekulize()?.into_iter().collect(),
+        Some(interpretation) => interpretation
+            .kekulize()
+            .map_err(|reason| AromaticFailure {
+                atom: first_aromatic_atom(graph, interpretation),
+                reason,
+            })?
+            .into_iter()
+            .collect(),
         None => BTreeMap::new(),
     };
     let orders = chemistry::incident_orders(
@@ -89,6 +100,22 @@ pub(super) fn analyse(
         assessments,
         orders,
     })
+}
+
+/// The lowest atom of the first ring system that holds an aromatic bond of `graph`.
+fn first_aromatic_atom(graph: &MoleculeGraph, interpretation: &Interpretation) -> AtomId {
+    let aromatic: BTreeSet<BondId> = graph
+        .bonds()
+        .filter(|(_, bond)| bond.order == BondOrder::Aromatic)
+        .map(|(id, _)| id)
+        .collect();
+    interpretation
+        .systems
+        .iter()
+        .find(|system| system.bonds.iter().any(|bond| aromatic.contains(bond)))
+        .and_then(|system| system.atoms.iter().copied().min())
+        .or_else(|| graph.atoms().next().map(|(id, _)| id))
+        .expect("a graph with an aromatic bond has atoms")
 }
 
 /// The one radical state that makes the atom's valence consistent, when exactly one does.

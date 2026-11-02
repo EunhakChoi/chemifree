@@ -1153,9 +1153,23 @@ export interface CtImport {
   digest: string
 }
 
+/** Structural equality of parsed JSON: key order and keys holding `undefined` do not matter, array order does. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => sameJson(item, b[index]))
+  }
+  if (!isRecord(a) || !isRecord(b)) return false
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const key of keys) {
+    if (!sameJson(a[key], b[key])) return false
+  }
+  return true
+}
+
 /** Full drawing comparison for conversion previews, including scene and settings. */
 export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+  return sameJson(a, b)
 }
 
 interface CtSourceRecord {

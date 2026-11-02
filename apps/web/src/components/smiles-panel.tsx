@@ -9,6 +9,7 @@ import {
   ConsentRequired,
   describeSpan,
   type CtLoss,
+  sameConversionSnapshot,
   type DocumentView,
   type SmilesExport,
   type SmilesPreview,
@@ -21,7 +22,7 @@ import {
  */
 interface Stamp {
   /** The drawing as the service returned it with the result. */
-  drawing: string
+  drawing: DocumentView
   generation: number
 }
 
@@ -46,6 +47,11 @@ interface Offer extends Stamp {
 
 const MESSAGE_TEXT_CHANGED = 'The text changed while a request was running; its result was not used. Run it again.'
 const MESSAGE_FORM_CHANGED = 'The output form changed while a request was running; its result was not used. Run it again.'
+
+/** Whether the drawing is still the one the result was made for; compared when either changes. */
+function useStillShown(document: DocumentView, stamp: Stamp | null) {
+  return useMemo(() => stamp !== null && sameConversionSnapshot(document, stamp.drawing), [document, stamp])
+}
 
 function message(failure: unknown, fallback: string) {
   return failure instanceof Error ? failure.message : fallback
@@ -81,16 +87,19 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }
   }, [])
 
-  // The drawing as text, built when it changes and compared as often as the panel renders.
-  const drawing = useMemo(() => JSON.stringify(document), [document])
   const generation = editor.serviceGeneration
-  const current = (stamp: Stamp) => stamp.drawing === drawing && stamp.generation === generation
+  // Each result is compared with the drawing once per change of either, not on every render.
+  const preparedShown = useStillShown(document, prepared)
+  const importOfferShown = useStillShown(document, importOffer)
+  const writtenShown = useStillShown(document, written)
+  const exportOfferShown = useStillShown(document, exportOffer)
+  const current = (stamp: Stamp, same: boolean) => same && stamp.generation === generation
 
-  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared) ? prepared : null
-  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer)
+  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared, preparedShown) ? prepared : null
+  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer, importOfferShown)
     ? importOffer : null
-  const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
-  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
+  const liveWritten = written && written.styleVersion === styleVersion && current(written, writtenShown) ? written : null
+  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer, exportOfferShown) ? exportOffer : null
   const stale = (prepared && !livePreview) || (written && !liveWritten)
   const busy = pending > 0 || editor.busy
 
@@ -124,7 +133,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
 
   async function previewImport() {
     const sequence = ++previewRequest.current
-    const asked = { source, sourceVersion, generation }
+    const asked = { source, sourceVersion, generation, drawing: document }
     previewing.current += 1
     setPending((count) => count + 1)
     setError(null)
@@ -133,11 +142,12 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setImportOffer(null)
     try {
       const data = await editor.previewSmiles(document.id, document.revision, asked.source)
-      const returned = JSON.stringify(data.snapshot)
       // The service must have previewed the very drawing the request named.
-      if (returned !== drawing) throw new Error('The service previewed a different drawing. Reload and preview again.')
+      if (!sameConversionSnapshot(asked.drawing, data.snapshot)) {
+        throw new Error('The service previewed a different drawing. Reload and preview again.')
+      }
       if (alive.current && previewRequest.current === sequence) {
-        setPrepared({ ...asked, data, drawing: returned })
+        setPrepared({ ...asked, data, drawing: data.snapshot })
       }
     } catch (failure) {
       if (alive.current && previewRequest.current === sequence) setError(message(failure, 'Preview failed.'))
@@ -155,12 +165,12 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setPending((count) => count + 1)
     setError(null)
     setNotice(null)
-    const result = await editor.importSmiles({
-      documentId: document.id, revision: document.revision, source: ready.source,
-      digest: ready.data.digest, acceptLoss,
-    }, ready.data.snapshot, ready.generation)
-    committing.current = false
-    if (alive.current) {
+    try {
+      const result = await editor.importSmiles({
+        documentId: document.id, revision: document.revision, source: ready.source,
+        digest: ready.data.digest, acceptLoss,
+      }, ready.data.snapshot, ready.generation)
+      if (!alive.current) return
       if (result.committed) {
         setPrepared(null)
         setImportOffer(null)
@@ -177,13 +187,22 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         setImportOffer(null)
         setError(result.failure?.message ?? 'The import failed.')
       }
-      setPending((count) => count - 1)
+    } catch (failure) {
+      // Whatever went wrong, the panel is usable again and says so.
+      if (alive.current) {
+        setPrepared(null)
+        setImportOffer(null)
+        setError(message(failure, 'The import failed.'))
+      }
+    } finally {
+      committing.current = false
+      if (alive.current) setPending((count) => count - 1)
     }
   }
 
   async function write(accepted?: string) {
     const sequence = ++exportRequest.current
-    const asked = { style, styleVersion, generation, drawing }
+    const asked = { style, styleVersion, generation, drawing: document }
     exporting.current += 1
     setPending((count) => count + 1)
     setError(null)
@@ -192,10 +211,11 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     if (accepted === undefined) setExportOffer(null)
     try {
       const data = await editor.exportSmiles(document.id, asked.style, accepted)
-      const returned = JSON.stringify(data.snapshot)
-      if (returned !== asked.drawing) throw new Error('The service wrote a different drawing. Reload and write again.')
+      if (!sameConversionSnapshot(asked.drawing, data.snapshot)) {
+        throw new Error('The service wrote a different drawing. Reload and write again.')
+      }
       if (alive.current && exportRequest.current === sequence) {
-        setWritten({ styleVersion: asked.styleVersion, generation: asked.generation, drawing: returned, data })
+        setWritten({ styleVersion: asked.styleVersion, generation: asked.generation, drawing: data.snapshot, data })
         setExportOffer(null)
       }
     } catch (failure) {

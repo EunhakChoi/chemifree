@@ -323,6 +323,11 @@ fn documented_reading_claims_hold() {
         );
     }
     // "Ring labels `0`-`9` and `%00`-`%99`", "may be reused ... including at the atom that closes them"
+    // A dot may follow `(` but `(` may not follow a dot.
+    assert!(section.contains("`C(.C)C`") && section.contains("`C.(C)C` is `branch_without_atom`"));
+    assert_eq!(accepted("C(.C)C").bonds.len(), 1);
+    assert_eq!(refused("C.(C)C"), "branch_without_atom");
+    assert_eq!(refused("C(.)C"), "dangling_dot");
     assert_eq!(accepted("C%99CCCCC%99").bonds.len(), 6);
     assert_eq!(accepted("C1CC11CC1").bonds.len(), 6);
     assert_eq!(refused("C%(123)C"), "ring_label_extended_unsupported");
@@ -372,4 +377,37 @@ fn documented_writing_claims_hold() {
         ),
         ("C", 1, 1)
     );
+}
+
+#[test]
+fn documented_hydrogen_state_claims_hold() {
+    let section = contract_section();
+    assert!(section.contains("is never written as a guess"));
+    // A count the model determines is stated in recorded text and reported; canonical text is not.
+    let mut ammonium = element("N");
+    ammonium.charge = 1;
+    let graph = build(vec![ammonium], vec![]);
+    let recorded = OpenSmilesCodec
+        .write(&graph, SmilesStyle::Recorded)
+        .unwrap();
+    assert!(
+        recorded
+            .losses
+            .iter()
+            .any(|loss| loss.feature == "hydrogen_state")
+    );
+    let canonical = OpenSmilesCodec
+        .write(&graph, SmilesStyle::Canonical)
+        .unwrap();
+    assert!(canonical.losses.is_empty());
+    // A count the model does not determine is refused, not guessed.
+    let mut labelled = element("C");
+    labelled.isotope = Some(13);
+    let mut atoms = vec![labelled];
+    atoms.extend((0..5).map(|_| element("C")));
+    let bonds = (1..=5).map(|i| (0, i, BondOrder::Single)).collect();
+    let error = OpenSmilesCodec
+        .write(&build(atoms, bonds), SmilesStyle::Recorded)
+        .unwrap_err();
+    assert_eq!(error.code.as_str(), "hydrogens_not_writable");
 }

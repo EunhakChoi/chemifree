@@ -457,3 +457,31 @@ fn every_code_has_one_message_class_and_name() {
     }
     assert_eq!(names.len(), SmilesCode::ALL.len());
 }
+
+#[test]
+fn a_dot_may_open_a_branch_but_nothing_may_put_a_branch_after_a_dot() {
+    // OpenSMILES "Formal Grammar": branch ::= '(' chain ')' | '(' bond chain ')' |
+    // '(' dot chain ')', and chain ::= chain dot branched_atom. A dot is therefore allowed
+    // right after '(' and needs an atom after it, so '(' cannot follow a dot ("Disconnected
+    // Structures" gives `Oc1cc(.NCCO)ccc1` as legal).
+    let parsed = read("C(.C)C");
+    assert_eq!(parsed.atoms.len(), 3);
+    assert_eq!(orders(&parsed), vec![(0, 2, BondOrder::Single)]);
+    assert_eq!(refused("C.(C)C"), (SmilesCode::BranchWithoutAtom, 2, 1));
+    assert_eq!(refused("C(.)C"), (SmilesCode::DanglingDot, 2, 1));
+    assert_eq!(refused(".C"), (SmilesCode::DotWithoutAtom, 0, 1));
+}
+
+#[test]
+fn an_unsupported_system_in_the_second_component_is_reported_at_its_first_atom() {
+    // "c1ccccc1." is nine bytes; the five-carbon ring starts at byte 9.
+    assert_eq!(
+        refused("c1ccccc1.c1cccc1"),
+        (SmilesCode::AromaticSystemUnsupported, 9, 1)
+    );
+    // The same ring first: the first component is the failing one.
+    assert_eq!(
+        refused("c1cccc1.c1ccccc1"),
+        (SmilesCode::AromaticSystemUnsupported, 0, 1)
+    );
+}

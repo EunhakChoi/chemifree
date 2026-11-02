@@ -40,6 +40,9 @@ struct Plan {
     assumed_hydrogens: bool,
     /// The text cannot state a radical for an atom outside the valence model.
     assumed_radical: bool,
+    /// The valence model finds the valence unusual and so gives no hydrogen count for inferred
+    /// hydrogens; a stated count would be a guess.
+    guessed_hydrogens: bool,
 }
 
 impl Plan {
@@ -161,7 +164,19 @@ fn items(plans: &[Plan], bracket: &[bool]) -> Vec<Item> {
 /// hydrogens or another radical, until the text reads back exactly.
 fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, Fail> {
     let mut bracket: Vec<bool> = plans.iter().map(|plan| !plan.may_be_bare()).collect();
-    loop {
+    // The first pass finds every bare atom that reads back differently; the second, with those
+    // bracketed, must read back exactly.
+    for repaired in [false, true] {
+        if let Some(plan) = plans
+            .iter()
+            .zip(&bracket)
+            .find_map(|(plan, &bracketed)| (bracketed && plan.guessed_hydrogens).then_some(plan))
+        {
+            return Err(fail(SmilesCode::HydrogensNotWritable).because(format!(
+                "{}: the valence model gives no hydrogen count for this atom, so a bracket would state a guess",
+                plan.id
+            )));
+        }
         let emitted = emit::emit(&items(plans, &bracket), links)?;
         if emitted.text.len() > max_bytes {
             return Err(fail(SmilesCode::OutputTooLong));
@@ -179,10 +194,17 @@ fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, 
                 parsed,
             });
         }
+        if repaired {
+            return Err(fail(SmilesCode::ReadbackMismatch).because(
+                "bracketing the atoms that read back differently did not settle the text",
+            ));
+        }
         for index in mismatched {
             bracket[index] = true;
         }
     }
+    // The second pass always returns above; this keeps the function total.
+    Err(fail(SmilesCode::ReadbackMismatch))
 }
 
 /// The bare atoms that must be bracketed, or the first fault no bracket can repair.
@@ -303,7 +325,7 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         )
     };
     let analysed = analysis::analyse(graph, interpretation.as_ref())
-        .map_err(|reason| fail(SmilesCode::AromaticNotWritable).because(reason))?;
+        .map_err(|failure| fail(SmilesCode::AromaticNotWritable).because(failure.reason))?;
     let aromatic_atoms: BTreeSet<AtomId> = graph
         .bonds()
         .filter(|(id, _)| aromatic.contains(id))
@@ -323,6 +345,8 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         } else {
             element
         };
+        let guessed_hydrogens =
+            assessment.finding == Finding::Invalid && atom.hydrogens == Hydrogens::Inferred;
         let (hydrogens, radical, assumed_hydrogens, assumed_radical) =
             match (assessment.finding, assessment.reason) {
                 (Finding::Valid | Finding::Invalid, _) => (
@@ -371,6 +395,7 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
             radical,
             assumed_hydrogens,
             assumed_radical,
+            guessed_hydrogens,
         });
     }
     let index: HashMap<AtomId, usize> = plans.iter().enumerate().map(|(i, p)| (p.id, i)).collect();
@@ -416,9 +441,12 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         SemanticImpact::Chemistry,
         LossConsent::Required,
     ));
-    losses.extend(hydrogen_state_losses(&plans, &rendered.bracket, |plan| {
-        source[&plan.id].hydrogens
-    }));
+    losses.extend(hydrogen_state_losses(
+        &plans,
+        &rendered.bracket,
+        |plan| source[&plan.id].hydrogens,
+        true,
+    ));
     Ok(SmilesWrite {
         atom_order: rendered.order.iter().map(|&i| plans[i].id).collect(),
         text: rendered.text,
@@ -427,19 +455,22 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
     })
 }
 
-/// Stated hydrogens written bare read back as inferred; inferred hydrogens in brackets read
-/// back as stated. The counts agree; the recorded state differs.
+/// Stated hydrogens written bare read back as inferred; with `report_inferred_as_stated`,
+/// inferred hydrogens that the valence model determines and the text states in brackets are
+/// reported too. The counts agree; the recorded state differs. Counts the model does not
+/// determine are never written (see `Plan::guessed_hydrogens`) or are reported as assumptions.
 fn hydrogen_state_losses(
     plans: &[Plan],
     bracket: &[bool],
     recorded: impl Fn(&Plan) -> Hydrogens,
+    report_inferred_as_stated: bool,
 ) -> Vec<Loss> {
     let mut stated_as_inferred = Vec::new();
     let mut inferred_as_stated = Vec::new();
     for (plan, &bracketed) in plans.iter().zip(bracket) {
         match (recorded(plan), bracketed) {
             (Hydrogens::Specified(_), false) => stated_as_inferred.push(plan.id.to_string()),
-            (Hydrogens::Inferred, true) if !plan.assumed_hydrogens => {
+            (Hydrogens::Inferred, true) if report_inferred_as_stated && !plan.assumed_hydrogens => {
                 inferred_as_stated.push(plan.id.to_string());
             }
             _ => {}
@@ -459,7 +490,7 @@ fn hydrogen_state_losses(
         "hydrogen_state",
         "atoms",
         &inferred_as_stated,
-        "Hydrogens inferred from valence are written as a stated count in brackets; the count is the same.",
+        "Hydrogens the valence model determines are written as a stated count in brackets; the count is the same.",
         LossDisposition::Normalized,
         SemanticImpact::Chemistry,
         LossConsent::NotRequired,
@@ -523,6 +554,7 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
             radical: atom.radical,
             assumed_hydrogens: false,
             assumed_radical: false,
+            guessed_hydrogens: false,
         });
     }
     let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
@@ -549,9 +581,15 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         SemanticImpact::Chemistry,
         LossConsent::NotRequired,
     ));
-    losses.extend(hydrogen_state_losses(&plans, &rendered.bracket, |plan| {
-        source[&plan.id].hydrogens
-    }));
+    // A canonical text states a count wherever it needs a bracket: that the drawing inferred it
+    // is not worth a loss, since nothing about the hydrogens changed. Stated counts that
+    // become inferred are reported.
+    losses.extend(hydrogen_state_losses(
+        &plans,
+        &rendered.bracket,
+        |plan| source[&plan.id].hydrogens,
+        false,
+    ));
     let rank: HashMap<AtomId, usize> = plans.iter().enumerate().map(|(i, p)| (p.id, i)).collect();
     let aromatic_pairs: BTreeSet<(usize, usize)> = form
         .bonds
@@ -605,6 +643,7 @@ mod tests {
                 radical: Radical::None,
                 assumed_hydrogens: false,
                 assumed_radical: false,
+                guessed_hydrogens: false,
             })
             .collect();
         let links: Vec<Link> = (0..3)

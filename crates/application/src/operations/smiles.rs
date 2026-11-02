@@ -56,33 +56,33 @@ pub struct SpanView {
     pub character_length: usize,
 }
 
-/// Byte offsets of one source, converted to character offsets without rescanning the text.
-struct Characters {
-    /// The number of characters before each byte offset.
-    before: Vec<usize>,
+/// Converts byte offsets of one source to character offsets by scanning it, without building a
+/// table the size of the input.
+struct Characters<'a> {
+    source: &'a str,
 }
 
-impl Characters {
-    fn new(source: &str) -> Self {
-        let mut before = Vec::with_capacity(source.len() + 1);
-        let mut count = 0;
-        for character in source.chars() {
-            for _ in 0..character.len_utf8() {
-                before.push(count);
-            }
-            count += 1;
-        }
-        before.push(count);
-        Self { before }
+impl<'a> Characters<'a> {
+    fn new(source: &'a str) -> Self {
+        Self { source }
+    }
+
+    /// The number of characters that start before `byte`; a position past the end counts all.
+    fn before(&self, byte: usize) -> usize {
+        self.source
+            .char_indices()
+            .take_while(|(start, _)| *start < byte)
+            .count()
     }
 
     fn view(&self, span: Span) -> SpanView {
-        let at = |offset: usize| self.before.get(offset).copied().unwrap_or(0);
+        let first = self.before(span.offset);
+        let last = self.before(span.offset.saturating_add(span.length));
         SpanView {
             offset: span.offset,
             length: span.length,
-            character_offset: at(span.offset),
-            character_length: at(span.offset + span.length) - at(span.offset),
+            character_offset: first,
+            character_length: last.saturating_sub(first),
         }
     }
 }
@@ -485,5 +485,32 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         );
         response.model_id = Some(p.style.model_id().into());
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn character_offsets_count_characters_not_bytes() {
+        let view = Characters::new("C\u{e9}O").view(Span::new(1, 2));
+        assert_eq!((view.character_offset, view.character_length), (1, 1));
+        let after = Characters::new("C\u{e9}O").view(Span::new(3, 1));
+        assert_eq!((after.character_offset, after.character_length), (2, 1));
+    }
+
+    #[test]
+    fn a_span_past_the_end_neither_underflows_nor_panics() {
+        let characters = Characters::new("CCO");
+        let past = characters.view(Span::new(10, 5));
+        assert_eq!((past.character_offset, past.character_length), (3, 0));
+        let straddling = characters.view(Span::new(2, usize::MAX));
+        assert_eq!(
+            (straddling.character_offset, straddling.character_length),
+            (2, 1)
+        );
+        let empty = Characters::new("").view(Span::new(0, 0));
+        assert_eq!((empty.character_offset, empty.character_length), (0, 0));
     }
 }

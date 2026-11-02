@@ -495,3 +495,62 @@ fn every_written_string_is_read_by_the_same_reader() {
         }
     }
 }
+
+#[test]
+fn inferred_hydrogens_a_bracket_must_state_are_a_loss_only_in_recorded_text() {
+    let mut ammonium = atom("N");
+    ammonium.charge = 1;
+    let graph = build(vec![ammonium], vec![]);
+    let recorded = write(&graph, SmilesStyle::Recorded);
+    assert_eq!(recorded.text, "[NH4+]");
+    let loss = recorded
+        .losses
+        .iter()
+        .find(|loss| loss.feature == "hydrogen_state")
+        .expect("recorded text states what the drawing inferred");
+    assert!(
+        loss.reason.contains("the valence model determines"),
+        "{}",
+        loss.reason
+    );
+    assert_eq!(
+        loss.consent,
+        chemifree_application::LossConsent::NotRequired
+    );
+    // A canonical text states counts wherever it needs a bracket; nothing about them changed.
+    let canonical = write(&graph, SmilesStyle::Canonical);
+    assert_eq!(canonical.text, "[NH4+]");
+    assert!(canonical.losses.is_empty(), "{:?}", canonical.losses);
+    // A radical atom whose count the drawing stated is not a loss either way.
+    let mut methyl = atom("C");
+    methyl.radical = Radical::Doublet;
+    methyl.hydrogens = Hydrogens::Specified(3);
+    let written = write(&build(vec![methyl], vec![]), SmilesStyle::Canonical);
+    assert_eq!(written.text, "[CH3]");
+    assert!(written.losses.is_empty(), "{:?}", written.losses);
+}
+
+#[test]
+fn a_hydrogen_count_the_model_does_not_determine_is_never_written_as_if_it_were() {
+    // A labelled carbon with five single bonds is outside the valence model: its inferred
+    // hydrogens have no count, only the guess zero, and the label needs a bracket to state one.
+    let mut centre = atom("C");
+    centre.isotope = Some(13);
+    let mut atoms = vec![centre];
+    atoms.extend((0..5).map(|_| atom("C")));
+    let bonds = (1..=5).map(|i| (0, i, BondOrder::Single)).collect();
+    let graph = build(atoms, bonds);
+    let error = OpenSmilesCodec
+        .write(&graph, SmilesStyle::Recorded)
+        .unwrap_err();
+    assert_eq!(error.code, SmilesCode::HydrogensNotWritable);
+    assert!(error.reason.unwrap().contains("a guess"));
+    // Unlabelled, the same carbon is written bare and states nothing.
+    let mut atoms = vec![atom("C")];
+    atoms.extend((0..5).map(|_| atom("C")));
+    let bonds = (1..=5).map(|i| (0, i, BondOrder::Single)).collect();
+    assert_eq!(
+        write(&build(atoms, bonds), SmilesStyle::Recorded).text,
+        "C(C)(C)(C)(C)C"
+    );
+}
