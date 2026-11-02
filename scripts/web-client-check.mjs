@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { ConsentRequired, DocumentClient, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { ConsentRequired, DocumentClient, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, conversionSnapshotMatcher, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -819,7 +819,7 @@ test('property results validate the analyzed snapshot and refuse incompatible or
     result: {
       snapshot: { document: shown.document, session: shown.session, recovery: null },
       scope: 'molecule', property: 'formula', selection: null, display_decimals: 0,
-      valence_model: 'chemifree-valence-2', arithmetic: 'binary64', data: null, valence_warnings: [],
+      valence_model: 'chemifree-valence-3', arithmetic: 'binary64', data: null, valence_warnings: [],
       components: [{ atoms: ['a1'], formula: 'CH4', formal_charge: 0, mass: null, isotope_distribution: null, omitted_abundances: [], abundance_sums: [] }],
     },
   }
@@ -2099,6 +2099,76 @@ test('a conversion snapshot is the same drawing whatever its key order or absent
   moved.title = 'Other'
   assert.equal(sameConversionSnapshot(moved, first), false)
   assert.equal(sameConversionSnapshot({ ...first, atoms: [...first.atoms].reverse(), bonds: first.bonds }, { ...first, atoms: [{ id: 'a2' }, { id: 'a1' }], bonds: first.bonds }), false, 'array order matters')
+})
+
+test('a conversion snapshot compares as JSON values: undefined is absent, null is not', () => {
+  const first = document('doc-1', 1).document
+  // JSON drops a key holding undefined, so it equals an absent key, in either direction.
+  assert.equal(sameConversionSnapshot({ ...first, note: undefined }, first), true)
+  assert.equal(sameConversionSnapshot(first, { ...first, note: undefined }), true)
+  assert.equal(sameConversionSnapshot({ a: { b: undefined } }, { a: {} }), true)
+  // null is a value: it differs from an absent key and from undefined.
+  assert.equal(sameConversionSnapshot({ ...first, note: null }, first), false)
+  assert.equal(sameConversionSnapshot(first, { ...first, note: null }), false)
+  assert.equal(sameConversionSnapshot({ ...first, note: null }, { ...first, note: undefined }), false)
+  assert.equal(sameConversionSnapshot({ ...first, note: null }, { ...first, note: null }), true)
+  // In an array JSON turns undefined into null, so the position is kept.
+  assert.equal(sameConversionSnapshot({ list: [undefined, 1] }, { list: [null, 1] }), true)
+  assert.equal(sameConversionSnapshot({ list: [undefined, 1] }, { list: [1] }), false)
+  assert.equal(sameConversionSnapshot({ list: [] }, { list: {} }), false)
+  // A number that JSON cannot hold is null there.
+  assert.equal(sameConversionSnapshot({ x: Number.NaN }, { x: null }), true)
+  assert.equal(sameConversionSnapshot({ x: Number.NaN }, { x: 0 }), false)
+  // Empty is not absent: an empty object or array is a value.
+  assert.equal(sameConversionSnapshot({ ...first, note: {} }, first), false)
+})
+
+test('a conversion snapshot comparison stops at a bounded depth and calls deeper values different', () => {
+  const nested = (levels, leaf) => {
+    let value = leaf
+    for (let level = 0; level < levels; level += 1) value = { next: value }
+    return value
+  }
+  // 64 levels of objects put the leaf at depth 64, which is still compared.
+  assert.equal(sameConversionSnapshot(nested(64, 1), nested(64, 1)), true)
+  assert.equal(sameConversionSnapshot(nested(64, 1), nested(64, 2)), false)
+  // One level more is past the bound: different, even when every value is the same.
+  assert.equal(sameConversionSnapshot(nested(65, 1), nested(65, 1)), false)
+  const shared = nested(65, 1)
+  assert.equal(sameConversionSnapshot({ shared }, { shared }), true, 'one object is equal to itself without being walked')
+  // Arrays count as levels, and a cyclic value ends instead of looping.
+  const deepArray = (levels) => Array.from({ length: levels }).reduce((value) => [value], 1)
+  assert.equal(sameConversionSnapshot({ a: deepArray(62) }, { a: deepArray(62) }), true)
+  assert.equal(sameConversionSnapshot({ a: deepArray(70) }, { a: deepArray(70) }), false)
+  const loop = () => {
+    const cyclic = { id: 'a' }
+    cyclic.self = cyclic
+    return cyclic
+  }
+  assert.equal(sameConversionSnapshot(loop(), loop()), false)
+})
+
+test('a snapshot matcher compares each distinct snapshot with the drawing once', () => {
+  const shown = document('doc-1', 1).document
+  let reads = 0
+  const counted = (value) => new Proxy(value, { ownKeys(target) { reads += 1; return Reflect.ownKeys(target) } })
+  const same = counted(structuredClone(shown))
+  const changed = counted({ ...structuredClone(shown), title: 'Other' })
+  const matches = conversionSnapshotMatcher(shown)
+  assert.equal(matches(same), true)
+  const afterFirst = reads
+  assert.ok(afterFirst > 0, 'the comparison really read the snapshot')
+  assert.equal(matches(same), true)
+  assert.equal(matches(same), true)
+  assert.equal(reads, afterFirst, 'asking again about the same snapshot does not compare it again')
+  assert.equal(matches(changed), false)
+  const afterSecond = reads
+  assert.equal(matches(changed), false)
+  assert.equal(reads, afterSecond)
+  // A new drawing starts over: the answer was about the old one.
+  const other = conversionSnapshotMatcher({ ...shown, title: 'Other' })
+  assert.equal(other(same), false)
+  assert.equal(other(changed), true)
 })
 
 test('an unanswered SMILES import is an open outcome and is retried with the same request ID', async () => {

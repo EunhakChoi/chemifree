@@ -251,20 +251,32 @@ fn ions_and_metals_are_written_with_named_consent_required_losses() {
         sodium.charge = 1;
         sodium
     };
-    let written = write(&build(vec![sodium], vec![]), SmilesStyle::Recorded);
+    // Sodium(I) is in the valence model: it is written with no assumption to accept.
+    let written = write(&build(vec![sodium.clone()], vec![]), SmilesStyle::Recorded);
     assert_eq!(written.text, "[Na+]");
-    let features: Vec<&str> = written.losses.iter().map(|l| l.feature.as_str()).collect();
+    assert!(
+        !written.losses.iter().any(|l| l.feature.ends_with("_assumption")),
+        "{:?}",
+        written.losses
+    );
+    // A metal outside the model is written with the two assumptions, which need consent.
+    let iron = write(&build(vec![atom("Fe")], vec![]), SmilesStyle::Recorded);
+    assert_eq!(iron.text, "[Fe]");
+    let features: Vec<&str> = iron.losses.iter().map(|l| l.feature.as_str()).collect();
     assert!(features.contains(&"hydrogen_assumption"), "{features:?}");
     assert!(features.contains(&"radical_assumption"), "{features:?}");
     assert!(
-        written
-            .losses
+        iron.losses
             .iter()
             .filter(|l| l.feature.ends_with("_assumption"))
             .all(|l| l.consent == chemifree_application::LossConsent::Required)
     );
-    let iron = write(&build(vec![atom("Fe")], vec![]), SmilesStyle::Recorded);
-    assert_eq!(iron.text, "[Fe]");
+    // Sodium with another charge is outside the model and is written with them too.
+    let mut sodide = sodium;
+    sodide.charge = 2;
+    let unlisted = write(&build(vec![sodide], vec![]), SmilesStyle::Recorded);
+    assert_eq!(unlisted.text, "[Na+2]");
+    assert!(unlisted.losses.iter().any(|l| l.feature == "radical_assumption"));
     // With the hydrogens stated and the radical unknown, nothing is assumed.
     let mut stated = atom("Fe");
     stated.hydrogens = Hydrogens::Specified(0);
@@ -438,23 +450,94 @@ fn a_label_that_closes_at_an_atom_is_free_for_rings_opening_there_at_the_limit()
     assert_eq!(reread.bonds.len(), graph.bonds().len());
 }
 
+/// A spine of `spine` carbons, each with one pendant carbon numbered after the whole spine.
+/// Each spine atom's spine child has a lower index than its pendant, so the walk reaches the
+/// spine first and, in numbering order, writes it as the branch and the pendant as the chain.
+fn comb(spine: usize) -> MoleculeGraph {
+    let atoms: Vec<Atom> = (0..2 * spine).map(|_| atom("C")).collect();
+    let mut bonds: Vec<_> = (1..spine).map(|i| (i - 1, i, BondOrder::Single)).collect();
+    bonds.extend((0..spine).map(|i| (i, spine + i, BondOrder::Single)));
+    build(atoms, bonds)
+}
+
+/// The text of the comb with the spine continuing the chain and each pendant in a branch. The
+/// last two spine atoms keep the numbering order: there the two children are equally deep, so
+/// reordering would not lessen the depth.
+fn spine_continues(spine: usize) -> String {
+    format!("{}C(CC)C", "C(C)".repeat(spine - 2))
+}
+
 #[test]
-fn branches_nest_to_the_reader_limit_and_not_beyond() {
-    // Each spine atom's spine child has a lower index than its leaf, so the child is the
-    // parenthesised branch and the leaf continues the chain: depth grows with the spine.
-    let comb = |spine: usize| {
-        let atoms: Vec<Atom> = (0..2 * spine).map(|_| atom("C")).collect();
-        let mut bonds: Vec<_> = (1..spine).map(|i| (i - 1, i, BondOrder::Single)).collect();
-        bonds.extend((0..spine).map(|i| (i, spine + i, BondOrder::Single)));
-        build(atoms, bonds)
-    };
+fn text_that_fits_the_branch_depth_keeps_the_numbering_order() {
+    // At exactly the reader's limit, the numbering order is kept: the spine is nested.
     let deepest = write(&comb(MAX_BRANCH_DEPTH + 1), SmilesStyle::Recorded);
     assert_eq!(deepest.text.matches('(').count(), MAX_BRANCH_DEPTH);
+    assert!(deepest.text.starts_with("C(C(C(C("), "{}", deepest.text);
     assert!(OpenSmilesCodec.read(&deepest.text).is_ok());
-    assert_eq!(
-        refusal(&comb(MAX_BRANCH_DEPTH + 2), SmilesStyle::Recorded),
-        SmilesCode::BranchDepthLimit
+    // A small comb keeps it too: the same text as before the depth rule existed.
+    assert_eq!(write(&comb(3), SmilesStyle::Recorded).text, "C(C(CC)C)C");
+}
+
+#[test]
+fn a_backbone_that_the_numbering_order_would_nest_too_deeply_continues_the_chain() {
+    // 70 backbone carbons with pendant atoms numbered last. In numbering order the backbone
+    // would be nested 69 deep, past the reader's limit; with the backbone as the chain every
+    // pendant is a branch one deep.
+    let graph = comb(70);
+    let written = write(&graph, SmilesStyle::Recorded);
+    assert_eq!(written.text, spine_continues(70));
+    assert!(OpenSmilesCodec.read(&written.text).is_ok());
+    // The text names the backbone atoms in chain order, each followed by its pendant.
+    let ids: Vec<_> = written.atom_order.iter().map(ToString::to_string).collect();
+    assert_eq!(ids.len(), 140);
+    assert_eq!(ids[..4], ["a1", "a71", "a2", "a72"]);
+}
+
+#[test]
+fn the_depth_rule_chooses_the_deepest_child_to_continue_and_keeps_the_rest_in_order() {
+    // Atom a1 has three children: a leaf, a short chain and a long chain, in that order
+    // of numbering. When the text must be reordered, the long chain continues and the
+    // others stay in their order as branches.
+    let long = 70;
+    let mut atoms: Vec<Atom> = vec![atom("C")];
+    let mut bonds = Vec::new();
+    // a2: a leaf; a3-a4: a short chain; then the long chain from a5.
+    atoms.push(atom("C"));
+    bonds.push((0, 1, BondOrder::Single));
+    atoms.extend([atom("C"), atom("C")]);
+    bonds.extend([(0, 2, BondOrder::Single), (2, 3, BondOrder::Single)]);
+    let first = atoms.len();
+    atoms.extend((0..long).map(|_| atom("C")));
+    bonds.push((0, first, BondOrder::Single));
+    bonds.extend((1..long).map(|i| (first + i - 1, first + i, BondOrder::Single)));
+    // Pendants on the long chain, numbered last, force the numbering order past the limit.
+    let pendants = atoms.len();
+    atoms.extend((0..long).map(|_| atom("C")));
+    bonds.extend((0..long).map(|i| (first + i, pendants + i, BondOrder::Single)));
+    let written = write(&build(atoms, bonds), SmilesStyle::Recorded);
+    assert!(
+        written.text.starts_with("C(C)(CC)C(C)C(C)"),
+        "{}",
+        written.text
     );
+    assert!(OpenSmilesCodec.read(&written.text).is_ok());
+}
+
+#[test]
+fn a_ring_closure_does_not_change_the_depth_rule() {
+    // The same 70-carbon backbone closed into a ring: the closure labels are written the same
+    // way and the text reads back as the same graph (the write checks that).
+    let spine = 70;
+    let atoms: Vec<Atom> = (0..2 * spine).map(|_| atom("C")).collect();
+    let mut bonds: Vec<_> = (1..spine).map(|i| (i - 1, i, BondOrder::Single)).collect();
+    bonds.push((0, spine - 1, BondOrder::Single));
+    bonds.extend((0..spine).map(|i| (i, spine + i, BondOrder::Single)));
+    let written = write(&build(atoms, bonds), SmilesStyle::Recorded);
+    assert!(written.text.starts_with("C1(C)C(C)"), "{}", written.text);
+    assert_eq!(written.text.matches('(').count(), spine - 1);
+    let reread = OpenSmilesCodec.read(&written.text).unwrap();
+    assert_eq!(reread.atoms.len(), 2 * spine);
+    assert_eq!(reread.bonds.len(), 2 * spine);
 }
 
 #[test]

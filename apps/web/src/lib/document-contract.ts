@@ -1233,16 +1233,43 @@ export interface CtImport {
   digest: string
 }
 
-/** Structural equality of parsed JSON: key order and keys holding `undefined` do not matter, array order does. */
-function sameJson(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (Array.isArray(a) || Array.isArray(b)) {
-    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => sameJson(item, b[index]))
+/** Deepest nesting `sameJson` compares; anything deeper is called different. */
+const MAX_COMPARE_DEPTH = 64
+
+/** What `JSON.stringify` writes for a value held in an array: `undefined`, functions and symbols become null. */
+function arrayItem(value: unknown): unknown {
+  return value === undefined || typeof value === 'function' || typeof value === 'symbol' ? null : value
+}
+
+/** A number JSON cannot hold (NaN, infinities) is written as null. */
+function jsonNumber(value: unknown): unknown {
+  return typeof value === 'number' && !Number.isFinite(value) ? null : value
+}
+
+/**
+ * Equality of two values as JSON holds them, for values that came out of `JSON.parse` or were
+ * built the same way: key order does not matter, array order does, and a key holding
+ * `undefined` is absent (JSON drops it), so it equals a missing key. `null` is a value: it
+ * differs from an absent key. Two references to one object are equal without being walked;
+ * otherwise a value reached deeper than `MAX_COMPARE_DEPTH` is never equal, which is also what
+ * ends the comparison of cyclic values.
+ */
+function sameJson(a: unknown, b: unknown, depth = 0): boolean {
+  if (depth > MAX_COMPARE_DEPTH) return false
+  const left = jsonNumber(a)
+  const right = jsonNumber(b)
+  if (left === right) return true
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+    // A plain loop: `every` skips the holes of a sparse array, which JSON writes as null.
+    for (let index = 0; index < left.length; index += 1) {
+      if (!sameJson(arrayItem(left[index]), arrayItem(right[index]), depth + 1)) return false
+    }
+    return true
   }
-  if (!isRecord(a) || !isRecord(b)) return false
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
-  for (const key of keys) {
-    if (!sameJson(a[key], b[key])) return false
+  if (!isRecord(left) || !isRecord(right)) return false
+  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    if (!sameJson(left[key], right[key], depth + 1)) return false
   }
   return true
 }
@@ -1250,6 +1277,24 @@ function sameJson(a: unknown, b: unknown): boolean {
 /** Full drawing comparison for conversion previews, including scene and settings. */
 export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolean {
   return sameJson(a, b)
+}
+
+/**
+ * A comparison against one shown drawing that remembers its answer per snapshot object, so a
+ * result and the offers made for it (which hold the same snapshot) cost one comparison between
+ * them for as long as the shown drawing is the same object. Make a new one when the drawing
+ * changes.
+ */
+export function conversionSnapshotMatcher(shown: DocumentView): (snapshot: DocumentView) => boolean {
+  const answers = new WeakMap<DocumentView, boolean>()
+  return (snapshot) => {
+    let answer = answers.get(snapshot)
+    if (answer === undefined) {
+      answer = sameConversionSnapshot(shown, snapshot)
+      answers.set(snapshot, answer)
+    }
+    return answer
+  }
 }
 
 interface CtSourceRecord {

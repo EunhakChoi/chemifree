@@ -3036,10 +3036,15 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Retry the same import' }).waitFor()
   await page.unroute('**/api/v1/operations', loseReply)
   assert.equal(await metalAtoms(), before + 2, 'the first request did commit')
+  // The first commit went through, so a new preview would name a stale revision and be refused.
+  // While the outcome is open the panel therefore does not offer one, and the retry stays.
+  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isDisabled(), true, 'no new preview while the commit outcome is open')
+  assert.equal(await panel.getByRole('button', { name: 'Retry the same import' }).isEnabled(), true, 'the retry is still offered')
   await panel.getByRole('button', { name: 'Retry the same import' }).click()
   await panel.getByText(/Imported\./).waitFor()
   assert.equal(await metalAtoms(), before + 2, 'the retry was answered from the committed reply, not imported again')
   await panel.getByRole('button', { name: 'Retry the same import' }).waitFor({ state: 'hidden' })
+  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isEnabled(), true, 'previewing works again once the outcome is known')
 
   // A restart between the preview and the import refuses the import in the panel.
   await source.fill('CC')

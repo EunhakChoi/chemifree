@@ -5,8 +5,15 @@
 //! of nothing else. The last child of an atom continues the chain; earlier children are
 //! branches. Ring labels are the lowest free number from 1; a label that closes at an atom is
 //! free again for the rings that open at that same atom.
+//!
+//! That order can nest branches deeper than the reader accepts although another order of the
+//! same tree would not (a long backbone whose pendant atoms are numbered last). Only then, the
+//! child that has the deepest branching continues the chain instead (see
+//! [`reorder_for_depth`]); every text that fits keeps the order above, and the order used is
+//! still a function of the numbering alone.
 
 use chemifree_application::smiles::{SmilesCode, SmilesError};
+use chemifree_domain::document::BondOrder;
 
 use super::{MAX_BRANCH_DEPTH, MAX_RING_LABEL};
 
@@ -22,19 +29,13 @@ pub(super) struct Item {
     pub bracket: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Kind {
-    Single,
-    Double,
-    Triple,
-    Aromatic,
-}
-
-#[derive(Clone, Copy, Debug)]
+/// A bond between two items. Only single, double, triple and aromatic bonds can be written;
+/// [`emit`] refuses any other.
+#[derive(Clone, Debug)]
 pub(super) struct Link {
     pub begin: usize,
     pub end: usize,
-    pub kind: Kind,
+    pub order: BondOrder,
 }
 
 pub(super) struct Emitted {
@@ -70,13 +71,16 @@ fn atom_text(item: &Item) -> String {
 
 /// An unspecified bond between two aromatic atoms reads as aromatic on a ring, so a single bond
 /// there is written out.
-fn bond_text(link: &Link, items: &[Item]) -> &'static str {
-    match link.kind {
-        Kind::Aromatic => "",
-        Kind::Single if items[link.begin].aromatic && items[link.end].aromatic => "-",
-        Kind::Single => "",
-        Kind::Double => "=",
-        Kind::Triple => "#",
+fn bond_text(link: &Link, items: &[Item]) -> Result<&'static str, SmilesError> {
+    match link.order {
+        BondOrder::Aromatic => Ok(""),
+        BondOrder::Single if items[link.begin].aromatic && items[link.end].aromatic => Ok("-"),
+        BondOrder::Single => Ok(""),
+        BondOrder::Double => Ok("="),
+        BondOrder::Triple => Ok("#"),
+        BondOrder::Dative | BondOrder::Query(_) | BondOrder::Unknown => {
+            Err(SmilesError::new(SmilesCode::BondKindNotWritable))
+        }
     }
 }
 
@@ -99,6 +103,8 @@ enum Work {
 /// that open and close there.
 struct Walk {
     roots: Vec<usize>,
+    /// Every atom in the order the walk reached it: a parent before each of its children.
+    reached: Vec<usize>,
     children: Vec<Vec<(usize, usize)>>,
     opens: Vec<Vec<(usize, usize)>>,
     closes: Vec<Vec<usize>>,
@@ -121,6 +127,7 @@ fn walk(count: usize, links: &[Link]) -> Walk {
     }
     let mut walk = Walk {
         roots: Vec::new(),
+        reached: Vec::with_capacity(count),
         children: vec![Vec::new(); count],
         opens: vec![Vec::new(); count],
         closes: vec![Vec::new(); count],
@@ -132,6 +139,7 @@ fn walk(count: usize, links: &[Link]) -> Walk {
             continue;
         }
         walk.roots.push(start);
+        walk.reached.push(start);
         visited[start] = true;
         let mut stack = vec![(start, 0_usize)];
         while let Some((atom, next)) = stack.last().copied() {
@@ -151,6 +159,7 @@ fn walk(count: usize, links: &[Link]) -> Walk {
                 walk.closes[atom].push(link);
             } else {
                 visited[neighbour] = true;
+                walk.reached.push(neighbour);
                 walk.children[atom].push((neighbour, link));
                 stack.push((neighbour, 0));
             }
@@ -159,10 +168,49 @@ fn walk(count: usize, links: &[Link]) -> Walk {
     walk
 }
 
+/// The deepest branch nesting the children of each atom would write below that atom, in the
+/// order they are in now, or in the order that minimises it when `minimise` is set. With
+/// `minimise`, each atom's deepest child is moved last (the one latest in the current order
+/// among equals) and the others keep their relative order. The deepest child continuing the
+/// chain is the order of least depth: the chain adds no nesting, every branch adds one.
+fn nesting(walk: &mut Walk, minimise: bool) -> Vec<usize> {
+    let mut depth = vec![0_usize; walk.children.len()];
+    // Children are reached after their parent, so the reverse order sees children first.
+    for &atom in walk.reached.iter().rev() {
+        let children = &mut walk.children[atom];
+        if minimise {
+            if let Some(deepest) = (0..children.len()).max_by_key(|&i| depth[children[i].0]) {
+                let child = children.remove(deepest);
+                children.push(child);
+            }
+        }
+        depth[atom] = match children.split_last() {
+            None => 0,
+            Some((&(last, _), earlier)) => earlier
+                .iter()
+                .map(|&(child, _)| depth[child] + 1)
+                .fold(depth[last], usize::max),
+        };
+    }
+    depth
+}
+
+/// Leaves the order alone when the text fits the reader's branch depth, and otherwise puts the
+/// deepest child of every atom last, which is the least depth any order gives this tree.
+/// Whether the order is changed depends only on the numbering of the atoms and bonds.
+fn reorder_for_depth(walk: &mut Walk) {
+    let depth = nesting(walk, false);
+    let deepest = walk.roots.iter().map(|&root| depth[root]).max();
+    if deepest.is_some_and(|deepest| deepest > MAX_BRANCH_DEPTH) {
+        nesting(walk, true);
+    }
+}
+
 /// Writes the items and links, or fails when the text would need more ring labels or deeper
 /// branches than the reader accepts.
 pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesError> {
-    let walk = walk(items.len(), links);
+    let mut walk = walk(items.len(), links);
+    reorder_for_depth(&mut walk);
     let mut work = Vec::new();
     for (position, &root) in walk.roots.iter().enumerate().rev() {
         work.push(Work::Atom(root, None));
@@ -191,7 +239,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
             }
             Work::Atom(atom, via) => {
                 if let Some(link) = via {
-                    text.push_str(bond_text(&links[link], items));
+                    text.push_str(bond_text(&links[link], items)?);
                 }
                 text.push_str(&atom_text(&items[atom]));
                 order.push(atom);
@@ -210,7 +258,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
                     };
                     taken[label] = true;
                     label_of[link] = label;
-                    text.push_str(bond_text(&links[link], items));
+                    text.push_str(bond_text(&links[link], items)?);
                     text.push_str(&label_text(label));
                 }
                 if let Some((&(last, last_link), earlier)) = walk.children[atom].split_last() {

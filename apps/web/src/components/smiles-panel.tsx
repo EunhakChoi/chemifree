@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
   ConsentRequired,
+  conversionSnapshotMatcher,
   describeSpan,
   outcomeOpen,
   type CtLoss,
@@ -49,11 +50,6 @@ interface Offer extends Stamp {
 const MESSAGE_TEXT_CHANGED = 'The text changed while a request was running; its result was not used. Run it again.'
 const MESSAGE_FORM_CHANGED = 'The output form changed while a request was running; its result was not used. Run it again.'
 
-/** Whether the drawing is still the one the result was made for; compared when either changes. */
-function useStillShown(document: DocumentView, stamp: Stamp | null) {
-  return useMemo(() => stamp !== null && sameConversionSnapshot(document, stamp.drawing), [document, stamp])
-}
-
 function message(failure: unknown, fallback: string) {
   return failure instanceof Error ? failure.message : fallback
 }
@@ -91,21 +87,19 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }, [])
 
   const generation = editor.serviceGeneration
-  // Each result is compared with the drawing once per change of either, not on every render.
-  const preparedShown = useStillShown(document, prepared)
-  const importOfferShown = useStillShown(document, importOffer)
-  const writtenShown = useStillShown(document, written)
-  const exportOfferShown = useStillShown(document, exportOffer)
-  const current = (stamp: Stamp, same: boolean) => same && stamp.generation === generation
+  // Whether a result's drawing is the one shown. The matcher keeps one answer per snapshot
+  // object, and it is made anew when the drawing changes, so each snapshot is compared with
+  // the drawing once per change however many results and offers hold it.
+  const matchesShown = useMemo(() => conversionSnapshotMatcher(document), [document])
+  const current = (stamp: Stamp) => stamp.generation === generation && matchesShown(stamp.drawing)
 
-  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared, preparedShown) ? prepared : null
-  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer, importOfferShown)
+  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared) ? prepared : null
+  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer)
     ? importOffer : null
-  const unconfirmedShown = useStillShown(document, unconfirmed)
   const liveUnconfirmed = livePreview && unconfirmed && unconfirmed.preview === livePreview.data.digest &&
-    current(unconfirmed, unconfirmedShown) ? unconfirmed : null
-  const liveWritten = written && written.styleVersion === styleVersion && current(written, writtenShown) ? written : null
-  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer, exportOfferShown) ? exportOffer : null
+    current(unconfirmed) ? unconfirmed : null
+  const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
+  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
   const stale = (prepared && !livePreview) || (written && !liveWritten)
   const busy = pending > 0 || editor.busy
 
@@ -139,6 +133,10 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }
 
   async function previewImport() {
+    // While a commit's outcome is open, the retry of that very request is the way to learn it.
+    // A new preview would drop the retry before it succeeds, and if the first commit did go
+    // through, the new preview would name a stale revision and be refused.
+    if (liveUnconfirmed) return
     const sequence = ++previewRequest.current
     const asked = { source, sourceVersion, generation, drawing: document }
     previewing.current += 1
@@ -270,7 +268,8 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         Line breaks are kept: text after the first whitespace is not read, and is reported as a loss.
       </FieldDescription>
     </Field>
-    <Button size="sm" variant="outline" disabled={source === '' || busy || composing} onClick={() => void previewImport()}>
+    <Button size="sm" variant="outline" disabled={source === '' || busy || composing || liveUnconfirmed !== null}
+      onClick={() => void previewImport()}>
       Preview SMILES import
     </Button>
     {error && <p role="alert">{error}</p>}
@@ -286,7 +285,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
       </p>
       {liveUnconfirmed && <div role="group" aria-label="Import not confirmed" className="flex flex-col gap-2">
-        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once.</p>
+        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once. Previewing again is off until then; changing the text drops this retry.</p>
         <Button size="sm" disabled={busy} onClick={() => void commitImport(liveUnconfirmed.acceptLoss)}>
           Retry the same import
         </Button>

@@ -2,7 +2,7 @@
 //! reader, and every atom's element, charge, isotope, hydrogens and radical, and every bond,
 //! must come back as written. A string that fails the check is never returned.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use chemifree_application::smiles::{SmilesCode, SmilesError, SmilesStyle, SmilesWrite};
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
@@ -11,12 +11,12 @@ use chemifree_domain::document::{
     Atom, AtomId, BondId, BondOrder, MAX_CHARGE, MAX_COMMANDS, MAX_ISOTOPE_MASS_NUMBER, MIN_CHARGE,
 };
 use chemifree_domain::graph::MoleculeGraph;
-use chemifree_domain::identity::{self, IdentityError};
+use chemifree_domain::identity::{self, ChemicalForm, IdentityError};
 use chemifree_domain::states::{Hydrogens, Radical};
 
 use super::MAX_INPUT_BYTES;
 use super::analysis::{self, is_writable_order};
-use super::emit::{self, Item, Kind, Link};
+use super::emit::{self, Item, Link};
 use super::reader::{self, Parsed};
 use super::tables;
 
@@ -117,25 +117,6 @@ fn aggregate(
         reason: reason.into(),
         semantic_impact: impact,
     })
-}
-
-fn kind_of(order: &BondOrder) -> Option<Kind> {
-    match order {
-        BondOrder::Single => Some(Kind::Single),
-        BondOrder::Double => Some(Kind::Double),
-        BondOrder::Triple => Some(Kind::Triple),
-        BondOrder::Aromatic => Some(Kind::Aromatic),
-        _ => None,
-    }
-}
-
-fn order_of(kind: Kind) -> BondOrder {
-    match kind {
-        Kind::Single => BondOrder::Single,
-        Kind::Double => BondOrder::Double,
-        Kind::Triple => BondOrder::Triple,
-        Kind::Aromatic => BondOrder::Aromatic,
-    }
 }
 
 /// What a successful render produced.
@@ -267,38 +248,30 @@ fn compare(
     if let Some((_, fault)) = faults.into_iter().min_by_key(|(index, _)| *index) {
         return Err(fault);
     }
-    let written: BTreeSet<(usize, usize, u8)> = links
+    // Each pair of atoms holds one bond, so a bond is found by its pair. The counts were
+    // compared above, so a pair written twice cannot hide behind the map.
+    let written: BTreeMap<(usize, usize), &BondOrder> = links
         .iter()
         .map(|link| {
             let (a, b) = (position[link.begin], position[link.end]);
-            (a.min(b), a.max(b), kind_code(&order_of(link.kind)))
+            ((a.min(b), a.max(b)), &link.order)
         })
         .collect();
-    let read: BTreeSet<(usize, usize, u8)> = parsed
+    let read: BTreeMap<(usize, usize), &BondOrder> = parsed
         .read
         .bonds
         .iter()
         .map(|bond| {
             (
-                bond.begin.min(bond.end),
-                bond.begin.max(bond.end),
-                kind_code(&bond.order),
+                (bond.begin.min(bond.end), bond.begin.max(bond.end)),
+                &bond.order,
             )
         })
         .collect();
-    if written != read {
+    if written.len() != links.len() || written != read {
         return Err(mismatch("a bond differs"));
     }
     Ok(bracketed)
-}
-
-fn kind_code(order: &BondOrder) -> u8 {
-    match order {
-        BondOrder::Single => 1,
-        BondOrder::Double => 2,
-        BondOrder::Triple => 3,
-        _ => 4,
-    }
 }
 
 pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, Fail> {
@@ -439,7 +412,7 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         .map(|(_, bond)| Link {
             begin: index[&bond.begin],
             end: index[&bond.end],
-            kind: kind_of(&bond.order).expect("bond kinds were checked above"),
+            order: bond.order.clone(),
         })
         .collect();
     let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
@@ -534,7 +507,16 @@ fn hydrogen_state_losses(
 }
 
 fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
-    let form = identity::chemical_form(graph).map_err(|error| match error {
+    canonical_with(graph, identity::chemical_form)
+}
+
+/// The canonical writer, with the search for a graph's chemical form given: it is run on the
+/// drawing and again on the text read back.
+fn canonical_with(
+    graph: &MoleculeGraph,
+    chemical_form: impl Fn(&MoleculeGraph) -> Result<ChemicalForm, IdentityError>,
+) -> Result<SmilesWrite, Fail> {
+    let form = chemical_form(graph).map_err(|error| match error {
         IdentityError::AtomLimit | IdentityError::SearchLimit => {
             fail(SmilesCode::CanonicalLimit).because(error.code())
         }
@@ -548,15 +530,17 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
     let mut aromatic_atoms = vec![false; form.atoms.len()];
     let mut links = Vec::with_capacity(form.bonds.len());
     for (begin, end, order) in &form.bonds {
-        let kind = kind_of(order).ok_or_else(|| fail(SmilesCode::BondKindNotWritable))?;
-        if kind == Kind::Aromatic {
+        if !is_writable_order(order) {
+            return Err(fail(SmilesCode::BondKindNotWritable));
+        }
+        if *order == BondOrder::Aromatic {
             aromatic_atoms[*begin] = true;
             aromatic_atoms[*end] = true;
         }
         links.push(Link {
             begin: *begin,
             end: *end,
-            kind,
+            order: order.clone(),
         });
     }
     let mut plans = Vec::with_capacity(form.atoms.len());
@@ -595,8 +579,14 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
     }
     let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
     // The text must name the very graph it was written from.
-    let again = identity::chemical_form(&rendered.parsed.graph)
-        .map_err(|error| fail(SmilesCode::ReadbackMismatch).because(error.code()))?;
+    // Running out of work on the text is the limit again, whatever the drawing's own search
+    // did; only a text that reads as another kind of graph is a mismatch.
+    let again = chemical_form(&rendered.parsed.graph).map_err(|error| match error {
+        IdentityError::AtomLimit | IdentityError::SearchLimit => {
+            fail(SmilesCode::CanonicalLimit).because(error.code())
+        }
+        IdentityError::Unsupported(reason) => fail(SmilesCode::ReadbackMismatch).because(reason),
+    })?;
     if again.canonical.code != form.canonical.code {
         return Err(fail(SmilesCode::ReadbackMismatch).because("canonical_not_fixpoint"));
     }
@@ -665,6 +655,48 @@ fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
 mod tests {
     use super::*;
 
+    /// The search for the text's own chemical form can run out of work although the drawing's
+    /// did not; that is the search limit, not a text that reads back differently.
+    #[test]
+    fn a_read_back_search_limit_is_reported_as_the_limit() {
+        let graph = reader::parse("CCO").unwrap().graph;
+        for (second, expected, reason) in [
+            (
+                IdentityError::SearchLimit,
+                SmilesCode::CanonicalLimit,
+                IdentityError::SearchLimit.code(),
+            ),
+            (
+                IdentityError::AtomLimit,
+                SmilesCode::CanonicalLimit,
+                IdentityError::AtomLimit.code(),
+            ),
+            // A text that reads as another kind of graph is a real mismatch.
+            (
+                IdentityError::Unsupported("radical_state"),
+                SmilesCode::ReadbackMismatch,
+                "radical_state",
+            ),
+        ] {
+            let calls = std::cell::Cell::new(0);
+            let error = canonical_with(&graph, |input| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 1 {
+                    identity::chemical_form(input)
+                } else {
+                    Err(second)
+                }
+            })
+            .expect_err("the second search fails");
+            assert_eq!(calls.get(), 2, "{second:?}");
+            assert_eq!(
+                (error.code, error.reason.as_deref()),
+                (expected, Some(reason)),
+                "{second:?}"
+            );
+        }
+    }
+
     #[test]
     fn text_longer_than_the_limit_is_refused_not_returned() {
         let plans: Vec<Plan> = (0..4)
@@ -687,7 +719,7 @@ mod tests {
             .map(|i| Link {
                 begin: i,
                 end: i + 1,
-                kind: Kind::Single,
+                order: BondOrder::Single,
             })
             .collect();
         // Four carbons chained: CCCC. The same plans fit in 4 bytes and not in 3.
