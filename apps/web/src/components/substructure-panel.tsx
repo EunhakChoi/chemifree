@@ -12,6 +12,16 @@ import {
   type SubstructureMapping,
   type SubstructureSearch,
 } from '@/lib/document-contract'
+import {
+  beginSearch,
+  createSearches,
+  finishRunning,
+  isLatest,
+  isRunning,
+  leaveAll,
+  startRunning,
+  type Running,
+} from '@/lib/substructure-requests'
 
 /** What this drawing is in a search. */
 type Role = 'query' | 'target'
@@ -54,9 +64,9 @@ function pairsText(pairs: { query: string; target: string }[]) {
 export function SubstructurePanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const [role, setRole] = useState<Role>('query')
   const [other, setOther] = useState(NONE)
-  // The sequence number of the search that is running, if one is. A number, not a count, so
-  // that a search that outlives its component cannot leave another instance's state wrong.
-  const [running, setRunning] = useState<number | null>(null)
+  // The searches that are running, by document: one document's search that does not end never
+  // stops another document from being searched.
+  const [running, setRunning] = useState<Running>(new Map())
   // The latest outcome per document: switching documents neither shows nor drops another's.
   const [outcomes, setOutcomes] = useState<ReadonlyMap<string, Outcome>>(new Map())
   const [shownCount, setShownCount] = useState(FIRST_SHOWN)
@@ -68,10 +78,11 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
     setOther(NONE)
     setShownCount(FIRST_SHOWN)
   }
-  const latest = useRef(0)
-  // Leaving ends interest in a search that is still running: its outcome is not stored.
-  useEffect(() => () => {
-    latest.current += 1
+  const searches = useRef(createSearches())
+  // Leaving ends interest in every search that is still running: no outcome is stored.
+  useEffect(() => {
+    const held = searches.current
+    return () => leaveAll(held)
   }, [])
 
   const documents = editor.list.kind === 'ready' ? editor.list.list.documents : []
@@ -82,19 +93,21 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
   const drawingChanged = outcome !== null && !stillThis
   const serviceChanged = outcome !== null && outcome.generation !== generation
   const current = outcome !== null && !drawingChanged && !serviceChanged ? outcome : null
-  const busy = running !== null || editor.busy
+  const searching = isRunning(running, document.id)
+  const busy = searching || editor.busy
 
   async function search() {
     if (other === NONE) return
     const otherId = other === SELF ? document.id : other
     const asked = { role, other: otherId, generation, searched: document }
-    const sequence = ++latest.current
+    const documentId = document.id
+    const token = beginSearch(searches.current, documentId)
     const store = (next: Outcome) => {
-      if (latest.current !== sequence) return
+      if (!isLatest(searches.current, documentId, token)) return
       setShownCount(FIRST_SHOWN)
-      setOutcomes((all) => new Map(all).set(document.id, next))
+      setOutcomes((all) => new Map(all).set(documentId, next))
     }
-    setRunning(sequence)
+    setRunning((current) => startRunning(current, documentId, token))
     try {
       const found = await (role === 'query'
         ? editor.searchSubstructure(document.id, otherId)
@@ -115,7 +128,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         store({ ...asked, kind: 'failed', message: failure instanceof Error ? failure.message : 'The search failed.' })
       }
     } finally {
-      setRunning((current) => (current === sequence ? null : current))
+      setRunning((current) => finishRunning(current, documentId, token))
     }
   }
 
@@ -153,7 +166,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
       </Button>
     </Field>
     <Button size="sm" disabled={busy || other === NONE} onClick={() => void search()}>
-      {running !== null ? 'Searching…' : 'Search'}
+      {searching ? 'Searching…' : 'Search'}
     </Button>
     {outcome !== null && (drawingChanged || serviceChanged) && <p role="status" data-testid="substructure-stale">
       {drawingChanged ? 'This drawing changed since the last search.' : 'The service restarted since the last search.'} Search again.

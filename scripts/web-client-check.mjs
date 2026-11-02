@@ -15,6 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
+const searchRequests = await import('../apps/web/src/lib/substructure-requests.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -916,7 +917,7 @@ function substructureReply() {
   const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 2, model_id: 'chemifree-substructure-1',
     diagnostics: [], loss_report: [], result: {
       query: view(query), target: view(target), aromaticity_model: 'chemifree-aromaticity-2',
-      limits: { query_atoms: 64, search_steps: 2000000, mappings: 1000 }, steps: 4,
+      limits: { query_atoms: 64, search_steps: 2000000, scanned_candidates: 20000000, mappings: 1000 }, steps: 4,
       mappings: [{ atoms: [{ query: 'a1', target: 'a2' }, { query: 'a2', target: 'a3' }], bonds: [{ query: 'b1', target: 'b2' }] }],
     } }
   return { query, target, view, reply }
@@ -1009,6 +1010,37 @@ test('a failure code that is an object property name is an ordinary API error, n
   for (const code of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
     await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { name: 'ApiError', code, message: `Failed as ${code}.` })
   }
+})
+
+test('a search that does not end for one document does not stop another document from searching', () => {
+  const { createSearches, beginSearch, isLatest, isRunning, startRunning, finishRunning, leaveAll } = searchRequests
+  const searches = createSearches()
+  let running = new Map()
+  const tokenA = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', tokenA)
+  // Document B is searched while A's request is still out.
+  assert.equal(isRunning(running, 'doc-b'), false, 'A running does not make B busy')
+  const tokenB = beginSearch(searches, 'doc-b')
+  running = startRunning(running, 'doc-b', tokenB)
+  assert.equal(isRunning(running, 'doc-a') && isRunning(running, 'doc-b'), true)
+  // B ends first; A's late outcome may still be stored under A.
+  running = finishRunning(running, 'doc-b', tokenB)
+  assert.deepEqual([isRunning(running, 'doc-a'), isRunning(running, 'doc-b')], [true, false])
+  assert.equal(isLatest(searches, 'doc-a', tokenA), true, 'a late result is stored under its own document')
+  running = finishRunning(running, 'doc-a', tokenA)
+  assert.equal(running.size, 0)
+  // A newer search of the same document replaces the older: the older neither stores nor clears.
+  const first = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', first)
+  const second = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', second)
+  assert.equal(isLatest(searches, 'doc-a', first), false)
+  assert.equal(finishRunning(running, 'doc-a', first), running, 'an older search cannot end the newer one')
+  assert.equal(isRunning(finishRunning(running, 'doc-a', first), 'doc-a'), true)
+  // Leaving drops every outcome that was still to come, and no count can go negative.
+  leaveAll(searches)
+  assert.equal(isLatest(searches, 'doc-a', second), false)
+  assert.equal(finishRunning(new Map(), 'doc-a', second).size, 0)
 })
 
 test('a substructure search after a service restart is asked about, not answered from the old token', async () => {

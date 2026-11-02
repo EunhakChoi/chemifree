@@ -3242,14 +3242,16 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByTestId('substructure-asked').getByText(`Asked with this drawing as the query; the other drawing is ${tetralin.id}.`, { exact: true }).waitFor()
 
   // The document changes (a copy opens) while a search is running. The form starts again for the
-  // copy, the running search keeps the button busy until it ends, and it neither leaves the
-  // button stuck nor shows its result for the copy.
+  // copy, and the copy can be searched while the first document's search is still out; that
+  // search's late outcome belongs to its own document and changes nothing shown for the copy.
   let heldCopy
   const copyArrived = new Promise((resolve) => { heldCopy = resolve })
   let releaseCopy
   const copyHeld = new Promise((resolve) => { releaseCopy = resolve })
+  let holdingFirst = true
   const holdCopy = async (route) => {
-    if (route.request().postDataJSON()?.operation !== 'chem.substructure') return route.continue()
+    if (route.request().postDataJSON()?.operation !== 'chem.substructure' || !holdingFirst) return route.continue()
+    holdingFirst = false
     const response = await route.fetch()
     heldCopy()
     await copyHeld
@@ -3268,16 +3270,23 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'the copy shows no result')
   assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'the copy shows no refusal')
   assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'the copy is not stale: it has no earlier search')
-  releaseCopy()
-  await panel.getByRole('button', { name: 'Search', exact: true }).waitFor()
-  await page.unroute('**/api/v1/operations', holdCopy)
-  assert.equal(await panel.getByRole('button', { name: 'Search', exact: true }).isDisabled(), true, 'no search until another drawing is chosen for the copy')
-  assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'a search that outlived its document does not show for the next one')
+  // The first document's search is still out, yet the copy's button is its own.
+  const copySearch = panel.getByRole('button', { name: 'Search', exact: true })
+  await copySearch.waitFor()
+  assert.equal(await copySearch.isDisabled(), true, 'no search until another drawing is chosen for the copy')
   await panel.getByLabel('Other drawing').click()
   await page.getByRole('option', { name: 'This drawing', exact: true }).click()
-  await panel.getByRole('button', { name: 'Search', exact: true }).click()
+  assert.equal(await copySearch.isDisabled(), false, 'the copy can be searched while the first document search is out')
+  await copySearch.click()
   await panel.getByTestId('substructure-result').getByText('12 mapping(s) found.', { exact: true }).waitFor()
   await panel.getByTestId('substructure-asked').getByText('Asked with this drawing as the query; the other drawing is this drawing itself.', { exact: true }).waitFor()
+  const lateReply = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postDataJSON()?.operation === 'chem.substructure')
+  releaseCopy()
+  await lateReply
+  await panel.getByRole('button', { name: 'Search', exact: true }).waitFor()
+  await page.unroute('**/api/v1/operations', holdCopy)
+  assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'a search that outlived its document does not show for the next one')
+  await panel.getByTestId('substructure-result').getByText('12 mapping(s) found.', { exact: true }).waitFor()
   results.substructure_search_panel = true
 }
 

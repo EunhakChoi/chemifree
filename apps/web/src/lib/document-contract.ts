@@ -238,6 +238,7 @@ export interface SubstructureMapping {
 export interface SubstructureLimits {
   query_atoms: number
   search_steps: number
+  scanned_candidates: number
   mappings: number
 }
 
@@ -1105,11 +1106,15 @@ function firstDiagnostic(value: unknown): { code: string | null; message: string
 
 /** A snapshot an operation reply carries (`document`, `session`, `recovery`), as a document view. */
 function snapshotOf(raw: Record<string, unknown>): DocumentView {
-  const response = { api_version: API_VERSION, ...raw }
-  if (!isDocumentResponse(response)) {
+  return documentResponse({ api_version: API_VERSION, ...raw }).document
+}
+
+/** A document reply checked at runtime, with older replies' missing states filled in. */
+function documentResponse(value: unknown): DocumentResponse {
+  if (!isDocumentResponse(value)) {
     throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
   }
-  return withStates(response).document
+  return withStates(value)
 }
 
 function restarted(status: number) {
@@ -1520,10 +1525,7 @@ export class DocumentClient {
   }
 
   private static document(value: unknown): DocumentResponse {
-    if (!isDocumentResponse(value)) {
-      throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
-    }
-    return withStates(value)
+    return documentResponse(value)
   }
 
   /** The server returns the actual inspected snapshot, not just its potentially reused revision. */
@@ -1931,6 +1933,14 @@ export class DocumentClient {
     }, 'reload')
     const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible substructure search.', 200)
     if (!isRecord(value) || !Array.isArray(value.diagnostics)) throw incompatible()
+    // The two snapshots a reply is about, which must be the drawings asked for and the revision it reports.
+    const bound = (rawQuery: Record<string, unknown>, rawTarget: Record<string, unknown>) => {
+      const query = snapshotOf(rawQuery)
+      const target = snapshotOf(rawTarget)
+      if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
+          (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
+      return { query, target }
+    }
     if (value.outcome !== 'ok') {
       const { code, message, details } = firstDiagnostic(value)
       if (code === null || message === null) {
@@ -1939,10 +1949,7 @@ export class DocumentClient {
       if (!SUBSTRUCTURE_OUTCOMES.has(code)) throw new ApiError(code, message, 200)
       if (SUBSTRUCTURE_OUTCOMES.get(code) !== value.outcome || value.result !== null || value.model_id !== 'chemifree-substructure-1' ||
           !isRecord(details.query_snapshot) || !isRecord(details.target_snapshot)) throw incompatible()
-      const query = snapshotOf(details.query_snapshot)
-      const target = snapshotOf(details.target_snapshot)
-      if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
-          (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
+      const { query, target } = bound(details.query_snapshot, details.target_snapshot)
       const words = (key: string) => typeof details[key] === 'string' ? details[key].replaceAll('_', ' ') : null
       const subject = [words('item'), typeof details.id === 'string' ? details.id : null].filter((part) => part !== null).join(' ')
       const where = typeof details.side === 'string'
@@ -1955,12 +1962,9 @@ export class DocumentClient {
     if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) || value.loss_report.length !== 0 ||
         !isRecord(result) || !isRecord(result.query) || !isRecord(result.target) || !isRecord(result.limits) ||
         result.aromaticity_model !== 'chemifree-aromaticity-2' || !isCount(result.steps) || !Array.isArray(result.mappings)) throw incompatible()
-    const query = snapshotOf(result.query)
-    const target = snapshotOf(result.target)
+    const { query, target } = bound(result.query, result.target)
     const limits = result.limits
-    if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
-        (queryId === targetId && !sameConversionSnapshot(query, target)) ||
-        !isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.mappings) ||
+    if (!isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.scanned_candidates) || !isCount(limits.mappings) ||
         result.steps > limits.search_steps || result.mappings.length > limits.mappings) throw incompatible()
     const queryAtoms = new Set(query.atoms.map((atom) => atom.id))
     const targetAtoms = new Set(target.atoms.map((atom) => atom.id))
@@ -1989,7 +1993,10 @@ export class DocumentClient {
     }
     return {
       model: value.model_id, aromaticityModel: result.aromaticity_model, query, target,
-      limits: { query_atoms: limits.query_atoms, search_steps: limits.search_steps, mappings: limits.mappings },
+      limits: {
+        query_atoms: limits.query_atoms, search_steps: limits.search_steps,
+        scanned_candidates: limits.scanned_candidates, mappings: limits.mappings,
+      },
       steps: result.steps, mappings,
     }
   }
