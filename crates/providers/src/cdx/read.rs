@@ -102,13 +102,6 @@ fn known_kind(object_tag: u16) -> Option<ObjectKind> {
     })
 }
 
-fn is_opaque(kind: &ObjectKind) -> bool {
-    matches!(
-        kind,
-        ObjectKind::UnknownBinary(_) | ObjectKind::UnknownXml(_)
-    )
-}
-
 fn plain(kind: ObjectKind, properties: Vec<Property>, children: Vec<Content>) -> Object {
     Object {
         kind,
@@ -222,7 +215,7 @@ impl<'a> Builder<'a> {
         } else {
             known_kind(raw.tag).unwrap_or(ObjectKind::UnknownBinary(raw.tag))
         };
-        let opaque = is_opaque(&kind);
+        let opaque = kind.is_opaque();
         let id = (raw.id != 0).then_some(raw.id);
         if let Some(id) = id
             && self.ids.insert(id, raw.offset).is_some()
@@ -248,7 +241,10 @@ impl<'a> Builder<'a> {
                         (ObjectKind::Document, tag::FONT_TABLE)
                             | (ObjectKind::Graphic, tag::REPRESENTS)
                     );
-                    if !repeatable && !seen.insert(prop.tag) {
+                    // The properties of an opaque object are kept as found, in order, and
+                    // may repeat: nothing is known about what a repeat means there.
+                    let first = seen.insert(prop.tag);
+                    if !first && !repeatable && !opaque {
                         return Err(bad_value(
                             "duplicate_property",
                             prop,

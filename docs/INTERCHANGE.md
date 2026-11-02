@@ -105,16 +105,21 @@ and [represented-property references](https://iupac.github.io/IUPAC-FAIRSpec/cdx
 [CDX file format](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/IntroCDX.htm) into the same
 `Document` tree as CDXML. It was written from the public documentation only. Opaque
 policy is shared with the CDXML write path (`opaque_policy.rs`): an unchanged original is
-returned byte for byte, an edited document with opaque content is refused
+returned byte for byte (also with `discard_opaque` when the original holds no opaque content, so
+there is nothing to discard), an edited document with opaque content is refused
 (`unsafe_unknown_rewrite`) unless `discard_opaque`, and a discard is reported as a
 `dropped` `opaque_extensions` loss. The recorded CDXML outputs in
 `crates/providers/tests/data/cdxml-golden/` pin the P22 results taken before the CDX code existed.
 
 **Framing.** A 28-byte header (`VjCD0100`, then 20 reserved bytes that are not interpreted; a rewrite
 keeps those of the `original` and, with none, writes the values the specification shows), a Document object (tag `0x8000`, ID, properties,
-child objects, `0000`) and the two-byte end-of-file marker. The marker is required, so every
+child objects, `0000`) and the two-byte end-of-file marker. This codec requires the marker, so every
 proper prefix of a file is refused as `truncated` (or `invalid_*`), and bytes after it are
-`trailing_data`. Property lengths use the 16-bit field, or `0xFFFF` plus a 32-bit length; the
+`trailing_data`. That strictness is unverified against the specification: the public
+documentation says "the end of the CDX file is marked with two bytes of 0 (00 00)" and that every
+object ends with `0000`, but it does not say whether a reader must refuse a file that lacks the
+marker. A file without it (Document ends, then nothing) is refused as `truncated` at the marker
+until that is decided; the writer always emits it. Property lengths use the 16-bit field, or `0xFFFF` plus a 32-bit length; the
 writer uses the extended form exactly from 65535 bytes, the reader also accepts it for shorter
 values. Lengths are checked against the remaining bytes before use. A Document ID of 0 means "no
 ID assigned" and reads as no ID (the model cannot tell them apart; CDXML `id="0"` does the
@@ -156,21 +161,29 @@ color).
 
 **Writer.** Font and color tables become document properties ahead of the objects (a
 CDXML table after a page is moved and `child_order` is reported). Font tables are written for
-platform 1; `font_platform` is reported whenever a written table is not known, from the
-re-parsed original, to be an unchanged platform-1 table, and never for a plain read. Numbers
+platform 1, except that a table equal to the same table of the re-parsed `original` keeps the
+platform it was read with (0 or 1) and reports nothing; `font_platform` is reported for every
+other written table (the platform is not known, so Windows is written) and never for a plain read.
+Text in a style run whose font belongs to a kept Macintosh table must be ASCII, as the reader
+requires (`unsupported_text`). Numbers
 that are not exact steps are rounded to the nearest one and reported as `precision`:
 coordinates to 1/65536 point (error at most 1/131072), color components to 1/65535, font
 sizes to 1/20 point. Values outside the range (coordinates beyond +-32768 pt, sizes above
 3276.75, colors) are refused (`out_of_range`). Text must be Latin 1 without U+0080 to U+009F
 (`unsupported_text`); fonts need a supported charset (`unsupported_charset`,
 `missing_property`). A single style run without attributes is an unstyled string; otherwise
-each run needs font, size and color (`unsupported_style_run`) and a missing face is written as
-plain and reported as `style_defaults`. Whitespace-only text between runs is ignored; XML
+each run needs a font and a size (`unsupported_style_run`); a missing face is written as
+plain (0) and a missing color as color index 0, and both are reported as `style_defaults`. The
+public documentation fixes color indexes 0 and 1 as black and white in every document, whatever
+its color table holds, so index 0 (black) is the one default that always exists; the
+document foreground (index 3) is the table's second entry and does not exist in every table. Whitespace-only text between runs is ignored; XML
 comments, instructions, stray text outside runs, the root namespace and Represents objects
 naming an unverified attribute have no CDX encoding and are reported as `dropped`
 (`xml_content`, `xml_namespace`, `represents`); all but the namespace, which carries no
 meaning, need the caller's consent (`accepted_losses`, bound to what was shown).
-A Represents object with its own ID is refused. Object IDs on style runs, font and color tables and their entries cannot be written (CDX numbers only real objects); they are dropped with a reported `object_ids` loss, and a reference that names one is refused (`unsupported_object_id`). A font-table or Represents property repeated where it has no meaning, a Text without its string, and a Represents at the depth limit are refused with `duplicate_property`, `missing_property` and `resource_limit` at the property or object offset. What the writer emits is re-read to the same
+A Represents object with its own ID is refused. Object IDs on style runs, font and color tables and their entries cannot be written (CDX numbers only real objects); they are dropped with a reported `object_ids` loss, and a reference that names one is refused (`unsupported_object_id`). The properties of an unknown object, and of every object inside it, are kept as found, in
+order, repeats included (an unchanged original returns them byte for byte). A font-table or Represents property repeated where it has no meaning (any
+other repeat in a known object), a Text without its string, and a Represents at the depth limit are refused with `duplicate_property`, `missing_property` and `resource_limit` at the property or object offset. What the writer emits is re-read to the same
 tree by the reader.
 
 **Model errors.** CDX reports a failure found only by the common model with the domain's specific code and message; CDXML keeps its P22 code and wording. The difference and the reason are stated once, in [CONTRACT.md](CONTRACT.md#cdx-over-the-same-operations).

@@ -785,18 +785,17 @@ pub fn write(file: &CdxmlDocument) -> Result<String, CdxmlError> {
 }
 
 fn contains_opaque(object: &Object) -> bool {
-    matches!(
-        object.kind,
-        ObjectKind::UnknownXml(_) | ObjectKind::UnknownBinary(_)
-    ) || object.properties.iter().any(|p| {
-        matches!(
-            p.kind,
-            PropertyKind::UnknownXml(_) | PropertyKind::UnknownBinary(_)
-        )
-    }) || object
-        .children
-        .iter()
-        .any(|child| matches!(child, Content::Object(child) if contains_opaque(child)))
+    object.kind.is_opaque()
+        || object.properties.iter().any(|p| {
+            matches!(
+                p.kind,
+                PropertyKind::UnknownXml(_) | PropertyKind::UnknownBinary(_)
+            )
+        })
+        || object
+            .children
+            .iter()
+            .any(|child| matches!(child, Content::Object(child) if contains_opaque(child)))
 }
 
 fn tag_name(kind: &ObjectKind) -> Option<&'static str> {

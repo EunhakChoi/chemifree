@@ -5,7 +5,7 @@ mod common;
 use chemifree_application::interchange_codec::{
     InterchangeCodec, InterchangeFormat, InterchangeWrite,
 };
-use chemifree_application::{Loss, LossDisposition};
+use chemifree_application::{Loss, LossConsent, LossDisposition};
 use chemifree_domain::interchange::{
     Content, Document, Object, ObjectKind, Property, PropertyKind, PropertyValue,
 };
@@ -41,6 +41,34 @@ fn reread(bytes: &[u8]) -> Document {
         .read(InterchangeFormat::Cdx, bytes)
         .unwrap()
         .document
+}
+
+/// The style runs of the first text object of the first page.
+fn runs_of(document: &Document) -> Vec<&Object> {
+    let Content::Object(page) = document
+        .root()
+        .children
+        .iter()
+        .find(|child| matches!(child, Content::Object(o) if o.kind == ObjectKind::Page))
+        .expect("a page")
+    else {
+        unreachable!()
+    };
+    let text = page
+        .children
+        .iter()
+        .find_map(|child| match child {
+            Content::Object(o) if o.kind == ObjectKind::Text => Some(o),
+            _ => None,
+        })
+        .expect("a text object");
+    text.children
+        .iter()
+        .filter_map(|child| match child {
+            Content::Object(o) if o.kind == ObjectKind::StyleRun => Some(o),
+            _ => None,
+        })
+        .collect()
 }
 
 fn features(losses: &[Loss]) -> Vec<(&str, LossDisposition)> {
@@ -211,7 +239,7 @@ fn font_platform_loss_is_reported_exactly_when_the_source_platform_is_not_known(
         features(&cdx_of(&edited, None, false).unwrap().loss_report),
         [("font_platform", LossDisposition::Normalized)]
     );
-    // A Macintosh source is rewritten for Windows, and that is reported.
+    // A Macintosh table that is left alone keeps its platform and reports nothing.
     let platform_zero = file(
         0,
         &[
@@ -232,13 +260,55 @@ fn font_platform_loss_is_reported_exactly_when_the_source_platform_is_not_known(
             page.id = Some(8);
         })
         .unwrap();
+    let kept = cdx_of(&changed, Some(&platform_zero), false).unwrap();
+    assert!(kept.loss_report.is_empty(), "{:?}", kept.loss_report);
+    assert_ne!(kept.bytes, platform_zero, "the page ID changed");
+    let reparsed = cdx::read(&kept.bytes).unwrap();
     assert_eq!(
-        features(
-            &cdx_of(&changed, Some(&platform_zero), false)
-                .unwrap()
-                .loss_report
-        ),
+        reparsed.font_table(0).map(|(_, platform)| platform),
+        Some(0)
+    );
+    // The same table without its original has no known platform and is written for Windows.
+    let unknown = cdx_of(&changed, None, false).unwrap();
+    assert_eq!(
+        features(&unknown.loss_report),
         [("font_platform", LossDisposition::Normalized)]
+    );
+    assert_eq!(
+        cdx::read(&unknown.bytes)
+            .unwrap()
+            .font_table(0)
+            .map(|(_, platform)| platform),
+        Some(1)
+    );
+    // Editing a font of a Macintosh table makes its platform unknown, so Windows is written.
+    let mut renamed_mac = mac.document.clone();
+    renamed_mac
+        .edit(|root| {
+            let Content::Object(table) = &mut root.children[0] else {
+                panic!()
+            };
+            let Content::Object(font) = &mut table.children[0] else {
+                panic!()
+            };
+            for property in &mut font.properties {
+                if property.kind == PropertyKind::FontName {
+                    property.value = PropertyValue::Text("Other".into());
+                }
+            }
+        })
+        .unwrap();
+    let rewritten = cdx_of(&renamed_mac, Some(&platform_zero), false).unwrap();
+    assert_eq!(
+        features(&rewritten.loss_report),
+        [("font_platform", LossDisposition::Normalized)]
+    );
+    assert_eq!(
+        cdx::read(&rewritten.bytes)
+            .unwrap()
+            .font_table(0)
+            .map(|(_, platform)| platform),
+        Some(1)
     );
     // Editing a font itself makes the old platform unknown even for a Windows source.
     let mut renamed = read.document.clone();
@@ -268,7 +338,7 @@ fn font_platform_loss_is_reported_exactly_when_the_source_platform_is_not_known(
 }
 
 #[test]
-fn several_font_tables_each_need_a_known_platform() {
+fn several_font_tables_each_keep_their_platform_or_report_it_unknown() {
     let two = file(
         0,
         &[
@@ -279,13 +349,99 @@ fn several_font_tables_each_need_a_known_platform() {
     );
     let read = cdx::read(&two).unwrap();
     assert_eq!(read.font_table_count(), 2);
+    // Unchanged, each table keeps its own platform, the Macintosh one included.
     let output = cdx::write(read.document(), Some(&read)).unwrap();
+    assert!(output.losses.is_empty(), "{:?}", output.losses);
+    assert_eq!(output.bytes, two);
+    // Only the table that was edited loses its platform.
+    let mut edited = read.document().clone();
+    edited
+        .edit(|root| {
+            let Content::Object(table) = &mut root.children[1] else {
+                panic!()
+            };
+            let Content::Object(font) = &mut table.children[0] else {
+                panic!()
+            };
+            for property in &mut font.properties {
+                if property.kind == PropertyKind::FontName {
+                    property.value = PropertyValue::Text("C".into());
+                }
+            }
+        })
+        .unwrap();
+    let output = cdx::write(&edited, Some(&read)).unwrap();
     assert_eq!(
         features(&output.losses),
         [("font_platform", LossDisposition::Normalized)]
     );
     assert!(output.losses[0].reason.starts_with("1 font table"));
     assert_eq!(output.losses[0].source_path, "document/font table[1]");
+    let platforms: Vec<_> = (0..2)
+        .map(|index| {
+            cdx::read(&output.bytes)
+                .unwrap()
+                .font_table(index)
+                .map(|(_, platform)| platform)
+        })
+        .collect();
+    assert_eq!(platforms, [Some(1), Some(1)]);
+}
+
+#[test]
+fn text_in_a_kept_macintosh_font_stays_ascii_so_the_file_reads_back() {
+    // Table 1 is Macintosh (font 2), table 0 is Windows (font 1); both are left alone.
+    let source = file(
+        0,
+        &[
+            prop(0x0100, &font_table(1, &[(1, 1252, "Win")])),
+            prop(0x0100, &font_table(0, &[(2, 1252, "Mac")])),
+            obj(
+                0x8001,
+                1,
+                &[obj(
+                    0x8006,
+                    2,
+                    &[prop(0x0700, &styled(&[(2, 0, 200, 2, b"ascii")]))],
+                )],
+            ),
+        ],
+    );
+    let read = cdx::read(&source).unwrap();
+    let with_text = |text: &str, font: i64| {
+        let mut document = read.document().clone();
+        document
+            .edit(|root| {
+                let Content::Object(page) = &mut root.children[2] else {
+                    panic!()
+                };
+                let Content::Object(label) = &mut page.children[0] else {
+                    panic!()
+                };
+                let Content::Object(run) = &mut label.children[0] else {
+                    panic!()
+                };
+                run.children = vec![Content::Text(text.into())];
+                for property in &mut run.properties {
+                    if property.kind == PropertyKind::FontIndex {
+                        property.value = PropertyValue::Integer(font);
+                    }
+                }
+            })
+            .unwrap();
+        document
+    };
+    let ascii = cdx::write(&with_text("plain", 2), Some(&read)).unwrap();
+    assert!(ascii.losses.is_empty(), "{:?}", ascii.losses);
+    cdx::read(&ascii.bytes).unwrap();
+    let error = cdx::write(&with_text("caf\u{e9}", 2), Some(&read)).unwrap_err();
+    assert_eq!(error.code, "unsupported_text");
+    // The same text in the Windows font is fine, and reads back.
+    let windows = cdx::write(&with_text("caf\u{e9}", 1), Some(&read)).unwrap();
+    assert_eq!(
+        cdx::read(&windows.bytes).unwrap().document(),
+        &with_text("caf\u{e9}", 1)
+    );
 }
 
 #[test]
@@ -371,7 +527,7 @@ fn values_outside_the_binary_range_are_refused_not_clamped() {
 }
 
 #[test]
-fn style_runs_without_font_size_or_color_are_refused_and_a_missing_face_is_reported() {
+fn style_runs_without_font_or_size_are_refused_and_a_missing_face_is_reported() {
     let page =
         |run: &str| format!("<CDXML>{FONT}<page id=\"1\"><t id=\"2\">{run}</t></page></CDXML>");
     let document = from_cdxml(&page(
@@ -399,7 +555,6 @@ fn style_runs_without_font_size_or_color_are_refused_and_a_missing_face_is_repor
     for incomplete in [
         "<s size=\"10\" color=\"0\">a</s><s>b</s>",
         "<s font=\"3\" color=\"0\">a</s><s>b</s>",
-        "<s font=\"3\" size=\"10\">a</s><s>b</s>",
         "<s>a</s><s>b</s>",
     ] {
         let error = cdx_of(&from_cdxml(&page(incomplete)), None, false).unwrap_err();
@@ -408,6 +563,79 @@ fn style_runs_without_font_size_or_color_are_refused_and_a_missing_face_is_repor
             "{incomplete}: {error}"
         );
     }
+}
+
+#[test]
+fn a_style_run_without_a_color_is_written_black_and_reported_like_a_missing_face() {
+    let page =
+        |run: &str| format!("<CDXML>{FONT}<page id=\"1\"><t id=\"2\">{run}</t></page></CDXML>");
+    // Only the second run lacks a color; the first keeps the color it names.
+    let document = from_cdxml(&page(
+        "<s font=\"3\" size=\"10\" face=\"1\" color=\"3\">a</s><s font=\"3\" size=\"10\" face=\"1\">b</s>",
+    ));
+    let output = cdx_of(&document, None, false).unwrap();
+    assert_eq!(
+        features(&output.loss_report),
+        [
+            ("font_platform", LossDisposition::Normalized),
+            ("style_defaults", LossDisposition::Normalized)
+        ]
+    );
+    let defaults = output
+        .loss_report
+        .iter()
+        .find(|loss| loss.feature == "style_defaults")
+        .unwrap();
+    assert_eq!(
+        defaults.reason,
+        "1 style run(s) had no color; color index 0 (black, defined in every document) was written."
+    );
+    assert_eq!(defaults.consent, LossConsent::NotRequired);
+    assert_eq!(defaults.source_path, "document/page#1/text#2");
+    // The color field of each run in the bytes: 3 for the named color, 0 for the default.
+    let back = reread(&output.bytes);
+    let colors: Vec<&PropertyValue> = runs_of(&back)
+        .iter()
+        .map(|run| {
+            &run.properties
+                .iter()
+                .find(|item| item.kind == PropertyKind::ColorIndex)
+                .unwrap()
+                .value
+        })
+        .collect();
+    assert_eq!(
+        colors,
+        [&PropertyValue::Integer(3), &PropertyValue::Integer(0)]
+    );
+    // A missing face and a missing color in one file are one entry that names both.
+    let both = from_cdxml(&page(
+        "<s font=\"3\" size=\"10\" color=\"3\">a</s><s font=\"3\" size=\"10\">b</s>",
+    ));
+    let output = cdx_of(&both, None, false).unwrap();
+    let defaults: Vec<&Loss> = output
+        .loss_report
+        .iter()
+        .filter(|loss| loss.feature == "style_defaults")
+        .collect();
+    assert_eq!(defaults.len(), 1, "{:?}", output.loss_report);
+    assert_eq!(
+        defaults[0].reason,
+        "2 style run(s) had no face; the plain face (0) was written; 1 style run(s) had no color; color index 0 (black, defined in every document) was written."
+    );
+    // The defaulted file reads back to a tree that now names both, and a second write is exact.
+    let again = cdx_of(&reread(&output.bytes), Some(&output.bytes), false).unwrap();
+    assert_eq!(again.bytes, output.bytes);
+    assert!(again.loss_report.is_empty(), "{:?}", again.loss_report);
+    // Index 0 exists whatever the color table holds, so a one-entry table is no obstacle.
+    let tabled = from_cdxml(&format!(
+        "<CDXML>{FONT}<colortable><color r=\"1\" g=\"1\" b=\"1\"/></colortable><page id=\"1\"><t id=\"2\"><s font=\"3\" size=\"10\" face=\"0\">a</s><s font=\"3\" size=\"10\" face=\"0\" color=\"2\">b</s></t></page></CDXML>"
+    ));
+    let output = cdx_of(&tabled, None, false).unwrap();
+    assert!(
+        features(&output.loss_report).contains(&("style_defaults", LossDisposition::Normalized))
+    );
+    reread(&output.bytes);
 }
 
 #[test]
@@ -681,6 +909,95 @@ fn unknown_content_follows_the_shared_opaque_policy() {
     // Discarding also acts on an unchanged tree.
     let stripped = cdx_of(&read.document, Some(&original), true).unwrap();
     assert!(stripped.bytes.len() < original.len());
+}
+
+/// A file that holds no opaque content and is not what the writer would produce: one property
+/// spells its short length in the extended form.
+fn spelled_long_file() -> Vec<u8> {
+    file(
+        0,
+        &[obj(
+            0x8001,
+            1,
+            &[obj(
+                0x8003,
+                2,
+                &[obj(0x8004, 3, &[prop_extended(0x0402, &i16le(6))])],
+            )],
+        )],
+    )
+}
+
+#[test]
+fn a_discard_with_nothing_to_discard_still_returns_the_unchanged_original_byte_for_byte() {
+    let original = spelled_long_file();
+    let read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdx, &original)
+        .unwrap();
+    assert!(read.loss_report.is_empty());
+    // Serializing afresh would not give the original back, so the comparison below can fail.
+    let fresh = cdx_of(&read.document, None, false).unwrap();
+    assert_ne!(fresh.bytes, original, "the writer shortens the length");
+    for discard in [false, true] {
+        let output = cdx_of(&read.document, Some(&original), discard).unwrap();
+        assert_eq!(output.bytes, original, "discard_opaque: {discard}");
+        assert!(
+            output.loss_report.is_empty(),
+            "discard_opaque: {discard}: {:?}",
+            output.loss_report
+        );
+    }
+    // With opaque content present the discard still happens and is reported.
+    let with_opaque = file(
+        0,
+        &[prop(0x0003, b"\x00\x00Test program"), obj(0x8001, 1, &[])],
+    );
+    let read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdx, &with_opaque)
+        .unwrap();
+    let output = cdx_of(&read.document, Some(&with_opaque), true).unwrap();
+    assert_ne!(output.bytes, with_opaque);
+    assert_eq!(
+        features(&output.loss_report),
+        [("opaque_extensions", LossDisposition::Dropped)]
+    );
+}
+
+#[test]
+fn an_opaque_object_with_repeated_properties_keeps_its_bytes_and_is_dropped_on_discard() {
+    let unknown = obj(
+        0x8030,
+        20,
+        &[
+            prop(0x0990, &[1]),
+            prop(0x0991, &[2]),
+            prop(0x0990, &[3]),
+            obj(0x8031, 21, &[prop(0x0990, &[4]), prop(0x0990, &[5])]),
+        ],
+    );
+    let original = file(0, &[obj(0x8001, 1, &[unknown])]);
+    let read = LocalInterchangeCodec
+        .read(InterchangeFormat::Cdx, &original)
+        .unwrap();
+    assert_eq!(
+        features(&read.loss_report),
+        [("opaque_extensions", LossDisposition::Retained)]
+    );
+    // The original comes back exactly, repeats and their order included.
+    let same = cdx_of(&read.document, Some(&original), false).unwrap();
+    assert_eq!(same.bytes, original);
+    // Without a discard nothing else can be written, and with one the object is gone.
+    assert!(
+        cdx_of(&read.document, None, false)
+            .unwrap_err()
+            .starts_with("unsafe_unknown_rewrite")
+    );
+    let stripped = cdx_of(&read.document, Some(&original), true).unwrap();
+    assert_eq!(
+        features(&stripped.loss_report),
+        [("opaque_extensions", LossDisposition::Dropped)]
+    );
+    assert_eq!(stripped.bytes, file(0, &[obj(0x8001, 1, &[])]));
 }
 
 #[test]

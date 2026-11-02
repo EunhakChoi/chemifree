@@ -62,6 +62,19 @@ test('an unconfirmed CDXML creation is checked with the same request ID', async 
   assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
 })
 
+test('reading a CDX or CDXML source asks for compact bytes', async () => {
+  const choice = { page_id: 1, fragment_id: 2, page_path: 'page 1', fragment_path: 'page 1/fragment 2' }
+  const reply = { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }
+  const scripted = service({ '/api/v1/operations': [() => json(200, reply), () => json(200, reply)] })
+  const client = new DocumentClient()
+  assert.deepEqual(await client.readInterchange('VjCD0100AA==', 'cdx'), [choice])
+  assert.deepEqual(await client.readInterchange('<CDXML/>', 'cdxml'), [choice])
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [
+    { mode: 'read', format: 'cdx', source: 'VjCD0100AA==', compact_bytes: true },
+    { mode: 'read', format: 'cdxml', source: '<CDXML/>', compact_bytes: true },
+  ])
+})
+
 /** What Vite's development proxy answers when the API connection drops before a reply. */
 const proxyFailure = () => new Response('', { status: 502, headers: { 'content-type': 'text/plain' } })
 
@@ -100,7 +113,7 @@ function service(answers) {
     }
     const sentWith = init.headers['x-chemifree-session']
     const body = JSON.parse(init.body)
-    writes.push({ path, token: sentWith, requestId: body.request_id })
+    writes.push({ path, token: sentWith, requestId: body.request_id, parameters: body.parameters })
     if (sentWith !== token) return error(401, 'unauthorized')
     const suffix = Object.keys(answers).find((key) => !key.startsWith('GET ') && path.endsWith(key))
     assert.ok(suffix, `no scripted answer for ${path}`)
