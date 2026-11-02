@@ -15,8 +15,11 @@ use crate::rings::{self, RingSystem};
 use crate::states::{Hydrogens, Radical};
 
 pub const MODEL_ID: &str = "chemifree-aromaticity-2";
-const MAX_SYSTEM_ATOMS: usize = 128;
-const MAX_MATCH_STEPS: usize = 100_000;
+/// The most atoms one ring system may have; a larger one is `system_limit`.
+pub const MAX_SYSTEM_ATOMS: usize = 128;
+/// The Kekulé assignment steps one ring system with recorded aromatic bonds may take; more is
+/// `search_limit`.
+pub const MAX_MATCH_STEPS: usize = 100_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Classification {
