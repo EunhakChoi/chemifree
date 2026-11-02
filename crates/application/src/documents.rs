@@ -897,15 +897,8 @@ impl<R: DocumentRepository> Documents<R> {
                 AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
                 AromaticityConversion::Kekule => aromaticity::Target::Kekule,
             };
-            let commands = aromaticity::conversion_commands(&graph, target).map_err(|reason| {
-                ApplicationError {
-                    invalid_aromaticity: Some(reason),
-                    ..ApplicationError::new(
-                        ErrorCode::InvalidCommand,
-                        "Aromaticity conversion could not be completed under the selected model.",
-                    )
-                }
-            })?;
+            let commands =
+                aromaticity::conversion_commands(&graph, target).map_err(aromaticity_refusal)?;
             if commands.is_empty() {
                 return Ok(());
             }
@@ -2350,6 +2343,21 @@ fn unsaved_before(action: &str, session: &Session) -> ApplicationError {
     )
 }
 
+/// The refusal of an aromaticity conversion, with the model's reason. The message says what
+/// the caller can act on; the reason carries the detail.
+fn aromaticity_refusal(reason: &'static str) -> ApplicationError {
+    // `invalid_graph` is an internal defect, not a limit of the model: say so.
+    let message = if reason == "invalid_graph" {
+        "Aromaticity conversion found an internal inconsistency in the graph; nothing was changed."
+    } else {
+        "Aromaticity conversion could not be completed under the selected model."
+    };
+    ApplicationError {
+        invalid_aromaticity: Some(reason),
+        ..ApplicationError::new(ErrorCode::InvalidCommand, message)
+    }
+}
+
 fn rejected_edit(error: TransactionError) -> ApplicationError {
     let code = match error.error {
         EditError::RevisionLimit => ErrorCode::ResourceLimit,
@@ -2476,5 +2484,28 @@ fn refused(refusal: Refusal) -> ApplicationError {
                 TURN_WAIT.as_secs()
             ),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_internal_graph_defect_is_not_reported_as_a_model_limit() {
+        let error = aromaticity_refusal("invalid_graph");
+        assert_eq!(error.code, ErrorCode::InvalidCommand);
+        assert_eq!(error.reason_code(), Some("invalid_graph"));
+        assert!(
+            error.message.contains("internal") && error.message.contains("nothing was changed"),
+            "the message names an internal defect and that nothing changed: {}",
+            error.message
+        );
+        // Every other reason keeps the model message.
+        assert!(
+            aromaticity_refusal("adjacent_donors")
+                .message
+                .contains("selected model")
+        );
     }
 }

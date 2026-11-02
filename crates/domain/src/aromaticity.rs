@@ -742,6 +742,8 @@ pub fn conversion_commands(
         }
     };
     let commands = changed_commands(&context, bonds, hydrogens)?;
+    // The same constant `Document::apply_selecting` checks (`TooManyCommands`); checking here
+    // gives the conversion its own reason instead of the generic transaction error.
     if commands.len() > MAX_COMMANDS {
         return Err("conversion_command_limit");
     }

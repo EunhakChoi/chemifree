@@ -1204,3 +1204,49 @@ fn a_kekule_search_that_exhausts_the_step_budget_is_search_limit_not_an_answer()
         Err("search_limit")
     );
 }
+
+#[test]
+fn a_fused_block_with_mixed_ring_bonds_and_adjacent_donors_reports_mixed_ring_bonds() {
+    // Benzo-1,2-dithiete (a fused block with adjacent S-S donors) with one aromatic bond
+    // among single and double bonds: the mixed bonds are reported first.
+    let graph = mol(
+        &["C", "C", "C", "C", "C", "C", "S", "S"],
+        &[
+            (0, 1, ':'),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+            (0, 6, '-'),
+            (6, 7, '-'),
+            (7, 5, '-'),
+        ],
+    );
+    let result = aromaticity::perceive(&graph);
+    assert_eq!(result.systems.len(), 1);
+    assert_eq!(result.systems[0].cycle_rank, 2, "a fused block");
+    assert_eq!(
+        kinds(&result.systems[0]),
+        (Classification::Unsupported, Some("mixed_ring_bonds"))
+    );
+    // Without the aromatic bond the same block reports the donors.
+    let kekule = mol(
+        &["C", "C", "C", "C", "C", "C", "S", "S"],
+        &[
+            (0, 1, '='),
+            (1, 2, '-'),
+            (2, 3, '='),
+            (3, 4, '-'),
+            (4, 5, '='),
+            (5, 0, '-'),
+            (0, 6, '-'),
+            (6, 7, '-'),
+            (7, 5, '-'),
+        ],
+    );
+    assert_eq!(
+        only(&kekule),
+        (Classification::Unsupported, Some("adjacent_donors"))
+    );
+}

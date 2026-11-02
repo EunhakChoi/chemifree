@@ -105,13 +105,22 @@ What changed, grouped:
   conversion that changes five bonds of a pyrrole is six commands. A conversion that
   needs more than 500 commands is refused whole, with the reason `conversion_command_limit`
   (not the generic transaction message).
-- Chemical identity changes for the records above; model ids are bumped so stored
-  comparisons are not confused.
+- Chemical identity changes for the records above. Those are changes to classifications,
+  identities and conversions that succeeded on revision 1, which is why the model ids were
+  bumped to `chemifree-aromaticity-2` and `chemifree-chemical-graph-2` so stored
+  comparisons are not confused. The rule from then on, under one model id: every
+  classification, identity and conversion that succeeds is identical, and a refusal
+  (`unsupported`) may later become a result without a new id, so a stored refusal is only
+  valid for the build that produced it (see the next section).
 
 ## Refusals turned into results after this record (issue 93)
 
-Two refusals of the revision-2 record above were narrowed afterwards. Neither changes a
-classification, identity or conversion that succeeded before, so the model ids stay
+Two refusals of the revision-2 record above were narrowed afterwards. Under one model id
+every classification, identity and conversion that succeeds is identical, and a refusal
+(`unsupported`) may later become a result without a new id, so a stored refusal is only
+valid for the build that produced it. 1,2-dithiin is the example: it was refused
+(`adjacent_donors`) in the first builds of revision 2 and is `non_aromatic` now. Neither
+narrowing changes a classification, identity or conversion that succeeded before, so the model ids stay
 `chemifree-aromaticity-2` and `chemifree-chemical-graph-2`, and the generated tables below
 are unchanged (the corpus gives the same output before and after; the corpus has no input
 of either kind). Both restore the answer `chemifree-aromaticity-1` gave.
