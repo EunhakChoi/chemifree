@@ -101,12 +101,13 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, ClosedResult, Diagnostic, DocumentResult, Envelope,
-    FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
-    LossDisposition, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
-    Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
-    SmilesPreviewBond, SmilesPreviewResult, SpanView, Support,
+    AromaticityResult, AromaticitySystem, AtomPair, BondPair, ClosedResult, Diagnostic,
+    DocumentResult, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView,
+    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
+    Loss, LossConsent, LossDisposition, MATCH_CODES, MappingView, MatchCodeRow, OPERATION_CONTRACT,
+    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
+    Severity, SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult,
+    SpanView, SubstructureLimits, SubstructureResult, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

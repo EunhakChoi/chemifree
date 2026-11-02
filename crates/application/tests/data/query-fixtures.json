@@ -1,0 +1,359 @@
+{
+  "schema": 1,
+  "about": "Fixtures for chem.substructure. Atoms: C, N+, O-, 13C, N@1 (one stated hydrogen), *, A, Q, X, [N,O], ![N,O]. Bonds: [first, second, kind] with kind - = # : (aromatic) > (dative) ? (unknown) ~ (query any) or two or more of - = # : (query list). A mapping lists the target atom index for each query atom index. expect.mappings and refused.rdkit_matches are RDKit 2022.03.2 answers, checked by scripts/verify-query-rdkit.py.",
+  "fixtures": [
+    {
+      "name": "benzene-kekule-in-benzene-aromatic",
+      "note": "Kekule query, aromatic target: 6 rotations x 2 reflections",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "benzene-aromatic-in-benzene-kekule",
+      "note": "aromatic query, Kekule target",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "benzene-kekule-in-other-kekule-form",
+      "note": "the two Kekule forms of benzene are one ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "="], [2, 3, "-"], [3, 4, "="], [4, 5, "-"], [5, 0, "="]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "cyclohexane-in-cyclohexane",
+      "note": "saturated ring symmetry",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"], [2, 3, "-"], [3, 4, "-"], [4, 5, "-"], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"], [2, 3, "-"], [3, 4, "-"], [4, 5, "-"], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "propane-in-propane",
+      "note": "two mappings",
+      "query": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "target": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "expect": {"mappings": [[0, 1, 2], [2, 1, 0]]}
+    },
+    {
+      "name": "carbon-oxygen-in-ethanol",
+      "note": "one mapping, query and target ids differ",
+      "query": {"atoms": ["C", "O"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "C", "O"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "expect": {"mappings": [[1, 2]]}
+    },
+    {
+      "name": "benzene-in-naphthalene",
+      "note": "two rings, twelve mappings each",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 9, "="], [9, 0, "-"], [3, 8, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 8, 9], [0, 9, 8, 3, 2, 1], [1, 0, 9, 8, 3, 2], [1, 2, 3, 8, 9, 0], [2, 1, 0, 9, 8, 3], [2, 3, 8, 9, 0, 1], [3, 2, 1, 0, 9, 8], [3, 4, 5, 6, 7, 8], [3, 8, 7, 6, 5, 4], [3, 8, 9, 0, 1, 2], [4, 3, 8, 7, 6, 5], [4, 5, 6, 7, 8, 3], [5, 4, 3, 8, 7, 6], [5, 6, 7, 8, 3, 4], [6, 5, 4, 3, 8, 7], [6, 7, 8, 3, 4, 5], [7, 6, 5, 4, 3, 8], [7, 8, 3, 4, 5, 6], [8, 3, 2, 1, 0, 9], [8, 3, 4, 5, 6, 7], [8, 7, 6, 5, 4, 3], [8, 9, 0, 1, 2, 3], [9, 0, 1, 2, 3, 8], [9, 8, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "benzene-in-biphenyl",
+      "note": "two rings joined by a single bond",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [6, 7, "="], [7, 8, "-"], [8, 9, "="], [9, 10, "-"], [10, 11, "="], [11, 6, "-"], [0, 6, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0], [6, 7, 8, 9, 10, 11], [6, 11, 10, 9, 8, 7], [7, 6, 11, 10, 9, 8], [7, 8, 9, 10, 11, 6], [8, 7, 6, 11, 10, 9], [8, 9, 10, 11, 6, 7], [9, 8, 7, 6, 11, 10], [9, 10, 11, 6, 7, 8], [10, 9, 8, 7, 6, 11], [10, 11, 6, 7, 8, 9], [11, 6, 7, 8, 9, 10], [11, 10, 9, 8, 7, 6]]}
+    },
+    {
+      "name": "pyridine-kekule-in-pyridine-aromatic",
+      "note": "the nitrogen fixes the ring: two reflections",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [4, 3, 2, 1, 0, 5]]}
+    },
+    {
+      "name": "pyridine-aromatic-in-pyridine-kekule",
+      "note": "same, other direction",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [4, 3, 2, 1, 0, 5]]}
+    },
+    {
+      "name": "benzene-not-in-pyridine",
+      "note": "the ring has a nitrogen",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "pyrrole-kekule-in-pyrrole-aromatic-nh",
+      "note": "hydrogen inferred in the query, stated in the target",
+      "query": {"atoms": ["C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "N@1"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [3, 2, 1, 0, 4]]}
+    },
+    {
+      "name": "pyrrole-aromatic-nh-in-pyrrole-kekule",
+      "note": "the other direction",
+      "query": {"atoms": ["C", "C", "C", "C", "N@1"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [3, 2, 1, 0, 4]]}
+    },
+    {
+      "name": "any-atom-query-in-chain",
+      "note": "* matches every atom including drawn hydrogen",
+      "query": {"atoms": ["*"], "bonds": []},
+      "target": {"atoms": ["C", "N", "O", "Cl", "H"], "bonds": [[0, 1, "-"], [1, 2, "-"], [0, 3, "-"], [0, 4, "-"]]},
+      "expect": {"mappings": [[0], [1], [2], [3], [4]]}
+    },
+    {
+      "name": "any-heavy-atom-query",
+      "note": "A excludes hydrogen",
+      "query": {"atoms": ["A"], "bonds": []},
+      "target": {"atoms": ["C", "N", "O", "Cl", "H"], "bonds": [[0, 1, "-"], [1, 2, "-"], [0, 3, "-"], [0, 4, "-"]]},
+      "expect": {"mappings": [[0], [1], [2], [3]]}
+    },
+    {
+      "name": "heteroatom-query",
+      "note": "Q excludes carbon and hydrogen",
+      "query": {"atoms": ["Q"], "bonds": []},
+      "target": {"atoms": ["C", "N", "O", "Cl", "H"], "bonds": [[0, 1, "-"], [1, 2, "-"], [0, 3, "-"], [0, 4, "-"]]},
+      "expect": {"mappings": [[1], [2], [3]]}
+    },
+    {
+      "name": "halogen-query",
+      "note": "X is group 17",
+      "query": {"atoms": ["X"], "bonds": []},
+      "target": {"atoms": ["F", "S", "At", "Br", "Cl"], "bonds": []},
+      "expect": {"mappings": [[0], [2], [3], [4]]}
+    },
+    {
+      "name": "element-list-query",
+      "note": "[N,O]",
+      "query": {"atoms": ["[N,O]"], "bonds": []},
+      "target": {"atoms": ["C", "N", "O", "Cl", "H"], "bonds": []},
+      "expect": {"mappings": [[1], [2]]}
+    },
+    {
+      "name": "negated-element-list-query",
+      "note": "![N,O] keeps hydrogen",
+      "query": {"atoms": ["![N,O]"], "bonds": []},
+      "target": {"atoms": ["C", "N", "O", "Cl", "H"], "bonds": []},
+      "expect": {"mappings": [[0], [3], [4]]}
+    },
+    {
+      "name": "query-bond-list",
+      "note": "single or double bond",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "-="]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "="], [2, 3, "-"], [3, 4, "#"]]},
+      "expect": {"mappings": [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2]]}
+    },
+    {
+      "name": "query-any-bond",
+      "note": "any bond",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "~"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "="], [2, 3, "-"], [3, 4, "#"]]},
+      "expect": {"mappings": [[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [3, 4], [4, 3]]}
+    },
+    {
+      "name": "query-aromatic-in-list-matches-kekule",
+      "note": "- or aromatic list matches every Kekule benzene bond",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "-:"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1], [0, 5], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [3, 4], [4, 3], [4, 5], [5, 0], [5, 4]]}
+    },
+    {
+      "name": "single-bond-does-not-match-kekule-benzene",
+      "note": "a Kekule single bond of benzene is aromatic",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "charged-query-atom",
+      "note": "N+ matches only N+",
+      "query": {"atoms": ["N+"], "bonds": []},
+      "target": {"atoms": ["N+", "N", "C", "N-"], "bonds": []},
+      "expect": {"mappings": [[0]]}
+    },
+    {
+      "name": "neutral-query-atom-matches-any-charge",
+      "note": "an uncharged query atom states no charge",
+      "query": {"atoms": ["N"], "bonds": []},
+      "target": {"atoms": ["N+", "N", "C", "N-"], "bonds": []},
+      "expect": {"mappings": [[0], [1], [3]]}
+    },
+    {
+      "name": "isotope-query-atom",
+      "note": "13C matches only carbon-13",
+      "query": {"atoms": ["13C"], "bonds": []},
+      "target": {"atoms": ["13C", "C", "N"], "bonds": []},
+      "expect": {"mappings": [[0]]}
+    },
+    {
+      "name": "isotope-free-query-matches-isotopes",
+      "note": "C matches carbon-13",
+      "query": {"atoms": ["C"], "bonds": []},
+      "target": {"atoms": ["13C", "C", "N"], "bonds": []},
+      "expect": {"mappings": [[0], [1]]}
+    },
+    {
+      "name": "explicit-hydrogen-in-methane",
+      "note": "a drawn hydrogen is an ordinary atom",
+      "query": {"atoms": ["C", "H"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "H", "H", "H", "H"], "bonds": [[0, 1, "-"], [0, 2, "-"], [0, 3, "-"], [0, 4, "-"]]},
+      "expect": {"mappings": [[0, 1], [0, 2], [0, 3], [0, 4]]}
+    },
+    {
+      "name": "explicit-hydrogen-not-in-implicit-carbon",
+      "note": "implicit hydrogens are not atoms",
+      "query": {"atoms": ["C", "H"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C"], "bonds": []},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "two-carbons-in-propane",
+      "note": "a disconnected query: ordered pairs of distinct atoms",
+      "query": {"atoms": ["C", "C"], "bonds": []},
+      "target": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "expect": {"mappings": [[0, 1], [0, 2], [1, 0], [1, 2], [2, 0], [2, 1]]}
+    },
+    {
+      "name": "path-in-triangle",
+      "note": "the target may have an extra bond between assigned atoms",
+      "query": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "target": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"], [2, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]}
+    },
+    {
+      "name": "triangle-not-in-path",
+      "note": "the query bond is missing in the target",
+      "query": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"], [2, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "nitrile-not-in-ethane",
+      "note": "a complete empty answer",
+      "query": {"atoms": ["C", "N"], "bonds": [[0, 1, "#"]]},
+      "target": {"atoms": ["C", "C"], "bonds": [[0, 1, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "chlorobenzene-with-wildcard-substituent",
+      "note": "an atom query outside the ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C", "X"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "Cl"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"], [0, 6, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5, 6], [0, 5, 4, 3, 2, 1, 6]]}
+    },
+    {
+      "name": "carbonyl-in-acetic-acid",
+      "note": "double bond to oxygen",
+      "query": {"atoms": ["C", "O"], "bonds": [[0, 1, "="]]},
+      "target": {"atoms": ["C", "C", "O", "O"], "bonds": [[0, 1, "-"], [1, 2, "="], [1, 3, "-"]]},
+      "expect": {"mappings": [[1, 2]]}
+    },
+    {
+      "name": "substituent-of-saturated-ring-bond-is-decided",
+      "note": "a hydroxyl on the saturated ring of Kekule tetralin: its bond is outside the undecided system",
+      "query": {"atoms": ["C", "O"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "O"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 9, "-"], [9, 5, "-"], [8, 10, "-"]]},
+      "expect": {"mappings": [[8, 10]]}
+    },
+    {
+      "name": "all-single-silicon-ring-is-read-as-drawn",
+      "note": "no spelling of a ring without pi bonds is aromatic, so silicon does not matter",
+      "query": {"atoms": ["Si", "C"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["Si", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "-"], [2, 3, "-"], [3, 4, "-"], [4, 5, "-"], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1], [0, 5]]}
+    },
+    {
+      "name": "benzene-kekule-in-tetralin",
+      "note": "RDKit finds the benzene ring; the model does not classify the fused saturated ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 9, "-"], [9, 5, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "fused_partially_aromatic", "rdkit_matches": 12}
+    },
+    {
+      "name": "benzene-aromatic-in-tetralin",
+      "note": "aromatic spelling of the same query",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 9, "-"], [9, 5, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "fused_partially_aromatic", "rdkit_matches": 12}
+    },
+    {
+      "name": "benzene-in-indane",
+      "note": "five-membered saturated ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 5, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "fused_partially_aromatic", "rdkit_matches": 12}
+    },
+    {
+      "name": "benzene-in-indole",
+      "note": "a fused conjugated heterocycle is outside the model",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 5, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "fused_system_outside_model", "rdkit_matches": 12}
+    },
+    {
+      "name": "pyridine-not-in-indole",
+      "note": "the target ring system is undecided, but no mapping reaches one of its bonds: the nitrogen is in a five-membered ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 5, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "tetralin-query",
+      "note": "a query whose own rings the model cannot read",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 9, "-"], [9, 5, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "fused_partially_aromatic", "rdkit_matches": 0}
+    },
+    {
+      "name": "query-atom-in-conjugated-ring",
+      "note": "a heteroatom query inside a Kekule ring",
+      "query": {"atoms": ["Q", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "query_atom", "rdkit_matches": 0}
+    },
+    {
+      "name": "dative-bond-in-query",
+      "note": "a dative bond has no matching rule",
+      "query": {"atoms": ["N", "B"], "bonds": [[0, 1, ">"]]},
+      "target": {"atoms": ["N", "B"], "bonds": [[0, 1, ">"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "query_dative_bond"},
+      "rdkit_skipped": "RDKit has no matching rule for a dative query bond here"
+    },
+    {
+      "name": "unknown-bond-in-query",
+      "note": "an unknown bond has no matching rule",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "?"]]},
+      "target": {"atoms": ["C", "C"], "bonds": [[0, 1, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "unknown_bond"},
+      "rdkit_skipped": "RDKit has no unknown bond type"
+    },
+    {
+      "name": "aromatic-bond-outside-ring-in-query",
+      "note": "a bond drawn aromatic must lie in an aromatic ring",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "aromatic_bond_outside_ring", "rdkit_matches": 12}
+    },
+    {
+      "name": "pyrrole-without-nh-in-query",
+      "note": "aromatic pyrrole bonds with no stated hydrogen are not aromatic to the model",
+      "query": {"atoms": ["C", "C", "C", "C", "N"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "N@1"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "electron_count", "rdkit_matches": 2}
+    },
+    {
+      "name": "query-bond-to-aromatic-substituent",
+      "note": "the model reads a ring atom's other bonds as single",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C", "X"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "~"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "Cl"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"], [0, 6, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "unsupported_external_bond", "rdkit_matches": 2}
+    },
+    {
+      "name": "query-in-target-with-query-atom",
+      "note": "a target atom that is itself a query cannot be known to be carbon",
+      "query": {"atoms": ["C"], "bonds": []},
+      "target": {"atoms": ["Q", "C"], "bonds": [[0, 1, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "target_query_atom"},
+      "rdkit_skipped": "RDKit cannot sanitize a target that holds a query atom"
+    }
+  ]
+}
