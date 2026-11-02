@@ -30,7 +30,7 @@
         "document_revision": 0,
         "model_id": "chemifree-smiles-1",
         "result": {
-          "valence_model": "chemifree-valence-2",
+          "valence_model": "chemifree-valence-3",
           "aromaticity_model": "chemifree-aromaticity-2",
           "document": {
             "revision": 1,

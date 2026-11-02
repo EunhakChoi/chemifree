@@ -986,7 +986,7 @@ try {
     assert.equal((await both(edit)).document_revision, 1)
     assert.equal((await both(edit)).document_revision, 1, 'a repeated request ID replays its reply')
     const valence = await both((id) => request('op-valence', 'chem.validate', { document_id: id }))
-    assert.equal(valence.model_id, 'chemifree-valence-2')
+    assert.equal(valence.model_id, 'chemifree-valence-3')
     assert.deepEqual(valence.result.atoms, [{ atom_id: 'a1', bond_order_sum: 0, hydrogens: 4, status: 'valid', reason: null }])
     assert.equal(valence.result.snapshot.document.atoms[0].element, 'C')
     assert.equal(valence.result.snapshot.session.undo_depth, 1)

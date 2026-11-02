@@ -137,3 +137,97 @@ fn uncertain_atoms_and_bonds_never_become_single_bond_guesses() {
     assert_eq!(assessed[4].bond_order_sum, None);
     assert_eq!(doc, before);
 }
+
+fn ion(symbol: &str, charge: i8) -> Atom {
+    let mut atom = element(symbol);
+    atom.charge = charge;
+    atom
+}
+
+#[test]
+fn simple_monatomic_ions_have_valence_zero() {
+    let ions = [
+        ("Li", 1),
+        ("Na", 1),
+        ("K", 1),
+        ("Mg", 2),
+        ("Ca", 2),
+        ("F", -1),
+        ("Cl", -1),
+        ("Br", -1),
+        ("I", -1),
+    ];
+    let doc = drawing(ions.iter().map(|(s, c)| ion(s, *c)).collect(), &[]);
+    for ((symbol, charge), read) in ions.iter().zip(inspect_valence(&doc)) {
+        assert_eq!(
+            (
+                read.finding,
+                read.reason,
+                read.bond_order_sum,
+                read.hydrogen_count
+            ),
+            (Finding::Valid, None, Some(0), Some(0)),
+            "{symbol}{charge:+}"
+        );
+    }
+}
+
+#[test]
+fn only_the_listed_ions_are_added_to_the_valence_model() {
+    // Other charges of the same elements, other metals, and heavier group members stay
+    // outside the model; so do radicals on the listed ions.
+    let unlisted = [
+        ("Na", -1),
+        ("Na", 2),
+        ("Mg", 1),
+        ("Mg", 0),
+        ("Ca", 1),
+        ("Li", 0),
+        ("K", 2),
+        ("Rb", 1),
+        ("Cs", 1),
+        ("Be", 2),
+        ("Ba", 2),
+        ("Al", 3),
+        ("Fe", 2),
+        ("Fe", 3),
+        ("Zn", 2),
+        ("Cu", 1),
+    ];
+    let doc = drawing(unlisted.iter().map(|(s, c)| ion(s, *c)).collect(), &[]);
+    for ((symbol, charge), read) in unlisted.iter().zip(inspect_valence(&doc)) {
+        assert_eq!(
+            (read.finding, read.reason),
+            (Finding::Unsupported, Some("element_or_charge")),
+            "{symbol}{charge:+}"
+        );
+    }
+    let mut radical = ion("Na", 1);
+    radical.radical = Radical::Doublet;
+    let read = inspect_valence(&drawing(vec![radical], &[]));
+    assert_eq!(
+        (read[0].finding, read[0].reason),
+        (Finding::Unsupported, Some("radical_state"))
+    );
+}
+
+#[test]
+fn a_bonded_listed_ion_is_an_unusual_valence_not_an_unknown_state() {
+    let doc = drawing(
+        vec![ion("Na", 1), element("C")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    let read = inspect_valence(&doc);
+    assert_eq!(
+        (read[0].finding, read[0].reason, read[0].bond_order_sum),
+        (Finding::Invalid, Some("unusual_valence"), Some(1))
+    );
+}
+
+#[test]
+fn the_model_id_names_the_table_that_includes_the_ions() {
+    assert_eq!(
+        chemifree_domain::chemistry::VALENCE_MODEL,
+        "chemifree-valence-3"
+    );
+}

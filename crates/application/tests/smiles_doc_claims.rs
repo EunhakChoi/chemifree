@@ -208,9 +208,13 @@ fn the_documented_canonical_refusals_match_the_codec_exactly() {
         assert_eq!(found_reason.as_deref(), Some(reason));
     };
     let mut sodium = element("Na");
-    sodium.charge = 1;
+    sodium.charge = 2;
     refused(build(vec![sodium], vec![]), "element_or_charge");
     refused(build(vec![element("Fe")], vec![]), "element_or_charge");
+    // Sodium(I) is in the valence model, so the graph model has an identity for it.
+    let mut sodium = element("Na");
+    sodium.charge = 1;
+    assert_eq!(code(&build(vec![sodium], vec![])).unwrap(), "[Na+]");
     refused(graph_of("[CH2]").unwrap(), "radical_state");
     let mut unknown = element("C");
     unknown.hydrogens = Hydrogens::Unknown;
@@ -309,7 +313,7 @@ fn documented_reading_claims_hold() {
     assert_eq!(chemifree_providers::MAX_INPUT_BYTES, 16 * 1024);
     assert_eq!(chemifree_domain::document::MAX_COMMANDS, 500);
     // The bracket atoms named as having no single radical state.
-    for text in ["[Na+]", "[Fe]", "[CH2]", "[C]", "[CH]", "[N]"] {
+    for text in ["[Fe]", "[CH2]", "[C]", "[CH]", "[N]"] {
         assert!(
             section.contains(&format!("`{text}`")),
             "{text} is named in the contract"
@@ -351,13 +355,25 @@ fn documented_writing_claims_hold() {
         write("C1=CC=CC=C1", SmilesStyle::Canonical).unwrap(),
         "c1ccccc1"
     );
-    // An ion or a metal is written in brackets with the two consent-required assumptions.
+    // A metal outside the valence model is written in brackets with the two consent-required
+    // assumptions; the simple ions the model lists are not.
     let mut sodium = element("Na");
     sodium.charge = 1;
-    let written = OpenSmilesCodec
+    let salt = OpenSmilesCodec
         .write(&build(vec![sodium], vec![]), SmilesStyle::Recorded)
         .unwrap();
-    assert_eq!(written.text, "[Na+]");
+    assert_eq!(salt.text, "[Na+]");
+    assert!(
+        salt.losses
+            .iter()
+            .all(|loss| loss.consent != chemifree_application::LossConsent::Required),
+        "{:?}",
+        salt.losses
+    );
+    let written = OpenSmilesCodec
+        .write(&build(vec![element("Fe")], vec![]), SmilesStyle::Recorded)
+        .unwrap();
+    assert_eq!(written.text, "[Fe]");
     let required: Vec<&str> = written
         .losses
         .iter()
@@ -441,4 +457,104 @@ fn documented_hydrogen_count_placement_and_fault_claims_hold() {
         .write(&to_itself, SmilesStyle::Recorded)
         .unwrap_err();
     assert_eq!(error.code.as_str(), "bond_endpoints_invalid");
+}
+
+/// The SMILES bullet of docs/HANDOFF.ko.md, from its first line to the next bullet.
+fn handoff_smiles_bullet() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/HANDOFF.ko.md");
+    let text = std::fs::read_to_string(path).unwrap();
+    let start = text
+        .find("- P21 진행(")
+        .expect("HANDOFF.ko.md has a P21 SMILES bullet");
+    let rest = &text[start..];
+    let end = rest[2..].find("\n- ").map_or(rest.len(), |at| at + 2);
+    rest[..end].to_owned()
+}
+
+#[test]
+fn the_handoff_smiles_bullet_agrees_with_the_codec() {
+    use chemifree_application::smiles::{SMILES_CANONICAL_MODEL, SMILES_MODEL};
+    let bullet = handoff_smiles_bullet();
+    // The limits it states, and the model ids it names.
+    let limits = format!(
+        "원자+결합 {}, 입력 {} KiB, 분기 깊이 {}",
+        chemifree_domain::document::MAX_COMMANDS,
+        chemifree_providers::MAX_INPUT_BYTES / 1024,
+        chemifree_providers::MAX_BRANCH_DEPTH
+    );
+    assert!(bullet.contains(&limits), "the bullet no longer says {limits:?}");
+    for id in [SMILES_CANONICAL_MODEL, "chemifree-chemical-graph-2"] {
+        assert!(bullet.contains(id), "{id}");
+    }
+    assert_ne!(SMILES_MODEL, SMILES_CANONICAL_MODEL);
+    // Every error code and loss feature it names is one the codec has.
+    for code in [
+        "canonical_unsupported",
+        "canonical_limit",
+        "hydrogens_not_writable",
+        "branch_without_atom",
+        "invalid_hydrogen_count",
+    ] {
+        assert!(bullet.contains(&format!("`{code}`")), "{code}");
+        assert!(
+            SmilesCode::ALL.iter().any(|known| known.as_str() == code),
+            "{code} is not a code of the codec"
+        );
+    }
+    let accepted = |text: &str| OpenSmilesCodec.read(text).unwrap_or_else(|e| panic!("{text}: {e}"));
+    let refusal = |text: &str| OpenSmilesCodec.read(text).err().map(|e| e.code.as_str());
+    // A dot may follow `(`, and `(` may not follow a dot.
+    assert!(bullet.contains("`C(.C)C`") && bullet.contains("`C.(C)C`"));
+    assert_eq!(accepted("C(.C)C").bonds.len(), 1);
+    assert_eq!(refusal("C.(C)C"), Some("branch_without_atom"));
+    // Two digits of hydrogens, and stereo, are refused.
+    assert_eq!(refusal("[CH10]"), Some("invalid_hydrogen_count"));
+    assert_eq!(refusal("C[C@H](F)Cl"), Some("stereo_unsupported"));
+    // The simple ions of the valence model need no consent; a metal does, and so does an
+    // unlisted charge. This is what makes `[Na+].[Cl-]` a plain salt.
+    assert!(bullet.contains("`[Na+].[Cl-]`"));
+    let salt = accepted("[Na+].[Cl-]");
+    assert!(salt.losses.is_empty(), "{:?}", salt.losses);
+    for text in ["[Fe]", "[Na+2]"] {
+        assert!(
+            accepted(text)
+                .losses
+                .iter()
+                .any(|loss| loss.feature == "radical_state"),
+            "{text}"
+        );
+        assert!(bullet.contains(&format!("`{text}`")), "{text} is named");
+    }
+    let graph = graph_of("[Na+].[Cl-]").unwrap();
+    for style in [SmilesStyle::Recorded, SmilesStyle::Canonical] {
+        let written = OpenSmilesCodec.write(&graph, style).unwrap();
+        assert_eq!(written.text, "[Na+].[Cl-]", "{style:?}");
+        assert!(written.losses.iter().all(|loss| loss.consent != chemifree_application::LossConsent::Required));
+    }
+    let fe = graph_of("[Fe]").unwrap();
+    assert_eq!(
+        OpenSmilesCodec.write(&fe, SmilesStyle::Canonical).err().map(|e| e.code),
+        Some(SmilesCode::CanonicalUnsupported)
+    );
+    // The canonical refusal for more than 128 atoms is the limit, not an unsupported graph.
+    let chain = build(
+        (0..129).map(|_| element("C")).collect(),
+        (1..129).map(|i| (i - 1, i, BondOrder::Single)).collect(),
+    );
+    assert_eq!(
+        OpenSmilesCodec.write(&chain, SmilesStyle::Canonical).err().map(|e| e.code),
+        Some(SmilesCode::CanonicalLimit)
+    );
+    // The two doublet radicals it names have a canonical text; `[CH2]` has none.
+    for text in ["[CH3]", "[OH]"] {
+        let graph = graph_of(text).unwrap();
+        assert!(OpenSmilesCodec.write(&graph, SmilesStyle::Canonical).is_ok(), "{text}");
+    }
+    assert!(OpenSmilesCodec.write(&graph_of("[CH2]").unwrap(), SmilesStyle::Canonical).is_err());
+    // The web client check and the browser smoke it cites exist.
+    assert!(bullet.contains("smiles_panel"));
+    let smoke = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/browser-smoke.mjs")).unwrap();
+    assert!(smoke.contains("results.smiles_panel = true"));
+    // What it says about the panel's retry is what the smoke checks.
+    assert!(bullet.contains("Retry the same import") && smoke.contains("no new preview while the commit outcome is open"));
 }

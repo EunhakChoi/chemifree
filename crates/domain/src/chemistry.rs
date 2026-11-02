@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document};
 use crate::states::{Hydrogens, Radical};
 
-pub const VALENCE_MODEL: &str = "chemifree-valence-2";
+pub const VALENCE_MODEL: &str = "chemifree-valence-3";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Finding {
@@ -42,6 +42,9 @@ fn targets(symbol: &str, charge: i8) -> Option<&'static [u16]> {
     match (symbol, charge) {
         ("H", 0) => Some(&[1]),
         ("H", -1 | 1) | ("F" | "Cl" | "Br" | "I", -1) => Some(&[0]),
+        // Common monatomic ions (added in `chemifree-valence-3`): no bond is expected, and a
+        // bond makes the valence unusual. Other charges of these elements stay unlisted.
+        ("Li" | "Na" | "K", 1) | ("Mg" | "Ca", 2) => Some(&[0]),
         ("B", 0) => Some(&[3]),
         ("B", -1) => Some(&[4]),
         ("B", 1) => Some(&[2]),
