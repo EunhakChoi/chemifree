@@ -1687,7 +1687,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '15 of 24 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '16 of 25 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1700,6 +1700,7 @@ assert.equal(await operationRow('chem.validate').locator('[data-execution]').get
 assert.equal(await operationRow('chem.aromaticity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.substructure').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
@@ -3108,6 +3109,125 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByTestId('aromaticity-result').getByText(/6 π electrons/).waitFor()
   await page.screenshot({ path: join(outDir, 'editor-aromaticity.png') })
   results.aromaticity_inspection_and_atomic_conversion = true
+}
+
+// Substructure search: the two drawings' IDs overlap, the result describes the snapshots it
+// searched, survives a refresh of state that is not the graph, and is hidden (not dropped)
+// when this drawing or the service changes. A refusal appears in the panel's own error area.
+{
+  step = 'substructure search'
+  const make = async (title, name, atoms, bonds) => {
+    const created = await apiWrite('/api/v1/documents', { request_id: `${name}-create`, title })
+    const id = created.body.document.id
+    const commands = [
+      ...atoms.map((element, i) => ({ op: 'add_atom', element, position: { x: 40 * Math.cos(i * Math.PI / 3), y: 40 * Math.sin(i * Math.PI / 3) } })),
+      ...bonds.map(([begin, end, order]) => ({ op: 'add_bond', begin: `$${begin}`, end: `$${end}`, order })),
+    ]
+    const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: `${name}-draw`, expected_revision: 0, commands })
+    assert.equal(drawn.status, 200)
+    return { id, drawn: drawn.body, commands }
+  }
+  const ring = (kinds) => kinds.map((order, i) => [i, (i + 1) % kinds.length, order])
+  const query = await make('Match query C-O', 'match-query', ['C', 'O'], [[0, 1, 'single']])
+  const ethanol = await make('Match target ethanol', 'match-ethanol', ['C', 'C', 'O'], [[0, 1, 'single'], [1, 2, 'single']])
+  const benzene = await make('Match query benzene', 'match-benzene', ['C', 'C', 'C', 'C', 'C', 'C'], ring(['double', 'single', 'double', 'single', 'double', 'single']))
+  const tetralin = await make('Match target tetralin', 'match-tetralin', ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'],
+    [...ring(['double', 'single', 'double', 'single', 'double', 'single']), [0, 6, 'single'], [6, 7, 'single'], [7, 8, 'single'], [8, 9, 'single'], [9, 5, 'single']])
+  await page.reload()
+  const open = async (id) => {
+    await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+    return page.getByRole('region', { name: 'Substructure search' })
+  }
+  let panel = await open(query.id)
+  const search = panel.getByRole('button', { name: 'Search', exact: true })
+  assert.equal(await search.isDisabled(), true, 'no search until the other drawing is chosen')
+  await panel.getByLabel('Other drawing').selectOption(ethanol.id)
+  const before = await api(`/api/v1/documents/${query.id}`)
+  const targetBefore = await api(`/api/v1/documents/${ethanol.id}`)
+  await search.click()
+  const result = panel.getByTestId('substructure-result')
+  await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
+  await result.getByText('Atoms (query→target): a1→a2, a2→a3', { exact: true }).waitFor()
+  await result.getByText('Bonds (query→target): b1→b2', { exact: true }).waitFor()
+  await result.getByText(new RegExp(`Query ${query.id} revision 1; target ${ethanol.id} revision 1`)).waitFor()
+  const after = await api(`/api/v1/documents/${query.id}`)
+  assert.deepEqual(after.document, before.document, 'a search leaves the drawing unchanged')
+  assert.deepEqual([after.session.undo_depth, after.session.redo_depth], [before.session.undo_depth, before.session.redo_depth], 'a search adds no history')
+  assert.deepEqual(await api(`/api/v1/documents/${ethanol.id}`), targetBefore, 'a search leaves the target unchanged')
+  await page.screenshot({ path: join(outDir, 'editor-substructure.png') })
+
+  // A refresh of state that is not the graph keeps the result: the document list, and a save,
+  // which replaces the page's document without changing a bond or an atom.
+  await panel.getByRole('button', { name: 'Refresh documents' }).click()
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'a refresh or save does not mark the result stale')
+
+  // Selecting a mapping selects its query atoms and bond in this drawing.
+  await panel.getByRole('button', { name: 'Select mapping 1 in this drawing' }).click()
+  await page.getByText('3 selected', { exact: true }).waitFor()
+
+  // A charge on the query atom is a condition: C+ does not occur in an uncharged target.
+  await tool('Select and move')
+  await canvas.scrollIntoViewIfNeeded()
+  const carbonPoint = await atomScreen(query.drawn, 'a1')
+  await page.mouse.click(carbonPoint.x, carbonPoint.y)
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  await waitIdle()
+  await panel.getByTestId('substructure-stale').getByText('This drawing changed since the last search. Search again.', { exact: true }).waitFor()
+  assert.equal(await result.count(), 0, 'an edit hides the earlier result')
+  await search.click()
+  await result.getByText('The query does not occur in the target: a complete search found no mapping.', { exact: true }).waitFor()
+
+  // A response that arrives after an edit is kept, and marked as belonging to the older drawing.
+  let held
+  const heldArrived = new Promise((resolve) => { held = resolve })
+  let release
+  const releaseHeld = new Promise((resolve) => { release = resolve })
+  const hold = async (route) => {
+    if (route.request().postDataJSON()?.operation !== 'chem.substructure') return route.continue()
+    const response = await route.fetch()
+    held()
+    await releaseHeld
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', hold)
+  await search.click()
+  await heldArrived
+  await page.mouse.click(carbonPoint.x, carbonPoint.y)
+  await page.getByRole('button', { name: 'Decrease charge' }).click()
+  release()
+  await page.unroute('**/api/v1/operations', hold)
+  await panel.getByTestId('substructure-stale').waitFor()
+  assert.equal(await result.count(), 0, 'a response for an older drawing is not shown as current')
+  await search.click()
+  await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
+
+  // A service restart hides the result even when the same graph and revision come back.
+  await crashApi()
+  const recreated = await apiWrite(`/api/v1/documents/${query.id}/transactions`, { request_id: 'match-query-recreate', expected_revision: 0, commands: query.commands })
+  assert.equal(recreated.status, 200)
+  await page.getByRole('complementary', { name: 'Valence inspection' }).getByRole('button', { name: 'Inspect valence' }).click()
+  await panel.getByTestId('substructure-stale').getByText('The service restarted since the last search. Search again.', { exact: true }).waitFor()
+  assert.equal(await result.count(), 0, 'a restart hides the earlier result')
+
+  // Another document has its own panel state; coming back does not resurrect an old result.
+  await closeShown()
+  panel = await open(ethanol.id)
+  assert.equal(await panel.getByTestId('substructure-result').count(), 0)
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0)
+  await closeShown()
+
+  // A refusal names its side and reason in the panel's error area, with both snapshots.
+  panel = await open(benzene.id)
+  await panel.getByLabel('Other drawing').selectOption(tetralin.id)
+  await panel.getByRole('button', { name: 'Search', exact: true }).click()
+  const refusal = panel.getByTestId('substructure-error')
+  await refusal.getByText('No answer: match unsupported', { exact: true }).waitFor()
+  await refusal.getByText(/The target drawing, bond b\d+: fused partially aromatic\./).waitFor()
+  await refusal.getByText(new RegExp(`Query ${benzene.id} revision 1; target ${tetralin.id} revision 1`)).waitFor()
+  assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'a refusal is not shown as an empty answer')
+  results.substructure_search_panel = true
 }
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.

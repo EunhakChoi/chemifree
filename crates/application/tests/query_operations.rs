@@ -588,3 +588,150 @@ fn too_many_mappings_and_an_exhausted_search_are_limits_not_short_lists() {
     assert_eq!(diagnostic["details"]["limit_kind"], "search_steps");
     assert_eq!(diagnostic["details"]["limit"], 2_000_000);
 }
+
+#[test]
+fn the_catalog_and_the_operation_agree_for_every_set_of_connected_codecs() {
+    use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+    use chemifree_providers::{OpenSmilesCodec, V2000Codec};
+    let mut notes = std::collections::BTreeSet::new();
+    for mask in 0..8_u8 {
+        let data = tempfile::tempdir().unwrap();
+        let mut app = Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
+        if mask & 1 != 0 {
+            app = app.with_ctfile_codec(V2000Codec);
+        }
+        if mask & 2 != 0 {
+            app = app.with_interchange_codec(LocalInterchangeCodec);
+        }
+        if mask & 4 != 0 {
+            app = app.with_smiles_codec(OpenSmilesCodec);
+        }
+        let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
+        let operations = catalog["operations"].as_array().unwrap();
+        let entry = operations
+            .iter()
+            .find(|entry| entry["id"] == "chem.substructure")
+            .unwrap();
+        assert_eq!(entry["execution"], "executable", "codecs {mask:03b}");
+        assert_eq!(entry["representation"], "supported", "codecs {mask:03b}");
+        notes.insert(entry["note"].as_str().unwrap().to_owned());
+        // Query atoms and bonds are recorded by the transaction; the note says what matches them.
+        let transaction = operations
+            .iter()
+            .find(|entry| entry["id"] == "document.transaction")
+            .unwrap();
+        let recorded = transaction["sub_operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|part| part["id"] == "query_atom_or_bond")
+            .unwrap();
+        assert!(
+            recorded["note"]
+                .as_str()
+                .unwrap()
+                .contains("chem.substructure matches"),
+            "codecs {mask:03b}"
+        );
+        let carbon = draw(&app, "C", &["C"], &[]);
+        let reply = search(&app, "each-set", &carbon, &carbon);
+        assert_eq!(reply["outcome"], "ok", "codecs {mask:03b}: {reply}");
+    }
+    assert_eq!(
+        notes.len(),
+        1,
+        "one wording whatever codecs are connected: {notes:?}"
+    );
+}
+
+/// A small deterministic generator, so a failing seed can be replayed.
+struct Random(u64);
+
+impl Random {
+    fn below(&mut self, bound: usize) -> usize {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        usize::try_from(self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33).unwrap() % bound
+    }
+}
+
+#[test]
+fn seeded_malformed_requests_always_get_a_reply_and_change_nothing() {
+    let (app, _data) = application();
+    let ethane = draw(&app, "ethane", &["C", "C"], &[(0, 1, "-")]);
+    let before = serde_json::to_value(app.document(&ethane).unwrap()).unwrap();
+    let valid = json!({
+        "contract": 1, "request_id": "fuzz", "profile": "preserve-semantics", "operation": "chem.substructure",
+        "parameters": {"query_document_id": ethane, "target_document_id": ethane},
+    })
+    .to_string();
+    let junk: [Value; 8] = [
+        json!(null),
+        json!(7),
+        json!(-1.5),
+        json!("a1"),
+        json!([]),
+        json!({}),
+        json!([1, [2]]),
+        json!({"x": true}),
+    ];
+    for seed in 1..=400_usize {
+        let mut random = Random((seed as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+        let bytes = match random.below(3) {
+            // A byte of the valid request flipped or removed.
+            0 => {
+                let mut bytes = valid.clone().into_bytes();
+                let at = random.below(bytes.len());
+                if random.below(2) == 0 {
+                    bytes[at] = u8::try_from(random.below(256)).unwrap();
+                } else {
+                    bytes.remove(at);
+                }
+                bytes
+            }
+            // A parameter replaced by a value of the wrong kind.
+            1 => {
+                let mut request: Value = serde_json::from_str(&valid).unwrap();
+                let key = ["query_document_id", "target_document_id"][random.below(2)];
+                request["parameters"][key] = junk[random.below(junk.len())].clone();
+                request.to_string().into_bytes()
+            }
+            // A parameter dropped or added.
+            _ => {
+                let mut request: Value = serde_json::from_str(&valid).unwrap();
+                if random.below(2) == 0 {
+                    request["parameters"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("target_document_id");
+                } else {
+                    request["parameters"]["limit"] = junk[random.below(junk.len())].clone();
+                }
+                request.to_string().into_bytes()
+            }
+        };
+        let reply =
+            serde_json::to_value(app.execute(&bytes)).unwrap_or_else(|_| panic!("seed {seed}"));
+        let envelope = reply["envelope"].as_str().unwrap();
+        assert!(
+            envelope == "operation_result" || envelope == "protocol_error",
+            "seed {seed}: {reply}"
+        );
+        if reply["outcome"] != "ok" {
+            assert_eq!(
+                reply["result"],
+                Value::Null,
+                "seed {seed}: a failure carries no result"
+            );
+            assert!(
+                !reply["diagnostics"].as_array().unwrap().is_empty(),
+                "seed {seed}"
+            );
+        }
+    }
+    assert_eq!(
+        serde_json::to_value(app.document(&ethane).unwrap()).unwrap(),
+        before
+    );
+}

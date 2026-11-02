@@ -998,8 +998,19 @@ const FUZZ_BONDS: [&str; 9] = ["-", "-", "-", "=", "#", ":", ">", "~", "-="];
 
 /// A random connected-ish graph of `atoms` atoms: a random tree plus a few extra bonds.
 fn random_graph(random: &mut Random, atoms: usize, extra: usize) -> MoleculeGraph {
+    random_graph_of(random, atoms, extra, &FUZZ_ATOMS, &FUZZ_BONDS)
+}
+
+/// Like [`random_graph`], with the atom specs and bond kinds to draw from.
+fn random_graph_of(
+    random: &mut Random,
+    atoms: usize,
+    extra: usize,
+    atom_specs: &[&'static str],
+    bond_kinds: &[&'static str],
+) -> MoleculeGraph {
     let specs: Vec<&str> = (0..atoms)
-        .map(|_| FUZZ_ATOMS[random.below(FUZZ_ATOMS.len())])
+        .map(|_| atom_specs[random.below(atom_specs.len())])
         .collect();
     let mut bonds: Vec<(usize, usize, &str)> = Vec::new();
     for atom in 1..atoms {
@@ -1007,7 +1018,7 @@ fn random_graph(random: &mut Random, atoms: usize, extra: usize) -> MoleculeGrap
             bonds.push((
                 random.below(atom),
                 atom,
-                FUZZ_BONDS[random.below(FUZZ_BONDS.len())],
+                bond_kinds[random.below(bond_kinds.len())],
             ));
         }
     }
@@ -1017,7 +1028,7 @@ fn random_graph(random: &mut Random, atoms: usize, extra: usize) -> MoleculeGrap
             .iter()
             .any(|&(x, y, _)| (x, y) == (a, b) || (x, y) == (b, a));
         if a != b && !exists {
-            bonds.push((a, b, FUZZ_BONDS[random.below(FUZZ_BONDS.len())]));
+            bonds.push((a, b, bond_kinds[random.below(bond_kinds.len())]));
         }
     }
     mol(&specs, &bonds)
@@ -1266,5 +1277,113 @@ fn seeded_random_graphs_agree_with_brute_force_or_are_honestly_refused() {
     assert!(
         answered > 300 && refused > 50 && nonempty > 100,
         "{answered} answered ({nonempty} non-empty), {refused} refused"
+    );
+}
+
+#[test]
+fn mapping_lists_are_ordered_by_numeric_id_not_by_text() {
+    // Twelve atoms: a10, a11 and a12 sort after a9 numerically but before a2 as text.
+    let path = |length: usize| {
+        mol(
+            &vec!["C"; length],
+            &(0..length - 1).map(|i| (i, i + 1, "-")).collect::<Vec<_>>(),
+        )
+    };
+    let matches = substructure::find(&path(12), &path(12)).unwrap();
+    assert_eq!(matches.mappings.len(), 2);
+    for mapping in &matches.mappings {
+        let atoms: Vec<u32> = mapping.atoms.iter().map(|pair| pair.0.serial()).collect();
+        let bonds: Vec<u32> = mapping.bonds.iter().map(|pair| pair.0.serial()).collect();
+        assert_eq!(atoms, (1..=12).collect::<Vec<_>>());
+        assert_eq!(bonds, (1..=11).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn an_any_bond_matches_unknown_and_query_bonds_and_a_list_never_matches_a_dative_one() {
+    let any = mol(&["C", "C"], &[(0, 1, "~")]);
+    for kind in ["?", "-=", ">", "-", ":"] {
+        // A lone aromatic bond is outside any ring: refused as a target only if compared.
+        if kind == ":" {
+            continue;
+        }
+        let target = mol(&["C", "C"], &[(0, 1, kind)]);
+        assert_eq!(found(&any, &target).len(), 2, "any bond matches {kind:?}");
+    }
+    let dative = mol(&["C", "C"], &[(0, 1, ">")]);
+    assert!(found(&mol(&["C", "C"], &[(0, 1, "-=#:")]), &dative).is_empty());
+}
+
+#[test]
+fn the_search_cost_grows_with_the_target_bonds_not_with_pairs_of_atoms() {
+    // A two-atom query in a 2,000-atom target: the first atom is tried on each carbon, and
+    // the second only on that carbon's neighbors. A scan of all pairs would be four million.
+    let target = grid(40, 50);
+    let bonds = target.bonds().len();
+    let ethane = mol(&["C", "C"], &[(0, 1, "-")]);
+    let result = substructure::find(&ethane, &target);
+    assert_eq!(
+        result,
+        Err(MatchError::MappingLimit),
+        "2 x 3,910 placements"
+    );
+    let query = mol(&["C", "N"], &[(0, 1, "-")]);
+    // Nitrogen is absent, so the prefilter ends it; with nitrogen present once, a handful of tries.
+    assert_eq!(substructure::find(&query, &target).unwrap().steps, 0);
+    let mut atoms = vec!["C"; 2_000];
+    atoms[1_999] = "N";
+    let spec: Vec<(usize, usize, &str)> = (0..1_999).map(|i| (i, i + 1, "-")).collect();
+    let chain = mol(&atoms, &spec);
+    let found = substructure::find(&query, &chain).unwrap();
+    assert_eq!(found.mappings.len(), 1);
+    assert!(
+        found.steps <= 2_000 + 2,
+        "{} steps for one nitrogen",
+        found.steps
+    );
+    assert!(bonds > 3_000, "the grid is a document-sized target");
+}
+
+#[test]
+fn seeded_larger_random_graphs_give_verified_mappings_or_a_refusal_never_a_panic() {
+    let (mut verified, mut refusals) = (0, 0);
+    for seed in 10_000..10_400_u64 {
+        let mut random = Random::new(seed);
+        // Simple atoms and bonds, so that most pairs can be answered; the first fuzz covers the rest.
+        let atoms = ["C", "C", "C", "N", "O", "*", "A", "[C,N]"];
+        let bonds = ["-", "-", "-", "=", "~", "-="];
+        let (query_atoms, query_extra) = (1 + random.below(5), random.below(2));
+        let query = random_graph_of(&mut random, query_atoms, query_extra, &atoms, &bonds);
+        let (target_atoms, target_extra) = (8 + random.below(30), random.below(4));
+        let target = random_graph_of(
+            &mut random,
+            target_atoms,
+            target_extra,
+            &["C", "C", "C", "N", "O"],
+            &["-", "-", "-", "="],
+        );
+        match substructure::find(&query, &target) {
+            Ok(matches) => {
+                verify(&query, &target, &matches);
+                assert!(matches.steps <= MAX_SEARCH_STEPS);
+                verified += 1;
+            }
+            Err(error) => {
+                assert!(
+                    matches!(
+                        error,
+                        MatchError::Unsupported { .. }
+                            | MatchError::StepLimit
+                            | MatchError::MappingLimit
+                    ),
+                    "seed {seed}: {error:?}"
+                );
+                refusals += 1;
+            }
+        }
+    }
+    assert!(
+        verified > 100 && refusals > 20,
+        "{verified} verified, {refusals} refused"
     );
 }

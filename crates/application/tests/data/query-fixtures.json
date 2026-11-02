@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Fixtures for chem.substructure. Atoms: C, N+, O-, 13C, N@1 (one stated hydrogen), *, A, Q, X, [N,O], ![N,O]. Bonds: [first, second, kind] with kind - = # : (aromatic) > (dative) ? (unknown) ~ (query any) or two or more of - = # : (query list). A mapping lists the target atom index for each query atom index. expect.mappings and refused.rdkit_matches are RDKit 2022.03.2 answers, checked by scripts/verify-query-rdkit.py.",
+  "about": "Fixtures for chem.substructure. Atoms: C, N+, O-, 13C, N@1 (one stated hydrogen), *, A, Q, X, [N,O], ![N,O]. Bonds: [first, second, kind] with kind - = # : (aromatic) > (dative) ? (unknown) ~ (query any) or two or more of - = # : (query list). A mapping lists the target atom index for each query atom index. expect.mappings and refused.rdkit_matches are RDKit 2022.03.2 answers, checked by scripts/verify-query-rdkit.py; rdkit_skipped names a fixture RDKit cannot represent.",
   "fixtures": [
     {
       "name": "benzene-kekule-in-benzene-aromatic",
@@ -354,6 +354,107 @@
       "target": {"atoms": ["Q", "C"], "bonds": [[0, 1, "-"]]},
       "refused": {"code": "match_unsupported", "side": "target", "reason": "target_query_atom"},
       "rdkit_skipped": "RDKit cannot sanitize a target that holds a query atom"
+    },
+    {
+      "name": "furan-kekule-in-furan-aromatic",
+      "note": "a five-membered ring with an oxygen donor",
+      "query": {"atoms": ["C", "C", "C", "C", "O"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "O"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [3, 2, 1, 0, 4]]}
+    },
+    {
+      "name": "thiophene-aromatic-in-thiophene-kekule",
+      "note": "sulfur donor",
+      "query": {"atoms": ["C", "C", "C", "C", "S"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "S"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [3, 2, 1, 0, 4]]}
+    },
+    {
+      "name": "imidazole-kekule-in-imidazole-aromatic-nh",
+      "note": "one pyrrole-type and one pyridine-type nitrogen",
+      "query": {"atoms": ["C", "C", "N", "C", "N"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "N", "C", "N@1"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [1, 0, 4, 3, 2]]}
+    },
+    {
+      "name": "pyrimidine-aromatic-in-pyrimidine-kekule",
+      "note": "two pyridine-type nitrogens",
+      "query": {"atoms": ["C", "C", "N", "C", "N", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "N", "C", "N", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1]]}
+    },
+    {
+      "name": "cyclopentadienyl-anion",
+      "note": "a charged carbon donor: the charge is a condition of the query",
+      "query": {"atoms": ["C-", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 0, ":"]]},
+      "target": {"atoms": ["C-", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "="], [2, 3, "-"], [3, 4, "="], [4, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4], [0, 4, 3, 2, 1]]}
+    },
+    {
+      "name": "tropylium-cation",
+      "note": "six pi electrons in a seven-membered ring",
+      "query": {"atoms": ["C+", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 6, ":"], [6, 0, ":"]]},
+      "target": {"atoms": ["C+", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "-"], [1, 2, "="], [2, 3, "-"], [3, 4, "="], [4, 5, "-"], [5, 6, "="], [6, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5, 6], [0, 6, 5, 4, 3, 2, 1]]}
+    },
+    {
+      "name": "cyclobutadiene-is-not-aromatic",
+      "note": "four pi electrons: drawn kinds stand, so the alternating pattern has four mappings",
+      "query": {"atoms": ["C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 0, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3], [1, 0, 3, 2], [2, 3, 0, 1], [3, 2, 1, 0]]}
+    },
+    {
+      "name": "benzene-not-in-cyclooctatetraene",
+      "note": "cyclooctatetraene is not aromatic and has no benzene ring",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 6, "-"], [6, 7, "="], [7, 0, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "benzene-in-anthracene",
+      "note": "three fused rings, thirty-six mappings",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 9, "="], [9, 10, "-"], [10, 11, "="], [11, 12, "-"], [12, 13, "="], [13, 0, "-"], [12, 3, "-"], [10, 5, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 12, 13], [0, 13, 12, 3, 2, 1], [1, 0, 13, 12, 3, 2], [1, 2, 3, 12, 13, 0], [2, 1, 0, 13, 12, 3], [2, 3, 12, 13, 0, 1], [3, 2, 1, 0, 13, 12], [3, 4, 5, 10, 11, 12], [3, 12, 11, 10, 5, 4], [3, 12, 13, 0, 1, 2], [4, 3, 12, 11, 10, 5], [4, 5, 10, 11, 12, 3], [5, 4, 3, 12, 11, 10], [5, 6, 7, 8, 9, 10], [5, 10, 9, 8, 7, 6], [5, 10, 11, 12, 3, 4], [6, 5, 10, 9, 8, 7], [6, 7, 8, 9, 10, 5], [7, 6, 5, 10, 9, 8], [7, 8, 9, 10, 5, 6], [8, 7, 6, 5, 10, 9], [8, 9, 10, 5, 6, 7], [9, 8, 7, 6, 5, 10], [9, 10, 5, 6, 7, 8], [10, 5, 4, 3, 12, 11], [10, 5, 6, 7, 8, 9], [10, 9, 8, 7, 6, 5], [10, 11, 12, 3, 4, 5], [11, 10, 5, 4, 3, 12], [11, 12, 3, 4, 5, 10], [12, 3, 2, 1, 0, 13], [12, 3, 4, 5, 10, 11], [12, 11, 10, 5, 4, 3], [12, 13, 0, 1, 2, 3], [13, 0, 1, 2, 3, 12], [13, 12, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "naphthalene-in-anthracene",
+      "note": "a fused query in a fused target",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 9, "="], [9, 0, "-"], [3, 8, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 6, "-"], [6, 7, "="], [7, 8, "-"], [8, 9, "="], [9, 10, "-"], [10, 11, "="], [11, 12, "-"], [12, 13, "="], [13, 0, "-"], [12, 3, "-"], [10, 5, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5, 10, 11, 12, 13], [1, 0, 13, 12, 11, 10, 5, 4, 3, 2], [3, 12, 11, 10, 9, 8, 7, 6, 5, 4], [5, 10, 11, 12, 13, 0, 1, 2, 3, 4], [7, 8, 9, 10, 11, 12, 3, 4, 5, 6], [8, 7, 6, 5, 4, 3, 12, 11, 10, 9], [10, 5, 4, 3, 2, 1, 0, 13, 12, 11], [12, 3, 4, 5, 6, 7, 8, 9, 10, 11]]}
+    },
+    {
+      "name": "heteroatom-in-aromatic-ring-query",
+      "note": "RDKit finds the pyridine; the model cannot read a query atom in a conjugated ring",
+      "query": {"atoms": ["Q", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "N"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "query_atom", "rdkit_matches": 2}
+    },
+    {
+      "name": "query-bond-in-target",
+      "note": "a target bond that is a list of kinds cannot be known to be single",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "C"], "bonds": [[0, 1, "-="]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "query_bond"},
+      "rdkit_skipped": "RDKit cannot sanitize a target that holds a query bond"
+    },
+    {
+      "name": "unknown-bond-in-target",
+      "note": "an unknown target bond cannot be known to be single",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "-"]]},
+      "target": {"atoms": ["C", "C"], "bonds": [[0, 1, "?"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "unknown_bond"},
+      "rdkit_skipped": "RDKit has no unknown bond type"
+    },
+    {
+      "name": "query-bond-in-conjugated-ring-of-query",
+      "note": "a ring with a double bond and a bond list is not read by the model",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-="]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "unsupported_ring_bond"},
+      "rdkit_skipped": "the question is the matcher's refusal, not RDKit's reading of the mixed ring"
     }
   ]
 }

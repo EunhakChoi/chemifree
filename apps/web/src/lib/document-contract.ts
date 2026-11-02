@@ -14,12 +14,12 @@ export interface Position {
   y: number
 }
 
-/** What a query atom stands for. Nothing matches it. */
+/** What a query atom stands for. `chem.substructure` matches it. */
 export type QueryAtom =
   | { kind: 'any' | 'any_heavy' | 'heteroatom' | 'halogen' }
   | { kind: 'list'; elements: string[]; negated: boolean }
 
-/** What a query bond stands for. Nothing matches it. */
+/** What a query bond stands for. `chem.substructure` matches it. */
 export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
 
 /**
@@ -222,6 +222,62 @@ export interface IdentityInspection {
   snapshot: DocumentView
   identity: CanonicalIdentity
   comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
+}
+
+/** One pair of a mapping: an item of the query drawing and the item of the target it lies on. */
+export interface MatchPair {
+  query: string
+  target: string
+}
+
+export interface SubstructureMapping {
+  atoms: MatchPair[]
+  bonds: MatchPair[]
+}
+
+export interface SubstructureLimits {
+  query_atoms: number
+  search_steps: number
+  mappings: number
+}
+
+/** Every mapping of the query in the target, bound to the two drawings the service searched. */
+export interface SubstructureSearch {
+  model: string
+  aromaticityModel: string
+  query: DocumentView
+  target: DocumentView
+  limits: SubstructureLimits
+  steps: number
+  mappings: SubstructureMapping[]
+}
+
+/**
+ * The service's refusal or limit, with the two drawings it concerns. Its `code` is one of the
+ * `chem.substructure` codes in docs/CONTRACT.md; an error of the request itself (an unknown
+ * document, say) is an `ApiError` instead.
+ */
+export class SubstructureRefusal extends Error {
+  readonly code: string
+  readonly query: DocumentView
+  readonly target: DocumentView
+
+  constructor(code: string, message: string, query: DocumentView, target: DocumentView) {
+    super(message)
+    this.name = 'SubstructureRefusal'
+    this.code = code
+    this.query = query
+    this.target = target
+  }
+}
+
+/** The outcome each `chem.substructure` code is reported with. */
+const SUBSTRUCTURE_OUTCOMES: Readonly<Record<string, 'error' | 'unsupported'>> = {
+  empty_query: 'error',
+  query_too_large: 'error',
+  query_unsatisfiable: 'error',
+  match_unsupported: 'unsupported',
+  match_limit: 'error',
 }
 
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
@@ -1842,6 +1898,82 @@ export class DocumentClient {
       comparison = { snapshot: otherSnapshot, recovery: otherResponse.recovery, identity: other.identity, equivalent: other.equivalent }
     }
     return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
+  }
+
+  /**
+   * Searches `queryId` in `targetId` (they may be one document). The reply names the exact
+   * snapshots it searched, and every mapping is checked here against them: a pair for each
+   * query atom and bond, distinct target atoms, and each bond between its atoms' images.
+   */
+  async searchSubstructure(queryId: string, targetId: string): Promise<SubstructureSearch> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.substructure',
+      parameters: { query_document_id: queryId, target_document_id: targetId },
+    }, 'reload')
+    const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible substructure search.', 200)
+    if (!isRecord(value) || !Array.isArray(value.diagnostics)) throw incompatible()
+    if (value.outcome !== 'ok') {
+      const first: unknown = value.diagnostics[0]
+      if (!isRecord(first) || typeof first.code !== 'string' || typeof first.message !== 'string') {
+        throw new ApiError('analysis_unavailable', 'The local service could not search the drawings.', 200)
+      }
+      const details = isRecord(first.details) ? first.details : {}
+      if (!(first.code in SUBSTRUCTURE_OUTCOMES)) throw new ApiError(first.code, first.message, 200)
+      if (SUBSTRUCTURE_OUTCOMES[first.code] !== value.outcome || value.result !== null || value.model_id !== 'chemifree-substructure-1' ||
+          !isRecord(details.query_snapshot) || !isRecord(details.target_snapshot)) throw incompatible()
+      const query = DocumentClient.document({ api_version: API_VERSION, ...details.query_snapshot }).document
+      const target = DocumentClient.document({ api_version: API_VERSION, ...details.target_snapshot }).document
+      if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
+          (queryId === targetId && !sameInspectionSnapshot(query, target))) throw incompatible()
+      const words = (key: string) => typeof details[key] === 'string' ? details[key].replaceAll('_', ' ') : null
+      const subject = [words('item'), typeof details.id === 'string' ? details.id : null].filter((part) => part !== null).join(' ')
+      const where = typeof details.side === 'string'
+        ? ` The ${details.side} drawing${subject === '' ? '' : `, ${subject}`}: ${words('reason') ?? 'not readable'}.`
+        : ''
+      const limit = typeof details.limit_kind === 'string' ? ` Limit: ${words('limit_kind')} (${String(details.limit)}).` : ''
+      throw new SubstructureRefusal(first.code, `${first.message}${where}${limit}`, query, target)
+    }
+    const result = value.result
+    if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) || value.loss_report.length !== 0 ||
+        !isRecord(result) || !isRecord(result.query) || !isRecord(result.target) || !isRecord(result.limits) ||
+        result.aromaticity_model !== 'chemifree-aromaticity-2' || !isCount(result.steps) || !Array.isArray(result.mappings)) throw incompatible()
+    const query = DocumentClient.document({ api_version: API_VERSION, ...result.query }).document
+    const target = DocumentClient.document({ api_version: API_VERSION, ...result.target }).document
+    const limits = result.limits
+    if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
+        (queryId === targetId && !sameInspectionSnapshot(query, target)) ||
+        !isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.mappings) ||
+        result.steps > limits.search_steps || result.mappings.length > limits.mappings) throw incompatible()
+    const queryAtoms = new Set(query.atoms.map((atom) => atom.id))
+    const targetAtoms = new Set(target.atoms.map((atom) => atom.id))
+    const queryBonds = new Map(query.bonds.map((bond) => [bond.id, bond]))
+    const targetBonds = new Map(target.bonds.map((bond) => [bond.id, bond]))
+    const pairs = (item: unknown): MatchPair[] | null => Array.isArray(item) && item.every((pair: unknown) =>
+      isRecord(pair) && typeof pair.query === 'string' && typeof pair.target === 'string') ? item as MatchPair[] : null
+    const mappings: SubstructureMapping[] = []
+    for (const mapping of result.mappings as unknown[]) {
+      const atoms = isRecord(mapping) ? pairs(mapping.atoms) : null
+      const bonds = isRecord(mapping) ? pairs(mapping.bonds) : null
+      if (!atoms || !bonds || atoms.length !== queryAtoms.size || bonds.length !== queryBonds.size ||
+          new Set(atoms.map((pair) => pair.query)).size !== atoms.length || new Set(atoms.map((pair) => pair.target)).size !== atoms.length ||
+          !atoms.every((pair) => queryAtoms.has(pair.query) && targetAtoms.has(pair.target)) ||
+          new Set(bonds.map((pair) => pair.query)).size !== bonds.length ||
+          !bonds.every((pair) => queryBonds.has(pair.query) && targetBonds.has(pair.target))) throw incompatible()
+      const image = new Map(atoms.map((pair) => [pair.query, pair.target]))
+      for (const pair of bonds) {
+        const from = queryBonds.get(pair.query)
+        const to = targetBonds.get(pair.target)
+        if (!from || !to) throw incompatible()
+        const ends = [image.get(from.begin), image.get(from.end)]
+        if (!((ends[0] === to.begin && ends[1] === to.end) || (ends[0] === to.end && ends[1] === to.begin))) throw incompatible()
+      }
+      mappings.push({ atoms, bonds })
+    }
+    return {
+      model: value.model_id, aromaticityModel: result.aromaticity_model, query, target,
+      limits: { query_atoms: limits.query_atoms, search_steps: limits.search_steps, mappings: limits.mappings },
+      steps: result.steps, mappings,
+    }
   }
 
   /** Apply one model conversion under the revision the user inspected, with history selection. */
