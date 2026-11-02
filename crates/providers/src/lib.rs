@@ -11,6 +11,7 @@ mod file_store;
 pub mod interchange_codec;
 mod opaque_policy;
 mod preference_store;
+mod smiles;
 
 use chemifree_application::CapabilityCatalog;
 use chemifree_domain::{Capability, CapabilityId, ImplementationStatus};
@@ -21,6 +22,7 @@ pub use data_directory::{
 };
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
 pub use preference_store::FilePreferenceStore;
+pub use smiles::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL, OpenSmilesCodec};
 
 /// Actual implementation status. Change an entry only together with its real operation.
 #[derive(Clone, Copy, Default)]

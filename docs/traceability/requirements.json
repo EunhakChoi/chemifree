@@ -163,17 +163,40 @@
           "id": "MODEL-02.5",
           "summary": "A named bounded policy interprets cyclic systems and converts supported aromatic and Kekule representations without changing the input during inspection.",
           "status": "partial",
-          "implementation": ["crates/domain/src/rings.rs", "crates/domain/src/aromaticity.rs", "crates/application/src/operations.rs", "apps/web/src/components/aromaticity-panel.tsx"],
-          "evidence": ["case:aromaticity-conversion", "case:aromaticity-kekule-nitrogen-hydrogen", "case:aromaticity-partially-aromatic-fused-refused", "check:check:rust", "check:test:contracts"],
-          "followups": ["P17"]
+          "implementation": [
+            "crates/domain/src/rings.rs",
+            "crates/domain/src/aromaticity.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/components/aromaticity-panel.tsx"
+          ],
+          "evidence": [
+            "case:aromaticity-conversion",
+            "case:aromaticity-kekule-nitrogen-hydrogen",
+            "case:aromaticity-partially-aromatic-fused-refused",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
         },
         {
           "id": "MODEL-02.6",
           "summary": "A bounded versioned graph identity reports canonical numbering, symmetry and supported recorded or normalized comparisons without editing either snapshot.",
           "status": "partial",
-          "implementation": ["crates/domain/src/identity.rs", "crates/application/src/operations.rs", "apps/web/src/components/identity-panel.tsx"],
-          "evidence": ["case:graph-identity", "check:check:rust", "check:test:contracts"],
-          "followups": ["P18"]
+          "implementation": [
+            "crates/domain/src/identity.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/components/identity-panel.tsx"
+          ],
+          "evidence": [
+            "case:graph-identity",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P18"
+          ]
         },
         {
           "id": "MODEL-02.rest",
@@ -310,8 +333,18 @@
           "id": "CODEC-02.cdx-bounded",
           "summary": "For the bounded CDX subset, the header, tagged objects and properties, 0xFFFF extended lengths, nesting, strings and references are read and written with limits enforced before allocation, byte offsets on errors and a loss report.",
           "status": "implemented",
-          "implementation": ["crates/providers/src/cdx/mod.rs", "crates/providers/src/cdx/raw.rs", "crates/providers/src/cdx/read.rs", "crates/providers/src/cdx/text.rs", "crates/providers/src/cdx/write.rs", "crates/application/src/transport_base64.rs"],
-          "evidence": ["case:cdx-binary-interchange", "check:check:rust"],
+          "implementation": [
+            "crates/providers/src/cdx/mod.rs",
+            "crates/providers/src/cdx/raw.rs",
+            "crates/providers/src/cdx/read.rs",
+            "crates/providers/src/cdx/text.rs",
+            "crates/providers/src/cdx/write.rs",
+            "crates/application/src/transport_base64.rs"
+          ],
+          "evidence": [
+            "case:cdx-binary-interchange",
+            "check:check:rust"
+          ],
           "followups": []
         },
         {
@@ -408,11 +441,30 @@
         "document.import",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "CODEC-05.smiles",
+          "summary": "Bounded OpenSMILES subset: branches, ring labels, dot-disconnected parts, isotopes, charges, hydrogens and aromatic atoms are read; recorded-order and Chemifree-canonical text is written. Invalid text is refused with its position and a specific code; every written string is read back by the same reader. The canonical form is Chemifree's own (chemifree-smiles-canonical-1, bound to chemifree-chemical-graph-2), not another toolkit's. Stereo, query and reaction SMILES and InChI remain open.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/smiles.rs",
+            "crates/providers/src/smiles/reader.rs",
+            "crates/providers/src/smiles/writer.rs",
+            "crates/providers/src/smiles/emit.rs",
+            "crates/application/src/operations/smiles.rs",
+            "crates/application/src/operations/import.rs"
+          ],
+          "evidence": [
+            "case:smiles-import-export",
+            "case:smiles-malformed-and-unsupported-refused",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-05.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Stereo and query SMILES, reaction SMILES, InChI and other line notations remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -471,8 +523,30 @@
           "id": "CODEC-06.cdx-policy",
           "summary": "For bounded CDX, unknown objects and properties stay opaque binary, an unchanged original is returned byte for byte, edits need an explicit discard, and content with no CDX encoding is dropped or rounded only with reported consent.",
           "status": "implemented",
-          "implementation": ["crates/providers/src/opaque_policy.rs", "crates/providers/src/cdx/read.rs", "crates/providers/src/cdx/write.rs", "crates/providers/src/interchange_codec.rs"],
-          "evidence": ["case:cdx-binary-interchange", "check:check:rust"],
+          "implementation": [
+            "crates/providers/src/opaque_policy.rs",
+            "crates/providers/src/cdx/read.rs",
+            "crates/providers/src/cdx/write.rs",
+            "crates/providers/src/interchange_codec.rs"
+          ],
+          "evidence": [
+            "case:cdx-binary-interchange",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "CODEC-06.smiles-policy",
+          "summary": "For bounded SMILES, syntax the drawing cannot hold (stereo, wildcard, quadruple bonds, extended ring labels, charges and isotopes outside the drawing's range, aromatic systems outside the aromaticity model) is refused with its own code and position; dropped text, atom classes and undetermined radicals are reported as losses that need acceptance.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/smiles/reader.rs",
+            "crates/application/src/operations/smiles.rs"
+          ],
+          "evidence": [
+            "case:smiles-malformed-and-unsupported-refused",
+            "check:check:rust"
+          ],
           "followups": []
         },
         {
@@ -699,8 +773,18 @@
           "id": "CHEM-01.1",
           "summary": "A bounded model computes a Hill formula and, with an explicitly selected checked external dataset, average and exact-profile mass and isotope peaks for the graph, selection or components. Results name the data, charge convention and display precision; unsupported or incomplete input has no invented numeric result.",
           "status": "implemented",
-          "implementation": ["crates/domain/src/mass.rs", "crates/application/src/mass_data.rs", "crates/application/src/properties.rs", "apps/web/src/components/properties-panel.tsx"],
-          "evidence": ["case:formula-and-mass", "check:check:rust", "check:test:contracts", "check:test:client"],
+          "implementation": [
+            "crates/domain/src/mass.rs",
+            "crates/application/src/mass_data.rs",
+            "crates/application/src/properties.rs",
+            "apps/web/src/components/properties-panel.tsx"
+          ],
+          "evidence": [
+            "case:formula-and-mass",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
           "followups": []
         },
         {
@@ -753,9 +837,19 @@
           "id": "CHEM-02.2",
           "summary": "Ring inspection reports unsupported systems, and a failed aromaticity conversion preserves the graph, selection and history.",
           "status": "partial",
-          "implementation": ["crates/domain/src/aromaticity.rs", "crates/application/src/documents.rs", "crates/application/src/operations.rs"],
-          "evidence": ["case:aromaticity-conversion", "check:check:rust", "check:test:contracts"],
-          "followups": ["P17"]
+          "implementation": [
+            "crates/domain/src/aromaticity.rs",
+            "crates/application/src/documents.rs",
+            "crates/application/src/operations.rs"
+          ],
+          "evidence": [
+            "case:aromaticity-conversion",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P17"
+          ]
         },
         {
           "id": "CHEM-02.rest",
@@ -1185,8 +1279,16 @@
           "id": "STYLE-01.3",
           "summary": "A separate persisted mass display precision is captured by each new calculation; omitted fields in older clients preserve it, reset restores the default, and changes do not alter existing documents or prior results.",
           "status": "implemented",
-          "implementation": ["crates/application/src/preferences.rs", "crates/providers/src/preference_store.rs", "apps/web/src/components/style-settings.tsx"],
-          "evidence": ["check:check:rust", "check:test:contracts", "check:test:client"],
+          "implementation": [
+            "crates/application/src/preferences.rs",
+            "crates/providers/src/preference_store.rs",
+            "apps/web/src/components/style-settings.tsx"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
           "followups": []
         },
         {
@@ -1395,9 +1497,20 @@
           "id": "QUALITY-01.3",
           "summary": "Independent graph fixtures exercise reindexing, symmetry, isotope and charge distinctions, supported normalization and bounded failure.",
           "status": "partial",
-          "implementation": ["crates/domain/tests/identity.rs", "crates/application/tests/identity_operations.rs", "conformance/cases/graph-identity.json"],
-          "evidence": ["case:graph-identity", "check:check:rust", "check:test:contracts"],
-          "followups": ["P18", "P89"]
+          "implementation": [
+            "crates/domain/tests/identity.rs",
+            "crates/application/tests/identity_operations.rs",
+            "conformance/cases/graph-identity.json"
+          ],
+          "evidence": [
+            "case:graph-identity",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P18",
+            "P89"
+          ]
         },
         {
           "id": "QUALITY-01.rest",

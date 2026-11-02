@@ -9,6 +9,8 @@ import {
   type Command,
   type CopyResponse,
   type CtImport,
+  type SmilesImport,
+  type SmilesStyle,
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentView,
@@ -62,6 +64,9 @@ export type TrashState =
  * skips the request.
  */
 export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
+
+/** What committing an import came to; a refusal is the caller's to show. */
+export type ImportResult = { committed: true } | { committed: false; failure: ApiError | null }
 
 /** Grouping replaces the members selected at the press with the newly created group. */
 export type EditSelection = { kind: 'group'; objects: string[] }
@@ -163,9 +168,10 @@ export function useDocumentEditor() {
 
   /**
    * Queues a task behind earlier ones. A success clears an error the user had already seen
-   * when this task was queued, never one from a request that failed while it waited.
+   * when this task was queued, never one from a request that failed while it waited. A task
+   * given `ownFailure` reports its failure there instead of to the page.
    */
-  const run = useCallback((task: () => Promise<void>) => {
+  const run = useCallback((task: () => Promise<void>, ownFailure?: (failure: ApiError) => void) => {
     setPending((count) => count + 1)
     const failuresSeen = failures.current
     const next = queue.current
@@ -175,6 +181,11 @@ export function useDocumentEditor() {
           if (failures.current === failuresSeen) setError(null)
         },
         (failure: unknown) => {
+          // A caller with its own place to show the failure keeps it off the page's error.
+          if (ownFailure) {
+            ownFailure(asApiError(failure))
+            return
+          }
           failures.current += 1
           setError(asApiError(failure))
         },
@@ -297,6 +308,33 @@ export function useDocumentEditor() {
     [run, setCurrent, refreshList],
   )
 
+  /**
+   * Commits an import for a preview made of `snapshot` under `generation`. It sends only if the
+   * page still shows exactly that drawing, and shows the drawing it returns. Resolves true when
+   * it committed; a failure goes to `ownFailure`, else to the page.
+   */
+  const importDocument = useCallback(async (
+    target: { documentId: string; revision: number },
+    snapshot: DocumentView,
+    generation: number,
+    send: () => Promise<DocumentResponse>,
+    ownFailure?: (failure: ApiError) => void,
+  ) => {
+    let committed = false
+    await run(async () => {
+      const shown = currentRef.current
+      if (!shown || serviceGenerationRef.current !== generation ||
+          !sameConversionSnapshot(shown.document, snapshot) ||
+          shown.document.id !== target.documentId || shown.document.revision !== target.revision) {
+        throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
+      }
+      const response = await send()
+      if (currentRef.current?.document.id === target.documentId) setCurrent(response)
+      committed = true
+    }, ownFailure)
+    return committed
+  }, [run, setCurrent])
+
   return {
     list,
     listQuery,
@@ -346,21 +384,20 @@ export function useDocumentEditor() {
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
-    importCt: useCallback(async (input: CtImport, snapshot: DocumentView, generation: number) => {
-      let committed = false
-      await run(async () => {
-        const shown = currentRef.current
-        if (!shown || serviceGenerationRef.current !== generation ||
-            !sameConversionSnapshot(shown.document, snapshot) ||
-            shown.document.id !== input.documentId || shown.document.revision !== input.revision) {
-          throw new ApiError('preview_changed', 'The drawing changed. Preview the import again.', 200)
-        }
-        const response = await client.importCt(input)
-        if (currentRef.current?.document.id === input.documentId) setCurrent(response)
-        committed = true
+    importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
+      importDocument(input, snapshot, generation, () => client.importCt(input)), [importDocument]),
+    previewSmiles: useCallback((id: string, revision: number, source: string) =>
+      client.previewSmiles(id, revision, source), []),
+    exportSmiles: useCallback((id: string, style: SmilesStyle, acceptedLosses?: string) =>
+      client.exportSmiles(id, style, acceptedLosses), []),
+    /** Like `importCt`, but a refusal is returned to the caller's panel, not shown on the page. */
+    importSmiles: useCallback(async (input: SmilesImport, snapshot: DocumentView, generation: number): Promise<ImportResult> => {
+      const own: { failure: ApiError | null } = { failure: null }
+      const committed = await importDocument(input, snapshot, generation, () => client.importSmiles(input), (failure) => {
+        own.failure = failure
       })
-      return committed
-    }, [run, setCurrent]),
+      return committed ? { committed: true } : { committed: false, failure: own.failure }
+    }, [importDocument]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

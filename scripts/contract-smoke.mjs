@@ -1049,7 +1049,39 @@ try {
     assert.equal(importedFormula.result.components[0].formula, 'C2H8', 'formula inspection sees the imported graph')
     const replay = (await viaHttp(commit(httpDoc, httpPreview.result.preview_digest))).body
     assert.deepEqual(replay, httpImport, 'repeated format import replays its committed reply')
-    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 2 }))
+    // SMILES goes through the same adapters: HTTP and CLI give one reply for a read-only write
+    // in both styles, for a preview, and for the commit that follows without accepting a loss.
+    for (const style of ['recorded', 'canonical']) {
+      const written = await both((id) => request(`op-smiles-${style}`, 'document.export', { format: 'smiles', document_id: id, style }))
+      assert.equal(written.model_id, style === 'canonical' ? 'chemifree-smiles-canonical-1' : 'chemifree-smiles-1')
+      assert.equal(typeof written.result.content, 'string')
+      assert.equal(written.result.snapshot.document.revision, 2)
+    }
+    const smilesPreview = (id) => request('op-smiles-preview', 'document.import', {
+      document_id: id, expected_revision: 2, format: 'smiles', source: 'CCO\nignored', preview: true,
+    })
+    const httpSmiles = (await viaHttp(smilesPreview(httpDoc))).body
+    const cliSmiles = await viaCli(smilesPreview(cliDoc))
+    assert.deepEqual(httpSmiles.loss_report, cliSmiles.loss_report)
+    assert.ok(httpSmiles.loss_report.some((loss) => loss.feature === 'ignored_text'))
+    assert.equal(httpSmiles.result.atoms.length, 3)
+    const smilesCommit = (id, digest, source, accept) => request('op-smiles-import', 'document.import', {
+      document_id: id, expected_revision: 2, format: 'smiles', source, preview_digest: digest, accept_loss: accept,
+    })
+    const refused = (await viaHttp(smilesCommit(httpDoc, httpSmiles.result.preview_digest, 'CCO\nignored', false))).body
+    assert.deepEqual([refused.outcome, refused.diagnostics[0].code], ['error', 'loss_consent_required'])
+    const plainPreview = (id) => request('op-smiles-plain', 'document.import', {
+      document_id: id, expected_revision: 2, format: 'smiles', source: 'CCO', preview: true,
+    })
+    const httpPlain = (await viaHttp(plainPreview(httpDoc))).body
+    const cliPlain = await viaCli(plainPreview(cliDoc))
+    const httpSmilesImport = (await viaHttp(smilesCommit(httpDoc, httpPlain.result.preview_digest, 'CCO', false))).body
+    const cliSmilesImport = await viaCli(smilesCommit(cliDoc, cliPlain.result.preview_digest, 'CCO', false))
+    assert.equal(httpSmilesImport.document_revision, 3)
+    assert.equal(cliSmilesImport.document_revision, 3)
+    assert.deepEqual(httpSmilesImport.result.import_mapping, cliSmilesImport.result.import_mapping)
+    assert.deepEqual(httpSmilesImport.result.document.atoms, cliSmilesImport.result.document.atoms)
+    await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 3 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
@@ -1079,8 +1111,8 @@ try {
     assert.equal(exitStatus, 0)
     assert.deepEqual(replies, [], 'one reply per request')
     const storedImport = cli('documents', 'show', cliDoc, '--json').body.document
-    assert.equal(storedImport.revision, 2, 'the CLI process saved the imported revision')
-    assert.deepEqual(storedImport.atoms, cliImport.result.document.atoms, 'the CLI saved both the original and imported atoms')
+    assert.equal(storedImport.revision, 3, 'the CLI process saved the last imported revision')
+    assert.deepEqual(storedImport.atoms, cliSmilesImport.result.document.atoms, 'the CLI saved the original, MOL-imported and SMILES-imported atoms')
 
     // The HTTP adapter keeps the write guards, and answers what it cannot read in the envelope.
     const unguarded = await viaHttp(request('op-guard', 'document.create', {}), {})

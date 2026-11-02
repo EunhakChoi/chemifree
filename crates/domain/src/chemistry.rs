@@ -59,7 +59,10 @@ fn targets(symbol: &str, charge: i8) -> Option<&'static [u16]> {
     }
 }
 
-pub(crate) fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAssessment {
+/// Assess one atom given the integral valence contribution of each incident bond (`None`
+/// where a bond has no integral value). This is the one place hydrogen counts are derived
+/// from valence; callers outside the crate use it for atoms that are not in a document.
+pub fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAssessment {
     let sum = orders
         .iter()
         .copied()
@@ -133,7 +136,7 @@ pub(crate) fn assess(id: AtomId, atom: &Atom, orders: &[Option<u16>]) -> AtomAss
 
 /// The one mapping from a recorded bond to its integral valence contribution. Aromatic,
 /// dative, query and unknown bonds have none until a caller supplies a Kekulé assignment.
-pub(crate) fn bond_order_value(order: &BondOrder) -> Option<u16> {
+pub fn bond_order_value(order: &BondOrder) -> Option<u16> {
     match order {
         BondOrder::Single => Some(1),
         BondOrder::Double => Some(2),
@@ -144,7 +147,7 @@ pub(crate) fn bond_order_value(order: &BondOrder) -> Option<u16> {
 
 /// The one incident-order collection: every atom's bond contributions, in one pass over the
 /// bonds, for the atoms given. `order_of` lets a caller substitute an assignment for bonds with no recorded value.
-pub(crate) fn incident_orders<'a>(
+pub fn incident_orders<'a>(
     atoms: impl Iterator<Item = AtomId>,
     bonds: impl Iterator<Item = (BondId, &'a Bond)>,
     order_of: impl Fn(BondId, &Bond) -> Option<u16>,

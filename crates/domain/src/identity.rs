@@ -128,11 +128,19 @@ fn edge_label(bond: &Bond, forward: bool) -> Label {
     }
 }
 
+/// The normalized atoms and bonds a chemical canonical form was computed from, in the
+/// graph's own (not yet canonical) vertex order.
+struct Normalized {
+    atoms: Vec<Atom>,
+    bonds: Vec<(usize, usize, BondOrder)>,
+}
+
 struct Graph {
     ids: Vec<AtomId>,
     labels: Vec<Label>,
     edges: Vec<Vec<Option<Label>>>,
     folded: Vec<(AtomId, AtomId)>,
+    normalized: Option<Normalized>,
 }
 
 impl Graph {
@@ -161,6 +169,7 @@ impl Graph {
             labels,
             edges,
             folded: Vec::new(),
+            normalized: None,
         })
     }
 
@@ -273,16 +282,18 @@ impl Graph {
             .enumerate()
             .map(|(i, id)| (id, i))
             .collect();
-        let labels = ids
+        let normal_atoms = ids
             .iter()
             .map(|id| {
                 let mut atom = (*atoms[id]).clone();
                 let count = u8::try_from(hydrogens[id])
                     .map_err(|_| IdentityError::Unsupported("hydrogen_limit"))?;
                 atom.hydrogens = Hydrogens::Specified(count);
-                Ok(atom_label(&atom))
+                Ok(atom)
             })
             .collect::<Result<Vec<_>, IdentityError>>()?;
+        let labels = normal_atoms.iter().map(atom_label).collect();
+        let mut normal_bonds = Vec::new();
         let mut edges = vec![vec![None; ids.len()]; ids.len()];
         for (id, bond) in input.bonds() {
             let (Some(&a), Some(&b)) = (indices.get(&bond.begin), indices.get(&bond.end)) else {
@@ -294,12 +305,17 @@ impl Graph {
             }
             edges[a][b] = Some(edge_label(&normalized, true));
             edges[b][a] = Some(edge_label(&normalized, false));
+            normal_bonds.push((a, b, normalized.order));
         }
         Ok(Self {
             ids,
             labels,
             edges,
             folded,
+            normalized: Some(Normalized {
+                atoms: normal_atoms,
+                bonds: normal_bonds,
+            }),
         })
     }
 }
@@ -445,17 +461,83 @@ impl Search<'_> {
 /// directed dative bonds all participate. Aromatic/Kekulé and explicit/non-vertex hydrogen
 /// are distinct representations in this profile.
 pub fn canonicalize(input: &MoleculeGraph) -> Result<CanonicalGraph, IdentityError> {
-    finish(Graph::new(input)?)
+    finish(Graph::new(input)?).map(|(canonical, _)| canonical)
 }
 
 /// Canonicalize chemical meaning only when both the bounded valence and aromaticity models
 /// can determine it. Natural terminal hydrogen vertices are folded into their heavy atoms;
 /// isotope-labeled, charged, radical or H--H vertices remain distinct.
 pub fn canonicalize_chemical(input: &MoleculeGraph) -> Result<CanonicalGraph, IdentityError> {
-    finish(Graph::chemical(input)?)
+    finish(Graph::chemical(input)?).map(|(canonical, _)| canonical)
 }
 
-fn finish(graph: Graph) -> Result<CanonicalGraph, IdentityError> {
+/// One atom of a [`ChemicalForm`]: its document ID and its normalized state, with the
+/// hydrogen count stated (explicit hydrogen vertices folded in) and the radical, charge and
+/// isotope as recorded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormAtom {
+    pub id: AtomId,
+    pub atom: Atom,
+}
+
+/// The normalized graph [`canonicalize_chemical`] numbers, in canonical order: every
+/// aromatic-system bond is `Aromatic`, every other bond is `Single`, `Double` or `Triple`.
+/// Two graphs have the same chemical canonical code exactly when their forms are equal.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChemicalForm {
+    pub canonical: CanonicalGraph,
+    /// Canonical number `i + 1` is `atoms[i]`.
+    pub atoms: Vec<FormAtom>,
+    /// Bonds as pairs of indices into `atoms`, first index smaller.
+    pub bonds: Vec<(usize, usize, BondOrder)>,
+}
+
+/// [`canonicalize_chemical`] together with the normalized atoms and bonds it numbered.
+pub fn chemical_form(input: &MoleculeGraph) -> Result<ChemicalForm, IdentityError> {
+    let (canonical, normalized) = finish(Graph::chemical(input)?)?;
+    let normalized = normalized.expect("a chemical graph records its normalized parts");
+    let mut position = vec![0; canonical.numbering.len()];
+    let index_of: BTreeMap<AtomId, usize> = normalized
+        .ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect();
+    let order: Vec<usize> = canonical.numbering.iter().map(|id| index_of[id]).collect();
+    for (rank, &index) in order.iter().enumerate() {
+        position[index] = rank;
+    }
+    let atoms = order
+        .iter()
+        .map(|&index| FormAtom {
+            id: normalized.ids[index],
+            atom: normalized.parts.atoms[index].clone(),
+        })
+        .collect();
+    let mut bonds: Vec<_> = normalized
+        .parts
+        .bonds
+        .iter()
+        .map(|(a, b, order)| {
+            let (a, b) = (position[*a], position[*b]);
+            (a.min(b), a.max(b), order.clone())
+        })
+        .collect();
+    bonds.sort_by_key(|(a, b, _)| (*a, *b));
+    Ok(ChemicalForm {
+        canonical,
+        atoms,
+        bonds,
+    })
+}
+
+/// The vertex IDs of a finished search with the normalization it came from.
+struct Finished {
+    ids: Vec<AtomId>,
+    parts: Normalized,
+}
+
+fn finish(graph: Graph) -> Result<(CanonicalGraph, Option<Finished>), IdentityError> {
     let mut search = Search {
         graph: &graph,
         states: 0,
@@ -493,10 +575,15 @@ fn finish(graph: Graph) -> Result<CanonicalGraph, IdentityError> {
     symmetry.extend(hydrogen_orbits);
     symmetry.sort();
     let code = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    Ok(CanonicalGraph {
+    let canonical = CanonicalGraph {
         code,
         numbering: order.into_iter().map(|i| graph.ids[i]).collect(),
         symmetry,
         folded_hydrogens: graph.folded,
-    })
+    };
+    let finished = graph.normalized.map(|parts| Finished {
+        ids: graph.ids,
+        parts,
+    });
+    Ok((canonical, finished))
 }

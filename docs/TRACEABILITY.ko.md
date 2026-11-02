@@ -6,9 +6,11 @@ P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계
 
 P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
 
+P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다(canonical 형식은 Chemifree 자체 형식이며 다른 도구와 호환되지 않는다). 입체, query/반응 SMILES와 InChI는 후속 범위다.
+
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 15, not_implemented 18) · 부분 72개(implemented 29, partial 8, unverified 2, not_implemented 33) · conformance 사례 36개(passed 36: accept 23·reject 13, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 16, not_implemented 17) · 부분 74개(implemented 31, partial 8, unverified 2, not_implemented 33) · conformance 사례 38개(passed 38: accept 24·reject 14, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
