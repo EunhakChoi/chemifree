@@ -301,7 +301,7 @@ pub struct BondToDto {
     pub query: Option<BondQueryDto>,
 }
 
-/// A query atom: which elements it stands for. Nothing matches it.
+/// A query atom: which elements it stands for. `chem.substructure` matches it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum QueryDto {
@@ -321,7 +321,7 @@ pub enum QueryDto {
     },
 }
 
-/// What a query bond stands for. Nothing matches it.
+/// What a query bond stands for. `chem.substructure` matches it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BondQueryDto {

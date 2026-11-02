@@ -14,12 +14,12 @@ export interface Position {
   y: number
 }
 
-/** What a query atom stands for. Nothing matches it. */
+/** What a query atom stands for. `chem.substructure` matches it. */
 export type QueryAtom =
   | { kind: 'any' | 'any_heavy' | 'heteroatom' | 'halogen' }
   | { kind: 'list'; elements: string[]; negated: boolean }
 
-/** What a query bond stands for. Nothing matches it. */
+/** What a query bond stands for. `chem.substructure` matches it. */
 export type BondQuery = { kind: 'any' } | { kind: 'list'; orders: QueryBondOrder[] }
 
 /**
@@ -223,6 +223,63 @@ export interface IdentityInspection {
   identity: CanonicalIdentity
   comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
 }
+
+/** One pair of a mapping: an item of the query drawing and the item of the target it lies on. */
+export interface MatchPair {
+  query: string
+  target: string
+}
+
+export interface SubstructureMapping {
+  atoms: MatchPair[]
+  bonds: MatchPair[]
+}
+
+export interface SubstructureLimits {
+  query_atoms: number
+  search_steps: number
+  scanned_candidates: number
+  mappings: number
+}
+
+/** Every mapping of the query in the target, bound to the two drawings the service searched. */
+export interface SubstructureSearch {
+  model: string
+  aromaticityModel: string
+  query: DocumentView
+  target: DocumentView
+  limits: SubstructureLimits
+  steps: number
+  mappings: SubstructureMapping[]
+}
+
+/**
+ * The service's refusal or limit, with the two drawings it concerns. Its `code` is one of the
+ * `chem.substructure` codes in docs/CONTRACT.md; an error of the request itself (an unknown
+ * document, say) is an `ApiError` instead.
+ */
+export class SubstructureRefusal extends Error {
+  readonly code: string
+  readonly query: DocumentView
+  readonly target: DocumentView
+
+  constructor(code: string, message: string, query: DocumentView, target: DocumentView) {
+    super(message)
+    this.name = 'SubstructureRefusal'
+    this.code = code
+    this.query = query
+    this.target = target
+  }
+}
+
+/** The outcome each `chem.substructure` code is reported with. */
+const SUBSTRUCTURE_OUTCOMES: ReadonlyMap<string, 'error' | 'unsupported'> = new Map([
+  ['empty_query', 'error'],
+  ['query_too_large', 'error'],
+  ['query_unsatisfiable', 'error'],
+  ['match_unsupported', 'unsupported'],
+  ['match_limit', 'error'],
+])
 
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
  * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
@@ -1037,6 +1094,29 @@ interface Unconfirmed {
   sentTo?: string
 }
 
+/** What an operation reply says first about why it failed, as far as it can be read. */
+function firstDiagnostic(value: unknown): { code: string | null; message: string | null; details: Record<string, unknown> } {
+  const first: unknown = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+  return {
+    code: isRecord(first) && typeof first.code === 'string' ? first.code : null,
+    message: isRecord(first) && typeof first.message === 'string' ? first.message : null,
+    details: isRecord(first) && isRecord(first.details) ? first.details : {},
+  }
+}
+
+/** A snapshot an operation reply carries (`document`, `session`, `recovery`), as a document view. */
+function snapshotOf(raw: Record<string, unknown>): DocumentView {
+  return documentResponse({ api_version: API_VERSION, ...raw }).document
+}
+
+/** A document reply checked at runtime, with older replies' missing states filled in. */
+function documentResponse(value: unknown): DocumentResponse {
+  if (!isDocumentResponse(value)) {
+    throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
+  }
+  return withStates(value)
+}
+
 function restarted(status: number) {
   return new ApiError(
     'service_restarted',
@@ -1445,10 +1525,7 @@ export class DocumentClient {
   }
 
   private static document(value: unknown): DocumentResponse {
-    if (!isDocumentResponse(value)) {
-      throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
-    }
-    return withStates(value)
+    return documentResponse(value)
   }
 
   /** The server returns the actual inspected snapshot, not just its potentially reused revision. */
@@ -1775,15 +1852,15 @@ export class DocumentClient {
     }, 'reload')
     const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
     if (!isRecord(value) || value.outcome !== 'ok') {
-      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
-      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
-      const details = isRecord(first) && isRecord(first.details) ? first.details : null
-      const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
-      if (reason && (details?.side === 'source' || details?.side === 'target')) {
+      const diagnostic = firstDiagnostic(value)
+      const message = diagnostic.message ?? 'The local service could not compare these graphs.'
+      const details = diagnostic.details
+      const reason = typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
+      if (reason && (details.side === 'source' || details.side === 'target')) {
         if (!isRecord(value) || value.model_id !== expectedModel || value.result !== null || !isRecord(details.snapshot)) {
           throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
         }
-        const snapshot = DocumentClient.document({ api_version: API_VERSION, ...details.snapshot }).document
+        const snapshot = snapshotOf(details.snapshot)
         const target = details.side === 'target'
         if (snapshot.id !== (target ? otherId : id) || (!target && snapshot.revision !== value.document_revision)) {
           throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
@@ -1844,6 +1921,86 @@ export class DocumentClient {
     return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
   }
 
+  /**
+   * Searches `queryId` in `targetId` (they may be one document). The reply names the exact
+   * snapshots it searched, and every mapping is checked here against them: a pair for each
+   * query atom and bond, distinct target atoms, and each bond between its atoms' images.
+   */
+  async searchSubstructure(queryId: string, targetId: string): Promise<SubstructureSearch> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.substructure',
+      parameters: { query_document_id: queryId, target_document_id: targetId },
+    }, 'reload')
+    const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible substructure search.', 200)
+    if (!isRecord(value) || !Array.isArray(value.diagnostics)) throw incompatible()
+    // The two snapshots a reply is about, which must be the drawings asked for and the revision it reports.
+    const bound = (rawQuery: Record<string, unknown>, rawTarget: Record<string, unknown>) => {
+      const query = snapshotOf(rawQuery)
+      const target = snapshotOf(rawTarget)
+      if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
+          (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
+      return { query, target }
+    }
+    if (value.outcome !== 'ok') {
+      const { code, message, details } = firstDiagnostic(value)
+      if (code === null || message === null) {
+        throw new ApiError('analysis_unavailable', 'The local service could not search the drawings.', 200)
+      }
+      if (!SUBSTRUCTURE_OUTCOMES.has(code)) throw new ApiError(code, message, 200)
+      if (SUBSTRUCTURE_OUTCOMES.get(code) !== value.outcome || value.result !== null || value.model_id !== 'chemifree-substructure-1' ||
+          !isRecord(details.query_snapshot) || !isRecord(details.target_snapshot)) throw incompatible()
+      const { query, target } = bound(details.query_snapshot, details.target_snapshot)
+      const words = (key: string) => typeof details[key] === 'string' ? details[key].replaceAll('_', ' ') : null
+      const subject = [words('item'), typeof details.id === 'string' ? details.id : null].filter((part) => part !== null).join(' ')
+      const where = typeof details.side === 'string'
+        ? ` The ${details.side} drawing${subject === '' ? '' : `, ${subject}`}: ${words('reason') ?? 'not readable'}.`
+        : ''
+      const limit = typeof details.limit_kind === 'string' ? ` Limit: ${words('limit_kind')} (${String(details.limit)}).` : ''
+      throw new SubstructureRefusal(code, `${message}${where}${limit}`, query, target)
+    }
+    const result = value.result
+    if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) || value.loss_report.length !== 0 ||
+        !isRecord(result) || !isRecord(result.query) || !isRecord(result.target) || !isRecord(result.limits) ||
+        result.aromaticity_model !== 'chemifree-aromaticity-2' || !isCount(result.steps) || !Array.isArray(result.mappings)) throw incompatible()
+    const { query, target } = bound(result.query, result.target)
+    const limits = result.limits
+    if (!isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.scanned_candidates) || !isCount(limits.mappings) ||
+        result.steps > limits.search_steps || result.mappings.length > limits.mappings) throw incompatible()
+    const queryAtoms = new Set(query.atoms.map((atom) => atom.id))
+    const targetAtoms = new Set(target.atoms.map((atom) => atom.id))
+    const queryBonds = new Map(query.bonds.map((bond) => [bond.id, bond]))
+    const targetBonds = new Map(target.bonds.map((bond) => [bond.id, bond]))
+    const pairs = (item: unknown): MatchPair[] | null => Array.isArray(item) && item.every((pair: unknown) =>
+      isRecord(pair) && typeof pair.query === 'string' && typeof pair.target === 'string') ? item as MatchPair[] : null
+    const mappings: SubstructureMapping[] = []
+    for (const mapping of result.mappings as unknown[]) {
+      const atoms = isRecord(mapping) ? pairs(mapping.atoms) : null
+      const bonds = isRecord(mapping) ? pairs(mapping.bonds) : null
+      if (!atoms || !bonds || atoms.length !== queryAtoms.size || bonds.length !== queryBonds.size ||
+          new Set(atoms.map((pair) => pair.query)).size !== atoms.length || new Set(atoms.map((pair) => pair.target)).size !== atoms.length ||
+          !atoms.every((pair) => queryAtoms.has(pair.query) && targetAtoms.has(pair.target)) ||
+          new Set(bonds.map((pair) => pair.query)).size !== bonds.length ||
+          !bonds.every((pair) => queryBonds.has(pair.query) && targetBonds.has(pair.target))) throw incompatible()
+      const image = new Map(atoms.map((pair) => [pair.query, pair.target]))
+      for (const pair of bonds) {
+        const from = queryBonds.get(pair.query)
+        const to = targetBonds.get(pair.target)
+        if (!from || !to) throw incompatible()
+        const ends = [image.get(from.begin), image.get(from.end)]
+        if (!((ends[0] === to.begin && ends[1] === to.end) || (ends[0] === to.end && ends[1] === to.begin))) throw incompatible()
+      }
+      mappings.push({ atoms, bonds })
+    }
+    return {
+      model: value.model_id, aromaticityModel: result.aromaticity_model, query, target,
+      limits: {
+        query_atoms: limits.query_atoms, search_steps: limits.search_steps,
+        scanned_candidates: limits.scanned_candidates, mappings: limits.mappings,
+      },
+      steps: result.steps, mappings,
+    }
+  }
+
   /** Apply one model conversion under the revision the user inspected, with history selection. */
   async convertAromaticity(id: string, expectedRevision: number, to: 'aromatic' | 'kekule', selection: SelectionView) {
     const value = await this.write('/api/v1/operations', {
@@ -1851,13 +2008,10 @@ export class DocumentClient {
       parameters: { document_id: id, expected_revision: expectedRevision, to, selection_before: selection, selection_after: selection },
     }, 'reload')
     if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
-      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
-      const code = isRecord(first) && typeof first.code === 'string' ? first.code : 'analysis_unavailable'
-      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not convert aromaticity.'
-      const details = isRecord(first) && isRecord(first.details) ? first.details : null
-      throw new ApiError(code, message, 200, {
-        currentRevision: details && isCount(details.current_revision) ? details.current_revision : undefined,
-        stateReason: details && typeof details.reason === 'string' ? details.reason : undefined,
+      const { code, message, details } = firstDiagnostic(value)
+      throw new ApiError(code ?? 'analysis_unavailable', message ?? 'The local service could not convert aromaticity.', 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        stateReason: typeof details.reason === 'string' ? details.reason : undefined,
       })
     }
     if (value.model_id !== 'chemifree-aromaticity-2') {

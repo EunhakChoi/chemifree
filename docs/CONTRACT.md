@@ -81,6 +81,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `chem.aromaticity` | `{ document_id }` | The analyzed snapshot and cyclic systems under the policy below |
 | `chem.aromaticity_convert` | `{ document_id, expected_revision, to: "aromatic" \| "kekule", selection_before?, selection_after? }` | The document after one undoable conversion |
 | `chem.identity` | `{ document_id, mode: "recorded" \| "chemical", other_document_id? }` | Snapshot-bound canonical identity, symmetry and an optional graph comparison |
+| `chem.substructure` | `{ query_document_id, target_document_id }` | Every atom and bond mapping of the query drawing in the target drawing, with both snapshots, or a refusal or limit; [rules](#substructure-matching) |
 
 Unknown parameters are `invalid_request` (`path: "parameters"`). Every other operation name the catalog lists (`chem.name_to_structure`, `chem.structure_to_name`, `layout.structure`, `layout.reaction`, `render.scene`, `biopolymer.expand`, `prediction.evaluate`, `integration.invoke`, `script.evaluate`) is answered `outcome: "unsupported"` with `details: { execution, followup }`, whatever its parameters. Prediction uses the diagnostic `model_unavailable`; the other operations use `operation_not_implemented`: nothing is computed and no placeholder result is returned. Mutations retain the v1 request replay, revision and saving rules; inspection reads the current working snapshot. An operation that fails reports the v1 error code as its diagnostic (`revision_conflict`, `document_not_found`, `storage_failed`, …), with `details.current_revision`, `details.command_index`, and `details.reason` where the v1 envelope has them.
 
@@ -328,6 +329,103 @@ The required `mode: "recorded"` selects `chemifree-recorded-graph-1`: labeled gr
 
 Canonical codes are stable within the named model, not SMILES or document IDs. A symmetric graph cannot assign a uniquely meaningful number to each atom inside an automorphism orbit: numbers may be exchanged within a reported symmetry group. In chemical mode, numbering excludes folded H vertices, which remain listed in `folded_hydrogens` and in the expanded symmetry groups. The search accepts at most 128 atoms and is bounded by 100,000 search states and 10,000,000 work units. Exceeding either bound returns `identity_limit`; unsupported chemistry returns `identity_unsupported`, with a source/target side and reason. Neither error returns a partial code or an equivalence conclusion.
 
+## Substructure matching
+
+`chem.substructure` takes `{ "query_document_id", "target_document_id" }`, both required and no other parameter, and finds every way the query drawing lies in the target drawing. The two may name one document, which is then searched in itself. It is read-only: it changes neither document, any revision, selection or history, and a repeated `request_id` is not replayed but searches the then-current drawings, as for the other inspections. A closed saved document is read from storage without opening a session. Nothing about the search is recorded in the drawing. HTTP `POST /api/v1/operations`, `chemifree operations` and the web "Substructure search" panel give the same replies from the same `Application::execute`.
+
+The model is `chemifree-substructure-1`. It owns the matching rules below and uses `chemifree-aromaticity-2` to decide which bonds are aromatic. It is not RDKit's or any other toolkit's definition, and no equivalence is claimed beyond the fixtures of `crates/application/tests/data/query-fixtures.json`. Those fixtures are checked by the test suite against this service, and compared with an RDKit 2022.03.2 Python by `scripts/verify-query-rdkit.py`, which is run by hand and is not part of `npm run check`. Where the aromaticity model differs from RDKit's, the matcher follows the model or refuses.
+
+### Reply
+
+`result` is `{ query, target, aromaticity_model, limits, steps, mappings }`. `query` and `target` are the exact snapshots (`document`, `session`, `recovery`) of the two documents, captured under one lock before the search runs; they are one snapshot when a drawing is searched in itself. `model_id` is `chemifree-substructure-1`, `aromaticity_model` is `chemifree-aromaticity-2`, and `document_revision` is the query snapshot's revision. A restart can reuse a revision for a different graph, so a client compares the whole returned snapshot with the drawing it shows, as the web does, and treats a reply for a different snapshot as not about that drawing. `limits` is `{ query_atoms: 64, search_steps: 2000000, scanned_candidates: 20000000, mappings: 1000 }` and `steps` is how many assignments this search tried (a step is defined under Limits).
+
+`mappings` is every mapping, ordered by the target atoms assigned in query-atom order. A mapping is `{ atoms: [{ query, target }], bonds: [{ query, target }] }`: `atoms` has one pair for every query atom, ordered by query atom ID, and `bonds` has one pair for every query bond, ordered by query bond ID. The IDs are each document's own (`a1` and `b1` exist in both), so a pair always names the query side and the target side by key. An empty list is a complete answer: no assignment of the query atoms to target atoms exists. It does not say the target could be read in full: when some query atom has no candidate at all (an element the target lacks), the search ends before the target's rings are read, so a target that is refused for one query gets a complete empty answer for another (`bromine-not-in-tetralin`, against `benzene-kekule-in-tetralin`). No mapping can exist in either case. When the search cannot finish or the drawings cannot be read, there is no `result` and no partial list: the reply is a refusal or a limit.
+
+### What a mapping is
+
+A mapping assigns every query atom a different target atom so that each query bond lies on a target bond between the assigned atoms. The target may have more bonds between those atoms (it is not an induced subgraph), and any other atoms. Distinct mappings are distinct atom assignments, all of them, not the distinct subgraphs: benzene in benzene has twelve (six rotations, two reflections) and propane in propane has two. The bond assignment follows from the atom assignment because a drawing has at most one bond between two atoms, so the two lists of a mapping always agree. A query of several parts places each part on distinct atoms anywhere in the target, so two unbonded carbons in ethane have two mappings.
+
+### What is compared
+
+- **Atoms.** An element atom matches an atom of the same element. A query atom matches the elements it stands for: `*` every atom including a drawn hydrogen, `A` every atom but hydrogen, `Q` every atom but carbon and hydrogen, `X` a halogen (group 17: F, Cl, Br, I, At, Ts), a list those elements, and a negated list every element but them, which includes hydrogen unless it is listed.
+- **Charge and isotope.** A query element atom with a nonzero charge matches only an atom with that charge; one with charge 0 states no charge condition and matches any charge, because the drawing cannot record "neutral only". An isotope the query atom states must equal the target atom's isotope; with no isotope stated, any isotope matches. A query atom (`*`, `A`, `Q`, `X`, a list) carries neither.
+- **Not compared.** Hydrogen counts and states (stated, unknown or inferred), radicals, attachment points, positions, the scene, settings, atom and bond IDs and the order atoms were drawn in never restrict a match and never widen one. A recorded count on a query atom is not a condition.
+- **Hydrogen atoms.** A drawn hydrogen is an ordinary atom in both drawings and is never folded into its neighbor. Hydrogens that are not drawn are not atoms: a query C–H needs a drawn hydrogen in the target.
+- **Bonds.** A query bond is a single, double, triple or aromatic bond, an `any` query bond, or a query list of those kinds. `any` matches every bond, including dative, unknown and query bonds. A single, double, triple or aromatic query bond, or a list, matches a target bond of one of those kinds as the matcher reads it; a dative target bond matches only `any`.
+- **Aromatic bonds.** A bond is aromatic when `chemifree-aromaticity-2` classifies its ring system as aromatic, whether it was drawn Kekulé or with aromatic bonds, in the query and in the target alike. A Kekulé single bond of benzene is therefore aromatic and does not match a single query bond. The drawn kind never decides that alone: in a system the model calls aromatic, a drawn single, double or aromatic bond is read as aromatic only because the model has checked the drawn pattern (aromatic bonds throughout, or a complete Kekulé pattern in which every ring atom that needs a double bond has exactly one). A ring system that mixes aromatic bonds with other kinds is refused (`mixed_ring_bonds`), not normalised either way. In a ring system the model calls non-aromatic (cyclohexa-1,3-diene), bonds keep their drawn single and double kinds. A bond drawn aromatic must lie in an aromatic system, else it is refused with the model's reason. Every other bond keeps its drawn kind.
+- **Rings and degree.** The drawing records no ring-membership, substituent-count or degree condition on an atom or bond, so none can be asked; the rings and neighbors of the query itself are what a mapping must reproduce. A condition that needs a new recorded state is not available.
+
+### Refusals and limits
+
+A query atom or bond that nothing can satisfy (an empty element list, a negated list that excludes every element, an empty bond list) is refused with `query_unsatisfiable`, never answered as no match. A drawing records no such predicate (lists hold 1 to 10 elements), so this code is reached only by a graph built outside the drawing model; it is tested in the domain library.
+
+The query is read before the search. It is refused with `match_unsupported` and `side: query` when a bond is dative or unknown, or when the aromaticity model cannot read a ring system of the query that has a double or aromatic bond (a query atom or bond inside such a ring, a bond to a ring atom that is not single, a fused partially saturated system), or when a bond drawn aromatic is not in an aromatic system. A ring system with no double or aromatic bond cannot be aromatic in any spelling, so its bonds are read as drawn even if the model cannot classify the system (a ring that contains silicon, say).
+
+A query bond (an `any` bond or a list of kinds) inside a ring system that has a double or aromatic bond is always refused, with `side: query` and the aromaticity model's reason `unsupported_ring_bond`: the shared aromaticity model cannot read a ring system that holds a query bond, and a ring system with a pi bond cannot be taken as drawn. This blocks the most common use of a wildcard ring bond, such as an `any` bond in a benzene ring. It is a limit of the aromaticity model, and the matcher has no workaround for it. The same bond in a ring of single bonds is read as drawn.
+
+The target is refused with `side: target` only when a mapping would rest on something the matcher cannot decide: a bond of an unclassified ring system (the same rule), an unknown or query bond, or an atom that is itself a query, compared with a query item that does not accept everything. The search runs to its end, treating an undecidable comparison as a possible match. A mapping that rests on one is not returned, and if the search finds any the target is refused: the refusal names the undecided comparison with the lowest target atom ID (else, if no atom is undecided, the lowest target bond ID), and for that target item the lowest query ID, over every such mapping, with the reason of that item. Neither the order the atoms were drawn in nor the order the search visits them changes the refusal or its reason. If no mapping rests on an undecided comparison, the mappings returned are exactly the decided ones. A target is therefore not refused for an unclassified system that no mapping reaches, and no mapping is lost to one. A limit takes precedence over a refusal, and a mapping that rests on an undecided comparison counts toward the 1,000. Refusal is never an empty list: a Kekulé benzene query in tetralin is refused, although RDKit finds the benzene ring.
+
+`details` of every refusal and limit holds `query_snapshot` and `target_snapshot`, the same snapshots a result carries. For `match_unsupported` it also holds `side` (`query` or `target`), `reason`, `item` and `id` (the atom or bond on that side that cannot be read) and, for a target, `query_item` and `query_id` (the query atom or bond compared with it). For `match_limit` it holds `limit_kind` (`search_steps`, `scanned_candidates` or `mappings`) and `limit`; for `query_too_large` the `atoms` it has and the `limit`; for `query_unsatisfiable` the `item` and `id`. An unknown document is the ordinary `document_not_found`.
+
+**Limits.** The query has at most 64 atoms (`query_too_large`); a search tries at most 2,000,000 assignments and examines at most 20,000,000 candidate entries; a search returns at most 1,000 mappings, and finding the 1,001st is the limit. A step is one target atom that passed the element and bond-count prefilter, is not yet assigned, and is tried for a query atom against the bonds to atoms assigned before it. Looking at the entries of a candidate list or of an assigned atom's neighbor list to find such atoms is not a step; every entry looked at, skipped or tried, counts once toward the 20,000,000, which bounds the work steps leave out, however large the target. The step count can depend on the order atoms were drawn in, so a search close to the limit may finish under one numbering and not under another; the mapping count and the refusal do not. Reaching any of the last three is `match_limit` with no mappings: a bounded search that stops is never reported as complete. Unbonded query atoms multiply: parts with n and m candidates have n x m mappings with distinct targets, so five unbonded nitrogens in a target holding five (120 mappings, 325 steps) are answered, while three unbonded carbons in 2,000 carbons reach the mapping limit. The target may be as large as a document (2,000 atoms). The search is a depth-first extension from adjacency lists, restricted by the element and the number of bonds of each candidate; a target atom is tried for a query atom only through a bond of an atom already assigned, except for the first atom of each part of the query.
+
+### Substructure codes
+
+Every code is the diagnostic `code` of a reply with no `result`. The table is `MATCH_CODES` in `crates/application/src/operations/substructure.rs` and is compared with it by a test.
+
+| Code | Outcome | Meaning |
+| --- | --- | --- |
+| `empty_query` | error | The query drawing has no atoms. |
+| `query_too_large` | error | The query drawing has more atoms than one search accepts. |
+| `query_unsatisfiable` | error | No atom or bond can satisfy this query atom or bond. |
+| `match_unsupported` | unsupported | The matcher cannot read this atom or bond, and the answer depends on it. |
+| `match_limit` | error | The search reached a limit before it could give a complete answer. |
+
+### Substructure refusal reasons
+
+`reason` of `match_unsupported` is one of these. The first rows are the matcher's own; the others are the reason codes of the aromaticity model (see Ring and aromaticity interpretation), passed on unchanged, of which the table shows those that have a fixture. Each row names a fixture of `crates/application/tests/data/query-fixtures.json` that is refused with exactly that code, side and reason.
+
+| Reason | Side | Fixture |
+| --- | --- | --- |
+| `query_dative_bond` | query | `dative-bond-in-query` |
+| `unknown_bond` | query | `unknown-bond-in-query` |
+| `unknown_bond` | target | `unknown-bond-in-target` |
+| `query_bond` | target | `query-bond-in-target` |
+| `target_query_atom` | target | `query-in-target-with-query-atom` |
+| `aromatic_bond_outside_ring` | query | `aromatic-bond-outside-ring-in-query` |
+| `query_atom` | query | `query-atom-in-conjugated-ring` |
+| `unsupported_ring_bond` | query | `query-bond-in-conjugated-ring-of-query` |
+| `unsupported_ring_bond` | query | `wildcard-bond-in-aromatic-ring-query` |
+| `unsupported_external_bond` | query | `query-bond-to-aromatic-substituent` |
+| `electron_count` | query | `pyrrole-without-nh-in-query` |
+| `fused_partially_aromatic` | query | `tetralin-query` |
+| `fused_partially_aromatic` | target | `benzene-kekule-in-tetralin` |
+| `fused_system_outside_model` | target | `benzene-in-indole` |
+| `mixed_ring_bonds` | query | `partly-aromatic-ring-in-query` |
+| `mixed_ring_bonds` | target | `partly-aromatic-ring-in-target` |
+
+### Substructure examples
+
+Each row is a fixture, checked against this service by the test suite; `scripts/verify-query-rdkit.py` compares the same fixtures with an RDKit 2022.03.2 Python by hand. Mappings are atom mappings, all of them.
+
+| Fixture | Result |
+| --- | --- |
+| `benzene-kekule-in-benzene-aromatic` | 12 mappings |
+| `benzene-aromatic-in-benzene-kekule` | 12 mappings |
+| `propane-in-propane` | 2 mappings |
+| `benzene-in-naphthalene` | 24 mappings |
+| `benzene-in-anthracene` | 36 mappings |
+| `pyrrole-kekule-in-pyrrole-aromatic-nh` | 2 mappings |
+| `single-bond-does-not-match-kekule-benzene` | 0 mappings |
+| `neutral-query-atom-matches-any-charge` | 3 mappings |
+| `charged-query-atom` | 1 mapping |
+| `explicit-hydrogen-not-in-implicit-carbon` | 0 mappings |
+| `two-carbons-in-propane` | 6 mappings |
+| `pyridine-not-in-indole` | 0 mappings |
+| `cyclohexadiene-keeps-its-drawn-kinds` | 4 mappings |
+| `bromine-not-in-tetralin` | 0 mappings |
+| `benzene-kekule-in-tetralin` | refused |
+
 ## Numeric foundation (P15)
 
 The `chemifree-numerics` Rust library separates exact signed rational values from Real48, binary32, binary64 and 80-bit extended raw storage. Finite conversions and basic arithmetic use each documented rounding rule at explicit intermediate stores, and report nonfinite input, invalid encodings, division by zero, overflow or resource limits. The selected heading step uses explicit extended intermediate operations and a binary64 final store; the deviation boundary rounds nonnegative half-integers upward. Typed length conversion uses the computer point and exact physical factors; an independent Real48 mol/L–g/L conversion requires an explicit positive molar mass. Decimal display and F32 storage each use their stated, separate rounding rules. These types do not add an HTTP or CLI chemistry operation or claim legacy property-unit or locale equivalence. The exact supported boundary is described in [NUMERICS.ko.md](NUMERICS.ko.md).
@@ -402,7 +500,7 @@ A document is a titled drawing: one chemical graph (`m1`) and one page (`p1`) wi
 - `settings` is the document's style, with lengths stored in pt (see Document settings and preferences). It was added within v1; a reply from an earlier service is drawn with built-in defaults.
 - Positions: points (pt), x right, y down, finite and within ±100000.
 - `element`: case-sensitive IUPAC symbol, H through Og. `charge`: −8..8. `isotope`: mass number 1..999, or `null` for natural abundance.
-- `kind`: `element` or `query`. A query atom stands for a set of elements and has `query`: `{ "kind": "any" }` (`*`), `any_heavy` (`A`, any atom but hydrogen), `heteroatom` (`Q`, any atom but carbon and hydrogen), `halogen` (`X`), or `{ "kind": "list", "elements": [symbol, ...], "negated": bool }` with 1–10 distinct elements in the order given (`negated`: any atom except them). For a query atom `element` holds its label (`*`, `A`, `Q`, `X`, `[N,O]`, `![N,O]`), which is not an element symbol; read `kind` first. A query atom has charge 0 and no isotope. Nothing matches a query against anything.
+- `kind`: `element` or `query`. A query atom stands for a set of elements and has `query`: `{ "kind": "any" }` (`*`), `any_heavy` (`A`, any atom but hydrogen), `heteroatom` (`Q`, any atom but carbon and hydrogen), `halogen` (`X`), or `{ "kind": "list", "elements": [symbol, ...], "negated": bool }` with 1–10 distinct elements in the order given (`negated`: any atom except them). For a query atom `element` holds its label (`*`, `A`, `Q`, `X`, `[N,O]`, `![N,O]`), which is not an element symbol; read `kind` first. A query atom has charge 0 and no isotope. Recording is separate from matching: `chem.substructure` matches query atoms and bonds (see Substructure matching).
 - `hydrogens`: `{ "mode": "inferred" }` (the default: no stored count; supported inspection derives one separately), `{ "mode": "unknown" }`, or `{ "mode": "specified", "count": 0..16 }` (non-vertex hydrogens as stated; separately drawn H atoms are ordinary atoms and not counted here).
 - `radical`: `none` (default) `| singlet | doublet | triplet | unknown`. `attachment_points`: ascending, distinct values 1–4 (default `[]`).
 - `order`: `single | double | triple | aromatic | dative | query | unknown`. A dative bond points from `begin` (the donor) to `end`. A bond of order `query` has `query`: `{ "kind": "any" }` or `{ "kind": "list", "orders": [...] }`, a non-empty list without repeats of `single`, `double`, `triple`, and `aromatic`; every other bond has `"query": null`. Recording an order does not automatically interpret or change other bonds; the separate bounded aromaticity operation is described above. At most one bond joins a pair of atoms; self-bonds are rejected.

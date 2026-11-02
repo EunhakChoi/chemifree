@@ -15,6 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
+const searchRequests = await import('../apps/web/src/lib/substructure-requests.ts')
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
@@ -902,6 +903,153 @@ test('identity comparison validates both snapshots, symmetry and folded atom IDs
   await assert.rejects(client.inspectIdentity('identity-source', 'chemical', 'identity-target'), {
     code: 'identity_unavailable', message: 'Graph identity was not determined under this model. Comparison snapshot identity-target, revision 3: element or charge. Inspect again to include later edits.',
   })
+})
+
+/** A query C-O and a target C-C-O whose ids overlap, and the service's reply for them. */
+function substructureReply() {
+  const query = document('match-query', 2)
+  query.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'O', 30, 0)]
+  query.document.bonds = [bondWith('b1', 'a1', 'a2')]
+  const target = document('match-target', 5)
+  target.document.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 30, 0), atomWith('a3', 'O', 60, 0)]
+  target.document.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3')]
+  const view = (shown) => ({ document: shown.document, session: shown.session, recovery: null })
+  const reply = { envelope: 'operation_result', contract: 1, outcome: 'ok', document_revision: 2, model_id: 'chemifree-substructure-1',
+    diagnostics: [], loss_report: [], result: {
+      query: view(query), target: view(target), aromaticity_model: 'chemifree-aromaticity-2',
+      limits: { query_atoms: 64, search_steps: 2000000, scanned_candidates: 20000000, mappings: 1000 }, steps: 4,
+      mappings: [{ atoms: [{ query: 'a1', target: 'a2' }, { query: 'a2', target: 'a3' }], bonds: [{ query: 'b1', target: 'b2' }] }],
+    } }
+  return { query, target, view, reply }
+}
+
+test('a substructure search is accepted only with mappings that fit the two snapshots', async () => {
+  const { reply } = substructureReply()
+  const mutate = (change) => {
+    const copy = structuredClone(reply)
+    change(copy)
+    return copy
+  }
+  const bad = [
+    mutate((r) => { r.result.mappings[0].atoms[1].target = 'a2' }), // not injective
+    mutate((r) => { r.result.mappings[0].atoms[1].target = 'a9' }), // a target atom the snapshot lacks
+    mutate((r) => { r.result.mappings[0].atoms.pop() }), // a query atom without a pair
+    mutate((r) => { r.result.mappings[0].bonds[0].target = 'b1' }), // the bond is not between the images
+    mutate((r) => { r.result.mappings[0].bonds = [] }), // a query bond without a pair
+    mutate((r) => { r.result.mappings.push(r.result.mappings[0]); r.result.limits.mappings = 1 }), // over the stated limit
+    mutate((r) => { r.document_revision = 3 }), // the revision is not the query snapshot's
+    mutate((r) => { r.model_id = 'chemifree-substructure-0' }),
+    mutate((r) => { r.loss_report = [{ reason: 'x' }] }),
+    mutate((r) => { r.result.query.document.id = 'someone-else' }),
+  ]
+  service({ '/api/v1/operations': [() => json(200, reply), ...bad.map((body) => () => json(200, body))] })
+  const client = new DocumentClient()
+  const found = await client.searchSubstructure('match-query', 'match-target')
+  assert.equal(found.model, 'chemifree-substructure-1')
+  assert.deepEqual(found.mappings[0].atoms, [{ query: 'a1', target: 'a2' }, { query: 'a2', target: 'a3' }])
+  assert.equal(found.target.revision, 5)
+  for (const [index] of bad.entries()) {
+    await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { code: 'incompatible_response' }, `case ${index}`)
+  }
+})
+
+test('a substructure search of a drawing in itself needs one snapshot', async () => {
+  const { reply, query, view } = substructureReply()
+  const self = structuredClone(reply)
+  self.result.target = view(query)
+  self.result.mappings = [{ atoms: [{ query: 'a1', target: 'a1' }, { query: 'a2', target: 'a2' }], bonds: [{ query: 'b1', target: 'b1' }] }]
+  const differing = structuredClone(self)
+  differing.result.target.document = { ...differing.result.target.document, revision: 3 }
+  service({ '/api/v1/operations': [() => json(200, self), () => json(200, differing)] })
+  const client = new DocumentClient()
+  assert.equal((await client.searchSubstructure('match-query', 'match-query')).mappings.length, 1)
+  await assert.rejects(client.searchSubstructure('match-query', 'match-query'), { code: 'incompatible_response' })
+})
+
+test('a substructure refusal carries both snapshots, and any other error stays an ApiError', async () => {
+  const { reply, query, target, view } = substructureReply()
+  const refusal = { ...structuredClone(reply), outcome: 'unsupported', result: null, diagnostics: [{
+    code: 'match_unsupported', message: 'The matcher cannot read this atom or bond, and the answer depends on it.',
+    details: { query_snapshot: view(query), target_snapshot: view(target), side: 'target', reason: 'fused_partially_aromatic', item: 'bond', id: 'b2' },
+  }] }
+  const limit = structuredClone(refusal)
+  limit.outcome = 'error'
+  limit.diagnostics[0] = { code: 'match_limit', message: 'The search reached a limit before it could give a complete answer.',
+    details: { query_snapshot: view(query), target_snapshot: view(target), limit_kind: 'search_steps', limit: 2000000 } }
+  const wrongOutcome = structuredClone(refusal)
+  wrongOutcome.outcome = 'error'
+  const missingSnapshot = structuredClone(refusal)
+  delete missingSnapshot.diagnostics[0].details.target_snapshot
+  const notFound = { envelope: 'operation_result', outcome: 'error', result: null, diagnostics: [{ code: 'document_not_found', message: 'No such document.', details: {} }] }
+  service({ '/api/v1/operations': [() => json(200, refusal), () => json(200, limit), () => json(200, wrongOutcome), () => json(200, missingSnapshot), () => json(200, notFound)] })
+  const client = new DocumentClient()
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), (failure) => {
+    assert.equal(failure.name, 'SubstructureRefusal')
+    assert.equal(failure.code, 'match_unsupported')
+    assert.equal(failure.message, 'The matcher cannot read this atom or bond, and the answer depends on it. The target drawing, bond b2: fused partially aromatic.')
+    assert.equal(failure.query.revision, 2)
+    assert.equal(failure.target.revision, 5)
+    return true
+  })
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), (failure) => {
+    assert.equal(failure.code, 'match_limit')
+    assert.match(failure.message, /Limit: search steps \(2000000\)\./)
+    return true
+  })
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { code: 'incompatible_response' })
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { code: 'incompatible_response' })
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { name: 'ApiError', code: 'document_not_found' })
+})
+
+test('a failure code that is an object property name is an ordinary API error, not a refusal', async () => {
+  const { query, target, view } = substructureReply()
+  const named = (code) => ({ envelope: 'operation_result', outcome: 'error', result: null, model_id: null, document_revision: null,
+    diagnostics: [{ code, message: `Failed as ${code}.`, details: { query_snapshot: view(query), target_snapshot: view(target) } }] })
+  service({ '/api/v1/operations': ['constructor', 'toString', '__proto__', 'hasOwnProperty'].map((code) => () => json(200, named(code))) })
+  const client = new DocumentClient()
+  for (const code of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { name: 'ApiError', code, message: `Failed as ${code}.` })
+  }
+})
+
+test('a search that does not end for one document does not stop another document from searching', () => {
+  const { createSearches, beginSearch, isLatest, isRunning, startRunning, finishRunning, leaveAll } = searchRequests
+  const searches = createSearches()
+  let running = new Map()
+  const tokenA = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', tokenA)
+  // Document B is searched while A's request is still out.
+  assert.equal(isRunning(running, 'doc-b'), false, 'A running does not make B busy')
+  const tokenB = beginSearch(searches, 'doc-b')
+  running = startRunning(running, 'doc-b', tokenB)
+  assert.equal(isRunning(running, 'doc-a') && isRunning(running, 'doc-b'), true)
+  // B ends first; A's late outcome may still be stored under A.
+  running = finishRunning(running, 'doc-b', tokenB)
+  assert.deepEqual([isRunning(running, 'doc-a'), isRunning(running, 'doc-b')], [true, false])
+  assert.equal(isLatest(searches, 'doc-a', tokenA), true, 'a late result is stored under its own document')
+  running = finishRunning(running, 'doc-a', tokenA)
+  assert.equal(running.size, 0)
+  // A newer search of the same document replaces the older: the older neither stores nor clears.
+  const first = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', first)
+  const second = beginSearch(searches, 'doc-a')
+  running = startRunning(running, 'doc-a', second)
+  assert.equal(isLatest(searches, 'doc-a', first), false)
+  assert.equal(finishRunning(running, 'doc-a', first), running, 'an older search cannot end the newer one')
+  assert.equal(isRunning(finishRunning(running, 'doc-a', first), 'doc-a'), true)
+  // Leaving drops every outcome that was still to come, and no count can go negative.
+  leaveAll(searches)
+  assert.equal(isLatest(searches, 'doc-a', second), false)
+  assert.equal(finishRunning(new Map(), 'doc-a', second).size, 0)
+})
+
+test('a substructure search after a service restart is asked about, not answered from the old token', async () => {
+  const { reply } = substructureReply()
+  const scripted = service({ '/api/v1/operations': [() => json(200, reply)] })
+  const client = new DocumentClient()
+  await client.searchSubstructure('match-query', 'match-target')
+  scripted.restart()
+  await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { code: 'service_restarted' })
 })
 
 /** C1–N2 with every recorded state somewhere, as a service with recorded states replies. */

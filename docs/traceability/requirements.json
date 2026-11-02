@@ -122,7 +122,7 @@
         },
         {
           "id": "MODEL-02.3",
-          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Recording is separate from the bounded aromaticity interpretation; no query is matched.",
+          "summary": "Radicals (singlet, doublet, triplet, unknown), query atoms (any, any but hydrogen, heteroatom, halogen, or a list of 1 to 10 elements, optionally negated), query bonds (any, or a list of single, double, triple and aromatic), aromatic, dative and unknown bonds, and attachment points 1 to 4 are recorded, refused in invalid combinations with a stable reason, saved, reopened and undone. Recording is separate from the bounded aromaticity interpretation; matching is MODEL-02.7.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/states.rs",
@@ -196,6 +196,25 @@
           ],
           "followups": [
             "P18"
+          ]
+        },
+        {
+          "id": "MODEL-02.7",
+          "summary": "A bounded substructure search of one drawing in another returns every atom and bond mapping under a named model, compares query atoms, query bonds, stated charge and isotope, reads aromatic and Kekule spellings alike through the aromaticity model, and refuses what it cannot read or finish instead of answering empty.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/substructure.rs",
+            "crates/application/src/operations/substructure.rs",
+            "apps/web/src/components/substructure-panel.tsx"
+          ],
+          "evidence": [
+            "case:substructure-search-kekule-in-aromatic",
+            "case:substructure-search-refuses-unclassified-ring",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P24"
           ]
         },
         {

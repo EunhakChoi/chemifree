@@ -1,0 +1,368 @@
+{
+  "id": "substructure-search-kekule-in-aromatic",
+  "title": "A Kekule benzene query finds its twelve atom mappings in an aromatic benzene target, with source and target atom IDs, and neither drawing changes",
+  "requirements": [
+    "MODEL-02"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-query",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Kekule query"
+        }
+      },
+      "bind": "query",
+      "capture": {
+        "query_id": "/result/document/id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "query",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 20,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 80,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$0",
+          "end": "$1",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$2",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$2",
+          "end": "$3",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$3",
+          "end": "$4",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$4",
+          "end": "$5",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$5",
+          "end": "$0",
+          "order": "single"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-target",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Aromatic target"
+        }
+      },
+      "bind": "target",
+      "capture": {
+        "target_id": "/result/document/id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 20,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 40,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 80,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$0",
+          "end": "$1",
+          "order": "aromatic"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$2",
+          "order": "aromatic"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$2",
+          "end": "$3",
+          "order": "aromatic"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$3",
+          "end": "$4",
+          "order": "aromatic"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$4",
+          "end": "$5",
+          "order": "aromatic"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$5",
+          "end": "$0",
+          "order": "aromatic"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "search-benzene",
+        "profile": "preserve-semantics",
+        "operation": "chem.substructure",
+        "parameters": {
+          "query_document_id": null,
+          "target_document_id": null
+        }
+      },
+      "substitute": {
+        "/parameters/query_document_id": "query_id",
+        "/parameters/target_document_id": "target_id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-substructure-1",
+        "result": {
+          "aromaticity_model": "chemifree-aromaticity-2",
+          "query": {
+            "document": {
+              "revision": 1
+            },
+            "session": {
+              "undo_depth": 1
+            }
+          },
+          "target": {
+            "document": {
+              "revision": 1
+            },
+            "session": {
+              "undo_depth": 1
+            }
+          },
+          "mappings": {
+            "$contains": [
+              {
+                "atoms": [
+                  {
+                    "query": "a1",
+                    "target": "a1"
+                  },
+                  {
+                    "query": "a2",
+                    "target": "a2"
+                  },
+                  {
+                    "query": "a3",
+                    "target": "a3"
+                  },
+                  {
+                    "query": "a4",
+                    "target": "a4"
+                  },
+                  {
+                    "query": "a5",
+                    "target": "a5"
+                  },
+                  {
+                    "query": "a6",
+                    "target": "a6"
+                  }
+                ],
+                "bonds": [
+                  {
+                    "query": "b1",
+                    "target": "b1"
+                  },
+                  {
+                    "query": "b2",
+                    "target": "b2"
+                  },
+                  {
+                    "query": "b3",
+                    "target": "b3"
+                  },
+                  {
+                    "query": "b4",
+                    "target": "b4"
+                  },
+                  {
+                    "query": "b5",
+                    "target": "b5"
+                  },
+                  {
+                    "query": "b6",
+                    "target": "b6"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "query",
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

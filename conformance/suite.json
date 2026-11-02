@@ -1,5 +1,5 @@
 {
-  "suite_version": 13,
+  "suite_version": 14,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -38,6 +38,8 @@
     "cases/cdxml-rich-projection.json",
     "cases/cdx-binary-interchange.json",
     "cases/smiles-import-export.json",
-    "cases/smiles-malformed-and-unsupported-refused.json"
+    "cases/smiles-malformed-and-unsupported-refused.json",
+    "cases/substructure-search-kekule-in-aromatic.json",
+    "cases/substructure-search-refuses-unclassified-ring.json"
   ]
 }

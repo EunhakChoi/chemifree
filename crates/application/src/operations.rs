@@ -16,6 +16,7 @@
 mod import;
 mod interchange;
 mod smiles;
+mod substructure;
 
 use chemifree_domain::document::Command;
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
@@ -47,6 +48,11 @@ use crate::properties::{
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 use import::{ImportFormat, ImportRequest, Staged};
 use smiles::{SmilesExportParameters, SmilesImportParameters};
+use substructure::SubstructureParameters;
+pub use substructure::{
+    AtomPair, BondPair, MATCH_CODES, MappingView, MatchCodeRow, SubstructureLimits,
+    SubstructureResult,
+};
 
 /// The operation contract version this service speaks.
 pub const OPERATION_CONTRACT: u32 = 1;
@@ -210,6 +216,8 @@ pub enum OperationResult {
     Aromaticity(Box<AromaticityResult>),
     /// `chem.identity`: canonical graph identity and an optional second snapshot comparison.
     Identity(Box<IdentityResult>),
+    /// `chem.substructure`: every mapping of a query drawing in a target drawing.
+    Substructure(Box<SubstructureResult>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -565,8 +573,8 @@ const TRANSACTION_PARTS: [Entry; 28] = [
     runs(
         "query_atom_or_bond",
         "Records query atoms (any, any heavy, heteroatom, halogen, or a possibly negated list of \
-         1–10 elements) and query bonds (any, or a list of kinds). Representation only: nothing \
-         matches a query.",
+         1–10 elements) and query bonds (any, or a list of kinds). chem.substructure matches \
+         them; recording is separate.",
     )
     .carried_out_by(&["add_atom", "update_atom", "add_bond", "update_bond"]),
     runs(
@@ -691,6 +699,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Compares bounded recorded or model-normalized graphs and reports canonical numbering and symmetry.",
+            ),
+            &[],
+        ),
+        Op::ChemSubstructure => (
+            runs(
+                id,
+                "Read-only substructure search of one drawing in another: every atom and bond mapping under a named model, or a refusal or limit.",
             ),
             &[],
         ),
@@ -1979,6 +1994,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     response.model_id = Some(p.mode.model_id().into());
                     response
                 }
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemSubstructure => match parameters::<SubstructureParameters>(parameters_value) {
+                Ok(p) => self.substructure(known, p),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::DocumentTransaction => {

@@ -81,6 +81,7 @@ import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { IdentityPanel } from '@/components/identity-panel'
+import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
@@ -724,6 +725,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
           <IdentityPanel document={document} editor={editor} />
+          <SubstructurePanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>

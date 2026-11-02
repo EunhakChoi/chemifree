@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 13,
+  "suite_version": 14,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -518,21 +518,47 @@
       "pending": null,
       "failure": null,
       "case_sha256": "4c6ebc4c30b9adacb4762f1d48c0dfc12426ee0316dccee93dfbb900efc8ea89"
+    },
+    {
+      "id": "substructure-search-kekule-in-aromatic",
+      "title": "A Kekule benzene query finds its twelve atom mappings in an aromatic benzene target, with source and target atom IDs, and neither drawing changes",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "67b3761819256426002c655fdb31a9f14a8cdf66f8fcb9edfab2ffcb185d406f"
+    },
+    {
+      "id": "substructure-search-refuses-unclassified-ring",
+      "title": "A benzene query is refused, not answered with zero mappings, when the target has a fused partially saturated ring the aromaticity model cannot classify",
+      "requirements": [
+        "MODEL-02"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "914c75920a003a9a7b19daf725c91f5c12cd035ce40780ae6ec11fbaa38696d2"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 24,
+      "passed": 25,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 14,
+      "passed": 15,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 38,
+      "passed": 40,
       "failed": 0,
       "not_run": 0
     }

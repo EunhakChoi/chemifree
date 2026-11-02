@@ -39,7 +39,8 @@ impl AtomKind {
     }
 }
 
-/// A query atom: which elements it stands for. Recorded only; nothing matches it.
+/// A query atom: which elements it stands for. Recording is separate from matching, which
+/// `substructure` does.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum QueryAtom {
     /// Any atom (`*`).
@@ -125,7 +126,8 @@ pub enum QueryBondOrder {
     Aromatic,
 }
 
-/// What a query bond stands for. Recorded only; nothing matches it.
+/// What a query bond stands for. Recording is separate from matching, which `substructure`
+/// does.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BondQuery {
     Any,

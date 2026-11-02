@@ -807,10 +807,39 @@ impl<R: DocumentRepository> Documents<R> {
         let first = self.graph_readonly(&mut sessions, id)?;
         let other = match other_id {
             None => None,
-            Some(other_id) if other_id == id => Some(first.clone()),
-            Some(other_id) => Some(self.graph_readonly(&mut sessions, other_id)?),
+            Some(other_id) => Some(self.graph_second(&mut sessions, &first, id, other_id)?),
         };
         Ok((first, other))
+    }
+
+    /// Both graphs of a comparison that always has two sides, which may be one document, read
+    /// like [`Self::graph_pair_snapshot`].
+    pub(crate) fn graph_pair(
+        &self,
+        id: &str,
+        other_id: &str,
+    ) -> Result<(GraphSnapshot, GraphSnapshot), ApplicationError> {
+        let mut sessions = self.lock();
+        parse_id(id)?;
+        parse_id(other_id)?;
+        let first = self.graph_readonly(&mut sessions, id)?;
+        let other = self.graph_second(&mut sessions, &first, id, other_id)?;
+        Ok((first, other))
+    }
+
+    /// The second graph of a pair: the first itself when it is the same document.
+    fn graph_second(
+        &self,
+        sessions: &mut Sessions,
+        first: &GraphSnapshot,
+        id: &str,
+        other_id: &str,
+    ) -> Result<GraphSnapshot, ApplicationError> {
+        if other_id == id {
+            Ok(first.clone())
+        } else {
+            self.graph_readonly(sessions, other_id)
+        }
     }
 
     fn graph_readonly(
