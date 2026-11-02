@@ -4,12 +4,14 @@ Run after building the smiles_reference example and pass its absolute path:
 
     python -I scripts/verify-smiles-rdkit.py /path/to/smiles_reference
 
-Every fixture states its expected outcome for both writers: the exact text, or a specific
-refusal code. A fixture that produces anything else, including an error, fails; nothing
-passes silently. For each text Chemifree writes, RDKit must read the same molecule as it reads
-from the fixture itself. Chemifree's canonical text must be a fixpoint, and the spellings in a
-group must give one canonical text or the same refusal. Fixtures without aromatic atoms are also
-compared atom by atom and bond by bond with RDKit's unsanitized reading of the input.
+Every fixture states its expected outcome for both writers: the exact text,
+or a specific refusal code. A fixture that produces anything else, including an
+error, fails; nothing passes silently. For each text Chemifree writes, RDKit
+must read the same molecule as it reads from the fixture itself. Chemifree's
+canonical text must be a fixpoint, and the spellings in a group must give one
+canonical text or all be refused. Fixtures without aromatic atoms are also
+compared atom by atom and bond by bond with RDKit's unsanitized reading of the
+input.
 No network and no proprietary input is used.
 """
 
@@ -42,13 +44,17 @@ Expectation = str | Refused
 
 @dataclasses.dataclass(frozen=True)
 class Fixture:
+    """One input with the exact outcome expected from each writer."""
+
     smiles: str
     recorded: Expectation
     canonical: Expectation
-    # Whether to compare the reader's atoms and bonds with RDKit's unsanitized reading.
+    # Whether to compare the reader's atoms and bonds with RDKit's
+    # unsanitized reading.
     structure: bool = True
-    # RDKit rejects some valid OpenSMILES, such as isotope digits with leading zeros. The
-    # spelling it reads instead is stated, so the comparison is explicit about the difference.
+    # RDKit rejects some valid OpenSMILES, such as isotope digits with leading
+    # zeros. The spelling it reads instead is stated, so the comparison is
+    # explicit about the difference.
     rdkit_input: str | None = None
 
 
@@ -67,14 +73,22 @@ def _fixtures() -> list[Fixture]:
         Fixture("C1CC11CC1", "C1CC11CC1", "C12(CC2)CC1"),
         Fixture("C%12CCCCC%12", "C1CCCCC1", "C1CCCCC1"),
         Fixture("C1CC2CCC1C2", "C1CC2CCC1C2", "C12CC(CC1)CC2"),
-        Fixture("CC1=CCC2CC1C2(C)C", "CC1=CCC2CC1C2(C)C", "C1(C2C(=CCC1C2)C)(C)C"),
+        Fixture(
+            "CC1=CCC2CC1C2(C)C", "CC1=CCC2CC1C2(C)C", "C1(C2C(=CCC1C2)C)(C)C"
+        ),
         Fixture("[Na+].[Cl-]", "[Na+].[Cl-]", canonical_refused),
         Fixture("[NH4+]", "[NH4+]", "[NH4+]"),
         Fixture("[CH3]", "[CH3]", "[CH3]"),
         Fixture("[OH]", "[OH]", "[OH]"),
         Fixture("[CH2]", "[CH2]", canonical_refused),
-        Fixture("[2H]C([2H])([2H])[2H]", "[2H]C([2H])([2H])[2H]", "[2H]C([2H])([2H])[2H]"),
-        Fixture("[002H]C", "[2H]C", "[2H]C", structure=False, rdkit_input="[2H]C"),
+        Fixture(
+            "[2H]C([2H])([2H])[2H]",
+            "[2H]C([2H])([2H])[2H]",
+            "[2H]C([2H])([2H])[2H]",
+        ),
+        Fixture(
+            "[002H]C", "[2H]C", "[2H]C", structure=False, rdkit_input="[2H]C"
+        ),
         Fixture(
             "[002H]C([2H])([2H])[2H]",
             "[2H]C([2H])([2H])[2H]",
@@ -88,17 +102,41 @@ def _fixtures() -> list[Fixture]:
         Fixture("N#CC(=O)O", "N#CC(=O)O", "C(C#N)(=O)O"),
         Fixture("c1ccccc1", "c1ccccc1", "c1ccccc1", structure=False),
         Fixture("C1=CC=CC=C1", "C1=CC=CC=C1", "c1ccccc1"),
-        Fixture("c1ccccc1c1ccccc1", "c1ccccc1-c1ccccc1", "c1(ccccc1)-c1ccccc1", structure=False),
+        Fixture(
+            "c1ccccc1c1ccccc1",
+            "c1ccccc1-c1ccccc1",
+            "c1(ccccc1)-c1ccccc1",
+            structure=False,
+        ),
         Fixture("c1cc[nH]c1", "c1cc[nH]c1", "c1c[nH]cc1", structure=False),
         Fixture("C1=CNC=C1", "C1=CNC=C1", "c1c[nH]cc1"),
         Fixture("c1ccncc1", "c1ccncc1", "c1ccncc1", structure=False),
-        Fixture("c1ccc2ccccc2c1", "c1ccc2ccccc2c1", "c12ccccc1cccc2", structure=False),
-        Fixture("[O-]c1ccccc1", "[O-]c1ccccc1", "c1(ccccc1)[O-]", structure=False),
+        Fixture(
+            "c1ccc2ccccc2c1",
+            "c1ccc2ccccc2c1",
+            "c12ccccc1cccc2",
+            structure=False,
+        ),
+        Fixture(
+            "[O-]c1ccccc1", "[O-]c1ccccc1", "c1(ccccc1)[O-]", structure=False
+        ),
         Fixture("C1=CC=C2CCCCC2=C1", "C1=CC=C2CCCCC2=C1", canonical_refused),
-        Fixture("c1ccc2c(c1)CCCC2", Refused("aromatic_system_unsupported"), Refused("aromatic_system_unsupported")),
-        Fixture("F/C=C/F", Refused("stereo_unsupported"), Refused("stereo_unsupported")),
+        Fixture(
+            "c1ccc2c(c1)CCCC2",
+            Refused("aromatic_system_unsupported"),
+            Refused("aromatic_system_unsupported"),
+        ),
+        Fixture(
+            "F/C=C/F",
+            Refused("stereo_unsupported"),
+            Refused("stereo_unsupported"),
+        ),
         Fixture("C=(O)", Refused("dangling_bond"), Refused("dangling_bond")),
-        Fixture("c1ccccc1:c1ccccc1", Refused("aromatic_bond_outside_ring"), Refused("aromatic_bond_outside_ring")),
+        Fixture(
+            "c1ccccc1:c1ccccc1",
+            Refused("aromatic_bond_outside_ring"),
+            Refused("aromatic_bond_outside_ring"),
+        ),
     ]
 
 
@@ -128,7 +166,9 @@ def _run(binary: pathlib.Path, *arguments: str) -> dict[str, Any]:
         text=True,
     )
     result: object = json.loads(output.stdout)
-    if not isinstance(result, dict) or not all(isinstance(k, str) for k in result):
+    if not isinstance(result, dict) or not all(
+        isinstance(k, str) for k in result
+    ):
         raise ValueError("The Chemifree response must be a JSON object.")
     return result
 
@@ -140,15 +180,15 @@ def _rdkit_canonical(smiles: str) -> str | None:
     return str(rdkit.Chem.MolToSmiles(molecule, isomericSmiles=False))
 
 
-def _outcome(
-    binary: pathlib.Path, style: str, smiles: str
-) -> str | Refused:
+def _outcome(binary: pathlib.Path, style: str, smiles: str) -> str | Refused:
     answer = _run(binary, "write", style, smiles)
     if answer["outcome"] == "text":
         text = answer["text"]
         _require(isinstance(text, str), f"{smiles}: the text must be a string")
         return str(text)
-    _require(answer["outcome"] == "refused", f"{smiles}: unexpected answer {answer}")
+    _require(
+        answer["outcome"] == "refused", f"{smiles}: unexpected answer {answer}"
+    )
     return Refused(str(answer["code"]))
 
 
@@ -166,14 +206,27 @@ def _check_structure(binary: pathlib.Path, fixture: Fixture) -> None:
     answer = _run(binary, "read", fixture.smiles)
     _require(answer["outcome"] == "read", f"{fixture.smiles}: {answer}")
     molecule = rdkit.Chem.MolFromSmiles(fixture.smiles, sanitize=False)
-    _require(molecule is not None, f"{fixture.smiles}: RDKit cannot read the input")
+    _require(
+        molecule is not None, f"{fixture.smiles}: RDKit cannot read the input"
+    )
     atoms = answer["atoms"]
-    _require(len(atoms) == molecule.GetNumAtoms(), f"{fixture.smiles}: atom count")
+    _require(
+        len(atoms) == molecule.GetNumAtoms(), f"{fixture.smiles}: atom count"
+    )
     for index, atom in enumerate(atoms):
         other = molecule.GetAtomWithIdx(index)
-        _require(atom["element"] == other.GetSymbol(), f"{fixture.smiles}: element {index}")
-        _require(atom["charge"] == other.GetFormalCharge(), f"{fixture.smiles}: charge {index}")
-        _require((atom["isotope"] or 0) == other.GetIsotope(), f"{fixture.smiles}: isotope {index}")
+        _require(
+            atom["element"] == other.GetSymbol(),
+            f"{fixture.smiles}: element {index}",
+        )
+        _require(
+            atom["charge"] == other.GetFormalCharge(),
+            f"{fixture.smiles}: charge {index}",
+        )
+        _require(
+            (atom["isotope"] or 0) == other.GetIsotope(),
+            f"{fixture.smiles}: isotope {index}",
+        )
         if atom["hydrogens"] is not None:
             _require(
                 atom["hydrogens"] == other.GetNumExplicitHs(),
@@ -198,23 +251,35 @@ def _check_structure(binary: pathlib.Path, fixture: Fixture) -> None:
     _require(ours == theirs, f"{fixture.smiles}: bonds {ours} != {theirs}")
 
 
-def _check_fixture(binary: pathlib.Path, fixture: Fixture) -> dict[str, str | Refused]:
+def _check_fixture(
+    binary: pathlib.Path, fixture: Fixture
+) -> dict[str, str | Refused]:
     results: dict[str, str | Refused] = {}
-    for style, expected in (("recorded", fixture.recorded), ("canonical", fixture.canonical)):
+    for style, expected in (
+        ("recorded", fixture.recorded),
+        ("canonical", fixture.canonical),
+    ):
         found = _outcome(binary, style, fixture.smiles)
         _check_expected(fixture, style, expected, found)
         results[style] = found
         if isinstance(found, str):
             reference = _rdkit_canonical(fixture.rdkit_input or fixture.smiles)
-            _require(reference is not None, f"{fixture.smiles}: RDKit cannot read the input")
+            _require(
+                reference is not None,
+                f"{fixture.smiles}: RDKit cannot read the input",
+            )
             _require(
                 _rdkit_canonical(found) == reference,
-                f"{fixture.smiles}: RDKit reads {found!r} as a different molecule than the input",
+                f"{fixture.smiles}: RDKit reads {found!r} as a different"
+                " molecule than the input",
             )
     canonical = results["canonical"]
     if isinstance(canonical, str):
         again = _outcome(binary, "canonical", canonical)
-        _require(again == canonical, f"{fixture.smiles}: {canonical!r} is not a fixpoint ({again!r})")
+        _require(
+            again == canonical,
+            f"{fixture.smiles}: {canonical!r} is not a fixpoint ({again!r})",
+        )
     if fixture.structure and isinstance(results["recorded"], str):
         _check_structure(binary, fixture)
     return results
@@ -236,15 +301,26 @@ def main(argv: list[str]) -> int:
     )
     binary = pathlib.Path(argv[1])
     fixtures = _fixtures()
-    outcomes = {fixture.smiles: _check_fixture(binary, fixture) for fixture in fixtures}
+    outcomes = {
+        fixture.smiles: _check_fixture(binary, fixture) for fixture in fixtures
+    }
     for group in _GROUPS:
         for smiles in group:
-            _require(smiles in outcomes, f"{smiles}: group member without a fixture")
-        # One text for every spelling, or a refusal for every spelling; never a mix. Which
-        # code refuses may differ, because the reader or the canonical form may be the one.
+            _require(
+                smiles in outcomes, f"{smiles}: group member without a fixture"
+            )
+        # One text for every spelling, or a refusal for every spelling; never
+        # a mix. Which code refuses may differ, because the reader or the
+        # canonical form may be the one.
         shown = {_group_key(outcomes[smiles]["canonical"]) for smiles in group}
-        _require(len(shown) == 1, f"{group}: spellings disagree: {sorted(shown)}")
-    _LOGGER.info("checked %d fixtures and %d spelling groups", len(fixtures), len(_GROUPS))
+        _require(
+            len(shown) == 1, f"{group}: spellings disagree: {sorted(shown)}"
+        )
+    _LOGGER.info(
+        "checked %d fixtures and %d spelling groups",
+        len(fixtures),
+        len(_GROUPS),
+    )
     return 0
 
 
