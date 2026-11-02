@@ -455,6 +455,20 @@
       "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
       "refused": {"code": "match_unsupported", "side": "query", "reason": "unsupported_ring_bond"},
       "rdkit_skipped": "the question is the matcher's refusal, not RDKit's reading of the mixed ring"
+    },
+    {
+      "name": "benzene-in-benzene-with-drawn-hydrogens",
+      "note": "drawn hydrogen atoms hang on the ring and do not change its aromatic reading",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H", "H"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [1, 7, "-"], [2, 8, "-"], [3, 9, "-"], [4, 10, "-"], [5, 11, "-"]]},
+      "expect": {"mappings": [[0, 1, 2, 3, 4, 5], [0, 5, 4, 3, 2, 1], [1, 0, 5, 4, 3, 2], [1, 2, 3, 4, 5, 0], [2, 1, 0, 5, 4, 3], [2, 3, 4, 5, 0, 1], [3, 2, 1, 0, 5, 4], [3, 4, 5, 0, 1, 2], [4, 3, 2, 1, 0, 5], [4, 5, 0, 1, 2, 3], [5, 0, 1, 2, 3, 4], [5, 4, 3, 2, 1, 0]]}
+    },
+    {
+      "name": "hydrogen-count-is-not-a-condition",
+      "note": "a stated hydrogen count restricts nothing",
+      "query": {"atoms": ["C@0"], "bonds": []},
+      "target": {"atoms": ["C@3", "C@1", "N@2"], "bonds": []},
+      "expect": {"mappings": [[0], [1]]}
     }
   ]
 }
