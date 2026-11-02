@@ -42,25 +42,6 @@ pub(super) struct Parsed {
     pub graph: MoleculeGraph,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Symbol {
-    Single,
-    Double,
-    Triple,
-    Aromatic,
-}
-
-impl Symbol {
-    fn order(self) -> BondOrder {
-        match self {
-            Self::Single => BondOrder::Single,
-            Self::Double => BondOrder::Double,
-            Self::Triple => BondOrder::Triple,
-            Self::Aromatic => BondOrder::Aromatic,
-        }
-    }
-}
-
 /// What the previous token allows next.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Prev {
@@ -86,14 +67,14 @@ struct ReadAtom {
 struct ReadBond {
     begin: usize,
     end: usize,
-    symbol: Option<Symbol>,
+    symbol: Option<BondOrder>,
     /// The bond symbol when one was written, else the atom pair's later atom.
     span: Span,
 }
 
 struct OpenRing {
     atom: usize,
-    symbol: Option<Symbol>,
+    symbol: Option<BondOrder>,
     span: Span,
     sequence: usize,
 }
@@ -124,7 +105,7 @@ struct Reader<'a> {
     anchor: Option<usize>,
     /// The atom whose ring labels are being read.
     current: Option<usize>,
-    pending: Option<(Symbol, Span)>,
+    pending: Option<(BondOrder, Span)>,
     dot: Option<Span>,
     /// Bracket atoms that named an atom class, by atom index; the class is not kept.
     classes: Vec<(usize, Span)>,
@@ -227,17 +208,29 @@ impl Reader<'_> {
         self.check_complete()
     }
 
-    fn check_complete(&self) -> Result<(), Fail> {
+    /// The refusal for a bond symbol or a dot that no atom follows, when the previous token left
+    /// one open. The spans are recorded with the token; should one be missing, the refusal
+    /// points at the current position instead.
+    fn dangling(&self) -> Option<Fail> {
         match self.previous {
             Prev::Bond | Prev::DetachedBond => {
-                let (_, span) = self.pending.expect("a pending bond follows a bond symbol");
-                return Err(at(SmilesCode::DanglingBond, span));
+                let span = self
+                    .pending
+                    .as_ref()
+                    .map_or_else(|| self.here(), |(_, span)| *span);
+                Some(at(SmilesCode::DanglingBond, span))
             }
-            Prev::Dot => {
-                let span = self.dot.expect("a dot token records its span");
-                return Err(at(SmilesCode::DanglingDot, span));
-            }
-            _ => {}
+            Prev::Dot => Some(at(
+                SmilesCode::DanglingDot,
+                self.dot.unwrap_or_else(|| self.here()),
+            )),
+            Prev::Start | Prev::Atom | Prev::Open | Prev::Close => None,
+        }
+    }
+
+    fn check_complete(&self) -> Result<(), Fail> {
+        if let Some(failure) = self.dangling() {
+            return Err(failure);
         }
         if let Some((_, offset)) = self.branches.first() {
             return Err(at(SmilesCode::UnclosedBranch, Span::new(*offset, 1)));
@@ -250,20 +243,19 @@ impl Reader<'_> {
 
     fn open_branch(&mut self) -> Result<(), Fail> {
         let span = self.here();
-        match self.previous {
-            Prev::Bond | Prev::DetachedBond => {
-                let (_, bond) = self.pending.expect("a pending bond follows a bond symbol");
-                return Err(at(SmilesCode::DanglingBond, bond));
-            }
-            Prev::Start | Prev::Open | Prev::Dot => {
-                return Err(at(SmilesCode::BranchWithoutAtom, span));
-            }
-            Prev::Atom | Prev::Close => {}
+        if let Prev::Start | Prev::Open | Prev::Dot = self.previous {
+            return Err(at(SmilesCode::BranchWithoutAtom, span));
+        }
+        if let Some(failure) = self.dangling() {
+            return Err(failure);
         }
         if self.branches.len() >= MAX_BRANCH_DEPTH {
             return Err(at(SmilesCode::BranchDepthLimit, span));
         }
-        let parent = self.anchor.expect("an atom precedes a branch");
+        // An atom precedes a branch, so there is an anchor; without one the branch has no atom.
+        let Some(parent) = self.anchor else {
+            return Err(at(SmilesCode::BranchWithoutAtom, span));
+        };
         self.branches.push((parent, self.position));
         self.previous = Prev::Open;
         self.position += 1;
@@ -275,17 +267,11 @@ impl Reader<'_> {
         let Some(&(parent, open)) = self.branches.last() else {
             return Err(at(SmilesCode::UnmatchedCloseBranch, span));
         };
-        match self.previous {
-            Prev::Bond | Prev::DetachedBond => {
-                let (_, bond) = self.pending.expect("a pending bond follows a bond symbol");
-                return Err(at(SmilesCode::DanglingBond, bond));
-            }
-            Prev::Dot => {
-                let dot = self.dot.expect("a dot token records its span");
-                return Err(at(SmilesCode::DanglingDot, dot));
-            }
-            Prev::Open => return Err(at(SmilesCode::EmptyBranch, Span::new(open, 2))),
-            Prev::Start | Prev::Atom | Prev::Close => {}
+        if let Some(failure) = self.dangling() {
+            return Err(failure);
+        }
+        if self.previous == Prev::Open {
+            return Err(at(SmilesCode::EmptyBranch, Span::new(open, 2)));
         }
         self.branches.pop();
         self.anchor = Some(parent);
@@ -297,17 +283,11 @@ impl Reader<'_> {
 
     fn dot_token(&mut self) -> Result<(), Fail> {
         let span = self.here();
-        match self.previous {
-            Prev::Start => return Err(at(SmilesCode::DotWithoutAtom, span)),
-            Prev::Bond | Prev::DetachedBond => {
-                let (_, bond) = self.pending.expect("a pending bond follows a bond symbol");
-                return Err(at(SmilesCode::DanglingBond, bond));
-            }
-            Prev::Dot => {
-                let first = self.dot.expect("a dot token records its span");
-                return Err(at(SmilesCode::DanglingDot, first));
-            }
-            Prev::Atom | Prev::Close | Prev::Open => {}
+        if self.previous == Prev::Start {
+            return Err(at(SmilesCode::DotWithoutAtom, span));
+        }
+        if let Some(failure) = self.dangling() {
+            return Err(failure);
         }
         self.dot = Some(span);
         self.anchor = None;
@@ -320,10 +300,10 @@ impl Reader<'_> {
     fn bond_token(&mut self, byte: u8) -> Result<(), Fail> {
         let span = self.here();
         let symbol = match byte {
-            b'-' => Symbol::Single,
-            b'=' => Symbol::Double,
-            b'#' => Symbol::Triple,
-            _ => Symbol::Aromatic,
+            b'-' => BondOrder::Single,
+            b'=' => BondOrder::Double,
+            b'#' => BondOrder::Triple,
+            _ => BondOrder::Aromatic,
         };
         let next = match self.previous {
             Prev::Start | Prev::Dot => return Err(at(SmilesCode::BondWithoutAtom, span)),
@@ -354,7 +334,10 @@ impl Reader<'_> {
         };
         let label = self.ring_label()?;
         let span = Span::new(start, self.position - start);
-        let atom = self.current.expect("ring labels follow an atom");
+        // A ring label follows an atom (`previous` was `Atom` or `Bond`), so one is current.
+        let Some(atom) = self.current else {
+            return Err(at(SmilesCode::RingDigitAtStart, self.here()));
+        };
         self.close_or_open_ring(label, atom, symbol, span)?;
         self.previous = Prev::Atom;
         Ok(())
@@ -367,7 +350,9 @@ impl Reader<'_> {
                 .map(|b| usize::from(b - b'0'))
         };
         if self.peek(0) != Some(b'%') {
-            let value = digit(self.peek(0)).expect("a ring label starts with a digit");
+            let Some(value) = digit(self.peek(0)) else {
+                return Err(at(SmilesCode::InvalidRingLabel, self.here()));
+            };
             self.position += 1;
             return Ok(value);
         }
@@ -399,7 +384,7 @@ impl Reader<'_> {
         &mut self,
         label: usize,
         atom: usize,
-        symbol: Option<Symbol>,
+        symbol: Option<BondOrder>,
         span: Span,
     ) -> Result<(), Fail> {
         let Some(open) = self.rings[label].take() else {
@@ -427,7 +412,7 @@ impl Reader<'_> {
         &mut self,
         begin: usize,
         end: usize,
-        symbol: Option<Symbol>,
+        symbol: Option<BondOrder>,
         span: Span,
     ) -> Result<(), Fail> {
         self.command_budget(span)?;
@@ -651,17 +636,17 @@ impl Reader<'_> {
             if value == 0 {
                 return Err(at(SmilesCode::IsotopeZero, digits));
             }
-            if value > u32::from(MAX_ISOTOPE_MASS_NUMBER) {
-                return Err(at(SmilesCode::IsotopeOutOfRange, digits));
-            }
-            atom.isotope = Some(u16::try_from(value).expect("bounded by the isotope maximum"));
+            let mass = u16::try_from(value)
+                .ok()
+                .filter(|mass| *mass <= MAX_ISOTOPE_MASS_NUMBER)
+                .ok_or_else(|| at(SmilesCode::IsotopeOutOfRange, digits))?;
+            atom.isotope = Some(mass);
         }
         if let Some((value, text)) = bracket.charge {
-            let range = i16::from(MIN_CHARGE)..=i16::from(MAX_CHARGE);
-            if !range.contains(&value) {
-                return Err(at(SmilesCode::ChargeOutOfRange, text));
-            }
-            atom.charge = i8::try_from(value).expect("bounded by the charge range");
+            atom.charge = i8::try_from(value)
+                .ok()
+                .filter(|charge| (MIN_CHARGE..=MAX_CHARGE).contains(charge))
+                .ok_or_else(|| at(SmilesCode::ChargeOutOfRange, text))?;
         }
         atom.hydrogens = Hydrogens::Specified(bracket.hydrogens);
         if let Some(class) = bracket.class {
@@ -722,11 +707,11 @@ impl Reader<'_> {
         for (index, bond) in self.bonds.iter().enumerate() {
             let ring = on_ring.contains(&bond_id(index));
             let both_aromatic = self.atoms[bond.begin].aromatic && self.atoms[bond.end].aromatic;
-            orders.push(match bond.symbol {
-                Some(Symbol::Aromatic) if !ring => {
+            orders.push(match &bond.symbol {
+                Some(BondOrder::Aromatic) if !ring => {
                     return Err(at(SmilesCode::AromaticBondOutsideRing, bond.span));
                 }
-                Some(symbol) => symbol.order(),
+                Some(order) => order.clone(),
                 None if both_aromatic && ring => BondOrder::Aromatic,
                 None => BondOrder::Single,
             });

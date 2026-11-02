@@ -558,7 +558,7 @@ fn valence_returns_the_actual_snapshot_and_does_not_edit_history() {
         &request("inspect", "chem.validate", json!({"document_id":id})),
     );
     assert_eq!(inspected["outcome"], "ok");
-    assert_eq!(inspected["model_id"], "chemifree-valence-2");
+    assert_eq!(inspected["model_id"], "chemifree-valence-3");
     assert_eq!(
         inspected["result"]["snapshot"]["document"],
         edited["result"]["document"]

@@ -138,6 +138,100 @@ fn uncertain_atoms_and_bonds_never_become_single_bond_guesses() {
     assert_eq!(doc, before);
 }
 
+fn ion(symbol: &str, charge: i8) -> Atom {
+    let mut atom = element(symbol);
+    atom.charge = charge;
+    atom
+}
+
+#[test]
+fn simple_monatomic_ions_have_valence_zero() {
+    let ions = [
+        ("Li", 1),
+        ("Na", 1),
+        ("K", 1),
+        ("Mg", 2),
+        ("Ca", 2),
+        ("F", -1),
+        ("Cl", -1),
+        ("Br", -1),
+        ("I", -1),
+    ];
+    let doc = drawing(ions.iter().map(|(s, c)| ion(s, *c)).collect(), &[]);
+    for ((symbol, charge), read) in ions.iter().zip(inspect_valence(&doc)) {
+        assert_eq!(
+            (
+                read.finding,
+                read.reason,
+                read.bond_order_sum,
+                read.hydrogen_count
+            ),
+            (Finding::Valid, None, Some(0), Some(0)),
+            "{symbol}{charge:+}"
+        );
+    }
+}
+
+#[test]
+fn only_the_listed_ions_are_added_to_the_valence_model() {
+    // Other charges of the same elements, other metals, and heavier group members stay
+    // outside the model; so do radicals on the listed ions.
+    let unlisted = [
+        ("Na", -1),
+        ("Na", 2),
+        ("Mg", 1),
+        ("Mg", 0),
+        ("Ca", 1),
+        ("Li", 0),
+        ("K", 2),
+        ("Rb", 1),
+        ("Cs", 1),
+        ("Be", 2),
+        ("Ba", 2),
+        ("Al", 3),
+        ("Fe", 2),
+        ("Fe", 3),
+        ("Zn", 2),
+        ("Cu", 1),
+    ];
+    let doc = drawing(unlisted.iter().map(|(s, c)| ion(s, *c)).collect(), &[]);
+    for ((symbol, charge), read) in unlisted.iter().zip(inspect_valence(&doc)) {
+        assert_eq!(
+            (read.finding, read.reason),
+            (Finding::Unsupported, Some("element_or_charge")),
+            "{symbol}{charge:+}"
+        );
+    }
+    let mut radical = ion("Na", 1);
+    radical.radical = Radical::Doublet;
+    let read = inspect_valence(&drawing(vec![radical], &[]));
+    assert_eq!(
+        (read[0].finding, read[0].reason),
+        (Finding::Unsupported, Some("radical_state"))
+    );
+}
+
+#[test]
+fn a_bonded_listed_ion_is_an_unusual_valence_not_an_unknown_state() {
+    let doc = drawing(
+        vec![ion("Na", 1), element("C")],
+        &[(0, 1, BondOrder::Single)],
+    );
+    let read = inspect_valence(&doc);
+    assert_eq!(
+        (read[0].finding, read[0].reason, read[0].bond_order_sum),
+        (Finding::Invalid, Some("unusual_valence"), Some(1))
+    );
+}
+
+#[test]
+fn the_model_id_names_the_table_that_includes_the_ions() {
+    assert_eq!(
+        chemifree_domain::chemistry::VALENCE_MODEL,
+        "chemifree-valence-3"
+    );
+}
+
 #[test]
 fn restricted_target_is_the_ordinary_valence_the_aromaticity_model_accepts() {
     use chemifree_domain::chemistry::restricted_target;
@@ -162,4 +256,60 @@ fn restricted_target_is_the_ordinary_valence_the_aromaticity_model_accepts() {
     // The valence model lists higher states for N and S; the restricted lookup excludes them.
     assert_eq!(restricted_target("Xx", 0), None);
     assert_eq!(restricted_target("O", 5), None);
+}
+
+#[test]
+fn restricted_target_lists_the_ions_but_the_ring_model_never_takes_them() {
+    use chemifree_domain::aromaticity::{self, Classification};
+    use chemifree_domain::chemistry::restricted_target;
+    use chemifree_domain::graph::MoleculeGraph;
+    use chemifree_domain::identity::{self, IdentityError};
+    // The shared lookup answers valence 0 for the listed ions ...
+    for (symbol, charge) in [
+        ("Li", 1),
+        ("Na", 1),
+        ("K", 1),
+        ("Mg", 2),
+        ("Ca", 2),
+        ("Cl", -1),
+    ] {
+        assert_eq!(
+            restricted_target(symbol, charge),
+            Some(0),
+            "{symbol}{charge:+}"
+        );
+    }
+    assert_eq!(restricted_target("Na", 2), None);
+    // ... and the ring model, which has its own table of ring atoms, still refuses a ring
+    // that holds one, in the Kekulé and in the aromatic spelling, whichever ion it is.
+    for (symbol, charge) in [
+        ("Na", 1),
+        ("Li", 1),
+        ("K", 1),
+        ("Mg", 2),
+        ("Ca", 2),
+        ("Cl", -1),
+    ] {
+        for (order, reason) in [
+            (BondOrder::Single, "valence_not_in_model"),
+            (BondOrder::Aromatic, "element_or_charge"),
+        ] {
+            let mut atoms = vec![element("C"); 5];
+            atoms.push(ion(symbol, charge));
+            let bonds: Vec<_> = (0..6).map(|i| (i, (i + 1) % 6, order.clone())).collect();
+            let graph = MoleculeGraph::from_document(&drawing(atoms, &bonds));
+            let result = aromaticity::perceive(&graph);
+            assert_eq!(result.systems.len(), 1, "{symbol}{charge:+}");
+            assert_eq!(
+                (result.systems[0].classification, result.systems[0].reason),
+                (Classification::Unsupported, Some(reason)),
+                "{symbol}{charge:+} with {order:?} bonds"
+            );
+            assert_eq!(
+                identity::canonicalize_chemical(&graph).map(|c| c.code),
+                Err(IdentityError::Unsupported(reason)),
+                "{symbol}{charge:+} with {order:?} bonds"
+            );
+        }
+    }
 }

@@ -3036,6 +3036,15 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Retry the same import' }).waitFor()
   await page.unroute('**/api/v1/operations', loseReply)
   assert.equal(await metalAtoms(), before + 2, 'the first request did commit')
+  // The first commit went through, so a new preview names a stale revision and is refused. That
+  // must not take the retry away: it is the only way left to learn what the first request did.
+  const stalePreview = page.waitForResponse((response) => response.url().includes('/api/v1/operations') &&
+    response.request().postDataJSON()?.parameters?.preview === true)
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await stalePreview
+  await panel.getByRole('button', { name: 'Preview SMILES import' }).isEnabled()
+  assert.equal(await panel.getByRole('button', { name: 'Retry the same import' }).count(), 1, 'a refused re-preview keeps the retry')
+  assert.equal(await metalAtoms(), before + 2, 'the refused preview imported nothing')
   await panel.getByRole('button', { name: 'Retry the same import' }).click()
   await panel.getByText(/Imported\./).waitFor()
   assert.equal(await metalAtoms(), before + 2, 'the retry was answered from the committed reply, not imported again')

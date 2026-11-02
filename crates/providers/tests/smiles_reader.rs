@@ -260,9 +260,28 @@ fn hydrogen_and_radical_state_come_from_the_valence_model() {
 }
 
 #[test]
+fn simple_ions_of_the_valence_model_read_without_a_radical_loss() {
+    for text in [
+        "[Li+]", "[Na+]", "[K+]", "[Mg+2]", "[Ca++]", "[F-]", "[Cl-]", "[Br-]", "[I-]",
+    ] {
+        let parsed = read(text);
+        assert_eq!(parsed.atoms[0].atom.radical, Radical::None, "{text}");
+        assert!(parsed.losses.is_empty(), "{text}: {:?}", parsed.losses);
+    }
+    // A salt needs no consent: neither of its ions raises a loss.
+    let salt = read("[Na+].[Cl-]");
+    assert!(salt.losses.is_empty(), "{:?}", salt.losses);
+    assert!(
+        salt.atoms
+            .iter()
+            .all(|entry| entry.atom.radical == Radical::None)
+    );
+}
+
+#[test]
 fn a_bracket_atom_without_one_consistent_radical_is_unknown_with_a_loss() {
     for text in [
-        "[C]", "[CH]", "[CH2]", "[N]", "[CH5]", "[Na+]", "[Fe]", "[S]",
+        "[C]", "[CH]", "[CH2]", "[N]", "[CH5]", "[Fe]", "[Na]", "[Na+2]", "[S]",
     ] {
         let parsed = read(text);
         assert_eq!(parsed.atoms[0].atom.radical, Radical::Unknown, "{text}");

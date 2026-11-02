@@ -14,7 +14,7 @@
       "contract":1,"request_id":"valence-snapshot","profile":"preserve-semantics",
       "operation":"chem.validate","parameters":{}
     },"expect":{
-      "outcome":"ok","document_revision":1,"model_id":"chemifree-valence-2","loss_report":[],
+      "outcome":"ok","document_revision":1,"model_id":"chemifree-valence-3","loss_report":[],
       "result":{"snapshot":{"document":{"revision":1,"atoms":[{"id":"a1","element":"C"},{"id":"a2","element":"Fe"}]},"session":{"undo_depth":1}},
         "atoms":[{"atom_id":"a1","bond_order_sum":0,"hydrogens":4,"status":"valid","reason":null},
                  {"atom_id":"a2","bond_order_sum":0,"hydrogens":null,"status":"unsupported","reason":"element_or_charge"}]},

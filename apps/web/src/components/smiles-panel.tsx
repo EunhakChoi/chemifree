@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
   ConsentRequired,
+  conversionSnapshotMatcher,
   describeSpan,
   outcomeOpen,
   type CtLoss,
@@ -49,11 +50,6 @@ interface Offer extends Stamp {
 const MESSAGE_TEXT_CHANGED = 'The text changed while a request was running; its result was not used. Run it again.'
 const MESSAGE_FORM_CHANGED = 'The output form changed while a request was running; its result was not used. Run it again.'
 
-/** Whether the drawing is still the one the result was made for; compared when either changes. */
-function useStillShown(document: DocumentView, stamp: Stamp | null) {
-  return useMemo(() => stamp !== null && sameConversionSnapshot(document, stamp.drawing), [document, stamp])
-}
-
 function message(failure: unknown, fallback: string) {
   return failure instanceof Error ? failure.message : fallback
 }
@@ -91,21 +87,19 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }, [])
 
   const generation = editor.serviceGeneration
-  // Each result is compared with the drawing once per change of either, not on every render.
-  const preparedShown = useStillShown(document, prepared)
-  const importOfferShown = useStillShown(document, importOffer)
-  const writtenShown = useStillShown(document, written)
-  const exportOfferShown = useStillShown(document, exportOffer)
-  const current = (stamp: Stamp, same: boolean) => same && stamp.generation === generation
+  // Whether a result's drawing is the one shown. The matcher keeps one answer per snapshot
+  // object, and it is made anew when the drawing changes, so each snapshot is compared with
+  // the drawing once per change however many results and offers hold it.
+  const matchesShown = useMemo(() => conversionSnapshotMatcher(document), [document])
+  const current = (stamp: Stamp) => stamp.generation === generation && matchesShown(stamp.drawing)
 
-  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared, preparedShown) ? prepared : null
-  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer, importOfferShown)
+  const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared) ? prepared : null
+  const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer)
     ? importOffer : null
-  const unconfirmedShown = useStillShown(document, unconfirmed)
   const liveUnconfirmed = livePreview && unconfirmed && unconfirmed.preview === livePreview.data.digest &&
-    current(unconfirmed, unconfirmedShown) ? unconfirmed : null
-  const liveWritten = written && written.styleVersion === styleVersion && current(written, writtenShown) ? written : null
-  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer, exportOfferShown) ? exportOffer : null
+    current(unconfirmed) ? unconfirmed : null
+  const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
+  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
   const stale = (prepared && !livePreview) || (written && !liveWritten)
   const busy = pending > 0 || editor.busy
 
@@ -139,15 +133,21 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }
 
   async function previewImport() {
+    // While a commit's outcome is open, its retry is the way to learn what happened. If that
+    // commit did go through, a new preview names a stale revision and is refused, so the retry
+    // and the preview it belongs to stay until a new preview has succeeded.
+    const keepRetry = liveUnconfirmed !== null
     const sequence = ++previewRequest.current
     const asked = { source, sourceVersion, generation, drawing: document }
     previewing.current += 1
     setPending((count) => count + 1)
     setError(null)
     setNotice(null)
-    setPrepared(null)
-    setImportOffer(null)
-    setUnconfirmed(null)
+    if (!keepRetry) {
+      setPrepared(null)
+      setImportOffer(null)
+      setUnconfirmed(null)
+    }
     try {
       const data = await editor.previewSmiles(document.id, document.revision, asked.source)
       // The service must have previewed the very drawing the request named.
@@ -156,6 +156,8 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       }
       if (alive.current && previewRequest.current === sequence) {
         setPrepared({ ...asked, data, drawing: data.snapshot })
+        setImportOffer(null)
+        setUnconfirmed(null)
       }
     } catch (failure) {
       if (alive.current && previewRequest.current === sequence) setError(message(failure, 'Preview failed.'))

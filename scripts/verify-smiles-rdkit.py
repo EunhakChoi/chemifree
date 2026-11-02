@@ -76,7 +76,7 @@ def _fixtures() -> list[Fixture]:
         Fixture(
             "CC1=CCC2CC1C2(C)C", "CC1=CCC2CC1C2(C)C", "C1(C2C(=CCC1C2)C)(C)C"
         ),
-        Fixture("[Na+].[Cl-]", "[Na+].[Cl-]", canonical_refused),
+        Fixture("[Na+].[Cl-]", "[Na+].[Cl-]", "[Na+].[Cl-]"),
         Fixture("[NH4+]", "[NH4+]", "[NH4+]"),
         Fixture("[CH3]", "[CH3]", "[CH3]"),
         Fixture("[OH]", "[OH]", "[OH]"),
