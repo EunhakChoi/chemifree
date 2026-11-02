@@ -6,7 +6,8 @@
 
 use chemifree_domain::aromaticity;
 use chemifree_domain::substructure::{
-    self, Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SEARCH_STEPS, Mapping, MatchError,
+    self, Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SCANNED_CANDIDATES, MAX_SEARCH_STEPS, Mapping,
+    MatchError,
 };
 
 use super::*;
@@ -75,12 +76,14 @@ pub struct SubstructureResult {
 pub struct SubstructureLimits {
     pub query_atoms: usize,
     pub search_steps: usize,
+    pub scanned_candidates: usize,
     pub mappings: usize,
 }
 
 const LIMITS: SubstructureLimits = SubstructureLimits {
     query_atoms: MAX_QUERY_ATOMS,
     search_steps: MAX_SEARCH_STEPS,
+    scanned_candidates: MAX_SCANNED_CANDIDATES,
     mappings: MAX_MAPPINGS,
 };
 
@@ -184,6 +187,10 @@ fn failure_reply(
             details.insert("limit_kind".into(), "search_steps".into());
             details.insert("limit".into(), MAX_SEARCH_STEPS.into());
         }
+        MatchError::ScanLimit => {
+            details.insert("limit_kind".into(), "scanned_candidates".into());
+            details.insert("limit".into(), MAX_SCANNED_CANDIDATES.into());
+        }
         MatchError::MappingLimit => {
             details.insert("limit_kind".into(), "mappings".into());
             details.insert("limit".into(), MAX_MAPPINGS.into());
@@ -205,9 +212,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         known: &Known,
         p: SubstructureParameters,
     ) -> OperationResponse {
-        let ((query_snapshot, query), target) = match self
+        let ((query_snapshot, query), (target_snapshot, target)) = match self
             .documents
-            .graph_pair_snapshot(&p.query_document_id, Some(&p.target_document_id))
+            .graph_pair(&p.query_document_id, &p.target_document_id)
         {
             Ok(pair) => pair,
             Err(error) => {
@@ -219,7 +226,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 );
             }
         };
-        let (target_snapshot, target) = target.expect("a target document was named");
         let revision = query_snapshot.document.revision;
         match substructure::find(&query, &target) {
             Ok(matches) => {

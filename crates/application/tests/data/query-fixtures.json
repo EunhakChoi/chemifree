@@ -492,6 +492,21 @@
       "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "="]]},
       "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "-"], [5, 0, "-"]]},
       "expect": {"mappings": [[0, 1], [1, 0], [2, 3], [3, 2]]}
+    },
+    {
+      "name": "bromine-not-in-tetralin",
+      "note": "no bromine exists, so the answer is empty and complete although the target's rings are never read",
+      "query": {"atoms": ["Br"], "bonds": []},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "="], [5, 0, "-"], [0, 6, "-"], [6, 7, "-"], [7, 8, "-"], [8, 9, "-"], [9, 5, "-"]]},
+      "expect": {"mappings": []}
+    },
+    {
+      "name": "wildcard-bond-in-aromatic-ring-query",
+      "note": "an any bond inside a ring with aromatic bonds: a limit of the aromaticity model",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, "~"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "unsupported_ring_bond"},
+      "rdkit_skipped": "RDKit would match the ring; the question is the matcher's refusal"
     }
   ]
 }

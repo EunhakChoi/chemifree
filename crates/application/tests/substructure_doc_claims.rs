@@ -5,7 +5,7 @@
 use chemifree_application::MATCH_CODES;
 use chemifree_domain::document::{AtomId, BondId};
 use chemifree_domain::substructure::{
-    Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SEARCH_STEPS, MatchError, Side,
+    Item, MAX_MAPPINGS, MAX_QUERY_ATOMS, MAX_SCANNED_CANDIDATES, MAX_SEARCH_STEPS, MatchError, Side,
 };
 use serde_json::Value;
 
@@ -121,6 +121,7 @@ fn every_error_the_matcher_returns_has_a_row_and_every_row_has_an_error() {
             query: None,
         },
         MatchError::StepLimit,
+        MatchError::ScanLimit,
         MatchError::MappingLimit,
     ];
     for error in every {
@@ -130,6 +131,7 @@ fn every_error_the_matcher_returns_has_a_row_and_every_row_has_an_error() {
             | MatchError::Unsatisfiable(_)
             | MatchError::Unsupported { .. }
             | MatchError::StepLimit
+            | MatchError::ScanLimit
             | MatchError::MappingLimit => {}
         }
     }
@@ -194,14 +196,16 @@ fn every_documented_example_has_the_documented_result() {
 fn the_numbers_the_contract_quotes_are_the_limits() {
     let section = contract_section();
     let limits = format!(
-        "`{{ query_atoms: {MAX_QUERY_ATOMS}, search_steps: {MAX_SEARCH_STEPS}, mappings: {MAX_MAPPINGS} }}`"
+        "`{{ query_atoms: {MAX_QUERY_ATOMS}, search_steps: {MAX_SEARCH_STEPS}, scanned_candidates: {MAX_SCANNED_CANDIDATES}, mappings: {MAX_MAPPINGS} }}`"
     );
     assert!(section.contains(&limits), "{limits}");
     assert!(section.contains(&format!("at most {MAX_QUERY_ATOMS} atoms")));
     assert!(section.contains(&format!(
-        "at most {} assignments",
-        grouped(MAX_SEARCH_STEPS)
+        "at most {} assignments and examines at most {} candidate entries",
+        grouped(MAX_SEARCH_STEPS),
+        grouped(MAX_SCANNED_CANDIDATES)
     )));
+    assert!(section.contains("any of the last three is `match_limit`"));
     assert!(section.contains(&format!("at most {} mappings", grouped(MAX_MAPPINGS))));
     assert!(section.contains(&format!(
         "finding the {}st is the limit",
@@ -284,4 +288,33 @@ fn the_unbonded_example_in_the_contract_is_what_the_matcher_does() {
         substructure::find(&graph(&["C"; 3]), &graph(&vec!["C"; 2_000])),
         Err(MatchError::MappingLimit)
     );
+}
+
+#[test]
+fn the_contract_states_what_an_empty_answer_and_a_query_bond_in_a_ring_mean() {
+    let section = contract_section();
+    // An empty answer does not say the target was read: the same unreadable target gets a
+    // refusal for one query and a complete empty answer for another.
+    assert!(section.contains("It does not say the target could be read in full"));
+    let refused = fixture("benzene-kekule-in-tetralin");
+    let empty = fixture("bromine-not-in-tetralin");
+    assert_eq!(refused["target"], empty["target"], "the same target");
+    assert_eq!(refused["refused"]["reason"], "fused_partially_aromatic");
+    assert_eq!(empty["expect"]["mappings"].as_array().unwrap().len(), 0);
+    // A query bond in a ring system with a pi bond is refused with the model's reason.
+    assert!(section.contains("This blocks the most common use of a wildcard ring bond"));
+    assert!(section.contains(
+        "It is a limit of the aromaticity model, and the matcher has no workaround for it."
+    ));
+    for name in [
+        "query-bond-in-conjugated-ring-of-query",
+        "wildcard-bond-in-aromatic-ring-query",
+    ] {
+        let refused = &fixture(name)["refused"];
+        assert_eq!(
+            (refused["side"].as_str(), refused["reason"].as_str()),
+            (Some("query"), Some("unsupported_ring_bond")),
+            "{name}"
+        );
+    }
 }

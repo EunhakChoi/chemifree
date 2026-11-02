@@ -280,7 +280,7 @@ fn a_mapping_names_query_and_target_atoms_and_bonds_unambiguously() {
     assert_eq!(result["aromaticity_model"], "chemifree-aromaticity-2");
     assert_eq!(
         result["limits"],
-        json!({"query_atoms": 64, "search_steps": 2_000_000, "mappings": 1_000})
+        json!({"query_atoms": 64, "search_steps": 2_000_000, "scanned_candidates": 20_000_000, "mappings": 1_000})
     );
     assert_eq!(
         reply["document_revision"],
@@ -734,4 +734,45 @@ fn seeded_malformed_requests_always_get_a_reply_and_change_nothing() {
         serde_json::to_value(app.document(&ethane).unwrap()).unwrap(),
         before
     );
+}
+
+#[test]
+fn every_shape_of_pair_is_searched_without_a_missing_side() {
+    let (app, _data) = application();
+    let ethane = draw(&app, "ethane", &["C", "C"], &[(0, 1, "-")]);
+    let carbon = draw(&app, "carbon", &["C"], &[]);
+    let saved = draw(&app, "saved", &["C", "C"], &[(0, 1, "-")]);
+    app.save(&saved, None, 1).unwrap();
+    app.close(&saved, None, false, None).unwrap();
+    let other = draw(&app, "other saved", &["C"], &[]);
+    app.save(&other, None, 1).unwrap();
+    app.close(&other, None, false, None).unwrap();
+    // (query, target, mappings): the same open document; two open; open and closed, both ways;
+    // two closed; the same closed document.
+    let cases = [
+        (&ethane, &ethane, 2),
+        (&carbon, &ethane, 2),
+        (&carbon, &saved, 2),
+        (&saved, &ethane, 2),
+        (&other, &saved, 2),
+        (&saved, &saved, 2),
+    ];
+    for (index, (query, target, mappings)) in cases.into_iter().enumerate() {
+        let reply = search(&app, &format!("shape-{index}"), query, target);
+        assert_eq!(reply["outcome"], "ok", "case {index}: {reply}");
+        assert_eq!(
+            reply["result"]["mappings"].as_array().unwrap().len(),
+            mappings,
+            "case {index}"
+        );
+        assert_eq!(reply["result"]["query"]["document"]["id"], *query);
+        assert_eq!(reply["result"]["target"]["document"]["id"], *target);
+    }
+    // A missing side of either shape is a document error, never a panic.
+    for (query, target) in [(&ethane, "no-such-document"), (&saved, "no-such-document")] {
+        let reply = search(&app, "missing-side", query, target);
+        assert_eq!(reply["diagnostics"][0]["code"], "document_not_found");
+    }
+    let reply = search(&app, "missing-query", "no-such-document", &ethane);
+    assert_eq!(reply["diagnostics"][0]["code"], "document_not_found");
 }

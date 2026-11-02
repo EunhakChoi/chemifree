@@ -1719,3 +1719,170 @@ fn a_dative_bond_in_a_ring_with_double_bonds_is_refused_not_read_as_drawn() {
         }
     ));
 }
+
+/// A graph of `atoms` listed with sequential IDs and bonds between their indices, without the
+/// document limits (2,000 atoms), for targets larger than a document.
+fn large(atoms: Vec<Atom>, bonds: &[(usize, usize)]) -> MoleculeGraph {
+    let serial = |index: usize| u32::try_from(index + 1).unwrap();
+    MoleculeGraph::from_parts(
+        atoms
+            .into_iter()
+            .enumerate()
+            .map(|(i, atom)| (id(serial(i)), atom))
+            .collect(),
+        bonds
+            .iter()
+            .enumerate()
+            .map(|(i, &(a, b))| {
+                (
+                    bond_id(serial(i)),
+                    chemifree_domain::document::Bond {
+                        begin: id(serial(a)),
+                        end: id(serial(b)),
+                        order: BondOrder::Single,
+                    },
+                )
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn a_disconnected_query_in_a_large_target_ends_at_a_documented_limit_in_bounded_time() {
+    // 20 sulfurs, 40 nitrogens each with 1,500 fluorine neighbors, and 50 carbons each with
+    // one. The query: six unbonded sulfurs and a bonded N-C. Sulfur has the fewest candidates,
+    // so every choice of six sulfurs is followed by the 40 nitrogens, whose 1,500 neighbors are
+    // each looked at and none is a carbon. That is about 60,000 entries per choice and almost
+    // no steps, so the scan limit ends the search long before the step limit would.
+    let mut atoms: Vec<Atom> = (0..20).map(|_| atom("S")).collect();
+    let mut bonds = Vec::new();
+    for _ in 0..40 {
+        let hub = atoms.len();
+        atoms.push(atom("N"));
+        for _ in 0..1_500 {
+            bonds.push((hub, atoms.len()));
+            atoms.push(atom("F"));
+        }
+    }
+    for _ in 0..50 {
+        let carbon = atoms.len();
+        atoms.push(atom("C"));
+        bonds.push((carbon, atoms.len()));
+        atoms.push(atom("F"));
+    }
+    let target = large(atoms, &bonds);
+    let mut query_atoms = vec!["S"; 6];
+    query_atoms.extend(["N", "C"]);
+    let query = mol(&query_atoms, &[(6, 7, "-")]);
+    let started = std::time::Instant::now();
+    assert_eq!(
+        substructure::find(&query, &target),
+        Err(MatchError::ScanLimit)
+    );
+    assert_eq!(MatchError::ScanLimit.code(), "match_limit");
+    assert!(
+        started.elapsed().as_secs() < 120,
+        "took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_disconnected_64_atom_query_in_a_large_target_is_bounded_by_the_mapping_limit() {
+    let target = large(vec![atom("C"); 20_000], &[]);
+    let query = mol(&vec!["C"; MAX_QUERY_ATOMS], &[]);
+    let started = std::time::Instant::now();
+    assert_eq!(
+        substructure::find(&query, &target),
+        Err(MatchError::MappingLimit)
+    );
+    assert!(
+        started.elapsed().as_secs() < 60,
+        "took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn an_empty_answer_does_not_say_the_target_was_read() {
+    // Kekulé tetralin: the aromaticity model cannot read its rings.
+    let tetralin = mol(
+        &["C"; 10],
+        &[
+            (0, 1, "="),
+            (1, 2, "-"),
+            (2, 3, "="),
+            (3, 4, "-"),
+            (4, 5, "="),
+            (5, 0, "-"),
+            (0, 6, "-"),
+            (6, 7, "-"),
+            (7, 8, "-"),
+            (8, 9, "-"),
+            (9, 5, "-"),
+        ],
+    );
+    // No assignment of a bromine exists, so the answer is empty and complete, and the rings
+    // were never read (no step was taken).
+    let none = substructure::find(&mol(&["Br"], &[]), &tetralin).unwrap();
+    assert!(none.mappings.is_empty());
+    assert_eq!(none.steps, 0);
+    // A query that can be assigned compares the ring bonds and is refused, for the same target.
+    assert!(matches!(
+        refusal(&mol(&["C", "C"], &[(0, 1, "-")]), &tetralin),
+        MatchError::Unsupported {
+            side: Side::Target,
+            reason: "fused_partially_aromatic",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_query_bond_in_a_ring_with_a_pi_bond_is_refused_whatever_kind_of_query_bond_it_is() {
+    // The aromaticity model reads no ring system with a query bond in it, and a ring system with
+    // a double or aromatic bond cannot be taken as drawn: it is refused, naming the model's
+    // reason, for an any bond and a list alike, in a Kekulé and an aromatic spelling.
+    for kind in ["~", "-=", "-:"] {
+        let kekule: Vec<_> = (0..6)
+            .map(|i| {
+                (
+                    i,
+                    (i + 1) % 6,
+                    if i == 5 {
+                        kind
+                    } else if i % 2 == 0 {
+                        "="
+                    } else {
+                        "-"
+                    },
+                )
+            })
+            .collect();
+        let aromatic: Vec<_> = (0..6)
+            .map(|i| (i, (i + 1) % 6, if i == 5 { kind } else { ":" }))
+            .collect();
+        for bonds in [kekule, aromatic] {
+            let query = mol(&["C"; 6], &bonds);
+            assert!(
+                matches!(
+                    refusal(&query, &aromatic_benzene()),
+                    MatchError::Unsupported {
+                        side: Side::Query,
+                        reason: "unsupported_ring_bond",
+                        ..
+                    }
+                ),
+                "{kind} in {bonds:?}"
+            );
+        }
+    }
+    // The same ring bond in a ring with no double or aromatic bond is read as drawn.
+    let all_single: Vec<_> = (0..6)
+        .map(|i| (i, (i + 1) % 6, if i == 5 { "~" } else { "-" }))
+        .collect();
+    assert_eq!(
+        found(&mol(&["C"; 6], &all_single), &cycle(6, "-")).len(),
+        12
+    );
+}

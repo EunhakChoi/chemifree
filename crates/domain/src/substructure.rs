@@ -34,11 +34,17 @@ pub const MODEL_ID: &str = "chemifree-substructure-1";
 pub const MAX_QUERY_ATOMS: usize = 64;
 /// The most candidate assignments one search tries. A step is a free target atom that passed
 /// the element and bond-count prefilter being checked against the bonds to the atoms already
-/// assigned; listing the neighbors of an assigned atom to find such atoms is not charged and
-/// takes at most as many operations as that atom has bonds. How many steps a search takes can
+/// assigned; looking at the entries of a list to find such atoms is not a step but is counted
+/// against [`MAX_SCANNED_CANDIDATES`]. How many steps a search takes can
 /// depend on the order atoms were drawn in, so a search close to this limit may finish under
 /// one numbering and not under another.
 pub const MAX_SEARCH_STEPS: usize = 2_000_000;
+/// The most candidate entries one search examines, charged or not. Every entry of a candidate
+/// list or of a neighbor list that the search looks at counts once, whether it is then skipped
+/// (assigned already, or not a candidate) or tried as a step. This bounds the work that steps
+/// leave out: with the steps and this limit, the work of a search is bounded however large the
+/// target is.
+pub const MAX_SCANNED_CANDIDATES: usize = 20_000_000;
 /// The most mappings one search returns; finding one more is a limit.
 pub const MAX_MAPPINGS: usize = 1_000;
 
@@ -86,6 +92,8 @@ pub enum MatchError {
     },
     /// The search tried [`MAX_SEARCH_STEPS`] assignments without finishing.
     StepLimit,
+    /// The search examined [`MAX_SCANNED_CANDIDATES`] candidate entries without finishing.
+    ScanLimit,
     /// There are more than [`MAX_MAPPINGS`] mappings.
     MappingLimit,
 }
@@ -98,7 +106,7 @@ impl MatchError {
             Self::QueryTooLarge { .. } => "query_too_large",
             Self::Unsatisfiable(_) => "query_unsatisfiable",
             Self::Unsupported { .. } => "match_unsupported",
-            Self::StepLimit | Self::MappingLimit => "match_limit",
+            Self::StepLimit | Self::ScanLimit | Self::MappingLimit => "match_limit",
         }
     }
 }
@@ -253,6 +261,10 @@ impl BondTest {
 /// leaves its bonds unclassified, unless it has no double or aromatic bond: then no spelling
 /// of it can be aromatic and the drawn kinds stand.
 fn effective_kinds(graph: &MoleculeGraph) -> Vec<Effective> {
+    // Without bonds there is nothing to read; the model's perception is not run for it.
+    if graph.bonds().len() == 0 {
+        return Vec::new();
+    }
     let interpretation = aromaticity::perceive(graph);
     let mut system_of: BTreeMap<BondId, usize> = BTreeMap::new();
     for (index, system) in interpretation.systems.iter().enumerate() {
@@ -542,6 +554,8 @@ struct Search<'a> {
     assigned: Vec<usize>,
     used: Vec<bool>,
     steps: usize,
+    /// Candidate entries examined, tried or not; at most [`MAX_SCANNED_CANDIDATES`].
+    scanned: usize,
     /// Complete assignments found, decided or not; at most [`MAX_MAPPINGS`].
     found: usize,
     mappings: Vec<Mapping>,
@@ -567,6 +581,10 @@ impl Search<'_> {
         let count = anchor.map_or(self.candidates[atom].len(), |a| target.adjacency[a].len());
         for at in 0..count {
             let t = anchor.map_or_else(|| self.candidates[atom][at], |a| target.adjacency[a][at].0);
+            self.scanned += 1;
+            if self.scanned > MAX_SCANNED_CANDIDATES {
+                return Err(MatchError::ScanLimit);
+            }
             if self.used[t] || self.candidates[atom].binary_search(&t).is_err() {
                 continue;
             }
@@ -599,6 +617,12 @@ impl Search<'_> {
     /// Counts a complete assignment. One that rests on an undecided comparison is not kept, but
     /// its lowest-ranked undecided comparison is remembered; the others are kept.
     fn record(&mut self) -> Result<(), MatchError> {
+        // The cheap condition first: this is the assignment that would be the 1,001st, whether
+        // or not it rests on an undecided comparison.
+        if self.found == MAX_MAPPINGS {
+            return Err(MatchError::MappingLimit);
+        }
+        self.found += 1;
         let (query, target) = (self.query, self.target);
         let mut offence: Option<Offence> = None;
         let mut note = |found: Offence| {
@@ -630,10 +654,6 @@ impl Search<'_> {
             }
             bonds.push((*query_id, target.bond_ids[bond]));
         }
-        if self.found == MAX_MAPPINGS {
-            return Err(MatchError::MappingLimit);
-        }
-        self.found += 1;
         if let Some(found) = offence {
             if self.offence.is_none_or(|known| found.rank() < known.rank()) {
                 self.offence = Some(found);
@@ -661,7 +681,9 @@ impl Search<'_> {
 /// when the search ends and some mapping rests on a target atom or bond that cannot be read;
 /// or when a limit is reached. The whole search is finished first, so the answer does not
 /// depend on the order atoms were drawn in (the limits aside, see [`MAX_SEARCH_STEPS`]). A
-/// limit takes precedence over a refusal. No error comes with a partial list.
+/// limit takes precedence over a refusal. An empty answer means that no assignment of the
+/// query atoms exists; it does not mean the target was read: the search ends before the
+/// target's rings are read when a query atom has no candidate. No error comes with a partial list.
 pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, MatchError> {
     let query = Query::read(query)?;
     let mut read = Target::read(target);
@@ -689,6 +711,7 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
         assigned: vec![UNASSIGNED; query.atoms.len()],
         used: vec![false; read.atoms.len()],
         steps: 0,
+        scanned: 0,
         found: 0,
         mappings: Vec::new(),
         offence: None,
