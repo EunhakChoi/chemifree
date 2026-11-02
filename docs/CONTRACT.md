@@ -286,7 +286,7 @@ The input is read, then written, and every row is run by the same test: the reco
 | `C1=CC=C2CCCCC2=C1` | `C1=CC=C2CCCCC2=C1` | refused: `canonical_unsupported` |
 | `CCO.CC(=O)O` | `CCO.CC(=O)O` | `C(C)(=O)O.C(C)O` |
 
-Not implemented, and refused rather than approximated: see the first paragraph of this section. The web panel (`apps/web/src/components/smiles-panel.tsx`) keeps line breaks in its text area, shows error positions in characters with the bytes in parentheses, and offers a result only for the form, drawing and service it was made for.
+Not implemented, and refused rather than approximated: see the first paragraph of this section. The web panel (`apps/web/src/components/smiles-panel.tsx`) keeps line breaks in its text area, shows error positions in characters with the bytes in parentheses, and offers a result only for the form, drawing and service it was made for. When the reply to a commit is lost, so that the import may have happened, the panel keeps the preview and offers "Retry the same import", which sends the same request ID and so gets the committed reply and never imports twice (checked by the client test `an unanswered SMILES import is an open outcome...` and the browser smoke).
 
 ## Formula and mass properties
 
