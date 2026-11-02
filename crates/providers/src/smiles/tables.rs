@@ -97,7 +97,8 @@ mod tests {
         assert_eq!(bare_organic_prefix("Cl"), Some("Cl"));
         assert_eq!(bare_organic_prefix("Ca"), Some("C"));
         assert_eq!(bare_organic_prefix("Brc"), Some("Br"));
-        assert_eq!(bare_organic_prefix("Na"), None);
+        assert_eq!(bare_organic_prefix("Na"), Some("N"));
+        assert_eq!(bare_organic_prefix("Xe"), None);
         assert_eq!(bare_aromatic_prefix("cc"), Some(("c", "C")));
         // "se" is only bracketed: bare, the s is read and the e is then unexpected.
         assert_eq!(bare_aromatic_prefix("se"), Some(("s", "S")));
