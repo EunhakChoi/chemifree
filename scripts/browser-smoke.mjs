@@ -3146,6 +3146,7 @@ step = 'after short_wide_bond_is_selectable'
   const result = panel.getByTestId('substructure-result')
   await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
   await result.getByText('Atoms (query→target): a1→a2, a2→a3', { exact: true }).waitFor()
+  await panel.getByTestId('substructure-asked').getByText(`Asked with this drawing as the query; the other drawing is ${ethanol.id}.`, { exact: true }).waitFor()
   await result.getByText('Bonds (query→target): b1→b2', { exact: true }).waitFor()
   await result.getByText(new RegExp(`Query ${query.id} revision 1; target ${ethanol.id} revision 1`)).waitFor()
   const after = await api(`/api/v1/documents/${query.id}`)
@@ -3238,6 +3239,45 @@ step = 'after short_wide_bond_is_selectable'
   await refusal.getByText(/The target drawing, bond b\d+: fused partially aromatic\./).waitFor()
   await refusal.getByText(new RegExp(`Query ${benzene.id} revision 1; target ${tetralin.id} revision 1`)).waitFor()
   assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'a refusal is not shown as an empty answer')
+  await panel.getByTestId('substructure-asked').getByText(`Asked with this drawing as the query; the other drawing is ${tetralin.id}.`, { exact: true }).waitFor()
+
+  // The document changes (a copy opens) while a search is running. The form starts again for the
+  // copy, the running search keeps the button busy until it ends, and it neither leaves the
+  // button stuck nor shows its result for the copy.
+  let heldCopy
+  const copyArrived = new Promise((resolve) => { heldCopy = resolve })
+  let releaseCopy
+  const copyHeld = new Promise((resolve) => { releaseCopy = resolve })
+  const holdCopy = async (route) => {
+    if (route.request().postDataJSON()?.operation !== 'chem.substructure') return route.continue()
+    const response = await route.fetch()
+    heldCopy()
+    await copyHeld
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdCopy)
+  await panel.getByRole('button', { name: 'Search', exact: true }).click()
+  await copyArrived
+  await panel.getByRole('button', { name: 'Searching…' }).waitFor()
+  await clickFor(page.getByRole('button', { name: 'Save', exact: true }), '/save')
+  await page.getByRole('button', { name: 'Save as copy' }).click()
+  await page.getByRole('dialog').getByLabel('Title of the copy').fill('Benzene copy')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save copy' }).click()
+  await page.getByTestId('copy-notice').waitFor()
+  await panel.getByLabel('Other drawing').getByText('Choose a drawing', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'the copy shows no result')
+  assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'the copy shows no refusal')
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'the copy is not stale: it has no earlier search')
+  releaseCopy()
+  await panel.getByRole('button', { name: 'Search', exact: true }).waitFor()
+  await page.unroute('**/api/v1/operations', holdCopy)
+  assert.equal(await panel.getByRole('button', { name: 'Search', exact: true }).isDisabled(), true, 'no search until another drawing is chosen for the copy')
+  assert.equal(await panel.getByTestId('substructure-error').count(), 0, 'a search that outlived its document does not show for the next one')
+  await panel.getByLabel('Other drawing').click()
+  await page.getByRole('option', { name: 'This drawing', exact: true }).click()
+  await panel.getByRole('button', { name: 'Search', exact: true }).click()
+  await panel.getByTestId('substructure-result').getByText('12 mapping(s) found.', { exact: true }).waitFor()
+  await panel.getByTestId('substructure-asked').getByText('Asked with this drawing as the query; the other drawing is this drawing itself.', { exact: true }).waitFor()
   results.substructure_search_panel = true
 }
 

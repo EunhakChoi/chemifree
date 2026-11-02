@@ -469,6 +469,29 @@
       "query": {"atoms": ["C@0"], "bonds": []},
       "target": {"atoms": ["C@3", "C@1", "N@2"], "bonds": []},
       "expect": {"mappings": [[0], [1]]}
+    },
+    {
+      "name": "partly-aromatic-ring-in-query",
+      "note": "five aromatic bonds and one single bond: neither normalised nor read as drawn",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, "-"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "refused": {"code": "match_unsupported", "side": "query", "reason": "mixed_ring_bonds"},
+      "rdkit_skipped": "RDKit cannot sanitize the mixed ring; the question is the matcher's refusal"
+    },
+    {
+      "name": "partly-aromatic-ring-in-target",
+      "note": "the same ring as a target for a query that compares its bonds",
+      "query": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, ":"]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, ":"], [1, 2, ":"], [2, 3, ":"], [3, 4, ":"], [4, 5, ":"], [5, 0, "-"]]},
+      "refused": {"code": "match_unsupported", "side": "target", "reason": "mixed_ring_bonds"},
+      "rdkit_skipped": "RDKit cannot sanitize the mixed ring; the question is the matcher's refusal"
+    },
+    {
+      "name": "cyclohexadiene-keeps-its-drawn-kinds",
+      "note": "a ring the model calls non-aromatic: the two double bonds are found as drawn",
+      "query": {"atoms": ["C", "C"], "bonds": [[0, 1, "="]]},
+      "target": {"atoms": ["C", "C", "C", "C", "C", "C"], "bonds": [[0, 1, "="], [1, 2, "-"], [2, 3, "="], [3, 4, "-"], [4, 5, "-"], [5, 0, "-"]]},
+      "expect": {"mappings": [[0, 1], [1, 0], [2, 3], [3, 2]]}
     }
   ]
 }

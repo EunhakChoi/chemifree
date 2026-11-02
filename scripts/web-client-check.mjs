@@ -1000,6 +1000,17 @@ test('a substructure refusal carries both snapshots, and any other error stays a
   await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { name: 'ApiError', code: 'document_not_found' })
 })
 
+test('a failure code that is an object property name is an ordinary API error, not a refusal', async () => {
+  const { query, target, view } = substructureReply()
+  const named = (code) => ({ envelope: 'operation_result', outcome: 'error', result: null, model_id: null, document_revision: null,
+    diagnostics: [{ code, message: `Failed as ${code}.`, details: { query_snapshot: view(query), target_snapshot: view(target) } }] })
+  service({ '/api/v1/operations': ['constructor', 'toString', '__proto__', 'hasOwnProperty'].map((code) => () => json(200, named(code))) })
+  const client = new DocumentClient()
+  for (const code of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { name: 'ApiError', code, message: `Failed as ${code}.` })
+  }
+})
+
 test('a substructure search after a service restart is asked about, not answered from the old token', async () => {
   const { reply } = substructureReply()
   const scripted = service({ '/api/v1/operations': [() => json(200, reply)] })

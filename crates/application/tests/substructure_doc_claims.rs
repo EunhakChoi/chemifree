@@ -199,7 +199,7 @@ fn the_numbers_the_contract_quotes_are_the_limits() {
     assert!(section.contains(&limits), "{limits}");
     assert!(section.contains(&format!("at most {MAX_QUERY_ATOMS} atoms")));
     assert!(section.contains(&format!(
-        "at most {} candidate assignments",
+        "at most {} assignments",
         grouped(MAX_SEARCH_STEPS)
     )));
     assert!(section.contains(&format!("at most {} mappings", grouped(MAX_MAPPINGS))));
@@ -215,4 +215,73 @@ fn the_operation_table_lists_the_operation() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/CONTRACT.md");
     let text = std::fs::read_to_string(path).unwrap();
     assert!(text.contains("| `chem.substructure` | `{ query_document_id, target_document_id }` |"));
+}
+
+fn repository_file(relative: &str) -> String {
+    let path = format!("{}/../../{relative}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+}
+
+#[test]
+fn the_rdkit_comparison_is_described_as_a_manual_check_everywhere() {
+    let section = contract_section();
+    assert!(section.contains(
+        "`scripts/verify-query-rdkit.py`, which is run by hand and is not part of `npm run check`"
+    ));
+    assert!(section.contains("no equivalence is claimed beyond the fixtures"));
+    assert!(
+        !section.contains("agrees with an RDKit"),
+        "the old claim is gone"
+    );
+    assert!(repository_file("README.md").contains("compared, by hand, with an RDKit 2022.03.2 Python (no equivalence is claimed beyond those fixtures)"));
+    let handoff = repository_file("docs/HANDOFF.ko.md");
+    assert!(handoff.contains(
+        "수동 실행이며 `npm run check`와 CI 밖이고 fixture 범위를 넘는 동등성은 주장하지 않는다"
+    ));
+    assert!(repository_file("docs/TRACEABILITY.ko.md").contains(
+        "수동 실행이며 `npm run check` 밖이고 fixture 범위를 넘는 동등성을 주장하지 않는다"
+    ));
+    assert!(
+        std::path::Path::new(&format!(
+            "{}/../../scripts/verify-query-rdkit.py",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .exists()
+    );
+    // The handoff quotes how many fixtures there are.
+    assert!(handoff.contains(&format!("공유 fixture {}개", fixtures().len())));
+}
+
+#[test]
+fn the_unbonded_example_in_the_contract_is_what_the_matcher_does() {
+    use chemifree_domain::document::{
+        Atom, Command, Document, DocumentId, NewAtomPositions, Point,
+    };
+    use chemifree_domain::element::Element;
+    use chemifree_domain::graph::MoleculeGraph;
+    use chemifree_domain::substructure;
+    let graph = |symbols: &[&str]| {
+        let mut document = Document::new(DocumentId::parse("claims").unwrap(), "claims").unwrap();
+        let commands: Vec<Command> = symbols
+            .iter()
+            .map(|symbol| Command::AddAtom {
+                atom: Atom::from(Element::from_symbol(symbol).unwrap()),
+                positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        for chunk in commands.chunks(500) {
+            document.apply(chunk).unwrap();
+        }
+        MoleculeGraph::from_document(&document)
+    };
+    let mut target = vec!["C"; 1_995];
+    target.extend(["N"; 5]);
+    let found = substructure::find(&graph(&["N"; 5]), &graph(&target)).unwrap();
+    assert_eq!((found.mappings.len(), found.steps), (120, 325));
+    assert!(contract_section().contains("(120 mappings, 325 steps)"));
+    assert_eq!(
+        substructure::find(&graph(&["C"; 3]), &graph(&vec!["C"; 2_000])),
+        Err(MatchError::MappingLimit)
+    );
 }

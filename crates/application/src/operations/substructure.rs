@@ -131,8 +131,8 @@ fn item(item: Item) -> (&'static str, String) {
     }
 }
 
-fn snapshot_json(snapshot: &DocumentResponse) -> Value {
-    serde_json::to_value(DocumentResult::from(snapshot.clone()))
+fn snapshot_json(snapshot: DocumentResponse) -> Value {
+    serde_json::to_value(DocumentResult::from(snapshot))
         .expect("validated document snapshots serialize to JSON")
 }
 
@@ -142,8 +142,8 @@ fn failure_reply(
     known: &Known,
     revision: u64,
     error: MatchError,
-    query: &DocumentResponse,
-    target: &DocumentResponse,
+    query: DocumentResponse,
+    target: DocumentResponse,
 ) -> OperationResponse {
     let row = MATCH_CODES
         .iter()
@@ -240,7 +240,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 response.model_id = Some(substructure::MODEL_ID.into());
                 response
             }
-            Err(error) => failure_reply(known, revision, error, &query_snapshot, &target_snapshot),
+            Err(error) => failure_reply(known, revision, error, query_snapshot, target_snapshot),
         }
     }
 }

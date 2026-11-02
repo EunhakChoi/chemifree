@@ -32,8 +32,12 @@ use crate::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
 pub const MODEL_ID: &str = "chemifree-substructure-1";
 /// The most atoms a query may have.
 pub const MAX_QUERY_ATOMS: usize = 64;
-/// The most candidate assignments one search tries. Each try of one target atom for one query
-/// atom counts as a step, whether or not it succeeds.
+/// The most candidate assignments one search tries. A step is a free target atom that passed
+/// the element and bond-count prefilter being checked against the bonds to the atoms already
+/// assigned; listing the neighbors of an assigned atom to find such atoms is not charged and
+/// takes at most as many operations as that atom has bonds. How many steps a search takes can
+/// depend on the order atoms were drawn in, so a search close to this limit may finish under
+/// one numbering and not under another.
 pub const MAX_SEARCH_STEPS: usize = 2_000_000;
 /// The most mappings one search returns; finding one more is a limit.
 pub const MAX_MAPPINGS: usize = 1_000;
@@ -392,6 +396,7 @@ fn endpoints(index: &BTreeMap<AtomId, usize>, bond: &Bond) -> (usize, usize) {
 struct Target<'g> {
     atoms: Vec<(AtomId, &'g Atom)>,
     bond_ids: Vec<BondId>,
+    /// Each bond's effective kind, read once a candidate exists for every query atom.
     effective: Vec<Effective>,
     /// Per atom: `(neighbor, bond)` indices, ordered by neighbor.
     adjacency: Vec<Vec<(usize, usize)>>,
@@ -431,7 +436,7 @@ impl<'g> Target<'g> {
         Self {
             atoms,
             bond_ids,
-            effective: effective_kinds(graph),
+            effective: Vec::new(),
             adjacency,
             by_element,
             queries,
@@ -447,19 +452,20 @@ impl<'g> Target<'g> {
             .map(|at| neighbors[at].1)
     }
 
-    /// Atoms a query atom could be assigned, by its own test and its number of bonds. An atom
-    /// whose test cannot be decided is kept.
+    /// Atoms a query atom could be assigned, in index order, by its own test and its number
+    /// of bonds. An atom whose test cannot be decided is kept.
     fn candidates(&self, test: &AtomTest, degree: usize) -> Vec<usize> {
         let mut found: Vec<usize> = Vec::new();
-        for number in 1..=118_u8 {
-            if test.elements >> number & 1 == 1 {
-                found.extend(&self.by_element[usize::from(number)]);
-            }
+        let mut numbers = test.elements;
+        while numbers != 0 {
+            found.extend(&self.by_element[numbers.trailing_zeros() as usize]);
+            numbers &= numbers - 1;
         }
         found.extend(&self.queries);
         found.retain(|&t| {
             self.adjacency[t].len() >= degree && test.check(self.atoms[t].1) != Verdict::No
         });
+        found.sort_unstable();
         found
     }
 }
@@ -506,17 +512,40 @@ fn plan(query: &Query, candidates: &[Vec<usize>]) -> Vec<Step> {
     steps
 }
 
+/// The undecided comparison that makes a target refused: the one with the lowest target atom
+/// (else bond) ID, then the lowest query ID, among all mappings.
+#[derive(Clone, Copy)]
+struct Offence {
+    reason: &'static str,
+    at: Item,
+    query: Item,
+}
+
+impl Offence {
+    /// Atoms before bonds, then the numeric IDs: a total order over what can be named.
+    fn rank(self) -> (u8, u32, u32) {
+        let number = |item: Item| match item {
+            Item::Atom(id) => (0, id.serial()),
+            Item::Bond(id) => (1, id.serial()),
+        };
+        let (kind, at) = number(self.at);
+        (kind, at, number(self.query).1)
+    }
+}
+
 struct Search<'a> {
     query: &'a Query,
     target: &'a Target<'a>,
     plan: &'a [Step],
+    /// Per query atom, the target atoms it may be assigned, in index order.
     candidates: &'a [Vec<usize>],
-    /// `allowed[query atom][target atom]`.
-    allowed: &'a [Vec<bool>],
     assigned: Vec<usize>,
     used: Vec<bool>,
     steps: usize,
+    /// Complete assignments found, decided or not; at most [`MAX_MAPPINGS`].
+    found: usize,
     mappings: Vec<Mapping>,
+    offence: Option<Offence>,
 }
 
 const UNASSIGNED: usize = usize::MAX;
@@ -528,21 +557,24 @@ impl Search<'_> {
         };
         let (query, target) = (self.query, self.target);
         let atom = step.atom;
-        // Candidates come from the neighbors of an assigned atom when there is one; only the
-        // first atom of a component draws on the whole prefilter list.
+        // Candidates come from the neighbors of the assigned neighbor with the fewest bonds when
+        // there is one; only the first atom of each part draws on the whole prefilter list.
         let anchor = step
             .back
-            .first()
-            .map(|&(earlier, _)| self.assigned[earlier]);
+            .iter()
+            .map(|&(earlier, _)| self.assigned[earlier])
+            .min_by_key(|&assigned| target.adjacency[assigned].len());
         let count = anchor.map_or(self.candidates[atom].len(), |a| target.adjacency[a].len());
         for at in 0..count {
             let t = anchor.map_or_else(|| self.candidates[atom][at], |a| target.adjacency[a][at].0);
+            if self.used[t] || self.candidates[atom].binary_search(&t).is_err() {
+                continue;
+            }
+            // A step is an assignment tried: a target atom that passed the prefilter and is
+            // free, checked against the bonds to the atoms assigned before.
             self.steps += 1;
             if self.steps > MAX_SEARCH_STEPS {
                 return Err(MatchError::StepLimit);
-            }
-            if self.used[t] || !self.allowed[atom][t] {
-                continue;
             }
             let fits = step.back.iter().all(|&(earlier, query_bond)| {
                 target
@@ -564,17 +596,24 @@ impl Search<'_> {
         Ok(())
     }
 
-    /// Keeps a complete assignment, unless some comparison it rests on was undecided.
+    /// Counts a complete assignment. One that rests on an undecided comparison is not kept, but
+    /// its lowest-ranked undecided comparison is remembered; the others are kept.
     fn record(&mut self) -> Result<(), MatchError> {
         let (query, target) = (self.query, self.target);
+        let mut offence: Option<Offence> = None;
+        let mut note = |found: Offence| {
+            if offence.is_none_or(|known| found.rank() < known.rank()) {
+                offence = Some(found);
+            }
+        };
         for (q, (query_id, test)) in query.atoms.iter().enumerate() {
             let (target_id, atom) = target.atoms[self.assigned[q]];
             if let Verdict::Undecided(reason) = test.check(atom) {
-                return Err(undecided(
+                note(Offence {
                     reason,
-                    Item::Atom(target_id),
-                    Item::Atom(*query_id),
-                ));
+                    at: Item::Atom(target_id),
+                    query: Item::Atom(*query_id),
+                });
             }
         }
         let mut bonds = Vec::with_capacity(query.bonds.len());
@@ -583,16 +622,23 @@ impl Search<'_> {
                 .bond_between(self.assigned[*a], self.assigned[*b])
                 .expect("every query bond was matched while assigning");
             if let Verdict::Undecided(reason) = test.check(target.effective[bond]) {
-                return Err(undecided(
+                note(Offence {
                     reason,
-                    Item::Bond(target.bond_ids[bond]),
-                    Item::Bond(*query_id),
-                ));
+                    at: Item::Bond(target.bond_ids[bond]),
+                    query: Item::Bond(*query_id),
+                });
             }
             bonds.push((*query_id, target.bond_ids[bond]));
         }
-        if self.mappings.len() == MAX_MAPPINGS {
+        if self.found == MAX_MAPPINGS {
             return Err(MatchError::MappingLimit);
+        }
+        self.found += 1;
+        if let Some(found) = offence {
+            if self.offence.is_none_or(|known| found.rank() < known.rank()) {
+                self.offence = Some(found);
+            }
+            return Ok(());
         }
         let mut atoms: Vec<_> = query
             .atoms
@@ -607,30 +653,23 @@ impl Search<'_> {
     }
 }
 
-fn undecided(reason: &'static str, at: Item, query: Item) -> MatchError {
-    MatchError::Unsupported {
-        side: Side::Target,
-        reason,
-        at: Some(at),
-        query: Some(query),
-    }
-}
-
 /// Finds every mapping of `query` into `target`.
 ///
 /// # Errors
 ///
 /// A [`MatchError`] when the query is empty, too large, cannot be satisfied or cannot be read;
-/// when a mapping would rest on a target atom or bond that cannot be read; or when a limit is
-/// reached. No error comes with a partial list.
+/// when the search ends and some mapping rests on a target atom or bond that cannot be read;
+/// or when a limit is reached. The whole search is finished first, so the answer does not
+/// depend on the order atoms were drawn in (the limits aside, see [`MAX_SEARCH_STEPS`]). A
+/// limit takes precedence over a refusal. No error comes with a partial list.
 pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, MatchError> {
     let query = Query::read(query)?;
-    let target = Target::read(target);
+    let mut read = Target::read(target);
     let candidates: Vec<Vec<usize>> = query
         .atoms
         .iter()
         .enumerate()
-        .map(|(q, (_, test))| target.candidates(test, query.adjacency[q].len()))
+        .map(|(q, (_, test))| read.candidates(test, query.adjacency[q].len()))
         .collect();
     if candidates.iter().any(Vec::is_empty) {
         return Ok(Matches {
@@ -638,34 +677,37 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
             steps: 0,
         });
     }
-    let allowed: Vec<Vec<bool>> = candidates
-        .iter()
-        .map(|list| {
-            let mut row = vec![false; target.atoms.len()];
-            for &t in list {
-                row[t] = true;
-            }
-            row
-        })
-        .collect();
+    // Perceiving aromaticity costs the whole target, so it waits until a query atom can be
+    // assigned at all.
+    read.effective = effective_kinds(target);
     let plan = plan(&query, &candidates);
     let mut search = Search {
         query: &query,
-        target: &target,
+        target: &read,
         plan: &plan,
         candidates: &candidates,
-        allowed: &allowed,
         assigned: vec![UNASSIGNED; query.atoms.len()],
-        used: vec![false; target.atoms.len()],
+        used: vec![false; read.atoms.len()],
         steps: 0,
+        found: 0,
         mappings: Vec::new(),
+        offence: None,
     };
     search.extend(0)?;
     let Search {
         steps,
         mut mappings,
+        offence,
         ..
     } = search;
+    if let Some(Offence { reason, at, query }) = offence {
+        return Err(MatchError::Unsupported {
+            side: Side::Target,
+            reason,
+            at: Some(at),
+            query: Some(query),
+        });
+    }
     mappings.sort_unstable_by(|a, b| {
         a.atoms
             .iter()

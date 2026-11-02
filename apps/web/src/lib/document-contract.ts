@@ -272,13 +272,13 @@ export class SubstructureRefusal extends Error {
 }
 
 /** The outcome each `chem.substructure` code is reported with. */
-const SUBSTRUCTURE_OUTCOMES: Readonly<Record<string, 'error' | 'unsupported'>> = {
-  empty_query: 'error',
-  query_too_large: 'error',
-  query_unsatisfiable: 'error',
-  match_unsupported: 'unsupported',
-  match_limit: 'error',
-}
+const SUBSTRUCTURE_OUTCOMES: ReadonlyMap<string, 'error' | 'unsupported'> = new Map([
+  ['empty_query', 'error'],
+  ['query_too_large', 'error'],
+  ['query_unsatisfiable', 'error'],
+  ['match_unsupported', 'unsupported'],
+  ['match_limit', 'error'],
+])
 
 /** ID and revision alone can be reused across service processes. Compare the analyzed graph
  * as well, so a replacement snapshot cannot inherit an earlier scientific result. */
@@ -1093,6 +1093,25 @@ interface Unconfirmed {
   sentTo?: string
 }
 
+/** What an operation reply says first about why it failed, as far as it can be read. */
+function firstDiagnostic(value: unknown): { code: string | null; message: string | null; details: Record<string, unknown> } {
+  const first: unknown = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
+  return {
+    code: isRecord(first) && typeof first.code === 'string' ? first.code : null,
+    message: isRecord(first) && typeof first.message === 'string' ? first.message : null,
+    details: isRecord(first) && isRecord(first.details) ? first.details : {},
+  }
+}
+
+/** A snapshot an operation reply carries (`document`, `session`, `recovery`), as a document view. */
+function snapshotOf(raw: Record<string, unknown>): DocumentView {
+  const response = { api_version: API_VERSION, ...raw }
+  if (!isDocumentResponse(response)) {
+    throw new ApiError('incompatible_response', 'The local service returned an incompatible document.', 200)
+  }
+  return withStates(response).document
+}
+
 function restarted(status: number) {
   return new ApiError(
     'service_restarted',
@@ -1831,15 +1850,15 @@ export class DocumentClient {
     }, 'reload')
     const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
     if (!isRecord(value) || value.outcome !== 'ok') {
-      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
-      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not compare these graphs.'
-      const details = isRecord(first) && isRecord(first.details) ? first.details : null
-      const reason = details && typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
-      if (reason && (details?.side === 'source' || details?.side === 'target')) {
+      const diagnostic = firstDiagnostic(value)
+      const message = diagnostic.message ?? 'The local service could not compare these graphs.'
+      const details = diagnostic.details
+      const reason = typeof details.reason === 'string' ? details.reason.replaceAll('_', ' ') : null
+      if (reason && (details.side === 'source' || details.side === 'target')) {
         if (!isRecord(value) || value.model_id !== expectedModel || value.result !== null || !isRecord(details.snapshot)) {
           throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
         }
-        const snapshot = DocumentClient.document({ api_version: API_VERSION, ...details.snapshot }).document
+        const snapshot = snapshotOf(details.snapshot)
         const target = details.side === 'target'
         if (snapshot.id !== (target ? otherId : id) || (!target && snapshot.revision !== value.document_revision)) {
           throw new ApiError('incompatible_response', 'The local service returned an incompatible identity failure.', 200)
@@ -1913,16 +1932,15 @@ export class DocumentClient {
     const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible substructure search.', 200)
     if (!isRecord(value) || !Array.isArray(value.diagnostics)) throw incompatible()
     if (value.outcome !== 'ok') {
-      const first: unknown = value.diagnostics[0]
-      if (!isRecord(first) || typeof first.code !== 'string' || typeof first.message !== 'string') {
+      const { code, message, details } = firstDiagnostic(value)
+      if (code === null || message === null) {
         throw new ApiError('analysis_unavailable', 'The local service could not search the drawings.', 200)
       }
-      const details = isRecord(first.details) ? first.details : {}
-      if (!(first.code in SUBSTRUCTURE_OUTCOMES)) throw new ApiError(first.code, first.message, 200)
-      if (SUBSTRUCTURE_OUTCOMES[first.code] !== value.outcome || value.result !== null || value.model_id !== 'chemifree-substructure-1' ||
+      if (!SUBSTRUCTURE_OUTCOMES.has(code)) throw new ApiError(code, message, 200)
+      if (SUBSTRUCTURE_OUTCOMES.get(code) !== value.outcome || value.result !== null || value.model_id !== 'chemifree-substructure-1' ||
           !isRecord(details.query_snapshot) || !isRecord(details.target_snapshot)) throw incompatible()
-      const query = DocumentClient.document({ api_version: API_VERSION, ...details.query_snapshot }).document
-      const target = DocumentClient.document({ api_version: API_VERSION, ...details.target_snapshot }).document
+      const query = snapshotOf(details.query_snapshot)
+      const target = snapshotOf(details.target_snapshot)
       if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
           (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
       const words = (key: string) => typeof details[key] === 'string' ? details[key].replaceAll('_', ' ') : null
@@ -1931,14 +1949,14 @@ export class DocumentClient {
         ? ` The ${details.side} drawing${subject === '' ? '' : `, ${subject}`}: ${words('reason') ?? 'not readable'}.`
         : ''
       const limit = typeof details.limit_kind === 'string' ? ` Limit: ${words('limit_kind')} (${String(details.limit)}).` : ''
-      throw new SubstructureRefusal(first.code, `${first.message}${where}${limit}`, query, target)
+      throw new SubstructureRefusal(code, `${message}${where}${limit}`, query, target)
     }
     const result = value.result
     if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) || value.loss_report.length !== 0 ||
         !isRecord(result) || !isRecord(result.query) || !isRecord(result.target) || !isRecord(result.limits) ||
         result.aromaticity_model !== 'chemifree-aromaticity-2' || !isCount(result.steps) || !Array.isArray(result.mappings)) throw incompatible()
-    const query = DocumentClient.document({ api_version: API_VERSION, ...result.query }).document
-    const target = DocumentClient.document({ api_version: API_VERSION, ...result.target }).document
+    const query = snapshotOf(result.query)
+    const target = snapshotOf(result.target)
     const limits = result.limits
     if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
         (queryId === targetId && !sameConversionSnapshot(query, target)) ||
@@ -1983,13 +2001,10 @@ export class DocumentClient {
       parameters: { document_id: id, expected_revision: expectedRevision, to, selection_before: selection, selection_after: selection },
     }, 'reload')
     if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
-      const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
-      const code = isRecord(first) && typeof first.code === 'string' ? first.code : 'analysis_unavailable'
-      const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not convert aromaticity.'
-      const details = isRecord(first) && isRecord(first.details) ? first.details : null
-      throw new ApiError(code, message, 200, {
-        currentRevision: details && isCount(details.current_revision) ? details.current_revision : undefined,
-        stateReason: details && typeof details.reason === 'string' ? details.reason : undefined,
+      const { code, message, details } = firstDiagnostic(value)
+      throw new ApiError(code ?? 'analysis_unavailable', message ?? 'The local service could not convert aromaticity.', 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        stateReason: typeof details.reason === 'string' ? details.reason : undefined,
       })
     }
     if (value.model_id !== 'chemifree-aromaticity-2') {

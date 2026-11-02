@@ -1078,9 +1078,16 @@ fn readings(graph: &MoleculeGraph) -> std::collections::BTreeMap<BondId, Reading
     readings
 }
 
-/// The brute-force answer. `None` means the query itself is refused; `Some(Err(()))` means
-/// a mapping rests on an undecided comparison; otherwise the mappings as target indices.
-fn brute_force(query: &MoleculeGraph, target: &MoleculeGraph) -> Option<Result<Vec<Vec<u32>>, ()>> {
+/// The undecided comparison a refusal names: the target atom (else bond), then the query
+/// item, with atoms before bonds and the lowest serials first.
+type Offence = ((u8, u32, u32), Item, Item);
+
+/// The brute-force answer. `None` means the query itself is refused; `Some(Err(offence))`
+/// means a mapping rests on an undecided comparison; otherwise the mappings as target indices.
+fn brute_force(
+    query: &MoleculeGraph,
+    target: &MoleculeGraph,
+) -> Option<Result<Vec<Vec<u32>>, Offence>> {
     let query_atoms: Vec<_> = query.atoms().collect();
     let target_atoms: Vec<_> = target.atoms().collect();
     let query_readings = readings(query);
@@ -1104,23 +1111,29 @@ fn brute_force(query: &MoleculeGraph, target: &MoleculeGraph) -> Option<Result<V
                 other => Some(vec![other]),
             },
         };
-        query_tests.push((bond.begin, bond.end, test));
+        query_tests.push((bond_id, bond.begin, bond.end, test));
     }
     let count = query_atoms.len();
     let mut found = Vec::new();
-    let mut undecided = false;
+    let mut offence: Option<Offence> = None;
     let mut assigned = vec![0_usize; count];
     loop {
         // Advance a counter over target^count; reject repeats and mismatches.
         let distinct = (0..count).all(|i| (0..i).all(|j| assigned[i] != assigned[j]));
         if distinct {
             let mut ok = true;
-            let mut used_undecided = false;
-            for (q, &(_, qatom)) in query_atoms.iter().enumerate() {
-                let (_, tatom) = target_atoms[assigned[q]];
+            let mut offences: Vec<Offence> = Vec::new();
+            for (q, &(qid, qatom)) in query_atoms.iter().enumerate() {
+                let (tid, tatom) = target_atoms[assigned[q]];
                 match (qatom.kind.element(), tatom.kind.element()) {
                     (_, None) => {
-                        used_undecided |= !matches!(qatom.kind, AtomKind::Query(QueryAtom::Any));
+                        if !matches!(qatom.kind, AtomKind::Query(QueryAtom::Any)) {
+                            offences.push((
+                                (0, tid.serial(), qid.serial()),
+                                Item::Atom(tid),
+                                Item::Atom(qid),
+                            ));
+                        }
                     }
                     (Some(qe), Some(te)) => {
                         ok &= qe == te
@@ -1145,7 +1158,7 @@ fn brute_force(query: &MoleculeGraph, target: &MoleculeGraph) -> Option<Result<V
                 }
             }
             if ok {
-                for (a, b, test) in &query_tests {
+                for (query_bond, a, b, test) in &query_tests {
                     let qa = query_atoms.iter().position(|(id, _)| id == a).unwrap();
                     let qb = query_atoms.iter().position(|(id, _)| id == b).unwrap();
                     let bond = target.bonds().find(|(_, tb)| {
@@ -1158,14 +1171,20 @@ fn brute_force(query: &MoleculeGraph, target: &MoleculeGraph) -> Option<Result<V
                     };
                     if let Some(kinds) = test {
                         match target_readings[&tid] {
-                            Reading::Undecided => used_undecided = true,
+                            Reading::Undecided => offences.push((
+                                (1, tid.serial(), query_bond.serial()),
+                                Item::Bond(tid),
+                                Item::Bond(*query_bond),
+                            )),
                             reading => ok &= kinds.contains(&reading),
                         }
                     }
                 }
             }
             if ok {
-                undecided |= used_undecided;
+                if let Some(lowest) = offences.iter().min_by_key(|o| o.0) {
+                    offence = offence.into_iter().chain([*lowest]).min_by_key(|o| o.0);
+                }
                 found.push(
                     assigned
                         .iter()
@@ -1178,8 +1197,8 @@ fn brute_force(query: &MoleculeGraph, target: &MoleculeGraph) -> Option<Result<V
         let mut position = 0;
         loop {
             if position == count {
-                return Some(if undecided {
-                    Err(())
+                return Some(if let Some(offence) = offence {
+                    Err(offence)
                 } else {
                     Ok(sorted(found, &query_atoms, &target_atoms))
                 });
@@ -1259,11 +1278,17 @@ fn seeded_random_graphs_agree_with_brute_force_or_are_honestly_refused() {
                 }),
             ) => refused += 1,
             (
-                Some(Err(())),
+                Some(Err((_, at, compared))),
                 Err(MatchError::Unsupported {
-                    side: Side::Target, ..
+                    side: Side::Target,
+                    at: Some(named),
+                    query: Some(named_query),
+                    ..
                 }),
-            ) => refused += 1,
+            ) => {
+                assert_eq!((named, named_query), (at, compared), "seed {seed}");
+                refused += 1;
+            }
             (Some(Ok(mappings)), Ok(matches)) => {
                 verify(&query, &target, &matches);
                 assert_eq!(assignments(&matches), mappings, "seed {seed}");
@@ -1450,4 +1475,247 @@ fn an_atom_with_too_few_bonds_is_never_tried() {
         matches.steps, 0,
         "the bond count rules the atom out before any step"
     );
+}
+
+/// A graph with the given IDs, listed in the given order, so that the order of the lists (the
+/// order the search visits atoms in) can change while the IDs stay.
+fn listed(
+    atoms: &[(u32, &str)],
+    bonds: &[(u32, u32, u32, &str)],
+    descending: bool,
+) -> MoleculeGraph {
+    let mut atom_rows: Vec<_> = atoms.iter().map(|&(n, spec)| (id(n), atom(spec))).collect();
+    let mut bond_rows: Vec<_> = bonds
+        .iter()
+        .map(|&(n, a, b, kind)| {
+            (
+                bond_id(n),
+                chemifree_domain::document::Bond {
+                    begin: id(a),
+                    end: id(b),
+                    order: order(kind),
+                },
+            )
+        })
+        .collect();
+    if descending {
+        atom_rows.reverse();
+        bond_rows.reverse();
+    }
+    MoleculeGraph::from_parts(atom_rows, bond_rows)
+}
+
+#[test]
+fn the_refusal_names_the_lowest_undecided_item_whatever_order_the_search_visits_atoms_in() {
+    // Two undecided bonds (a list of kinds, b1, and an unknown bond, b2) and a decided bond
+    // (b3): the single query bond has decided and undecided mappings. The refusal must not
+    // depend on which a search reaches first, so it names the lowest bond, b1, and its reason.
+    let atoms = [(1, "C"), (2, "C"), (3, "C"), (4, "C"), (5, "C"), (6, "C")];
+    let query = mol(&["C", "C"], &[(0, 1, "-")]);
+    for descending in [false, true] {
+        let bonds = [(1, 1, 2, "-="), (2, 3, 4, "?"), (3, 5, 6, "-")];
+        let expected = MatchError::Unsupported {
+            side: Side::Target,
+            reason: "query_bond",
+            at: Some(Item::Bond(bond_id(1))),
+            query: Some(Item::Bond(bond_id(1))),
+        };
+        assert_eq!(
+            refusal(&query, &listed(&atoms, &bonds, descending)),
+            expected
+        );
+        // The same bonds numbered the other way round: now the unknown bond is the lowest.
+        let swapped = [(1, 3, 4, "?"), (2, 1, 2, "-="), (3, 5, 6, "-")];
+        assert_eq!(
+            refusal(&query, &listed(&atoms, &swapped, descending)),
+            MatchError::Unsupported {
+                side: Side::Target,
+                reason: "unknown_bond",
+                at: Some(Item::Bond(bond_id(1))),
+                query: Some(Item::Bond(bond_id(1))),
+            }
+        );
+    }
+}
+
+#[test]
+fn an_undecided_atom_is_named_before_an_undecided_bond_and_lower_ids_first() {
+    // The query C-C finds C(a1)-Q(a2) (undecided atom a2) and C(a3)-C(a4) over a list bond
+    // (undecided bond b2); the atom is named.
+    let atoms = [(1, "C"), (2, "Q"), (3, "C"), (4, "C")];
+    let bonds = [(1, 1, 2, "-"), (2, 3, 4, "-=")];
+    let query = mol(&["C", "C"], &[(0, 1, "-")]);
+    for descending in [false, true] {
+        match refusal(&query, &listed(&atoms, &bonds, descending)) {
+            MatchError::Unsupported {
+                side: Side::Target,
+                reason,
+                at,
+                ..
+            } => assert_eq!((reason, at), ("target_query_atom", Some(Item::Atom(id(2))))),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_limit_counts_undecided_mappings_and_takes_precedence_over_a_refusal() {
+    let carbon = mol(&["C"], &[]);
+    // 999 carbons and one query atom: 1,000 mappings, one of them undecided: a refusal.
+    let mut atoms = vec!["C"; MAX_MAPPINGS - 1];
+    atoms.push("Q");
+    assert!(matches!(
+        refusal(&carbon, &mol(&atoms, &[])),
+        MatchError::Unsupported {
+            reason: "target_query_atom",
+            ..
+        }
+    ));
+    // One more carbon: 1,001 mappings, which is the limit, however the atoms are ordered.
+    for query_first in [false, true] {
+        let mut atoms = vec!["C"; MAX_MAPPINGS];
+        atoms.insert(if query_first { 0 } else { MAX_MAPPINGS }, "Q");
+        assert_eq!(
+            refusal(&carbon, &mol(&atoms, &[])),
+            MatchError::MappingLimit
+        );
+    }
+}
+
+#[test]
+fn unbonded_query_atoms_are_charged_for_assignments_tried_not_for_candidates_scanned() {
+    // Five unbonded nitrogens in a target with five of them among 2,000 atoms: every ordered
+    // choice is 5 + 20 + 60 + 120 + 120 assignments, and used atoms are not charged again.
+    let mut atoms = vec!["C"; 1_995];
+    atoms.extend(["N"; 5]);
+    let target = mol(&atoms, &[]);
+    let five = mol(&["N"; 5], &[]);
+    let matches = substructure::find(&five, &target).unwrap();
+    assert_eq!(matches.mappings.len(), 120);
+    assert_eq!(matches.steps, 325);
+    // Six cannot map into five.
+    let six = mol(&["N"; 6], &[]);
+    let none = substructure::find(&six, &target).unwrap();
+    assert!(none.mappings.is_empty());
+    // Seven nitrogens: 5,040 ordered choices of six, which is the mapping limit, not the step
+    // limit; so are three unbonded carbons in 2,000 atoms.
+    let mut more = vec!["C"; 1_993];
+    more.extend(["N"; 7]);
+    assert_eq!(
+        substructure::find(&six, &mol(&more, &[])),
+        Err(MatchError::MappingLimit)
+    );
+    assert_eq!(
+        substructure::find(&mol(&["C"; 3], &[]), &mol(&vec!["C"; 2_000], &[])),
+        Err(MatchError::MappingLimit)
+    );
+}
+
+#[test]
+fn a_hub_with_many_used_or_filtered_neighbors_does_not_spend_steps() {
+    // A carbon with 400 chlorine neighbors and one oxygen. The query C-O has one candidate for
+    // each atom; the hub's other 400 neighbors are scanned but not charged.
+    let mut atoms = vec!["C"];
+    atoms.extend(vec!["Cl"; 400]);
+    atoms.push("O");
+    let bonds: Vec<_> = (1..atoms.len()).map(|i| (0, i, "-")).collect();
+    let hub = mol(&atoms, &bonds);
+    let matches = substructure::find(&mol(&["C", "O"], &[(0, 1, "-")]), &hub).unwrap();
+    assert_eq!(matches.mappings.len(), 1);
+    assert_eq!(matches.steps, 2);
+    // A query chlorine on a carbon: the carbon (one candidate) once, then each chlorine once;
+    // the oxygen, filtered by the element, is not charged.
+    let all = substructure::find(&mol(&["Cl", "C"], &[(0, 1, "-")]), &hub).unwrap();
+    assert_eq!(all.mappings.len(), 400);
+    assert_eq!(all.steps, 1 + 400);
+}
+
+#[test]
+fn a_drawn_single_in_an_aromatic_ring_is_aromatic_only_as_part_of_a_complete_kekule_pattern() {
+    // Alternating singles and doubles that cover every ring atom once: aromatic, so a single
+    // query bond does not match them; as a query the same drawing is aromatic.
+    let single = mol(&["C", "C"], &[(0, 1, "-")]);
+    assert!(found(&single, &kekule_benzene()).is_empty());
+    assert_eq!(found(&aromatic_benzene(), &kekule_benzene()).len(), 12);
+    assert_eq!(found(&kekule_benzene(), &kekule_benzene()).len(), 12);
+    // A ring that mixes aromatic bonds with one single bond is not read: it is neither
+    // normalised to aromatic nor kept as drawn. In the query:
+    let mixed: Vec<_> = (0..6)
+        .map(|i| (i, (i + 1) % 6, if i == 5 { "-" } else { ":" }))
+        .collect();
+    let mixed_ring = mol(&["C"; 6], &mixed);
+    assert!(matches!(
+        refusal(&mixed_ring, &aromatic_benzene()),
+        MatchError::Unsupported {
+            side: Side::Query,
+            reason: "mixed_ring_bonds",
+            ..
+        }
+    ));
+    // ...and in the target, for a query that compares its bonds.
+    assert!(matches!(
+        refusal(&aromatic_benzene(), &mixed_ring),
+        MatchError::Unsupported {
+            side: Side::Target,
+            reason: "mixed_ring_bonds",
+            ..
+        }
+    ));
+    // A query that compares none of its bonds is still answered.
+    assert_eq!(found(&mol(&["C"], &[]), &mixed_ring).len(), 6);
+}
+
+#[test]
+fn a_ring_the_model_calls_non_aromatic_keeps_its_drawn_kinds_in_query_and_target() {
+    // Cyclohexa-1,3-diene: two double bonds and four single bonds, as drawn.
+    let diene = mol(
+        &["C"; 6],
+        &[
+            (0, 1, "="),
+            (1, 2, "-"),
+            (2, 3, "="),
+            (3, 4, "-"),
+            (4, 5, "-"),
+            (5, 0, "-"),
+        ],
+    );
+    assert_eq!(
+        aromaticity::perceive(&diene).systems[0].classification,
+        Classification::NonAromatic
+    );
+    assert_eq!(found(&mol(&["C", "C"], &[(0, 1, "=")]), &diene).len(), 4);
+    assert_eq!(found(&mol(&["C", "C"], &[(0, 1, "-")]), &diene).len(), 8);
+    assert!(
+        found(
+            &mol(&["C", "C"], &[(0, 1, "=:")]),
+            &mol(&["C", "C"], &[(0, 1, "-")])
+        )
+        .is_empty()
+    );
+    // As a query the same ring needs its own drawn kinds in the target.
+    assert_eq!(found(&diene, &diene).len(), 2);
+    assert!(found(&diene, &kekule_benzene()).is_empty());
+}
+
+#[test]
+fn a_dative_bond_in_a_ring_with_double_bonds_is_refused_not_read_as_drawn() {
+    let ring = mol(
+        &["C"; 6],
+        &[
+            (0, 1, "="),
+            (1, 2, "-"),
+            (2, 3, "="),
+            (3, 4, "-"),
+            (4, 5, "="),
+            (5, 0, ">"),
+        ],
+    );
+    assert!(matches!(
+        refusal(&mol(&["C", "C"], &[(0, 1, "=")]), &ring),
+        MatchError::Unsupported {
+            side: Side::Target,
+            reason: "unsupported_ring_bond",
+            ..
+        }
+    ));
 }
