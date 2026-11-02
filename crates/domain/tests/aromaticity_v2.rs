@@ -1052,7 +1052,8 @@ fn two_coordinate_ring_nitrogen_with_stated_zero_hydrogens_beside_a_benzene_is_s
 
 #[test]
 fn a_kekule_search_that_exhausts_the_step_budget_is_search_limit_not_an_answer() {
-    // 28 fused hexagons: 93 atoms, 121 aromatic bonds. An odd number of atoms has no perfect
+    // An aromatic system of 93 atoms and 121 bonds (one block, cycle rank 29, atoms of at most
+    // three ring bonds). An odd number of atoms has no perfect
     // matching, so no Kekule assignment exists, but the search has to run through more than
     // the fixed 100,000-step budget to find that out (the same search takes 371,242 steps
     // with these atom numbers). The budget answer is therefore "undecided", not a false

@@ -434,9 +434,10 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
             return Ok(Verdict::non_aromatic(None, "not_conjugated"));
         }
     }
-    // The electron count is decided before neighbouring donors are: a count that fails the
-    // 4n+2 rule is non-aromatic whatever the lone-pair arrangement. Only a count that would
-    // make the ring aromatic depends on that arrangement, which the model does not decide.
+    // The electron count is decided before neighbouring donors are. The model counts every
+    // donor as two electrons; a count that is not 4n+2 is `non_aromatic` (as in
+    // `chemifree-aromaticity-1`), and a 4n+2 count with adjacent donors stays `unsupported`
+    // because the model does not decide their lone-pair arrangement.
     let donates = |r: &Role| r.electrons == 2 && !r.needs_double;
     let adjacent_donors = inside
         .iter()

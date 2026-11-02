@@ -451,12 +451,10 @@ fn conversion_commands_count_changed_bonds_plus_nitrogen_hydrogen_updates() {
         refused["diagnostics"][0]["details"]["reason"], "conversion_command_limit",
         "the refusal is the conversion's own, not the generic transaction error: {refused}"
     );
-    assert!(
-        !refused["diagnostics"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("transaction accepts"),
-        "the generic transaction message is not used: {refused}"
+    assert_eq!(
+        refused["diagnostics"][0]["message"],
+        "Aromaticity conversion needs more than 500 commands and a transaction accepts at most 500; nothing was changed.",
+        "the message names the cause and the bound, not the generic transaction text: {refused}"
     );
     assert_eq!(
         serde_json::to_value(app.document(&id).unwrap()).unwrap(),
