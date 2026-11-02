@@ -406,6 +406,7 @@ fn charge_and_isotope_are_conditions_only_when_the_query_states_them() {
 fn hydrogen_counts_radicals_and_attachment_points_are_not_conditions() {
     let mut stated = atom("C@0");
     stated.radical = Radical::Doublet;
+    stated.attachment_points = chemifree_domain::states::AttachmentPoints::new(&[1, 3]).unwrap();
     let query = graph_of(vec![stated], &[]);
     let target = mol(&["C@3", "C", "C@1"], &[]);
     assert_eq!(found(&query, &target).concat(), vec![0, 1, 2]);
@@ -1430,4 +1431,23 @@ fn a_mapping_is_ordered_by_id_whatever_order_the_graph_lists_its_atoms_in() {
     );
     let again = substructure::find(&reversed_query, &backwards).unwrap();
     assert_eq!(again.mappings, matches.mappings);
+}
+
+#[test]
+fn an_atom_with_too_few_bonds_is_never_tried() {
+    // A query atom with three bonds has no candidate in a path, whose atoms have at most two.
+    let star = mol(
+        &["C", "C", "C", "C"],
+        &[(0, 1, "-"), (0, 2, "-"), (0, 3, "-")],
+    );
+    let path = mol(
+        &vec!["C"; 100],
+        &(0..99).map(|i| (i, i + 1, "-")).collect::<Vec<_>>(),
+    );
+    let matches = substructure::find(&star, &path).unwrap();
+    assert!(matches.mappings.is_empty());
+    assert_eq!(
+        matches.steps, 0,
+        "the bond count rules the atom out before any step"
+    );
 }

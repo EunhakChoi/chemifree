@@ -678,13 +678,22 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::element::Element;
 
     #[test]
     fn the_element_bits_are_atomic_numbers_one_to_118() {
         assert_eq!(ELEMENTS.count_ones(), 118);
         assert_eq!(ELEMENTS & 1, 0, "there is no element 0");
-        assert_eq!(ELEMENTS >> 118, 0, "there is no element 119");
-        assert_eq!(ELEMENTS >> 117 & 1, 1, "oganesson is element 118");
-        assert_eq!(HALOGENS.count_ones(), 6);
+        assert_eq!(ELEMENTS >> 118 & 1, 1, "oganesson is element 118");
+        assert_eq!(ELEMENTS >> 119, 0, "there is no element 119");
+    }
+
+    #[test]
+    fn the_halogen_bits_are_group_17() {
+        let symbols: Vec<&str> = (1..=118_u8)
+            .filter(|&number| HALOGENS >> number & 1 == 1)
+            .map(|number| Element::from_atomic_number(number).unwrap().symbol())
+            .collect();
+        assert_eq!(symbols, ["F", "Cl", "Br", "I", "At", "Ts"]);
     }
 }

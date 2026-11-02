@@ -3166,6 +3166,8 @@ step = 'after short_wide_bond_is_selectable'
   // Selecting a mapping selects its query atoms and bond in this drawing.
   await panel.getByRole('button', { name: 'Select mapping 1 in this drawing' }).click()
   await page.getByText('3 selected', { exact: true }).waitFor()
+  await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0, 'selecting does not mark the result stale')
 
   // A charge on the query atom is a condition: C+ does not occur in an uncharged target.
   await tool('Select and move')
