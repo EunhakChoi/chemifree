@@ -19,7 +19,8 @@
 //!
 //! Nothing is guessed. A query is refused when its aromaticity cannot be read; a target is
 //! refused only if a mapping would depend on an atom or bond the model cannot interpret.
-//! Reaching a limit is an error, never a short list.
+//! Reaching a limit is an error, never a short list; a refusal that is already known when a
+//! limit ends the search is reported instead of the limit (see [`find`]).
 
 use std::collections::BTreeMap;
 
@@ -43,7 +44,10 @@ pub const MAX_SEARCH_STEPS: usize = 2_000_000;
 /// list or of a neighbor list that the search looks at counts once, whether it is then skipped
 /// (assigned already, or not a candidate) or tried as a step. This bounds the work that steps
 /// leave out: with the steps and this limit, the work of a search is bounded however large the
-/// target is.
+/// target is. Reading the target's rings with [`aromaticity`] happens before the search and is
+/// counted by neither limit; the model's own caps (a ring system of at most
+/// [`aromaticity::MAX_SYSTEM_ATOMS`] atoms, at most [`aromaticity::MAX_MATCH_STEPS`] Kekulé
+/// assignment steps for each system with aromatic bonds) and the size of a document bound it.
 pub const MAX_SCANNED_CANDIDATES: usize = 20_000_000;
 /// The most mappings one search returns; finding one more is a limit.
 pub const MAX_MAPPINGS: usize = 1_000;
@@ -172,11 +176,30 @@ impl AtomTest {
         if elements == 0 {
             return Err(MatchError::Unsatisfiable(Item::Atom(id)));
         }
-        let is_element = atom.kind.element().is_some();
+        // A query atom stands for a set of elements and states neither a charge nor an isotope;
+        // a drawing cannot record them on one. A graph from elsewhere that does is refused
+        // rather than read with the condition left out.
+        if atom.kind.element().is_none() {
+            let reason = if atom.charge != 0 {
+                Some("query_atom_charge")
+            } else if atom.isotope.is_some() {
+                Some("query_atom_isotope")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                return Err(MatchError::Unsupported {
+                    side: Side::Query,
+                    reason,
+                    at: Some(Item::Atom(id)),
+                    query: None,
+                });
+            }
+        }
         Ok(Self {
             elements,
-            charge: (is_element && atom.charge != 0).then_some(atom.charge),
-            isotope: atom.isotope.filter(|_| is_element),
+            charge: (atom.charge != 0).then_some(atom.charge),
+            isotope: atom.isotope,
         })
     }
 
@@ -615,14 +638,10 @@ impl Search<'_> {
     }
 
     /// Counts a complete assignment. One that rests on an undecided comparison is not kept, but
-    /// its lowest-ranked undecided comparison is remembered; the others are kept.
+    /// its lowest-ranked undecided comparison is remembered; the others are kept. The
+    /// assignment that crosses [`MAX_MAPPINGS`] is read before the limit is reported, so a
+    /// refusal that it carries is known when the limit ends the search.
     fn record(&mut self) -> Result<(), MatchError> {
-        // The cheap condition first: this is the assignment that would be the 1,001st, whether
-        // or not it rests on an undecided comparison.
-        if self.found == MAX_MAPPINGS {
-            return Err(MatchError::MappingLimit);
-        }
-        self.found += 1;
         let (query, target) = (self.query, self.target);
         let mut offence: Option<Offence> = None;
         let mut note = |found: Offence| {
@@ -654,10 +673,17 @@ impl Search<'_> {
             }
             bonds.push((*query_id, target.bond_ids[bond]));
         }
-        if let Some(found) = offence {
-            if self.offence.is_none_or(|known| found.rank() < known.rank()) {
-                self.offence = Some(found);
-            }
+        if let Some(found) = offence
+            && self.offence.is_none_or(|known| found.rank() < known.rank())
+        {
+            self.offence = Some(found);
+        }
+        // The 1,001st complete assignment, decided or not, is the limit.
+        if self.found == MAX_MAPPINGS {
+            return Err(MatchError::MappingLimit);
+        }
+        self.found += 1;
+        if offence.is_some() {
             return Ok(());
         }
         let mut atoms: Vec<_> = query
@@ -679,11 +705,19 @@ impl Search<'_> {
 ///
 /// A [`MatchError`] when the query is empty, too large, cannot be satisfied or cannot be read;
 /// when the search ends and some mapping rests on a target atom or bond that cannot be read;
-/// or when a limit is reached. The whole search is finished first, so the answer does not
-/// depend on the order atoms were drawn in (the limits aside, see [`MAX_SEARCH_STEPS`]). A
-/// limit takes precedence over a refusal. An empty answer means that no assignment of the
-/// query atoms exists; it does not mean the target was read: the search ends before the
-/// target's rings are read when a query atom has no candidate. No error comes with a partial list.
+/// or when a limit is reached.
+///
+/// A refusal that is known wins over a limit: if a limit ends the search after a complete
+/// assignment that rests on an undecided comparison was seen (the assignment that crosses
+/// [`MAX_MAPPINGS`] included), the error is that refusal, not the limit. A search that runs to
+/// its end names the lowest undecided comparison over all mappings, so the refusal does not
+/// depend on the order atoms were drawn in. A search that a limit ends early names the lowest
+/// one over the assignments it reached, and which assignments those are depends on that order:
+/// then both the named item and whether the error is a refusal or the limit can differ between
+/// numberings of the same drawing (the limits themselves are described at
+/// [`MAX_SEARCH_STEPS`]). An empty answer means that no assignment of the query atoms exists;
+/// it does not mean the target was read: the search ends before the target's rings are read
+/// when a query atom has no candidate. No error comes with a partial list.
 pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, MatchError> {
     let query = Query::read(query)?;
     let mut read = Target::read(target);
@@ -699,8 +733,8 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
             steps: 0,
         });
     }
-    // Perceiving aromaticity costs the whole target, so it waits until a query atom can be
-    // assigned at all.
+    // Perceiving aromaticity reads the whole target, so it waits until every query atom has a
+    // candidate. It is not counted in the step and scan limits; the model's caps bound it.
     read.effective = effective_kinds(target);
     let plan = plan(&query, &candidates);
     let mut search = Search {
@@ -716,7 +750,7 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
         mappings: Vec::new(),
         offence: None,
     };
-    search.extend(0)?;
+    let ended = search.extend(0);
     let Search {
         steps,
         mut mappings,
@@ -731,6 +765,8 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
             query: Some(query),
         });
     }
+    // Only a limit ends the search early, and a refusal that is known has been returned above.
+    ended?;
     mappings.sort_unstable_by(|a, b| {
         a.atoms
             .iter()

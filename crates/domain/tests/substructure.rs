@@ -1559,7 +1559,7 @@ fn an_undecided_atom_is_named_before_an_undecided_bond_and_lower_ids_first() {
 }
 
 #[test]
-fn a_limit_counts_undecided_mappings_and_takes_precedence_over_a_refusal() {
+fn a_refusal_that_is_known_wins_over_the_mapping_limit_however_the_atoms_are_ordered() {
     let carbon = mol(&["C"], &[]);
     // 999 carbons and one query atom: 1,000 mappings, one of them undecided: a refusal.
     let mut atoms = vec!["C"; MAX_MAPPINGS - 1];
@@ -1571,15 +1571,97 @@ fn a_limit_counts_undecided_mappings_and_takes_precedence_over_a_refusal() {
             ..
         }
     ));
-    // One more carbon: 1,001 mappings, which is the limit, however the atoms are ordered.
-    for query_first in [false, true] {
+    // One more atom: 1,001 mappings, the last of which may be the undecided one. The mapping
+    // that crosses the limit is read before the limit is reported, so wherever the query atom
+    // lies the refusal wins. (Reverting the order of the limit check and the read of the 1,001st
+    // mapping makes the query-atom-last case a limit.)
+    for position in [0, MAPPING_LIMIT_MIDDLE, MAX_MAPPINGS] {
         let mut atoms = vec!["C"; MAX_MAPPINGS];
-        atoms.insert(if query_first { 0 } else { MAX_MAPPINGS }, "Q");
-        assert_eq!(
-            refusal(&carbon, &mol(&atoms, &[])),
-            MatchError::MappingLimit
+        atoms.insert(position, "Q");
+        assert!(
+            matches!(
+                refusal(&carbon, &mol(&atoms, &[])),
+                MatchError::Unsupported {
+                    side: Side::Target,
+                    reason: "target_query_atom",
+                    ..
+                }
+            ),
+            "query atom at index {position}"
         );
     }
+    // With nothing undecided the 1,001st mapping is the limit.
+    assert_eq!(
+        refusal(&carbon, &mol(&vec!["C"; MAX_MAPPINGS + 1], &[])),
+        MatchError::MappingLimit
+    );
+}
+
+/// Where in the 1,001 atoms a query atom sits for the middle case of the test above.
+const MAPPING_LIMIT_MIDDLE: usize = 500;
+
+#[test]
+fn a_known_refusal_wins_over_the_step_limit_but_which_one_is_known_depends_on_the_visit_order() {
+    // A grid of carbons is bipartite, so a 15-ring cannot map into it and proving that takes
+    // more than the step limit (see an_exhausted_step_budget_is_a_limit). Next to it, a 15-ring
+    // with one query atom has 30 mappings, all undecided.
+    let grid = grid(14, 14);
+    let mut query_ring_atoms = vec![atom("Q")];
+    query_ring_atoms.extend((1..15).map(|_| atom("C")));
+    let ring_bonds: Vec<_> = (0..15).map(|i| (i, (i + 1) % 15, "-")).collect();
+    let query_ring = graph_of(query_ring_atoms, &ring_bonds);
+    let joined = |ring_first: bool| {
+        let mut atoms: Vec<(AtomId, Atom)> = Vec::new();
+        let mut bonds = Vec::new();
+        let (grid_atoms, grid_bonds) = (
+            grid.atoms().map(|(_, a)| a.clone()).collect::<Vec<_>>(),
+            grid.bonds().map(|(_, b)| b.clone()).collect::<Vec<_>>(),
+        );
+        let ring_atoms: Vec<Atom> = query_ring.atoms().map(|(_, a)| a.clone()).collect();
+        let ring_bond_rows: Vec<_> = query_ring.bonds().map(|(_, b)| b.clone()).collect();
+        // Both parts keep their own relative numbering; `offset` places a part after the other.
+        let (first, second) = if ring_first {
+            (
+                (ring_atoms.clone(), ring_bond_rows.clone()),
+                (grid_atoms, grid_bonds),
+            )
+        } else {
+            ((grid_atoms, grid_bonds), (ring_atoms, ring_bond_rows))
+        };
+        let mut offset = 0_u32;
+        for (part_atoms, part_bonds) in [first, second] {
+            let count = u32::try_from(part_atoms.len()).unwrap();
+            for (i, a) in part_atoms.into_iter().enumerate() {
+                atoms.push((id(offset + u32::try_from(i).unwrap() + 1), a));
+            }
+            for mut bond in part_bonds {
+                bond.begin = id(offset + bond.begin.serial());
+                bond.end = id(offset + bond.end.serial());
+                bonds.push((bond_id(u32::try_from(bonds.len()).unwrap() + 1), bond));
+            }
+            offset += count;
+        }
+        MoleculeGraph::from_parts(atoms, bonds)
+    };
+    let ring_query = cycle(15, "-");
+    // The ring is visited first: the refusal is known long before the step limit.
+    let refused = refusal(&ring_query, &joined(true));
+    assert!(
+        matches!(
+            refused,
+            MatchError::Unsupported {
+                side: Side::Target,
+                reason: "target_query_atom",
+                at: Some(Item::Atom(_)),
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    // The grid is visited first: the step limit ends the search before the ring is reached, so
+    // no refusal is known yet. That a limit stops the search early is why the named item (and
+    // whether there is one) can depend on the order atoms were drawn in.
+    assert_eq!(refusal(&ring_query, &joined(false)), MatchError::StepLimit);
 }
 
 #[test]
@@ -1885,4 +1967,145 @@ fn a_query_bond_in_a_ring_with_a_pi_bond_is_refused_whatever_kind_of_query_bond_
         found(&mol(&["C"; 6], &all_single), &cycle(6, "-")).len(),
         12
     );
+}
+
+#[test]
+fn a_charge_or_isotope_on_a_query_atom_is_refused_not_ignored() {
+    // A drawing cannot hold either (see Atom::validate), so only a graph built outside the
+    // drawing model reaches this: the matcher would otherwise ignore the condition silently.
+    let target = mol(&["C", "C"], &[(0, 1, "-")]);
+    // The document model refuses to record either on a query atom, so the graph is assembled
+    // from parts, as for a reader that has no document.
+    let raw = |atoms: Vec<Atom>, bonds: &[(u32, u32)]| {
+        MoleculeGraph::from_parts(
+            atoms
+                .into_iter()
+                .enumerate()
+                .map(|(i, a)| (id(u32::try_from(i).unwrap() + 1), a))
+                .collect(),
+            bonds
+                .iter()
+                .enumerate()
+                .map(|(i, &(a, b))| {
+                    (
+                        bond_id(u32::try_from(i).unwrap() + 1),
+                        chemifree_domain::document::Bond {
+                            begin: id(a),
+                            end: id(b),
+                            order: BondOrder::Single,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    };
+    let with = |edit: fn(&mut Atom)| {
+        let mut wildcard = atom("*");
+        edit(&mut wildcard);
+        raw(vec![atom("C"), wildcard], &[(1, 2)])
+    };
+    assert_eq!(
+        refusal(&with(|a| a.charge = 1), &target),
+        MatchError::Unsupported {
+            side: Side::Query,
+            reason: "query_atom_charge",
+            at: Some(Item::Atom(id(2))),
+            query: None,
+        }
+    );
+    assert_eq!(
+        refusal(&with(|a| a.isotope = Some(13)), &target),
+        MatchError::Unsupported {
+            side: Side::Query,
+            reason: "query_atom_isotope",
+            at: Some(Item::Atom(id(2))),
+            query: None,
+        }
+    );
+    // Every kind of query atom is held to it, a stated charge of zero is no charge, and an
+    // element atom's charge and isotope remain conditions.
+    for spec in ["A", "Q", "X", "[N,O]", "![N,O]"] {
+        let mut query = atom(spec);
+        query.charge = -1;
+        assert!(
+            matches!(
+                refusal(&raw(vec![query], &[]), &target),
+                MatchError::Unsupported {
+                    side: Side::Query,
+                    reason: "query_atom_charge",
+                    ..
+                }
+            ),
+            "{spec}"
+        );
+    }
+    assert_eq!(found(&mol(&["*"], &[]), &target).len(), 2);
+    assert_eq!(
+        found(&mol(&["13C"], &[]), &mol(&["13C", "C"], &[])).len(),
+        1
+    );
+}
+
+#[test]
+fn a_bond_in_an_aromatic_system_is_never_a_query_unknown_dative_or_triple_bond() {
+    // The matcher reads a bond of a system classified aromatic as aromatic before it looks at
+    // the bond's own kind. That order would be wrong for a query, unknown or dative bond; it
+    // cannot be reached, because the aromaticity model never classifies as aromatic a system
+    // that holds any bond kind but single, double or aromatic (`unsupported_ring_bond`), or an
+    // atom that is a query (`query_atom`). Every such ring, in both Kekulé and aromatic
+    // spelling, is therefore refused whole on whichever side it is on.
+    let kekule = ["=", "-", "=", "-", "=", "-"];
+    let aromatic = [":"; 6];
+    for (spelling, kinds) in [("kekule", kekule), ("aromatic", aromatic)] {
+        for odd in ["~", "-=", "?", ">", "#"] {
+            for position in 0..6 {
+                let mut drawn = kinds;
+                drawn[position] = odd;
+                let bonds: Vec<_> = (0..6).map(|i| (i, (i + 1) % 6, drawn[i])).collect();
+                let ring = mol(&["C"; 6], &bonds);
+                for system in aromaticity::perceive(&ring).systems {
+                    assert_ne!(
+                        system.classification,
+                        Classification::Aromatic,
+                        "{spelling} ring with {odd} at bond {position}"
+                    );
+                }
+                // As a query it is refused for that reason; as a target a decided query
+                // cannot map onto it.
+                let one = mol(&["C", "C"], &[(0, 1, "=")]);
+                for (side, outcome) in [
+                    (Side::Query, substructure::find(&ring, &kekule_benzene())),
+                    (Side::Target, substructure::find(&one, &ring)),
+                ] {
+                    let Err(MatchError::Unsupported { side: got, .. }) = outcome else {
+                        panic!("{spelling} {odd} {position} on the {side:?} side: {outcome:?}");
+                    };
+                    assert_eq!(got, side, "{spelling} {odd} {position}");
+                }
+            }
+        }
+    }
+    // A query atom in the ring is likewise never aromatic.
+    for position in 0..6 {
+        let mut atoms = ["C"; 6];
+        atoms[position] = "*";
+        let ring = mol(
+            &atoms,
+            &[
+                (0, 1, "="),
+                (1, 2, "-"),
+                (2, 3, "="),
+                (3, 4, "-"),
+                (4, 5, "="),
+                (5, 0, "-"),
+            ],
+        );
+        for system in aromaticity::perceive(&ring).systems {
+            assert_ne!(
+                system.classification,
+                Classification::Aromatic,
+                "{position}"
+            );
+        }
+    }
 }

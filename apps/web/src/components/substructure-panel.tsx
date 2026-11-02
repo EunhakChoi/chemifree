@@ -8,6 +8,7 @@ import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
   SubstructureRefusal,
   sameConversionSnapshot,
+  type DocumentListResponse,
   type DocumentView,
   type SubstructureMapping,
   type SubstructureSearch,
@@ -19,6 +20,7 @@ import {
   isLatest,
   isRunning,
   leaveAll,
+  otherDrawingChanged,
   startRunning,
   type Running,
 } from '@/lib/substructure-requests'
@@ -45,6 +47,13 @@ interface Asked {
   generation: number
   /** This drawing as the service searched it, or as the page showed it if the request failed. */
   searched: DocumentView
+  /** The other drawing as the service searched it; null if it was this drawing or the request failed. */
+  otherSearched: DocumentView | null
+  /**
+   * The document list when the search was asked. A list loaded after that is compared with
+   * `otherSearched`; the same list is not, so the list the search began with never marks it stale.
+   */
+  listAsked: DocumentListResponse | null
 }
 
 type Outcome =
@@ -76,6 +85,9 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
   if (formFor !== document.id) {
     setFormFor(document.id)
     setOther(NONE)
+    // The role is part of the form too: the next drawing starts from the form's default, not
+    // from the direction chosen for the previous one.
+    setRole('query')
     setShownCount(FIRST_SHOWN)
   }
   const searches = useRef(createSearches())
@@ -92,14 +104,19 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
   const stillThis = useMemo(() => outcome !== null && sameConversionSnapshot(document, outcome.searched), [document, outcome])
   const drawingChanged = outcome !== null && !stillThis
   const serviceChanged = outcome !== null && outcome.generation !== generation
-  const current = outcome !== null && !drawingChanged && !serviceChanged ? outcome : null
+  // The other drawing is judged by the document list, once a list newer than the search is held.
+  const listNow = editor.list.kind === 'ready' ? editor.list.list : null
+  const otherChanged = outcome !== null && listNow !== null && listNow !== outcome.listAsked &&
+    otherDrawingChanged(outcome.otherSearched, listNow.documents)
+  const current = outcome !== null && !drawingChanged && !serviceChanged && !otherChanged ? outcome : null
   const searching = isRunning(running, document.id)
   const busy = searching || editor.busy
 
   async function search() {
     if (other === NONE) return
     const otherId = other === SELF ? document.id : other
-    const asked = { role, other: otherId, generation, searched: document }
+    const listAsked = editor.list.kind === 'ready' ? editor.list.list : null
+    const asked = { role, other: otherId, generation, searched: document, otherSearched: null, listAsked }
     const documentId = document.id
     const token = beginSearch(searches.current, documentId)
     const store = (next: Outcome) => {
@@ -114,15 +131,17 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         : editor.searchSubstructure(otherId, document.id))
       const searched = role === 'query' ? found.query : found.target
       if (sameConversionSnapshot(document, searched)) {
-        store({ ...asked, searched, kind: 'found', search: found })
+        const otherSearched = otherId === document.id ? null : role === 'query' ? found.target : found.query
+        store({ ...asked, searched, otherSearched, kind: 'found', search: found })
       } else {
         store({ ...asked, kind: 'failed', message: 'The service searched a different version of this drawing. Search again.' })
       }
     } catch (failure) {
       if (failure instanceof SubstructureRefusal) {
         const searched = role === 'query' ? failure.query : failure.target
+        const otherSearched = otherId === document.id ? null : role === 'query' ? failure.target : failure.query
         store(sameConversionSnapshot(document, searched)
-          ? { ...asked, searched, kind: 'refused', message: failure.message, code: failure.code, query: failure.query, target: failure.target }
+          ? { ...asked, searched, otherSearched, kind: 'refused', message: failure.message, code: failure.code, query: failure.query, target: failure.target }
           : { ...asked, kind: 'failed', message: 'The service refused a different version of this drawing. Search again.' })
       } else {
         store({ ...asked, kind: 'failed', message: failure instanceof Error ? failure.message : 'The search failed.' })
@@ -168,8 +187,10 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
     <Button size="sm" disabled={busy || other === NONE} onClick={() => void search()}>
       {searching ? 'Searching…' : 'Search'}
     </Button>
-    {outcome !== null && (drawingChanged || serviceChanged) && <p role="status" data-testid="substructure-stale">
-      {drawingChanged ? 'This drawing changed since the last search.' : 'The service restarted since the last search.'} Search again.
+    {outcome !== null && (drawingChanged || serviceChanged || otherChanged) && <p role="status" data-testid="substructure-stale">
+      {drawingChanged
+        ? 'This drawing changed since the last search.'
+        : serviceChanged ? 'The service restarted since the last search.' : 'The other drawing changed since the last search.'} Search again.
     </p>}
     {current !== null && <p className="text-muted-foreground" data-testid="substructure-asked">
       Asked with this drawing as the {current.role}; the other drawing is {current.other === document.id ? 'this drawing itself' : current.other}.
@@ -192,7 +213,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
       </p>
       <p>
         Query {current.search.query.id} revision {current.search.query.revision}; target {current.search.target.id} revision{' '}
-        {current.search.target.revision}. Search again to include later edits to the other drawing.
+        {current.search.target.revision}. An edit to the other drawing shows here once the document list is refreshed; search again to include it.
       </p>
       <p className="text-muted-foreground">
         {current.search.model}; aromaticity {current.search.aromaticityModel}; {current.search.steps} step(s) of at most{' '}

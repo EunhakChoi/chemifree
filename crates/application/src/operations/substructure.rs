@@ -206,6 +206,14 @@ fn failure_reply(
     response
 }
 
+/// The reply for a document that could not be read. No snapshot was taken, so it names no
+/// `document_revision`: `error.current_revision` would be that of whichever document failed,
+/// possibly the target, while every other reply of this operation names the query snapshot's
+/// revision.
+fn lookup_failure_reply(known: &Known, error: &ApplicationError) -> OperationResponse {
+    known.reply(Outcome::Error, None, None, vec![failure(error)])
+}
+
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     pub(super) fn substructure(
         &self,
@@ -217,14 +225,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             .graph_pair(&p.query_document_id, &p.target_document_id)
         {
             Ok(pair) => pair,
-            Err(error) => {
-                return known.reply(
-                    Outcome::Error,
-                    error.current_revision,
-                    None,
-                    vec![failure(&error)],
-                );
-            }
+            Err(error) => return lookup_failure_reply(known, &error),
         };
         let revision = query_snapshot.document.revision;
         match substructure::find(&query, &target) {
@@ -248,5 +249,28 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             }
             Err(error) => failure_reply(known, revision, error, query_snapshot, target_snapshot),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_lookup_failure_names_no_revision_even_when_the_error_carries_one() {
+        let known = Known {
+            request_id: "lookup".into(),
+            operation: OperationId::ChemSubstructure,
+            profile: CompatibilityProfile::PreserveSemantics,
+        };
+        // An error of the second document, with that document's revision.
+        let error = ApplicationError {
+            current_revision: Some(7),
+            ..ApplicationError::new(ErrorCode::DocumentNotFound, "document d2 does not exist")
+        };
+        let reply = lookup_failure_reply(&known, &error);
+        assert_eq!(reply.document_revision, None);
+        assert_eq!(reply.outcome, Outcome::Error);
+        assert!(reply.result.is_none());
     }
 }
