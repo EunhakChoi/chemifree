@@ -1028,7 +1028,7 @@
    "acceptance": "다중 대응·대칭·아로마틱 표현·질의 실패·탐색 한도를 검사하고 source/target 원자 ID를 명확히 반환한다.",
    "kind": "core",
    "id": "P24",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1038,7 +1038,8 @@
     "P10",
     "P17",
     "P18"
-   ]
+   ],
+   "note": "부분구조 검색 `chem.substructure`, 원자·결합 대응, 질의 원자·결합과 명시한 전하·동위원소 비교, 방향족 모델 2에 따른 Kekulé·방향족 동등 처리, 읽을 수 없는 계와 탐색 한도의 거절을 구현했다(독립 브랜치 feat/p24b-query-batch3). 고리·차수·수소 개수·입체 조건은 도면이 기록하지 못해 제공하지 않는다."
   },
   {
    "phase": "stereo",
