@@ -428,6 +428,51 @@ fn an_unknown_or_malformed_document_is_a_document_error_not_an_empty_answer() {
 }
 
 #[test]
+fn a_lookup_failure_names_no_revision_and_the_pair_operations_check_ids_in_the_same_order() {
+    let (app, _data) = application();
+    let real = draw(&app, "C", &["C"], &[]);
+    // A well-formed ID that no document has, and an ID that is not an identifier at all.
+    let missing = "missing-doc";
+    for (query, target, name) in [
+        (missing, "Not A Valid ID", "first missing, second malformed"),
+        ("Not A Valid ID", missing, "first malformed, second missing"),
+        (real.as_str(), missing, "second missing"),
+        (missing, real.as_str(), "first missing"),
+    ] {
+        let reply = search(&app, "lookup", query, target);
+        assert_eq!(reply["outcome"], "error", "{name}");
+        assert_eq!(reply["result"], Value::Null, "{name}");
+        // No snapshot was taken, so no revision is named: a search names its query snapshot's
+        // revision or none, never the revision of whichever document failed.
+        assert_eq!(reply["document_revision"], Value::Null, "{name}: {reply}");
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "document_not_found",
+            "{name}"
+        );
+    }
+    // chem.identity reads its pair the same way: with the first missing and the second
+    // malformed, both name the malformed second ID, before either document is looked up.
+    let identity = call(
+        &app,
+        "identity",
+        "chem.identity",
+        json!({"document_id": missing, "other_document_id": "Not A Valid ID", "mode": "recorded"}),
+    );
+    let substructure = search(&app, "pair", missing, "Not A Valid ID");
+    assert_eq!(
+        identity["diagnostics"][0]["message"], substructure["diagnostics"][0]["message"],
+        "{identity} against {substructure}"
+    );
+    assert!(
+        substructure["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Not A Valid ID"),
+        "{substructure}"
+    );
+}
+
+#[test]
 fn the_legacy_profile_runs_nothing() {
     let (app, _data) = application();
     let real = draw(&app, "C", &["C"], &[]);
