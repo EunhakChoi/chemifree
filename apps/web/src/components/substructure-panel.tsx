@@ -3,10 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import {
   SubstructureRefusal,
-  sameInspectionSnapshot,
+  sameConversionSnapshot,
   type DocumentView,
   type SubstructureMapping,
   type SubstructureSearch,
@@ -20,6 +21,11 @@ const NONE = ''
 const SELF = 'self'
 
 const FIRST_SHOWN = 20
+
+const ROLES: Record<Role, string> = {
+  query: 'query (search it in another drawing)',
+  target: 'target (search another drawing in it)',
+}
 
 /** What an outcome was asked about; it is shown only while this still holds. */
 interface Asked {
@@ -63,7 +69,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
   const generation = editor.serviceGeneration
   const outcome = outcomes.get(document.id) ?? null
   // Compared once per change of the drawing or the outcome, not on every render.
-  const stillThis = useMemo(() => outcome !== null && sameInspectionSnapshot(document, outcome.searched), [document, outcome])
+  const stillThis = useMemo(() => outcome !== null && sameConversionSnapshot(document, outcome.searched), [document, outcome])
   const drawingChanged = outcome !== null && !stillThis
   const serviceChanged = outcome !== null && outcome.generation !== generation
   const current = outcome !== null && !drawingChanged && !serviceChanged ? outcome : null
@@ -85,7 +91,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         ? editor.searchSubstructure(document.id, otherId)
         : editor.searchSubstructure(otherId, document.id))
       const searched = role === 'query' ? found.query : found.target
-      if (sameInspectionSnapshot(document, searched)) {
+      if (sameConversionSnapshot(document, searched)) {
         store({ ...asked, searched, kind: 'found', search: found })
       } else {
         store({ ...asked, kind: 'failed', message: 'The service searched a different version of this drawing. Search again.' })
@@ -93,7 +99,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
     } catch (failure) {
       if (failure instanceof SubstructureRefusal) {
         const searched = role === 'query' ? failure.query : failure.target
-        store(sameInspectionSnapshot(document, searched)
+        store(sameConversionSnapshot(document, searched)
           ? { ...asked, searched, kind: 'refused', message: failure.message, code: failure.code, query: failure.query, target: failure.target }
           : { ...asked, kind: 'failed', message: 'The service refused a different version of this drawing. Search again.' })
       } else {
@@ -109,12 +115,9 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
     editor.setSelection(new Set([...mapping.atoms, ...mapping.bonds].map((pair) => pair[side])))
   }
 
-  const choices: [string, string][] = [
-    [NONE, 'Choose a drawing'],
-    [SELF, 'This drawing'],
-    ...documents.filter((item) => item.id !== document.id).map((item): [string, string] => [item.id, `${item.title} (${item.id})`]),
-  ]
-  if (other !== NONE && other !== SELF && !choices.some(([value]) => value === other)) choices.push([other, other])
+  const choices: Record<string, string> = { [NONE]: 'Choose a drawing', [SELF]: 'This drawing' }
+  for (const item of documents) if (item.id !== document.id) choices[item.id] = `${item.title} (${item.id})`
+  if (!(other in choices)) choices[other] = other
 
   return <section aria-label="Substructure search" className="space-y-3 rounded-lg border p-3 text-xs">
     <h3 className="text-sm font-semibold">Substructure search</h3>
@@ -124,20 +127,17 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
     </p>
     <Field>
       <FieldLabel htmlFor="substructure-role">This drawing is the</FieldLabel>
-      <select id="substructure-role" value={role} disabled={busy}
-        className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs"
-        onChange={(event) => setRole(event.currentTarget.value === 'target' ? 'target' : 'query')}>
-        <option value="query">query (search it in another drawing)</option>
-        <option value="target">target (search another drawing in it)</option>
-      </select>
+      <Select items={ROLES} value={role} disabled={busy} onValueChange={(value) => { if (value === 'query' || value === 'target') setRole(value) }}>
+        <SelectTrigger id="substructure-role"><SelectValue /></SelectTrigger>
+        <SelectContent>{Object.entries(ROLES).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+      </Select>
     </Field>
     <Field>
       <FieldLabel htmlFor="substructure-other">Other drawing</FieldLabel>
-      <select id="substructure-other" value={other} disabled={busy}
-        className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs"
-        onChange={(event) => setOther(event.currentTarget.value)}>
-        {choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
+      <Select items={choices} value={other} disabled={busy} onValueChange={(value) => { if (value !== null) setOther(value) }}>
+        <SelectTrigger id="substructure-other"><SelectValue /></SelectTrigger>
+        <SelectContent>{Object.entries(choices).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+      </Select>
       <FieldDescription>The other drawing is searched as the service holds it when you search.</FieldDescription>
       <Button size="sm" variant="ghost" disabled={editor.list.kind === 'loading'} onClick={() => editor.refreshList()}>
         Refresh documents

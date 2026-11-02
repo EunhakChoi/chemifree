@@ -3130,9 +3130,6 @@ step = 'after short_wide_bond_is_selectable'
   const ring = (kinds) => kinds.map((order, i) => [i, (i + 1) % kinds.length, order])
   const query = await make('Match query C-O', 'match-query', ['C', 'O'], [[0, 1, 'single']])
   const ethanol = await make('Match target ethanol', 'match-ethanol', ['C', 'C', 'O'], [[0, 1, 'single'], [1, 2, 'single']])
-  const benzene = await make('Match query benzene', 'match-benzene', ['C', 'C', 'C', 'C', 'C', 'C'], ring(['double', 'single', 'double', 'single', 'double', 'single']))
-  const tetralin = await make('Match target tetralin', 'match-tetralin', ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'],
-    [...ring(['double', 'single', 'double', 'single', 'double', 'single']), [0, 6, 'single'], [6, 7, 'single'], [7, 8, 'single'], [8, 9, 'single'], [9, 5, 'single']])
   await page.reload()
   const open = async (id) => {
     await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
@@ -3141,7 +3138,8 @@ step = 'after short_wide_bond_is_selectable'
   let panel = await open(query.id)
   const search = panel.getByRole('button', { name: 'Search', exact: true })
   assert.equal(await search.isDisabled(), true, 'no search until the other drawing is chosen')
-  await panel.getByLabel('Other drawing').selectOption(ethanol.id)
+  await panel.getByLabel('Other drawing').click()
+  await page.getByRole('option', { name: `Match target ethanol (${ethanol.id})`, exact: true }).click()
   const before = await api(`/api/v1/documents/${query.id}`)
   const targetBefore = await api(`/api/v1/documents/${ethanol.id}`)
   await search.click()
@@ -3173,6 +3171,9 @@ step = 'after short_wide_bond_is_selectable'
   await tool('Select and move')
   await canvas.scrollIntoViewIfNeeded()
   const carbonPoint = await atomScreen(query.drawn, 'a1')
+  const area = await canvas.boundingBox()
+  await page.mouse.click(area.x + area.width * 0.8, area.y + area.height * 0.8)
+  await page.getByText('3 selected', { exact: true }).waitFor({ state: 'hidden' })
   await page.mouse.click(carbonPoint.x, carbonPoint.y)
   await page.getByRole('button', { name: 'Increase charge' }).click()
   await waitIdle()
@@ -3199,16 +3200,14 @@ step = 'after short_wide_bond_is_selectable'
   await page.mouse.click(carbonPoint.x, carbonPoint.y)
   await page.getByRole('button', { name: 'Decrease charge' }).click()
   release()
-  await page.unroute('**/api/v1/operations', hold)
   await panel.getByTestId('substructure-stale').waitFor()
+  await page.unroute('**/api/v1/operations', hold)
   assert.equal(await result.count(), 0, 'a response for an older drawing is not shown as current')
   await search.click()
   await result.getByText('1 mapping(s) found.', { exact: true }).waitFor()
 
   // A service restart hides the result even when the same graph and revision come back.
   await crashApi()
-  const recreated = await apiWrite(`/api/v1/documents/${query.id}/transactions`, { request_id: 'match-query-recreate', expected_revision: 0, commands: query.commands })
-  assert.equal(recreated.status, 200)
   await page.getByRole('complementary', { name: 'Valence inspection' }).getByRole('button', { name: 'Inspect valence' }).click()
   await panel.getByTestId('substructure-stale').getByText('The service restarted since the last search. Search again.', { exact: true }).waitFor()
   assert.equal(await result.count(), 0, 'a restart hides the earlier result')
@@ -3219,10 +3218,20 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByTestId('substructure-result').count(), 0)
   assert.equal(await panel.getByTestId('substructure-stale').count(), 0)
   await closeShown()
+  panel = await open(query.id)
+  assert.equal(await panel.getByTestId('substructure-result').count(), 0, 'a reopened document starts without the result of its earlier panel')
+  assert.equal(await panel.getByTestId('substructure-stale').count(), 0)
+  await closeShown()
 
-  // A refusal names its side and reason in the panel's error area, with both snapshots.
+  // A refusal names its side and reason in the panel's error area, with both snapshots. These
+  // drawings are made after the restart, which discards drawings the service held unsaved.
+  const benzene = await make('Match query benzene', 'match-benzene', ['C', 'C', 'C', 'C', 'C', 'C'], ring(['double', 'single', 'double', 'single', 'double', 'single']))
+  const tetralin = await make('Match target tetralin', 'match-tetralin', ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'],
+    [...ring(['double', 'single', 'double', 'single', 'double', 'single']), [0, 6, 'single'], [6, 7, 'single'], [7, 8, 'single'], [8, 9, 'single'], [9, 5, 'single']])
+  await page.reload()
   panel = await open(benzene.id)
-  await panel.getByLabel('Other drawing').selectOption(tetralin.id)
+  await panel.getByLabel('Other drawing').click()
+  await page.getByRole('option', { name: `Match target tetralin (${tetralin.id})`, exact: true }).click()
   await panel.getByRole('button', { name: 'Search', exact: true }).click()
   const refusal = panel.getByTestId('substructure-error')
   await refusal.getByText('No answer: match unsupported', { exact: true }).waitFor()

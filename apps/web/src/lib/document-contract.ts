@@ -1924,7 +1924,7 @@ export class DocumentClient {
       const query = DocumentClient.document({ api_version: API_VERSION, ...details.query_snapshot }).document
       const target = DocumentClient.document({ api_version: API_VERSION, ...details.target_snapshot }).document
       if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
-          (queryId === targetId && !sameInspectionSnapshot(query, target))) throw incompatible()
+          (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
       const words = (key: string) => typeof details[key] === 'string' ? details[key].replaceAll('_', ' ') : null
       const subject = [words('item'), typeof details.id === 'string' ? details.id : null].filter((part) => part !== null).join(' ')
       const where = typeof details.side === 'string'
@@ -1941,7 +1941,7 @@ export class DocumentClient {
     const target = DocumentClient.document({ api_version: API_VERSION, ...result.target }).document
     const limits = result.limits
     if (query.id !== queryId || target.id !== targetId || query.revision !== value.document_revision ||
-        (queryId === targetId && !sameInspectionSnapshot(query, target)) ||
+        (queryId === targetId && !sameConversionSnapshot(query, target)) ||
         !isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.mappings) ||
         result.steps > limits.search_steps || result.mappings.length > limits.mappings) throw incompatible()
     const queryAtoms = new Set(query.atoms.map((atom) => atom.id))
