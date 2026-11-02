@@ -5,6 +5,8 @@
  * document. The functions do not change what they are given.
  */
 
+import type { DocumentSummary, DocumentView } from './document-contract'
+
 /** The searches started: a counter for tokens and the latest token of each document. */
 export interface Searches {
   next: number
@@ -49,4 +51,19 @@ export function finishRunning(running: Running, documentId: string, token: numbe
 
 export function isRunning(running: Running, documentId: string): boolean {
   return running.has(documentId)
+}
+
+/**
+ * Whether the other drawing of a result has changed since it was searched, judged by the service's
+ * document list: its revision or atom and bond counts are not the searched snapshot's. `searched` is
+ * the other drawing's snapshot in the result (`null` when the drawing was searched in itself, which
+ * the drawing's own snapshot covers). A drawing the list does not hold is not judged: a title filter
+ * or a deletion would look the same, and searching again says which. The list is only as new as its
+ * last refresh; pass it only when it was loaded after the search, or an older list reads as a change.
+ */
+export function otherDrawingChanged(searched: DocumentView | null, summaries: readonly DocumentSummary[]): boolean {
+  if (searched === null) return false
+  const now = summaries.find((summary) => summary.id === searched.id)
+  return now !== undefined && (now.revision !== searched.revision ||
+    now.atom_count !== searched.atoms.length || now.bond_count !== searched.bonds.length)
 }

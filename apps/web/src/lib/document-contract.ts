@@ -1923,8 +1923,10 @@ export class DocumentClient {
 
   /**
    * Searches `queryId` in `targetId` (they may be one document). The reply names the exact
-   * snapshots it searched, and every mapping is checked here against them: a pair for each
-   * query atom and bond, distinct target atoms, and each bond between its atoms' images.
+   * snapshots it searched, and every mapping is checked here against them for its structure only:
+   * a pair for each query atom and bond, distinct target atoms, and each bond between its atoms'
+   * images. This is not a chemical re-check: that the target atoms' elements and the target
+   * bonds' kinds satisfy the query is the service's answer, taken as given.
    */
   async searchSubstructure(queryId: string, targetId: string): Promise<SubstructureSearch> {
     const value = await this.write('/api/v1/operations', {
