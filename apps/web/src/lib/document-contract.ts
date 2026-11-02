@@ -1555,7 +1555,8 @@ export class DocumentClient {
   async readInterchange(source: string, format: InterchangeFormat): Promise<InterchangeChoice[]> {
     const { result } = interchangeReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
-      parameters: { mode: 'read', format, source },
+      // Only the choices are used; compact bytes keep an unknown CDX property's reply a quarter the size.
+      parameters: { mode: 'read', format, source, compact_bytes: true },
     }, 'reload'))
     if (!Array.isArray(result.choices) || !result.choices.every((choice): choice is InterchangeChoice =>
       isRecord(choice) && isCount(choice.page_id) && choice.page_id > 0 &&
