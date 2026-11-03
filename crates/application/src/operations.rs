@@ -18,6 +18,7 @@ mod interchange;
 mod smiles;
 mod substructure;
 
+use chemifree_domain::budget::{Budget, Interrupt, NEVER};
 use chemifree_domain::document::Command;
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
@@ -28,6 +29,7 @@ pub use smiles::{
     SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult, SpanView,
 };
 use std::borrow::Cow;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -39,7 +41,7 @@ use crate::contract::{
 };
 use crate::ct_projection;
 use crate::ctfile::{CtCodec, CtError, CtField, CtFormat, CtRecord, CtResult};
-use crate::documents::{AromaticityConversion, validate_request_id};
+use crate::documents::{AromaticityConversion, Compute, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
 use crate::properties::{
@@ -691,7 +693,7 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemAromaticityConvert => (
             runs(
                 id,
-                "Converts supported aromatic or Kekule bonds as one atomic undoable edit under a named model.",
+                "Converts supported aromatic or Kekule bonds as one atomic undoable edit under a named model. Computed outside the session lock under a time limit (time_limit_ms); a result for a revision that is no longer current is refused.",
             ),
             &[],
         ),
@@ -900,6 +902,9 @@ struct AromaticityConversionParameters {
     selection_before: Option<SelectionDto>,
     #[serde(default)]
     selection_after: Option<SelectionDto>,
+    /// A time limit below the server's default; above the server's maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -993,6 +998,9 @@ fn failure(error: &ApplicationError) -> Diagnostic {
     }
     if let Some(reason) = error.reason_code() {
         details.insert("reason".into(), reason.into());
+    }
+    if let Some(limit_ms) = error.limit_ms {
+        details.insert("limit_ms".into(), limit_ms.into());
     }
     Diagnostic {
         code: error.code.as_str(),
@@ -1585,6 +1593,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// Runs one request of the operation contract, given as UTF-8 JSON, and returns its
     /// reply. Every request gets a reply; nothing here panics on input.
     pub fn execute(&self, request: &[u8]) -> OperationResponse {
+        self.execute_with(request, &NEVER)
+    }
+
+    /// [`Self::execute`] whose computations also stop, with the `cancelled` diagnostic, when
+    /// `cancel` says so. A stopped request changes nothing.
+    pub fn execute_with(&self, request: &[u8], cancel: &dyn Interrupt) -> OperationResponse {
         // A repeated key is refused rather than resolved, so a request means the same thing to
         // every reader of it.
         let value = match json::parse_strict(request) {
@@ -1703,7 +1717,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             operation,
             profile,
         };
-        self.dispatch(&known, parameters_value)
+        self.dispatch(&known, parameters_value, cancel)
     }
 
     fn chemical_properties(
@@ -1854,7 +1868,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         response
     }
 
-    fn dispatch(&self, known: &Known, parameters_value: Value) -> OperationResponse {
+    fn dispatch(
+        &self,
+        known: &Known,
+        parameters_value: Value,
+        cancel: &dyn Interrupt,
+    ) -> OperationResponse {
         use OperationId as Op;
         if known.profile == CompatibilityProfile::LegacyObserved
             && known.operation != Op::CapabilitiesInspect
@@ -1946,8 +1965,25 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
                 Ok(p) => {
+                    let limit_ms = match self.compute_limits.resolve(p.time_limit_ms) {
+                        Ok(limit_ms) => limit_ms,
+                        Err(maximum) => {
+                            let mut details = Map::new();
+                            details.insert("maximum_ms".into(), maximum.into());
+                            return known.invalid(Diagnostic {
+                                code: ErrorCode::InvalidRequest.as_str(),
+                                severity: Severity::Error,
+                                message: format!("time_limit_ms is above the maximum of {maximum} ms."),
+                                path: Some("parameters.time_limit_ms".into()),
+                                details,
+                            });
+                        }
+                    };
+                    let deadline = Instant::now().checked_add(Duration::from_millis(limit_ms));
+                    let budget = Budget::new(cancel, deadline);
                     let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
-                        TransactionSelections { before: p.selection_before, after: p.selection_after });
+                        TransactionSelections { before: p.selection_before, after: p.selection_after },
+                        Compute { interrupt: &budget, limit_ms });
                     let mut reply = known.document(outcome);
                     reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
                     reply
