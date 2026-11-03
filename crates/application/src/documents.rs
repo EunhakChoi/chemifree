@@ -934,8 +934,14 @@ impl<R: DocumentRepository> Documents<R> {
                 }
             })?;
         // The lock is taken again, which checks the replay, the hold and the revision again:
-        // an edit made while the conversion was computed refuses its result.
+        // an edit made while the conversion was computed refuses its result. A stop that came
+        // after the last checkpoint is honoured here too, immediately before the edit is
+        // committed; once it is committed it stands.
         self.mutate_running(id, request_id, expected_revision, mutation, |session| {
+            compute
+                .interrupt
+                .check()
+                .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
             if commands.is_empty() {
                 return Ok(());
             }

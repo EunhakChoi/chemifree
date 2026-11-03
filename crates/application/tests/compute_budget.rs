@@ -416,6 +416,85 @@ fn the_server_default_applies_without_a_request_limit_and_a_request_may_only_low
     assert_eq!(above["diagnostics"][0]["path"], "parameters.time_limit_ms");
     assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], 6_000);
 }
+
+/// Clean while the session lock is free, and stops at the first question asked while it is
+/// held. Another thread reads the document to find out: that read waits for a held lock.
+struct StopUnderTheLock {
+    pings: Mutex<Option<Sender<Sender<()>>>>,
+    reason: Interrupted,
+    calls: AtomicUsize,
+    stopped: AtomicUsize,
+}
+
+impl Interrupt for StopUnderTheLock {
+    fn check(&self) -> Result<(), Interrupted> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let (reply, answered) = mpsc::channel();
+        let pings = self.pings.lock().unwrap();
+        pings.as_ref().unwrap().send(reply).unwrap();
+        drop(pings);
+        match answered.recv_timeout(Duration::from_millis(300)) {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                self.stopped.fetch_add(1, Ordering::SeqCst);
+                Err(self.reason)
+            }
+        }
+    }
+}
+
+#[test]
+fn a_stop_after_the_last_checkpoint_of_the_computation_still_prevents_the_edit() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    for (reason, code) in [
+        (Interrupted::Cancelled, "cancelled"),
+        (Interrupted::TimeLimit, "time_limit"),
+    ] {
+        let id = benzene_document(&app, &format!("late-{code}"));
+        let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+        let (ping, pings) = mpsc::channel::<Sender<()>>();
+        let stop = StopUnderTheLock {
+            pings: Mutex::new(Some(ping)),
+            reason,
+            calls: AtomicUsize::new(0),
+            stopped: AtomicUsize::new(0),
+        };
+        let reply = thread::scope(|scope| {
+            scope.spawn(|| {
+                for reply in pings {
+                    app.document(&id).unwrap();
+                    let _ = reply.send(());
+                }
+            });
+            let reply = serde_json::to_value(
+                app.execute_with(&convert_request(&id, "convert", 1), &stop),
+            )
+            .unwrap();
+            // Ends the reader, which the scope waits for.
+            stop.pings.lock().unwrap().take();
+            reply
+        });
+        // Every question asked while the computation ran found the lock free; the one asked
+        // under the lock, just before the result would be committed, is the one that stopped.
+        let calls = stop.calls.load(Ordering::SeqCst);
+        assert!(calls >= 2, "{code}: the computation asked {calls} times");
+        assert_eq!(stop.stopped.load(Ordering::SeqCst), 1, "{code}");
+        assert_eq!(reply["outcome"], "error", "{code}: {reply}");
+        assert_eq!(reply["diagnostics"][0]["code"], code, "{reply}");
+        assert_eq!(
+            serde_json::to_value(app.document(&id).unwrap()).unwrap(),
+            before,
+            "{code}: no revision, no undo entry"
+        );
+        // Nothing was recorded for replay, so the same request ID computes and applies.
+        let retried =
+            serde_json::to_value(app.execute(&convert_request(&id, "convert", 1))).unwrap();
+        assert_eq!(retried["outcome"], "ok", "{code}: {retried}");
+        assert_eq!(retried["document_revision"], 2);
+    }
+}
+
 #[test]
 fn the_same_request_id_with_another_time_limit_is_a_different_request() {
     let directory = tempfile::tempdir().unwrap();
@@ -460,6 +539,7 @@ fn a_stopped_attempt_is_not_recorded_so_the_request_id_may_ask_for_another_limit
     let retried = ask(1_000);
     assert_eq!(retried["outcome"], "ok", "{retried}");
 }
+
 #[test]
 fn configured_limits_are_capped_so_a_limit_never_means_no_deadline() {
     let directory = tempfile::tempdir().unwrap();
