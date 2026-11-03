@@ -14,9 +14,15 @@ use super::Reason;
 /// The mass number of an atom, as Rule 2 reads it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Mass {
+    /// A mass number the atom is labeled with (and 0 for a phantom atom).
     Number(u16),
-    /// An unlabeled atom of an element outside [`natural_mass_number`]'s table: it can only be
-    /// compared with another such atom.
+    /// An unlabeled atom of an element in [`natural_mass_number`]'s table, with that table's
+    /// number. It is *not* the same as a labeled atom of that number: whether an unlabeled
+    /// atom stands for its most abundant isotope or for the atomic weight is a reading of the
+    /// rule this model does not decide, so Rule 2 refuses to compare the two.
+    Table(u16),
+    /// An unlabeled atom of an element outside the table: it can only be compared with another
+    /// such atom.
     NaturalUnlisted,
 }
 
@@ -183,7 +189,7 @@ impl<'g> Context<'g> {
         Ok(match atom.isotope {
             Some(number) => Mass::Number(number),
             None => natural_mass_number(element.atomic_number())
-                .map_or(Mass::NaturalUnlisted, Mass::Number),
+                .map_or(Mass::NaturalUnlisted, Mass::Table),
         })
     }
 

@@ -46,26 +46,44 @@ const PHANTOM: View = View {
     mancude: false,
 };
 
-/// `Greater` when `a` ranks higher than `b` under `rule`.
-fn compare_views(rule: Rule, a: View, b: View) -> Result<Ordering, Reason> {
+/// How Rule 2 orders two masses, and the refusal if the order is a reading this model does not
+/// decide. The order is always a consistent one (a labeled `n` above an unlabeled atom of
+/// table mass `n`, an unlabeled atom of an unlisted element below every labeled one), so that
+/// the comparison can go on, and the refusal is reported for whoever asked: see
+/// [`Engine::refuse`].
+fn compare_masses(a: Mass, b: Mass) -> (Ordering, Option<Reason>) {
+    // Doubled, so that a table mass sits between the labels just below and just above it.
+    let key = |mass: Mass| match mass {
+        Mass::NaturalUnlisted => 0_u32,
+        Mass::Table(number) => 2 * u32::from(number),
+        Mass::Number(number) => 2 * u32::from(number) + 1,
+    };
+    let undecided = match (a, b) {
+        (Mass::NaturalUnlisted, Mass::Number(_)) | (Mass::Number(_), Mass::NaturalUnlisted) => true,
+        (Mass::Table(table), Mass::Number(number)) | (Mass::Number(number), Mass::Table(table)) => {
+            table == number
+        }
+        _ => false,
+    };
+    (key(a).cmp(&key(b)), undecided.then_some(Reason::MassNumber))
+}
+
+/// `Greater` when `a` ranks higher than `b` under `rule`, and the refusal if the comparison
+/// touched something the model cannot decide (the order is then a stand-in).
+fn compare_views(rule: Rule, a: View, b: View) -> (Ordering, Option<Reason>) {
     match rule {
-        Rule::R1a => Ok(a.z.cmp(&b.z)),
+        Rule::R1a => (a.z.cmp(&b.z), None),
         Rule::R1b => {
-            if a.mancude || b.mancude {
-                return Err(Reason::MancudeRule1b);
-            }
-            Ok(match (a.duplicate_of_depth, b.duplicate_of_depth) {
+            let refusal = (a.mancude || b.mancude).then_some(Reason::MancudeRule1b);
+            let ordering = match (a.duplicate_of_depth, b.duplicate_of_depth) {
                 // Nearer the root ranks higher. Only two duplicates are compared with each
                 // other; a duplicate and an ordinary atom tie.
                 (Some(a_depth), Some(b_depth)) => b_depth.cmp(&a_depth),
                 _ => Ordering::Equal,
-            })
+            };
+            (ordering, refusal)
         }
-        Rule::R2 => match (a.mass, b.mass) {
-            (Mass::Number(a_mass), Mass::Number(b_mass)) => Ok(a_mass.cmp(&b_mass)),
-            (Mass::NaturalUnlisted, Mass::NaturalUnlisted) => Ok(Ordering::Equal),
-            _ => Err(Reason::MassNumber),
-        },
+        Rule::R2 => compare_masses(a.mass, b.mass),
     }
 }
 
@@ -105,10 +123,21 @@ pub(super) fn dense_ranks(results: &[Vec<Ordering>]) -> Option<Vec<usize>> {
     )
 }
 
+/// The comparisons of the ligands of one pair, in one arena.
+///
+/// A refusal (an atom the model cannot expand, a comparison it cannot decide) does not stop
+/// the comparison: the refused atom is read as having no children and the stand-in order of
+/// [`compare_views`] is used, and the smallest reason is remembered in [`Engine::refusal`].
+/// The comparison then finishes on a consistent, if wrong, digraph, so the nodes it
+/// materialized and the reason it ends with are a function of the digraph alone, and not of
+/// the order its neighbors were visited in (which follows atom identifiers). A caller that
+/// finds a refusal discards the order. Only a limit or an interrupt stops a comparison early,
+/// and the caller does not use how far it got.
 pub(super) struct Engine<'c, 'g> {
     pub(super) arena: Arena<'c, 'g>,
     interrupt: &'c dyn Interrupt,
     cap: usize,
+    refusal: Option<Reason>,
     compared: BTreeMap<(NodeIx, NodeIx, Rule), (Ordering, Option<Rule>)>,
     sorted: BTreeMap<(NodeIx, Rule), Vec<NodeIx>>,
 }
@@ -124,9 +153,19 @@ impl<'c, 'g> Engine<'c, 'g> {
             arena: Arena::new(context, center),
             interrupt,
             cap,
+            refusal: None,
             compared: BTreeMap::new(),
             sorted: BTreeMap::new(),
         }
+    }
+
+    /// The smallest reason a comparison of this engine met that the model cannot decide.
+    pub(super) const fn refusal(&self) -> Option<Reason> {
+        self.refusal
+    }
+
+    fn refuse(&mut self, reason: Reason) {
+        self.refusal = Some(self.refusal.map_or(reason, |found| found.min(reason)));
     }
 
     fn view(&self, node: Option<NodeIx>) -> View {
@@ -171,24 +210,29 @@ impl<'c, 'g> Engine<'c, 'g> {
 
     /// One rule over the whole digraph, sphere by sphere. A sphere is a list of groups, one
     /// group per node of the previous sphere in its established order; a missing node is a
-    /// phantom. The interrupt and the node cap are checked once per sphere.
+    /// phantom. The interrupt is checked at the start of every sphere, before it is compared,
+    /// so a sphere that already decides cannot skip it; the node cap and the sphere bound
+    /// ([`super::MAX_SPHERES`], applied when a node is expanded) before a sphere is expanded.
     fn compare_by(&mut self, a: NodeIx, b: NodeIx, rule: Rule) -> Result<Ordering, Halt> {
         let mut left = vec![vec![a]];
         let mut right = vec![vec![b]];
         loop {
+            self.interrupt.check()?;
             for (l, r) in left.iter().zip(&right) {
                 for position in 0..l.len().max(r.len()) {
-                    let ordering = compare_views(
+                    let (ordering, refusal) = compare_views(
                         rule,
                         self.view(l.get(position).copied()),
                         self.view(r.get(position).copied()),
-                    )?;
+                    );
+                    if let Some(reason) = refusal {
+                        self.refuse(reason);
+                    }
                     if ordering != Ordering::Equal {
                         return Ok(ordering);
                     }
                 }
             }
-            self.interrupt.check()?;
             if self.arena.len() > self.cap {
                 return Err(Reason::DigraphLimit.into());
             }
@@ -218,7 +262,14 @@ impl<'c, 'g> Engine<'c, 'g> {
         if let Some(found) = self.sorted.get(&(node, rule)) {
             return Ok(found.clone());
         }
-        let children = self.arena.children(node)?;
+        let children = match self.arena.children(node) {
+            Ok(children) => children,
+            Err(Reason::DigraphLimit) => return Err(Reason::DigraphLimit.into()),
+            Err(reason) => {
+                self.refuse(reason);
+                Vec::new()
+            }
+        };
         let count = children.len();
         let mut order = children.clone();
         if count > 1 {

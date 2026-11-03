@@ -3,7 +3,8 @@
 //! are also read by RDKit (`scripts/verify-cip-rdkit.py`), which does not use it.
 
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, NewAtomPositions, Point,
+    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_COMMANDS,
+    NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
@@ -46,11 +47,41 @@ impl Built {
     }
 }
 
+/// Applies commands in transactions of at most [`MAX_COMMANDS`], so a molecule larger than one
+/// transaction can be built.
+fn apply_in_batches(document: &mut Document, commands: &[Command]) {
+    for batch in commands.chunks(MAX_COMMANDS) {
+        document.apply(batch).unwrap();
+    }
+}
+
 fn point(index: usize) -> Point {
     Point::new(index as f64, 0.0).unwrap()
 }
 
 impl Molecule {
+    /// Adds a copy of `other` as a disconnected part and returns the index its first atom has.
+    pub fn append(&mut self, other: &Self) -> usize {
+        let offset = self.atoms.len();
+        self.atoms.extend(other.atoms.iter().cloned());
+        self.bonds.extend(
+            other
+                .bonds
+                .iter()
+                .map(|(begin, end, order)| (begin + offset, end + offset, order.clone())),
+        );
+        self.centers
+            .extend(other.centers.iter().map(|center| Center {
+                atom: center.atom + offset,
+                neighbors: center.neighbors.map(|neighbor| match neighbor {
+                    Neighbor::Atom(index) => Neighbor::Atom(index + offset),
+                    other => other,
+                }),
+                turn: center.turn,
+            }));
+        offset
+    }
+
     pub fn mirrored(&self) -> Self {
         let mut mirror = self.clone();
         for center in &mut mirror.centers {
@@ -73,7 +104,7 @@ impl Molecule {
                 bond_to: None,
             });
         }
-        document.apply(&commands).unwrap();
+        apply_in_batches(&mut document, &commands);
         for (&index, (id, _)) in atom_order.iter().zip(document.atoms()) {
             ids[index] = Some(id);
         }
@@ -101,7 +132,7 @@ impl Molecule {
                 }),
             });
         }
-        document.apply(&commands).unwrap();
+        apply_in_batches(&mut document, &commands);
         Built { document, ids }
     }
 

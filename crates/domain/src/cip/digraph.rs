@@ -3,8 +3,8 @@
 use crate::document::AtomId;
 use crate::stereo::Slot;
 
-use super::Reason;
 use super::context::{AtomClass, Context, Mass, Step};
+use super::{MAX_SPHERES, Reason};
 
 pub(super) type NodeIx = usize;
 
@@ -79,9 +79,9 @@ impl<'c, 'g> Arena<'c, 'g> {
         }
     }
 
-    /// A ligand of the center, as a root of this arena.
-    pub(super) fn root(&mut self, slot: Slot) -> Result<NodeIx, Reason> {
-        let (kind, z, mass, bond_in) = match slot {
+    /// What a ligand of the center is, before it is a node.
+    fn root_facts(&self, slot: Slot) -> Result<(Kind, u8, Mass, u8), Reason> {
+        Ok(match slot {
             Slot::Atom(atom) => {
                 let bond = self
                     .context
@@ -98,10 +98,28 @@ impl<'c, 'g> Arena<'c, 'g> {
                     order,
                 )
             }
-            Slot::ImplicitHydrogen => (Kind::Hydrogen, 1, Mass::Number(1), 1),
+            Slot::ImplicitHydrogen => (Kind::Hydrogen, 1, Mass::Table(1), 1),
             Slot::LonePair => (Kind::Phantom, 0, Mass::Number(0), 1),
+        })
+    }
+
+    /// Two ligands of the center, as roots of this arena. Both are checked before either is
+    /// added, so a refusal leaves the arena empty whichever ligand fails.
+    ///
+    /// # Errors
+    ///
+    /// The smaller reason of the two ligands that cannot be read.
+    pub(super) fn roots(&mut self, first: Slot, second: Slot) -> Result<(NodeIx, NodeIx), Reason> {
+        let facts = [self.root_facts(first), self.root_facts(second)];
+        if let Some(reason) = facts.iter().filter_map(|f| f.as_ref().err()).min() {
+            return Err(*reason);
+        }
+        let [Ok(a), Ok(b)] = facts else {
+            return Err(Reason::CenterStructure);
         };
-        Ok(self.push(kind, z, mass, 1, None, bond_in))
+        let a = self.push(a.0, a.1, a.2, 1, None, a.3);
+        let b = self.push(b.0, b.1, b.2, 1, None, b.3);
+        Ok((a, b))
     }
 
     fn push(
@@ -146,33 +164,81 @@ impl<'c, 'g> Arena<'c, 'g> {
     /// duplicate of the parent for each bond to it beyond the first; one duplicate carbon for a
     /// mancude atom; and a hydrogen for each hydrogen the valence model gives the atom.
     ///
+    /// Either every child is added or none is: an atom that cannot be expanded adds nothing,
+    /// so the size of the arena does not depend on which of its neighbors was read first. The
+    /// reason a refused node is reported under is the smallest of all the problems it has.
+    ///
     /// # Errors
     ///
     /// The reason the atom cannot be expanded: query atom, attachment point, a bond kind or
-    /// hydrogen count the model cannot read, an aromatic system it refuses.
+    /// hydrogen count the model cannot read, an aromatic system it refuses. Such a node is
+    /// left without children, so asking again returns none; [`Reason::DigraphLimit`] is
+    /// returned, and nothing is remembered, for an atom in sphere [`MAX_SPHERES`].
     pub(super) fn children(&mut self, index: NodeIx) -> Result<Vec<NodeIx>, Reason> {
         if let Some(children) = &self.nodes[index].children {
             return Ok(children.clone());
         }
-        let Kind::Real(atom) = self.nodes[index].kind else {
+        if !matches!(self.nodes[index].kind, Kind::Real(_)) {
             self.nodes[index].children = Some(Vec::new());
+            return Ok(Vec::new());
+        }
+        if usize::from(self.nodes[index].depth) >= MAX_SPHERES {
+            return Err(Reason::DigraphLimit);
+        }
+        match self.planned_children(index) {
+            Ok(planned) => {
+                let depth = self.nodes[index].depth;
+                let found: Vec<NodeIx> = planned
+                    .into_iter()
+                    .map(|(kind, z, mass, bond)| {
+                        self.push(kind, z, mass, depth + 1, Some(index), bond)
+                    })
+                    .collect();
+                self.nodes[index].children = Some(found.clone());
+                Ok(found)
+            }
+            Err(reason) => {
+                self.nodes[index].children = Some(Vec::new());
+                Err(reason)
+            }
+        }
+    }
+
+    /// The children of the real node `index` as (kind, atomic number, mass, bond order to the
+    /// parent), or the smallest reason it cannot be expanded.
+    fn planned_children(&self, index: NodeIx) -> Result<Vec<(Kind, u8, Mass, u8)>, Reason> {
+        let Kind::Real(atom) = self.nodes[index].kind else {
             return Ok(Vec::new());
         };
         let context = self.context;
-        let hydrogens = context.hydrogens(atom)?;
         let depth = self.nodes[index].depth;
         let bond_in = self.nodes[index].bond_in;
         let parent_atom = self.parent_atom(index);
+        let mut refusal: Option<Reason> = None;
+        let mut refuse = |reason: Reason| refusal = Some(refusal.map_or(reason, |r| r.min(reason)));
+        let hydrogens = context.hydrogens(atom).unwrap_or_else(|reason| {
+            refuse(reason);
+            0
+        });
         let mut found = Vec::new();
         for &(neighbor, bond) in context.neighbors(atom) {
             if neighbor == parent_atom {
                 continue;
             }
-            let step = context.bond_step(bond)?;
-            let (z, mass) = (
-                context.element(neighbor)?.atomic_number(),
-                context.mass(neighbor)?,
-            );
+            let facts = (|| -> Result<_, Reason> {
+                Ok((
+                    context.bond_step(bond)?,
+                    context.element(neighbor)?.atomic_number(),
+                    context.mass(neighbor)?,
+                ))
+            })();
+            let (step, z, mass) = match facts {
+                Ok(facts) => facts,
+                Err(reason) => {
+                    refuse(reason);
+                    continue;
+                }
+            };
             let on_path = self.path_depth(index, neighbor);
             let order = match step {
                 Step::Mancude => 1,
@@ -186,49 +252,104 @@ impl<'c, 'g> Arena<'c, 'g> {
                 },
                 None => Kind::Real(neighbor),
             };
-            found.push(self.push(first, z, mass, depth + 1, Some(index), order));
+            found.push((first, z, mass, order));
             for _ in 1..order {
                 let duplicate = Kind::Duplicate {
                     of: neighbor,
                     of_depth: corresponding,
                 };
-                found.push(self.push(duplicate, z, mass, depth + 1, Some(index), 1));
+                found.push((duplicate, z, mass, 1));
             }
         }
         if bond_in > 1 {
-            let (z, mass) = (
-                context.element(parent_atom)?.atomic_number(),
-                context.mass(parent_atom)?,
-            );
-            for _ in 1..bond_in {
-                let duplicate = Kind::Duplicate {
-                    of: parent_atom,
-                    of_depth: depth - 1,
-                };
-                found.push(self.push(duplicate, z, mass, depth + 1, Some(index), 1));
+            match (context.element(parent_atom), context.mass(parent_atom)) {
+                (Ok(element), Ok(mass)) => {
+                    for _ in 1..bond_in {
+                        let duplicate = Kind::Duplicate {
+                            of: parent_atom,
+                            of_depth: depth - 1,
+                        };
+                        found.push((duplicate, element.atomic_number(), mass, 1));
+                    }
+                }
+                (Err(reason), _) | (_, Err(reason)) => refuse(reason),
             }
         }
         if context.class(atom) == Some(AtomClass::Mancude) {
-            found.push(self.push(
-                Kind::Mancude,
-                6,
-                Mass::Number(12),
-                depth + 1,
-                Some(index),
-                1,
-            ));
+            found.push((Kind::Mancude, 6, Mass::Table(12), 1));
         }
         for _ in 0..hydrogens {
-            found.push(self.push(
-                Kind::Hydrogen,
-                1,
-                Mass::Number(1),
-                depth + 1,
-                Some(index),
-                1,
-            ));
+            found.push((Kind::Hydrogen, 1, Mass::Table(1), 1));
         }
-        self.nodes[index].children = Some(found.clone());
-        Ok(found)
+        refusal.map_or(Ok(found), Err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::{
+        Atom, AtomRef, BondOrder, Command, Document, DocumentId, NewAtomPositions, Point,
+    };
+    use crate::element::Element;
+    use crate::graph::MoleculeGraph;
+
+    /// The ring closure of cyclobutene `Y=X, Y-A, A-B, B-X` entered from a center `K` at `Y`
+    /// reaches `Y` again from `X` through the double bond: both duplicates of `Y` stand for
+    /// the real `Y` in sphere 1, whatever sphere they are in. No label shows the second
+    /// duplicate's depth on its own (a search of 60,000 generated molecules found none, and the
+    /// first duplicate decides any comparison that reads either), so the arena is read
+    /// directly.
+    #[test]
+    fn both_duplicates_of_a_ring_closing_double_bond_point_at_the_atom_on_the_path() {
+        let mut document = Document::new(DocumentId::parse("digraph-test").unwrap(), "t").unwrap();
+        let carbon = || Atom::from(Element::from_symbol("C").unwrap());
+        let atoms: Vec<Command> = (0..5)
+            .map(|i| Command::AddAtom {
+                atom: carbon(),
+                positions: NewAtomPositions::Single(Point::new(f64::from(i), 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        document.apply(&atoms).unwrap();
+        let ids: Vec<AtomId> = document.atoms().map(|(id, _)| id).collect();
+        let [center, y, a, b, x] = [ids[0], ids[1], ids[2], ids[3], ids[4]];
+        let bonds: Vec<Command> = [
+            (center, y, BondOrder::Single),
+            (y, x, BondOrder::Double),
+            (y, a, BondOrder::Single),
+            (a, b, BondOrder::Single),
+            (b, x, BondOrder::Single),
+        ]
+        .into_iter()
+        .map(|(begin, end, order)| Command::AddBond {
+            begin: AtomRef::Id(begin),
+            end: AtomRef::Id(end),
+            order,
+        })
+        .collect();
+        document.apply(&bonds).unwrap();
+        let graph = MoleculeGraph::from_document(&document);
+        let context = Context::new(&graph);
+        let mut arena = Arena::new(&context, center);
+        let (mut node, _) = arena.roots(Slot::Atom(y), Slot::ImplicitHydrogen).unwrap();
+        // Walk the way around the ring: Y, A, B, then X as a real atom (not the child of Y).
+        for next in [a, b, x] {
+            node = arena
+                .children(node)
+                .unwrap()
+                .into_iter()
+                .find(|&child| arena.node(child).kind == Kind::Real(next))
+                .expect("the ring is walked in order");
+        }
+        let closure: Vec<Kind> = arena
+            .children(node)
+            .unwrap()
+            .into_iter()
+            .map(|child| arena.node(child).kind)
+            .filter(|kind| matches!(kind, Kind::Duplicate { .. }))
+            .collect();
+        let expected = Kind::Duplicate { of: y, of_depth: 1 };
+        assert_eq!(closure, vec![expected, expected]);
     }
 }

@@ -26,14 +26,39 @@
 //! 1b is not defined for those duplicates, so a comparison that needs it is refused. Any other
 //! aromatic system is refused as soon as a comparison needs to look inside it.
 //!
+//! # Rule 2 and unlabeled atoms
+//!
+//! A labeled atom ranks by its mass number. An unlabeled atom of an element in the built-in
+//! table counts as the table's number (the most abundant natural isotope) only against labels
+//! that differ from it: `[11CH3]` ranks below and `[13CH3]` above an unlabeled methyl under
+//! every reading of the rule. Whether `[12CH3]` ties with an unlabeled methyl (unlabeled means
+//! the most abundant isotope) or ranks above it (unlabeled means the atomic weight, a little
+//! over 12) is not decided here, so comparing an unlabeled atom with a label equal to its table
+//! number is [`Reason::MassNumber`], never a tie and never an order. The same holds for an
+//! unlabeled atom of an element outside the table against any label.
+//!
 //! # Determinism and limits
 //!
 //! No decision depends on an atom or bond identifier: neighbors are processed as multisets of
 //! ranks, and two nodes that compare equal under every rule have identical subtrees, so their
-//! order cannot change a result. Work is counted in digraph nodes. Each pair of ligands is
-//! compared in its own arena, so the count of an item does not depend on which pair runs
-//! first; the per-item and per-request caps are checked at sphere boundaries. Reaching a cap
-//! makes the item [`State::Unsupported`] with [`Reason::DigraphLimit`], never `none`.
+//! order cannot change a result. A refusal does not stop a comparison (see the engine in
+//! `rank.rs`), so the reason an item is refused under and the work counted for it do not
+//! depend on which refused atom a lazy expansion would have met first.
+//!
+//! Work is counted in digraph nodes. Each pair of ligands is compared in its own arena and each
+//! tie classification has its own, so the count of an item does not depend on which pair runs
+//! first. A comparison whose arena grows past [`Limits::item_nodes`], or that must expand an
+//! atom [`MAX_SPHERES`] spheres from the center, is charged `item_nodes + 1` and the item is
+//! [`State::Unsupported`] with [`Reason::DigraphLimit`], never `none`; any other comparison is
+//! charged the nodes it materialized, refused or not. The cap is checked once per sphere, so a
+//! comparison may exceed it by at most one sphere (and its charge is the true count only when
+//! it stays below). The request cap is checked after each item.
+//!
+//! The sphere bound is also what bounds the stack: ordering the children of a node compares
+//! subtrees, which orders the children of the nodes in them, so ties nest one level of
+//! recursion per sphere. A digraph of a document within [`crate::document::MAX_ATOMS`] can
+//! nest about a thousand levels, which overflows a 2 MiB thread stack in a debug build at
+//! about 630 (see `tests/cip/main.rs`).
 
 mod context;
 mod digraph;
@@ -50,10 +75,17 @@ use crate::stereo::{CenterState, Slot};
 /// The identifier of the labeler once it is exposed; the first slice exposes nothing.
 pub const MODEL_ID: &str = "chemifree-cip-1";
 
-/// The nodes one item may materialize, summed over the ligand pairs it compares.
+/// The nodes one item may materialize, summed over the ligand pairs it compares. The cap is
+/// checked once per sphere, so a comparison may exceed it by at most one sphere.
 pub const MAX_ITEM_NODES: usize = 20_000;
 /// The nodes one request may materialize, summed over its items.
 pub const MAX_REQUEST_NODES: usize = 2_000_000;
+/// The farthest sphere (the ligand atoms are sphere 1) whose atoms are expanded; a comparison
+/// that needs sphere [`MAX_SPHERES`] + 1 is [`Reason::DigraphLimit`]. Tied branches nest the
+/// comparison once per sphere, and a frame of the three functions involved is about 3.3 KB in
+/// a debug build, so 256 spheres need about 0.85 MB of a 2 MiB thread stack, and a digraph
+/// 900 spheres deep (possible in a 2,000-atom document) would overflow it.
+pub const MAX_SPHERES: usize = 256;
 
 /// A CIP sequence rule, in the order they are applied.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -113,8 +145,9 @@ pub enum Reason {
     AromaticSystem,
     /// Rule 1b is needed on a digraph with a mancude duplicate.
     MancudeRule1b,
-    /// Rule 2 compares a labeled atom with an unlabeled atom of an element without a
-    /// built-in mass number.
+    /// Rule 2 compares an unlabeled atom with a labeled one and the answer depends on how an
+    /// unlabeled atom is read: the label equals the element's built-in mass number, or the
+    /// element has none.
     MassNumber,
     /// Temporary: Rule 3 could separate tied ligands and is not implemented yet. Removed by the
     /// Rule 3 slice.
@@ -250,7 +283,8 @@ impl std::error::Error for Stop {}
 ///
 /// A stored record is read as stated; an atom without one is judged on its structure alone
 /// (`None`, `Unspecified` or `Unsupported`). The interrupt is asked once per sphere of every
-/// comparison, so a cancel stops the request at a sphere boundary and yields no reports.
+/// comparison, at the start of the sphere, so a cancel stops the request at a sphere boundary
+/// and yields no reports.
 ///
 /// # Errors
 ///

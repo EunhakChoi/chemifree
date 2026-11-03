@@ -390,6 +390,28 @@
      "label": "unsupported:cip_rule_4_or_5_needed"
     }
    ]
+  },
+  {
+   "name": "11C methyl against an unlabeled methyl",
+   "smiles": "Cl[C@H]([11CH3])C",
+   "source": "hand-derived: a label below the table mass ranks lower under either reading of an unlabeled atom: Cl > CH3 > 11CH3 > H",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "12C methyl against an unlabeled methyl",
+   "smiles": "Cl[C@H]([12CH3])C",
+   "source": "refused on purpose: an unlabeled atom may be the most abundant isotope (a tie) or the atomic weight (above 12C), and the two readings disagree",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_mass_number"
+    }
+   ]
   }
  ]
 }

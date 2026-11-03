@@ -227,8 +227,32 @@ fn rule_2_separates_isotopes_and_rule_1a_over_the_whole_digraph_comes_first() {
     assert_eq!(label("Cl[C@H](C)C", 1), "none");
     // Mass numbers outrank nothing before atomic numbers deeper in the digraph.
     assert_eq!(label("Cl[C@H]([13CH2]C)CCO", 1), "R");
-    // A labeled 12C is the unlabeled carbon: a tie.
-    assert_eq!(label("Cl[C@H]([12CH3])C", 1), "none");
+}
+
+#[test]
+fn an_unlabeled_atom_against_a_label_equal_to_its_table_mass_is_refused_not_tied() {
+    // Whether an unlabeled carbon is 12C or the atomic weight is not decided here: the two
+    // readings tie `[12CH3]` with `CH3` or rank it below, so neither answer is given.
+    for smiles in [
+        "Cl[C@H]([12CH3])C",
+        // Two such pairs, one of them elsewhere in the digraph.
+        "Cl[C@H](C[12CH3])CC",
+        // The ambiguity is met at the second sphere, after Rule 1a and 1b tied.
+        "Cl[C@H]([12CH2]C)CC",
+    ] {
+        assert_eq!(label(smiles, 1), "unsupported:cip_mass_number", "{smiles}");
+    }
+    // Two labeled atoms, or two unlabeled ones, tie as before.
+    assert_eq!(label("Cl[C@H]([12CH3])[12CH3]", 1), "none");
+    assert_eq!(label("Cl[C@H](C)C", 1), "none");
+    // Labels strictly below or above the table mass rank the same under both readings.
+    assert_eq!(label("Cl[C@H]([11CH3])C", 1), "R");
+    assert_eq!(label("Cl[C@H]([13CH3])C", 1), "S");
+    assert_eq!(label("Cl[C@H]([11CH3])[13CH3]", 1), "R");
+    // A drawn hydrogen labeled 1 is the table mass of hydrogen: the same refusal.
+    assert_eq!(label("[C@H]([1H])(F)Cl", 0), "unsupported:cip_mass_number");
+    // A deuterium differs from it and ranks.
+    assert_eq!(label("[C@H]([2H])(F)Cl", 0), "S");
 }
 
 #[test]
@@ -557,6 +581,38 @@ fn the_interrupt_is_asked_at_sphere_boundaries_and_a_cancel_yields_no_reports() 
     );
 }
 
+/// Always stops, as a deadline that has passed would.
+struct Expired;
+
+impl Interrupt for Expired {
+    fn check(&self) -> Result<(), Interrupted> {
+        Err(Interrupted::TimeLimit)
+    }
+}
+
+#[test]
+fn an_interrupt_is_seen_even_when_the_first_comparison_already_decides() {
+    // F, Cl, Br and I differ in atomic number at the first position of the first sphere, so no
+    // comparison goes beyond it; the request must still stop.
+    let built = parse("F[C@](Cl)(Br)I").build();
+    let graph = built.graph();
+    let atoms = [built.ids[1]];
+    assert_eq!(
+        text(&label_centers(&graph, &atoms, Limits::default(), &NEVER).unwrap()[0]),
+        "S"
+    );
+    let cancel = CancelFlag::new();
+    cancel.cancel();
+    assert_eq!(
+        label_centers(&graph, &atoms, Limits::default(), &cancel).err(),
+        Some(Stop::Interrupted(Interrupted::Cancelled))
+    );
+    assert_eq!(
+        label_centers(&graph, &atoms, Limits::default(), &Expired).err(),
+        Some(Stop::Interrupted(Interrupted::TimeLimit))
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // Determinism: renumbering, insertion order, work counts.
 // ---------------------------------------------------------------------------------------
@@ -626,6 +682,217 @@ fn renumbering_atoms_and_reordering_insertion_changes_nothing_not_even_the_work(
         }
     }
     assert!(compared > 300);
+}
+
+/// `count` centers, each with two equal chains of `length` carbons that end in an iron atom,
+/// which the valence model cannot expand: the chains tie sphere by sphere to the end, and the
+/// comparison is refused there. Returns the molecule and the index of each center.
+fn refused_after_long_chains(count: usize, length: usize) -> (Molecule, Vec<usize>) {
+    let chain = "C".repeat(length);
+    let one = parse(&format!("Cl[C@H]({chain}[Fe]){chain}[Fe]"));
+    let mut molecule = Molecule::default();
+    let centers = (0..count)
+        .map(|_| molecule.append(&one) + 1)
+        .collect::<Vec<_>>();
+    (molecule, centers)
+}
+
+#[test]
+fn many_centers_refused_after_a_large_expansion_still_hit_the_request_cap() {
+    let (molecule, centers) = refused_after_long_chains(4, 200);
+    let built = molecule.build();
+    let alone = run(&built, &centers[..1], Limits::default())
+        .unwrap()
+        .remove(0);
+    assert_eq!(text(&alone), "unsupported:cip_hydrogens_unknown");
+    // The refused comparison expanded both chains (about three nodes per carbon: the next
+    // carbon and two hydrogens), and the report says so.
+    assert!(alone.nodes > 1000, "nodes {}", alone.nodes);
+
+    let limits = Limits {
+        item_nodes: usize::MAX,
+        request_nodes: alone.nodes * 3,
+    };
+    for order in [[0, 1, 2, 3], [3, 2, 1, 0]] {
+        let atoms: Vec<usize> = order.iter().map(|&i| centers[i]).collect();
+        assert_eq!(
+            run(&built, &atoms, limits).err(),
+            Some(Stop::RequestLimit {
+                limit: limits.request_nodes
+            }),
+            "four refused items of {} nodes each, order {order:?}",
+            alone.nodes
+        );
+    }
+    let enough = Limits {
+        request_nodes: alone.nodes * 4,
+        ..limits
+    };
+    let reports = run(&built, &centers, enough).unwrap();
+    assert!(reports.iter().all(|r| r.nodes == alone.nodes));
+}
+
+/// A spine of `levels` carbons that each carry a methyl, as a SMILES fragment.
+fn spine(levels: usize) -> String {
+    format!("{}C", "C(C)".repeat(levels))
+}
+
+/// The label of a center with a fluorine, a chlorine, a methyl and a spine, computed on a
+/// thread with the 2 MiB stack Rust gives a spawned thread (and tokio gives a worker).
+fn spine_label(levels: usize, limits: Limits) -> CenterReport {
+    let smiles = format!("[C@](F)(Cl)(C){}", spine(levels));
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            let built = parse(&smiles).build();
+            run(&built, &[0], limits).unwrap().remove(0)
+        })
+        .unwrap()
+        .join()
+        .expect("the labeler overflowed its stack")
+}
+
+#[test]
+fn a_digraph_deeper_than_the_sphere_bound_is_refused_and_does_not_overflow_the_stack() {
+    // Every carbon of the spine ties with its methyl at the root atom, so ordering its
+    // children compares the rest of the spine, which orders the children of the next carbon:
+    // one level of recursion per sphere. 900 levels are 1,801 atoms, within a document.
+    let levels = 900;
+    let report = spine_label(levels, Limits::default());
+    assert_eq!(text(&report), "unsupported:cip_digraph_limit");
+    assert!(report.priority.is_none() && report.decided_by.is_none());
+    // The same bound holds without a node cap that would stop it first.
+    let uncapped = Limits {
+        item_nodes: usize::MAX,
+        request_nodes: usize::MAX,
+    };
+    assert_eq!(
+        text(&spine_label(levels, uncapped)),
+        "unsupported:cip_digraph_limit"
+    );
+    // A spine within the bound is ranked: Rule 1a separates it from the methyl.
+    let short = spine_label(200, uncapped);
+    assert!(
+        matches!(text(&short).as_str(), "R" | "S"),
+        "{}",
+        text(&short)
+    );
+}
+
+/// Molecules whose comparisons are refused, with the centers to label. Several refusals of
+/// different kinds sit at the same depth in different branches, so which one a lazy expansion
+/// meets first would follow the identifiers if the code let it.
+fn refused_molecules() -> Vec<(&'static str, Molecule, Vec<usize>)> {
+    let mut cases = Vec::new();
+    let arm = "CC(CCCC)C";
+    let two_metals = parse(&format!("Cl[C@H]({arm}[Fe]){arm}[Fe]"));
+    cases.push(("two metals", two_metals.clone(), vec![1]));
+
+    let mut query_and_metal = parse(&format!("Cl[C@H]({arm}[Fe]){arm}C"));
+    let last = query_and_metal.atoms.len() - 1;
+    query_and_metal.atoms[last].kind = AtomKind::Query(QueryAtom::Any);
+    cases.push(("query atom and metal", query_and_metal, vec![1]));
+
+    let mut dative = parse(&format!("Cl[C@H]({arm}[Fe]){arm}C"));
+    let last_bond = dative.bonds.len() - 1;
+    dative.bonds[last_bond].2 = BondOrder::Dative;
+    cases.push(("dative bond and metal", dative, vec![1]));
+
+    let mut attached = parse(&format!("Cl[C@H]({arm}C){arm}C"));
+    attached.atoms[3].attachment_points = AttachmentPoints::new(&[1]).unwrap();
+    attached.atoms[12].hydrogens = Hydrogens::Unknown;
+    cases.push(("attachment point and unknown hydrogens", attached, vec![1]));
+
+    let mass = parse(&format!("Cl[C@H]({arm}[12CH3]){arm}C"));
+    cases.push(("unlabeled against its table mass", mass, vec![1]));
+
+    let pyridine = parse("C[C@H](O)c1ccccn1");
+    cases.push(("aromatic system", pyridine, vec![1]));
+    let diphenyl = parse("O[C@H](c1ccccc1)c1ccccc1");
+    cases.push(("mancude rule 1b", diphenyl, vec![1]));
+    cases
+}
+
+/// A generated molecule with some atoms the model cannot expand or compare.
+fn random_refused_molecule(rng: &mut Rng) -> Molecule {
+    let mut molecule = random_molecule(rng);
+    for _ in 0..1 + rng.below(3) {
+        let index = rng.below(molecule.atoms.len());
+        match rng.below(3) {
+            0 => molecule.atoms[index] = element("Fe"),
+            1 => {
+                molecule.atoms[index].isotope = None;
+                molecule.atoms[index].kind = AtomKind::Query(QueryAtom::Any);
+            }
+            _ => {
+                if !molecule.bonds.is_empty() {
+                    let bond = rng.below(molecule.bonds.len());
+                    molecule.bonds[bond].2 = BondOrder::Dative;
+                }
+            }
+        }
+    }
+    // A center must stay an ordinary carbon with ordinary bonds to be given a configuration.
+    let intact = |molecule: &Molecule, atom: usize| {
+        molecule.atoms[atom].kind.element().map(|e| e.symbol()) == Some("C")
+            && molecule
+                .bonds
+                .iter()
+                .filter(|&&(a, b, _)| a == atom || b == atom)
+                .all(|(_, _, order)| *order != BondOrder::Dative)
+    };
+    let kept: Vec<_> = molecule
+        .centers
+        .iter()
+        .filter(|center| intact(&molecule, center.atom))
+        .cloned()
+        .collect();
+    molecule.centers = kept;
+    molecule
+}
+
+#[test]
+fn refused_items_report_the_same_reason_and_work_whatever_the_identifiers() {
+    let mut rng = Rng(0x0bad_cafe_1357_9bdf);
+    let mut cases = refused_molecules();
+    for _ in 0..300 {
+        let molecule = random_refused_molecule(&mut rng);
+        let centers: Vec<usize> = molecule.centers.iter().map(|c| c.atom).collect();
+        cases.push(("generated", molecule, centers));
+    }
+    let tight = Limits {
+        item_nodes: 60,
+        request_nodes: usize::MAX,
+    };
+    let (mut refused, mut compared) = (0, 0);
+    for (name, molecule, centers) in &cases {
+        for limits in [Limits::default(), tight] {
+            let base = molecule.build();
+            let expected: Vec<String> = run(&base, centers, limits)
+                .unwrap()
+                .iter()
+                .map(|r| normalized(&base, r))
+                .collect();
+            refused += expected
+                .iter()
+                .filter(|e| e.starts_with("unsupported:") && !e.contains("nodes=0"))
+                .count();
+            for _ in 0..8 {
+                let atom_order = rng.shuffled(molecule.atoms.len());
+                let bond_order = rng.shuffled(molecule.bonds.len());
+                let built = molecule.build_ordered(&atom_order, &bond_order);
+                let got: Vec<String> = run(&built, centers, limits)
+                    .unwrap()
+                    .iter()
+                    .map(|r| normalized(&built, r))
+                    .collect();
+                assert_eq!(got, expected, "{name} {atom_order:?} {bond_order:?}");
+                compared += 1;
+            }
+        }
+    }
+    assert!(refused > 100, "only {refused} refused items with work");
+    assert!(compared > 4000);
 }
 
 // ---------------------------------------------------------------------------------------
