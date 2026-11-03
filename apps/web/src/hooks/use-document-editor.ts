@@ -21,6 +21,7 @@ import {
   type TrashListResponse,
 } from '@/lib/document-contract'
 import { sendMark, type DeriveOutcome, type MarkGesture } from '@/editor/mark-gestures'
+import { resolutionCommands, resolutionStatus, type Resolution } from '@/editor/stereo-agreement'
 import { describeStereoChange } from '@/editor/stereo-status'
 import { holdsStereo, stereoOf } from '@/lib/stereo-contract'
 
@@ -401,6 +402,7 @@ export function useDocumentEditor() {
       serviceGenerationRef.current === generation && currentRef.current !== null &&
       sameConversionSnapshot(currentRef.current.document, snapshot), []),
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
+    inspectStereo: useCallback((id: string) => client.inspectStereo(id), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
@@ -587,6 +589,31 @@ export function useDocumentEditor() {
       }, (response) => {
         adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
         const text = before && describeStereoChange(before, response.document, outcome)
+        if (text) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text })
+      })
+    }, [mutate, adoptSelection]),
+    /**
+     * Resolves one row of the stereo comparison, or all its disagreements, built from the latest
+     * document (null: what it names is gone, so nothing is sent and the status says so). One
+     * transaction, so one undo step; the status names the stated value that was replaced.
+     */
+    resolveStereo: useCallback((resolution: Resolution) => {
+      const pressed = new Set(selectionRef.current)
+      let before: DocumentView | null = null
+      return mutate((document) => {
+        before = null
+        const commands = resolutionCommands(document.document, resolution)
+        if (!commands) {
+          const { id, revision: shownRevision } = document.document
+          setStereoStatus({ documentId: id, revision: shownRevision, text: 'The drawing changed, so nothing was changed. Check the comparison again.' })
+          return null
+        }
+        const shown = document.document
+        before = shown
+        return client.transact(shown.id, shown.revision, commands, { before: selectionSnapshot(pressed, shown) })
+      }, (response) => {
+        adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
+        const text = before && resolutionStatus(before, response.document, resolution)
         if (text) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text })
       })
     }, [mutate, adoptSelection]),

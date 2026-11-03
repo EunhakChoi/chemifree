@@ -15,7 +15,7 @@ const markWords = (mark: StereoMark) => `${capital(MARK_NAMES[mark.kind])} mark`
 const narrowAtom = (mark: StereoMark | null, bond: BondView) =>
   mark && 'narrow' in mark ? (mark.narrow === 'begin' ? bond.begin : bond.end) : null
 
-const turnWords = (configuration: AtomConfiguration | BondConfiguration) => {
+export const turnWords = (configuration: AtomConfiguration | BondConfiguration) => {
   switch (configuration.kind) {
     case 'tetrahedral':
       return configuration.turn
@@ -31,7 +31,7 @@ const turnWords = (configuration: AtomConfiguration | BondConfiguration) => {
 }
 
 /** The stored configuration of an atom or double bond in `document`, if any. */
-function stored(document: DocumentView, id: string): AtomConfiguration | BondConfiguration | undefined {
+export function stored(document: DocumentView, id: string): AtomConfiguration | BondConfiguration | undefined {
   const stereo = stereoOf(document)
   return stereo.atoms.find((record) => record.atom === id)?.configuration ?? stereo.bonds.find((record) => record.bond === id)?.configuration
 }
