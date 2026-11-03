@@ -246,8 +246,10 @@ impl From<ApplicationError> for ApiError {
             | ErrorCode::DraftInUse
             | ErrorCode::DraftOutdated
             | ErrorCode::RequestInProgress => StatusCode::CONFLICT,
-            // Computations stopped by their time limit or by the caller are reported only in
-            // an operation reply's diagnostics; this status is for completeness.
+            // Mapping only: no route reaches it. A computation stopped by its time limit or by
+            // the caller is reported in an operation reply's diagnostics (`POST
+            // /api/v1/operations` answers 200), never as an `ApiError`. `docs/CONTRACT.md`
+            // (Computation time limit and cancel) says the same.
             ErrorCode::StorageFailed
             | ErrorCode::ResourceLimit
             | ErrorCode::TimeLimit
