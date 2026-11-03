@@ -215,6 +215,10 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         Query {current.search.query.id} revision {current.search.query.revision}; target {current.search.target.id} revision{' '}
         {current.search.target.revision}. An edit to the other drawing shows here once the document list is refreshed; search again to include it.
       </p>
+      {(current.search.stereo.queryPresent || current.search.stereo.targetPresent) && <p role="note" data-testid="substructure-stereo">
+        Stereo was not read: {[current.search.stereo.queryPresent && 'the query', current.search.stereo.targetPresent && 'the target'].filter(Boolean).join(' and ')} holds stereo marks or
+        stated configurations. A mapping ignores them, so it may join mirror images or cis/trans forms.
+      </p>}
       <p className="text-muted-foreground">
         {current.search.model}; aromaticity {current.search.aromaticityModel}; {current.search.steps} step(s) of at most{' '}
         {current.search.limits.search_steps}.

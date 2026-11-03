@@ -85,6 +85,7 @@ import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
+import { stereoCounts } from '@/lib/stereo-contract'
 import {
   ATTACHMENT_POINTS,
   sameInspectionSnapshot,
@@ -226,7 +227,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models; stereo and naming remain unimplemented.
+          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks and stated configurations are recorded but not drawn, derived or compared here; naming remains unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -643,6 +644,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       </div>
       {current.recovery && <RecoveryNotice editor={editor} recovery={current.recovery} unsaved={session.unsaved_changes} />}
       {editor.copyNotice && <CopyNoticeBanner editor={editor} notice={editor.copyNotice} title={document.title} />}
+      <StereoNotice document={document} />
 
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
@@ -736,6 +738,23 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
       </p>
     </div>
+  )
+}
+
+/**
+ * Says that the drawing holds stereo the editor does not draw, derive or compare. A marked bond
+ * is a plain line on the canvas until marks can be drawn; this line and the bond's accessible
+ * name are the only signals, so the line is present whenever any mark or configuration is.
+ */
+function StereoNotice({ document }: { document: DocumentView }) {
+  const { marks, configurations } = stereoCounts(document)
+  if (marks + configurations === 0) return null
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
+  return (
+    <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
+      This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept and
+      saved, but the editor does not draw, derive or compare them yet; a marked bond is named in its label.
+    </p>
   )
 }
 

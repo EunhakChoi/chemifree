@@ -388,6 +388,49 @@ fn dative_direction_is_retained_in_rich_xml_but_cannot_create_an_editor_graph() 
 }
 
 #[test]
+fn a_bond_display_attribute_is_not_read_as_a_plain_bond() {
+    // The rich tree keeps the attribute; the editor projection has no mark to put it in yet and
+    // refuses the bond instead of creating an unmarked one.
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    for display in ["WedgeBegin", "WedgedHashBegin", "Wavy"] {
+        let source = format!(
+            "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"0 0\"/><n id=\"4\" p=\"1 0\"/><b id=\"5\" B=\"3\" E=\"4\" Display=\"{display}\"/></fragment></page></CDXML>"
+        );
+        let read = call(
+            &application,
+            "display-read",
+            "document.import",
+            json!({"mode":"read","format":"cdxml","source":source}),
+        );
+        assert_eq!(read["outcome"], "ok", "{display}: {read}");
+        let preview = call(
+            &application,
+            "display-preview",
+            "document.import",
+            json!({"mode":"preview","format":"cdxml","source":source,"title":"Marked","page_id":1,"fragment_id":2}),
+        );
+        assert_eq!(
+            preview["diagnostics"][0]["code"], "unsupported_bond",
+            "{display}: {preview}"
+        );
+        assert!(preview["result"].is_null(), "{display}");
+        let create = call(
+            &application,
+            "display-create",
+            "document.import",
+            json!({"mode":"create","format":"cdxml","source":source,"title":"Marked","page_id":1,"fragment_id":2,"preview_digest":"unavailable","accept_loss":true}),
+        );
+        assert_eq!(
+            create["diagnostics"][0]["code"], "unsupported_bond",
+            "{display}: {create}"
+        );
+        assert!(create["result"].is_null(), "{display}");
+    }
+    assert_eq!(count(&application), 0);
+}
+
+#[test]
 fn unsafe_editor_projection_never_creates_or_changes_documents() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());

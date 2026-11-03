@@ -30,7 +30,7 @@ use crate::states::{
 use crate::stereo::{
     AtomConfiguration, BondConfiguration, CenterState, DoubleBondState, Graph, Slot, SlotRef,
     StereoError, StereoKey, StereoMark, StereoState, StereoTable, check_center, check_double_bond,
-    relative_double_bond,
+    read_legacy_reference, relative_double_bond,
 };
 
 pub const MAX_ATOMS: usize = 2_000;
@@ -1866,8 +1866,9 @@ impl Document {
     /// selection that is not where the history ends: the newest undo entry's `after` (left by
     /// an edit or a redo) or the nearest redo entry's `before` (left by an undo), compared as
     /// sets. With no history, any selection of what exists is accepted.
-    pub fn restore(parts: DocumentParts) -> Result<Self, RestoreError> {
+    pub fn restore(mut parts: DocumentParts) -> Result<Self, RestoreError> {
         let invalid = |reason: &str| RestoreError(reason.to_owned());
+        read_legacy_references(&mut parts);
         if parts.revision > MAX_REVISION {
             return Err(invalid("revision exceeds the largest revision"));
         }
@@ -2322,6 +2323,24 @@ impl Document {
         self.revision += 1;
         self.undo.push_back(set);
         Ok(())
+    }
+}
+
+/// Normalizes the stereo of stored parts before any check: the document's records and both
+/// sides of every history entry. See [`read_legacy_reference`].
+fn read_legacy_references(parts: &mut DocumentParts) {
+    for (_, state) in &mut parts.stereo {
+        read_legacy_reference(state);
+    }
+    for set in parts.undo.iter_mut().chain(&mut parts.redo) {
+        for (_, change) in &mut set.stereo {
+            for state in [&mut change.before, &mut change.after]
+                .into_iter()
+                .flatten()
+            {
+                read_legacy_reference(state);
+            }
+        }
     }
 }
 

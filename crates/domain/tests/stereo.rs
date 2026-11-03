@@ -719,9 +719,9 @@ fn double_bond_configurations_are_checked_against_the_ends() {
     );
     assert_refused(
         &mut document,
-        relative(1, s(3), SlotRef::LonePair, Relation::SameSide),
+        relative(1, SlotRef::LonePair, s(5), Relation::SameSide),
         StereoError::ReferenceInvalid,
-        "an implicit slot where the end has an explicit neighbor",
+        "a lone pair where the end has two explicit neighbors",
     );
     // An end with three other neighbors.
     let mut crowded = alkene();
@@ -781,9 +781,8 @@ fn a_double_bond_reference_is_stored_as_the_lowest_neighbor_with_the_relation_ad
     }
 }
 
-#[test]
-fn an_end_without_other_neighbors_takes_an_implicit_hydrogen_or_a_lone_pair() {
-    // a1=a2, a1-a3, a1-a4; a2 has no other neighbor (an imine nitrogen, say).
+/// `a1=a2`, `a1` bonded to `a3` and `a4`; `a2` has no other neighbor (an imine nitrogen, say).
+fn imine() -> Document {
     let mut document = empty();
     run(
         &mut document,
@@ -797,23 +796,228 @@ fn an_end_without_other_neighbors_takes_an_implicit_hydrogen_or_a_lone_pair() {
             add_bond(1, 4, BondOrder::Single),
         ],
     );
-    run(
-        &mut document,
-        &[relative(1, s(4), SlotRef::LonePair, Relation::SameSide)],
-    );
-    assert_eq!(
-        double_bond_state(&document, 1),
-        Some(DoubleBondState::Relative {
-            begin_ref: Slot::Atom(atom(3)),
-            end_ref: Slot::LonePair,
-            relation: Relation::OppositeSides,
-        })
-    );
+    document
+}
+
+fn relative_state(begin_ref: Slot, end_ref: Slot, relation: Relation) -> DoubleBondState {
+    DoubleBondState::Relative {
+        begin_ref,
+        end_ref,
+        relation,
+    }
+}
+
+#[test]
+fn an_end_without_other_neighbors_stores_an_implicit_hydrogen_and_a_lone_pair_flips_the_relation() {
+    // The two positions of the end are complementary: a lone pair on the same side as a3 is the
+    // hydrogen on the opposite side.
+    let cases = [
+        (
+            SlotRef::ImplicitHydrogen,
+            Relation::SameSide,
+            Relation::SameSide,
+        ),
+        (
+            SlotRef::ImplicitHydrogen,
+            Relation::OppositeSides,
+            Relation::OppositeSides,
+        ),
+        (
+            SlotRef::LonePair,
+            Relation::SameSide,
+            Relation::OppositeSides,
+        ),
+        (
+            SlotRef::LonePair,
+            Relation::OppositeSides,
+            Relation::SameSide,
+        ),
+    ];
+    for (end_neighbor, relation, stored) in cases {
+        let mut document = imine();
+        run(&mut document, &[relative(1, s(3), end_neighbor, relation)]);
+        assert_eq!(
+            double_bond_state(&document, 1),
+            Some(relative_state(
+                Slot::Atom(atom(3)),
+                Slot::ImplicitHydrogen,
+                stored
+            )),
+            "{end_neighbor:?} {relation:?}"
+        );
+    }
+    let mut document = imine();
     assert_refused(
         &mut document,
         relative(1, s(3), s(2), Relation::SameSide),
         StereoError::ReferenceInvalid,
         "an atom reference where the end has no other neighbor",
+    );
+}
+
+#[test]
+fn naming_the_other_position_of_a_one_neighbor_end_stores_the_neighbor_with_the_relation_flipped() {
+    // a2 has the single other neighbor a5. Its other position is a hydrogen or a lone pair, and
+    // either name means "opposite a5".
+    let cases = [
+        (s(5), Relation::SameSide, Relation::SameSide),
+        (s(5), Relation::OppositeSides, Relation::OppositeSides),
+        (
+            SlotRef::ImplicitHydrogen,
+            Relation::SameSide,
+            Relation::OppositeSides,
+        ),
+        (
+            SlotRef::ImplicitHydrogen,
+            Relation::OppositeSides,
+            Relation::SameSide,
+        ),
+        (
+            SlotRef::LonePair,
+            Relation::SameSide,
+            Relation::OppositeSides,
+        ),
+        (
+            SlotRef::LonePair,
+            Relation::OppositeSides,
+            Relation::SameSide,
+        ),
+    ];
+    for (end_neighbor, relation, stored) in cases {
+        let mut document = alkene();
+        run(&mut document, &[relative(1, s(3), end_neighbor, relation)]);
+        assert_eq!(
+            double_bond_state(&document, 1),
+            Some(relative_state(
+                Slot::Atom(atom(3)),
+                Slot::Atom(atom(5)),
+                stored
+            )),
+            "{end_neighbor:?} {relation:?}"
+        );
+    }
+}
+
+#[test]
+fn a_position_stated_two_ways_is_one_state() {
+    let mut document = alkene();
+    let applied = run(
+        &mut document,
+        &[relative(
+            1,
+            s(3),
+            SlotRef::ImplicitHydrogen,
+            Relation::SameSide,
+        )],
+    );
+    assert_eq!(applied.outcome, Outcome::Changed);
+    let revision = document.revision();
+    // The same statement through the explicit neighbor, and through the lone pair, is a no-op.
+    for (end_neighbor, relation) in [
+        (s(5), Relation::OppositeSides),
+        (SlotRef::LonePair, Relation::SameSide),
+    ] {
+        let applied = run(&mut document, &[relative(1, s(3), end_neighbor, relation)]);
+        assert_eq!(
+            applied.outcome,
+            Outcome::Unchanged,
+            "{end_neighbor:?} {relation:?}"
+        );
+    }
+    assert_eq!(document.revision(), revision);
+
+    let mut imine = imine();
+    run(
+        &mut imine,
+        &[relative(1, s(3), SlotRef::LonePair, Relation::SameSide)],
+    );
+    let revision = imine.revision();
+    let applied = run(
+        &mut imine,
+        &[relative(
+            1,
+            s(3),
+            SlotRef::ImplicitHydrogen,
+            Relation::OppositeSides,
+        )],
+    );
+    assert_eq!(applied.outcome, Outcome::Unchanged);
+    assert_eq!(imine.revision(), revision);
+}
+
+#[test]
+fn restoring_a_non_canonical_double_bond_reference_is_refused() {
+    // Parts of `document` without history, so only the stored record decides.
+    let parts_with = |document: &Document, state: DoubleBondState| {
+        let mut parts = document.to_parts();
+        parts.undo.clear();
+        parts.redo.clear();
+        parts.stereo = vec![(
+            StereoKey::DoubleBond(bond(1)),
+            StereoState::DoubleBond(state),
+        )];
+        parts
+    };
+    let h = Slot::ImplicitHydrogen;
+    let n = |serial| Slot::Atom(atom(serial));
+    // Canonical records restore: the positive control for every refusal below.
+    for (document, state) in [
+        (imine(), relative_state(n(3), h, Relation::SameSide)),
+        (alkene(), relative_state(n(3), n(5), Relation::SameSide)),
+    ] {
+        assert!(
+            Document::restore(parts_with(&document, state)).is_ok(),
+            "{state:?} is canonical"
+        );
+    }
+    for (document, state, why) in [
+        (
+            alkene(),
+            relative_state(n(3), h, Relation::SameSide),
+            "an implicit hydrogen at an end with one explicit neighbor",
+        ),
+        (
+            alkene(),
+            relative_state(n(3), Slot::LonePair, Relation::SameSide),
+            "a lone pair at an end with one explicit neighbor",
+        ),
+        (
+            alkene(),
+            relative_state(h, n(5), Relation::SameSide),
+            "an implicit hydrogen at an end with two explicit neighbors",
+        ),
+    ] {
+        assert!(
+            Document::restore(parts_with(&document, state)).is_err(),
+            "{why}"
+        );
+    }
+}
+
+#[test]
+fn a_stored_lone_pair_at_a_bare_end_is_read_as_the_implicit_hydrogen_with_the_relation_flipped() {
+    // The first version 6 build accepted a lone pair at an end with no explicit neighbor.
+    // Restoring reads that one form as the canonical record of the same state.
+    let document = imine();
+    let mut parts = document.to_parts();
+    parts.undo.clear();
+    parts.redo.clear();
+    parts.stereo = vec![(
+        StereoKey::DoubleBond(bond(1)),
+        StereoState::DoubleBond(relative_state(
+            Slot::Atom(atom(3)),
+            Slot::LonePair,
+            Relation::SameSide,
+        )),
+    )];
+    let restored = Document::restore(parts).unwrap();
+    assert_eq!(
+        restored.stereo().get(StereoKey::DoubleBond(bond(1))),
+        Some(&StereoState::DoubleBond(relative_state(
+            Slot::Atom(atom(3)),
+            Slot::ImplicitHydrogen,
+            Relation::OppositeSides,
+        )))
     );
 }
 

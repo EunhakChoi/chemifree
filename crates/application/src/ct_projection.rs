@@ -308,13 +308,70 @@ pub(crate) fn drawing_losses(
     );
 }
 
+/// The stereo a SMILES string does not carry: marks and stated configurations are not written,
+/// so the caller must accept that they are dropped. Each loss is reported only when the drawing
+/// holds that kind, with its marks and records in ID order. Wavy and crossed marks and
+/// `unknown` records count too: "unknown" is a statement a format that cannot carry it drops.
+pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
+    let consent_loss = |feature: &str, source_path: String, reason: &str| Loss {
+        consent: LossConsent::Required,
+        feature: feature.into(),
+        source_path,
+        disposition: LossDisposition::Dropped,
+        reason: reason.into(),
+        semantic_impact: SemanticImpact::Stereo,
+    };
+    let mut losses = Vec::new();
+    let marked: Vec<&str> = doc
+        .bonds
+        .iter()
+        .filter(|bond| bond.mark.is_some())
+        .map(|bond| bond.id.as_str())
+        .collect();
+    if !marked.is_empty() {
+        losses.push(consent_loss(
+            "stereo_marks",
+            format!("bonds[{}]", marked.join(", ")),
+            "SMILES stereochemistry is not implemented; the drawn wedge, hash, wavy and crossed marks are not written.",
+        ));
+    }
+    if !doc.stereo.atoms.is_empty() || !doc.stereo.bonds.is_empty() {
+        let mut paths = Vec::new();
+        if !doc.stereo.atoms.is_empty() {
+            let atoms: Vec<&str> = doc.stereo.atoms.iter().map(|r| r.atom.as_str()).collect();
+            paths.push(format!("atoms[{}]", atoms.join(", ")));
+        }
+        if !doc.stereo.bonds.is_empty() {
+            let bonds: Vec<&str> = doc.stereo.bonds.iter().map(|r| r.bond.as_str()).collect();
+            paths.push(format!("bonds[{}]", bonds.join(", ")));
+        }
+        losses.push(consent_loss(
+            "stereo_configuration",
+            paths.join(", "),
+            "SMILES stereochemistry is not implemented; the stated configurations are not written, so mirror images and cis/trans forms give the same text.",
+        ));
+    }
+    losses
+}
+
 /// Convert a drawing to the part representable by this codec; no document is changed.
+///
+/// A drawing that holds stereo is refused whole: this V2000 profile does not write wedge or
+/// parity fields (V2000 can carry them), and silently writing the graph alone would present a
+/// stereo drawing as a plain structure.
 pub(crate) fn export_record(
     doc: &DocumentView,
     index: usize,
     fields: Vec<CtField>,
     losses: &mut Vec<Loss>,
 ) -> Result<CtRecord, CtError> {
+    if doc.holds_stereo() {
+        return Err(projection_error(
+            index,
+            "unsupported_stereo",
+            "The drawing holds stereo marks or stated configurations, which this V2000 profile does not write; nothing was exported.",
+        ));
+    }
     if !doc.atoms.is_empty() {
         losses.push(implicit_hydrogen_uncertainty(index));
     }

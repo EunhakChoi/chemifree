@@ -465,6 +465,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ct_projection::Target::Smiles,
             &mut losses,
         );
+        // Stereo marks and configurations are not written; the caller consents to that.
+        losses.extend(ct_projection::stereo_losses(&snapshot.document));
         // Attachment points are the one state a SMILES string drops with the caller's consent.
         let stripped = without_attachment_points(&graph);
         let written = match &stripped {

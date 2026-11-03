@@ -71,17 +71,19 @@ pub use active_registry::{
 
 pub use chemifree_domain::budget::{CancelFlag, Interrupt, Interrupted};
 pub use contract::{
-    AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
-    CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
+    AtomConfigurationDto, AtomKindView, AtomPositionView, AtomStereoView, AtomView,
+    BondConfigurationDto, BondEndDto, BondOrderDto, BondQueryDto, BondStereoView, BondToDto,
+    BondView, CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
     CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto, DocumentListResponse,
     DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftFailureView,
     DraftRequest, GraphicShapeDto, HydrogensDto, ImportSettingsRequest, InstanceView, LabelFontDto,
-    ListQuery, ListSort, MoleculeView, PageView, PointDto, PositionView, QueryBondOrderDto,
-    QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView, ReferenceDto,
-    ReferenceTargetDto, RenameRequest, ResetSettingsRequest, RestoreRequest, RestoreResponse,
-    RevisionRequest, SaveAsRequest, SceneObjectView, SceneView, SelectionDto, SessionView,
-    SettingsDto, SettingsEditDto, SettingsSource, TransactionRequest, TransactionSelections,
-    TrashListResponse, TrashedSummary, UnreadableDocument, query_label,
+    ListQuery, ListSort, MarkDto, MoleculeView, PageView, PointDto, PositionView,
+    QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView,
+    ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest, ResetSettingsRequest,
+    RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SceneObjectView, SceneView,
+    SelectionDto, SessionView, SettingsDto, SettingsEditDto, SettingsSource, StereoView,
+    TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary, TurnDto,
+    UnreadableDocument, query_label,
 };
 pub use data::{
     BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,
@@ -103,12 +105,13 @@ pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, AtomPair, BondPair, ClosedResult, Diagnostic,
-    DocumentResult, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityView,
-    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
-    Loss, LossConsent, LossDisposition, MATCH_CODES, MappingView, MatchCodeRow, OPERATION_CONTRACT,
-    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
-    Severity, SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult,
-    SpanView, SubstructureLimits, SubstructureResult, Support,
+    DocumentResult, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityStereo,
+    IdentityView, InterchangeExportResult, InterchangeMapping, InterchangePreviewResult,
+    InterchangeReadResult, Loss, LossConsent, LossDisposition, MATCH_CODES, MappingView,
+    MatchCodeRow, OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult,
+    Outcome, ProfileSupport, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
+    SmilesPreviewBond, SmilesPreviewResult, SpanView, SubstructureLimits, SubstructureResult,
+    SubstructureStereo, Support,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
