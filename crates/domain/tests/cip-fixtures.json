@@ -1196,6 +1196,21 @@
      "label": "Z"
     }
    ]
+  },
+  {
+   "name": "1,3,5-tris(alkylidene)cyclohexane, propylidene against two ethylidene",
+   "smiles": "C1/C(=C/CC)C/C(=C/C)C/C(=C/C)1",
+   "source": "found by comparing generated ring molecules with RDKit, not by a public name. The two ring branches at the propylidene carbon tie under Rules 1a to 2 and Rule 3 separates them by the descriptors of the two ethylidene bonds, which are E and Z here. The model reads the descriptor of a ligand double bond from the whole molecule (it ranks the ends of that bond with everything else as it would for the bond alone) and so ranks the branch with the Z bond higher; RDKit 2022.03.2 gives the opposite label, as if the branch with the E bond ranked higher, and agrees with the model on the two ethylidene bonds themselves and on the acyclic analogues tried (128 centers). Which reading the IUPAC text intends for a ligand double bond whose end ranking depends on the path back to the root is not settled here; recorded, not resolved (decision pending, see HANDOFF)",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the propylidene bond Z"
   }
  ]
 }
