@@ -27,6 +27,11 @@ use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, MAX_STATED_HYDROGENS, Radical, StateError,
 };
+use crate::stereo::{
+    AtomConfiguration, BondConfiguration, CenterState, DoubleBondState, Graph, Slot, SlotRef,
+    StereoError, StereoKey, StereoMark, StereoState, StereoTable, check_center, check_double_bond,
+    relative_double_bond,
+};
 
 pub const MAX_ATOMS: usize = 2_000;
 pub const MAX_BONDS: usize = 4_000;
@@ -263,12 +268,30 @@ pub struct Bond {
     pub begin: AtomId,
     pub end: AtomId,
     pub order: BondOrder,
+    /// How the bond is drawn, if as a stereo depiction. Setting or clearing it never changes
+    /// `begin` or `end`: a wedge records its narrow end in the mark.
+    pub mark: Option<StereoMark>,
 }
 
 impl Bond {
+    /// A plain bond: no stereo mark.
+    pub const fn new(begin: AtomId, end: AtomId, order: BondOrder) -> Self {
+        Self {
+            begin,
+            end,
+            order,
+            mark: None,
+        }
+    }
+
     fn validate(&self) -> Result<(), EditError> {
         if let BondOrder::Query(query) = &self.order {
             query.validate()?;
+        }
+        if let Some(mark) = self.mark
+            && !mark.fits(&self.order)
+        {
+            return Err(StereoError::MarkBondOrder.into());
         }
         Ok(())
     }
@@ -284,6 +307,15 @@ impl Bond {
 pub enum AtomRef {
     Id(AtomId),
     /// The atom added by the `AddAtom` command at this index in the transaction.
+    Created(usize),
+}
+
+/// A bond named in a command: an existing bond, or one added earlier in the same transaction by
+/// an `AddBond` command. (The bond of an `AddAtom`'s `bond_to` cannot be named.)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BondRef {
+    Id(BondId),
+    /// The bond added by the `AddBond` command at this index in the transaction.
     Created(usize),
 }
 
@@ -401,6 +433,23 @@ pub enum Command {
     },
     /// Changes the named style settings as part of this transaction.
     UpdateSettings(SettingsEdit),
+    /// Sets or, with `None`, clears how a bond is drawn. The mark must fit the bond's order. The
+    /// bond's `begin` and `end` stay as they are.
+    SetBondMark {
+        bond: BondRef,
+        mark: Option<StereoMark>,
+    },
+    /// Sets or, with `None`, clears the stated configuration of a stereocenter. The neighbors
+    /// are checked against the center's bonds at this point of the transaction.
+    SetAtomConfiguration {
+        atom: AtomRef,
+        configuration: Option<AtomConfiguration>,
+    },
+    /// Sets or, with `None`, clears the stated configuration of a double bond.
+    SetBondConfiguration {
+        bond: BondRef,
+        configuration: Option<BondConfiguration>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -467,6 +516,10 @@ pub enum EditError {
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
     Settings(SettingsError),
+    /// `BondRef::Created` must name an earlier `AddBond` command of the same transaction.
+    UnresolvedBondReference(usize),
+    /// A refused stereo mark or configuration, with its stable code.
+    Stereo(StereoError),
 }
 
 impl EditError {
@@ -493,6 +546,7 @@ impl EditError {
         match self {
             Self::InvalidState(state) => Some(state.code()),
             Self::Settings(error) => Some(error.code()),
+            Self::Stereo(error) => Some(error.code()),
             _ => self.scene_error().map(SceneError::code),
         }
     }
@@ -610,6 +664,11 @@ impl fmt::Display for EditError {
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
             Self::Settings(error) => error.fmt(formatter),
+            Self::UnresolvedBondReference(index) => write!(
+                formatter,
+                "${index} does not name an earlier add_bond command in this transaction"
+            ),
+            Self::Stereo(error) => error.fmt(formatter),
         }
     }
 }
@@ -639,6 +698,16 @@ pub enum Outcome {
     Changed,
     /// The commands were valid but left the document identical; no revision or undo entry.
     Unchanged,
+}
+
+/// The result of a transaction that was applied: its outcome, and the stereo records the edit
+/// itself invalidated and removed (not records the commands cleared on purpose), in key order.
+/// Only records that existed before the transaction and are gone after it are listed, so a record
+/// created and invalidated within the transaction, or set again afterwards, is not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Applied {
+    pub outcome: Outcome,
+    pub cleared: Vec<StereoKey>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -696,6 +765,8 @@ pub struct ChangeSet {
     pub objects: Vec<(ObjectId, Change<Option<SceneObject>>)>,
     pub references: Vec<(SceneReference, Change<bool>)>,
     pub positions: Vec<(PositionKey, Change<Option<Point>>)>,
+    /// Stated stereo configurations. Marks are part of the bond states.
+    pub stereo: Vec<(StereoKey, Change<Option<StereoState>>)>,
     /// The selection before and after the change. It is recorded with every entry and never
     /// makes one: a change set whose content is unchanged is empty.
     pub selection: Change<Selection>,
@@ -721,6 +792,7 @@ impl ChangeSet {
             objects: diff_maps(&before.scene.objects, &after.scene.objects),
             references: diff_sets(&before.references, &after.references),
             positions: diff_maps(&before.positions, &after.positions),
+            stereo: diff_maps(before.stereo.records(), after.stereo.records()),
             selection,
         }
     }
@@ -735,6 +807,7 @@ impl ChangeSet {
             && self.objects.is_empty()
             && self.references.is_empty()
             && self.positions.is_empty()
+            && self.stereo.is_empty()
     }
 
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
@@ -747,6 +820,7 @@ impl ChangeSet {
             + self.objects.len()
             + self.references.len()
             + self.positions.len()
+            + self.stereo.len()
     }
 
     /// The shape `between` produces: non-empty, each entity at most once, every entry an
@@ -789,6 +863,7 @@ impl ChangeSet {
             && entries_valid(&self.objects)
             && references_valid
             && entries_valid(&self.positions)
+            && entries_valid(&self.stereo)
             && kinds_kept
     }
 }
@@ -872,6 +947,7 @@ struct Content {
     scene: SceneTree,
     references: BTreeSet<SceneReference>,
     positions: BTreeMap<PositionKey, Point>,
+    stereo: StereoTable,
 }
 
 impl Content {
@@ -1031,6 +1107,7 @@ impl Content {
                 return Err(EditError::DuplicateBond { existing: *id });
             }
         }
+        self.stereo.validate(&self.atoms, &self.bonds)?;
         self.scene.validate()?;
         if self.references.len() > MAX_REFERENCES {
             return Err(EditError::ReferenceLimit);
@@ -1115,6 +1192,7 @@ fn validate_isotope(isotope: Option<u16>) -> Result<(), EditError> {
 enum Created {
     Nothing,
     Atom(AtomId),
+    Bond(BondId),
     Object(ObjectId),
 }
 
@@ -1126,6 +1204,9 @@ struct Draft {
     next_object: u32,
     /// What each earlier command created, by command index.
     created: Vec<Created>,
+    /// Stereo records removed because a change made them meaningless, not because a command
+    /// cleared them. See [`Draft::discard_stereo`].
+    cascaded: BTreeSet<StereoKey>,
 }
 
 impl Draft {
@@ -1146,7 +1227,7 @@ impl Draft {
         begin: AtomId,
         end: AtomId,
         order: BondOrder,
-    ) -> Result<(), EditError> {
+    ) -> Result<BondId, EditError> {
         self.content.require_atom(begin)?;
         self.content.require_atom(end)?;
         if begin == end {
@@ -1158,7 +1239,7 @@ impl Draft {
         if self.content.bonds.len() >= MAX_BONDS {
             return Err(EditError::BondLimit);
         }
-        let bond = Bond { begin, end, order };
+        let bond = Bond::new(begin, end, order);
         bond.validate()?;
         let id = BondId(self.next_bond);
         self.next_bond = self
@@ -1166,7 +1247,19 @@ impl Draft {
             .checked_add(1)
             .ok_or(EditError::IdentifierSpaceExhausted)?;
         self.content.bonds.insert(id, bond);
-        Ok(())
+        self.discard_stereo(&BTreeSet::from([begin, end]));
+        Ok(id)
+    }
+
+    /// Removes the stereo records that a change to the bonded neighbors of the `touched` atoms
+    /// leaves meaningless and remembers them for the reply. Every such removal goes through
+    /// here, the one place a cleared center is reported.
+    fn discard_stereo(&mut self, touched: &BTreeSet<AtomId>) {
+        let cleared =
+            self.content
+                .stereo
+                .discard_changed(touched, &self.content.atoms, &self.content.bonds);
+        self.cascaded.extend(cleared);
     }
 
     fn allocate_object(&mut self) -> Result<ObjectId, EditError> {
@@ -1235,6 +1328,36 @@ impl Draft {
                 _ => Err(EditError::UnresolvedReference(index)),
             },
         }
+    }
+
+    fn resolve_bond(&self, bond: BondRef) -> Result<BondId, EditError> {
+        match bond {
+            BondRef::Id(id) => Ok(id),
+            BondRef::Created(index) => match self.created.get(index) {
+                Some(Created::Bond(id)) => Ok(*id),
+                _ => Err(EditError::UnresolvedBondReference(index)),
+            },
+        }
+    }
+
+    fn resolve_slot(&self, slot: SlotRef) -> Result<Slot, EditError> {
+        Ok(match slot {
+            SlotRef::Atom(atom) => {
+                let id = self.resolve(atom)?;
+                self.content.require_atom(id)?;
+                Slot::Atom(id)
+            }
+            SlotRef::ImplicitHydrogen => Slot::ImplicitHydrogen,
+            SlotRef::LonePair => Slot::LonePair,
+        })
+    }
+
+    fn resolve_slots(&self, slots: [SlotRef; 4]) -> Result<[Slot; 4], EditError> {
+        let mut resolved = [Slot::ImplicitHydrogen; 4];
+        for (target, slot) in resolved.iter_mut().zip(slots) {
+            *target = self.resolve_slot(slot)?;
+        }
+        Ok(resolved)
     }
 
     /// The selection a transaction leaves, as the client named it: every `$N` must name a
@@ -1311,7 +1434,7 @@ impl Draft {
             }
             Command::AddBond { begin, end, order } => {
                 let (begin, end) = (self.resolve(*begin)?, self.resolve(*end)?);
-                self.insert_bond(begin, end, order.clone())?;
+                created = Created::Bond(self.insert_bond(begin, end, order.clone())?);
             }
             Command::UpdateAtom { atom, edit } => {
                 let target = self
@@ -1339,6 +1462,11 @@ impl Draft {
                     updated.attachment_points = points;
                 }
                 updated.validate()?;
+                if matches!(updated.kind, AtomKind::Query(_))
+                    && self.content.stereo.get(StereoKey::Center(*atom)).is_some()
+                {
+                    return Err(StereoError::CenterUnsupported.into());
+                }
                 *target = updated;
             }
             Command::MoveAtoms {
@@ -1362,11 +1490,23 @@ impl Draft {
                 };
                 updated.validate()?;
                 *target = updated;
+                // A stored configuration must stay valid; the order change that would break it
+                // is refused rather than erasing it.
+                self.content
+                    .stereo
+                    .validate(&self.content.atoms, &self.content.bonds)
+                    .map_err(|_| StereoError::Conflict)?;
             }
             Command::DeleteAtoms { atoms } => {
                 let targets = unique(atoms)?;
                 for id in &targets {
                     self.content.require_atom(*id)?;
+                }
+                let mut touched = targets.clone();
+                for bond in self.content.bonds.values() {
+                    if targets.contains(&bond.begin) || targets.contains(&bond.end) {
+                        touched.extend([bond.begin, bond.end]);
+                    }
                 }
                 for id in &targets {
                     self.content.atoms.remove(id);
@@ -1377,15 +1517,20 @@ impl Draft {
                 self.content
                     .positions
                     .retain(|key, _| !targets.contains(&key.atom));
+                self.discard_stereo(&touched);
                 self.content.refuse_dangling_references()?;
             }
             Command::DeleteBonds { bonds } => {
+                let mut touched = BTreeSet::new();
                 for id in unique(bonds)? {
-                    self.content
+                    let removed = self
+                        .content
                         .bonds
                         .remove(&id)
                         .ok_or(EditError::UnknownBond(id))?;
+                    touched.extend([removed.begin, removed.end]);
                 }
+                self.discard_stereo(&touched);
                 self.content.refuse_dangling_references()?;
             }
             Command::Rename { title } => {
@@ -1482,6 +1627,76 @@ impl Draft {
             Command::UpdateSettings(edit) => {
                 self.content.settings = self.content.settings.edited(edit)?;
             }
+            Command::SetBondMark { bond, mark } => {
+                let id = self.resolve_bond(*bond)?;
+                let target = self
+                    .content
+                    .bonds
+                    .get_mut(&id)
+                    .ok_or(EditError::UnknownBond(id))?;
+                let updated = Bond {
+                    mark: *mark,
+                    ..target.clone()
+                };
+                updated.validate()?;
+                *target = updated;
+            }
+            Command::SetAtomConfiguration {
+                atom,
+                configuration,
+            } => {
+                let atom = self.resolve(*atom)?;
+                self.content.require_atom(atom)?;
+                let state = match configuration {
+                    None => None,
+                    Some(configuration) => {
+                        let state = match configuration {
+                            AtomConfiguration::Tetrahedral { neighbors, turn } => {
+                                CenterState::tetrahedral(self.resolve_slots(*neighbors)?, *turn)?
+                            }
+                            AtomConfiguration::Unknown { neighbors } => {
+                                CenterState::unknown(self.resolve_slots(*neighbors)?)?
+                            }
+                        };
+                        let graph = Graph::new(&self.content.atoms, &self.content.bonds);
+                        check_center(atom, &state, &graph)?;
+                        Some(StereoState::Center(state))
+                    }
+                };
+                self.content.stereo.set(StereoKey::Center(atom), state);
+            }
+            Command::SetBondConfiguration {
+                bond,
+                configuration,
+            } => {
+                let id = self.resolve_bond(*bond)?;
+                if !self.content.bonds.contains_key(&id) {
+                    return Err(EditError::UnknownBond(id));
+                }
+                let state = match configuration {
+                    None => None,
+                    Some(configuration) => {
+                        let graph = Graph::new(&self.content.atoms, &self.content.bonds);
+                        let state = match configuration {
+                            BondConfiguration::Relative {
+                                begin_neighbor,
+                                end_neighbor,
+                                relation,
+                            } => relative_double_bond(
+                                id,
+                                self.resolve_slot(*begin_neighbor)?,
+                                self.resolve_slot(*end_neighbor)?,
+                                *relation,
+                                &graph,
+                            )?,
+                            BondConfiguration::Unknown => DoubleBondState::Unknown,
+                        };
+                        check_double_bond(id, &state, &graph)?;
+                        Some(StereoState::DoubleBond(state))
+                    }
+                };
+                self.content.stereo.set(StereoKey::DoubleBond(id), state);
+            }
         }
         self.created.push(created);
         Ok(())
@@ -1550,6 +1765,8 @@ pub struct DocumentParts {
     pub objects: Vec<(ObjectId, SceneObject)>,
     pub references: Vec<SceneReference>,
     pub positions: Vec<(PositionKey, Point)>,
+    /// Stated stereo configurations; marks are part of `bonds`.
+    pub stereo: Vec<(StereoKey, StereoState)>,
     /// The current selection: where the history ends (see [`Document::restore`]).
     pub selection: Selection,
     pub next_atom: u32,
@@ -1609,6 +1826,7 @@ impl Document {
                 scene: SceneTree::with_instance(ObjectId(1)),
                 references: BTreeSet::new(),
                 positions: BTreeMap::new(),
+                stereo: StereoTable::default(),
             },
             selection: Selection::default(),
             next_atom: 1,
@@ -1657,6 +1875,7 @@ impl Document {
             parts.objects.len(),
             parts.references.len(),
             parts.positions.len(),
+            parts.stereo.len(),
         );
         let content = Content {
             title: parts.title,
@@ -1669,6 +1888,7 @@ impl Document {
             },
             references: parts.references.into_iter().collect(),
             positions: parts.positions.into_iter().collect(),
+            stereo: StereoTable::from_records(parts.stereo.into_iter().collect()),
         };
         if counts
             != (
@@ -1677,10 +1897,11 @@ impl Document {
                 content.scene.objects.len(),
                 content.references.len(),
                 content.positions.len(),
+                content.stereo.len(),
             )
         {
             return Err(invalid(
-                "duplicate atom, bond, scene object, reference, or position",
+                "duplicate atom, bond, scene object, reference, position, or stereo record",
             ));
         }
         content
@@ -1836,6 +2057,12 @@ impl Document {
                 .iter()
                 .map(|(key, point)| (*key, *point))
                 .collect(),
+            stereo: self
+                .content
+                .stereo
+                .iter()
+                .map(|(key, state)| (key, *state))
+                .collect(),
             selection: self.selection.clone(),
             next_atom: self.next_atom,
             next_bond: self.next_bond,
@@ -1890,6 +2117,11 @@ impl Document {
 
     pub fn object(&self, id: ObjectId) -> Option<&SceneObject> {
         self.content.scene.objects.get(&id)
+    }
+
+    /// The stated stereo configurations (centers and double bonds). Marks are on [`Bond`]s.
+    pub const fn stereo(&self) -> &StereoTable {
+        &self.content.stereo
     }
 
     /// Directed references in deterministic order, separate from scene containment.
@@ -1977,6 +2209,17 @@ impl Document {
         commands: &[Command],
         selection: &TransactionSelection,
     ) -> Result<Outcome, TransactionError> {
+        self.apply_reporting(commands, selection)
+            .map(|applied| applied.outcome)
+    }
+
+    /// Like [`Self::apply_selecting`], and also reports the stereo records the edit removed
+    /// because it changed the neighbors they were about (see [`Applied`]).
+    pub fn apply_reporting(
+        &mut self,
+        commands: &[Command],
+        selection: &TransactionSelection,
+    ) -> Result<Applied, TransactionError> {
         let whole = |error| TransactionError { index: None, error };
         if commands.is_empty() {
             return Err(whole(EditError::EmptyTransaction));
@@ -1997,6 +2240,7 @@ impl Document {
             next_bond: self.next_bond,
             next_object: self.next_object,
             created: Vec::with_capacity(commands.len()),
+            cascaded: BTreeSet::new(),
         };
         for (index, command) in commands.iter().enumerate() {
             draft.apply(command).map_err(|error| TransactionError {
@@ -2004,14 +2248,30 @@ impl Document {
                 error,
             })?;
         }
+        draft
+            .content
+            .stereo
+            .validate(&draft.content.atoms, &draft.content.bonds)
+            .map_err(whole)?;
         let after = match &selection.after {
             Some(request) => draft.resolve_selection(request).map_err(whole)?,
             None => draft.content.existing(&before),
         };
         let changes = ChangeSet::between(&self.content, &draft.content, Change { before, after });
         if changes.is_empty() {
-            return Ok(Outcome::Unchanged);
+            return Ok(Applied {
+                outcome: Outcome::Unchanged,
+                cleared: Vec::new(),
+            });
         }
+        let cleared: Vec<StereoKey> = draft
+            .cascaded
+            .iter()
+            .copied()
+            .filter(|key| {
+                self.content.stereo.get(*key).is_some() && draft.content.stereo.get(*key).is_none()
+            })
+            .collect();
         if self.revision >= MAX_EDIT_REVISION {
             return Err(whole(EditError::RevisionLimit));
         }
@@ -2026,7 +2286,10 @@ impl Document {
         while self.undo.len() > HISTORY_LIMIT || history_size(&self.undo) > HISTORY_CHANGE_LIMIT {
             self.undo.pop_front();
         }
-        Ok(Outcome::Changed)
+        Ok(Applied {
+            outcome: Outcome::Changed,
+            cleared,
+        })
     }
 
     /// Reverts the latest transaction as a new revision and restores the selection it was
@@ -2132,6 +2395,7 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
         }
     }
     replay(&mut next.positions, &set.positions, direction)?;
+    replay(next.stereo.records_mut(), &set.stereo, direction)?;
     next.validate().map_err(|_| ())?;
     *content = next;
     Ok(())

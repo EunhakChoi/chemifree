@@ -2,15 +2,18 @@
 //! IDs are document-scoped and remain separate from any chemical canonical numbering.
 
 use crate::document::{Atom, AtomId, Bond, BondId, Document};
+use crate::stereo::StereoTable;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MoleculeGraph {
     atoms: Vec<(AtomId, Atom)>,
     bonds: Vec<(BondId, Bond)>,
+    stereo: StereoTable,
 }
 
 impl MoleculeGraph {
-    /// Copies only graph state, not scene, settings, selection, or document history.
+    /// Copies only graph state (including stated stereo configurations and bond marks), not
+    /// scene, settings, selection, or document history.
     pub fn from_document(document: &Document) -> Self {
         Self {
             atoms: document
@@ -21,13 +24,30 @@ impl MoleculeGraph {
                 .bonds()
                 .map(|(id, bond)| (id, bond.clone()))
                 .collect(),
+            stereo: document.stereo().clone(),
         }
     }
 
     /// A graph assembled from parts, for a reader that has no document. The caller supplies
-    /// distinct IDs and bonds between listed atoms, as a document guarantees.
+    /// distinct IDs and bonds between listed atoms, as a document guarantees. It states no
+    /// stereo configuration.
     pub fn from_parts(atoms: Vec<(AtomId, Atom)>, bonds: Vec<(BondId, Bond)>) -> Self {
-        Self { atoms, bonds }
+        Self {
+            atoms,
+            bonds,
+            stereo: StereoTable::default(),
+        }
+    }
+
+    /// The stated stereo configurations.
+    pub const fn stereo(&self) -> &StereoTable {
+        &self.stereo
+    }
+
+    /// Whether any stereo is recorded: a stated configuration or a bond drawn with a mark. No
+    /// analysis of this graph reads either.
+    pub fn has_stereo(&self) -> bool {
+        !self.stereo.is_empty() || self.bonds.iter().any(|(_, bond)| bond.mark.is_some())
     }
 
     /// The atoms for editing the copy, such as setting a state found after reading: a graph

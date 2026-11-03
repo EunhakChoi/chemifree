@@ -535,11 +535,11 @@ fn a_predicate_nothing_can_satisfy_is_refused_not_answered_empty() {
         vec![(id(1), atom("C")), (id(2), atom("C"))],
         vec![(
             bond_id(1),
-            chemifree_domain::document::Bond {
-                begin: id(1),
-                end: id(2),
-                order: BondOrder::Query(BondQuery::OneOf(Vec::new())),
-            },
+            chemifree_domain::document::Bond::new(
+                id(1),
+                id(2),
+                BondOrder::Query(BondQuery::OneOf(Vec::new())),
+            ),
         )],
     );
     assert_eq!(
@@ -1429,10 +1429,8 @@ fn exactly_the_mapping_limit_is_an_answer_and_one_more_is_a_limit() {
 fn a_mapping_is_ordered_by_id_whatever_order_the_graph_lists_its_atoms_in() {
     // The same ethanol, listed with its atoms and bonds in descending ID order.
     let atom_of = |symbol: &str| Atom::from(Element::from_symbol(symbol).unwrap());
-    let bond_of = |begin: u32, end: u32| chemifree_domain::document::Bond {
-        begin: id(begin),
-        end: id(end),
-        order: BondOrder::Single,
+    let bond_of = |begin: u32, end: u32| {
+        chemifree_domain::document::Bond::new(id(begin), id(end), BondOrder::Single)
     };
     let backwards = MoleculeGraph::from_parts(
         vec![
@@ -1490,11 +1488,7 @@ fn listed(
         .map(|&(n, a, b, kind)| {
             (
                 bond_id(n),
-                chemifree_domain::document::Bond {
-                    begin: id(a),
-                    end: id(b),
-                    order: order(kind),
-                },
+                chemifree_domain::document::Bond::new(id(a), id(b), order(kind)),
             )
         })
         .collect();
@@ -1818,11 +1812,11 @@ fn large(atoms: Vec<Atom>, bonds: &[(usize, usize)]) -> MoleculeGraph {
             .map(|(i, &(a, b))| {
                 (
                     bond_id(serial(i)),
-                    chemifree_domain::document::Bond {
-                        begin: id(serial(a)),
-                        end: id(serial(b)),
-                        order: BondOrder::Single,
-                    },
+                    chemifree_domain::document::Bond::new(
+                        id(serial(a)),
+                        id(serial(b)),
+                        BondOrder::Single,
+                    ),
                 )
             })
             .collect(),
@@ -1989,11 +1983,7 @@ fn a_charge_or_isotope_on_a_query_atom_is_refused_not_ignored() {
                 .map(|(i, &(a, b))| {
                     (
                         bond_id(u32::try_from(i).unwrap() + 1),
-                        chemifree_domain::document::Bond {
-                            begin: id(a),
-                            end: id(b),
-                            order: BondOrder::Single,
-                        },
+                        chemifree_domain::document::Bond::new(id(a), id(b), BondOrder::Single),
                     )
                 })
                 .collect(),
