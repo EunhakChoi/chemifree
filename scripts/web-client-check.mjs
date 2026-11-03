@@ -2256,6 +2256,31 @@ test('a reply holding marks and stated configurations is accepted as sent', () =
   assert.equal(isDocumentResponse(unknown), true, 'unknown is an explicit record, with a lone pair as a slot')
 })
 
+const { sameContent } = await import('../apps/web/src/hooks/use-document-editor.ts')
+
+test('a reopened copy counts as the same content only when its stereo configurations match', () => {
+  const shown = stereoDrawing().document
+  assert.equal(sameContent(structuredClone(shown), shown), true)
+  const lostAll = { ...structuredClone(shown), stereo: { atoms: [], bonds: [] } }
+  assert.equal(sameContent(lostAll, shown), false, 'both configurations missing from the reopened copy')
+  const omitted = structuredClone(shown)
+  delete omitted.stereo
+  assert.equal(sameContent(omitted, shown), false, 'an omitted table is the empty one')
+  const lostAtom = structuredClone(shown)
+  lostAtom.stereo.atoms = []
+  assert.equal(sameContent(lostAtom, shown), false, 'the atom configuration is missing')
+  const lostBond = structuredClone(shown)
+  lostBond.stereo.bonds = []
+  assert.equal(sameContent(lostBond, shown), false, 'the bond configuration is missing')
+  const turned = structuredClone(shown)
+  turned.stereo.atoms[0].configuration.turn = 'clockwise'
+  assert.equal(sameContent(turned, shown), false, 'a different stated turn')
+  const bare = { ...structuredClone(shown), stereo: { atoms: [], bonds: [] } }
+  const plain = structuredClone(bare)
+  delete plain.stereo
+  assert.equal(sameContent(plain, bare), true, 'an omitted table equals an empty one')
+})
+
 test('an older reply with no marks and no stereo table is accepted and filled in', async () => {
   const older = stereoDrawing()
   delete older.document.stereo
