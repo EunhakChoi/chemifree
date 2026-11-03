@@ -3,13 +3,13 @@
 //! are also read by RDKit (`scripts/verify-cip-rdkit.py`), which does not use it.
 
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_COMMANDS,
+    Atom, AtomId, AtomRef, BondId, BondOrder, BondRef, Command, Document, DocumentId, MAX_COMMANDS,
     NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::states::Hydrogens;
-use chemifree_domain::stereo::{AtomConfiguration, SlotRef, Turn};
+use chemifree_domain::stereo::{AtomConfiguration, BondConfiguration, Relation, SlotRef, Turn};
 
 /// One neighbor of a stereocenter as the SMILES lists it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,18 +27,31 @@ pub struct Center {
     pub turn: Turn,
 }
 
+/// The stored statement about a double bond: the bond (by index), a neighbor position of its
+/// `begin` atom and of its `end` atom, and their relation (`None` is stated unknown).
+#[derive(Clone, Copy, Debug)]
+pub struct Double {
+    pub bond: usize,
+    pub begin: Neighbor,
+    pub end: Neighbor,
+    pub relation: Option<Relation>,
+}
+
 /// A molecule as plain data, before it is a document.
 #[derive(Clone, Debug, Default)]
 pub struct Molecule {
     pub atoms: Vec<Atom>,
     pub bonds: Vec<(usize, usize, BondOrder)>,
     pub centers: Vec<Center>,
+    pub doubles: Vec<Double>,
 }
 
 pub struct Built {
     pub document: Document,
     /// The atom id of each atom of the molecule, by its index.
     pub ids: Vec<AtomId>,
+    /// The bond id of each bond of the molecule, by its index.
+    pub bond_ids: Vec<BondId>,
 }
 
 impl Built {
@@ -63,7 +76,20 @@ impl Molecule {
     /// Adds a copy of `other` as a disconnected part and returns the index its first atom has.
     pub fn append(&mut self, other: &Self) -> usize {
         let offset = self.atoms.len();
+        let bond_offset = self.bonds.len();
         self.atoms.extend(other.atoms.iter().cloned());
+        self.doubles.extend(other.doubles.iter().map(|double| {
+            let shift = |neighbor| match neighbor {
+                Neighbor::Atom(index) => Neighbor::Atom(index + offset),
+                other => other,
+            };
+            Double {
+                bond: double.bond + bond_offset,
+                begin: shift(double.begin),
+                end: shift(double.end),
+                relation: double.relation,
+            }
+        }));
         self.bonds.extend(
             other
                 .bonds
@@ -118,12 +144,33 @@ impl Molecule {
                 order: order.clone(),
             });
         }
-        for center in &self.centers {
-            let neighbors = center.neighbors.map(|neighbor| match neighbor {
-                Neighbor::Atom(index) => SlotRef::Atom(AtomRef::Id(ids[index])),
-                Neighbor::Hydrogen => SlotRef::ImplicitHydrogen,
-                Neighbor::LonePair => SlotRef::LonePair,
+        apply_in_batches(&mut document, &commands);
+        let mut bond_ids = vec![None; self.bonds.len()];
+        for (&index, (id, _)) in bond_order.iter().zip(document.bonds()) {
+            bond_ids[index] = Some(id);
+        }
+        let bond_ids: Vec<BondId> = bond_ids.into_iter().map(Option::unwrap).collect();
+        let slot = |neighbor: Neighbor| match neighbor {
+            Neighbor::Atom(index) => SlotRef::Atom(AtomRef::Id(ids[index])),
+            Neighbor::Hydrogen => SlotRef::ImplicitHydrogen,
+            Neighbor::LonePair => SlotRef::LonePair,
+        };
+        let mut commands = Vec::new();
+        for double in &self.doubles {
+            commands.push(Command::SetBondConfiguration {
+                bond: BondRef::Id(bond_ids[double.bond]),
+                configuration: Some(match double.relation {
+                    Some(relation) => BondConfiguration::Relative {
+                        begin_neighbor: slot(double.begin),
+                        end_neighbor: slot(double.end),
+                        relation,
+                    },
+                    None => BondConfiguration::Unknown,
+                }),
             });
+        }
+        for center in &self.centers {
+            let neighbors = center.neighbors.map(slot);
             commands.push(Command::SetAtomConfiguration {
                 atom: AtomRef::Id(ids[center.atom]),
                 configuration: Some(AtomConfiguration::Tetrahedral {
@@ -133,7 +180,11 @@ impl Molecule {
             });
         }
         apply_in_batches(&mut document, &commands);
-        Built { document, ids }
+        Built {
+            document,
+            ids,
+            bond_ids,
+        }
     }
 
     pub fn build(&self) -> Built {
@@ -159,11 +210,17 @@ struct Parser<'a> {
     chirality: Vec<Option<Turn>>,
     preceded: Vec<bool>,
     stated_hydrogens: Vec<Option<u8>>,
+    /// A `/` or `\\` seen before the next bond: true for `/`.
+    pending_direction: Option<bool>,
+    /// Directional bonds: (bond index, atom written first, atom written second, `/` is true).
+    directions: Vec<(usize, usize, usize, bool)>,
 }
 
 /// Reads the SMILES subset the fixtures use: organic atoms, bracket atoms with isotope,
 /// `@`/`@@`, hydrogen count and charge, `-`, `=`, `#`, branches, ring closures `0` to `9`,
-/// lowercase `c` and `n` (aromatic bonds between adjacent aromatic atoms). The neighbor order of
+/// lowercase `c` and `n` (aromatic bonds between adjacent aromatic atoms), and `/` and `\\`
+/// directional bonds on the single bonds beside a double bond (the stored relation of such a
+/// double bond, when both ends carry one). The neighbor order of
 /// a stereocenter follows OpenSMILES: the preceding atom, the implicit hydrogen or lone pair,
 /// ring-closure digits in the order written, then branches and the next atom.
 pub fn parse(smiles: &str) -> Molecule {
@@ -177,6 +234,8 @@ pub fn parse(smiles: &str) -> Molecule {
         chirality: Vec::new(),
         preceded: Vec::new(),
         stated_hydrogens: Vec::new(),
+        pending_direction: None,
+        directions: Vec::new(),
     };
     parser.run();
     parser.finish()
@@ -203,6 +262,10 @@ impl Parser<'_> {
                 }
                 b'-' => {
                     order = Some(BondOrder::Single);
+                    self.position += 1;
+                }
+                b'/' | b'\\' => {
+                    self.pending_direction = Some(byte == b'/');
                     self.position += 1;
                 }
                 b'=' => {
@@ -238,6 +301,10 @@ impl Parser<'_> {
             BondOrder::Single
         });
         self.molecule.bonds.push((from, to, order));
+        if let Some(up) = self.pending_direction.take() {
+            self.directions
+                .push((self.molecule.bonds.len() - 1, from, to, up));
+        }
         self.neighbors[from].push(Some(Neighbor::Atom(to)));
         self.neighbors[to].push(Some(Neighbor::Atom(from)));
     }
@@ -347,12 +414,53 @@ impl Parser<'_> {
         symbol
     }
 
+    /// Whether the substituent written by directional bond `index` sits above `atom`: `/` puts
+    /// the atom written second above the one written first.
+    fn above(&self, atom: usize, direction: (usize, usize, usize, bool)) -> (usize, bool) {
+        let (_, first, second, up) = direction;
+        if atom == second {
+            (first, !up)
+        } else {
+            (second, up)
+        }
+    }
+
+    /// The stored relation of each double bond whose two ends both carry a directional bond.
+    fn read_doubles(&mut self) {
+        for (index, (a, b, order)) in self.molecule.bonds.clone().into_iter().enumerate() {
+            if order != BondOrder::Double {
+                continue;
+            }
+            let end = |atom: usize| {
+                self.directions
+                    .iter()
+                    .find(|&&(bond, first, second, _)| {
+                        bond != index && (first == atom || second == atom)
+                    })
+                    .map(|&direction| self.above(atom, direction))
+            };
+            if let (Some((na, up_a)), Some((nb, up_b))) = (end(a), end(b)) {
+                self.molecule.doubles.push(Double {
+                    bond: index,
+                    begin: Neighbor::Atom(na),
+                    end: Neighbor::Atom(nb),
+                    relation: Some(if up_a == up_b {
+                        Relation::SameSide
+                    } else {
+                        Relation::OppositeSides
+                    }),
+                });
+            }
+        }
+    }
+
     fn finish(mut self) -> Molecule {
         assert!(
             self.ring_open.iter().all(Option::is_none),
             "unclosed ring in {:?}",
             self.text
         );
+        self.read_doubles();
         for index in 0..self.molecule.atoms.len() {
             let Some(turn) = self.chirality[index] else {
                 continue;

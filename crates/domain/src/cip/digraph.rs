@@ -3,8 +3,8 @@
 use crate::document::AtomId;
 use crate::stereo::Slot;
 
+use super::Reason;
 use super::context::{AtomClass, Context, Mass, Step};
-use super::{MAX_SPHERES, Reason};
 
 pub(super) type NodeIx = usize;
 
@@ -39,14 +39,17 @@ pub(super) struct Node {
 pub(super) struct Arena<'c, 'g> {
     context: &'c Context<'g>,
     center: AtomId,
+    /// The farthest sphere whose atoms are expanded.
+    spheres: usize,
     nodes: Vec<Node>,
 }
 
 impl<'c, 'g> Arena<'c, 'g> {
-    pub(super) fn new(context: &'c Context<'g>, center: AtomId) -> Self {
+    pub(super) fn new(context: &'c Context<'g>, center: AtomId, spheres: usize) -> Self {
         Self {
             context,
             center,
+            spheres,
             nodes: Vec::new(),
         }
     }
@@ -173,7 +176,7 @@ impl<'c, 'g> Arena<'c, 'g> {
     /// The reason the atom cannot be expanded: query atom, attachment point, a bond kind or
     /// hydrogen count the model cannot read, an aromatic system it refuses. Such a node is
     /// left without children, so asking again returns none; [`Reason::DigraphLimit`] is
-    /// returned, and nothing is remembered, for an atom in sphere [`MAX_SPHERES`].
+    /// returned, and nothing is remembered, for an atom in the last sphere the arena allows.
     pub(super) fn children(&mut self, index: NodeIx) -> Result<Vec<NodeIx>, Reason> {
         if let Some(children) = &self.nodes[index].children {
             return Ok(children.clone());
@@ -182,7 +185,7 @@ impl<'c, 'g> Arena<'c, 'g> {
             self.nodes[index].children = Some(Vec::new());
             return Ok(Vec::new());
         }
-        if usize::from(self.nodes[index].depth) >= MAX_SPHERES {
+        if usize::from(self.nodes[index].depth) >= self.spheres {
             return Err(Reason::DigraphLimit);
         }
         match self.planned_children(index) {
@@ -331,7 +334,7 @@ mod tests {
         document.apply(&bonds).unwrap();
         let graph = MoleculeGraph::from_document(&document);
         let context = Context::new(&graph);
-        let mut arena = Arena::new(&context, center);
+        let mut arena = Arena::new(&context, center, crate::cip::MAX_SPHERES);
         let (mut node, _) = arena.roots(Slot::Atom(y), Slot::ImplicitHydrogen).unwrap();
         // Walk the way around the ring: Y, A, B, then X as a real atom (not the child of Y).
         for next in [a, b, x] {

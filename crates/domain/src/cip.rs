@@ -1,19 +1,39 @@
-//! CIP descriptors (R and S) of stored tetrahedral centers, `chemifree-cip-1` in progress.
+//! CIP descriptors (R, S, E and Z) of stored configurations, `chemifree-cip-1` in progress.
 //!
-//! This is the domain half of the first slice (centers only). It reads the stored statement of
-//! a center and the graph, ranks the center's four ligands, and returns a label state. It never
-//! reads a mark or a position, stores nothing, and a label is never turned back into a stereo
-//! record: nothing here converts a [`Descriptor`] to a [`crate::stereo::CenterState`].
+//! This is the domain half of the labeler: tetrahedral centers ([`label_centers`]) and double
+//! bonds ([`label_double_bonds`]). It reads the stored statement of a unit and the graph, ranks
+//! the unit's ligands (or the two substituents at each end of a double bond), and returns a
+//! label state. It never reads a mark or a position, stores nothing, and a label is never
+//! turned back into a stereo record: nothing here converts a [`Descriptor`] to a
+//! [`crate::stereo::CenterState`] or a [`crate::stereo::DoubleBondState`].
 //!
 //! # Rules applied
 //!
 //! Rule 1a (atomic number), Rule 1b (a duplicate atom whose corresponding atom is nearer the
 //! root ranks higher; duplicates of ordinary ring closures and explicit multiple bonds only),
-//! and Rule 2 (mass number), each applied over the whole hierarchical digraph before the next
-//! rule is consulted. Rule 3 (Z before E) is not implemented yet: a tie after Rule 2 whose
-//! digraphs contain a double bond that could separate the ligands is
-//! [`Reason::Rule3Pending`], a temporary reason the Rule 3 slice removes. Rules 4a to 5 are
-//! never applied: a tie that they might break is [`Reason::Rule4Or5Needed`], never `none`.
+//! Rule 2 (mass number) and Rule 3 (Z before E), each applied over the whole hierarchical
+//! digraph before the next rule is consulted. Rules 4a to 5 are never applied: a tie that they
+//! might break is [`Reason::Rule4Or5Needed`], never `none`.
+//!
+//! # Rule 3
+//!
+//! A node reached from a real parent by a double bond carries the descriptor of that bond:
+//! `Z` ranks above `E`, which ranks above a bond that is not stereogenic (and above a node with
+//! no double bond). The descriptor of a ligand double bond is intrinsic: it ranks the two
+//! substituents at each end of the bond in the whole molecule (the partner excluded as a
+//! ligand), with the same rules, and reads the stored relation through them. A bond whose
+//! descriptor depends on itself is [`Reason::StereoCycle`]. Two nodes at the same position of
+//! the two digraphs of a comparison that are joined to their parents by one and the same double
+//! bond are equal under Rule 3 whatever its descriptor, and the descriptor is not asked for: the
+//! two ring branches at an end of 1,4-diethylidenecyclohexane meet the other double bond alike,
+//! so neither bond is a cycle (both are `none`). Two different bonds whose descriptors need each
+//! other (tetra-ethylidenecyclobutane) still are. A ligand double bond that is
+//! stereogenic but has no stored record, or is stored as unknown, has no descriptor: when a
+//! Rule 3 comparison has to place it against a descriptor it could equal, the result is
+//! [`State::Ambiguous`] with [`Reason::LigandStereoUnspecified`], never a guess and never
+//! `none`. (RDKit's labeler ranks such a bond below `E`; no IUPAC text this model rests on
+//! says so, so it is not adopted.) Two unspecified ligand double bonds that are otherwise
+//! equal are ambiguous too, because they may differ.
 //!
 //! # Digraph
 //!
@@ -59,7 +79,33 @@
 //! recursion per sphere. A digraph of a document within [`crate::document::MAX_ATOMS`] can
 //! nest about a thousand levels, which overflows a 2 MiB thread stack in a debug build at
 //! about 630 (see `tests/cip/main.rs`).
+//!
+//! Rule 3 ranks the ends of ligand double bonds inside a comparison, which is a nested
+//! computation. Those use their own arenas, bounded by [`MAX_NESTED_SPHERES`] spheres and by
+//! [`MAX_RULE_3_NESTING`] descriptors waiting on one another; going past either is
+//! [`Reason::DigraphLimit`]. The stack of the deepest cases that can be built within a document
+//! was measured in a debug build by lowering a thread's stack until the labeler overflowed:
+//! a spine of 250 tied levels alone needs about 0.92 MiB, four descriptors waiting on one
+//! another in arenas 25 to 32 spheres deep about 0.13 MiB, and the two together (a spine of 215
+//! levels above that nest, 245 spheres in all) about 0.89 MiB, so the nested bounds do not add
+//! to the center's. The test that builds them runs with 1.5 MiB.
+//!
+//! A double bond is ranked within [`MAX_NESTED_SPHERES`] spheres of each of its ends whether it
+//! is labeled itself or its descriptor is needed by Rule 3, while the ligands of a center are
+//! ranked within [`MAX_SPHERES`]. Two substituents that differ only 33 to 256 spheres away are
+//! therefore separated as the ligands of a center and refused ([`Reason::DigraphLimit`]) as the
+//! two substituents at an end of a double bond, so a label near the bound can depend on the
+//! root it is asked from. This is a documented limit: the refusal is `unsupported`, never a
+//! wrong label. Each descriptor is computed once per request, and every pair that
+//! needs it is charged what it cost again (the descriptor and the descriptors it needs), so
+//! the work counted does not depend on which pair or item ran first. A descriptor whose
+//! computation met a cycle (a bond asked for while it was being computed) is the exception: its
+//! result depends on which bond of the cycle was asked for first, so it is not kept for the
+//! request but reused only while the stack of bonds being computed is the same, and a bond
+//! asked for later is computed afresh. The label, reason and charge of a bond are therefore
+//! the same whatever the order in which the bonds of a request are listed.
 
+mod bond;
 mod context;
 mod digraph;
 mod label;
@@ -68,9 +114,9 @@ mod rank;
 use std::fmt;
 
 use crate::budget::{Interrupt, Interrupted};
-use crate::document::AtomId;
+use crate::document::{AtomId, BondId};
 use crate::graph::MoleculeGraph;
-use crate::stereo::{CenterState, Slot};
+use crate::stereo::{CenterState, DoubleBondState, Slot};
 
 /// The identifier of the labeler once it is exposed; the first slice exposes nothing.
 pub const MODEL_ID: &str = "chemifree-cip-1";
@@ -86,6 +132,12 @@ pub const MAX_REQUEST_NODES: usize = 2_000_000;
 /// a debug build, so 256 spheres need about 0.85 MB of a 2 MiB thread stack, and a digraph
 /// 900 spheres deep (possible in a 2,000-atom document) would overflow it.
 pub const MAX_SPHERES: usize = 256;
+/// The sphere bound of the arenas that rank the ends of a ligand double bond for Rule 3 (and of
+/// a double bond labeled as a unit, which is the same computation).
+pub const MAX_NESTED_SPHERES: usize = 32;
+/// The most double-bond descriptors that may be waiting on one another; a request for one more
+/// is [`Reason::DigraphLimit`].
+pub const MAX_RULE_3_NESTING: usize = 4;
 
 /// A CIP sequence rule, in the order they are applied.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -96,6 +148,8 @@ pub enum Rule {
     R1b,
     /// Higher mass number first.
     R2,
+    /// `Z` before `E` before a double bond that is not stereogenic.
+    R3,
 }
 
 impl Rule {
@@ -105,15 +159,18 @@ impl Rule {
             Self::R1a => "1a",
             Self::R1b => "1b",
             Self::R2 => "2",
+            Self::R3 => "3",
         }
     }
 }
 
-/// A descriptor of a stereocenter.
+/// A descriptor of a stereocenter (`R`, `S`) or a double bond (`E`, `Z`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Descriptor {
     R,
     S,
+    E,
+    Z,
 }
 
 impl Descriptor {
@@ -121,6 +178,8 @@ impl Descriptor {
         match self {
             Self::R => "R",
             Self::S => "S",
+            Self::E => "E",
+            Self::Z => "Z",
         }
     }
 }
@@ -135,6 +194,10 @@ pub enum Reason {
     /// The center fails the structure test: not an element atom, a radical or an aromatic bond
     /// on the center, or a stored statement the valence model cannot place.
     CenterStructure,
+    /// The double bond fails the structure test: an end with cumulated bonds (an allene), more
+    /// than two other neighbors, positions the valence model does not fit to two, or a stored
+    /// reference that names none of an end's positions.
+    DoubleBondStructure,
     QueryAtom,
     /// A dative, unknown or query bond met while expanding.
     BondKind,
@@ -149,11 +212,13 @@ pub enum Reason {
     /// unlabeled atom is read: the label equals the element's built-in mass number, or the
     /// element has none.
     MassNumber,
-    /// Temporary: Rule 3 could separate tied ligands and is not implemented yet. Removed by the
-    /// Rule 3 slice.
-    Rule3Pending,
     /// A tie that Rules 4 and 5 might break.
     Rule4Or5Needed,
+    /// The descriptor of a ligand double bond depends on itself.
+    StereoCycle,
+    /// Only with [`State::Ambiguous`]: Rule 3 has to place a stereogenic ligand double bond
+    /// whose geometry the document does not state (no record, or stored unknown).
+    LigandStereoUnspecified,
     /// The pairwise results are not a consistent order (not expected; reported, not guessed).
     RankingInconsistent,
     DigraphLimit,
@@ -165,6 +230,7 @@ impl Reason {
         match self {
             Self::NotACandidate => "cip_not_a_candidate",
             Self::CenterStructure => "cip_center_structure",
+            Self::DoubleBondStructure => "cip_double_bond_structure",
             Self::QueryAtom => "cip_query_atom",
             Self::BondKind => "cip_bond_kind",
             Self::AttachmentPoint => "cip_attachment_point",
@@ -172,8 +238,9 @@ impl Reason {
             Self::AromaticSystem => "cip_aromatic_system",
             Self::MancudeRule1b => "cip_mancude_rule_1b",
             Self::MassNumber => "cip_mass_number",
-            Self::Rule3Pending => "cip_rule_3_pending",
             Self::Rule4Or5Needed => "cip_rule_4_or_5_needed",
+            Self::StereoCycle => "cip_stereo_cycle",
+            Self::LigandStereoUnspecified => "cip_ligand_stereo_unspecified",
             Self::RankingInconsistent => "cip_ranking_inconsistent",
             Self::DigraphLimit => "cip_digraph_limit",
         }
@@ -192,8 +259,9 @@ pub enum State {
     Unspecified,
     /// Stereogenic and the stored record says "either".
     Unknown,
-    /// The label depends on stereo information the document does not have. Only Rule 3 can
-    /// produce it, so nothing returns it yet.
+    /// The label depends on stereo information the document does not have: Rule 3 needs the
+    /// geometry of a ligand double bond that is unspecified or stored unknown. The reason is
+    /// [`Reason::LigandStereoUnspecified`].
     Ambiguous(Reason),
     /// The model cannot decide.
     Unsupported(Reason),
@@ -233,6 +301,32 @@ pub struct CenterReport {
     pub decided_by: Option<Rule>,
     pub warnings: Vec<Warning>,
     /// Digraph nodes this item materialized.
+    pub nodes: usize,
+}
+
+/// One end of a double bond for which a higher substituent was found.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EndReport {
+    pub atom: AtomId,
+    /// The position that ranks higher at this end.
+    pub higher: Slot,
+    /// The last rule needed to separate the end's two positions.
+    pub decided_by: Rule,
+}
+
+/// The result for one double bond.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BondReport {
+    pub bond: BondId,
+    pub state: State,
+    /// The stored record, as stated, if any.
+    pub stored: Option<DoubleBondState>,
+    /// The higher substituent at the bond's `begin` and `end` atoms; present when both ends have
+    /// two different substituents (`Assigned`, `Unknown`, `Unspecified`).
+    pub ends: Option<[EndReport; 2]>,
+    /// `StoredNotStereogenic` when a record is stored on a bond that is not stereogenic.
+    pub warnings: Vec<Warning>,
+    /// Digraph nodes this item materialized, with the Rule 3 descriptors it needed.
     pub nodes: usize,
 }
 
@@ -297,17 +391,119 @@ pub fn label_centers(
     interrupt: &dyn Interrupt,
 ) -> Result<Vec<CenterReport>, Stop> {
     let context = context::Context::new(graph);
+    let oracle = bond::Oracle::new(&context, limits.item_nodes, interrupt);
     let mut used = 0_usize;
     let mut reports = Vec::with_capacity(atoms.len());
     for &atom in atoms {
-        let report = label::center(&context, atom, limits.item_nodes, interrupt)?;
-        used = used.saturating_add(report.nodes);
-        if used > limits.request_nodes {
-            return Err(Stop::RequestLimit {
-                limit: limits.request_nodes,
-            });
-        }
+        let report = label::center(&context, &oracle, atom, limits.item_nodes, interrupt)?;
+        charge(&mut used, report.nodes, limits)?;
         reports.push(report);
     }
     Ok(reports)
+}
+
+fn charge(used: &mut usize, nodes: usize, limits: Limits) -> Result<(), Stop> {
+    *used = used.saturating_add(nodes);
+    if *used > limits.request_nodes {
+        return Err(Stop::RequestLimit {
+            limit: limits.request_nodes,
+        });
+    }
+    Ok(())
+}
+
+/// Labels the named bonds as double bonds, one report per name in the order given.
+///
+/// A stored record is read as stated; a bond without one is judged on its structure alone
+/// (`None`, `Unspecified`, `Ambiguous` or `Unsupported`). `Assigned` is `E` or `Z` by the CIP
+/// definition: the higher-ranked substituents on the same side is `Z`. Limits and the interrupt
+/// are as for [`label_centers`]; the work of an item includes the Rule 3 descriptors it needed.
+///
+/// # Errors
+///
+/// [`Stop::RequestLimit`] when the items together exceed [`Limits::request_nodes`] (the sum
+/// does not depend on the order of `bonds`), [`Stop::Interrupted`] when `interrupt` stops it.
+pub fn label_double_bonds(
+    graph: &MoleculeGraph,
+    bonds: &[BondId],
+    limits: Limits,
+    interrupt: &dyn Interrupt,
+) -> Result<Vec<BondReport>, Stop> {
+    let context = context::Context::new(graph);
+    let oracle = bond::Oracle::new(&context, limits.item_nodes, interrupt);
+    let mut used = 0_usize;
+    let mut reports = Vec::with_capacity(bonds.len());
+    for &id in bonds {
+        let report = bond::double_bond(&context, &oracle, id, limits.item_nodes)?;
+        charge(&mut used, report.nodes, limits)?;
+        reports.push(report);
+    }
+    Ok(reports)
+}
+
+/// The units that are, or may be, stereogenic.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Candidates {
+    /// Ascending by atom.
+    pub centers: Vec<CenterReport>,
+    /// Ascending by bond.
+    pub double_bonds: Vec<BondReport>,
+}
+
+/// Scans the graph for units that are stereogenic under Rules 1a to 3, or may be: an atom that
+/// passes the center structure test and a double bond that passes the double-bond structure
+/// test, whose label state is not `None`, whether or not a record is stored. A unit the model
+/// cannot decide (`Unsupported`, `Ambiguous`) is listed, because it may be stereogenic; one
+/// found not stereogenic is not.
+///
+/// This is not the list of every E/Z unit. A double bond inside a ring system is never listed
+/// (the design default is that no ring-size judgement is made), although
+/// [`label_double_bonds`] labels a stored ring double bond when it is named; a consumer must
+/// not read the scan as the complete list of double bonds that carry or may carry an E or Z.
+///
+/// The interrupt is asked for every atom and bond, skipped or not, as well as at the spheres
+/// of the units that are ranked.
+///
+/// # Errors
+///
+/// [`Stop::RequestLimit`] when the units examined together exceed [`Limits::request_nodes`],
+/// [`Stop::Interrupted`] when `interrupt` stops it.
+pub fn candidates(
+    graph: &MoleculeGraph,
+    limits: Limits,
+    interrupt: &dyn Interrupt,
+) -> Result<Candidates, Stop> {
+    let context = context::Context::new(graph);
+    let oracle = bond::Oracle::new(&context, limits.item_nodes, interrupt);
+    let in_ring: std::collections::BTreeSet<BondId> = crate::rings::perceive(graph)
+        .into_iter()
+        .flat_map(|system| system.bonds)
+        .collect();
+    let mut used = 0_usize;
+    let mut found = Candidates::default();
+    for (id, _) in graph.atoms() {
+        // Asked for every atom, examined or skipped, so that a scan that ranks nothing (an
+        // acyclic chain) can still be stopped.
+        interrupt.check().map_err(Stop::Interrupted)?;
+        if !label::is_center(&context, id) {
+            continue;
+        }
+        let report = label::center(&context, &oracle, id, limits.item_nodes, interrupt)?;
+        charge(&mut used, report.nodes, limits)?;
+        if report.state != State::None {
+            found.centers.push(report);
+        }
+    }
+    for (id, _) in graph.bonds() {
+        interrupt.check().map_err(Stop::Interrupted)?;
+        if in_ring.contains(&id) || !bond::is_unit(&context, id) {
+            continue;
+        }
+        let report = bond::double_bond(&context, &oracle, id, limits.item_nodes)?;
+        charge(&mut used, report.nodes, limits)?;
+        if report.state != State::None {
+            found.double_bonds.push(report);
+        }
+    }
+    Ok(found)
 }

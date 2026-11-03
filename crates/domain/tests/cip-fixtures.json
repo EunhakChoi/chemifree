@@ -361,13 +361,14 @@
   {
    "name": "two propenyl ligands",
    "smiles": "Cl[C@H](C=CC)C=CC",
-   "source": "a tie that Rule 3 (Z before E) could break: pending",
+   "source": "two propenyl ligands with no stated geometry could be a Z and an E one: Rule 3 cannot decide, so the center is ambiguous, not none. RDKit treats an unspecified bond as lower than E and gives none for two of them, which this model does not claim",
    "expect": [
     {
      "atom": 1,
-     "label": "unsupported:cip_rule_3_pending"
+     "label": "ambiguous:cip_ligand_stereo_unspecified"
     }
-   ]
+   ],
+   "rdkit_differs": "RDKit finds two equal unspecified propenyl ligands tied and labels the atom none"
   },
   {
    "name": "two vinyl ligands",
@@ -412,6 +413,804 @@
      "label": "unsupported:cip_mass_number"
     }
    ]
+  },
+  {
+   "name": "(E)-1-chloro-2-fluoroethene",
+   "smiles": "F/C=C/Cl",
+   "source": "public name; higher substituents Cl and F on opposite sides",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "(Z)-1-chloro-2-fluoroethene",
+   "smiles": "F/C=C\\Cl",
+   "source": "public name; higher substituents on the same side",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "(E)-1,2-dichloroethene",
+   "smiles": "Cl/C=C/Cl",
+   "source": "public name",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "(Z)-1,2-dichloroethene",
+   "smiles": "Cl/C=C\\Cl",
+   "source": "public name",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "(E)-but-2-ene",
+   "smiles": "C/C=C/C",
+   "source": "public name",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "(Z)-but-2-ene",
+   "smiles": "C/C=C\\C",
+   "source": "public name",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "fumaric acid",
+   "smiles": "OC(=O)/C=C/C(=O)O",
+   "source": "public name: fumaric acid is (E)-butenedioic acid",
+   "expect": [
+    {
+     "bond": [
+      3,
+      4
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "maleic acid",
+   "smiles": "OC(=O)/C=C\\C(=O)O",
+   "source": "public name: maleic acid is (Z)-butenedioic acid",
+   "expect": [
+    {
+     "bond": [
+      3,
+      4
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "(E)-propenal oxime",
+   "smiles": "C/C=N/O",
+   "source": "hand: the nitrogen's lone pair is the lowest position; OH is higher",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "(Z)-propenal oxime",
+   "smiles": "C/C=N\\O",
+   "source": "hand",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "terminal alkene",
+   "smiles": "C=C",
+   "source": "no two different substituents at an end",
+   "expect": [
+    {
+     "bond": [
+      0,
+      1
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "isobutenyl chloride",
+   "smiles": "CC(C)=CCl",
+   "source": "two methyl groups tie at one end",
+   "expect": [
+    {
+     "bond": [
+      1,
+      3
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "double bond without a stated geometry",
+   "smiles": "FC=CCl",
+   "source": "stereogenic by the ranking, nothing stored: RDKit does not list it",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "unspecified"
+    }
+   ]
+  },
+  {
+   "name": "allene",
+   "smiles": "C/C=C=C/C",
+   "source": "a cumulated bond is not labeled (an axis, Rules 4 and 5)",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "unsupported:cip_double_bond_structure"
+    }
+   ]
+  },
+  {
+   "name": "13C methyl forks one end (E)",
+   "smiles": "[13CH3]/C(C)=C/C",
+   "source": "Rule 2 at the first end: 13CH3 outranks CH3; the other end by Rule 1a",
+   "expect": [
+    {
+     "bond": [
+      1,
+      3
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "13C methyl forks one end (Z)",
+   "smiles": "[13CH3]/C(C)=C\\C",
+   "source": "as above, same side",
+   "expect": [
+    {
+     "bond": [
+      1,
+      3
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "13C methyl forks one end, atoms in reverse order (E)",
+   "smiles": "C/C=C(\\C)[13CH3]",
+   "source": "the same molecule as the forward fixture, written from the other end",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "13C methyl forks one end, atoms in reverse order (Z)",
+   "smiles": "C/C=C(/C)[13CH3]",
+   "source": "as above",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "deuterium against hydrogen (E)",
+   "smiles": "[2H]/C=C/C",
+   "source": "Rule 2: D outranks H",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "deuterium against hydrogen (Z)",
+   "smiles": "[2H]/C=C\\C",
+   "source": "Rule 2: D outranks H",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "Rule 1a over the whole digraph before Rule 2 (Z)",
+   "smiles": "C/C=C(\\CCCl)[13CH2]C",
+   "source": "CH2CH2Cl outranks 13CH2CH3: Cl at sphere 3 (Rule 1a) comes before the mass number at sphere 1 (Rule 2)",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "Rule 1a over the whole digraph before Rule 2 (E)",
+   "smiles": "C/C=C(/CCCl)[13CH2]C",
+   "source": "as above, the other geometry",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "Z and E propenyl ligands, Z first",
+   "smiles": "F[C@H](/C=C\\C)/C=C/C",
+   "source": "Rule 3: Z before E; the Z ligand is listed first",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    },
+    {
+     "bond": [
+      2,
+      3
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "Z and E propenyl ligands, E first",
+   "smiles": "F[C@H](/C=C/C)/C=C\\C",
+   "source": "Rule 3: the mirror arrangement of the previous fixture's listing",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    },
+    {
+     "bond": [
+      2,
+      3
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "Z and E butenyl ligands",
+   "smiles": "F[C@H](C/C=C\\C)C/C=C/C",
+   "source": "Rule 3 one sphere deeper",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "E and Z butenyl ligands",
+   "smiles": "F[C@H](C/C=C/C)C/C=C\\C",
+   "source": "Rule 3 one sphere deeper",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "Z and E oxime ligands",
+   "smiles": "F[C@H](/C=N/O)/C=N\\O",
+   "source": "Rule 3 on C=N, whose nitrogen end has a lone pair",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "two Z propenyl ligands",
+   "smiles": "F[C@H](/C=C\\C)/C=C\\C",
+   "source": "equal descriptors tie",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "Rule 2 before Rule 3",
+   "smiles": "F[C@H](/C=C\\C)/C=C/[13CH3]",
+   "source": "13C at the E ligand ranks it first by Rule 2, before Rule 3 could rank the Z ligand first",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "Z and unspecified propenyl ligands",
+   "smiles": "F[C@H](/C=C\\C)C=CC",
+   "source": "an unspecified bond could be a Z: Rule 3 cannot place it",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "ambiguous:cip_ligand_stereo_unspecified"
+    }
+   ],
+   "rdkit_differs": "RDKit ranks an unspecified double bond below E and labels the atom S"
+  },
+  {
+   "name": "unspecified and Z propenyl ligands",
+   "smiles": "F[C@H](C=CC)/C=C\\C",
+   "source": "as above, the other listing",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "ambiguous:cip_ligand_stereo_unspecified"
+    }
+   ],
+   "rdkit_differs": "RDKit ranks an unspecified double bond below E and labels the atom R"
+  },
+  {
+   "name": "E and unspecified propenyl ligands",
+   "smiles": "F[C@H](/C=C/C)C=CC",
+   "source": "an unspecified bond could be an E or a Z",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "ambiguous:cip_ligand_stereo_unspecified"
+    }
+   ],
+   "rdkit_differs": "RDKit ranks an unspecified double bond below E and labels the atom S"
+  },
+  {
+   "name": "Z-propenyl against ethyl, no tie to break",
+   "smiles": "F[C@H](CC)C=CC",
+   "source": "Rule 1a decides: propenyl C has a duplicate carbon",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "double bond ends separated by Rule 3 (E)",
+   "smiles": "F/C=C(/C=C\\C)\\C=C\\C",
+   "source": "the second end has a Z and an E propenyl group; Z is higher",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      3,
+      4
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "double bond ends separated by Rule 3 (Z)",
+   "smiles": "F/C=C(\\C=C/C)/C=C/C",
+   "source": "the Z propenyl is on the other side",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      3,
+      4
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "double bond end with an unspecified propenyl",
+   "smiles": "F/C=C(/C=C\\C)C=CC",
+   "source": "an unspecified propenyl could be Z or E: the end cannot be ranked",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "ambiguous:cip_ligand_stereo_unspecified"
+    }
+   ],
+   "rdkit_differs": "RDKit ranks an unspecified double bond below Z and labels the bond E"
+  },
+  {
+   "name": "1,3-diethylidenecyclobutane",
+   "smiles": "CC=C1CC(=CC)C1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic (an earlier version refused this as a stereo cycle)",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      4,
+      5
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,4-diethylidenecyclohexane",
+   "smiles": "CC=C1CCC(=CC)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,4-diethylidenecyclohexane, geometry stated",
+   "smiles": "C/C=C1\\CC/C(=C\\C)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic; a stored geometry on such a bond is only flagged",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,5-diethylidenecyclooctane",
+   "smiles": "CC=C1CCCC(=CC)CCC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "2,6-diethylidenespiro[3.3]heptane",
+   "smiles": "CC=C1CC2(C1)CC(=CC)C2",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "4-ethylidene-1-methylenecyclohexane",
+   "smiles": "C=C1CCC(=CC)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      0,
+      1
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      4,
+      5
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,2-diethylidenecyclohexane (E,Z)",
+   "smiles": "C/C=C1\\CCCC\\C1=C\\C",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "1,2-diethylidenecyclohexane (Z,Z)",
+   "smiles": "C/C=C1/CCCC\\C1=C\\C",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "1,3-diethylidenecyclohexane (Z,E)",
+   "smiles": "C/C=C1/CCC/C(=C\\C)C1",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "1,3-diethylidenecyclohexane (E,E)",
+   "smiles": "C/C=C1\\CCC/C(=C\\C)C1",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "2,5-diethylidenenorbornane (E,Z)",
+   "smiles": "C/C=C1\\CC2/C(=C\\C)CC1C2",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "2,5-diethylidenenorbornane (Z,Z)",
+   "smiles": "C/C=C1/CC2/C(=C\\C)CC1C2",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "1,3,5-tris(alkylidene)cyclohexane, propylidene against two ethylidene",
+   "smiles": "C1/C(=C/CC)C/C(=C/C)C/C(=C/C)1",
+   "source": "found by comparing generated ring molecules with RDKit, not by a public name. The two ring branches at the propylidene carbon tie under Rules 1a to 2 and Rule 3 separates them by the descriptors of the two ethylidene bonds, which are E and Z here. The model reads the descriptor of a ligand double bond from the whole molecule (it ranks the ends of that bond with everything else as it would for the bond alone) and so ranks the branch with the Z bond higher; RDKit 2022.03.2 gives the opposite label, as if the branch with the E bond ranked higher, and agrees with the model on the two ethylidene bonds themselves and on the acyclic analogues tried (128 centers). Which reading the IUPAC text intends for a ligand double bond whose end ranking depends on the path back to the root is not settled here; recorded, not resolved (decision pending, see HANDOFF)",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the propylidene bond Z"
   }
  ]
 }

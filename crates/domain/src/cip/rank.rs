@@ -1,10 +1,12 @@
-//! Comparison of two ligands by Rules 1a, 1b and 2, each over the whole digraph.
+//! Comparison of two ligands by Rules 1a, 1b, 2 and 3, each over the whole digraph.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::budget::{Interrupt, Interrupted};
+use crate::document::{AtomId, BondId};
 
+use super::bond::{Geometry, Oracle};
 use super::context::{Context, Mass};
 use super::digraph::{Arena, Kind, NodeIx};
 use super::{Reason, Rule};
@@ -28,7 +30,7 @@ impl From<Interrupted> for Halt {
     }
 }
 
-const RULES: [Rule; 3] = [Rule::R1a, Rule::R1b, Rule::R2];
+const RULES: [Rule; 4] = [Rule::R1a, Rule::R1b, Rule::R2, Rule::R3];
 
 /// What one rule reads of a node; a missing node reads as a phantom.
 #[derive(Clone, Copy)]
@@ -37,6 +39,8 @@ struct View {
     mass: Mass,
     duplicate_of_depth: Option<u16>,
     mancude: bool,
+    /// What Rule 3 reads: the descriptor of the double bond to the parent, if there is one.
+    bond: Option<Geometry>,
 }
 
 const PHANTOM: View = View {
@@ -44,7 +48,56 @@ const PHANTOM: View = View {
     mass: Mass::Number(0),
     duplicate_of_depth: None,
     mancude: false,
+    bond: None,
 };
+
+/// What a comparison of two nodes under one rule found.
+struct Verdict {
+    /// `Greater` when the first ranks higher.
+    ordering: Ordering,
+    /// The model cannot decide something the comparison touched; the order is a stand-in.
+    refusal: Option<Reason>,
+    /// The answer depends on the geometry of a double bond the document does not state; the
+    /// order is a stand-in.
+    ambiguous: bool,
+}
+
+impl Verdict {
+    const fn plain(ordering: Ordering) -> Self {
+        Self {
+            ordering,
+            refusal: None,
+            ambiguous: false,
+        }
+    }
+}
+
+/// How Rule 3 ranks the double bonds into a node. `Z` above `E` above a bond that is not
+/// stereogenic or no bond at all; an unstated geometry sits between `E` and the rest only as a
+/// stand-in, because it is ambiguous whenever it is compared with something it could equal.
+fn compare_bonds(a: Option<Geometry>, b: Option<Geometry>) -> Verdict {
+    let key = |geometry: Option<Geometry>| match geometry {
+        Some(Geometry::Z) => 3_u8,
+        Some(Geometry::E) => 2,
+        Some(Geometry::Uncertain { .. }) => 1,
+        Some(Geometry::Plain) | None => 0,
+    };
+    // An unstated geometry is some Z or E, which outranks a bond that is not stereogenic, unless
+    // its own ends were ambiguous (it may not be stereogenic either).
+    let settled = |geometry: Option<Geometry>, other: Option<Geometry>| match geometry {
+        Some(Geometry::Uncertain { maybe_plain }) => {
+            !maybe_plain && matches!(other, Some(Geometry::Plain) | None)
+        }
+        _ => true,
+    };
+    let uncertain =
+        |geometry: Option<Geometry>| matches!(geometry, Some(Geometry::Uncertain { .. }));
+    Verdict {
+        ordering: key(a).cmp(&key(b)),
+        refusal: None,
+        ambiguous: (uncertain(a) || uncertain(b)) && !(settled(a, b) && settled(b, a)),
+    }
+}
 
 /// How Rule 2 orders two masses, and the refusal if the order is a reading this model does not
 /// decide. The order is always a consistent one (a labeled `n` above an unlabeled atom of
@@ -68,11 +121,11 @@ fn compare_masses(a: Mass, b: Mass) -> (Ordering, Option<Reason>) {
     (key(a).cmp(&key(b)), undecided.then_some(Reason::MassNumber))
 }
 
-/// `Greater` when `a` ranks higher than `b` under `rule`, and the refusal if the comparison
-/// touched something the model cannot decide (the order is then a stand-in).
-fn compare_views(rule: Rule, a: View, b: View) -> (Ordering, Option<Reason>) {
+/// How `a` and `b` compare under `rule` (the order is a stand-in when the verdict refuses or is
+/// ambiguous).
+fn compare_views(rule: Rule, a: View, b: View) -> Verdict {
     match rule {
-        Rule::R1a => (a.z.cmp(&b.z), None),
+        Rule::R1a => Verdict::plain(a.z.cmp(&b.z)),
         Rule::R1b => {
             let refusal = (a.mancude || b.mancude).then_some(Reason::MancudeRule1b);
             let ordering = match (a.duplicate_of_depth, b.duplicate_of_depth) {
@@ -81,9 +134,21 @@ fn compare_views(rule: Rule, a: View, b: View) -> (Ordering, Option<Reason>) {
                 (Some(a_depth), Some(b_depth)) => b_depth.cmp(&a_depth),
                 _ => Ordering::Equal,
             };
-            (ordering, refusal)
+            Verdict {
+                ordering,
+                refusal,
+                ambiguous: false,
+            }
         }
-        Rule::R2 => compare_masses(a.mass, b.mass),
+        Rule::R2 => {
+            let (ordering, refusal) = compare_masses(a.mass, b.mass);
+            Verdict {
+                ordering,
+                refusal,
+                ambiguous: false,
+            }
+        }
+        Rule::R3 => compare_bonds(a.bond, b.bond),
     }
 }
 
@@ -135,9 +200,17 @@ pub(super) fn dense_ranks(results: &[Vec<Ordering>]) -> Option<Vec<usize>> {
 /// and the caller does not use how far it got.
 pub(super) struct Engine<'c, 'g> {
     pub(super) arena: Arena<'c, 'g>,
+    oracle: &'c Oracle<'c, 'g>,
     interrupt: &'c dyn Interrupt,
     cap: usize,
     refusal: Option<Reason>,
+    ambiguous: bool,
+    /// The double bonds whose descriptors Rule 3 asked for, and the part of their cost already
+    /// counted against the cap.
+    requested: BTreeSet<BondId>,
+    charged: BTreeSet<BondId>,
+    rule_3_nodes: usize,
+    geometry: BTreeMap<NodeIx, Option<Geometry>>,
     compared: BTreeMap<(NodeIx, NodeIx, Rule), (Ordering, Option<Rule>)>,
     sorted: BTreeMap<(NodeIx, Rule), Vec<NodeIx>>,
 }
@@ -145,15 +218,23 @@ pub(super) struct Engine<'c, 'g> {
 impl<'c, 'g> Engine<'c, 'g> {
     pub(super) fn new(
         context: &'c Context<'g>,
-        center: crate::document::AtomId,
+        oracle: &'c Oracle<'c, 'g>,
+        center: AtomId,
         cap: usize,
+        spheres: usize,
         interrupt: &'c dyn Interrupt,
     ) -> Self {
         Self {
-            arena: Arena::new(context, center),
+            arena: Arena::new(context, center, spheres),
+            oracle,
             interrupt,
             cap,
             refusal: None,
+            ambiguous: false,
+            requested: BTreeSet::new(),
+            charged: BTreeSet::new(),
+            rule_3_nodes: 0,
+            geometry: BTreeMap::new(),
             compared: BTreeMap::new(),
             sorted: BTreeMap::new(),
         }
@@ -162,6 +243,23 @@ impl<'c, 'g> Engine<'c, 'g> {
     /// The smallest reason a comparison of this engine met that the model cannot decide.
     pub(super) const fn refusal(&self) -> Option<Reason> {
         self.refusal
+    }
+
+    /// Whether a comparison depended on a ligand double bond whose geometry is not stated.
+    pub(super) const fn ambiguous(&self) -> bool {
+        self.ambiguous
+    }
+
+    /// The double bonds Rule 3 asked this engine's oracle about.
+    pub(super) const fn requested(&self) -> &BTreeSet<BondId> {
+        &self.requested
+    }
+
+    /// Nodes materialized: the arena, and every descriptor Rule 3 needed with what it needed.
+    pub(super) fn nodes(&self) -> usize {
+        self.arena
+            .len()
+            .saturating_add(self.oracle.closure_cost(&self.requested))
     }
 
     fn refuse(&mut self, reason: Reason) {
@@ -179,6 +277,81 @@ impl<'c, 'g> Engine<'c, 'g> {
                 _ => None,
             },
             mancude: node.kind == Kind::Mancude,
+            bond: self.geometry.get(&index).copied().flatten(),
+        }
+    }
+
+    /// The descriptor of the double bond into each node of these spheres (only a real node
+    /// whose real parent is joined to it by a double bond has one), asked for before the
+    /// spheres are compared so that which descriptors a comparison needs does not depend on the
+    /// order it reaches them in. A pair of nodes that sit at the same position and are joined
+    /// to their parents by the same double bond is not asked about: see
+    /// [`Engine::same_double_bond`].
+    fn fetch_geometries(&mut self, spheres: [&[Vec<NodeIx>]; 2]) -> Result<(), Halt> {
+        let [left, right] = spheres;
+        for (l, r) in left.iter().zip(right) {
+            for position in 0..l.len().max(r.len()) {
+                let (a, b) = (l.get(position).copied(), r.get(position).copied());
+                if self.same_double_bond(a, b) {
+                    continue;
+                }
+                for node in [a, b].into_iter().flatten() {
+                    if self.geometry.contains_key(&node) {
+                        continue;
+                    }
+                    let found = self.node_geometry(node)?;
+                    self.geometry.insert(node, found);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The double bond that joins a real node to its real parent, if it is a double bond.
+    fn double_bond_into(&self, node: NodeIx) -> Option<BondId> {
+        let arena = &self.arena;
+        let current = arena.node(node);
+        let (Kind::Real(atom), Some(_), 2) = (current.kind, arena.parent(node), current.bond_in)
+        else {
+            return None;
+        };
+        arena.context().bond_between(arena.parent_atom(node), atom)
+    }
+
+    /// Whether two nodes at the same position are joined to their parents by one and the same
+    /// double bond. The descriptor of a bond is one value, so Rule 3 finds the two equal
+    /// whatever it is and does not need it. This is what happens when the two branches of a
+    /// ring reach the same ligand double bond; asking for the descriptor then would make a bond
+    /// that sits across a symmetric ring look as if its descriptor depended on itself.
+    fn same_double_bond(&self, a: Option<NodeIx>, b: Option<NodeIx>) -> bool {
+        match (a, b) {
+            (Some(a), Some(b)) => {
+                let bond = self.double_bond_into(a);
+                bond.is_some() && bond == self.double_bond_into(b)
+            }
+            _ => false,
+        }
+    }
+
+    fn node_geometry(&mut self, node: NodeIx) -> Result<Option<Geometry>, Halt> {
+        let Some(bond) = self.double_bond_into(node) else {
+            return Ok(None);
+        };
+        self.requested.insert(bond);
+        let analysis = self.oracle.analysis(bond)?;
+        self.rule_3_nodes = self
+            .rule_3_nodes
+            .saturating_add(self.oracle.charge(bond, &mut self.charged));
+        if self.arena.len().saturating_add(self.rule_3_nodes) > self.cap {
+            return Err(Reason::DigraphLimit.into());
+        }
+        match self.oracle.geometry(bond, &analysis) {
+            Ok(geometry) => Ok(Some(geometry)),
+            Err(Reason::DigraphLimit) => Err(Reason::DigraphLimit.into()),
+            Err(reason) => {
+                self.refuse(reason);
+                Ok(Some(Geometry::Plain))
+            }
         }
     }
 
@@ -218,22 +391,26 @@ impl<'c, 'g> Engine<'c, 'g> {
         let mut right = vec![vec![b]];
         loop {
             self.interrupt.check()?;
+            if rule == Rule::R3 {
+                self.fetch_geometries([&left, &right])?;
+            }
             for (l, r) in left.iter().zip(&right) {
                 for position in 0..l.len().max(r.len()) {
-                    let (ordering, refusal) = compare_views(
-                        rule,
-                        self.view(l.get(position).copied()),
-                        self.view(r.get(position).copied()),
-                    );
-                    if let Some(reason) = refusal {
+                    let (a, b) = (l.get(position).copied(), r.get(position).copied());
+                    if rule == Rule::R3 && self.same_double_bond(a, b) {
+                        continue;
+                    }
+                    let verdict = compare_views(rule, self.view(a), self.view(b));
+                    if let Some(reason) = verdict.refusal {
                         self.refuse(reason);
                     }
-                    if ordering != Ordering::Equal {
-                        return Ok(ordering);
+                    self.ambiguous |= verdict.ambiguous;
+                    if verdict.ordering != Ordering::Equal {
+                        return Ok(verdict.ordering);
                     }
                 }
             }
-            if self.arena.len() > self.cap {
+            if self.arena.len().saturating_add(self.rule_3_nodes) > self.cap {
                 return Err(Reason::DigraphLimit.into());
             }
             let mut next_left = Vec::new();

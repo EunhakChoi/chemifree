@@ -7,6 +7,7 @@
 //! is nothing to vary. Mirror images are tested by reversing every stored turn.
 
 mod reference;
+mod rule3;
 mod support;
 
 use std::cell::Cell;
@@ -18,7 +19,7 @@ use chemifree_domain::cip::{
 };
 use chemifree_domain::document::{AtomId, AtomRef, BondOrder, Command};
 use chemifree_domain::states::{AtomKind, AttachmentPoints, Hydrogens, QueryAtom, Radical};
-use chemifree_domain::stereo::{AtomConfiguration, Slot, SlotRef, Turn};
+use chemifree_domain::stereo::{AtomConfiguration, Relation, Slot, SlotRef, Turn};
 
 use reference::{Reference, geometry_descriptor};
 use support::{Built, Molecule, Neighbor, element, parse};
@@ -171,8 +172,23 @@ fn fixtures_have_their_expected_labels_and_mirror_images_flip_them() {
         let molecule = parse(fixture["smiles"].as_str().unwrap());
         let mirror = molecule.mirrored();
         for expectation in fixture["expect"].as_array().unwrap() {
-            let atom = usize::try_from(expectation["atom"].as_u64().unwrap()).unwrap();
             let expected = expectation["label"].as_str().unwrap();
+            if let Some(bond) = expectation.get("bond") {
+                // A double bond: its label is the same in the mirror image.
+                let ends = bond.as_array().unwrap();
+                let end = |i: usize| usize::try_from(ends[i].as_u64().unwrap()).unwrap();
+                for image in [&molecule, &mirror] {
+                    let report = rule3::bond_report(image, end(0), end(1));
+                    assert_eq!(
+                        rule3::state_text(report.state),
+                        expected,
+                        "{name} bond {bond}"
+                    );
+                }
+                checked += 1;
+                continue;
+            }
+            let atom = usize::try_from(expectation["atom"].as_u64().unwrap()).unwrap();
             assert_eq!(text(&one(&molecule, atom)), expected, "{name} atom {atom}");
             assert_eq!(
                 text(&one(&mirror, atom)),
@@ -182,7 +198,7 @@ fn fixtures_have_their_expected_labels_and_mirror_images_flip_them() {
             checked += 1;
         }
     }
-    assert!(checked >= 38, "only {checked} expectations");
+    assert!(checked >= 70, "only {checked} expectations");
 }
 
 #[test]
@@ -342,7 +358,7 @@ fn a_stored_slot_the_valence_model_would_not_name_is_used_and_flagged() {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn ties_that_rules_4_and_5_or_rule_3_might_break_are_refused_not_none() {
+fn ties_that_rules_4_and_5_might_break_are_refused_not_none() {
     for smiles in [
         "C[C@H]1CC[C@@H](C)CC1",
         "C[C@H]1CC[C@H](C)CC1",
@@ -364,9 +380,10 @@ fn ties_that_rules_4_and_5_or_rule_3_might_break_are_refused_not_none() {
     );
     // The same acid's outer centers are decided at Rule 1a and labeled.
     assert_eq!(label("OC(=O)[C@H](O)[C@H](O)[C@H](O)C(=O)O", 3), "R");
+    // Two propenyl ligands whose geometry is not stated could be a Z and an E one: ambiguous.
     assert_eq!(
         label("Cl[C@H](C=CC)C=CC", 1),
-        "unsupported:cip_rule_3_pending"
+        "ambiguous:cip_ligand_stereo_unspecified"
     );
     assert_eq!(label("Cl[C@H](C=C)C=C", 1), "none");
 }
@@ -654,7 +671,8 @@ fn renumbering_atoms_and_reordering_insertion_changes_nothing_not_even_the_work(
             .as_array()
             .unwrap()
             .iter()
-            .map(|e| usize::try_from(e["atom"].as_u64().unwrap()).unwrap())
+            .filter_map(|e| e["atom"].as_u64())
+            .map(|atom| usize::try_from(atom).unwrap())
             .collect();
         for limits in [Limits::default(), capped] {
             let base = molecule.build();
@@ -839,6 +857,11 @@ fn random_refused_molecule(rng: &mut Rng) -> Molecule {
             }
         }
     }
+    // A stored statement about a bond that is no longer a double bond cannot be kept.
+    let bonds = molecule.bonds.clone();
+    molecule
+        .doubles
+        .retain(|double| bonds[double.bond].2 == BondOrder::Double);
     // A center must stay an ordinary carbon with ordinary bonds to be given a configuration.
     let intact = |molecule: &Molecule, atom: usize| {
         molecule.atoms[atom].kind.element().map(|e| e.symbol()) == Some("C")
@@ -949,6 +972,16 @@ fn random_molecule(rng: &mut Rng) -> Molecule {
         if free(&used, parent, parent_symbol) < order || valence_of(symbol) < order {
             continue;
         }
+        // No cumulated double bonds: an allene end is a refusal of its own (tested elsewhere).
+        let has_double = |molecule: &Molecule, atom: usize| {
+            molecule
+                .bonds
+                .iter()
+                .any(|&(a, b, ref o)| (a == atom || b == atom) && *o == BondOrder::Double)
+        };
+        if order == 2 && has_double(&molecule, parent) {
+            continue;
+        }
         let heavy = rng.below(5) == 0;
         let child = push(&mut molecule, &mut used, symbol, heavy);
         used[parent] += order;
@@ -994,6 +1027,47 @@ fn random_molecule(rng: &mut Rng) -> Molecule {
             molecule.bonds.push((i, h, BondOrder::Single));
         }
     }
+    // Stored statements about some double bonds: relative (either reference position at each
+    // end, so the flip rule is exercised), stated unknown, or none.
+    for index in 0..molecule.bonds.len() {
+        let (a, b, ref order) = molecule.bonds[index];
+        if *order != BondOrder::Double {
+            continue;
+        }
+        let kind = rng.below(8);
+        if kind >= 5 {
+            continue;
+        }
+        let mut position = |atom: usize, partner: usize| {
+            let symbol = molecule.atoms[atom].kind.element().unwrap().symbol();
+            let mut list: Vec<Neighbor> = molecule
+                .bonds
+                .iter()
+                .filter_map(|&(x, y, _)| (x == atom).then_some(y).or((y == atom).then_some(x)))
+                .filter(|&other| other != partner)
+                .map(Neighbor::Atom)
+                .collect();
+            for _ in 0..valence_of(symbol) - used[atom] {
+                list.push(Neighbor::Hydrogen);
+            }
+            while list.len() < 2 {
+                list.push(Neighbor::LonePair);
+            }
+            list.truncate(2);
+            list[rng.below(2)]
+        };
+        let (begin, end) = (position(a, b), position(b, a));
+        molecule.doubles.push(support::Double {
+            bond: index,
+            begin,
+            end,
+            relation: match kind {
+                0 | 1 => Some(Relation::SameSide),
+                2 | 3 => Some(Relation::OppositeSides),
+                _ => None,
+            },
+        });
+    }
     for (i, &spent) in used.iter().enumerate() {
         let symbol = molecule.atoms[i].kind.element().unwrap().symbol();
         let neighbors: Vec<usize> = molecule
@@ -1034,12 +1108,93 @@ fn random_molecule(rng: &mut Rng) -> Molecule {
     molecule
 }
 
+/// A center with a chlorine, a hydrogen and two copies of one random fragment, so that its two
+/// ligands tie until the stored geometry of their double bonds (chosen independently for each
+/// copy: Z, E, unknown or none) is read. Atom 0 is the center.
+fn random_twin_molecule(rng: &mut Rng) -> Molecule {
+    let mut base = random_molecule(rng);
+    base.centers.clear();
+    let free = |molecule: &Molecule, atom: usize| {
+        let used: usize = molecule
+            .bonds
+            .iter()
+            .filter(|&&(a, b, _)| a == atom || b == atom)
+            .map(|(_, _, order)| if *order == BondOrder::Double { 2 } else { 1 })
+            .sum();
+        valence_of(molecule.atoms[atom].kind.element().unwrap().symbol()) > used
+    };
+    let open: Vec<usize> = (0..base.atoms.len())
+        .filter(|&atom| {
+            free(&base, atom) && base.atoms[atom].kind.element().unwrap().symbol() == "C"
+        })
+        .collect();
+    if open.is_empty() {
+        return base;
+    }
+    let attach = open[rng.below(open.len())];
+    // A statement about a bond at the attaching atom would name positions that change.
+    let bonds = base.bonds.clone();
+    base.doubles.retain(|double| {
+        let (a, b, _) = bonds[double.bond];
+        a != attach && b != attach
+    });
+    let mut second = base.clone();
+    for double in &mut second.doubles {
+        double.relation = match rng.below(4) {
+            0 => Some(Relation::SameSide),
+            1 => Some(Relation::OppositeSides),
+            2 => None,
+            _ => double.relation,
+        };
+    }
+    let mut molecule = Molecule::default();
+    molecule.atoms.push(element("C"));
+    molecule.atoms.push(element("Cl"));
+    molecule.bonds.push((0, 1, BondOrder::Single));
+    let (first, other) = (molecule.append(&base), molecule.append(&second));
+    molecule.bonds.push((0, first + attach, BondOrder::Single));
+    molecule.bonds.push((0, other + attach, BondOrder::Single));
+    let order = rng.shuffled(4);
+    let listed = [
+        Neighbor::Atom(1),
+        Neighbor::Hydrogen,
+        Neighbor::Atom(first + attach),
+        Neighbor::Atom(other + attach),
+    ];
+    molecule.centers.push(support::Center {
+        atom: 0,
+        neighbors: [
+            listed[order[0]],
+            listed[order[1]],
+            listed[order[2]],
+            listed[order[3]],
+        ],
+        turn: if rng.below(2) == 0 {
+            Turn::Anticlockwise
+        } else {
+            Turn::Clockwise
+        },
+    });
+    molecule
+}
+
+/// Alternates the plain generator with the twin one, so ties between ligands with double bonds
+/// are common.
+fn generated(rng: &mut Rng, index: usize) -> Molecule {
+    if index % 3 == 2 {
+        random_twin_molecule(rng)
+    } else {
+        random_molecule(rng)
+    }
+}
+
 #[test]
 fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
     let mut rng = Rng(0x1234_5678_9abc_def1);
-    let (mut assigned, mut tied_none, mut refused, mut centers) = (0, 0, 0, 0);
-    for _ in 0..3000 {
-        let molecule = random_molecule(&mut rng);
+    let (mut assigned, mut tied_none, mut refused, mut ambiguous, mut centers, mut cycles) =
+        (0, 0, 0, 0, 0, 0);
+    for index in 0..4500 {
+        let molecule = generated(&mut rng, index);
         let built = molecule.build();
         let acyclic = molecule.bonds.len() + 1 == molecule.atoms.len();
         for center in &molecule.centers {
@@ -1048,20 +1203,53 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
             let report = run(&built, &[center.atom], Limits::default())
                 .unwrap()
                 .remove(0);
-            let shown = format!("{:?} {:?}", molecule.bonds, center);
+            let symbols: Vec<String> = molecule
+                .atoms
+                .iter()
+                .map(|a| {
+                    format!(
+                        "{}{}",
+                        a.kind.element().unwrap().symbol(),
+                        a.isotope.map_or(String::new(), |i| i.to_string())
+                    )
+                })
+                .collect();
+            let shown = format!(
+                "{symbols:?} {:?} {:?} {:?}",
+                molecule.bonds, center, molecule.doubles
+            );
             if !acyclic && text(&report) == "unsupported:cip_aromatic_system" {
                 // A ring with a double bond that the aromaticity model cannot classify is
                 // refused rather than read as Kekule; the naive reference does not refuse.
                 refused += 1;
                 continue;
             }
-            match reference.ranks(center.neighbors) {
+            let found = reference.ranks(center.neighbors);
+            if found.cycle {
+                // Not comparable: see `Found::cycle`.
+                cycles += 1;
+                continue;
+            }
+            let shown_text = text(&report);
+            // Where an unstated double-bond geometry (or a descriptor that needs itself) took
+            // part, the implementation may answer ambiguous or refuse; where it answers a label
+            // it must be the reference's. Everywhere else the two agree exactly.
+            // A tie at an end of a ligand double bond may be refused for Rules 4 and 5.
+            let lenient_ok = (found.lenient
+                && (shown_text.starts_with("ambiguous:")
+                    || shown_text.starts_with("unsupported:")))
+                || (found.end_tie && shown_text == "unsupported:cip_rule_4_or_5_needed");
+            match found.ranks {
                 Some(ranks) => {
                     let expected = geometry_descriptor(center.turn, ranks).to_string();
-                    assert_eq!(text(&report), expected, "{shown}");
-                    assigned += 1;
+                    if lenient_ok {
+                        ambiguous += usize::from(shown_text.starts_with("ambiguous:"));
+                    } else {
+                        assert_eq!(shown_text, expected, "{shown}");
+                        assigned += 1;
+                    }
                 }
-                None => match text(&report).as_str() {
+                None => match shown_text.as_str() {
                     "none" => {
                         if acyclic {
                             for (i, j) in reference.equal_pairs(center.neighbors) {
@@ -1074,18 +1262,21 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
                         }
                         tied_none += 1;
                     }
-                    "unsupported:cip_rule_3_pending" | "unsupported:cip_rule_4_or_5_needed" => {
-                        refused += 1;
-                    }
+                    "unsupported:cip_rule_4_or_5_needed" => refused += 1,
+                    _ if lenient_ok => ambiguous += 1,
                     other => panic!("a tie became {other}: {shown}"),
                 },
             }
         }
     }
-    assert!(centers > 1500, "only {centers} centers");
+    assert!(centers > 2500, "only {centers} centers");
     assert!(
-        assigned > 300 && tied_none > 50 && refused > 10,
-        "{assigned} {tied_none} {refused}"
+        assigned > 300 && tied_none > 50 && refused > 10 && ambiguous > 5,
+        "{assigned} {tied_none} {refused} {ambiguous} {cycles}"
+    );
+    assert!(
+        cycles * 20 < centers,
+        "{cycles} of {centers} not comparable"
     );
 }
 
@@ -1107,13 +1298,21 @@ fn the_mirror_image_of_every_generated_center_flips_its_label() {
 }
 
 #[test]
-fn descriptors_have_two_values() {
-    // The vocabulary of this slice: R and S only.
-    assert_eq!(Descriptor::R.as_str(), "R");
-    assert_eq!(Descriptor::S.as_str(), "S");
-    let codes: BTreeMap<_, _> = [Reason::Rule3Pending, Reason::DigraphLimit]
+fn descriptors_have_four_values_and_reasons_distinct_codes() {
+    // The vocabulary: R and S for centers, E and Z for double bonds; r, s are reserved.
+    let names: Vec<_> = [Descriptor::R, Descriptor::S, Descriptor::E, Descriptor::Z]
         .iter()
-        .map(|r| (r.code(), ()))
+        .map(|d| d.as_str())
         .collect();
-    assert_eq!(codes.len(), 2);
+    assert_eq!(names, ["R", "S", "E", "Z"]);
+    let codes: BTreeMap<_, _> = [
+        Reason::DoubleBondStructure,
+        Reason::StereoCycle,
+        Reason::LigandStereoUnspecified,
+        Reason::DigraphLimit,
+    ]
+    .iter()
+    .map(|r| (r.code(), ()))
+    .collect();
+    assert_eq!(codes.len(), 4);
 }
