@@ -2342,6 +2342,19 @@ test('the stereo commands lapse with the bond or atom they name, and words and $
   assert.equal(stillApplicable([center], without('a1')), null, 'the center is gone')
   assert.equal(stillApplicable([alkene], without('a7')), null, 'a neighbor of the double bond is gone')
   assert.equal(stillApplicable([{ op: 'set_bond_configuration', bond: 'b4', configuration: null }], without('b4')), null)
+  // Deriving from the drawing names atoms, bonds and an instance, each of which must still exist.
+  const placed = { ...drawing, scene: { instances: [{ id: 's1', positions: [] }] } }
+  const derive = { op: 'set_configuration_from_drawing', atoms: ['a1'], bonds: ['b4'], instance: 's1' }
+  assert.deepEqual(stillApplicable([derive], placed), [derive])
+  assert.deepEqual(stillApplicable([{ op: 'set_configuration_from_drawing' }], drawing), [{ op: 'set_configuration_from_drawing' }], 'no list names nothing')
+  assert.equal(stillApplicable([derive], { ...without('a1'), scene: placed.scene }), null, 'the named center is gone')
+  assert.equal(stillApplicable([derive], { ...without('b4'), scene: placed.scene }), null, 'the named double bond is gone')
+  assert.equal(stillApplicable([derive], drawing), null, 'the named instance is gone')
+  const created = [
+    { op: 'add_atom', element: 'N', position: { x: 0, y: 0 }, bond_to: { atom: 'a1', order: 'single' } },
+    { op: 'set_configuration_from_drawing', atoms: ['a1', '$0'], bonds: ['$0'] },
+  ]
+  assert.deepEqual(stillApplicable(created, drawing), created, '$N names what an earlier command created')
 })
 
 test('a malformed mark or stereo table is refused, and so is a kind the client does not know yet', () => {

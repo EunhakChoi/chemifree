@@ -1052,8 +1052,8 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [33, 23, 10])
-      for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration']) {
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [34, 24, 10])
+      for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing']) {
         assert.equal(commandRows.find((part) => part.id === command)?.execution, 'executable', command)
       }
       const atom = (x, y, element, bondTo) => ({
@@ -1102,6 +1102,23 @@ try {
       assert.equal(restored.outcome, 'ok')
       assert.equal(restored.result.document.stereo.atoms.length, 1, 'undo restores the cleared configuration')
       assert.deepEqual(restored.result.notes, [])
+      // Reading the configuration off the marks and positions: clear the stored one (revision 4),
+      // then derive it again. The wedge on b2 at a1 over F above, Cl lower right, Br lower left
+      // is clockwise over [a2, a3, a4, implicit_hydrogen] (the hand-computed value of the domain tests).
+      await both(transact('op-stereo-unset', 3, [{ op: 'set_atom_configuration', atom: 'a1', configuration: null }]))
+      const derive = { op: 'set_configuration_from_drawing', atoms: ['a1'] }
+      const derivedFromDrawing = await both(transact('op-stereo-derive', 4, [derive]))
+      assert.deepEqual([derivedFromDrawing.outcome, derivedFromDrawing.model_id, derivedFromDrawing.document_revision], ['ok', 'chemifree-stereo-1', 5])
+      assert.deepEqual(derivedFromDrawing.result.document.stereo.atoms, [{ atom: 'a1', configuration: {
+        kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } }])
+      const derivedAgain = await both(transact('op-stereo-derive-again', 5, [derive]))
+      assert.equal(derivedAgain.document_revision, 5, 'storing what is stored changes nothing')
+      const underivable = await both(transact('op-stereo-underivable', 5, [
+        { op: 'set_bond_mark', bond: 'b2', mark: null }, derive,
+      ]))
+      assert.deepEqual(
+        [underivable.outcome, underivable.model_id, underivable.diagnostics[0].code, underivable.diagnostics[0].details.reason, underivable.diagnostics[0].details.command_index],
+        ['error', 'chemifree-stereo-1', 'invalid_command', 'stereo_not_derivable_no_marks', 1])
       httpDoc = outerHttp
       cliDoc = outerCli
     }

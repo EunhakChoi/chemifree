@@ -532,6 +532,14 @@ export type Command =
   /** Neighbors are atom ids, `$N` for a created atom, `implicit_hydrogen` or `lone_pair`, in any order. `null` clears. */
   | { op: 'set_atom_configuration'; atom: string; configuration: AtomConfiguration | null }
   | { op: 'set_bond_configuration'; bond: string; configuration: BondConfiguration | null }
+  /**
+   * Stores the configuration the marks and one scene instance's positions show: for the atoms
+   * (centers) and bonds (double bonds) listed, or, with neither list, for every one a mark bears
+   * on. Ids or `$N`; a list that is present is not empty. `instance` may be left out while the
+   * document has one scene instance. The service refuses an item the drawing does not
+   * determine with a `stereo_not_derivable_*` reason.
+   */
+  | { op: 'set_configuration_from_drawing'; atoms?: string[]; bonds?: string[]; instance?: string }
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene

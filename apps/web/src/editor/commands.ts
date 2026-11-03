@@ -55,6 +55,8 @@ function referencedIds(command: Command): string[] {
       return command.configuration === null || command.configuration.kind === 'unknown'
         ? [command.bond]
         : [command.bond, ...namedAtoms([command.configuration.begin_neighbor, command.configuration.end_neighbor])]
+    case 'set_configuration_from_drawing':
+      return [...(command.atoms ?? []), ...(command.bonds ?? []), ...(command.instance === undefined ? [] : [command.instance])]
     default: {
       const unknown: never = command
       return unknown
