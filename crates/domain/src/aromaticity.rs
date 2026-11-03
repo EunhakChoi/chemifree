@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use crate::budget::{Interrupt, Interrupted, NEVER};
 use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomEdit, AtomId, Bond, BondId, BondOrder, Command, MAX_COMMANDS};
 use crate::graph::MoleculeGraph;
@@ -20,6 +21,27 @@ pub const MAX_SYSTEM_ATOMS: usize = 128;
 /// The Kekulé assignment steps one ring system with recorded aromatic bonds may take; more is
 /// `search_limit`.
 pub const MAX_MATCH_STEPS: usize = 100_000;
+
+/// Why a computation that can be interrupted did not produce its result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Halt {
+    /// The model refused the input, for this reason; it does not depend on the machine.
+    Reason(&'static str),
+    /// The computation was stopped before it finished; the input may well be supported.
+    Interrupted(Interrupted),
+}
+
+impl From<&'static str> for Halt {
+    fn from(reason: &'static str) -> Self {
+        Self::Reason(reason)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Classification {
@@ -197,12 +219,28 @@ fn role(id: AtomId, atom: &Atom, incidence: &Incidence) -> Result<Option<Role>, 
 /// Classify cyclic biconnected systems. This is a named policy, not a universal test of
 /// aromaticity. The model and work limits are described in the public contract.
 pub fn perceive(document: &MoleculeGraph) -> Interpretation {
-    perceive_in(document).0
+    perceive_with(document, &NEVER).expect("the never-interrupt cannot interrupt")
 }
 
-/// [`perceive`] together with the atom and bond lookups it built, so a caller that goes on to
-/// read the same graph does not build them again.
-fn perceive_in(document: &MoleculeGraph) -> (Interpretation, Context<'_>) {
+/// [`perceive`] that asks `interrupt` before each ring system. It returns exactly what
+/// [`perceive`] returns, or `Interrupted` and nothing else.
+///
+/// # Errors
+///
+/// Returns the reason `interrupt` gave for stopping.
+pub fn perceive_with(
+    document: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Interpretation, Interrupted> {
+    perceive_in(document, interrupt).map(|(interpretation, _)| interpretation)
+}
+
+/// [`perceive_with`] together with the atom and bond lookups it built, so a caller that goes
+/// on to read the same graph does not build them again.
+fn perceive_in<'a>(
+    document: &'a MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<(Interpretation, Context<'a>), Interrupted> {
     let atoms: BTreeMap<_, _> = document.atoms().collect();
     let bonds: BTreeMap<_, _> = document.bonds().collect();
     let mut incident: BTreeMap<AtomId, Vec<BondId>> =
@@ -216,22 +254,22 @@ fn perceive_in(document: &MoleculeGraph) -> (Interpretation, Context<'_>) {
         bonds,
         incident,
     };
-    let systems = rings::perceive(document)
-        .into_iter()
-        .map(|ring| interpret_ring(&ring, &context))
-        .collect();
+    let mut systems = Vec::new();
+    for ring in rings::perceive(document) {
+        systems.push(interpret_ring(&ring, &context, interrupt)?);
+    }
     let aromatic_bonds = context
         .bonds
         .iter()
         .filter_map(|(&id, b)| (b.order == BondOrder::Aromatic).then_some(id))
         .collect();
-    (
+    Ok((
         Interpretation {
             systems,
             aromatic_bonds,
         },
         context,
-    )
+    ))
 }
 
 struct Context<'a> {
@@ -260,7 +298,12 @@ impl Verdict {
     }
 }
 
-fn interpret_ring(ring: &RingSystem, context: &Context<'_>) -> System {
+fn interpret_ring(
+    ring: &RingSystem,
+    context: &Context<'_>,
+    interrupt: &dyn Interrupt,
+) -> Result<System, Interrupted> {
+    interrupt.check()?;
     let mut result = System {
         atoms: ring.atoms.clone(),
         bonds: ring.bonds.clone(),
@@ -271,7 +314,7 @@ fn interpret_ring(ring: &RingSystem, context: &Context<'_>) -> System {
         assignment: None,
         inferred_donors: Vec::new(),
     };
-    match calculate(ring, context) {
+    match calculate(ring, context, interrupt) {
         Ok(verdict) => {
             result.classification = verdict.classification;
             result.electrons = verdict.electrons;
@@ -279,9 +322,10 @@ fn interpret_ring(ring: &RingSystem, context: &Context<'_>) -> System {
             result.reason = verdict.reason;
             result.inferred_donors = verdict.inferred_donors;
         }
-        Err(reason) => result.reason = Some(reason),
+        Err(Halt::Reason(reason)) => result.reason = Some(reason),
+        Err(Halt::Interrupted(interrupted)) => return Err(interrupted),
     }
-    result
+    Ok(result)
 }
 
 /// True when some π bond (double or aromatic) between active atoms lies on a cycle of active
@@ -317,9 +361,13 @@ fn has_pi_cycle(
     false
 }
 
-fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'static str> {
+fn calculate(
+    ring: &RingSystem,
+    context: &Context<'_>,
+    interrupt: &dyn Interrupt,
+) -> Result<Verdict, Halt> {
     if ring.atoms.len() > MAX_SYSTEM_ATOMS {
-        return Err("system_limit");
+        return Err("system_limit".into());
     }
     let ring_edges: BTreeSet<_> = ring.bonds.iter().copied().collect();
     let positions: BTreeMap<_, _> = ring
@@ -337,7 +385,7 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
     for &id in &ring.bonds {
         let bond = context.bonds[&id];
         let (Some(&a), Some(&b)) = (positions.get(&bond.begin), positions.get(&bond.end)) else {
-            return Err("invalid_graph");
+            return Err("invalid_graph".into());
         };
         match bond.order {
             BondOrder::Aromatic => {
@@ -350,7 +398,7 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
                 explicit_double.push((a, b));
                 pi_bonds.insert(id);
             }
-            _ => return Err("unsupported_ring_bond"),
+            _ => return Err("unsupported_ring_bond".into()),
         }
         inside[a].push((b, id));
         inside[b].push((a, id));
@@ -389,7 +437,7 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
             } else if bond.order == BondOrder::Single {
                 incidence.outside += 1;
             } else {
-                return Err("unsupported_external_bond");
+                return Err("unsupported_external_bond".into());
             }
         }
         incidences.push(incidence);
@@ -403,10 +451,10 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         // be aromatic.
         let active: Vec<_> = roles.iter().map(Option::is_some).collect();
         if has_pi_cycle(&inside, &active, &pi_bonds) {
-            return Err("fused_partially_aromatic");
+            return Err("fused_partially_aromatic".into());
         }
         return if any_aromatic {
-            Err("mixed_ring_bonds")
+            Err("mixed_ring_bonds".into())
         } else {
             Ok(Verdict::non_aromatic(None, "not_conjugated"))
         };
@@ -417,7 +465,7 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
         return Ok(Verdict::non_aromatic(None, "not_conjugated"));
     }
     if any_aromatic && !all_aromatic {
-        return Err("mixed_ring_bonds");
+        return Err("mixed_ring_bonds".into());
     }
     let electrons: u16 = roles.iter().map(|r| r.electrons).sum();
     let mut matched = vec![false; roles.len()];
@@ -452,19 +500,19 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
     // six-membered ring. A shorter alternate path is conservatively unsupported.
     if ring.cycle_rank > 1 {
         if adjacent_donors {
-            return Err("adjacent_donors");
+            return Err("adjacent_donors".into());
         }
-        if ring.atoms.iter().any(|id| {
+        let outside_model = ring.atoms.iter().any(|id| {
             context.atoms[id].kind.element().map(|e| e.symbol()) != Some("C")
                 || context.atoms[id].charge != 0
-        }) || !six_membered_cover(&inside)
-        {
-            return Err("fused_system_outside_model");
+        });
+        if outside_model || !six_membered_cover(&inside, interrupt)? {
+            return Err("fused_system_outside_model".into());
         }
     } else if electrons < 2 || electrons % 4 != 2 {
         return Ok(Verdict::non_aromatic(Some(electrons), "electron_count"));
     } else if adjacent_donors {
-        return Err("adjacent_donors");
+        return Err("adjacent_donors".into());
     }
     let inferred_donors: Vec<_> = ring
         .atoms
@@ -484,28 +532,37 @@ fn calculate(ring: &RingSystem, context: &Context<'_>) -> Result<Verdict, &'stat
     let mut used = vec![false; roles.len()];
     let mut selected = Vec::new();
     let mut budget = MAX_MATCH_STEPS;
-    match assign(&roles, &inside, &mut used, &mut selected, &mut budget) {
-        Ok(true) => {
-            selected.sort_unstable();
-            Ok(Verdict {
-                classification: Classification::Aromatic,
-                electrons: Some(electrons),
-                assignment: Some(selected),
-                reason: None,
-                inferred_donors: Vec::new(),
-            })
-        }
-        Ok(false) => Err("no_kekule_assignment"),
-        Err(()) => Err("search_limit"),
+    if assign(
+        &roles,
+        &inside,
+        &mut used,
+        &mut selected,
+        &mut budget,
+        interrupt,
+    )? {
+        selected.sort_unstable();
+        Ok(Verdict {
+            classification: Classification::Aromatic,
+            electrons: Some(electrons),
+            assignment: Some(selected),
+            reason: None,
+            inferred_donors: Vec::new(),
+        })
+    } else {
+        Err("no_kekule_assignment".into())
     }
 }
 
-fn six_membered_cover(adjacent: &[Vec<(usize, BondId)>]) -> bool {
+fn six_membered_cover(
+    adjacent: &[Vec<(usize, BondId)>],
+    interrupt: &dyn Interrupt,
+) -> Result<bool, Interrupted> {
     for (start, edges) in adjacent.iter().enumerate() {
         for &(end, excluded) in edges {
             if start > end {
                 continue;
             }
+            interrupt.check()?;
             let mut distances = vec![usize::MAX; adjacent.len()];
             distances[start] = 0;
             let mut queue = VecDeque::from([start]);
@@ -521,11 +578,11 @@ fn six_membered_cover(adjacent: &[Vec<(usize, BondId)>]) -> bool {
                 }
             }
             if distances[end] != 5 {
-                return false;
+                return Ok(false);
             }
         }
     }
-    true
+    Ok(true)
 }
 
 fn assign(
@@ -534,7 +591,9 @@ fn assign(
     used: &mut [bool],
     selected: &mut Vec<BondId>,
     budget: &mut usize,
-) -> Result<bool, ()> {
+    interrupt: &dyn Interrupt,
+) -> Result<bool, Halt> {
+    interrupt.check()?;
     let next = (0..roles.len())
         .filter(|&i| roles[i].needs_double && !used[i])
         .min_by_key(|&i| {
@@ -551,12 +610,12 @@ fn assign(
         }
         if *budget == 0 {
             used[i] = false;
-            return Err(());
+            return Err("search_limit".into());
         }
         *budget -= 1;
         used[j] = true;
         selected.push(bond);
-        if assign(roles, adjacent, used, selected, budget)? {
+        if assign(roles, adjacent, used, selected, budget, interrupt)? {
             return Ok(true);
         }
         selected.pop();
@@ -717,7 +776,27 @@ pub fn conversion_commands(
     graph: &MoleculeGraph,
     target: Target,
 ) -> Result<Vec<Command>, &'static str> {
-    let (interpretation, context) = perceive_in(graph);
+    match conversion_commands_with(graph, target, &NEVER) {
+        Ok(commands) => Ok(commands),
+        Err(Halt::Reason(reason)) => Err(reason),
+        Err(Halt::Interrupted(_)) => unreachable!("the never-interrupt cannot interrupt"),
+    }
+}
+
+/// [`conversion_commands`] that asks `interrupt` at its checkpoints (on entry, before each ring
+/// system, and in the searches). It returns exactly what [`conversion_commands`] returns, or
+/// `Halt::Interrupted` and nothing else: an interrupt never yields a partial edit.
+///
+/// # Errors
+///
+/// `Halt::Reason` is the model's refusal; `Halt::Interrupted` is why `interrupt` stopped it.
+pub fn conversion_commands_with(
+    graph: &MoleculeGraph,
+    target: Target,
+    interrupt: &dyn Interrupt,
+) -> Result<Vec<Command>, Halt> {
+    interrupt.check()?;
+    let (interpretation, context) = perceive_in(graph, interrupt)?;
     let (bonds, hydrogens): ConversionPlan = match target {
         Target::Aromatic => {
             let plan = interpretation.aromatize()?;
@@ -749,7 +828,7 @@ pub fn conversion_commands(
     // The same constant `Document::apply_selecting` checks (`TooManyCommands`); checking here
     // gives the conversion its own reason instead of the generic transaction error.
     if commands.len() > MAX_COMMANDS {
-        return Err("conversion_command_limit");
+        return Err("conversion_command_limit".into());
     }
     Ok(commands)
 }
@@ -789,8 +868,8 @@ mod tests {
     use super::*;
 
     /// Perception only names items of the graph it read, so a lookup that misses is a defect
-    /// elsewhere. The conversion must report it as an error instead of panicking, because
-    /// it runs while the application holds its session lock.
+    /// elsewhere. The conversion must report it as an error instead of panicking: its caller
+    /// answers a request with that error, and a panic would lose the request.
     #[test]
     fn a_plan_naming_an_item_the_graph_lacks_is_an_error_not_a_panic() {
         let context = Context {

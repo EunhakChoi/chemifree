@@ -1,6 +1,7 @@
 //! Domain vocabulary and rules. This crate has no transport or infrastructure dependencies.
 
 pub mod aromaticity;
+pub mod budget;
 pub mod chemistry;
 pub mod data;
 pub mod document;
