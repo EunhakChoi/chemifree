@@ -807,13 +807,13 @@ function StereoNotice({ document, agreement }: { document: DocumentView; agreeme
   return (
     <>
       {marks + configurations > 0 && (
-      <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
-        This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept and
-        saved. Drawing a wedge, hashed wedge or wavy bond stores the configuration the drawing then shows and replaces one
-        already stored for that atom; undo restores it. Moving atoms or changing bonds does not update a stored
-        configuration: the Stereo panel shows where one no longer agrees with the drawing and offers to update it. Whether an
-        atom is a stereocenter is not assessed.
-      </p>
+        <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
+          This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept
+          and saved. Drawing a wedge, hashed wedge or wavy bond stores the configuration the drawing then shows and replaces
+          one already stored for that atom; undo restores it. Moving atoms or changing bonds does not update a stored
+          configuration: the Stereo panel shows where one no longer agrees with the drawing and offers to update it. Whether
+          an atom is a stereocenter is not assessed.
+        </p>
       )}
       {/* A live region that exists before its text does, so a screen reader announces each change. */}
       <p role="status" data-testid="stereo-agreement" className="text-xs leading-relaxed empty:sr-only">{viewSentence(agreement)}</p>

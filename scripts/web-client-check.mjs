@@ -3354,7 +3354,7 @@ test('the public two-center drawing against its stored configurations: one disag
   ])
   assert.equal(rowSentence(rows[0]), 'Stored clockwise; the drawing in s1 shows anticlockwise.')
   assert.equal(rowSentence(rows[1]), 'Stored anticlockwise; the drawing in s1 shows the same.')
-  assert.equal(summarySentence(rows), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees. Whether an atom is a stereocenter is not assessed.')
+  assert.equal(summarySentence(rows), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees.')
   // The mirror image of the stored value agrees with a2 and disagrees with a4.
   const mirrored = agreementDocument()
   mirrored.stereo.atoms = [{ atom: 'a2', configuration: tetra(A2, 'anticlockwise') }, { atom: 'a4', configuration: tetra(A4, 'clockwise') }]
@@ -3538,13 +3538,13 @@ test('what the page says while checking, between checks and after one never says
   assert.equal(viewSentence({ kind: 'checking' }), 'Checking the drawing…')
   assert.equal(viewSentence({ kind: 'unchecked' }), 'Not compared with the drawing yet. Press Check now.')
   assert.equal(viewSentence({ kind: 'none' }), null)
-  assert.match(viewSentence({ kind: 'ready', inspection }), /^Compared with the drawing: 1 disagrees with the drawing, 1 agrees\./)
+  assert.equal(viewSentence({ kind: 'ready', inspection }), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees.')
   assert.equal(summarySentence([]), 'Nothing stored or drawn bears on a configuration, so there is nothing to compare. Whether an atom is a stereocenter is not assessed.')
   const { value: mixed, atoms, bonds } = mixedFixture()
   const rows = agreementRows(await inspected(mixed, replyOf(mixed, resultOf(mixed, atoms, bonds))))
   assert.equal(summarySentence(rows),
-    'Compared with the drawing: 1 disagrees with the drawing, 1 agrees, 2 are stored only, 2 are drawn only, 2 are marked but unreadable. Whether an atom is a stereocenter is not assessed.')
-  assert.equal(summarySentence(rows.slice(4, 5)), 'Compared with the drawing: 1 is drawn only. Whether an atom is a stereocenter is not assessed.')
+    'Compared with the drawing: 1 disagrees with the drawing, 1 agrees, 2 are stored only, 2 are drawn only, 2 are marked but unreadable.')
+  assert.equal(summarySentence(rows.slice(4, 5)), 'Compared with the drawing: 1 is drawn only.')
   for (const sentence of [viewSentence({ kind: 'checking' }), viewSentence({ kind: 'unchecked' }), summarySentence(rows), summarySentence([]), agreementModule.NOTHING_TO_COMPARE]) {
     assert.doesNotMatch(sentence, /no stereo/i)
   }

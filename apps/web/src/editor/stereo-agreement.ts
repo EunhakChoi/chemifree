@@ -182,7 +182,11 @@ export function updatableRows(inspection: StereoInspection, rows: readonly Agree
 
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
 
-/** The comparison in one sentence: how many rows agree, disagree and so on, or why there is none. */
+/**
+ * The comparison in one sentence: how many rows agree, disagree and so on, or why there is none.
+ * The notice above it already says that whether an atom is a stereocenter is not assessed; where
+ * there is nothing to compare, this is the only sentence, so it says so itself.
+ */
 export function summarySentence(rows: readonly AgreementRow[]): string {
   if (rows.length === 0) {
     return 'Nothing stored or drawn bears on a configuration, so there is nothing to compare. Whether an atom is a stereocenter is not assessed.'
@@ -197,7 +201,7 @@ export function summarySentence(rows: readonly AgreementRow[]): string {
   add(tally('only_stored'), 'is stored only', 'are stored only')
   add(tally('only_drawn'), 'is drawn only', 'are drawn only')
   add(tally('neither'), 'is marked but unreadable', 'are marked but unreadable')
-  return `Compared with the drawing: ${parts.join(', ')}. Whether an atom is a stereocenter is not assessed.`
+  return `Compared with the drawing: ${parts.join(', ')}.`
 }
 
 /** The sentence said while a reply is awaited or has not been asked for. */
