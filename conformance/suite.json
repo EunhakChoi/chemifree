@@ -1,5 +1,5 @@
 {
-  "suite_version": 14,
+  "suite_version": 15,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -34,6 +34,7 @@
     "cases/aromaticity-conversion.json",
     "cases/aromaticity-kekule-nitrogen-hydrogen.json",
     "cases/aromaticity-partially-aromatic-fused-refused.json",
+    "cases/compute-time-limit-refused.json",
     "cases/graph-identity.json",
     "cases/cdxml-rich-projection.json",
     "cases/cdx-binary-interchange.json",

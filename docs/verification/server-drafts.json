@@ -45,7 +45,7 @@
   ],
   "limits": [
     "Without the web page, up to about 10 seconds of editing (plus the 250 ms check and the write) is lost in a crash; longer while drafting fails or an earlier draft blocks it.",
-    "Drafting writes while holding the process's session table, as client autosaves already did, so a stalled disk delays other requests for that long. A document whose turn stays taken (a save stalled on a disk, say) is not drafted until it is free; the save it waits for leaves nothing to draft once it commits.",
+    "Drafting takes a snapshot of the working copy under the process's session table and writes it without holding the table, so a stalled disk delays only requests waiting for the same document's turn; looking up the document's recovery state for a draft write still touches storage under the table (see CONTRACT.md, Slow storage). A document whose turn stays taken (a save stalled on a disk, say) is not drafted until it is free; the save it waits for leaves nothing to draft once it commits.",
     "At a normal stop, each session with undrafted work is drafted in turn, waiting up to 3 s for its turn (no request is running by then).",
     "The web page shows its own autosave state; it does not display session.draft_failure, which is for other clients and diagnostics.",
     "Drafts never expire and are never cleaned up automatically."

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 14,
+  "suite_version": 15,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -451,6 +451,20 @@
       "case_sha256": "2d8f6a028b371b1cf9751c5ad35025503d3178212cccf4f2bfe2eeb0dd7e19cf"
     },
     {
+      "id": "compute-time-limit-refused",
+      "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again",
+      "requirements": [
+        "API-01",
+        "OPS-02"
+      ],
+      "axis": "protocol",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "759c2999e885cce64ae3e97e9278f4d0195473c032ecc8a11bb0cd404c65dcaf"
+    },
+    {
       "id": "graph-identity",
       "title": "Benzene identity reports its symmetric atom orbit without editing the graph",
       "requirements": [
@@ -553,12 +567,12 @@
       "not_run": 0
     },
     "reject": {
-      "passed": 15,
+      "passed": 16,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 40,
+      "passed": 41,
       "failed": 0,
       "not_run": 0
     }

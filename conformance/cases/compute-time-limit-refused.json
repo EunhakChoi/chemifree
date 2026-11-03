@@ -1,0 +1,31 @@
+{
+  "id": "compute-time-limit-refused",
+  "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again",
+  "requirements": ["API-01", "OPS-02"],
+  "axis": "protocol",
+  "kind": "reject",
+  "steps": [
+    {"call":"create","bind":"d"},
+    {"call":"transact","document":"d","expected_revision":0,"commands":[
+      {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":1,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":2,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":3,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":4,"y":0}},
+      {"op":"add_atom","element":"C","position":{"x":5,"y":0}},
+      {"op":"add_bond","begin":"$0","end":"$1","order":"double"},
+      {"op":"add_bond","begin":"$1","end":"$2","order":"single"},
+      {"op":"add_bond","begin":"$2","end":"$3","order":"double"},
+      {"op":"add_bond","begin":"$3","end":"$4","order":"single"},
+      {"op":"add_bond","begin":"$4","end":"$5","order":"double"},
+      {"op":"add_bond","begin":"$5","end":"$0","order":"single"}
+    ],"expect":{"document":{"revision":1}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"limited","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic","time_limit_ms":0}},
+     "expect":{"outcome":"error","result":null,"model_id":"chemifree-aromaticity-2","diagnostics":[{"code":"time_limit","severity":"error","details":{"limit_ms":0}}]}},
+    {"call":"get","document":"d","expect":{"document":{"revision":1,"bonds":[{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"}]},"session":{"undo_depth":1,"redo_depth":0}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"limited","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
+     "expect":{"outcome":"ok","document_revision":2,"result":{"session":{"undo_depth":2}}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"too-long","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":2,"to":"kekule","time_limit_ms":8001}},
+     "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"invalid_request","path":"parameters.time_limit_ms","details":{"maximum_ms":8000}}]}}
+  ]
+}

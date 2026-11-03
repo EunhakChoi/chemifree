@@ -69,7 +69,7 @@
     }
   ],
   "limits": [
-    "Waits are bounded; storage I/O is not. Creates, autosaves, closes, recoveries, draft discards, and copies do their I/O while holding the process's session table, so a stalled disk delays other requests of the process. Only the in-progress answer for a repeated request_id does not wait for it.",
+    "Waits are bounded; storage I/O is not. Creates, closes, and copies commit while holding the process's session table, and so do the file checks that nearly every request makes under it (see CONTRACT.md, Slow storage), so a stalled disk delays other requests of the process. Draft writes and draft discards do their I/O without it (CONTRACT.md lists the rest). Only the in-progress answer for a repeated request_id does not wait for it.",
     "A lost reply is answered from the replay window (the latest 64 successful mutations of an open document; per process for creates and closes). Asked about later, a request runs again, and a save whose revision moved on gets revision_conflict.",
     "The turn wait (3 s) and the lock wait (5 s) are per process.",
     "Read-only storage is reported, but there is no read-only mode for opening documents or saving them elsewhere.",
