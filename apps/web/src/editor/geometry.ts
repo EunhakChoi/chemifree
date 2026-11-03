@@ -4,6 +4,7 @@
  */
 import type { AtomView, BondOrder, BondView, DocumentView, Position } from '@/lib/document-contract'
 import { placed, textWidth, union, type AtomLabel, type Box } from '@/editor/label'
+import { markName } from '@/lib/stereo-contract'
 
 export const BOND_LENGTH = 30
 export const ATOM_HIT_RADIUS = 9
@@ -518,8 +519,17 @@ export function drawingStrokes(
   return strokes
 }
 
-/** How `bond` is read out: its kind and the atoms it joins, and its placement when given. */
+/**
+ * How `bond` is read out: its kind and the atoms it joins, its mark and which end is narrow
+ * when it has one ("wedge, narrow end at a1": the editor does not draw marks yet, so the name
+ * is where a marked bond differs from a plain one), and its placement when given.
+ */
 export function bondName(bond: BondView, placement: string | null = null) {
+  const marked = bond.mark == null ? '' : `, ${markName(bond.mark, bond)}`
+  return `${bondKindName(bond, placement)}${marked}`
+}
+
+function bondKindName(bond: BondView, placement: string | null) {
   const id = placement === null ? bond.id : `${bond.id} in ${placement}`
   switch (bond.order) {
     case 'dative':

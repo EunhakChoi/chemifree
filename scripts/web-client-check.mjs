@@ -821,7 +821,7 @@ const atomWith = (id, element, x, y, states = {}) => ({
   attachment_points: [],
   ...states,
 })
-const bondWith = (id, begin, end, order = 'single', query = null) => ({ id, begin, end, order, query })
+const bondWith = (id, begin, end, order = 'single', query = null) => ({ id, begin, end, order, query, mark: null })
 
 test('property results validate the analyzed snapshot and refuse incompatible or stale graphs', async () => {
   const shown = document('doc-properties', 1)
@@ -2221,3 +2221,211 @@ test('an unanswered SMILES import is an open outcome and is retried with the sam
   assert.notEqual(refused.writes[0].requestId, refused.writes[1].requestId)
 })
 
+
+// ---------------------------------------------------------------------------------------------
+// Stereo: marks on bonds and stated configurations, as the service sends them. Representation
+// only; the editor draws none of it.
+// ---------------------------------------------------------------------------------------------
+
+/** a1 bonded to a2, a3, a4 (a center) and an alkene a5=a6 with a7 on a5 and a8 on a6. */
+function stereoDrawing(id = 'doc-stereo', revision = 4) {
+  const value = document(id, revision)
+  value.document.atoms = Array.from({ length: 8 }, (_, index) => atomWith(`a${index + 1}`, 'C', index * 30, 0))
+  value.document.bonds = [
+    { ...bondWith('b1', 'a1', 'a2'), mark: { kind: 'wedge', narrow: 'end' } },
+    { ...bondWith('b2', 'a1', 'a3'), mark: { kind: 'hash', narrow: 'begin' } },
+    { ...bondWith('b3', 'a1', 'a4'), mark: { kind: 'wavy' } },
+    { ...bondWith('b4', 'a5', 'a6', 'double'), mark: { kind: 'crossed' } },
+    { ...bondWith('b5', 'a5', 'a7'), mark: null },
+    { ...bondWith('b6', 'a6', 'a8'), mark: null },
+  ]
+  value.document.stereo = {
+    atoms: [{ atom: 'a1', configuration: { kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'anticlockwise' } }],
+    bonds: [{ bond: 'b4', configuration: { kind: 'relative', begin_neighbor: 'a7', end_neighbor: 'a8', relation: 'opposite_sides' } }],
+  }
+  return value
+}
+
+test('a reply holding marks and stated configurations is accepted as sent', () => {
+  assert.equal(isDocumentResponse(stereoDrawing()), true)
+  const unknown = stereoDrawing()
+  unknown.document.stereo = {
+    atoms: [{ atom: 'a1', configuration: { kind: 'unknown', neighbors: ['a2', 'a3', 'a4', 'lone_pair'] } }],
+    bonds: [{ bond: 'b4', configuration: { kind: 'unknown' } }],
+  }
+  assert.equal(isDocumentResponse(unknown), true, 'unknown is an explicit record, with a lone pair as a slot')
+})
+
+test('an older reply with no marks and no stereo table is accepted and filled in', async () => {
+  const older = stereoDrawing()
+  delete older.document.stereo
+  older.document.bonds = older.document.bonds.map(({ mark, ...bond }) => bond)
+  assert.equal(isDocumentResponse(older), true)
+  service({ '/transactions': [() => json(200, older)] })
+  const reply = await new DocumentClient().transact('doc-stereo', 0, [])
+  assert.deepEqual(reply.document.bonds.map((bond) => bond.mark), [null, null, null, null, null, null])
+  assert.deepEqual(reply.document.stereo, { atoms: [], bonds: [] })
+})
+
+test('a malformed mark or stereo table is refused, and so is a kind the client does not know yet', () => {
+  const refused = (change) => {
+    const value = stereoDrawing()
+    change(value.document)
+    return isDocumentResponse(value)
+  }
+  const cases = {
+    'a mark kind the client does not know (a later "unknown" or "hollow")': (d) => { d.bonds[0].mark = { kind: 'hollow', narrow: 'end' } },
+    'a wedge with no narrow end': (d) => { d.bonds[0].mark = { kind: 'wedge' } },
+    'a narrow end that is neither end': (d) => { d.bonds[0].mark = { kind: 'wedge', narrow: 'middle' } },
+    'a wavy mark with a narrow end': (d) => { d.bonds[2].mark = { kind: 'wavy', narrow: 'end' } },
+    'a wedge on a double bond': (d) => { d.bonds[3].mark = { kind: 'wedge', narrow: 'end' } },
+    'a crossed mark on a single bond': (d) => { d.bonds[4].mark = { kind: 'crossed' } },
+    'some bonds with a mark field and some without': (d) => { delete d.bonds[5].mark },
+    'a record for an atom the drawing lacks': (d) => { d.stereo.atoms[0].atom = 'a9' },
+    'two records for one center': (d) => { d.stereo.atoms.push(structuredClone(d.stereo.atoms[0])) },
+    'a center whose neighbors are not its bonded atoms': (d) => { d.stereo.atoms[0].configuration.neighbors = ['a2', 'a3', 'a5', 'implicit_hydrogen'] },
+    'a center naming a neighbor twice': (d) => { d.stereo.atoms[0].configuration.neighbors = ['a2', 'a3', 'a3', 'implicit_hydrogen'] },
+    'a center with a slot word the client does not know': (d) => { d.stereo.atoms[0].configuration.neighbors[3] = 'unspecified' },
+    'a center with three neighbors and no fourth slot': (d) => { d.stereo.atoms[0].configuration.neighbors = ['a2', 'a3', 'a4', 'a4'] },
+    'a turn that is neither word': (d) => { d.stereo.atoms[0].configuration.turn = 'positive' },
+    'a configuration kind the client does not know': (d) => { d.stereo.atoms[0].configuration.kind = 'square_planar' },
+    'an unknown center that names a turn': (d) => { d.stereo.atoms[0].configuration = { kind: 'unknown', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } },
+    'a double-bond record for a single bond': (d) => { d.stereo.bonds[0].bond = 'b5' },
+    'a relation that is not a word of the contract (the public spelling)': (d) => { d.stereo.bonds[0].configuration.relation = 'opposite_side' },
+    'a reference that is the partner': (d) => { d.stereo.bonds[0].configuration.begin_neighbor = 'a6' },
+    'a reference bonded to the other end': (d) => { d.stereo.bonds[0].configuration.begin_neighbor = 'a8' },
+    'a field the contract does not have': (d) => { d.stereo.extra = [] },
+  }
+  for (const [why, change] of Object.entries(cases)) assert.equal(refused(change), false, why)
+})
+
+test('a marked bond is named with its mark and the atom at its narrow end', () => {
+  const marked = (mark) => ({ ...bondWith('b1', 'a1', 'a2'), mark })
+  assert.equal(bondName(marked(null)), 'Bond b1: single bond between a1 and a2')
+  assert.equal(bondName(marked({ kind: 'wedge', narrow: 'begin' })), 'Bond b1: single bond between a1 and a2, wedge, narrow end at a1')
+  assert.equal(bondName(marked({ kind: 'hash', narrow: 'end' })), 'Bond b1: single bond between a1 and a2, hash, narrow end at a2')
+  assert.equal(bondName(marked({ kind: 'wavy' })), 'Bond b1: single bond between a1 and a2, wavy')
+  assert.equal(bondName({ ...bondWith('b1', 'a1', 'a2', 'double'), mark: { kind: 'crossed' } }, 's2'), 'Bond b1 in s2: double bond between a1 and a2, crossed')
+})
+
+test('an inspection is stale when only the stereo changed under the same graph and revision', () => {
+  const shown = stereoDrawing().document
+  assert.equal(sameInspectionSnapshot(shown, structuredClone(shown)), true)
+  const mirrored = structuredClone(shown)
+  mirrored.stereo.atoms[0].configuration.turn = 'clockwise'
+  assert.equal(sameInspectionSnapshot(shown, mirrored), false)
+  assert.equal(samePropertySnapshot(shown, mirrored), false)
+  const cleared = structuredClone(shown)
+  cleared.stereo = { atoms: [], bonds: [] }
+  assert.equal(sameInspectionSnapshot(shown, cleared), false)
+})
+
+const stereoLoss = (path) => ({
+  feature: 'stereo', source_path: path, disposition: 'unknown', semantic_impact: 'stereo',
+  reason: 'The drawing holds stereo marks or stated configurations that this comparison does not read.',
+})
+
+/** A stereo-bearing source and a plain one-atom target, and the identity reply for them. */
+function stereoIdentityReply() {
+  const source = document('identity-source', 2)
+  source.document.atoms = ['a1', 'a2', 'a3', 'a4'].map((id, index) => atomWith(id, 'C', index * 30, 0))
+  source.document.bonds = [
+    { ...bondWith('b1', 'a1', 'a2'), mark: { kind: 'wedge', narrow: 'begin' } },
+    { ...bondWith('b2', 'a1', 'a3'), mark: null },
+    { ...bondWith('b3', 'a1', 'a4'), mark: null },
+  ]
+  source.document.stereo = { atoms: [], bonds: [] }
+  const target = document('identity-target', 3)
+  target.document.atoms = [atomWith('a1', 'C', 0, 0)]
+  const identity = { code: 'code', numbering: ['a1', 'a2', 'a3', 'a4'], symmetry: [['a1'], ['a2'], ['a3'], ['a4']], folded_hydrogens: [] }
+  const targetIdentity = { code: 'other', numbering: ['a1'], symmetry: [['a1']], folded_hydrogens: [] }
+  return { envelope: 'operation_result', contract: 1, outcome: 'partial', document_revision: 2, model_id: 'chemifree-recorded-graph-1',
+    diagnostics: [], loss_report: [stereoLoss('snapshot')], result: {
+      snapshot: { document: source.document, session: source.session, recovery: null }, identity,
+      comparison: { snapshot: { document: target.document, session: target.session, recovery: null }, identity: targetIdentity, equivalent: false },
+      stereo: { compared: false, source_present: true, other_present: false },
+    } }
+}
+
+test('an identity answer that ignored stereo is accepted only as partial, with the flags and the loss', async () => {
+  const reply = stereoIdentityReply()
+  const mutate = (change) => {
+    const copy = structuredClone(reply)
+    change(copy)
+    return copy
+  }
+  const bad = {
+    'ok with a stereo-bearing drawing': mutate((r) => { r.outcome = 'ok'; r.loss_report = [] }),
+    'partial with no loss': mutate((r) => { r.loss_report = [] }),
+    'partial for a drawing with no stereo': mutate((r) => { r.result.comparison.snapshot.document.id = 'identity-target'; r.result.stereo.source_present = false }),
+    'no flags from a service that holds stereo': mutate((r) => { delete r.result.stereo }),
+    'a flag that the snapshot contradicts': mutate((r) => { r.result.stereo.other_present = true; r.loss_report.push(stereoLoss('comparison.snapshot')) }),
+    'compared claimed true': mutate((r) => { r.result.stereo.compared = true }),
+    'the loss for the wrong side': mutate((r) => { r.loss_report = [stereoLoss('comparison.snapshot')] }),
+    'a second loss nobody asked for': mutate((r) => { r.loss_report.push(stereoLoss('comparison.snapshot')) }),
+    'a loss that says dropped': mutate((r) => { r.loss_report[0].disposition = 'dropped' }),
+    'an unknown field in the flags': mutate((r) => { r.result.stereo.target_present = false }),
+  }
+  service({ '/api/v1/operations': [() => json(200, reply), ...Object.values(bad).map((body) => () => json(200, body))] })
+  const client = new DocumentClient()
+  const result = await client.inspectIdentity('identity-source', 'recorded', 'identity-target')
+  assert.deepEqual(result.stereo, { sourcePresent: true, otherPresent: false })
+  assert.equal(result.comparison.equivalent, false)
+  for (const why of Object.keys(bad)) {
+    await assert.rejects(client.inspectIdentity('identity-source', 'recorded', 'identity-target'), { code: 'incompatible_response' }, why)
+  }
+})
+
+test('an identity answer for drawings without stereo stays ok, with or without the flags', async () => {
+  const reply = stereoIdentityReply()
+  reply.result.snapshot.document.bonds = reply.result.snapshot.document.bonds.map((bond) => ({ ...bond, mark: null }))
+  reply.outcome = 'ok'
+  reply.loss_report = []
+  reply.result.stereo = { compared: false, source_present: false, other_present: false }
+  const older = structuredClone(reply)
+  delete older.result.stereo
+  const alone = structuredClone(reply)
+  alone.result.comparison = null
+  alone.result.stereo.other_present = null
+  service({ '/api/v1/operations': [() => json(200, reply), () => json(200, older), () => json(200, alone)] })
+  const client = new DocumentClient()
+  assert.deepEqual((await client.inspectIdentity('identity-source', 'recorded', 'identity-target')).stereo, { sourcePresent: false, otherPresent: false })
+  assert.deepEqual((await client.inspectIdentity('identity-source', 'recorded', 'identity-target')).stereo, { sourcePresent: false, otherPresent: false })
+  assert.deepEqual((await client.inspectIdentity('identity-source', 'recorded', null)).stereo, { sourcePresent: false, otherPresent: null })
+})
+
+test('a substructure search that ignored stereo is accepted only as partial, with the flags and the loss', async () => {
+  const { reply, query } = substructureReply()
+  query.document.bonds = [{ ...query.document.bonds[0], mark: { kind: 'hash', narrow: 'end' } }]
+  const marked = structuredClone(reply)
+  marked.result.query.document = query.document
+  marked.outcome = 'partial'
+  marked.loss_report = [stereoLoss('query')]
+  marked.result.stereo = { compared: false, query_present: true, target_present: false }
+  const mutate = (change) => {
+    const copy = structuredClone(marked)
+    change(copy)
+    return copy
+  }
+  const bad = {
+    'ok with a stereo-bearing query': mutate((r) => { r.outcome = 'ok'; r.loss_report = [] }),
+    'partial with no loss': mutate((r) => { r.loss_report = [] }),
+    'no flags from a service that holds stereo': mutate((r) => { delete r.result.stereo }),
+    'a flag the snapshot contradicts': mutate((r) => { r.result.stereo.target_present = true }),
+    'the loss for the wrong side': mutate((r) => { r.loss_report = [stereoLoss('target')] }),
+    'compared claimed true': mutate((r) => { r.result.stereo.compared = true }),
+  }
+  service({ '/api/v1/operations': [() => json(200, marked), ...Object.values(bad).map((body) => () => json(200, body))] })
+  const client = new DocumentClient()
+  const found = await client.searchSubstructure('match-query', 'match-target')
+  assert.deepEqual(found.stereo, { queryPresent: true, targetPresent: false })
+  assert.equal(found.mappings.length, 1)
+  for (const why of Object.keys(bad)) {
+    await assert.rejects(client.searchSubstructure('match-query', 'match-target'), { code: 'incompatible_response' }, why)
+  }
+  // Drawings without stereo stay ok, and the model property is still stated.
+  const plain = substructureReply().reply
+  plain.result.stereo = { compared: false, query_present: false, target_present: false }
+  service({ '/api/v1/operations': [() => json(200, plain)] })
+  assert.deepEqual((await new DocumentClient().searchSubstructure('match-query', 'match-target')).stereo, { queryPresent: false, targetPresent: false })
+})

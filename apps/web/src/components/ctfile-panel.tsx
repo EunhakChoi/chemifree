@@ -159,7 +159,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
 
   return <aside aria-label="MOL and SDF" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
     <h3 className="text-sm font-medium">MOL and SDF</h3>
-    <p className="leading-relaxed text-muted-foreground">V2000 basic structures only. Stereo, queries and advanced objects may be refused or reported as losses.</p>
+    <p className="leading-relaxed text-muted-foreground">V2000 basic structures only. Stereo, queries and advanced objects may be refused or reported as losses; a drawing that holds stereo marks or configurations is refused on export.</p>
     <Field>
       <FieldLabel htmlFor="ctfile-input">Import file</FieldLabel>
       <Input id="ctfile-input" type="file" accept=".mol,.sdf" disabled={pending > 0 || editor.busy}

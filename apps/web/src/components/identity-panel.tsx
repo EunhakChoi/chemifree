@@ -80,6 +80,10 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
     {current && <div className="max-h-64 space-y-2 overflow-auto" aria-live="polite" data-testid="identity-result">
       <p>Model: {current.model}. Symmetric atoms may exchange canonical numbers.</p>
       {current.comparison && <p>{current.comparison.equivalent ? 'Equivalent' : 'Different'} under this model. Comparison snapshot: {current.comparison.snapshot.id}, revision {current.comparison.snapshot.revision}. Inspect again to include later edits.</p>}
+      {(current.stereo.sourcePresent || current.stereo.otherPresent === true) && <p role="note" data-testid="identity-stereo">
+        Stereo was not read: {[current.stereo.sourcePresent && 'the current drawing', current.stereo.otherPresent === true && 'the comparison snapshot'].filter(Boolean).join(' and ')} holds stereo marks or stated
+        configurations. Mirror images and cis/trans forms are not told apart, so the result describes the graph only.
+      </p>}
       {current.comparison?.recovery && <p>A recovery draft was reported for the comparison document and was not included.</p>}
       <IdentityDetails label="Current drawing" identity={current.identity} />
       {current.comparison && <IdentityDetails label="Comparison snapshot" identity={current.comparison.identity} />}

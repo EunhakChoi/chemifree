@@ -578,7 +578,7 @@ const DrawingLayer = memo(function DrawingLayer({
         data-bonds=""
       >
         {drawing.view.bonds.map((bond) => (
-          <g key={bond.id} role="img" aria-label={bondName(bond, placement)} data-bond-kind={bond.order}>
+          <g key={bond.id} role="img" aria-label={bondName(bond, placement)} data-bond-kind={bond.order} data-bond-mark={bond.mark?.kind}>
             {strokesOf(bond).map((stroke, index) =>
               stroke.shape === 'line' ? (
                 <line

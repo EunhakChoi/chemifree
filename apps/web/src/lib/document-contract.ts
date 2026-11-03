@@ -1,5 +1,6 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
+import { holdsStereo, isStereoMark, isStereoView, stereoOf, type StereoMark, type StereoView } from '@/lib/stereo-contract'
 
 /**
  * A bond's kind. `aromatic`, `dative` (from `begin`, the donor), `query`, and `unknown` were
@@ -117,6 +118,11 @@ export interface BondView {
   order: BondOrder
   /** With order `query`, what it stands for; null otherwise. Filled in as null for older replies. */
   query: BondQuery | null
+  /**
+   * How the bond is drawn; null for a plain bond, and filled in as null for older replies. A
+   * drawing fact only: it states no configuration. The editor does not draw it yet.
+   */
+  mark: StereoMark | null
 }
 
 /** The generic font family atom labels are drawn in. */
@@ -177,6 +183,11 @@ export interface DocumentView {
   selection?: SelectionView
   /** Omitted by services predating document style settings. */
   settings?: DocumentSettings
+  /**
+   * Stated stereo configurations, added within v1: omitted by an older service, and filled in
+   * as empty. No record means "unspecified", not "non-stereogenic".
+   */
+  stereo?: StereoView
 }
 
 export interface ValenceAtom {
@@ -222,6 +233,12 @@ export interface IdentityInspection {
   snapshot: DocumentView
   identity: CanonicalIdentity
   comparison: { snapshot: DocumentView; recovery: RecoveryView | null; identity: CanonicalIdentity; equivalent: boolean } | null
+  /**
+   * Which compared drawings hold stereo marks or stated configurations. This model never reads
+   * stereo: `equivalent`, the code, the numbering and the symmetry say nothing about it, so a
+   * drawing that holds some makes the whole answer `partial`.
+   */
+  stereo: { sourcePresent: boolean; otherPresent: boolean | null }
 }
 
 /** One pair of a mapping: an item of the query drawing and the item of the target it lies on. */
@@ -251,6 +268,8 @@ export interface SubstructureSearch {
   limits: SubstructureLimits
   steps: number
   mappings: SubstructureMapping[]
+  /** Which drawings hold stereo this search did not read; see `IdentityInspection.stereo`. */
+  stereo: { queryPresent: boolean; targetPresent: boolean }
 }
 
 /**
@@ -286,7 +305,8 @@ const SUBSTRUCTURE_OUTCOMES: ReadonlyMap<string, 'error' | 'unsupported'> = new 
 export function sameInspectionSnapshot(shown: DocumentView, inspected: DocumentView): boolean {
   return shown.id === inspected.id && shown.revision === inspected.revision &&
     JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
-    JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds)
+    JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds) &&
+    JSON.stringify(stereoOf(shown)) === JSON.stringify(stereoOf(inspected))
 }
 
 export type PropertiesScope = 'molecule' | 'selection' | 'components'
@@ -334,6 +354,7 @@ export function samePropertySnapshot(shown: DocumentView, inspected: DocumentVie
   return shown.id === inspected.id && shown.revision === inspected.revision &&
     JSON.stringify(shown.atoms) === JSON.stringify(inspected.atoms) &&
     JSON.stringify(shown.bonds) === JSON.stringify(inspected.bonds) &&
+    JSON.stringify(stereoOf(shown)) === JSON.stringify(stereoOf(inspected)) &&
     JSON.stringify(shown.scene) === JSON.stringify(inspected.scene)
 }
 
@@ -660,6 +681,8 @@ function isBond(value: unknown): value is BondView {
   ) {
     return false
   }
+  // A reply from before marks has no `mark`; one that has it holds null or a mark the order fits.
+  if ('mark' in value && value.mark !== null && !(typeof value.order === 'string' && isStereoMark(value.mark, value.order))) return false
   // A reply from before recorded states has no `query`, and then only the first three orders.
   if (!('query' in value)) return value.order === 'single' || value.order === 'double' || value.order === 'triple'
   return value.order === 'query' ? isBondQuery(value.query) : value.query === null
@@ -674,23 +697,30 @@ function statesAgree(atoms: readonly object[], bonds: readonly object[]) {
     ...atoms.map((atom) => atomStates(atom) === 'all'),
     ...bonds.map((bond) => 'query' in bond),
   ])
-  return shapes.size <= 1
+  // Marks come all together or not at all, independently of the recorded states.
+  const marks = new Set(bonds.map((bond) => 'mark' in bond))
+  return shapes.size <= 1 && marks.size <= 1
 }
 
 /** A document whose atoms and bonds carry every recorded-state field, defaults filled in. */
 function withStates(response: DocumentResponse): DocumentResponse {
   const atoms = response.document.atoms as Array<AtomView | Omit<AtomView, (typeof ATOM_STATE_FIELDS)[number]>>
-  const bonds = response.document.bonds as Array<BondView | Omit<BondView, 'query'>>
+  const bonds = response.document.bonds as Array<BondView | Omit<BondView, 'query' | 'mark'> | Omit<BondView, 'mark'>>
   return {
     ...response,
     document: {
       ...response.document,
+      stereo: stereoOf(response.document),
       atoms: atoms.map((atom) =>
         'kind' in atom
           ? atom
           : { ...atom, kind: 'element', query: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [] },
       ),
-      bonds: bonds.map((bond) => ('query' in bond ? bond : { ...bond, query: null })),
+      bonds: bonds.map((bond) => ({
+        ...bond,
+        query: 'query' in bond ? bond.query : null,
+        mark: 'mark' in bond ? bond.mark : null,
+      })),
     },
   }
 }
@@ -896,6 +926,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     bondIds.size === document.bonds.length &&
     document.bonds.every((bond) => atomIds.has(bond.begin) && atomIds.has(bond.end)) &&
     statesAgree(document.atoms, document.bonds) &&
+    (document.stereo === undefined || isStereoView(document.stereo, document.atoms, document.bonds)) &&
     isScene(document, document.atoms) &&
     isSceneTree(document, document.atoms, document.bonds) &&
     (document.settings === undefined || isSettings(document.settings, true)) &&
@@ -1102,6 +1133,55 @@ function firstDiagnostic(value: unknown): { code: string | null; message: string
     message: isRecord(first) && typeof first.message === 'string' ? first.message : null,
     details: isRecord(first) && isRecord(first.details) ? first.details : {},
   }
+}
+
+/** One compared drawing in a reply's stereo report: its flag key, loss path and snapshot (null when absent). */
+interface StereoSide {
+  key: string
+  path: string
+  snapshot: DocumentView | null
+}
+
+/**
+ * Checks what a comparison reply says about stereo against the drawings it is about, and
+ * returns each side's flag, or null when the reply is inconsistent. The model never reads
+ * stereo, so `compared` is false whatever the drawings hold; a flag must equal what the
+ * snapshot really holds; and the reply is `partial` with exactly one `stereo` loss per side
+ * that holds some, or `ok` with none. A reply without the report comes from a service that
+ * could not hold stereo, so it is consistent only for drawings that hold none.
+ */
+function readStereoReport(
+  reply: Record<string, unknown>,
+  result: Record<string, unknown>,
+  sides: StereoSide[],
+): Record<string, boolean | null> | null {
+  const report = result.stereo
+  if (report !== undefined && (!isRecord(report) || report.compared !== false || !hasOnly(report, ['compared', ...sides.map((side) => side.key)]))) {
+    return null
+  }
+  const present: Record<string, boolean | null> = {}
+  for (const side of sides) {
+    const flag = isRecord(report) ? report[side.key] : undefined
+    if (side.snapshot === null) {
+      if (flag !== undefined && flag !== null) return null
+      present[side.key] = null
+      continue
+    }
+    const held = holdsStereo(side.snapshot)
+    // Without a report nothing is stated, which is read as "none": true only if none is held.
+    if ((report === undefined ? false : flag) !== held) return null
+    present[side.key] = held
+  }
+  const paths = sides.filter((side) => present[side.key] === true).map((side) => side.path)
+  // A reply that leaves `loss_report` out reports none.
+  const losses = reply.loss_report ?? []
+  if (reply.outcome !== (paths.length === 0 ? 'ok' : 'partial') || !Array.isArray(losses) || losses.length !== paths.length) return null
+  const reported = paths.every((path, index) => {
+    const loss: unknown = losses[index]
+    return isRecord(loss) && loss.feature === 'stereo' && loss.disposition === 'unknown' && loss.semantic_impact === 'stereo' &&
+      loss.source_path === path && typeof loss.reason === 'string'
+  })
+  return reported ? present : null
 }
 
 /** A snapshot an operation reply carries (`document`, `session`, `recovery`), as a document view. */
@@ -1897,7 +1977,7 @@ export class DocumentClient {
       parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
     }, 'reload')
     const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
-    if (!isRecord(value) || value.outcome !== 'ok') {
+    if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
       const diagnostic = firstDiagnostic(value)
       const message = diagnostic.message ?? 'The local service could not compare these graphs.'
       const details = diagnostic.details
@@ -1964,7 +2044,17 @@ export class DocumentClient {
       }
       comparison = { snapshot: otherSnapshot, recovery: otherResponse.recovery, identity: other.identity, equivalent: other.equivalent }
     }
-    return { model: expectedModel, snapshot, identity: sourceIdentity, comparison }
+    const stereo = readStereoReport(value, value.result, [
+      { key: 'source_present', path: 'snapshot', snapshot },
+      { key: 'other_present', path: 'comparison.snapshot', snapshot: comparison?.snapshot ?? null },
+    ])
+    if (stereo === null) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible statement about stereo.', 200)
+    }
+    return {
+      model: expectedModel, snapshot, identity: sourceIdentity, comparison,
+      stereo: { sourcePresent: stereo.source_present === true, otherPresent: stereo.other_present },
+    }
   }
 
   /**
@@ -1989,7 +2079,7 @@ export class DocumentClient {
           (queryId === targetId && !sameConversionSnapshot(query, target))) throw incompatible()
       return { query, target }
     }
-    if (value.outcome !== 'ok') {
+    if (value.outcome !== 'ok' && value.outcome !== 'partial') {
       const { code, message, details } = firstDiagnostic(value)
       if (code === null || message === null) {
         throw new ApiError('analysis_unavailable', 'The local service could not search the drawings.', 200)
@@ -2007,13 +2097,18 @@ export class DocumentClient {
       throw new SubstructureRefusal(code, `${message}${where}${limit}`, query, target)
     }
     const result = value.result
-    if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) || value.loss_report.length !== 0 ||
+    if (value.model_id !== 'chemifree-substructure-1' || value.diagnostics.length !== 0 || !Array.isArray(value.loss_report) ||
         !isRecord(result) || !isRecord(result.query) || !isRecord(result.target) || !isRecord(result.limits) ||
         result.aromaticity_model !== 'chemifree-aromaticity-2' || !isCount(result.steps) || !Array.isArray(result.mappings)) throw incompatible()
     const { query, target } = bound(result.query, result.target)
     const limits = result.limits
     if (!isCount(limits.query_atoms) || !isCount(limits.search_steps) || !isCount(limits.scanned_candidates) || !isCount(limits.mappings) ||
         result.steps > limits.search_steps || result.mappings.length > limits.mappings) throw incompatible()
+    const stereo = readStereoReport(value, result, [
+      { key: 'query_present', path: 'query', snapshot: query },
+      { key: 'target_present', path: 'target', snapshot: target },
+    ])
+    if (stereo === null) throw incompatible()
     const queryAtoms = new Set(query.atoms.map((atom) => atom.id))
     const targetAtoms = new Set(target.atoms.map((atom) => atom.id))
     const queryBonds = new Map(query.bonds.map((bond) => [bond.id, bond]))
@@ -2046,6 +2141,7 @@ export class DocumentClient {
         scanned_candidates: limits.scanned_candidates, mappings: limits.mappings,
       },
       steps: result.steps, mappings,
+      stereo: { queryPresent: stereo.query_present === true, targetPresent: stereo.target_present === true },
     }
   }
 
