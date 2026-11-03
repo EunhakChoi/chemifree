@@ -1433,7 +1433,6 @@ fn validation_cost_stays_linear_at_two_thousand_atoms_and_a_full_history() {
         restore_time < budget && walk_time < budget,
         "restore took {restore_time:?} and 200 history steps {walk_time:?}"
     );
-    eprintln!("restore {restore_time:?}, 200 history steps {walk_time:?}");
 }
 
 // ---------------------------------------------------------------------------------------------
