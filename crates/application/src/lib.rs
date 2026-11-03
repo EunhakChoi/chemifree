@@ -69,6 +69,7 @@ pub use active_registry::{
     RegistryStatus, TrustedRegistry,
 };
 
+pub use chemifree_domain::budget::{CancelFlag, Interrupt, Interrupted};
 pub use contract::{
     AtomKindView, AtomPositionView, AtomView, BondOrderDto, BondQueryDto, BondToDto, BondView,
     CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
@@ -152,6 +153,59 @@ pub struct Application<C, R> {
     /// service instance.
     preview_generation: Option<[u8; 16]>,
     property_data_readiness: properties::DataReadiness,
+    compute_limits: ComputeLimits,
+}
+
+/// How long a computation that runs outside the session lock may take. The limit is a safety
+/// net on the clock, not part of the contract's deterministic work limits: whether a given
+/// input finishes in time depends on the machine, so the same request can finish on one and
+/// be stopped on another.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ComputeLimits {
+    /// The time limit of a request that sets none, in milliseconds.
+    pub default_time_ms: u64,
+    /// The largest `time_limit_ms` a request may set, in milliseconds.
+    pub max_time_ms: u64,
+}
+
+impl ComputeLimits {
+    /// The largest time limit, in milliseconds, either value is held to: one hour. A larger
+    /// configured value is lowered to it, so that a limit never means "no deadline".
+    pub const CAP_MS: u64 = 3_600_000;
+
+    /// These limits with both values at most [`Self::CAP_MS`] and the default at most the
+    /// maximum.
+    fn capped(self) -> Self {
+        let max_time_ms = self.max_time_ms.min(Self::CAP_MS);
+        Self {
+            default_time_ms: self.default_time_ms.min(max_time_ms),
+            max_time_ms,
+        }
+    }
+}
+
+impl Default for ComputeLimits {
+    /// Five seconds by default and eight at most, below the ten seconds after which the web
+    /// client gives up on a request.
+    fn default() -> Self {
+        Self {
+            default_time_ms: 5_000,
+            max_time_ms: 8_000,
+        }
+    }
+}
+
+impl ComputeLimits {
+    /// The time limit for a request that asks for `requested` (or for none): the default
+    /// capped at the maximum, or what was asked. `Err` holds the maximum when a request asks
+    /// for more than it.
+    fn resolve(&self, requested: Option<u64>) -> Result<u64, u64> {
+        match requested {
+            None => Ok(self.default_time_ms.min(self.max_time_ms)),
+            Some(limit) if limit <= self.max_time_ms => Ok(limit),
+            Some(_) => Err(self.max_time_ms),
+        }
+    }
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
@@ -176,6 +230,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             smiles_codec: None,
             property_data_readiness: properties::DataReadiness::default(),
+            compute_limits: ComputeLimits::default(),
+        }
+    }
+
+    /// Replaces the time limits of computations, as an entry adapter or a test configures them.
+    /// Values above [`ComputeLimits::CAP_MS`] are lowered to it.
+    #[must_use]
+    pub fn with_compute_limits(self, compute_limits: ComputeLimits) -> Self {
+        Self {
+            compute_limits: compute_limits.capped(),
+            ..self
         }
     }
 

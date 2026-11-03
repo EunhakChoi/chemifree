@@ -46,6 +46,11 @@ pub enum ErrorCode {
     SettingNotImplemented,
     /// The stored preferences cannot be read; nothing that needs them is done.
     PreferencesUnreadable,
+    /// A computation was stopped by its time limit; nothing was changed. Whether an input
+    /// finishes in time depends on the machine, unlike a work-limit refusal.
+    TimeLimit,
+    /// A computation was stopped because the caller went away; nothing was changed.
+    Cancelled,
 }
 
 impl ErrorCode {
@@ -70,6 +75,8 @@ impl ErrorCode {
             Self::RequestInProgress => "request_in_progress",
             Self::SettingNotImplemented => "setting_not_implemented",
             Self::PreferencesUnreadable => "preferences_unreadable",
+            Self::TimeLimit => "time_limit",
+            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -114,6 +121,8 @@ pub struct ApplicationError {
     pub invalid_settings: Option<SettingsError>,
     /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
     pub invalid_aromaticity: Option<&'static str>,
+    /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
+    pub limit_ms: Option<u64>,
 }
 
 impl ApplicationError {
@@ -128,6 +137,7 @@ impl ApplicationError {
             invalid_scene: None,
             invalid_settings: None,
             invalid_aromaticity: None,
+            limit_ms: None,
         }
     }
 

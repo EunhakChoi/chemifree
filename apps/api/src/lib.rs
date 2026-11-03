@@ -22,13 +22,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
-    API_VERSION, Application, ApplicationError, CapabilitiesResponse, CloseRequest, CloseResponse,
-    CopyResponse, CreateDocumentRequest, DataStatusResponse, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
-    ImportPreferencesRequest, ImportSettingsRequest, ListQuery, OperationResponse,
-    PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest, RenameRequest,
-    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
-    TransactionRequest, TrashListResponse,
+    API_VERSION, Application, ApplicationError, CancelFlag, CapabilitiesResponse, CloseRequest,
+    CloseResponse, CopyResponse, CreateDocumentRequest, DataStatusResponse, DeleteResponse,
+    DocumentListResponse, DocumentResponse, DraftDiscardResponse, DraftRequest, ErrorCode,
+    ErrorResponse, HealthResponse, ImportPreferencesRequest, ImportSettingsRequest, ListQuery,
+    OperationResponse, PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest,
+    RenameRequest, ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest,
+    SaveAsRequest, TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
@@ -246,7 +246,14 @@ impl From<ApplicationError> for ApiError {
             | ErrorCode::DraftInUse
             | ErrorCode::DraftOutdated
             | ErrorCode::RequestInProgress => StatusCode::CONFLICT,
-            ErrorCode::StorageFailed | ErrorCode::ResourceLimit => StatusCode::SERVICE_UNAVAILABLE,
+            // Mapping only: no route reaches it. A computation stopped by its time limit or by
+            // the caller is reported in an operation reply's diagnostics (`POST
+            // /api/v1/operations` answers 200), never as an `ApiError`. `docs/CONTRACT.md`
+            // (Computation time limit and cancel) says the same.
+            ErrorCode::StorageFailed
+            | ErrorCode::ResourceLimit
+            | ErrorCode::TimeLimit
+            | ErrorCode::Cancelled => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::SettingNotImplemented => StatusCode::NOT_IMPLEMENTED,
             ErrorCode::DocumentUnreadable | ErrorCode::PreferencesUnreadable => {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -400,12 +407,25 @@ async fn operations(State(state): State<Shared>, request: Request) -> Response {
         Ok(body) => body,
         Err(error) => return unread_body(error),
     };
-    match run(state, move |app| Ok(app.execute(&body))).await {
+    // A client that goes away drops this future, and with it the guard, which stops the
+    // computation at its next checkpoint instead of letting it run on unheard.
+    let cancel = Arc::new(CancelFlag::new());
+    let _cancel_on_drop = CancelOnDrop(Arc::clone(&cancel));
+    match run(state, move |app| Ok(app.execute_with(&body, &*cancel))).await {
         Ok(reply) if reply.is_protocol_error() => {
             (StatusCode::BAD_REQUEST, Json(reply)).into_response()
         }
         Ok(reply) => Json(reply).into_response(),
         Err(error) => error.into_response(),
+    }
+}
+
+/// Cancels the computations that check `flag` when dropped.
+struct CancelOnDrop(Arc<CancelFlag>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
     }
 }
 

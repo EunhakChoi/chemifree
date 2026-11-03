@@ -952,7 +952,7 @@
     "P18",
     "P13"
    ],
-   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(미병합 브랜치 feat/p21d-smiles-batch3). 입체, query/반응 SMILES, InChI는 후속이다. canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다."
+   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(#96으로 병합). 입체, query/반응 SMILES, InChI는 후속이다. canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다."
   },
   {
    "phase": "chemistry",
@@ -1519,7 +1519,7 @@
    "acceptance": "계산 중 다른 문서를 편집할 수 있고 오래된 revision의 결과는 자동 적용되지 않는다. 취소·실패 시 문서가 바뀌지 않고 API·CLI가 동일 상태를 보고한다.",
    "kind": "core",
    "id": "P41",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1528,7 +1528,8 @@
    "depends_on": [
     "P13",
     "P11"
-   ]
+   ],
+   "note": "첫 납품은 chem.aromaticity_convert 하나다. 계산을 세션 잠금 밖의 그래프 복사본에서 하고, 요청별 time_limit_ms(기본 5초·최대 8초, 시계 기반이라 기계에 따라 다름)와 HTTP 연결 끊김으로 중단하며(time_limit·cancelled 진단, 부분 결과 없음), 계산 중 revision이 바뀐 결과는 revision_conflict로 거절한다. 중단은 다음 점검 지점에서 반영되고(점검 없는 구간은 CONTRACT에 적음), 결과를 잠금 아래에서 커밋하기 직전에도 한 번 확인한다. 명시적 취소 연산·작업(job) 자원은 만들지 않았다. 읽기 전용 연산(identity·substructure·aromaticity·properties·SMILES 내보내기)의 시간 상한·취소, 동시 계산 수 제한, chem.validate와 draft 쓰기의 잠금 안 저장소 I/O는 후속이다."
   },
   {
    "phase": "layout",

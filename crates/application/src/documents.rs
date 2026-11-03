@@ -6,6 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS, MAX_TITLE_CHARS,
     Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
@@ -58,6 +59,9 @@ enum Mutation {
         expected_revision: u64,
         conversion: AromaticityConversion,
         selection: TransactionSelections,
+        /// The time limit as the request stated it (not the resolved one), so that the same
+        /// request ID with another limit is a different request.
+        time_limit_ms: Option<u64>,
     },
     ResetSettings {
         expected_revision: u64,
@@ -467,7 +471,10 @@ enum CopySlot<'a> {
 /// `TURN_WAIT`) for the document's turn, which serializes them per document. Lock order: the
 /// document's turn, then `sessions`. A save waits for storage (which may wait for another
 /// process's save) holding only its turn, so requests for other documents, and edits to the
-/// same one, are not held up.
+/// same one, are not held up. Edits (transactions, undo, redo, imports, aromaticity
+/// conversion) take no turn, only `sessions`; an aromaticity conversion's computation holds
+/// neither: it works on a copy and applies its result under `sessions` after checking the
+/// revision again.
 pub(crate) struct Documents<R> {
     repository: R,
     sessions: Mutex<Sessions>,
@@ -877,6 +884,11 @@ impl<R: DocumentRepository> Documents<R> {
 
     /// Convert an entire graph as one ordinary undoable edit. A replay is checked before
     /// interpreting again, and a failed assignment never reaches the document's history.
+    ///
+    /// The conversion is computed on a copy of the graph while no lock is held, so other
+    /// requests, including edits to this very document, go on meanwhile. Its result is applied
+    /// only if the document is still at `expected_revision`; otherwise nothing is applied and
+    /// the request is refused with `revision_conflict`. `compute` can stop the computation.
     pub(crate) fn convert_aromaticity(
         &self,
         id: &str,
@@ -884,21 +896,52 @@ impl<R: DocumentRepository> Documents<R> {
         expected_revision: u64,
         conversion: AromaticityConversion,
         selection: TransactionSelections,
+        compute: Compute<'_>,
     ) -> Result<DocumentResponse, ApplicationError> {
         let domain_selection = contract::to_selection(&selection)?;
         let mutation = Mutation::AromaticityConversion {
             expected_revision,
             conversion,
             selection,
+            time_limit_ms: compute.requested_ms,
         };
-        self.mutate(id, request_id, expected_revision, mutation, |session| {
-            let graph = MoleculeGraph::from_document(&session.document);
-            let target = match conversion {
-                AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
-                AromaticityConversion::Kekule => aromaticity::Target::Kekule,
-            };
-            let commands =
-                aromaticity::conversion_commands(&graph, target).map_err(aromaticity_refusal)?;
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let _running = self.start(Some(&document_id), request_id)?;
+        // Under the lock: answer a completed request, refuse early if the document is already
+        // not at the expected revision, and copy the graph. Nothing else happens there.
+        let graph = {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+            if let Some(hold) = session.hold {
+                return Err(held(id, hold));
+            }
+            session.expect_revision(expected_revision)?;
+            MoleculeGraph::from_document(&session.document)
+        };
+        let target = match conversion {
+            AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
+            AromaticityConversion::Kekule => aromaticity::Target::Kekule,
+        };
+        let commands = aromaticity::conversion_commands_with(&graph, target, compute.interrupt)
+            .map_err(|halt| match halt {
+                aromaticity::Halt::Reason(reason) => aromaticity_refusal(reason),
+                aromaticity::Halt::Interrupted(interrupted) => {
+                    interruption(interrupted, compute.limit_ms)
+                }
+            })?;
+        // The lock is taken again, which checks the replay, the hold and the revision again:
+        // an edit made while the conversion was computed refuses its result. A stop that came
+        // after the last checkpoint is honoured here too, immediately before the edit is
+        // committed; once it is committed it stands.
+        self.mutate_running(id, request_id, expected_revision, mutation, |session| {
+            compute
+                .interrupt
+                .check()
+                .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
             if commands.is_empty() {
                 return Ok(());
             }
@@ -2361,6 +2404,37 @@ fn aromaticity_refusal(reason: &'static str) -> ApplicationError {
     ApplicationError {
         invalid_aromaticity: Some(reason),
         ..ApplicationError::new(ErrorCode::InvalidCommand, message)
+    }
+}
+
+/// What can stop a computation that runs outside the session lock.
+#[derive(Clone, Copy)]
+pub(crate) struct Compute<'a> {
+    /// Asked at the computation's checkpoints.
+    pub interrupt: &'a dyn Interrupt,
+    /// The time limit in force, in milliseconds, reported when it stops the computation.
+    pub limit_ms: u64,
+    /// The limit the request asked for, if it asked for one.
+    pub requested_ms: Option<u64>,
+}
+
+/// A computation stopped before it finished: `limit_ms` is the time limit that was in force.
+/// Nothing was changed.
+fn interruption(interrupted: Interrupted, limit_ms: u64) -> ApplicationError {
+    match interrupted {
+        Interrupted::TimeLimit => ApplicationError {
+            limit_ms: Some(limit_ms),
+            ..ApplicationError::new(
+                ErrorCode::TimeLimit,
+                format!(
+                    "The computation did not finish within the time limit of {limit_ms} ms; nothing was changed."
+                ),
+            )
+        },
+        Interrupted::Cancelled => ApplicationError::new(
+            ErrorCode::Cancelled,
+            "The computation was cancelled before it finished; nothing was changed.",
+        ),
     }
 }
 
