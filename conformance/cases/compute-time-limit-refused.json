@@ -28,6 +28,6 @@
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"limited","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic","time_limit_ms":1000}},
      "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"request_id_reused","severity":"error"}]}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"too-long","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":2,"to":"kekule","time_limit_ms":8001}},
-     "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"invalid_request","path":"parameters.time_limit_ms","details":{"maximum_ms":8000}}]}}
+     "expect":{"outcome":"error","result":null,"model_id":"chemifree-aromaticity-2","diagnostics":[{"code":"invalid_request","path":"parameters.time_limit_ms","details":{"maximum_ms":8000}}]}}
   ]
 }

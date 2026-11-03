@@ -414,6 +414,10 @@ fn the_server_default_applies_without_a_request_limit_and_a_request_may_raise_it
         "{above}"
     );
     assert_eq!(above["diagnostics"][0]["path"], "parameters.time_limit_ms");
+    assert_eq!(
+        above["model_id"], "chemifree-aromaticity-2",
+        "a refusal of this operation names its model, as the others do: {above}"
+    );
     assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], 6_000);
 }
 

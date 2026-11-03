@@ -1971,13 +1971,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Err(maximum) => {
                             let mut details = Map::new();
                             details.insert("maximum_ms".into(), maximum.into());
-                            return known.invalid(Diagnostic {
+                            let mut reply = known.invalid(Diagnostic {
                                 code: ErrorCode::InvalidRequest.as_str(),
                                 severity: Severity::Error,
                                 message: format!("time_limit_ms is above the maximum of {maximum} ms."),
                                 path: Some("parameters.time_limit_ms".into()),
                                 details,
                             });
+                            reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                            return reply;
                         }
                     };
                     // Limits are capped far below what an `Instant` can add; a deadline that could not be
