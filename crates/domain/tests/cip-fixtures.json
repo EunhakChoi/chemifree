@@ -944,6 +944,28 @@
     }
    ],
    "rdkit_differs": "RDKit ranks an unspecified double bond below Z and labels the bond E"
+  },
+  {
+   "name": "1,3-diethylidenecyclobutane",
+   "smiles": "CC=C1CC(=CC)C1",
+   "source": "each double bond's descriptor would need the other's: the ring branches at an end meet the other bond alike, so only that descriptor could separate them. The model refuses with a stereo cycle; it does not look through the ring symmetry",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "unsupported:cip_stereo_cycle"
+    },
+    {
+     "bond": [
+      4,
+      5
+     ],
+     "label": "unsupported:cip_stereo_cycle"
+    }
+   ],
+   "rdkit_differs": "RDKit finds both bonds not stereogenic, which they are; the model's refusal is the conservative answer"
   }
  ]
 }
