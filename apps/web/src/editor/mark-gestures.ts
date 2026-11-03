@@ -198,11 +198,25 @@ export type MarkIntent =
   | { kind: 'cycle'; instance: string | null; bond: string; mark: MarkKind }
 
 /**
- * The gesture of `intent` on `document` (the latest): null when it no longer applies (an atom
- * or bond it names is gone, a placement is gone, or it draws nothing). A refusal or a
- * declined gesture is worded from this document too.
+ * Whether what `intent` itself names still exists: its placement (null names none), the atoms a
+ * drag starts and ends at, the bond a click cycles. The commands are checked too (`stillApplicable`),
+ * but a gesture with no derive command names no placement, and a drag from a placement that is
+ * gone would be placed relative to the first one left.
+ */
+function intentExists(document: DocumentView, intent: MarkIntent): boolean {
+  if (intent.instance !== null && !(document.scene?.instances ?? []).some((instance) => instance.id === intent.instance)) return false
+  const hasAtom = (end: BondEnd) => !('atom' in end) || document.atoms.some((atom) => atom.id === end.atom)
+  if (intent.kind === 'draw') return hasAtom(intent.from) && hasAtom(intent.to)
+  return document.bonds.some((bond) => bond.id === intent.bond)
+}
+
+/**
+ * The gesture of `intent` on `document` (the latest): null when it no longer applies, so nothing
+ * is sent (a placement, atom or bond the intent names is gone, or it draws nothing). A refusal or
+ * a declined gesture is worded from this document too.
  */
 export function buildMark(document: DocumentView, intent: MarkIntent): MarkGesture | null {
+  if (!intentExists(document, intent)) return null
   let gesture: MarkGesture | null
   if (intent.kind === 'draw') {
     gesture = markBondGesture(document, intent.instance, intent.from, intent.to, intent.mark)

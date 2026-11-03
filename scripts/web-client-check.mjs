@@ -3104,6 +3104,48 @@ test('a queued mark gesture asks for the configuration of an atom that became a 
   assert.equal(buildMark(onScreen, { ...intent, from: { atom: 'a1' }, to: { atom: 'a1' } }), null, 'a drag that draws nothing')
 })
 
+// Review round 3: an intent whose placement is gone lapses even when no command names it.
+const placedIn = (value, ...ids) => ({
+  ...value,
+  scene: { instances: ids.map((id) => ({ id, positions: value.atoms.map((atom) => ({ atom: atom.id, x: atom.position.x, y: atom.position.y })) })) },
+})
+
+test('a queued mark cycle whose placement was deleted lapses, though no command names the placement', () => {
+  const two = placedIn(marksDocument(), 's1', 's3')
+  // b4 joins a6 (two bonds) and a7 (one): no center, so the gesture has no derive command and nothing in it names a placement.
+  const cycle = { kind: 'cycle', instance: 's2', bond: 'b4', mark: 'wedge' }
+  assert.equal(cycleMark(two, { instance: 's2' }, two.bonds.find((b) => b.id === 'b4'), 'wedge').markOnly, null, 'the fixture has no derive command')
+  assert.equal(buildMark(two, cycle), null, 'the shared bond is not changed from a placement that is gone')
+  assert.equal(buildMark(placedIn(marksDocument()), cycle), null, 'no placement at all')
+  assert.equal(buildMark(marksDocument(), cycle), null, 'a document without placements has none to name')
+  // Controls: the placement is there, or the document has no placements and the intent names none.
+  assert.equal(buildMark(two, { ...cycle, instance: 's3' }).kind, 'send')
+  assert.equal(buildMark(marksDocument(), { ...cycle, instance: null }).kind, 'send')
+})
+
+test('a queued mark drag whose placement was deleted lapses instead of being placed against another placement', () => {
+  const two = placedIn(marksDocument(), 's1', 's3')
+  // placeNewAtoms would rebuild the coordinates relative to the first placement left.
+  const drag = { kind: 'draw', instance: 's2', from: { atom: 'a14' }, to: { point: pt(430, 140) }, mark: 'wedge' }
+  assert.equal(markBondGesture(two, 's2', drag.from, drag.to, 'wedge').kind, 'send', 'the stale builder falls back to the first placement')
+  assert.equal(buildMark(two, drag), null, 'a drag from a placement that is gone')
+  assert.equal(buildMark(marksDocument(), drag), null, 'a document without placements has none to name')
+  // Controls: the placement is there, or the document has no placements and the intent names none.
+  assert.equal(buildMark(two, { ...drag, instance: 's1' }).kind, 'send')
+  assert.equal(buildMark(marksDocument(), { ...drag, instance: null }).kind, 'send')
+})
+
+test('a queued mark gesture lapses when an atom or bond its intent names is gone', () => {
+  const value = marksDocument()
+  const gone = (id) => ({ ...value, atoms: value.atoms.filter((a) => a.id !== id), bonds: value.bonds.filter((b) => b.id !== id && b.begin !== id && b.end !== id) })
+  assert.equal(buildMark(gone('b4'), { kind: 'cycle', instance: null, bond: 'b4', mark: 'wedge' }), null, 'the bond')
+  const draw = { kind: 'draw', instance: null, from: { atom: 'a14' }, to: { atom: 'a15' }, mark: 'wedge' }
+  assert.notEqual(buildMark(value, draw), null)
+  assert.equal(buildMark(gone('a14'), draw), null, 'the drag-from atom')
+  assert.equal(buildMark(gone('a15'), draw), null, 'the drag-to atom')
+  assert.equal(buildMark(gone('a15'), { ...draw, to: { point: pt(430, 140) }, from: { atom: 'a15' } }), null, 'the drag-from atom of a drag to a point')
+})
+
 test('the status line says a stored configuration is kept only when nothing stores or shows it', () => {
   const kept = 'The stored configuration of a1 is kept; the drawing no longer shows it.'
   const wavy = (value) => withMark(value, 'b1', { kind: 'wavy' })
