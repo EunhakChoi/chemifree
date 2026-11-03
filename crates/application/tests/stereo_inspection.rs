@@ -845,3 +845,30 @@ fn contract_lists_every_agreement_value_and_diagnostic_code_the_operation_emits(
     }
     assert!(!section.contains("implicit_position_label_differs"));
 }
+
+/// A stored, wedged center whose atom was later given hydrogens the fourth position cannot take
+/// (the record stays, the drawing then names no position).
+fn stored_center_with_refused_fourth_position() -> (App, TempDir, String) {
+    let (app, directory) = application();
+    let id = created(&app);
+    let mut sheet = Sheet::default();
+    let (center, bonds) = sheet.halo(100.0);
+    sheet.mark(bonds[1], &wedge());
+    sheet.tetrahedral(center, Sheet::halo_neighbors(center), "clockwise");
+    sheet.commands.push(json!({
+        "op": "update_atom", "atom": "a1", "hydrogens": {"mode": "specified", "count": 2}}));
+    transact(&app, &id, "refused-fourth", 0, &sheet.commands);
+    (app, directory, id)
+}
+
+#[test]
+fn a_marked_stored_center_the_drawing_cannot_read_is_still_not_derivable() {
+    let (app, _directory, id) = stored_center_with_refused_fourth_position();
+    let reply = stereo(&app, "marked", &json!({"document_id": id}));
+    let drawn = &entry(&reply, "atom", "a1")["drawn"][0];
+    assert_eq!(drawn["agreement"], "only_stored");
+    assert_eq!(drawn["reason"], "stereo_not_derivable_fourth_position");
+    let found = counts(&reply);
+    assert_eq!(found["drawing_not_derivable"], 1);
+    assert_eq!(found.get("configuration_without_marks"), None);
+}

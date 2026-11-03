@@ -173,6 +173,11 @@ impl AtomDrawn {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AtomEntry {
     pub atom: AtomId,
+    /// Whether a wedge, hash or wavy bond bears on the atom ([`Drawing::marked_centers`], the
+    /// test that lists a center in the [`Plan`]). It does not depend on the instance. A reason
+    /// for which no state is drawn says nothing about it: a structural reason is checked
+    /// before the marks are read.
+    pub marked: bool,
     pub stored: Option<CenterState>,
     pub drawn: Vec<AtomDrawn>,
 }
@@ -203,6 +208,8 @@ pub struct BondEntry {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Plan {
     atoms: Vec<AtomId>,
+    /// The atoms of `atoms` that a mark bears on, ascending.
+    marked: Vec<AtomId>,
     bonds: Vec<BondId>,
 }
 
@@ -214,7 +221,8 @@ impl Plan {
     /// [`InspectError::Record`] for a stored record of the wrong kind.
     pub fn of(document: &Document) -> Result<Self, InspectError> {
         let drawing = Drawing::of_document(document, document.first_instance());
-        let mut atoms: BTreeSet<AtomId> = drawing.marked_centers().into_iter().collect();
+        let marked = drawing.marked_centers();
+        let mut atoms: BTreeSet<AtomId> = marked.iter().copied().collect();
         let mut bonds: BTreeSet<BondId> = drawing.crossed_double_bonds().into_iter().collect();
         for record in document.stereo().typed()? {
             match record {
@@ -224,6 +232,7 @@ impl Plan {
         }
         Ok(Self {
             atoms: atoms.into_iter().collect(),
+            marked,
             bonds: bonds.into_iter().collect(),
         })
     }
@@ -234,6 +243,11 @@ impl Plan {
 
     pub fn bonds(&self) -> &[BondId] {
         &self.bonds
+    }
+
+    /// Whether a mark bears on `atom` (see [`AtomEntry::marked`]).
+    pub fn is_marked(&self, atom: AtomId) -> bool {
+        self.marked.binary_search(&atom).is_ok()
     }
 
     /// Items in all.
@@ -255,13 +269,18 @@ pub struct Inspection {
     pub misplaced_marks: Vec<MisplacedMark>,
     /// Wavy bonds joining two possible centers, once per bond.
     pub wavy_between_centers: Vec<BondId>,
-    /// Centers (stored, or derivable in some inspected instance) with an aromatic bond.
+    /// The listed centers that are stored, or derivable in some *inspected* instance, and have
+    /// an aromatic bond. It is about the items of this reply, so it depends on `instances`: a
+    /// center derivable only in an instance that was left out is neither listed here nor judged,
+    /// unless it is stored. Ascending.
     pub aromatic_centers: Vec<AtomId>,
 }
 
 /// Compares what `document` states with what each of `instances` draws, for the items of `plan`.
 /// `instances` are scene instances of the document; the work is the items times the instances,
-/// each costing its neighborhood, after one neighbor index per instance.
+/// each costing its neighborhood, plus one neighbor-index build (linear in the atoms and bonds)
+/// per inspected instance and one more for the findings that do not depend on an instance;
+/// [`Plan::of`] builds one as well.
 ///
 /// # Errors
 ///
@@ -289,6 +308,7 @@ pub fn inspect(
         .iter()
         .map(|&atom| AtomEntry {
             atom,
+            marked: plan.is_marked(atom),
             stored: stored_centers.get(&atom).copied(),
             drawn: Vec::with_capacity(instances.len()),
         })
@@ -327,7 +347,7 @@ pub fn inspect(
                 Err(error) => Err(Underivable::try_from(error)?),
             };
             let same_side_ends = if matches!(drawn, Ok(DoubleBondState::Relative { .. })) {
-                drawing.same_side_ends(entry.bond)?
+                same_side_ends_or_none(&drawing, entry.bond)
             } else {
                 Vec::new()
             };
@@ -355,6 +375,15 @@ pub fn inspect(
         wavy_between_centers: drawing.wavy_between_centers(),
         aromatic_centers,
     })
+}
+
+/// The ends of `bond` with two substituents drawn on one side ([`Drawing::same_side_ends`]), for
+/// a bond whose relation was just derived. The finding is advisory and per item: if the ends
+/// cannot be read (a position missing for a second substituent, which a document never causes)
+/// there is no such finding for this item in this instance, and the inspection of the other
+/// items and instances goes on. It is never an [`InspectError`].
+fn same_side_ends_or_none(drawing: &Drawing<'_>, bond: BondId) -> Vec<AtomId> {
+    drawing.same_side_ends(bond).unwrap_or_default()
 }
 
 /// The neighbor positions of `state`, with a non-atom position named the same whatever its label.
@@ -391,4 +420,58 @@ pub fn label_differs(stored: &CenterState, drawn: &CenterState) -> bool {
             .find(|slot| !matches!(slot, Slot::Atom(_)))
     };
     matches!((label(stored), label(drawn)), (Some(a), Some(b)) if a != b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::{Atom, Bond, BondOrder, Point};
+    use crate::element::Element;
+
+    #[test]
+    fn an_unreadable_second_substituent_is_no_same_side_finding_and_not_an_error() {
+        // a1=a2 with a3, a4 on a1 and a5 on a2; a4, the second substituent of a1, has no
+        // position. The relation reads only the lowest-identifier substituents (a3, a5), so it is
+        // derived, while the same-side test needs a4 and cannot be answered.
+        let id = |serial| AtomId::from_serial(serial).unwrap();
+        let atoms: BTreeMap<AtomId, Atom> = (1..=5)
+            .map(|serial| (id(serial), Atom::from(Element::from_symbol("C").unwrap())))
+            .collect();
+        let bonds: BTreeMap<BondId, Bond> = [(1, 2), (1, 3), (1, 4), (2, 5)]
+            .into_iter()
+            .zip(1..)
+            .map(|((begin, end), serial)| {
+                let order = if serial == 1 {
+                    BondOrder::Double
+                } else {
+                    BondOrder::Single
+                };
+                (
+                    BondId::from_serial(serial).unwrap(),
+                    Bond::new(id(begin), id(end), order),
+                )
+            })
+            .collect();
+        let point = |x, y| Point::new(x, y).unwrap();
+        let drawing = Drawing::new(
+            &atoms,
+            &bonds,
+            [
+                (id(1), point(30.0, 100.0)),
+                (id(2), point(60.0, 100.0)),
+                (id(3), point(15.0, 85.0)),
+                (id(5), point(75.0, 115.0)),
+            ],
+        );
+        let bond = BondId::from_serial(1).unwrap();
+        assert!(matches!(
+            drawing.derive_double_bond(bond),
+            Ok(DoubleBondState::Relative { .. })
+        ));
+        assert_eq!(
+            drawing.same_side_ends(bond),
+            Err(DeriveError::MissingPosition(id(4)))
+        );
+        assert_eq!(same_side_ends_or_none(&drawing, bond), Vec::<AtomId>::new());
+    }
 }

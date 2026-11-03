@@ -133,12 +133,15 @@ fn atom_view(entry: &AtomEntry) -> (AtomInspection, Vec<Diagnostic>) {
                 format!("Atom {atom}: the marks show a configuration in {instance} that is not stored."),
                 details,
             )),
-            (Agreement::OnlyStored, Some(why)) if why.is_no_marks() => diagnostics.push(info(
+            // Whether a mark bears on the atom is the entry's own fact: a structural reason
+            // (a query atom, the wrong number of neighbors) is reported before the marks are
+            // read, so it says nothing about them.
+            (Agreement::OnlyStored, Some(_)) if !entry.marked => diagnostics.push(info(
                 "configuration_without_marks",
                 format!("Atom {atom}: a configuration is stored and no mark bears on this atom in {instance}."),
                 details,
             )),
-            (_, Some(why)) if !why.is_no_marks() => {
+            (_, Some(why)) if entry.marked && !why.is_no_marks() => {
                 details.insert("reason".into(), why.code().into());
                 diagnostics.push(warning(
                     "drawing_not_derivable",
@@ -438,5 +441,63 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         );
         reply.model_id = Some(MODEL_ID.into());
         reply
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chemifree_domain::document::AtomId;
+    use chemifree_domain::stereo::{CenterState, Slot, StereoError, Turn};
+    use chemifree_domain::stereo_inspection::{AtomDrawn, Underivable};
+
+    use super::*;
+
+    fn slot(serial: u32) -> Slot {
+        Slot::Atom(AtomId::from_serial(serial).unwrap())
+    }
+
+    /// A stored center the drawing reads as structurally unsupported. No valid document reaches
+    /// this (an edit that would cause it clears the record or is refused), so the entry is built
+    /// by hand: what the finding says must not depend on that being unreachable.
+    fn unsupported_center(marked: bool) -> AtomEntry {
+        let stored = CenterState::tetrahedral(
+            [slot(2), slot(3), slot(4), Slot::ImplicitHydrogen],
+            Turn::Clockwise,
+        )
+        .unwrap();
+        AtomEntry {
+            atom: AtomId::from_serial(1).unwrap(),
+            marked,
+            stored: Some(stored),
+            drawn: vec![AtomDrawn {
+                instance: ObjectId::parse("s1").unwrap(),
+                drawn: Err(Underivable::Structure(StereoError::CenterUnsupported)),
+                agreement: Agreement::OnlyStored,
+                label_differs: false,
+                strength: None,
+            }],
+        }
+    }
+
+    fn codes(diagnostics: &[Diagnostic]) -> Vec<&'static str> {
+        diagnostics.iter().map(|d| d.code).collect()
+    }
+
+    #[test]
+    fn a_stored_center_with_a_structural_reason_and_no_mark_is_not_said_to_be_marked() {
+        let (view, diagnostics) = atom_view(&unsupported_center(false));
+        assert_eq!(view.drawn[0].agreement, "only_stored");
+        assert_eq!(view.drawn[0].reason, Some("stereo_center_unsupported"));
+        assert_eq!(codes(&diagnostics), ["configuration_without_marks"]);
+    }
+
+    #[test]
+    fn a_marked_center_with_a_structural_reason_is_not_derivable() {
+        let (_, diagnostics) = atom_view(&unsupported_center(true));
+        assert_eq!(codes(&diagnostics), ["drawing_not_derivable"]);
+        assert_eq!(
+            diagnostics[0].details["reason"],
+            "stereo_center_unsupported"
+        );
     }
 }

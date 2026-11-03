@@ -193,6 +193,17 @@ fn the_plan_lists_stored_marked_and_crossed_items_but_not_plain_ones_ascending()
     assert_eq!(plan.bonds(), [bid(crossed), bid(stored)]);
     assert!(!plan.bonds().contains(&bid(plain)));
     assert_eq!(plan.len(), 4);
+    // Marked is a fact of the entry, not of a reason: the stored-only center is unmarked.
+    assert!(plan.is_marked(aid(1)) && !plan.is_marked(aid(9)));
+    let inspection = all(&document);
+    assert_eq!(
+        inspection
+            .atoms
+            .iter()
+            .map(|entry| (entry.atom, entry.marked))
+            .collect::<Vec<_>>(),
+        [(aid(1), true), (aid(9), false)]
+    );
 }
 
 #[test]
@@ -728,6 +739,54 @@ fn a_center_with_an_aromatic_bond_is_listed_once_across_instances() {
     let inspection = all(&build.document());
     assert_eq!(inspection.atoms[0].drawn.len(), 2);
     assert_eq!(inspection.aromatic_centers, [aid(1)]);
+}
+
+#[test]
+fn the_aromatic_finding_follows_the_inspected_instances() {
+    // The center is derivable only in s2: in s1 a substituent sits on top of it. The finding is
+    // about the listed centers that are derivable in an inspected instance, so naming s1 drops
+    // it and naming s2, or no instance, keeps it.
+    let mut build = Build::default();
+    let center = build.atom("C", 100.0, 100.0);
+    let ends = [
+        build.atom("C", 100.0, 70.0),
+        build.atom("C", 126.0, 115.0),
+        build.atom("C", 74.0, 115.0),
+        build.atom("C", 100.0, 130.0),
+    ];
+    let bonds = ends.map(|end| build.bond(center, end, BondOrder::Single));
+    build.mark(bonds[1], wedge_begin());
+    build.commands.push(Command::UpdateBond {
+        bond: bid(bonds[2]),
+        order: BondOrder::Aromatic,
+    });
+    build.commands.push(Command::AddInstance {
+        source: None,
+        offset: Vector { dx: 200.0, dy: 0.0 },
+    });
+    let mut document = build.document();
+    let instances: Vec<ObjectId> = document.instances().collect();
+    let [s1, s2] = instances[..] else {
+        panic!("two instances")
+    };
+    document
+        .apply(&[Command::MoveAtoms {
+            atoms: vec![aid(ends[3])],
+            delta: Vector { dx: 0.0, dy: -30.0 },
+            instance: Some(s1),
+        }])
+        .unwrap();
+    let plan = Plan::of(&document).unwrap();
+    let aromatic = |instances: &[ObjectId]| inspect(&document, &plan, instances).unwrap();
+
+    let only_s1 = aromatic(&[s1]);
+    assert_eq!(
+        only_s1.atoms[0].drawn[0].drawn,
+        Err(Underivable::NotDerivable(NotDerivable::CoincidentAtoms))
+    );
+    assert!(only_s1.aromatic_centers.is_empty());
+    assert_eq!(aromatic(&[s2]).aromatic_centers, [aid(center)]);
+    assert_eq!(aromatic(&[s1, s2]).aromatic_centers, [aid(center)]);
 }
 
 #[test]
