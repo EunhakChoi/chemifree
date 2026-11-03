@@ -1095,7 +1095,7 @@
     "P25",
     "P18"
    ],
-   "note": "첫 납품 P26a-1은 도메인 내부만이다: `crates/domain/src/cip.rs`가 저장된 사면체 중심의 R/S 레이블을 규칙 1a·1b·2와 계층 digraph(중복·팬텀 원자, 전부 탄소인 방향족계의 mancude 처리)로 계산한다. 공개 연산·HTTP·CLI·웹은 없고(연산 수 26 그대로) 응답 계약도 바꾸지 않았다. 두 번째 납품 P26a-2도 도메인 내부만이다: 규칙 3(Z가 E보다 위)과 이중결합 E/Z 레이블(`label_double_bonds`)과 후보 탐색(`candidates`)을 더했고 임시 사유 cip_rule_3_pending을 없앴다. 리간드 이중결합에 기록이 없거나 unknown이면 ambiguous(cip_ligand_stereo_unspecified)이며 RDKit과 다르다(RDKit은 E 아래로 두고 레이블을 낸다). 기술자 순환은 cip_stereo_cycle, 한도는 cip_digraph_limit이다. chem.cip 연산, 웹 표시, 규칙 4·5와 의사비대칭 r/s, 헤테로방향족은 후속이며 P26은 완료가 아니다."
+   "note": "첫 납품 P26a-1은 도메인 내부만이다: `crates/domain/src/cip.rs`가 저장된 사면체 중심의 R/S 레이블을 규칙 1a·1b·2와 계층 digraph(중복·팬텀 원자, 전부 탄소인 방향족계의 mancude 처리)로 계산한다. 공개 연산·HTTP·CLI·웹은 없고(연산 수 26 그대로) 응답 계약도 바꾸지 않았다. 두 번째 납품 P26a-2도 도메인 내부만이다: 규칙 3(Z가 E보다 위)과 이중결합 E/Z 레이블(`label_double_bonds`)과 후보 탐색(`candidates`)을 더했고 임시 사유 cip_rule_3_pending을 없앴다. 리간드 이중결합에 기록이 없거나 unknown이면 ambiguous(cip_ligand_stereo_unspecified)이며 RDKit과 다르다(RDKit은 E 아래로 두고 레이블을 낸다). 기술자 순환은 cip_stereo_cycle, 한도는 cip_digraph_limit이다. 세 번째 납품 P26a-3도 도메인 내부만이다: 이슈 #120(리간드 이중결합의 기술자를 전체 분자에서 읽을지 RDKit처럼 레이블 단위의 다이어그래프에서 읽을지에 따라 레이블이 달라지는 경우)을 새 사유 cip_rule3_nested_descriptor로 거절해 정리했다. 두 읽기가 달라질 수 있는 곳만 거절하고, 어느 읽기가 맞는지는 사용자 결정 사항으로 남는다. 고리와 비고리 무작위 분자 대조에서 거절한 것을 뺀 레이블은 RDKit과 같았고 거절 비율은 이중결합 약 1.9%, 중심 약 2.7%다. 또 동률 분류가 기술자 비용을 한 번만 세고 한 원자의 위치쌍을 모두 비교해 작업량이 번호 매김과 무관하게 했다. chem.cip 연산, 웹 표시, 규칙 4·5와 의사비대칭 r/s, 헤테로방향족은 후속이며 P26은 완료가 아니다."
   },
   {
    "phase": "stereo",
