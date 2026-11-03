@@ -1,0 +1,401 @@
+{
+  "id": "stereo-identity-and-substructure-not-compared",
+  "title": "Identity and substructure search never read stereo: two drawings with opposite stated turns match, and the reply says stereo was not compared and was present",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-left",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "left"
+        }
+      },
+      "bind": "left",
+      "capture": {
+        "left_id": "/result/document/id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "left",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-right",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "right"
+        }
+      },
+      "bind": "right",
+      "capture": {
+        "right_id": "/result/document/id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "right",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "anticlockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-plain",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "plain"
+        }
+      },
+      "bind": "plain",
+      "capture": {
+        "plain_id": "/result/document/id"
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "plain",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "left",
+      "request": {
+        "contract": 1,
+        "request_id": "identity",
+        "profile": "preserve-semantics",
+        "operation": "chem.identity",
+        "parameters": {
+          "mode": "recorded",
+          "other_document_id": null
+        }
+      },
+      "substitute": {
+        "/parameters/other_document_id": "right_id"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "comparison": {
+            "equivalent": true
+          },
+          "stereo": {
+            "compared": false,
+            "source_present": true,
+            "other_present": true
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo",
+              "source_path": "snapshot",
+              "disposition": "unknown",
+              "semantic_impact": "stereo"
+            },
+            {
+              "feature": "stereo",
+              "source_path": "comparison.snapshot",
+              "disposition": "unknown",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "search",
+        "profile": "preserve-semantics",
+        "operation": "chem.substructure",
+        "parameters": {
+          "query_document_id": null,
+          "target_document_id": null
+        }
+      },
+      "substitute": {
+        "/parameters/query_document_id": "left_id",
+        "/parameters/target_document_id": "right_id"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "stereo": {
+            "compared": false,
+            "query_present": true,
+            "target_present": true
+          },
+          "mappings": {
+            "$contains": [
+              {
+                "atoms": [
+                  {
+                    "query": "a1",
+                    "target": "a1"
+                  },
+                  {
+                    "query": "a2",
+                    "target": "a2"
+                  },
+                  {
+                    "query": "a3",
+                    "target": "a3"
+                  },
+                  {
+                    "query": "a4",
+                    "target": "a4"
+                  }
+                ],
+                "bonds": [
+                  {
+                    "query": "b1",
+                    "target": "b1"
+                  },
+                  {
+                    "query": "b2",
+                    "target": "b2"
+                  },
+                  {
+                    "query": "b3",
+                    "target": "b3"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "plain",
+      "request": {
+        "contract": 1,
+        "request_id": "plain-identity",
+        "profile": "preserve-semantics",
+        "operation": "chem.identity",
+        "parameters": {
+          "mode": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "stereo": {
+            "compared": false,
+            "source_present": false,
+            "other_present": null
+          }
+        }
+      }
+    }
+  ]
+}

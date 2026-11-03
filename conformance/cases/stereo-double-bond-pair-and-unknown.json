@@ -1,0 +1,289 @@
+{
+  "id": "stereo-double-bond-pair-and-unknown",
+  "title": "The same alkene stated same side and opposite sides gives two snapshots that differ only in the relation; unknown is a statement and clearing is not",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": -20,
+            "y": 20
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 50,
+            "y": 20
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "$1",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a3",
+            "end_neighbor": "a4",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b1",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a3",
+                  "end_neighbor": "a4",
+                  "relation": "same_side"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "order": "double",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b1",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a3",
+            "end_neighbor": "a4",
+            "relation": "opposite_sides"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b1",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a3",
+                  "end_neighbor": "a4",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "order": "double",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b1",
+          "configuration": {
+            "kind": "unknown"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b1",
+                "configuration": {
+                  "kind": "unknown"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "order": "double",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b1",
+          "configuration": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "order": "double",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b1",
+                "configuration": {
+                  "kind": "unknown"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 5,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b1",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a3",
+                  "end_neighbor": "a4",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

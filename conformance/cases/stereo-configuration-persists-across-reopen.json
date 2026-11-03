@@ -1,0 +1,474 @@
+{
+  "id": "stereo-configuration-persists-across-reopen",
+  "title": "A stated configuration is stored in canonical form, saved, reopened, undone, redone, and a restatement changes nothing",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "persistence",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 230,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 250,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$5",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a3",
+              "a2",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "b4",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a7",
+            "end_neighbor": "implicit_hydrogen",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            },
+            {
+              "id": "b4",
+              "mark": null
+            },
+            {
+              "id": "b5",
+              "mark": null
+            },
+            {
+              "id": "b6",
+              "mark": null
+            }
+          ]
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "session": {
+          "saved_revision": 2,
+          "unsaved_changes": false
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            },
+            {
+              "id": "b4",
+              "mark": null
+            },
+            {
+              "id": "b5",
+              "mark": null
+            },
+            {
+              "id": "b6",
+              "mark": null
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            },
+            {
+              "id": "b4",
+              "mark": null
+            },
+            {
+              "id": "b5",
+              "mark": null
+            },
+            {
+              "id": "b6",
+              "mark": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            },
+            {
+              "id": "b4",
+              "mark": null
+            },
+            {
+              "id": "b5",
+              "mark": null
+            },
+            {
+              "id": "b6",
+              "mark": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "anticlockwise"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "b4",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a7",
+            "end_neighbor": "a8",
+            "relation": "opposite_sides"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}

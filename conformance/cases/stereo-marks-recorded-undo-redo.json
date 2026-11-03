@@ -1,0 +1,280 @@
+{
+  "id": "stereo-marks-recorded-undo-redo",
+  "title": "Drawn stereo marks are set and cleared by command, keep their narrow end, never swap the bond's ends, and follow undo and redo",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b1",
+          "mark": {
+            "kind": "hash",
+            "narrow": "end"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": null
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b3",
+          "mark": {
+            "kind": "wavy"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": {
+                "kind": "hash",
+                "narrow": "end"
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": {
+                "kind": "wavy"
+              }
+            }
+          ],
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": {
+                "kind": "hash",
+                "narrow": "end"
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": {
+                "kind": "wavy"
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 4,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": {
+                "kind": "hash",
+                "narrow": "end"
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": {
+                "kind": "wavy"
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    }
+  ]
+}

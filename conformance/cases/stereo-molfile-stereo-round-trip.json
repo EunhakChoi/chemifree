@@ -1,0 +1,13 @@
+{
+  "id": "stereo-molfile-stereo-round-trip",
+  "title": "Wedge columns and parity of a V2000 molfile round-trip into the stored marks and configurations",
+  "requirements": [
+    "CODEC-03"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "pending": {
+    "followup": "P29",
+    "reason": "V2000 export refuses stereo and import reports it unsupported until the molfile stereo mapping exists."
+  }
+}

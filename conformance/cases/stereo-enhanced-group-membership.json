@@ -1,0 +1,13 @@
+{
+  "id": "stereo-enhanced-group-membership",
+  "title": "Enhanced stereo group membership is recorded and read back",
+  "requirements": [
+    "STEREO-01"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "pending": {
+    "followup": "P27",
+    "reason": "Enhanced stereo groups are not implemented; no command creates or reads a group."
+  }
+}
