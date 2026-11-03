@@ -1,9 +1,11 @@
 //! Test oracles that share no code with the implementation: a hand 3D oracle for the sign of a
-//! label, and a naive, fully materialized digraph ranking.
+//! label, and a naive, fully materialized digraph ranking with Rule 3.
 
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
-use chemifree_domain::stereo::Turn;
+use chemifree_domain::stereo::{Relation, Turn};
 
 use crate::support::{Molecule, Neighbor};
 
@@ -71,6 +73,8 @@ struct Node {
     mass: u16,
     /// For a duplicate, the sphere of the atom it duplicates.
     duplicate: Option<usize>,
+    /// For a real node reached by a double bond: the atoms of that bond (parent, node).
+    double: Option<(usize, usize)>,
     kids: Vec<Node>,
 }
 
@@ -80,15 +84,61 @@ impl Node {
             z,
             mass,
             duplicate: None,
+            double: None,
             kids: Vec::new(),
         }
     }
+}
+
+/// What Rule 3 reads of a double bond.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Geo {
+    Z,
+    E,
+    Plain,
+    /// Stereogenic but not stated; true when its own ends were ambiguous.
+    Unspec(bool),
+    /// Its descriptor needed itself.
+    Cycle,
+}
+
+/// What the naive ranking found, with how sure it is.
+pub struct Found {
+    /// `Some(ranks)` (0 highest) when all four are distinct, `None` for a tie.
+    pub ranks: Option<[usize; 4]>,
+    /// A double bond whose geometry is not stated, or a descriptor that needs itself, took part
+    /// somewhere in the digraphs: the implementation may answer `ambiguous` or refuse, and where
+    /// it answers a label it must be this one.
+    pub lenient: bool,
+    /// A descriptor needed itself somewhere in the naive evaluation. The naive ranking sorts
+    /// every sibling pair eagerly, so it can meet such a cycle where the lazy implementation
+    /// never looks; its ranks are then not comparable.
+    pub cycle: bool,
+    /// Some end of a ligand double bond had two substituents that tie: a refusal for Rules 4
+    /// and 5 is possible there.
+    pub end_tie: bool,
+}
+
+struct Stored {
+    begin: usize,
+    end: usize,
+    begin_ref: Neighbor,
+    end_ref: Neighbor,
+    relation: Option<Relation>,
 }
 
 pub struct Reference {
     atoms: Vec<RefAtom>,
     edges: Vec<(usize, usize, u8)>,
     center: usize,
+    stored: Vec<Stored>,
+    stack: RefCell<Vec<(usize, usize)>>,
+    cache: RefCell<BTreeMap<(usize, usize), Geo>>,
+    seen_uncertain: Cell<bool>,
+    seen_end_tie: Cell<bool>,
+    seen_cycle: Cell<bool>,
+    ambiguous: Cell<bool>,
+    recording: Cell<bool>,
 }
 
 impl Reference {
@@ -117,6 +167,27 @@ impl Reference {
                 })
                 .collect(),
             center,
+            stored: molecule
+                .doubles
+                .iter()
+                .map(|double| {
+                    let (begin, end, _) = molecule.bonds[double.bond];
+                    Stored {
+                        begin,
+                        end,
+                        begin_ref: double.begin,
+                        end_ref: double.end,
+                        relation: double.relation,
+                    }
+                })
+                .collect(),
+            stack: RefCell::new(Vec::new()),
+            cache: RefCell::new(BTreeMap::new()),
+            seen_uncertain: Cell::new(false),
+            seen_end_tie: Cell::new(false),
+            seen_cycle: Cell::new(false),
+            ambiguous: Cell::new(false),
+            recording: Cell::new(false),
         }
     }
 
@@ -167,7 +238,13 @@ impl Reference {
                     duplicate: Some(at),
                     ..Node::leaf(self.atoms[neighbor].z, self.mass(neighbor))
                 },
-                None => self.digraph(neighbor, atom, bond, path),
+                None => {
+                    let mut kid = self.digraph(neighbor, atom, bond, path);
+                    if bond == 2 {
+                        kid.double = Some((atom, neighbor));
+                    }
+                    kid
+                }
             };
             node.kids.push(child);
             for _ in 1..bond {
@@ -190,17 +267,17 @@ impl Reference {
         node
     }
 
-    fn ligand(&self, neighbor: Neighbor) -> Node {
+    fn ligand(&self, center: usize, neighbor: Neighbor) -> Node {
         match neighbor {
             Neighbor::Atom(atom) => {
                 let order = self
-                    .neighbors(self.center)
+                    .neighbors(center)
                     .into_iter()
                     .find_map(|(other, order)| (other == atom).then_some(order))
                     .expect("a ligand is bonded to the center");
-                let mut path = vec![self.center];
-                let mut node = self.digraph(atom, self.center, order, &mut path);
-                sort(&mut node);
+                let mut path = vec![center];
+                let mut node = self.digraph(atom, center, order, &mut path);
+                self.sort(&mut node);
                 node
             }
             Neighbor::Hydrogen => Node::leaf(1, 1),
@@ -208,21 +285,168 @@ impl Reference {
         }
     }
 
-    /// The ranking of the listed neighbors by the full rules: `Some(ranks)` (0 highest) when
-    /// all four are distinct, `None` for a tie.
-    pub fn ranks(&self, listed: [Neighbor; 4]) -> Option<[usize; 4]> {
-        let ligands = listed.map(|neighbor| self.ligand(neighbor));
+    /// The ranking of the listed neighbors by the full rules.
+    pub fn ranks(&self, listed: [Neighbor; 4]) -> Found {
+        self.seen_uncertain.set(false);
+        self.seen_end_tie.set(false);
+        self.seen_cycle.set(false);
+        self.ambiguous.set(false);
+        self.cache.borrow_mut().clear();
+        let ligands = listed.map(|neighbor| self.ligand(self.center, neighbor));
+        self.recording.set(true);
         let mut wins = [0_i32; 4];
         for i in 0..4 {
             for j in 0..4 {
-                if i != j && compare_full(&ligands[i], &ligands[j]) == Ordering::Greater {
+                if i != j && self.compare_full(&ligands[i], &ligands[j]) == Ordering::Greater {
                     wins[i] += 1;
                 }
             }
         }
+        self.recording.set(false);
         let mut sorted = wins;
         sorted.sort_unstable();
-        (sorted == [0, 1, 2, 3]).then(|| wins.map(|w| 3 - usize::try_from(w).unwrap()))
+        Found {
+            ranks: (sorted == [0, 1, 2, 3]).then(|| wins.map(|w| 3 - usize::try_from(w).unwrap())),
+            lenient: self.seen_uncertain.get() || self.ambiguous.get(),
+            cycle: self.seen_cycle.get(),
+            end_tie: self.seen_end_tie.get(),
+        }
+    }
+
+    /// The two substituent positions at `end` of the double bond to `partner`: the other
+    /// neighbors, the hydrogens the valence gives, and lone pairs for the rest.
+    fn positions(&self, end: usize, partner: usize) -> [Neighbor; 2] {
+        let mut list: Vec<Neighbor> = self
+            .neighbors(end)
+            .into_iter()
+            .filter(|&(other, _)| other != partner)
+            .map(|(other, _)| Neighbor::Atom(other))
+            .collect();
+        for _ in 0..self.hydrogens(end) {
+            list.push(Neighbor::Hydrogen);
+        }
+        while list.len() < 2 {
+            list.push(Neighbor::LonePair);
+        }
+        [list[0], list[1]]
+    }
+
+    /// Ranks the two positions at one end: `Some(index of the higher)`, or `None` for a tie.
+    /// Ambiguity found inside is passed on through the second value.
+    fn higher_at(&self, end: usize, partner: usize) -> (Option<usize>, bool) {
+        let positions = self.positions(end, partner);
+        let outer = self.ambiguous.replace(false);
+        let first = self.ligand(end, positions[0]);
+        let second = self.ligand(end, positions[1]);
+        let was = self.recording.replace(true);
+        let ordering = self.compare_full(&first, &second);
+        self.recording.set(was);
+        let inner = self.ambiguous.replace(outer);
+        let higher = match ordering {
+            Ordering::Greater => Some(0),
+            Ordering::Less => Some(1),
+            Ordering::Equal => {
+                self.seen_end_tie.set(true);
+                None
+            }
+        };
+        (higher, inner)
+    }
+
+    /// The side (up or down) a position takes when the reference position of an end is up.
+    /// Independent of the implementation's flip counting: sides are assigned, then compared.
+    fn side(
+        positions: [Neighbor; 2],
+        reference: Neighbor,
+        relation_up: bool,
+        index: usize,
+    ) -> bool {
+        let reference_index = positions
+            .iter()
+            .position(|&position| position == reference)
+            .expect("the stored reference is one of the two positions");
+        if index == reference_index {
+            relation_up
+        } else {
+            !relation_up
+        }
+    }
+
+    /// The descriptor of the double bond between `a` and `b`, read from the stored record
+    /// through the ranking of both ends.
+    fn geometry(&self, a: usize, b: usize) -> Geo {
+        let key = (a.min(b), a.max(b));
+        if let Some(&found) = self.cache.borrow().get(&key) {
+            return found;
+        }
+        if self.stack.borrow().contains(&key) {
+            self.ambiguous.set(true);
+            self.seen_cycle.set(true);
+            return Geo::Cycle;
+        }
+        self.stack.borrow_mut().push(key);
+        let (high_a, amb_a) = self.higher_at(a, b);
+        let (high_b, amb_b) = self.higher_at(b, a);
+        self.stack.borrow_mut().pop();
+        let found = match (high_a, high_b) {
+            (None, _) | (_, None) => Geo::Plain,
+            _ if amb_a || amb_b => Geo::Unspec(true),
+            (Some(ha), Some(hb)) => {
+                let record = self.stored.iter().find(|stored| {
+                    (stored.begin.min(stored.end), stored.begin.max(stored.end)) == key
+                });
+                match record.and_then(|stored| stored.relation.map(|relation| (stored, relation))) {
+                    None => Geo::Unspec(false),
+                    Some((stored, relation)) => {
+                        let (pa, pb) = (
+                            self.positions(stored.begin, stored.end),
+                            self.positions(stored.end, stored.begin),
+                        );
+                        let (higher_begin, higher_end) = if stored.begin == a {
+                            (ha, hb)
+                        } else {
+                            (hb, ha)
+                        };
+                        let up_begin = Self::side(pa, stored.begin_ref, true, higher_begin);
+                        let reference_end_up = relation == Relation::SameSide;
+                        let up_end = Self::side(pb, stored.end_ref, reference_end_up, higher_end);
+                        if up_begin == up_end { Geo::Z } else { Geo::E }
+                    }
+                }
+            }
+        };
+        if matches!(found, Geo::Unspec(_)) {
+            self.seen_uncertain.set(true);
+        }
+        self.cache.borrow_mut().insert(key, found);
+        found
+    }
+
+    /// The label of the double bond between `a` and `b`: `Z`, `E`, `none`, or `None` when the
+    /// naive ranking cannot say (unstated geometry inside).
+    pub fn bond_label(&self, a: usize, b: usize) -> Option<&'static str> {
+        self.cache.borrow_mut().clear();
+        self.seen_uncertain.set(false);
+        self.seen_cycle.set(false);
+        self.ambiguous.set(false);
+        let found = self.geometry(a, b);
+        if self.seen_cycle.get() {
+            return None;
+        }
+        match found {
+            Geo::Z => Some("Z"),
+            Geo::E => Some("E"),
+            Geo::Plain => Some("none"),
+            Geo::Unspec(_) | Geo::Cycle => None,
+        }
+    }
+
+    /// Whether the double bond between `a` and `b` is stored with a relation (not unknown).
+    pub fn is_stored(&self, a: usize, b: usize) -> bool {
+        self.stored.iter().any(|stored| {
+            (stored.begin.min(stored.end), stored.begin.max(stored.end)) == (a.min(b), a.max(b))
+                && stored.relation.is_some()
+        })
     }
 
     /// A canonical text of the plain subtree below `atom` (no duplicates), for the structural
@@ -246,17 +470,102 @@ impl Reference {
     }
 }
 
-/// A key compared by one rule; a missing node reads as a phantom.
-fn key_order(rule: usize, a: Option<&Node>, b: Option<&Node>) -> Ordering {
-    let z = |n: Option<&Node>| n.map_or(0, |n| n.z);
-    let mass = |n: Option<&Node>| n.map_or(0, |n| n.mass);
-    match rule {
-        0 => z(a).cmp(&z(b)),
-        1 => match (a.and_then(|n| n.duplicate), b.and_then(|n| n.duplicate)) {
-            (Some(x), Some(y)) => y.cmp(&x),
-            _ => Ordering::Equal,
-        },
-        _ => mass(a).cmp(&mass(b)),
+impl Reference {
+    /// What Rule 3 reads of a node: the descriptor of the double bond that leads to it.
+    fn node_geo(&self, node: Option<&Node>) -> Option<Geo> {
+        let (a, b) = node?.double?;
+        Some(self.geometry(a, b))
+    }
+
+    /// A key compared by one rule; a missing node reads as a phantom.
+    fn key_order(&self, rule: usize, a: Option<&Node>, b: Option<&Node>) -> Ordering {
+        let z = |n: Option<&Node>| n.map_or(0, |n| n.z);
+        let mass = |n: Option<&Node>| n.map_or(0, |n| n.mass);
+        match rule {
+            0 => z(a).cmp(&z(b)),
+            1 => match (a.and_then(|n| n.duplicate), b.and_then(|n| n.duplicate)) {
+                (Some(x), Some(y)) => y.cmp(&x),
+                _ => Ordering::Equal,
+            },
+            2 => mass(a).cmp(&mass(b)),
+            _ => {
+                let (ga, gb) = (self.node_geo(a), self.node_geo(b));
+                let key = |g: Option<Geo>| match g {
+                    Some(Geo::Z) => 3,
+                    Some(Geo::E) => 2,
+                    Some(Geo::Unspec(_)) => 1,
+                    _ => 0,
+                };
+                let unspec = |g: Option<Geo>| matches!(g, Some(Geo::Unspec(_)));
+                let settled = |g: Option<Geo>, other: Option<Geo>| match g {
+                    Some(Geo::Unspec(maybe_plain)) => {
+                        !maybe_plain && matches!(other, None | Some(Geo::Plain | Geo::Cycle))
+                    }
+                    _ => true,
+                };
+                if self.recording.get()
+                    && (unspec(ga) || unspec(gb))
+                    && !(settled(ga, gb) && settled(gb, ga))
+                {
+                    self.ambiguous.set(true);
+                }
+                key(ga).cmp(&key(gb))
+            }
+        }
+    }
+
+    fn compare_rule(&self, rule: usize, a: &Node, b: &Node) -> Ordering {
+        let (sa, sb) = (spheres(a), spheres(b));
+        for j in 0..sa.len().max(sb.len()) {
+            let no_groups: Vec<Vec<&Node>> = Vec::new();
+            let no_nodes: Vec<&Node> = Vec::new();
+            let (ga, gb) = (
+                sa.get(j).unwrap_or(&no_groups),
+                sb.get(j).unwrap_or(&no_groups),
+            );
+            if rule == 3 {
+                // Every descriptor of a sphere is read before the sphere is compared.
+                for node in ga.iter().chain(gb).flatten() {
+                    self.node_geo(Some(node));
+                }
+            }
+            for g in 0..ga.len().max(gb.len()) {
+                let (la, lb) = (
+                    ga.get(g).unwrap_or(&no_nodes),
+                    gb.get(g).unwrap_or(&no_nodes),
+                );
+                for p in 0..la.len().max(lb.len()) {
+                    let ordering = self.key_order(rule, la.get(p).copied(), lb.get(p).copied());
+                    if ordering != Ordering::Equal {
+                        return ordering;
+                    }
+                }
+            }
+        }
+        Ordering::Equal
+    }
+
+    fn compare_full(&self, a: &Node, b: &Node) -> Ordering {
+        (0..4)
+            .map(|rule| self.compare_rule(rule, a, b))
+            .find(|ordering| *ordering != Ordering::Equal)
+            .unwrap_or(Ordering::Equal)
+    }
+
+    /// Sorts every node's children best first by the full comparison, bottom up (bubble sort,
+    /// so a comparison that is not a strict weak order cannot panic the sort).
+    fn sort(&self, node: &mut Node) {
+        for kid in &mut node.kids {
+            self.sort(kid);
+        }
+        let n = node.kids.len();
+        for end in (1..n).rev() {
+            for i in 0..end {
+                if self.compare_full(&node.kids[i], &node.kids[i + 1]) == Ordering::Less {
+                    node.kids.swap(i, i + 1);
+                }
+            }
+        }
     }
 }
 
@@ -278,62 +587,14 @@ fn spheres(root: &Node) -> Vec<Vec<Vec<&Node>>> {
     }
 }
 
-fn compare_rule(rule: usize, a: &Node, b: &Node) -> Ordering {
-    let (sa, sb) = (spheres(a), spheres(b));
-    for j in 0..sa.len().max(sb.len()) {
-        let no_groups: Vec<Vec<&Node>> = Vec::new();
-        let no_nodes: Vec<&Node> = Vec::new();
-        let (ga, gb) = (
-            sa.get(j).unwrap_or(&no_groups),
-            sb.get(j).unwrap_or(&no_groups),
-        );
-        for g in 0..ga.len().max(gb.len()) {
-            let (la, lb) = (
-                ga.get(g).unwrap_or(&no_nodes),
-                gb.get(g).unwrap_or(&no_nodes),
-            );
-            for p in 0..la.len().max(lb.len()) {
-                let ordering = key_order(rule, la.get(p).copied(), lb.get(p).copied());
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
-            }
-        }
-    }
-    Ordering::Equal
-}
-
-fn compare_full(a: &Node, b: &Node) -> Ordering {
-    (0..3)
-        .map(|rule| compare_rule(rule, a, b))
-        .find(|ordering| *ordering != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
-}
-
-/// Sorts every node's children best first by the full comparison, bottom up (bubble sort, so a
-/// comparison that is not a strict weak order cannot panic the sort).
-fn sort(node: &mut Node) {
-    for kid in &mut node.kids {
-        sort(kid);
-    }
-    let n = node.kids.len();
-    for end in (1..n).rev() {
-        for i in 0..end {
-            if compare_full(&node.kids[i], &node.kids[i + 1]) == Ordering::Less {
-                node.kids.swap(i, i + 1);
-            }
-        }
-    }
-}
-
 impl Reference {
     /// The pairs of listed neighbors the full rules cannot separate.
     pub fn equal_pairs(&self, listed: [Neighbor; 4]) -> Vec<(usize, usize)> {
-        let ligands = listed.map(|neighbor| self.ligand(neighbor));
+        let ligands = listed.map(|neighbor| self.ligand(self.center, neighbor));
         let mut pairs = Vec::new();
         for i in 0..4 {
             for j in (i + 1)..4 {
-                if compare_full(&ligands[i], &ligands[j]) == Ordering::Equal {
+                if self.compare_full(&ligands[i], &ligands[j]) == Ordering::Equal {
                     pairs.push((i, j));
                 }
             }
