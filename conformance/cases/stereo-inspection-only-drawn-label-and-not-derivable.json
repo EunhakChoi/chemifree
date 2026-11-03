@@ -1,0 +1,368 @@
+{
+  "id": "stereo-inspection-only-drawn-label-and-not-derivable",
+  "title": "chem.stereo reports a marked center nothing is stored for as only drawn, two marks that conflict as not derivable with the reason, a stored hydrogen against a drawn lone pair as agreeing with label_differs, and a wedge whose narrow end is a terminal atom; it stores nothing",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "m"
+    },
+    {
+      "call": "transact",
+      "document": "m",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b1",
+          "mark": {
+            "kind": "hash",
+            "narrow": "end"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 300,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$6",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 326,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$6",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 274,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$6",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b5",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b4",
+          "mark": {
+            "kind": "wavy"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "S",
+          "position": {
+            "x": 500,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 500,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 526,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 474,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b8",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a9",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a10",
+              "a11",
+              "a12",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "m",
+      "request": {
+        "contract": 1,
+        "request_id": "kinds",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": null,
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "only_drawn",
+                  "label_differs": false
+                }
+              ]
+            },
+            {
+              "atom": "a5",
+              "stored": null,
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": null,
+                  "reason": "stereo_not_derivable_conflicting_marks",
+                  "agreement": "neither",
+                  "label_differs": false
+                }
+              ]
+            },
+            {
+              "atom": "a9",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a10",
+                  "a11",
+                  "a12",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a10",
+                      "a11",
+                      "a12",
+                      "lone_pair"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": true
+                }
+              ]
+            }
+          ]
+        },
+        "diagnostics": {
+          "$contains": [
+            {
+              "code": "marks_without_configuration",
+              "severity": "info",
+              "details": {
+                "item": "atom",
+                "id": "a1"
+              }
+            },
+            {
+              "code": "drawing_not_derivable",
+              "severity": "warning",
+              "details": {
+                "item": "atom",
+                "id": "a5",
+                "reason": "stereo_not_derivable_conflicting_marks"
+              }
+            },
+            {
+              "code": "mark_narrow_end_not_a_center",
+              "severity": "warning",
+              "details": {
+                "bond": "b1",
+                "narrow_atom": "a2",
+                "other_atom": "a1"
+              }
+            },
+            {
+              "code": "stereo_not_checked",
+              "severity": "info"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "m",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a9",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a10",
+                    "a11",
+                    "a12",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}
