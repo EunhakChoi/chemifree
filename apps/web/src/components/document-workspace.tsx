@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArchiveRestoreIcon,
   ArrowDownIcon,
@@ -82,11 +82,14 @@ import { CtfilePanel } from '@/components/ctfile-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
+import { StereoPanel } from '@/components/stereo-panel'
 import { IdentityPanel } from '@/components/identity-panel'
 import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor, type StereoStatus } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
+import { useStereoAgreement } from '@/hooks/use-stereo-agreement'
+import { agreementRings, agreementRows, viewSentence, type AgreementView } from '@/editor/stereo-agreement'
 import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
 import {
   ATTACHMENT_POINTS,
@@ -246,7 +249,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks are drawn and a mark gesture stores the configuration it shows; stored configurations are not compared with the drawing, no CIP label is computed, and naming remains unimplemented.
+          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks are drawn and a mark gesture stores the configuration it shows; the Stereo panel compares each stored configuration with the drawing and updates or removes it on request. No CIP label is computed, no atom is judged stereogenic, and naming remains unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -552,6 +555,17 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
+  const [dragging, setDragging] = useState(false)
+  const [automatic, setAutomatic] = useState(true)
+  const { view: agreement, checkNow } = useStereoAgreement({
+    document,
+    serviceGeneration: editor.serviceGeneration,
+    dragging,
+    automatic,
+    inspect: editor.inspectStereo,
+  })
+  // Rings are drawn only for a comparison of exactly this drawing; a stale one draws none.
+  const rings = useMemo(() => (agreement.kind === 'ready' ? agreementRings(agreementRows(agreement.inspection)) : []), [agreement])
   const { selection, setSelection } = editor
   const exists = new Set([
     ...document.atoms.map((atom) => atom.id),
@@ -663,7 +677,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       </div>
       {current.recovery && <RecoveryNotice editor={editor} recovery={current.recovery} unsaved={session.unsaved_changes} />}
       {editor.copyNotice && <CopyNoticeBanner editor={editor} notice={editor.copyNotice} title={document.title} />}
-      <StereoNotice document={document} />
+      <StereoNotice document={document} agreement={agreement} />
       <StereoStatusLine status={editor.stereoStatus} document={document} />
       <StereoNotes notes={current.notes ?? []} />
 
@@ -745,11 +759,21 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onSelectionChange={setSelection}
             onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
+            rings={rings}
+            onDragging={setDragging}
             disabled={editor.busy}
           />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <Inspector document={document} selected={selectedIds} editor={editor} onDelete={deleteSelection} />
+          <StereoPanel
+            view={agreement}
+            automatic={automatic}
+            onAutomaticChange={setAutomatic}
+            onCheckNow={checkNow}
+            onResolve={(resolution) => void editor.resolveStereo(resolution)}
+            busy={editor.busy}
+          />
           <ValenceInspector document={document} editor={editor} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
           <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />
@@ -771,23 +795,29 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
 }
 
 /**
- * Says what the drawing holds in stereo and what the editor does with it. Marks are drawn, and a
- * mark gesture stores the configuration it shows; nothing compares a stored configuration with
- * the drawing, so a disagreement is not shown, and nothing judges whether an atom is a
- * stereocenter. This line is present whenever any mark or configuration is.
+ * Says what the drawing holds in stereo and what the editor does with it. Marks are drawn, a
+ * mark gesture stores the configuration it shows, and the Stereo panel compares each stored
+ * configuration with the drawing (the sentence in the live region); nothing is stored by the
+ * comparison, and nothing judges whether an atom is a stereocenter. This line is present
+ * whenever any mark or configuration is.
  */
-function StereoNotice({ document }: { document: DocumentView }) {
+function StereoNotice({ document, agreement }: { document: DocumentView; agreement: AgreementView }) {
   const { marks, configurations } = stereoCounts(document)
-  if (marks + configurations === 0) return null
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
   return (
-    <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
-      This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept and
-      saved. Drawing a wedge, hashed wedge or wavy bond stores the configuration the drawing then shows and replaces one
-      already stored for that atom; undo restores it. The editor does not compare a stored configuration with the drawing:
-      moving atoms or changing bonds does not update it, and a disagreement is not shown. Whether an atom is a stereocenter
-      is not assessed.
-    </p>
+    <>
+      {marks + configurations > 0 && (
+        <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
+          This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept
+          and saved. Drawing a wedge, hashed wedge or wavy bond stores the configuration the drawing then shows and replaces
+          one already stored for that atom; undo restores it. Moving atoms or changing bonds does not update a stored
+          configuration: the Stereo panel shows where one no longer agrees with the drawing and offers to update it. Whether
+          an atom is a stereocenter is not assessed.
+        </p>
+      )}
+      {/* A live region that exists before its text does, so a screen reader announces each change. */}
+      <p role="status" data-testid="stereo-agreement" className="text-xs leading-relaxed empty:sr-only">{viewSentence(agreement)}</p>
+    </>
   )
 }
 

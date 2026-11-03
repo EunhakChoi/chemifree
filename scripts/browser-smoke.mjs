@@ -3648,6 +3648,298 @@ step = 'after short_wide_bond_is_selectable'
   }
 }
 
+// Stereo agreement indicator: the page asks chem.stereo for a drawing that holds stereo and shows the
+// answer only for the drawing on screen, as a panel row, a summary line and a ring on the canvas, and
+// resolves a row in one click. The two-center drawing is the public one (F[C@H](Cl)[C@H](Br)I).
+{
+  const agreePage = await context.newPage()
+  try {
+    await agreePage.goto(BASE)
+    let stereoRequests = 0
+    agreePage.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().endsWith('/api/v1/operations') && request.postData()?.includes('"chem.stereo"')) stereoRequests += 1
+    })
+    const write = (path, body) =>
+      agreePage.evaluate(async ({ path, body }) => {
+        const session = await (await fetch('/api/v1/session')).json()
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', [session.header]: session.token },
+          body: JSON.stringify(body),
+        })
+        return { status: response.status, body: await response.json() }
+      }, { path, body })
+    const read = (id) => agreePage.evaluate(async (id) => (await fetch(`/api/v1/documents/${id}`)).json(), id)
+    const place = (point) =>
+      agreePage.evaluate(({ x, y }) => {
+        const svg = document.querySelector('svg[data-structure-canvas]')
+        const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM())
+        return { x: p.x, y: p.y }
+      }, point)
+    const idle = () => agreePage.waitForFunction(() => !document.querySelector('[data-slot="spinner"]'))
+    const raf = () => agreePage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+    const make = async (key, title, commands) => {
+      const created = await write('/api/v1/documents', { request_id: `smoke-agree-${key}`, title })
+      assert.ok(created.status < 300, JSON.stringify(created.body))
+      const id = created.body.document.id
+      const drawn = await write(`/api/v1/documents/${id}/transactions`, { request_id: `smoke-agree-draw-${key}`, expected_revision: 0, commands })
+      assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+      return id
+    }
+    const open = async (id) => {
+      await agreePage.reload()
+      await agreePage.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+      await agreePage.getByTestId('save-state').waitFor()
+    }
+    const edit = async (id, act) => {
+      const revision = (await read(id)).document.revision
+      await act()
+      await agreePage.waitForFunction(
+        async ({ id, revision }) => (await (await fetch(`/api/v1/documents/${id}`)).json()).document.revision !== revision,
+        { id, revision },
+      )
+      await idle()
+      await raf()
+    }
+    const summary = agreePage.getByTestId('stereo-agreement')
+    const status = agreePage.getByTestId('stereo-status')
+    const panel = agreePage.getByRole('region', { name: 'Stereo', exact: true })
+    const row = (item) => panel.locator(`[data-testid="stereo-row"][data-item="${item}"]`)
+    const rings = agreePage.locator('svg[data-structure-canvas] circle[data-agreement]')
+    const eventually = async (check) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await check()
+        } catch (failure) {
+          if (attempt >= 60) {
+            failure.message += `\nsummary: ${await summary.textContent().catch(() => '(none)')}; status: ${await status.textContent().catch(() => '(none)')}`
+            failure.message += `\nrows: ${await panel.getByTestId('stereo-row').allTextContents().catch(() => '(none)')}`
+            throw failure
+          }
+          await raf()
+        }
+      }
+    }
+    const press = (name) => agreePage.getByRole('button', { name, exact: true }).first().click()
+    // Waits long enough for a debounce (300 ms) to have fired, to show that nothing was asked.
+    const quiet = () => agreePage.waitForTimeout(700)
+    const drag = async (from, to) => {
+      const a = await place(from)
+      const b = await place(to)
+      await agreePage.mouse.move(a.x, a.y)
+      await agreePage.mouse.down()
+      await agreePage.mouse.move(b.x, b.y, { steps: 6 })
+      await agreePage.mouse.up()
+    }
+    const hold = () => {
+      const state = { used: false, release: () => {}, arrived: () => {}, handler: null }
+      const released = new Promise((resolve) => { state.release = resolve })
+      const seen = new Promise((resolve) => { state.arrived = resolve })
+      state.reached = seen
+      state.handler = async (route) => {
+        if (state.used || route.request().postDataJSON()?.operation !== 'chem.stereo') return route.continue()
+        state.used = true
+        const response = await route.fetch()
+        state.arrived()
+        await released
+        await route.fulfill({ response })
+      }
+      return state
+    }
+    const centers = (turn2) => [
+      { op: 'add_atom', element: 'F', position: { x: 0, y: 40 } },
+      { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Cl', position: { x: -35, y: -18 }, bond_to: { atom: '$1', order: 'single' } },
+      { op: 'add_atom', element: 'C', position: { x: 35, y: -18 }, bond_to: { atom: '$1', order: 'single' } },
+      { op: 'add_atom', element: 'Br', position: { x: 35, y: -58 }, bond_to: { atom: '$3', order: 'single' } },
+      { op: 'add_atom', element: 'I', position: { x: 70, y: 0 }, bond_to: { atom: '$3', order: 'single' } },
+      { op: 'set_bond_mark', bond: '$1', mark: { kind: 'hash', narrow: 'end' } },
+      { op: 'set_bond_mark', bond: '$4', mark: { kind: 'hash', narrow: 'begin' } },
+      { op: 'set_atom_configuration', atom: '$1', configuration: { kind: 'tetrahedral', neighbors: ['$0', '$2', '$3', 'implicit_hydrogen'], turn: turn2 } },
+      { op: 'set_atom_configuration', atom: '$3', configuration: { kind: 'tetrahedral', neighbors: ['$1', '$4', '$5', 'implicit_hydrogen'], turn: 'anticlockwise' } },
+    ]
+    const publicId = await make('public', 'Smoke agreement', centers('clockwise'))
+
+    // A drawing that holds no stereo is never asked about, and says what that means.
+    const plain = await make('plain', 'Smoke no stereo', [{ op: 'add_atom', element: 'C', position: { x: 100, y: 100 } }])
+    await open(plain)
+    await quiet()
+    assert.equal(stereoRequests, 0, 'no stereo, no request')
+    assert.equal(await panel.getByTestId('stereo-panel-state').textContent(), 'No wedge, hashed wedge or wavy bond is drawn and no configuration is stored. Whether an atom is a stereocenter is not assessed.')
+    assert.equal(await panel.getByRole('switch').count(), 0, 'nothing to switch')
+    assert.equal(await summary.textContent(), '')
+    assert.equal(await agreePage.getByRole('status').and(summary).count(), 1, 'the summary is a live region before it has text')
+
+    // The public drawing: a2 stores clockwise and the hashed wedge draws anticlockwise, a4 agrees.
+    await open(publicId)
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees.'))
+    assert.equal(stereoRequests, 1, 'one request for the opened drawing')
+    assert.equal(await row('a2').getAttribute('data-agreement'), 'disagrees')
+    assert.equal(await row('a4').getAttribute('data-agreement'), 'agrees')
+    assert.equal(await panel.getAttribute('aria-busy'), 'false')
+    assert.match(await row('a2').textContent(), /Stored clockwise; the drawing in s1 shows anticlockwise\./)
+    assert.match(await panel.textContent(), /Only stored configurations are compared with the drawing\. No CIP label is computed and no atom is judged stereogenic\./)
+    const ring = rings.filter({ has: agreePage.locator('xpath=self::*[@data-agreement="disagrees"]') })
+    assert.equal(await rings.count(), 1, 'one ring: the center that disagrees')
+    assert.equal(await ring.getAttribute('data-agreement-item'), 'a2')
+    assert.equal(await ring.getAttribute('role'), 'img')
+    assert.equal(await ring.getAttribute('aria-label'), 'Center a2: the stored configuration disagrees with the drawing in s1')
+    assert.equal(await ring.evaluate((element) => getComputedStyle(element).pointerEvents), 'none')
+    assert.equal(await ring.evaluate((element) => element.closest('[data-editor-overlay]') !== null), true)
+    assert.equal(await ring.getAttribute('stroke-dasharray'), null, 'a disagreement is a solid ring')
+    // Hovering and selecting send nothing.
+    const before = stereoRequests
+    const hoverAt = await place({ x: 15, y: 20 })
+    await agreePage.mouse.move(hoverAt.x, hoverAt.y)
+    await quiet()
+    assert.equal(stereoRequests, before, 'a hover asks nothing')
+    await agreePage.screenshot({ path: join(outDir, 'editor-stereo-disagrees.png') })
+
+    // One click: the stored configuration is replaced by what the drawing shows, in one transaction.
+    await press('Select and move')
+    const revision0 = (await read(publicId)).document.revision
+    await edit(publicId, () => panel.getByRole('button', { name: 'Update a2 in s1 from the drawing', exact: true }).click())
+    assert.equal((await read(publicId)).document.revision, revision0 + 1, 'one transaction')
+    assert.equal(await agreePage.evaluate(() => document.activeElement?.tagName), 'H3', 'focus moved to the panel heading, not lost with the button')
+    await eventually(async () => assert.equal(await status.textContent(), 'a2: replaced stored clockwise with anticlockwise from the drawing in s1. Undo restores it.'))
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 2 agree.'))
+    assert.equal(await rings.count(), 0)
+    assert.equal(await row('a2').getAttribute('data-agreement'), 'agrees')
+    assert.equal(await row('a2').getByRole('button').count(), 0, 'nothing to do for a row that agrees')
+    await edit(publicId, () => press('Undo'))
+    await eventually(async () => assert.equal(await rings.count(), 1))
+    assert.equal(await row('a2').getAttribute('data-agreement'), 'disagrees', 'undo restored the stored value, and the page says so')
+    await edit(publicId, () => panel.getByRole('button', { name: 'Update a2 in s1 from the drawing', exact: true }).click())
+    await eventually(async () => assert.equal(await rings.count(), 0))
+
+    // A move that changes what the drawing shows: no ring is drawn for an answer that is not about the
+    // drawing on screen, however late it arrives, and exactly one more request follows the changes made meanwhile.
+    const held = hold()
+    await agreePage.route('**/api/v1/operations', held.handler)
+    const asked = stereoRequests
+    await edit(publicId, () => drag({ x: 70, y: 0 }, { x: 75, y: -45 }))
+    await held.reached
+    await eventually(async () => assert.equal(await summary.textContent(), 'Checking the drawing…'))
+    assert.equal(await panel.getAttribute('aria-busy'), 'true')
+    assert.equal(await panel.getByTestId('stereo-panel-state').textContent(), 'Checking the drawing…')
+    assert.equal(await rings.count(), 0, 'no ring while the drawing is being checked')
+    assert.equal(await panel.getByTestId('stereo-row').count(), 0, 'no row from an older answer either')
+    await edit(publicId, () => drag({ x: -35, y: -18 }, { x: 35, y: 18 }))
+    held.release()
+    await agreePage.waitForTimeout(100)
+    assert.equal(await rings.count(), 0, 'the answer for the first move is not about the drawing now on screen')
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 2 disagree with the drawing.'))
+    assert.equal(stereoRequests - asked, 2, 'the held request, and exactly one more for the second change')
+    assert.equal(await rings.count(), 2)
+    await agreePage.unroute('**/api/v1/operations', held.handler)
+    await agreePage.screenshot({ path: join(outDir, 'editor-stereo-rings.png') })
+
+    // Update all: one transaction for both disagreements, naming each replaced value.
+    const revision1 = (await read(publicId)).document.revision
+    await edit(publicId, () => panel.getByRole('button', { name: /^Update all from drawing/ }).click())
+    assert.equal((await read(publicId)).document.revision, revision1 + 1)
+    await eventually(async () => assert.match(await status.textContent(), /^Replaced 2 stored configurations with what the drawing in s1 shows: a2 \(anticlockwise to clockwise\), a4 \(anticlockwise to clockwise\)\. Undo restores them\.$/))
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 2 agree.'))
+    await edit(publicId, () => press('Undo'))
+    await eventually(async () => assert.equal(await rings.count(), 2))
+
+    // Advisory findings are listed as the service words them; its fixed sentence is the panel's own.
+    const details = panel.getByRole('button', { name: /^Details \(\d+ advisory findings?\)$/ })
+    await details.click()
+    const findings = panel.getByTestId('stereo-findings')
+    await findings.waitFor()
+    assert.match(await findings.textContent(), /drawing_disagrees \(warning\): Atom a2: the drawing in s1 shows a different configuration from the stored one\./)
+    assert.doesNotMatch(await findings.textContent(), /stereo_not_checked/)
+
+    // Checking can be turned off: nothing is asked until "Check now".
+    const auto = panel.getByRole('switch', { name: 'Check automatically' })
+    assert.equal(await auto.getAttribute('aria-checked'), 'true')
+    await auto.click()
+    assert.equal(await auto.getAttribute('aria-checked'), 'false')
+    const manual = stereoRequests
+    await edit(publicId, () => press('Undo'))
+    await quiet()
+    assert.equal(stereoRequests, manual, 'turned off, a change asks nothing')
+    await eventually(async () => assert.equal(await summary.textContent(), 'Not compared with the drawing yet. Press Check now.'))
+    assert.equal(await rings.count(), 0, 'no ring for a drawing that was not compared')
+    await panel.getByRole('button', { name: 'Check now', exact: true }).click()
+    await eventually(async () => assert.match(await summary.textContent(), /^Compared with the drawing: /))
+    assert.equal(stereoRequests, manual + 1)
+    await auto.click()
+    assert.equal(await auto.getAttribute('aria-checked'), 'true')
+    await eventually(async () => assert.equal(stereoRequests, manual + 2), 'turning it on asks for the drawing as it is')
+
+    // A failure is shown with its message and "Check again", and draws nothing.
+    const refuse = async (route) => {
+      if (route.request().postDataJSON()?.operation !== 'chem.stereo') return route.continue()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-stereo-1', document_revision: 1, loss_report: [], result: null,
+          diagnostics: [{ code: 'resource_limit', severity: 'error', message: 'Smoke: too many entries to compare.' }] }),
+      })
+    }
+    await agreePage.route('**/api/v1/operations', refuse)
+    await auto.click()
+    await panel.getByRole('button', { name: 'Check now', exact: true }).click()
+    const failure = panel.getByRole('alert')
+    await failure.waitFor()
+    assert.equal(await failure.textContent(), 'Smoke: too many entries to compare.')
+    assert.equal(await summary.textContent(), 'The comparison with the drawing could not be made.')
+    assert.equal(await rings.count(), 0)
+    await agreePage.unroute('**/api/v1/operations', refuse)
+    await panel.getByRole('button', { name: 'Check again', exact: true }).click()
+    await eventually(async () => assert.match(await summary.textContent(), /^Compared with the drawing: /))
+    assert.equal(await panel.getByRole('alert').count(), 0)
+    await auto.click()
+
+    // A mark with nothing stored: "Store from drawing" stores it; undo takes it away again.
+    const drawnOnly = await make('drawn', 'Smoke drawn only', [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'F', position: { x: 100, y: 70 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Cl', position: { x: 126, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Br', position: { x: 74, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'set_bond_mark', bond: '$2', mark: { kind: 'wedge', narrow: 'begin' } },
+    ])
+    await open(drawnOnly)
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 1 is drawn only.'))
+    assert.equal(await row('a1').getAttribute('data-agreement'), 'only_drawn')
+    const dashed = agreePage.locator('svg[data-structure-canvas] circle[data-agreement="only_drawn"]')
+    assert.equal(await dashed.getAttribute('stroke-dasharray'), '3 2', 'not a disagreement: a dashed ring')
+    assert.equal(await dashed.getAttribute('aria-label'), 'Center a1: the marks show a configuration in s1 that is not stored')
+    await edit(drawnOnly, () => panel.getByRole('button', { name: 'Store a1 in s1 from the drawing', exact: true }).click())
+    await eventually(async () => assert.match(await status.textContent(), /^a1: stored (clockwise|anticlockwise) from the drawing in s1\.$/))
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 1 agrees.'))
+    await edit(drawnOnly, () => press('Undo'))
+    await eventually(async () => assert.equal(await row('a1').getAttribute('data-agreement'), 'only_drawn'))
+    assert.deepEqual((await read(drawnOnly)).document.stereo, { atoms: [], bonds: [] })
+
+    // A stored configuration no mark shows: "Remove stored" removes it, and says which value.
+    const storedOnly = await make('stored', 'Smoke stored only', [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'F', position: { x: 100, y: 70 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Cl', position: { x: 126, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Br', position: { x: 74, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'set_atom_configuration', atom: '$0', configuration: { kind: 'tetrahedral', neighbors: ['$1', '$2', '$3', 'implicit_hydrogen'], turn: 'clockwise' } },
+    ])
+    await open(storedOnly)
+    await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 1 is stored only.'))
+    assert.match(await row('a1').textContent(), /Stored clockwise; the drawing in s1 shows nothing usable: no wedge, hashed wedge or wavy bond bears on it \(stereo_not_derivable_no_marks\)\./)
+    await edit(storedOnly, () => panel.getByRole('button', { name: 'Remove the stored configuration of a1 (row s1)', exact: true }).click())
+    await eventually(async () => assert.equal(await status.textContent(), 'a1: removed the stored clockwise. Undo restores it.'))
+    assert.deepEqual((await read(storedOnly)).document.stereo, { atoms: [], bonds: [] })
+    await eventually(async () => assert.equal(await row('a1').count(), 0))
+    await eventually(async () => assert.match(await panel.getByTestId('stereo-panel-state').textContent(), /is not assessed\.$/))
+    await edit(storedOnly, () => press('Undo'))
+    await eventually(async () => assert.equal(await row('a1').getAttribute('data-agreement'), 'only_stored'))
+
+    results.stereo_agreement_indicator = true
+    step = 'after stereo_agreement_indicator'
+  } finally {
+    await agreePage.close()
+  }
+}
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

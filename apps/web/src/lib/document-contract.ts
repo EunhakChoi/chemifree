@@ -5,9 +5,14 @@ import {
   isStereoMark,
   isStereoNotes,
   isStereoView,
+  readStereoDiagnostics,
+  readStereoInspection,
   stereoOf,
   type AtomConfiguration,
   type BondConfiguration,
+  type CenterInspection,
+  type DoubleInspection,
+  type StereoDiagnostic,
   type StereoMark,
   type StereoNote,
   type StereoView,
@@ -228,6 +233,20 @@ export interface AromaticityInspection {
   model: string
   snapshot: DocumentView
   systems: AromaticitySystem[]
+}
+
+/**
+ * What `chem.stereo` compared: the stored configurations against what each scene instance's
+ * drawing shows, for the exact snapshot named. It judges nothing stereogenic and stores nothing.
+ */
+export interface StereoInspection {
+  model: 'chemifree-stereo-1'
+  snapshot: DocumentView
+  /** The scene instances inspected, in identifier order. */
+  instances: string[]
+  atoms: CenterInspection[]
+  bonds: DoubleInspection[]
+  diagnostics: StereoDiagnostic[]
 }
 
 export type IdentityMode = 'recorded' | 'chemical'
@@ -1999,6 +2018,38 @@ export class DocumentClient {
       throw new ApiError('analysis_unavailable', 'The local service returned an incompatible aromaticity inspection.', 200)
     }
     return { model: value.model_id, snapshot, systems }
+  }
+
+  /**
+   * Compares every stereo item of a drawing with each instance's picture (`chem.stereo`, every
+   * instance). The reply is used only if it is exactly what the service sends for the snapshot
+   * it names; a refusal or limit is an `ApiError` carrying the service's message.
+   */
+  async inspectStereo(id: string): Promise<StereoInspection> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics',
+      operation: 'chem.stereo', parameters: { document_id: id },
+    }, 'reload')
+    if (!isRecord(value) || value.outcome !== 'ok') {
+      throw new ApiError('stereo_unavailable', firstDiagnostic(value).message ?? 'The local service could not compare the stereo of the drawing.', 200)
+    }
+    const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible stereo inspection.', 200)
+    if (value.model_id !== 'chemifree-stereo-1' || !isRecord(value.result) || !isRecord(value.result.snapshot) ||
+        (value.loss_report !== undefined && !(Array.isArray(value.loss_report) && value.loss_report.length === 0))) {
+      throw incompatible()
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const diagnostics = readStereoDiagnostics(value.diagnostics)
+    const body = snapshot.id === id && snapshot.revision === value.document_revision && diagnostics !== null
+      ? readStereoInspection(value.result, {
+        atoms: snapshot.atoms,
+        bonds: snapshot.bonds,
+        stereo: stereoOf(snapshot),
+        instances: snapshot.scene?.instances.map((instance) => instance.id) ?? [],
+      })
+      : null
+    if (body === null || diagnostics === null) throw incompatible()
+    return { model: 'chemifree-stereo-1', snapshot, ...body, diagnostics }
   }
 
   /** Canonical identity and optional comparison are bound to the returned graph snapshots. */

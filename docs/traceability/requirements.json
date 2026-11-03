@@ -305,7 +305,7 @@
         },
         {
           "id": "MODEL-03.3",
-          "summary": "Consistency inspection: the read-only operation chem.stereo (chemifree-stereo-1, separate from chem.validate, which stays valence-only) compares each stored configuration with what each scene instance's drawing shows, per center and double bond that is stored or marked, as agrees, disagrees, only_stored, only_drawn or neither, with a structured label_differs field for the one non-atom position, a stereogenicity_assessed false marker and closed advisory diagnostics (drawing_disagrees, drawing_not_derivable, marks_without_configuration, configuration_without_marks, mark_narrow_end_not_a_center, center_has_aromatic_bond, double_bond_substituents_same_side, wavy_between_possible_centers, drawing_weak_evidence, stereo_not_checked). It stores, derives and edits nothing, is bounded at 20,000 entries (resource_limit naming instance), judges no stereogenicity, computes no CIP label and checks no ring or strain plausibility; chem.identity and chem.substructure still do not read stereo; the editor shows no indicator.",
+          "summary": "Consistency inspection: the read-only operation chem.stereo (chemifree-stereo-1, separate from chem.validate, which stays valence-only) compares each stored configuration with what each scene instance's drawing shows, per center and double bond that is stored or marked, as agrees, disagrees, only_stored, only_drawn or neither, with a structured label_differs field for the one non-atom position, a stereogenicity_assessed false marker and closed advisory diagnostics (drawing_disagrees, drawing_not_derivable, marks_without_configuration, configuration_without_marks, mark_narrow_end_not_a_center, center_has_aromatic_bond, double_bond_substituents_same_side, wavy_between_possible_centers, drawing_weak_evidence, stereo_not_checked). It stores, derives and edits nothing, is bounded at 20,000 entries (resource_limit naming instance), judges no stereogenicity, computes no CIP label and checks no ring or strain plausibility; chem.identity and chem.substructure still do not read stereo; the web editor's indicator is MODEL-03.5.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_inspection.rs",
@@ -324,7 +324,7 @@
         },
         {
           "id": "MODEL-03.4",
-          "summary": "Drawn stereo marks in the web editor: the bond-kind group draws wedge, hashed wedge and wavy marks (crossed is set and shown through the bond inspector), a drag or click makes the bond, its mark and the configuration the drawing then shows in one transaction (one undo step) with the narrow end where the gesture started, the click cycle, order changes and the inspector clear the mark or stored double-bond configuration an edit would otherwise be refused for, a configuration the service will not derive leaves the mark in place with the reason shown, and a status line tells what a gesture stored, replaced or removed. Rendering constants are stand-ins for the public BoldWidth and HashSpacing document settings and every other geometry is a Chemifree choice. The editor does not compare a stored configuration with the drawing (the chem.stereo client and indicator are not implemented), has no mirror or flip, no crossed canvas tool, and does not update a stored configuration when atoms move. The browser smoke exercises the same gestures but is not an evidence check of this record.",
+          "summary": "Drawn stereo marks in the web editor: the bond-kind group draws wedge, hashed wedge and wavy marks (crossed is set and shown through the bond inspector), a drag or click makes the bond, its mark and the configuration the drawing then shows in one transaction (one undo step) with the narrow end where the gesture started, the click cycle, order changes and the inspector clear the mark or stored double-bond configuration an edit would otherwise be refused for, a configuration the service will not derive leaves the mark in place with the reason shown, and a status line tells what a gesture stored, replaced or removed. Rendering constants are stand-ins for the public BoldWidth and HashSpacing document settings and every other geometry is a Chemifree choice. Comparing a stored configuration with the drawing is MODEL-03.5; the editor has no mirror or flip, no crossed canvas tool, and does not update a stored configuration when atoms move. The browser smoke exercises the same gestures but is not an evidence check of this record.",
           "status": "implemented",
           "implementation": [
             "apps/web/src/editor/geometry.ts",
@@ -343,8 +343,29 @@
           "followups": []
         },
         {
+          "id": "MODEL-03.5",
+          "summary": "Agreement indicator in the web editor: for a drawing that holds a mark or a stored configuration the page calls chem.stereo on its own (300 ms after the last change, one request in flight and one more for changes made meanwhile, none while dragging, none for a drawing without stereo) and uses a reply only when it is for exactly the drawing on screen, positions included (otherwise Checking the drawing... with aria-busy and no ring). The reply is validated strictly against its snapshot and refused as a whole on any mismatch; the outcome must be ok with chemifree-stereo-1. The result is a summary line, a Stereo panel row per item and placement, and a ring on the canvas for each item that does not agree (solid for a disagreement, dashed for a state with nothing to compare, named, no pointer events), with a switch that turns the automatic check off (Check now asks once) and one-click edits built from the latest document: Update from drawing and Store from drawing (set_configuration_from_drawing), Remove stored (null) and Update all from drawing, each one undo step with a status line naming the replaced or removed value. Only stored configurations are compared with the drawing: no atom is judged stereogenic and no CIP label is computed (not assessed, never worded as no stereo). A stored configuration is never changed except by the user's click, and moving atoms still does not update one. The browser smoke exercises the indicator, the ring and the one-click edits in a real browser but is not an evidence check of this record.",
+          "status": "implemented",
+          "implementation": [
+            "apps/web/src/lib/stereo-contract.ts",
+            "apps/web/src/lib/document-contract.ts",
+            "apps/web/src/editor/stereo-agreement.ts",
+            "apps/web/src/editor/agreement-rings.tsx",
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/hooks/use-stereo-agreement.ts",
+            "apps/web/src/hooks/use-document-editor.ts",
+            "apps/web/src/components/stereo-panel.tsx",
+            "apps/web/src/components/ui/switch.tsx",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, a crossed-mark canvas tool, and an agreement indicator in the editor.",
+          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

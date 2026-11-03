@@ -3292,3 +3292,482 @@ test('a crossed double bond keeps its ink out of label boxes the line width make
     }
   }
 })
+
+// ---------------------------------------------------------------------------------------------
+// The stereo agreement indicator: the `chem.stereo` reply, when it may be shown, the rows and
+// sentences, the one-click edits and when the service is asked.
+// ---------------------------------------------------------------------------------------------
+const agreementModule = await import('../apps/web/src/editor/stereo-agreement.ts')
+const {
+  agreementRings, agreementRows, agreementView, actionName, CheckScheduler, listedDiagnostics, NOT_JUDGED,
+  resolutionCommands, resolutionStatus, rowAction, rowSentence, summarySentence, updatableRows, viewSentence,
+} = agreementModule
+const { readStereoInspection, readStereoDiagnostics } = await import('../apps/web/src/lib/stereo-contract.ts')
+
+/** `value` placed in each of `ids` as the service sends a scene a document reply accepts. */
+const scened = (value, ...ids) => ({
+  ...value,
+  molecule: { id: 'm1' },
+  scene: {
+    pages: [{ id: 'p1' }],
+    instances: ids.map((id) => ({ id, page: 'p1', molecule: 'm1', positions: value.atoms.map((atom) => ({ atom: atom.id, x: atom.position.x, y: atom.position.y })) })),
+  },
+})
+const tetra = (neighbors, turn) => ({ kind: 'tetrahedral', neighbors, turn })
+const A2 = ['a1', 'a3', 'a4', 'implicit_hydrogen']
+const A4 = ['a2', 'a5', 'a6', 'implicit_hydrogen']
+const drawnOf = (instance, configuration, agreement, extra = {}) => ({ instance, configuration, reason: null, agreement, label_differs: false, ...extra })
+
+/** The public two-center drawing in one placement; a2 stores `clockwise` (the drawing shows anticlockwise), a4 stores anticlockwise. */
+function agreementDocument(instances = ['s1']) {
+  const value = scened(publicFixture(true), ...instances)
+  value.stereo = { atoms: [{ atom: 'a2', configuration: tetra(A2, 'clockwise') }, { atom: 'a4', configuration: tetra(A4, 'anticlockwise') }], bonds: [] }
+  return value
+}
+const publicItems = (instances = ['s1']) => [
+  { atom: 'a2', stored: tetra(A2, 'clockwise'), drawn: instances.map((id) => drawnOf(id, tetra(A2, 'anticlockwise'), 'disagrees')) },
+  { atom: 'a4', stored: tetra(A4, 'anticlockwise'), drawn: instances.map((id) => drawnOf(id, tetra(A4, 'anticlockwise'), 'agrees')) },
+]
+const graphOf = (value) => ({ atoms: value.atoms, bonds: value.bonds, stereo: value.stereo, instances: value.scene.instances.map((i) => i.id) })
+const resultOf = (value, atoms, bonds = [], instances = value.scene.instances.map((i) => i.id)) => ({
+  snapshot: { document: value, session: document('x').session, recovery: null, notes: [] },
+  valence_model: 'chemifree-valence-3', stereogenicity_assessed: false, instances, atoms, bonds,
+})
+const replyOf = (value, result, diagnostics = [
+  { code: 'drawing_disagrees', severity: 'warning', message: 'Atom a2: the drawing in s1 shows a different configuration from the stored one.' },
+  { code: 'stereo_not_checked', severity: 'info', message: 'Only the stored configurations are compared with the drawing.' },
+]) => ({ envelope: 'operation_result', contract: 1, outcome: 'ok', model_id: 'chemifree-stereo-1', document_revision: value.revision, loss_report: [], result, diagnostics })
+const inspected = async (value, reply) => {
+  service({ '/api/v1/operations': [() => json(200, reply)] })
+  return new DocumentClient().inspectStereo(value.id)
+}
+
+test('the public two-center drawing against its stored configurations: one disagrees, one agrees, and the row says which to update', async () => {
+  const value = agreementDocument()
+  const inspection = await inspected(value, replyOf(value, resultOf(value, publicItems())))
+  assert.equal(inspection.model, 'chemifree-stereo-1')
+  assert.deepEqual(inspection.instances, ['s1'])
+  const rows = agreementRows(inspection)
+  assert.deepEqual(rows.map((row) => [row.item.id, row.instance, row.agreement, rowAction(row.agreement)]), [
+    ['a2', 's1', 'disagrees', 'update'],
+    ['a4', 's1', 'agrees', null],
+  ])
+  assert.equal(rowSentence(rows[0]), 'Stored clockwise; the drawing in s1 shows anticlockwise.')
+  assert.equal(rowSentence(rows[1]), 'Stored anticlockwise; the drawing in s1 shows the same.')
+  assert.equal(summarySentence(rows), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees.')
+  // The mirror image of the stored value agrees with a2 and disagrees with a4.
+  const mirrored = agreementDocument()
+  mirrored.stereo.atoms = [{ atom: 'a2', configuration: tetra(A2, 'anticlockwise') }, { atom: 'a4', configuration: tetra(A4, 'clockwise') }]
+  const flipped = await inspected(mirrored, replyOf(mirrored, resultOf(mirrored, [
+    { atom: 'a2', stored: tetra(A2, 'anticlockwise'), drawn: [drawnOf('s1', tetra(A2, 'anticlockwise'), 'agrees')] },
+    { atom: 'a4', stored: tetra(A4, 'clockwise'), drawn: [drawnOf('s1', tetra(A4, 'anticlockwise'), 'disagrees')] },
+  ])))
+  assert.deepEqual(agreementRows(flipped).map((row) => row.agreement), ['agrees', 'disagrees'])
+})
+
+/** A document that shows each of the five agreements, a label that differs, and two placements for one of them. */
+function mixedFixture() {
+  const value = scened(marksDocument(), 's1', 's2')
+  const around1 = ['a2', 'a3', 'a5']
+  value.stereo = {
+    atoms: [{ atom: 'a1', configuration: tetra([...around1, 'lone_pair'], 'clockwise') }],
+    bonds: [{ bond: 'b10', configuration: { kind: 'unknown' } }],
+  }
+  value.bonds = value.bonds.map((bond) => (bond.id === 'b10' ? { ...bond, mark: { kind: 'crossed' } } : bond))
+  const hydrogen = [...around1, 'implicit_hydrogen']
+  const atoms = [
+    { atom: 'a1', stored: value.stereo.atoms[0].configuration, drawn: [
+      drawnOf('s1', tetra(hydrogen, 'clockwise'), 'agrees', { label_differs: true }),
+      drawnOf('s2', tetra(hydrogen, 'anticlockwise'), 'disagrees', { label_differs: true }),
+    ] },
+    { atom: 'a6', stored: null, drawn: ['s1', 's2'].map((id) => ({ ...drawnOf(id, null, 'neither'), reason: 'stereo_not_derivable_degenerate' })) },
+    { atom: 'a9', stored: null, drawn: ['s1', 's2'].map((id) => drawnOf(id, tetra(['a10', 'a11', 'a12', 'a13'], 'anticlockwise'), 'only_drawn')) },
+  ]
+  const bonds = [{ bond: 'b10', stored: { kind: 'unknown' }, drawn: ['s1', 's2'].map((id) => ({ instance: id, configuration: null, reason: 'stereo_not_derivable_no_reference', agreement: 'only_stored' })) }]
+  return { value, atoms, bonds }
+}
+
+test('a reply shows every agreement, the differing label, and one row per item and placement', async () => {
+  const { value, atoms, bonds } = mixedFixture()
+  const inspection = await inspected(value, replyOf(value, resultOf(value, atoms, bonds)))
+  const rows = agreementRows(inspection)
+  assert.deepEqual(rows.map((row) => `${row.item.id}/${row.instance}/${row.agreement}`), [
+    'a1/s1/agrees', 'a1/s2/disagrees', 'a6/s1/neither', 'a6/s2/neither', 'a9/s1/only_drawn', 'a9/s2/only_drawn', 'b10/s1/only_stored', 'b10/s2/only_stored',
+  ])
+  assert.equal(rowSentence(rows[0]), 'Stored clockwise; the drawing in s1 shows the same (the hydrogen or lone pair is named differently).')
+  assert.equal(rowSentence(rows[2]), 'Nothing is stored and the drawing in s1 gives no configuration: the drawing is too flat to determine a configuration (stereo_not_derivable_degenerate).')
+  assert.equal(rowSentence(rows[4]), 'The drawing in s1 shows anticlockwise; nothing is stored.')
+  assert.equal(rowSentence(rows[6]), 'Stored unknown; the drawing in s1 shows nothing usable: a double-bond end has no neighbor to read a direction from (stereo_not_derivable_no_reference).')
+  assert.deepEqual(rows.map((row) => rowAction(row.agreement)), [null, 'update', null, null, 'store', 'store', 'remove', 'remove'])
+  // Two placements: "Update all" needs a single one.
+  assert.deepEqual(updatableRows(inspection, rows), [])
+})
+
+const refused = (mutate, value = agreementDocument(), items = publicItems()) => {
+  const result = structuredClone(resultOf(value, items))
+  mutate(result)
+  return readStereoInspection(result, graphOf(value))
+}
+
+test('the reply reader accepts the documented reply and refuses each way it can be made untrue', () => {
+  const value = agreementDocument()
+  assert.notEqual(refused(() => {}), null)
+  const tampers = {
+    'an extra field in the result': (r) => { r.extra = 1 },
+    'an extra field in an atom entry': (r) => { r.atoms[0].extra = 1 },
+    'an extra field in a drawn center': (r) => { r.atoms[0].drawn[0].extra = 1 },
+    'a stored configuration the snapshot does not hold': (r) => { r.atoms[0].stored = tetra(A2, 'anticlockwise') },
+    'a stored configuration where the snapshot has none': (r) => { r.atoms.push({ atom: 'a1', stored: tetra(A2, 'clockwise'), drawn: [drawnOf('s1', null, 'neither', { reason: 'stereo_not_derivable_no_marks' })] }) },
+    'a stored record of the snapshot that is not an item': (r) => { r.atoms.pop() },
+    'agrees for different turns': (r) => { r.atoms[0].drawn[0].agreement = 'agrees' },
+    'disagrees for the same turn': (r) => { r.atoms[1].drawn[0].agreement = 'disagrees' },
+    'agrees for another kind': (r) => { r.atoms[1].drawn[0].configuration = { kind: 'unknown', neighbors: A4 } },
+    'only_drawn though a record is stored': (r) => { r.atoms[0].drawn[0].agreement = 'only_drawn' },
+    'an agreement it does not have': (r) => { r.atoms[0].drawn[0].agreement = 'mostly' },
+    'a reason and a configuration together': (r) => { r.atoms[0].drawn[0].reason = 'stereo_not_derivable_degenerate' },
+    'neither a reason nor a configuration': (r) => { r.atoms[0].drawn[0].configuration = null },
+    'a reason it does not have': (r) => { r.atoms[0].drawn[0] = drawnOf('s1', null, 'only_stored', { reason: 'stereo_not_derivable_because' }) },
+    'a label flag that is not so': (r) => { r.atoms[0].drawn[0].label_differs = true },
+    'a configuration for other neighbors': (r) => { r.atoms[0].drawn[0].configuration = tetra(['a1', 'a3', 'a5', 'implicit_hydrogen'], 'anticlockwise') },
+    'an instance the snapshot does not have': (r) => { r.instances = ['s9']; r.atoms[0].drawn[0].instance = 's9'; r.atoms[1].drawn[0].instance = 's9' },
+    'an instance left out of an entry': (r) => { r.atoms[0].drawn = [] },
+    'atoms out of order': (r) => { r.atoms.reverse() },
+    'an atom listed twice': (r) => { r.atoms.push(r.atoms[1]) },
+    'an atom the snapshot does not have': (r) => { r.atoms[1].atom = 'a99' },
+    'a stereogenicity judgment': (r) => { r.stereogenicity_assessed = true },
+    'no valence model': (r) => { delete r.valence_model },
+  }
+  for (const [name, tamper] of Object.entries(tampers)) assert.equal(refused(tamper), null, name)
+  // Two placements: entries come in the order of `instances`, and that is the snapshot's order.
+  const two = agreementDocument(['s1', 's2'])
+  assert.notEqual(refused(() => {}, two, publicItems(['s1', 's2'])), null)
+  assert.equal(refused((r) => { r.instances.reverse(); r.atoms.forEach((a) => a.drawn.reverse()) }, two, publicItems(['s1', 's2'])), null, 'instances out of order')
+  assert.equal(refused((r) => { r.atoms[0].drawn.reverse() }, two, publicItems(['s1', 's2'])), null, 'entries out of order')
+  assert.equal(refused((r) => { r.instances.reverse() }, two, publicItems(['s1', 's2'])), null, 'instances named out of order')
+  // Identifiers go by serial: a9 before a10, and s2 before s10.
+  const nines = scened(marksDocument(), 's1')
+  nines.stereo = { atoms: [], bonds: [] }
+  const neither = (atom) => ({ atom, stored: null, drawn: [{ ...drawnOf('s1', null, 'neither'), reason: 'stereo_not_derivable_no_marks' }] })
+  assert.notEqual(refused(() => {}, nines, [neither('a9'), neither('a10')]), null)
+  assert.equal(refused(() => {}, nines, [neither('a10'), neither('a9')]), null)
+  const many = agreementDocument(['s2', 's10'])
+  assert.notEqual(refused(() => {}, many, publicItems(['s2', 's10'])), null)
+  assert.notEqual(value, null)
+})
+
+test('a double bond item must be a double bond of the snapshot with its own stored record, and drawn entries must fit it', () => {
+  const { value, atoms, bonds } = mixedFixture()
+  const read = (mutate) => {
+    const result = structuredClone(resultOf(value, atoms, bonds))
+    mutate(result)
+    return readStereoInspection(result, graphOf(value))
+  }
+  assert.notEqual(read(() => {}), null)
+  assert.equal(read((r) => { r.bonds[0].bond = 'b1' }), null, 'a single bond')
+  assert.equal(read((r) => { r.bonds.unshift({ bond: 'b1', stored: null, drawn: ['s1', 's2'].map((id) => ({ instance: id, configuration: null, reason: 'stereo_not_derivable_no_reference', agreement: 'neither' })) }) }), null, 'a single bond with nothing stored')
+  assert.equal(read((r) => { r.bonds[0].stored = { kind: 'relative', begin_neighbor: 'a1', end_neighbor: 'a2', relation: 'same_side' } }), null)
+  assert.equal(read((r) => { r.bonds[0].drawn[0].configuration = { kind: 'unknown' }; r.bonds[0].drawn[0].reason = null }), null, 'agreement not what unknown against unknown decides')
+  assert.equal(read((r) => { r.bonds[0].drawn[0].label_differs = false }), null, 'a field a double bond does not have')
+  assert.equal(read((r) => { r.bonds = [] }), null, 'the stored double-bond record is not an item')
+})
+
+test('the advisory findings may carry codes the client does not know, but must be findings', () => {
+  assert.deepEqual(readStereoDiagnostics([{ code: 'a_new_code', severity: 'info', message: 'm', details: { x: 1 } }]), [{ code: 'a_new_code', severity: 'info', message: 'm' }])
+  for (const bad of [null, [{ code: 'x', severity: 'error', message: 'm' }], [{ code: 'x', severity: 'info' }], [{ severity: 'info', message: 'm' }], 'none']) {
+    assert.equal(readStereoDiagnostics(bad), null, JSON.stringify(bad))
+  }
+  const found = [
+    { code: 'stereo_not_checked', severity: 'info', message: 'fixed' },
+    { code: 'novel', severity: 'info', message: 'n' },
+    { code: 'drawing_weak_evidence', severity: 'info', message: 'w' },
+    { code: 'drawing_disagrees', severity: 'warning', message: 'd' },
+  ]
+  assert.deepEqual(listedDiagnostics(found).map((f) => f.code), ['drawing_disagrees', 'drawing_weak_evidence', 'novel'], 'known first in the documented order, the fixed sentence left to the panel')
+  assert.match(NOT_JUDGED, /No CIP label is computed and no atom is judged stereogenic\.$/)
+})
+
+test('inspectStereo asks for every placement of the drawing and refuses what is not the service reply for it', async () => {
+  const value = agreementDocument()
+  const good = replyOf(value, resultOf(value, publicItems()))
+  const scripted = service({ '/api/v1/operations': [() => json(200, good)] })
+  await new DocumentClient().inspectStereo(value.id)
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [{ document_id: value.id }])
+  const incompatible = async (reply) => {
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectStereo(value.id), { code: 'incompatible_response' })
+  }
+  await incompatible({ ...good, model_id: 'chemifree-stereo-2' })
+  await incompatible({ ...good, loss_report: [{ feature: 'stereo' }] })
+  await incompatible({ ...good, document_revision: value.revision + 1 })
+  await incompatible({ ...good, diagnostics: [{ code: 'x', severity: 'error', message: 'm' }] })
+  await incompatible({ ...good, result: { ...good.result, snapshot: { ...good.result.snapshot, document: { ...value, id: 'other' } } } })
+  // A refusal or the limit says what the service says.
+  const limit = { envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-stereo-1', document_revision: 2, loss_report: [], result: null,
+    diagnostics: [{ code: 'resource_limit', severity: 'error', message: '30000 items in 2 instances would be 60000 entries, above the limit of 20000.' }] }
+  service({ '/api/v1/operations': [() => json(200, limit)] })
+  await assert.rejects(new DocumentClient().inspectStereo(value.id), { code: 'stereo_unavailable', message: limit.diagnostics[0].message })
+  service({ '/api/v1/operations': [() => json(200, { ...good, outcome: 'partial' })] })
+  await assert.rejects(new DocumentClient().inspectStereo(value.id), { code: 'stereo_unavailable' })
+})
+
+test('a reply is shown only for the drawing on screen, positions and service process included', async () => {
+  const value = agreementDocument()
+  const inspection = await inspected(value, replyOf(value, resultOf(value, publicItems())))
+  const ok = { kind: 'ok', generation: 0, inspection }
+  const view = (shown, outcome = ok, generation = 0, busy = false, automatic = true) => agreementView(shown, outcome, generation, busy, automatic).kind
+  assert.equal(view(value), 'ready')
+  assert.equal(view(structuredClone(value)), 'ready')
+  const moved = structuredClone(value)
+  moved.scene.instances[0].positions[0].x += 1
+  assert.equal(view(moved), 'checking', 'a moved atom makes the reply stale: positions are what it compares')
+  assert.equal(view({ ...value, revision: value.revision + 1 }), 'checking')
+  assert.equal(view(value, ok, 1), 'checking', 'another service process')
+  assert.equal(view(value, null), 'checking')
+  assert.equal(view(value, null, 0, false, false), 'unchecked', 'checking is off and nothing was asked for this drawing')
+  assert.equal(view(value, null, 0, true, false), 'checking', 'a check the user asked for is running')
+  const plain = scened(publicFixture(false), 's1')
+  assert.equal(view(plain), 'none', 'a drawing with nothing stored or marked is never compared')
+  const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'boom' }
+  assert.deepEqual(agreementView(value, failed, 0, false, true), { kind: 'failed', message: 'boom' })
+  assert.equal(view(moved, failed), 'checking', 'a failure belongs to the drawing it was asked about')
+  assert.deepEqual(agreementView(value, failed, 0, true, true), { kind: 'checking' }, 'pressing Check again shows that a retry is running')
+  assert.deepEqual(agreementView(value, failed, 0, true, false), { kind: 'checking' }, 'also with automatic checking off')
+  assert.equal(view(value, ok, 0, true), 'ready', 'a reply stays shown while the same drawing is checked again')
+})
+
+test('what the page says while checking, between checks and after one never says the drawing has no stereo', async () => {
+  const value = agreementDocument()
+  const inspection = await inspected(value, replyOf(value, resultOf(value, publicItems())))
+  assert.equal(viewSentence({ kind: 'checking' }), 'Checking the drawing…')
+  assert.equal(viewSentence({ kind: 'unchecked' }), 'Not compared with the drawing yet. Press Check now.')
+  assert.equal(viewSentence({ kind: 'none' }), null)
+  assert.equal(viewSentence({ kind: 'ready', inspection }), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees.')
+  assert.equal(summarySentence([]), 'Nothing stored or drawn bears on a configuration, so there is nothing to compare. Whether an atom is a stereocenter is not assessed.')
+  const { value: mixed, atoms, bonds } = mixedFixture()
+  const rows = agreementRows(await inspected(mixed, replyOf(mixed, resultOf(mixed, atoms, bonds))))
+  assert.equal(summarySentence(rows),
+    'Compared with the drawing: 1 disagrees with the drawing, 1 agrees, 2 are stored only, 2 are drawn only, 2 are marked but unreadable.')
+  assert.equal(summarySentence(rows.slice(4, 5)), 'Compared with the drawing: 1 is drawn only.')
+  for (const sentence of [viewSentence({ kind: 'checking' }), viewSentence({ kind: 'unchecked' }), summarySentence(rows), summarySentence([]), agreementModule.NOTHING_TO_COMPARE]) {
+    assert.doesNotMatch(sentence, /no stereo/i)
+  }
+  assert.match(agreementModule.NOTHING_TO_COMPARE, /is not assessed\.$/)
+})
+
+test('rings are for the rows that do not agree, named for the item and the placement', async () => {
+  const { value, atoms, bonds } = mixedFixture()
+  const rows = agreementRows(await inspected(value, replyOf(value, resultOf(value, atoms, bonds))))
+  const rings = agreementRings(rows)
+  assert.deepEqual(rings.map((ring) => `${ring.item.id}/${ring.instance}/${ring.agreement}`), [
+    'a1/s2/disagrees', 'a6/s1/neither', 'a6/s2/neither', 'a9/s1/only_drawn', 'a9/s2/only_drawn', 'b10/s1/only_stored', 'b10/s2/only_stored',
+  ])
+  assert.equal(rings[0].name, 'Center a1: the stored configuration disagrees with the drawing in s2')
+  assert.equal(rings[5].name, 'Double bond b10: a stored configuration that the drawing in s1 does not show')
+  assert.equal(agreementRings(agreementRows(await inspected(agreementDocument(), replyOf(agreementDocument(), resultOf(agreementDocument(), publicItems()))))).length, 1)
+})
+
+test('a row button names its item and placement; "Update all" needs one placement and two disagreements', async () => {
+  const value = agreementDocument()
+  value.stereo.atoms[1] = { atom: 'a4', configuration: tetra(A4, 'clockwise') }
+  const items = publicItems()
+  items[1] = { atom: 'a4', stored: tetra(A4, 'clockwise'), drawn: [drawnOf('s1', tetra(A4, 'anticlockwise'), 'disagrees')] }
+  const inspection = await inspected(value, replyOf(value, resultOf(value, items)))
+  const rows = agreementRows(inspection)
+  assert.deepEqual(rows.map((row) => actionName(row, rowAction(row.agreement))), ['Update a2 in s1 from the drawing', 'Update a4 in s1 from the drawing'])
+  assert.deepEqual(updatableRows(inspection, rows).map((row) => row.item.id), ['a2', 'a4'])
+  assert.deepEqual(updatableRows(inspection, rows.slice(0, 1)), [], 'one is not enough')
+  const twice = agreementDocument(['s1', 's2'])
+  const both = publicItems(['s1', 's2'])
+  both[1] = { atom: 'a4', stored: tetra(A4, 'clockwise'), drawn: ['s1', 's2'].map((id) => drawnOf(id, tetra(A4, 'anticlockwise'), 'disagrees')) }
+  twice.stereo.atoms[1] = { atom: 'a4', configuration: tetra(A4, 'clockwise') }
+  const several = await inspected(twice, replyOf(twice, resultOf(twice, both)))
+  assert.equal(agreementRows(several).filter((row) => row.agreement === 'disagrees').length, 4)
+  assert.deepEqual(updatableRows(several, agreementRows(several)), [], 'which placement to read is the user\'s to choose, one row at a time')
+  const { value: mixed, atoms, bonds } = mixedFixture()
+  const m = agreementRows(await inspected(mixed, replyOf(mixed, resultOf(mixed, atoms, bonds))))
+  assert.equal(actionName(m[4], 'store'), 'Store a9 in s1 from the drawing')
+  assert.equal(actionName(m[6], 'remove'), 'Remove the stored configuration of b10 (row s1)')
+})
+
+test('a click is built from the latest drawing and lapses when what it names is gone', () => {
+  const value = agreementDocument(['s1', 's2'])
+  const at = { kind: 'atom', id: 'a2' }
+  assert.deepEqual(resolutionCommands(value, { kind: 'update', item: at, instance: 's2' }), [derive(['a2'], { instance: 's2' })])
+  assert.deepEqual(resolutionCommands(value, { kind: 'store', item: at, instance: 's1' }), [derive(['a2'], { instance: 's1' })])
+  assert.deepEqual(resolutionCommands(value, { kind: 'remove', item: at, instance: 's1' }), [{ op: 'set_atom_configuration', atom: 'a2', configuration: null }])
+  assert.deepEqual(resolutionCommands(value, { kind: 'update_all', items: [at, { kind: 'atom', id: 'a4' }], instance: 's1' }), [derive(['a2', 'a4'], { instance: 's1' })])
+  const bond = { kind: 'bond', id: 'b3' }
+  assert.deepEqual(resolutionCommands({ ...value, stereo: { atoms: [], bonds: [{ bond: 'b3', configuration: { kind: 'unknown' } }] } }, { kind: 'remove', item: bond, instance: 's1' }),
+    [{ op: 'set_bond_configuration', bond: 'b3', configuration: null }])
+  assert.deepEqual(resolutionCommands(value, { kind: 'update', item: bond, instance: 's1' }), [{ op: 'set_configuration_from_drawing', bonds: ['b3'], instance: 's1' }])
+  // Lapses: the atom, the placement or the stored record is gone.
+  const gone = { ...value, atoms: value.atoms.filter((a) => a.id !== 'a2'), bonds: value.bonds.filter((b) => b.begin !== 'a2' && b.end !== 'a2') }
+  assert.equal(resolutionCommands(gone, { kind: 'update', item: at, instance: 's1' }), null)
+  assert.equal(resolutionCommands(gone, { kind: 'update_all', items: [at, { kind: 'atom', id: 'a4' }], instance: 's1' }), null, 'one gone lapses all')
+  assert.equal(resolutionCommands(value, { kind: 'update', item: at, instance: 's9' }), null, 'the placement is gone')
+  assert.equal(resolutionCommands(placedIn(publicFixture(true)), { kind: 'update', item: at, instance: 's1' }), null, 'no placement to read')
+  assert.equal(resolutionCommands({ ...value, stereo: { atoms: [], bonds: [] } }, { kind: 'remove', item: at, instance: 's1' }), null, 'nothing stored to remove')
+})
+
+test('the status after a click names the stated value it replaced or removed', () => {
+  const before = agreementDocument()
+  const stored = (document, atom, turn) => ({ ...document, stereo: { ...document.stereo, atoms: document.stereo.atoms.map((r) => (r.atom === atom ? { atom, configuration: tetra(r.configuration.neighbors, turn) } : r)) } })
+  const item = { kind: 'atom', id: 'a2' }
+  assert.equal(resolutionStatus(before, stored(before, 'a2', 'anticlockwise'), { kind: 'update', item, instance: 's1' }),
+    'a2: replaced stored clockwise with anticlockwise from the drawing in s1. Undo restores it.')
+  const empty = { ...before, stereo: { atoms: [before.stereo.atoms[1]], bonds: [] } }
+  assert.equal(resolutionStatus(empty, before, { kind: 'store', item, instance: 's1' }), 'a2: stored clockwise from the drawing in s1.')
+  assert.equal(resolutionStatus(before, empty, { kind: 'remove', item, instance: 's1' }), 'a2: removed the stored clockwise. Undo restores it.')
+  assert.equal(resolutionStatus(before, before, { kind: 'update', item, instance: 's1' }), 'a2: the stored clockwise already matched the drawing in s1; nothing changed.')
+  assert.equal(resolutionStatus(empty, empty, { kind: 'remove', item, instance: 's1' }), null)
+  const both = stored(stored(before, 'a2', 'anticlockwise'), 'a4', 'clockwise')
+  assert.equal(resolutionStatus(before, both, { kind: 'update_all', items: [item, { kind: 'atom', id: 'a4' }], instance: 's1' }),
+    'Replaced 2 stored configurations with what the drawing in s1 shows: a2 (clockwise to anticlockwise), a4 (anticlockwise to clockwise). Undo restores them.')
+  assert.equal(resolutionStatus(before, before, { kind: 'update_all', items: [item], instance: 's1' }), 'Nothing changed: the stored configurations already matched the drawing in s1.')
+})
+
+/** A clock the test advances; a request is a promise the test settles. */
+function schedulerFixture(delay) {
+  let now = 0
+  let next = 1
+  const tasks = new Map()
+  const timers = {
+    set: (task, ms) => { tasks.set(next, { at: now + ms, task }); return next++ },
+    clear: (handle) => { tasks.delete(handle) },
+  }
+  const requests = []
+  const scheduler = new CheckScheduler(() => new Promise((resolve) => { requests.push(resolve) }), timers, delay)
+  const settled = () => new Promise((resolve) => setImmediate(resolve))
+  return {
+    scheduler, requests, timers,
+    waiting: () => tasks.size,
+    advance: (ms) => {
+      const end = now + ms
+      for (;;) {
+        const due = [...tasks].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        tasks.delete(due[0])
+        now = due[1].at
+        due[1].task()
+      }
+      now = end
+    },
+    finish: async () => { requests.shift()(); await settled() },
+  }
+}
+
+test('changes within 300 ms make one request, which waits for the last change', () => {
+  assert.equal(agreementModule.CHECK_DELAY_MS, 300)
+  const { scheduler, requests, advance } = schedulerFixture()
+  scheduler.changed()
+  advance(299)
+  assert.equal(requests.length, 0)
+  scheduler.changed()
+  advance(299)
+  assert.equal(requests.length, 0, 'the second change restarted the wait')
+  advance(1)
+  assert.equal(requests.length, 1)
+})
+
+test('one request is in flight at a time, and any number of changes meanwhile cause exactly one more', async () => {
+  const { scheduler, requests, advance, finish } = schedulerFixture()
+  scheduler.changed()
+  advance(300)
+  assert.equal(requests.length, 1)
+  scheduler.changed()
+  scheduler.changed()
+  scheduler.changed()
+  advance(1000)
+  assert.equal(requests.length, 1, 'nothing starts while one is in flight')
+  await finish()
+  advance(300)
+  assert.equal(requests.length, 1, 'one more, not three')
+  await finish()
+  advance(5000)
+  assert.equal(requests.length, 0, 'and then it is quiet')
+})
+
+test('no request starts while the user is dragging; one starts after the release', () => {
+  const { scheduler, requests, advance } = schedulerFixture()
+  scheduler.pause(true)
+  scheduler.changed()
+  advance(5000)
+  assert.equal(requests.length, 0)
+  scheduler.pause(false)
+  advance(299)
+  assert.equal(requests.length, 0)
+  advance(1)
+  assert.equal(requests.length, 1)
+  const idle = schedulerFixture()
+  idle.scheduler.pause(true)
+  idle.scheduler.pause(false)
+  idle.advance(5000)
+  assert.equal(idle.requests.length, 0, 'a pause without a change asks nothing')
+  const during = schedulerFixture()
+  during.scheduler.changed()
+  during.scheduler.pause(true)
+  during.advance(5000)
+  assert.equal(during.requests.length, 0, 'a change already waiting is held back too')
+})
+
+test('stopping forgets a change that has not started; asking now does not wait', async () => {
+  const stopped = schedulerFixture()
+  stopped.scheduler.changed()
+  stopped.scheduler.stop()
+  stopped.advance(5000)
+  assert.equal(stopped.requests.length, 0)
+  const { scheduler, requests, advance, finish } = schedulerFixture()
+  scheduler.now()
+  advance(0)
+  assert.equal(requests.length, 1)
+  scheduler.now()
+  await finish()
+  advance(0)
+  assert.equal(requests.length, 1, 'a request asked for during one follows it at once')
+  await finish()
+})
+
+test('a check that rejects anyway does not stop the scheduler or leave an unhandled rejection', async () => {
+  const unhandled = []
+  const record = (reason) => { unhandled.push(reason) }
+  process.on('unhandledRejection', record)
+  try {
+    let now = 0
+    let next = 1
+    const tasks = new Map()
+    const timers = {
+      set: (task, ms) => { tasks.set(next, { at: now + ms, task }); return next++ },
+      clear: (handle) => { tasks.delete(handle) },
+    }
+    const advance = (ms) => {
+      const end = now + ms
+      for (;;) {
+        const due = [...tasks].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        tasks.delete(due[0])
+        now = due[1].at
+        due[1].task()
+      }
+      now = end
+    }
+    const calls = []
+    const scheduler = new CheckScheduler(() => new Promise((resolve, reject) => { calls.push({ resolve, reject }) }), timers)
+    scheduler.changed()
+    advance(300)
+    assert.equal(calls.length, 1)
+    scheduler.changed()
+    calls.shift().reject(new Error('the check broke its contract'))
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(unhandled, [], 'the scheduler does not turn a rejection into an unhandled one')
+    advance(300)
+    assert.equal(calls.length, 1, 'a change queued during the rejected check still starts one more')
+    calls.shift().resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    scheduler.changed()
+    advance(300)
+    assert.equal(calls.length, 1, 'and the running flag was cleared, so later changes start requests')
+  } finally {
+    process.off('unhandledRejection', record)
+  }
+})

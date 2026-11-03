@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils'
 import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
+import { AgreementRings } from '@/editor/agreement-rings'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
+import type { AgreementRing } from '@/editor/stereo-agreement'
 import { StrokeShapes } from '@/editor/stroke-shapes'
 import {
   atomIndex,
@@ -99,6 +101,10 @@ interface StructureCanvasProps {
   onCommands: (commands: Command[]) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
+  /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
+  rings?: readonly AgreementRing[]
+  /** Called when a pointer gesture starts (true) and ends (false). */
+  onDragging?: (dragging: boolean) => void
   disabled: boolean
 }
 
@@ -116,10 +122,17 @@ export function StructureCanvas({
   onSelectionChange,
   onCommands,
   onMark,
+  rings = [],
+  onDragging,
   disabled,
 }: StructureCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<Drag | null>(null)
+  /** Every start and end of a gesture goes through here, so the parent can wait for a release. */
+  const setDrag = (next: Drag | null) => {
+    if ((next === null) !== (drag.current === null)) onDragging?.(next !== null)
+    drag.current = next
+  }
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
 
@@ -230,7 +243,7 @@ export function StructureCanvas({
     const { hit, instance } = locate(point)
     if (tool === 'select') {
       if (!hit) {
-        drag.current = { kind: 'marquee', start: point, additive: event.shiftKey }
+        setDrag({ kind: 'marquee', start: point, additive: event.shiftKey })
         return
       }
       let next = new Set(selection)
@@ -241,11 +254,11 @@ export function StructureCanvas({
         next = new Set([hit.id])
       }
       onSelectionChange(next)
-      drag.current = { kind: 'move', start: point, atoms: next.has(hit.id) ? movableAtoms(next) : [], instance }
+      setDrag({ kind: 'move', start: point, atoms: next.has(hit.id) ? movableAtoms(next) : [], instance })
     } else if (tool === 'bond' && hit?.kind !== 'bond') {
-      drag.current = { kind: 'bond', start: point, fromAtom: hit?.kind === 'atom' ? hit.id : null, instance }
+      setDrag({ kind: 'bond', start: point, fromAtom: hit?.kind === 'atom' ? hit.id : null, instance })
     } else {
-      drag.current = { kind: 'click', start: point, hit, instance }
+      setDrag({ kind: 'click', start: point, hit, instance })
     }
   }
 
@@ -291,7 +304,7 @@ export function StructureCanvas({
 
   function finish(event: PointerEvent<SVGSVGElement>) {
     const gesture = drag.current
-    drag.current = null
+    setDrag(null)
     setPreview(null)
     // Busy is checked when a gesture starts, not here: a request queued meanwhile (e.g. a
     // field's blur) must not swallow it. The parent applies the commands to the latest
@@ -413,6 +426,17 @@ export function StructureCanvas({
   const hovered = (drawing: Drawing, kind: 'atom' | 'bond', id: string) =>
     hover?.instance === drawing.id && hover.hit?.kind === kind && hover.hit.id === id
 
+  /** The rings of one placement, each at its atom or the middle of its double bond, as moved by a drag in progress. */
+  const ringsAt = (drawing: Drawing) =>
+    rings.flatMap((ring) => {
+      if (ring.instance !== drawing.id) return []
+      if (ring.item.kind === 'atom') return drawing.atoms.has(ring.item.id) ? [{ ring, at: position(drawing, ring.item.id) }] : []
+      const bond = document.bonds.find((candidate) => candidate.id === ring.item.id)
+      if (!bond || !drawing.atoms.has(bond.begin) || !drawing.atoms.has(bond.end)) return []
+      const [a, b] = [position(drawing, bond.begin), position(drawing, bond.end)]
+      return [{ ring, at: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }]
+    })
+
   const sceneObjects = document.scene?.objects
   const byId = new Map(sceneObjects?.map((object) => [object.id, object]) ?? [])
   const sceneSelected = (object: SceneObject) => {
@@ -451,6 +475,7 @@ export function StructureCanvas({
         several={drawings.length > 1}
         moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
       />
+      <AgreementRings rings={ringsAt(drawing)} />
     </g>
   )
 
@@ -470,7 +495,7 @@ export function StructureCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={finish}
       onPointerCancel={() => {
-        drag.current = null
+        setDrag(null)
         setPreview(null)
       }}
       onPointerLeave={() => setHover(null)}
