@@ -1085,7 +1085,7 @@
    "acceptance": "거울상·E/Z·동위원소·재번호·대칭의 독립 사례를 통과한다. 계산한 레이블이 그려진 결합 정보를 덮지 않는다.",
    "kind": "core",
    "id": "P26",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1094,7 +1094,8 @@
    "depends_on": [
     "P25",
     "P18"
-   ]
+   ],
+   "note": "첫 납품 P26a-1은 도메인 내부만이다: `crates/domain/src/cip.rs`가 저장된 사면체 중심의 R/S 레이블을 규칙 1a·1b·2와 계층 digraph(중복·팬텀 원자, 전부 탄소인 방향족계의 mancude 처리)로 계산한다. 공개 연산·HTTP·CLI·웹은 없고(연산 수 26 그대로) 응답 계약도 바꾸지 않았다. 규칙 3(E/Z)은 임시 사유 cip_rule_3_pending으로 거절한다. 이중결합 E/Z 레이블, chem.cip 연산, 웹 표시, 규칙 4·5와 의사비대칭 r/s, 헤테로방향족은 후속이며 P26은 완료가 아니다."
   },
   {
    "phase": "stereo",
