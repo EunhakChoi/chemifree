@@ -1,9 +1,10 @@
 //! Stereo representation: how a bond is drawn (a mark) kept apart from what is stated about a
 //! stereocenter or a double bond (a configuration).
 //!
-//! This is representation only. It computes no CIP label, does not judge whether an atom is
-//! stereogenic or a geometry is chemically plausible, and does not derive a configuration from a
-//! drawing. A configuration is a statement about atom identifiers, never about list positions or
+//! This is representation only. It computes no CIP label and does not judge whether an atom is
+//! stereogenic or a geometry is chemically plausible; reading a configuration off a drawing is
+//! the separate [`crate::stereo_drawing`] module, which only returns values and stores nothing.
+//! A configuration is a statement about atom identifiers, never about list positions or
 //! coordinates, so renumbering atoms in an output cannot change what it says. "Unspecified" is
 //! the absence of a record; "unknown" is an explicit record.
 //!
@@ -54,6 +55,24 @@ impl StereoMark {
         match self {
             Self::Wedge { .. } | Self::Hash { .. } | Self::Wavy => *order == BondOrder::Single,
             Self::Crossed => *order == BondOrder::Double,
+        }
+    }
+
+    /// The mark after the picture is flipped over (the public `Flip` with
+    /// `preservingAbsoluteStereochemistry` true): the same compound seen from behind. A wedge and
+    /// a hash swap kinds and keep their narrow end; a wavy and a crossed mark stay. Together
+    /// with reflecting the positions this leaves every derived configuration unchanged. How the
+    /// original application rewrites its wedges for that flag is not part of the public
+    /// specification; this rule is derived, and the law above is what the tests pin.
+    ///
+    /// Reflecting the picture with the flag false (a mirror image) leaves every mark as it is
+    /// and changes the configurations instead: see [`StereoTable::mirrored`].
+    #[must_use]
+    pub const fn flipped_over(self) -> Self {
+        match self {
+            Self::Wedge { narrow } => Self::Hash { narrow },
+            Self::Hash { narrow } => Self::Wedge { narrow },
+            Self::Wavy | Self::Crossed => self,
         }
     }
 }
@@ -160,6 +179,42 @@ impl CenterState {
         match self {
             Self::Tetrahedral { slots, .. } | Self::Unknown { slots } => slots,
         }
+    }
+
+    /// The mirror image (the public `Flip` with `preservingAbsoluteStereochemistry` false): a
+    /// tetrahedral center turns the other way round and an unknown one stays unknown. The slots
+    /// do not change, and neither do the drawn marks (see [`StereoMark::flipped_over`] for the
+    /// other flip).
+    #[must_use]
+    pub const fn mirrored(self) -> Self {
+        match self {
+            Self::Tetrahedral { slots, turn } => Self::Tetrahedral {
+                slots,
+                turn: turn.flipped(),
+            },
+            Self::Unknown { .. } => self,
+        }
+    }
+
+    /// The turn when the neighbors are read in `order`, which must be the record's slots in any
+    /// order (a codec maps its own list, such as bond identifiers with one empty entry, to
+    /// slots first; the empty entry is the record's non-atom slot, and which label that is stays
+    /// the record's statement). `None` for an unknown center, which has no turn.
+    ///
+    /// # Errors
+    ///
+    /// [`StereoError::CenterNeighbors`] when `order` is not a permutation of the slots.
+    pub fn turn_for_order(&self, order: [Slot; 4]) -> Result<Option<Turn>, StereoError> {
+        let odd = is_odd_permutation(&order).ok_or(StereoError::CenterNeighbors)?;
+        let mut sorted = order;
+        sorted.sort_unstable();
+        if sorted != *self.slots() {
+            return Err(StereoError::CenterNeighbors);
+        }
+        Ok(match self {
+            Self::Tetrahedral { turn, .. } => Some(if odd { turn.flipped() } else { *turn }),
+            Self::Unknown { .. } => None,
+        })
     }
 }
 
@@ -269,6 +324,27 @@ impl StereoTable {
 
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    /// The table of the mirror image (the public `Flip` with `preservingAbsoluteStereochemistry`
+    /// false): every tetrahedral center turns the other way round; unknown centers and every
+    /// double bond are unchanged, because a cis or trans relation does not depend on
+    /// handedness. The table of a picture flipped over (the flag true) is the table itself, so
+    /// there is no function for it; only the marks change ([`StereoMark::flipped_over`]).
+    #[must_use]
+    pub fn mirrored(&self) -> Self {
+        let records = self
+            .records
+            .iter()
+            .map(|(key, state)| {
+                let state = match state {
+                    StereoState::Center(center) => StereoState::Center(center.mirrored()),
+                    StereoState::DoubleBond(_) => *state,
+                };
+                (*key, state)
+            })
+            .collect();
+        Self { records }
     }
 
     pub(crate) const fn records(&self) -> &BTreeMap<StereoKey, StereoState> {
@@ -497,7 +573,10 @@ impl<'a> Graph<'a> {
         }
     }
 
-    fn indexed(atoms: &'a BTreeMap<AtomId, Atom>, bonds: &'a BTreeMap<BondId, Bond>) -> Self {
+    pub(crate) fn indexed(
+        atoms: &'a BTreeMap<AtomId, Atom>,
+        bonds: &'a BTreeMap<BondId, Bond>,
+    ) -> Self {
         let mut index: HashMap<AtomId, Vec<(AtomId, BondId)>> = HashMap::with_capacity(atoms.len());
         for (id, bond) in bonds {
             index.entry(bond.begin).or_default().push((bond.end, *id));
@@ -513,7 +592,15 @@ impl<'a> Graph<'a> {
         }
     }
 
-    fn neighbors(&self, atom: AtomId) -> Vec<(AtomId, BondId)> {
+    pub(crate) fn atom(&self, id: AtomId) -> Option<&'a Atom> {
+        self.atoms.get(&id)
+    }
+
+    pub(crate) fn bond(&self, id: BondId) -> Option<&'a Bond> {
+        self.bonds.get(&id)
+    }
+
+    pub(crate) fn neighbors(&self, atom: AtomId) -> Vec<(AtomId, BondId)> {
         if let Some(index) = &self.index {
             return index.get(&atom).cloned().unwrap_or_default();
         }
@@ -535,7 +622,11 @@ impl<'a> Graph<'a> {
     }
 
     /// The neighbors of `atom` other than `partner`, ascending, for one end of a double bond.
-    fn other_neighbors(&self, atom: AtomId, partner: AtomId) -> Result<Vec<AtomId>, StereoError> {
+    pub(crate) fn other_neighbors(
+        &self,
+        atom: AtomId,
+        partner: AtomId,
+    ) -> Result<Vec<AtomId>, StereoError> {
         let others: Vec<(AtomId, BondId)> = self
             .neighbors(atom)
             .into_iter()
