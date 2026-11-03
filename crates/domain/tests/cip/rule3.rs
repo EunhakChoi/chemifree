@@ -712,6 +712,23 @@ fn the_scan_lists_what_it_cannot_decide_and_never_a_ring_double_bond() {
 }
 
 #[test]
+fn the_scan_checks_the_interrupt_even_when_it_skips_every_atom_and_bond() {
+    // A long acyclic chain has no center and no double bond, so the scan examines nothing and
+    // never ranks anything: only the scan's own checkpoint can stop it.
+    let chain = parse(&"C".repeat(60));
+    let built = chain.build();
+    let flag = CancelFlag::new();
+    flag.cancel();
+    assert!(matches!(
+        candidates(&built.graph(), Limits::default(), &flag),
+        Err(Stop::Interrupted(_))
+    ));
+    // The same chain without a cancel has nothing to list.
+    let found = candidates(&built.graph(), Limits::default(), &NEVER).unwrap();
+    assert!(found.centers.is_empty() && found.double_bonds.is_empty());
+}
+
+#[test]
 fn the_scan_stops_at_the_request_cap() {
     let molecule = parse("CC(O)CC=CC");
     let built = molecule.build();

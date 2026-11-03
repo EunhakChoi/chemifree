@@ -431,8 +431,15 @@ pub struct Candidates {
 /// passes the center structure test and a double bond that passes the double-bond structure
 /// test, whose label state is not `None`, whether or not a record is stored. A unit the model
 /// cannot decide (`Unsupported`, `Ambiguous`) is listed, because it may be stereogenic; one
-/// found not stereogenic is not. Double bonds inside a ring system are never candidates (no
-/// ring-size judgement is made; a stored one is still labeled by [`label_double_bonds`]).
+/// found not stereogenic is not.
+///
+/// This is not the list of every E/Z unit. A double bond inside a ring system is never listed
+/// (the design default is that no ring-size judgement is made), although
+/// [`label_double_bonds`] labels a stored ring double bond when it is named; a consumer must
+/// not read the scan as the complete list of double bonds that carry or may carry an E or Z.
+///
+/// The interrupt is asked for every atom and bond, skipped or not, as well as at the spheres
+/// of the units that are ranked.
 ///
 /// # Errors
 ///
@@ -452,6 +459,9 @@ pub fn candidates(
     let mut used = 0_usize;
     let mut found = Candidates::default();
     for (id, _) in graph.atoms() {
+        // Asked for every atom, examined or skipped, so that a scan that ranks nothing (an
+        // acyclic chain) can still be stopped.
+        interrupt.check().map_err(Stop::Interrupted)?;
         if !label::is_center(&context, id) {
             continue;
         }
@@ -462,6 +472,7 @@ pub fn candidates(
         }
     }
     for (id, _) in graph.bonds() {
+        interrupt.check().map_err(Stop::Interrupted)?;
         if in_ring.contains(&id) || !bond::is_unit(&context, id) {
             continue;
         }
