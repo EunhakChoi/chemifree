@@ -21,6 +21,9 @@ pub const MAX_SYSTEM_ATOMS: usize = 128;
 /// The Kekulé assignment steps one ring system with recorded aromatic bonds may take; more is
 /// `search_limit`.
 pub const MAX_MATCH_STEPS: usize = 100_000;
+/// The Kekulé search asks its interrupt once per this many steps, not at every step; the
+/// conversion's entry and every ring system are checked as well.
+const SEARCH_CHECK_STRIDE: usize = 1_024;
 
 /// Why a computation that can be interrupted did not produce its result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -593,7 +596,12 @@ fn assign(
     budget: &mut usize,
     interrupt: &dyn Interrupt,
 ) -> Result<bool, Halt> {
-    interrupt.check()?;
+    // Every call but the first follows exactly one step, so the remaining budget differs at
+    // each call and this asks once per `SEARCH_CHECK_STRIDE` steps. It reads the budget only;
+    // the search itself is the same with or without an interrupt.
+    if budget.is_multiple_of(SEARCH_CHECK_STRIDE) {
+        interrupt.check()?;
+    }
     let next = (0..roles.len())
         .filter(|&i| roles[i].needs_double && !used[i])
         .min_by_key(|&i| {

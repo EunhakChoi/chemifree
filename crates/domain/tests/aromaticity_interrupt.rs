@@ -201,17 +201,56 @@ fn perception_interrupted_at_any_checkpoint_stops_or_equals_the_plain_result() {
 }
 
 #[test]
-fn the_searches_are_checkpoints_not_only_the_systems() {
-    // A fused system asks about every bond of its six-membered cover, and a Kekulé search asks
-    // at every step. If either loop lost its checkpoint, the counts here would fall to the
-    // number of systems plus the entry.
+fn a_fused_system_asks_about_every_bond_of_its_cover() {
+    // Entry, one system and the cover of 11 bonds. If the cover lost its checkpoint, the count
+    // would fall to the entry plus the systems.
     let fused = naphthalene([':'; 5]);
     let counter = StopAt::counting();
     aromaticity::conversion_commands_with(&fused, Target::Kekule, &counter).unwrap();
-    // Entry, one system, the cover of 11 bonds, and at least one search step per atom pair.
     assert!(
-        counter.calls.get() >= 1 + 1 + 11 + 5,
-        "a fused aromatic system must pass at least 18 checkpoints, passed {}",
+        counter.calls.get() >= 1 + 1 + 11,
+        "a fused aromatic system must pass at least 13 checkpoints, passed {}",
         counter.calls.get()
+    );
+}
+
+/// An aromatic system of 93 atoms and 121 bonds whose Kekulé search runs through the whole
+/// 100,000-step budget (the same edges as `a_kekule_search_that_exhausts_the_step_budget...`
+/// in `aromaticity_v2.rs`).
+fn exhausting_search() -> MoleculeGraph {
+    const EDGES: [(usize, usize); 121] = [(0,15),(0,31),(0,34),(1,39),(1,52),(2,53),(2,73),(2,75),(3,9),(3,44),(3,68),(4,33),(4,35),(4,73),(5,21),(5,42),(5,61),(6,28),(6,62),(6,92),(7,68),(7,71),(8,25),(8,31),(8,67),(9,18),(9,45),(10,29),(10,41),(10,43),(11,45),(11,81),(11,87),(12,43),(12,56),(13,30),(13,65),(13,84),(14,67),(14,78),(14,91),(15,21),(15,22),(16,55),(16,59),(16,67),(17,61),(17,86),(17,92),(18,71),(19,22),(19,79),(19,87),(20,24),(20,49),(20,89),(21,70),(22,48),(23,59),(23,63),(24,77),(24,90),(25,27),(26,48),(26,66),(26,75),(27,34),(28,29),(29,86),(30,35),(30,52),(31,80),(32,55),(32,63),(33,61),(33,84),(34,87),(35,46),(36,45),(36,79),(37,58),(37,65),(37,72),(38,47),(38,83),(39,65),(40,41),(40,50),(40,56),(41,58),(42,48),(42,73),(44,77),(44,81),(46,53),(47,77),(49,54),(50,72),(51,57),(51,60),(51,74),(54,85),(55,82),(57,66),(58,76),(60,64),(62,78),(64,88),(66,79),(69,74),(69,88),(70,80),(70,92),(74,75),(76,84),(76,86),(78,80),(81,89),(82,91),(83,90),(85,90)];
+    let bonds: Vec<(usize, usize, char)> = EDGES.iter().map(|&(a, b)| (a, b, ':')).collect();
+    mol(&["C"; 93], &bonds)
+}
+
+#[test]
+fn the_kekule_search_asks_once_per_stride_not_at_every_step() {
+    let graph = exhausting_search();
+    let counter = StopAt::counting();
+    assert_eq!(
+        aromaticity::conversion_commands_with(&graph, Target::Kekule, &counter),
+        Err(Halt::Reason("search_limit"))
+    );
+    let calls = counter.calls.get();
+    // 100,000 steps at one question per 1,024 is about 98; the entry, the system and the 121
+    // bonds of its cover add 123. Asking at every step would be over 100,000; never asking in
+    // the search would leave 123.
+    assert!(
+        (200..=300).contains(&calls),
+        "the search must ask about once per 1,024 steps, asked {calls} times"
+    );
+    // A stop inside the search ends it with that stop, and one after it changes nothing.
+    for stop_at in [3, calls / 2, calls] {
+        let probe = StopAt::new(Some(stop_at), Interrupted::TimeLimit);
+        assert_eq!(
+            aromaticity::conversion_commands_with(&graph, Target::Kekule, &probe),
+            Err(Halt::Interrupted(Interrupted::TimeLimit)),
+            "stopping at checkpoint {stop_at} of {calls}"
+        );
+    }
+    let late = StopAt::new(Some(calls + 1), Interrupted::TimeLimit);
+    assert_eq!(
+        aromaticity::conversion_commands_with(&graph, Target::Kekule, &late),
+        Err(Halt::Reason("search_limit"))
     );
 }
