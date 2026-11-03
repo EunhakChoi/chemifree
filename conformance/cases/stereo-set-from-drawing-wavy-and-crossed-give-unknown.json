@@ -1,0 +1,255 @@
+{
+  "id": "stereo-set-from-drawing-wavy-and-crossed-give-unknown",
+  "title": "A wavy bond at a centre and a crossed double bond are derived as the explicit unknown statement, and replacing the wavy bond with a wedge replaces it with a definite configuration",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 285,
+            "y": 80
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 345,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$5",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wavy"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b4",
+          "mark": {
+            "kind": "crossed"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "unknown",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ]
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "unknown"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "unknown"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b4",
+          "mark": null
+        },
+        {
+          "op": "set_configuration_from_drawing"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "unknown"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}

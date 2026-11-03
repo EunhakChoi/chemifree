@@ -1,0 +1,146 @@
+{
+  "id": "stereo-set-from-drawing-public-two-centers",
+  "title": "The public authored two-centre drawing (one tapered hash at each centre) gives anticlockwise at both centres in the canonical orders, which is F[C@H](Cl)[C@H](Br)I",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 0,
+            "y": 40
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": -35,
+            "y": -18
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 35,
+            "y": -18
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 35,
+            "y": -58
+          },
+          "bond_to": {
+            "atom": "$3",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "I",
+          "position": {
+            "x": 70,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$3",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$1",
+          "mark": {
+            "kind": "hash",
+            "narrow": "end"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$4",
+          "mark": {
+            "kind": "hash",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a2",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a1",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              },
+              {
+                "atom": "a4",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a5",
+                    "a6",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}
