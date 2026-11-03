@@ -1,5 +1,5 @@
 {
-  "suite_version": 16,
+  "suite_version": 17,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -53,6 +53,12 @@
     "cases/stereo-smiles-export-needs-consent.json",
     "cases/stereo-molfile-export-refused.json",
     "cases/stereo-identity-and-substructure-not-compared.json",
+    "cases/stereo-set-from-drawing.json",
+    "cases/stereo-set-from-drawing-parity-pair.json",
+    "cases/stereo-set-from-drawing-replaces-stated-configurations.json",
+    "cases/stereo-set-from-drawing-public-two-centers.json",
+    "cases/stereo-set-from-drawing-refused.json",
+    "cases/stereo-set-from-drawing-wavy-and-crossed-give-unknown.json",
     "cases/stereo-cip-label-from-stored-configuration.json",
     "cases/stereo-enhanced-group-membership.json",
     "cases/stereo-molfile-stereo-round-trip.json"

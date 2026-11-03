@@ -50,7 +50,7 @@
 //! and a larger threshold would refuse pictures a user means. A reader that wants to flag weak
 //! evidence can compare `|D|` with its own threshold.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
 use crate::chemistry::{self, Finding};
@@ -60,6 +60,10 @@ use crate::stereo::{
     BondEnd, CenterState, DoubleBondState, Graph, Relation, Slot, StereoError, StereoMark, Turn,
 };
 
+/// The identifier of the rules in this module, reported with the replies of operations that run
+/// them. A change to the frame, the lift, the scope or the fourth-position rule, or to the
+/// valence model the fourth-position rule reads, is a new identifier.
+pub const MODEL_ID: &str = "chemifree-stereo-1";
 /// Two atoms closer than this (in points) are treated as on top of each other.
 pub const MIN_BOND_LENGTH: f64 = 1e-3;
 /// A center whose `|D|` (dimensionless) is below this is refused as degenerate.
@@ -166,12 +170,26 @@ impl fmt::Display for DeriveError {
     }
 }
 
+impl DeriveError {
+    /// The stable code sent as `reason` with the refusal, when the cause has one: the structural
+    /// codes of [`StereoError`] and the codes of [`NotDerivable`]. A missing atom, bond or
+    /// position has none.
+    pub const fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::Structure(error) => Some(error.code()),
+            Self::NotDerivable(reason) => Some(reason.code()),
+            Self::UnknownAtom(_) | Self::UnknownBond(_) | Self::MissingPosition(_) => None,
+        }
+    }
+}
+
 impl std::error::Error for DeriveError {}
 
 /// The graph, its bond marks and the positions of one scene instance, with the neighbor map
 /// built once. Deriving one center or double bond afterwards costs only its neighborhood.
 pub struct Drawing<'a> {
     graph: Graph<'a>,
+    bonds: &'a BTreeMap<BondId, Bond>,
     positions: HashMap<AtomId, Point>,
 }
 
@@ -188,6 +206,7 @@ impl<'a> Drawing<'a> {
     ) -> Self {
         Self {
             graph: Graph::indexed(atoms, bonds),
+            bonds,
             positions: positions.into_iter().collect(),
         }
     }
@@ -212,6 +231,44 @@ impl<'a> Drawing<'a> {
             !matches!(record.kind, AtomKind::Query(_))
                 && (3..=4).contains(&self.graph.neighbors(atom).len())
         })
+    }
+
+    /// The atoms a mark bears on that could hold a center record, in ascending order: the atom
+    /// at the narrow end of a wedge or hash, and both ends of a wavy bond, when it is a non-query
+    /// atom with 3 or 4 neighbors. An unmarked center, a wide end, and a mark whose narrow end
+    /// is a terminal atom are not listed: nothing is stored for them unless asked. A mark the
+    /// bond's order cannot carry counts as no mark, as in [`Self::derive_center`]. Work is linear
+    /// in the bonds.
+    pub fn marked_centers(&self) -> Vec<AtomId> {
+        let mut found = BTreeSet::new();
+        for bond in self.bonds.values() {
+            match bond.mark.filter(|mark| mark.fits(&bond.order)) {
+                Some(StereoMark::Wedge { narrow } | StereoMark::Hash { narrow }) => {
+                    found.insert(narrow_atom(bond, narrow));
+                }
+                Some(StereoMark::Wavy) => {
+                    found.insert(bond.begin);
+                    found.insert(bond.end);
+                }
+                Some(StereoMark::Crossed) | None => {}
+            }
+        }
+        found
+            .into_iter()
+            .filter(|&atom| self.can_be_center(atom))
+            .collect()
+    }
+
+    /// The double bonds that carry a crossed mark, in ascending order. An uncrossed double bond
+    /// is not listed: its relation is not stored unless asked.
+    pub fn crossed_double_bonds(&self) -> Vec<BondId> {
+        self.bonds
+            .iter()
+            .filter(|(_, bond)| {
+                bond.order == BondOrder::Double && bond.mark == Some(StereoMark::Crossed)
+            })
+            .map(|(&id, _)| id)
+            .collect()
     }
 
     /// The configuration of the stereocenter at `atom` that the drawing shows, in canonical

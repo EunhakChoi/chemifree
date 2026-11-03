@@ -1,6 +1,6 @@
 {
   "id": "stereo-mark-and-configuration-independent",
-  "title": "A drawn mark and a stated configuration are separate statements: changing or clearing one never changes the other, and they are not checked against each other",
+  "title": "A drawn mark and a stated configuration are separate statements: setting or clearing one with its own command never changes the other, and those commands do not check them against each other",
   "requirements": [
     "MODEL-03"
   ],

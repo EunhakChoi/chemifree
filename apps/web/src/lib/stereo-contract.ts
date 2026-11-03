@@ -2,7 +2,9 @@
  * Hand-maintained mirror of the stereo parts of the v1 document contract in
  * crates/application/src/contract.rs: bond marks and stated configurations. Representation
  * only. Nothing here derives a configuration from a mark, computes a CIP label, or compares
- * two drawings; the editor does not draw marks yet.
+ * two drawings; the editor does not draw marks yet. (The service derives a configuration from
+ * the marks and one instance's positions only when it is sent `set_configuration_from_drawing`;
+ * this module reads and checks what the service answers, it takes no part in the derivation.)
  *
  * The validators are strict on purpose: they accept exactly the values the service sends
  * today. A later mark kind (unknown, hollow, bold) or slot kind makes them refuse the whole

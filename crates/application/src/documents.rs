@@ -14,6 +14,7 @@ use chemifree_domain::document::{
 use chemifree_domain::scene::TransactionSelection;
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
+use chemifree_domain::stereo_drawing::DeriveError;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -2548,15 +2549,24 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         EditError::Settings(settings) => Some(settings),
         _ => None,
     };
-    let invalid_stereo = match error.error {
-        EditError::Stereo(stereo) => Some(stereo),
-        _ => None,
+    let (invalid_stereo, invalid_derivation) = match error.error {
+        EditError::Stereo(stereo)
+        | EditError::FromDrawing {
+            cause: DeriveError::Structure(stereo),
+            ..
+        } => (Some(stereo), None),
+        EditError::FromDrawing {
+            cause: DeriveError::NotDerivable(reason),
+            ..
+        } => (None, Some(reason)),
+        _ => (None, None),
     };
     ApplicationError {
         command_index: error.index,
         invalid_state,
         invalid_settings,
         invalid_stereo,
+        invalid_derivation,
         invalid_scene: error.error.scene_error(),
         ..ApplicationError::new(code, error.to_string())
     }

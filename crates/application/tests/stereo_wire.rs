@@ -8,6 +8,7 @@
 
 use chemifree_application::{Application, CommandDto, TransactionRequest};
 use chemifree_domain::stereo::StereoError;
+use chemifree_domain::stereo_drawing::NotDerivable;
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, OpenSmilesCodec, V2000Codec};
 use serde_json::{Value, json};
@@ -597,15 +598,20 @@ fn the_documented_reasons_are_exactly_the_domain_codes() {
         "/../../docs/CONTRACT.md"
     ))
     .unwrap();
-    for error in StereoError::ALL {
+    let codes = StereoError::ALL
+        .iter()
+        .map(|error| error.code())
+        .chain(NotDerivable::ALL.iter().map(|reason| reason.code()));
+    for code in codes {
         assert!(
-            contract.contains(&format!("`{}`", error.code())),
-            "CONTRACT.md does not document the reason {}",
-            error.code()
+            contract.contains(&format!("`{code}`")),
+            "CONTRACT.md does not document the reason {code}"
         );
     }
-    // The reason that names stored data is not one a command can produce.
+    // The reason that names stored data is not one a command can produce; the reasons a
+    // drawing can fail to determine a configuration are the six `stereo_not_derivable_*`.
     assert_eq!(StereoError::ALL.len(), 7);
+    assert_eq!(NotDerivable::ALL.len(), 6);
     assert!(
         !contract.contains("stereo_conflict"),
         "the old name of stereo_record_invalid is gone from the documents"

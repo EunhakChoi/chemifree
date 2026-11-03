@@ -32,6 +32,7 @@ use crate::stereo::{
     StereoError, StereoKey, StereoMark, StereoState, StereoTable, check_center, check_double_bond,
     read_legacy_reference, relative_double_bond,
 };
+use crate::stereo_drawing::{DeriveError, Drawing};
 
 pub const MAX_ATOMS: usize = 2_000;
 pub const MAX_BONDS: usize = 4_000;
@@ -450,6 +451,44 @@ pub enum Command {
         bond: BondRef,
         configuration: Option<BondConfiguration>,
     },
+    /// Stores the configuration the bond marks and the positions of one scene instance show
+    /// (see [`crate::stereo_drawing`]).
+    ///
+    /// For every item it processes it replaces the stored record, whatever it is: a statement
+    /// made by [`Self::SetAtomConfiguration`] or [`Self::SetBondConfiguration`], `unknown`, or
+    /// another label all give way to what the drawing shows. A drawn mark never blocks a stated
+    /// configuration when that is written, but this command reads marks, so it overwrites the
+    /// statement for the items it processes. It writes nothing for an item it skips or does not
+    /// name, and nothing at all when it refuses.
+    ///
+    /// With neither list, the items are those a mark bears on: each possible center at the
+    /// narrow end of a wedge or hash or at an end of a wavy bond, and each crossed double bond.
+    /// A mark whose narrow end could never hold a center record (a terminal atom, a query atom,
+    /// an atom with five neighbors) is not in the scope at all. A crossed double bond that
+    /// fails structurally is skipped: any structurally impossible item is skipped without a
+    /// note, and the reply does not list what was skipped. Two causes can occur there,
+    /// [`StereoError::GeometryUnsupported`] (a cumulated double or triple bond at an end) and
+    /// [`StereoError::ReferenceInvalid`] (an end with more than two other neighbors);
+    /// [`StereoError::CenterUnsupported`] and [`StereoError::DoubleBondRequired`] cannot,
+    /// because the scope holds only possible centers and double bonds. Any other item the
+    /// drawing does not determine refuses the command.
+    ///
+    /// With a list (`atoms` and/or `bonds`, each non-empty), exactly the named items are
+    /// derived and every one must derive, with its structural reason when the model cannot hold
+    /// it. A list goes through the same de-duplication as `move_atoms`: repeats, also two
+    /// references that resolve to one atom (`"a1"` and `"$0"`), are one item, and items are
+    /// processed centers first and then double bonds, each by ascending identifier, so a failing
+    /// item is named by its lowest identifier, not by its position in the list.
+    ///
+    /// `instance` follows `move_atoms`: it may be left out only while the document has one
+    /// scene instance. The command runs against the transaction's state at its position, so it
+    /// may name atoms and bonds created earlier in the same transaction. Storing what is already
+    /// stored changes nothing.
+    SetConfigurationFromDrawing {
+        atoms: Option<Vec<AtomRef>>,
+        bonds: Option<Vec<BondRef>>,
+        instance: Option<ObjectId>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -486,7 +525,8 @@ pub enum EditError {
     },
     /// The positions of a new atom leave out this scene instance.
     MissingPosition(ObjectId),
-    /// `move_atoms` did not name an instance while the document has several.
+    /// A command that reads one scene instance's positions (`move_atoms`,
+    /// `set_configuration_from_drawing`) did not name an instance while the document has several.
     InstanceRequired {
         instances: usize,
     },
@@ -521,6 +561,12 @@ pub enum EditError {
     UnresolvedBondReference(usize),
     /// A refused stereo mark or configuration, with its stable code.
     Stereo(StereoError),
+    /// A configuration that could not be read off the drawing for this atom (a center) or bond
+    /// (a double bond), with the cause and its stable code, if it has one.
+    FromDrawing {
+        item: StereoKey,
+        cause: DeriveError,
+    },
 }
 
 impl EditError {
@@ -548,6 +594,7 @@ impl EditError {
             Self::InvalidState(state) => Some(state.code()),
             Self::Settings(error) => Some(error.code()),
             Self::Stereo(error) => Some(error.code()),
+            Self::FromDrawing { cause, .. } => cause.code(),
             _ => self.scene_error().map(SceneError::code),
         }
     }
@@ -625,8 +672,7 @@ impl fmt::Display for EditError {
             }
             Self::InstanceRequired { instances } => write!(
                 formatter,
-                "the molecule has {instances} scene instances; name the `instance` whose atoms \
-                 move"
+                "the molecule has {instances} scene instances; name the `instance` to use"
             ),
             Self::LastInstance => write!(formatter, "a molecule keeps at least one scene instance"),
             Self::InstanceLimit => write!(
@@ -670,6 +716,10 @@ impl fmt::Display for EditError {
                 "${index} does not name an earlier add_bond command in this transaction"
             ),
             Self::Stereo(error) => error.fmt(formatter),
+            Self::FromDrawing { item, cause } => match item {
+                StereoKey::Center(atom) => write!(formatter, "atom {atom}: {cause}"),
+                StereoKey::DoubleBond(bond) => write!(formatter, "bond {bond}: {cause}"),
+            },
         }
     }
 }
@@ -1347,6 +1397,96 @@ impl Draft {
         }
     }
 
+    /// The configurations the drawing of `instance` shows for the items a
+    /// [`Command::SetConfigurationFromDrawing`] names (see there), stored only when every item
+    /// derived, so a refusal leaves the table as it was.
+    fn derive_from_drawing(
+        &mut self,
+        atoms: Option<&[AtomRef]>,
+        bonds: Option<&[BondRef]>,
+        instance: Option<ObjectId>,
+    ) -> Result<(), EditError> {
+        let instance = self.content.target_instance(instance)?;
+        let atoms = atoms
+            .map(|refs| {
+                let ids = refs
+                    .iter()
+                    .map(|atom| self.resolve(*atom))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ids = unique(&ids)?;
+                ids.iter()
+                    .try_for_each(|&id| self.content.require_atom(id))?;
+                Ok::<_, EditError>(ids)
+            })
+            .transpose()?;
+        let bonds = bonds
+            .map(|refs| {
+                let ids = refs
+                    .iter()
+                    .map(|bond| self.resolve_bond(*bond))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ids = unique(&ids)?;
+                match ids.iter().find(|id| !self.content.bonds.contains_key(id)) {
+                    Some(&missing) => Err(EditError::UnknownBond(missing)),
+                    None => Ok(ids),
+                }
+            })
+            .transpose()?;
+
+        let drawing = Drawing::new(
+            &self.content.atoms,
+            &self.content.bonds,
+            self.content.instance_positions(instance),
+        );
+        let listed = atoms.is_some() || bonds.is_some();
+        let centers: Vec<AtomId> = match atoms {
+            Some(named) => named.into_iter().collect(),
+            None if listed => Vec::new(),
+            None => drawing.marked_centers(),
+        };
+        let double_bonds: Vec<BondId> = match bonds {
+            Some(named) => named.into_iter().collect(),
+            None if listed => Vec::new(),
+            None => drawing.crossed_double_bonds(),
+        };
+        // Without a list, any structurally impossible item (in this scope only a crossed double
+        // bond with `GeometryUnsupported` or `ReferenceInvalid`) is left out without a note;
+        // with one, the caller asked for it, so it is refused with its structural reason.
+        let skippable = |cause: &DeriveError| !listed && matches!(cause, DeriveError::Structure(_));
+        let mut derived = Vec::with_capacity(centers.len() + double_bonds.len());
+        for atom in centers {
+            match drawing.derive_center(atom) {
+                Ok(state) => derived.push((StereoKey::Center(atom), StereoState::Center(state))),
+                Err(cause) if skippable(&cause) => {}
+                Err(cause) => {
+                    return Err(EditError::FromDrawing {
+                        item: StereoKey::Center(atom),
+                        cause,
+                    });
+                }
+            }
+        }
+        for bond in double_bonds {
+            match drawing.derive_double_bond(bond) {
+                Ok(state) => {
+                    derived.push((StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)))
+                }
+                Err(cause) if skippable(&cause) => {}
+                Err(cause) => {
+                    return Err(EditError::FromDrawing {
+                        item: StereoKey::DoubleBond(bond),
+                        cause,
+                    });
+                }
+            }
+        }
+        drop(drawing);
+        for (key, state) in derived {
+            self.content.stereo.set(key, Some(state));
+        }
+        Ok(())
+    }
+
     fn resolve_slot(&self, slot: SlotRef) -> Result<Slot, EditError> {
         Ok(match slot {
             SlotRef::Atom(atom) => {
@@ -1703,6 +1843,11 @@ impl Draft {
                 };
                 self.content.stereo.set(StereoKey::DoubleBond(id), state);
             }
+            Command::SetConfigurationFromDrawing {
+                atoms,
+                bonds,
+                instance,
+            } => self.derive_from_drawing(atoms.as_deref(), bonds.as_deref(), *instance)?,
         }
         self.created.push(created);
         Ok(())

@@ -1,0 +1,459 @@
+{
+  "id": "stereo-set-from-drawing-refused",
+  "title": "A derivation the drawing cannot support is refused with a stable reason and the failing command's index, and the transaction changes nothing",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "first command is fine"
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "stereo_not_derivable_no_marks"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b3",
+          "mark": {
+            "kind": "wavy"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 2,
+        "reason": "stereo_not_derivable_conflicting_marks"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a2"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_center_unsupported"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "bonds": [
+            "b1"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_double_bond_required"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": []
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "create",
+      "bind": "f"
+    },
+    {
+      "call": "transact",
+      "document": "f",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 130,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 130
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 70,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$1",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$3",
+          "mark": {
+            "kind": "hash",
+            "narrow": "begin"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "f",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_not_derivable_degenerate"
+      }
+    },
+    {
+      "call": "create",
+      "bind": "m"
+    },
+    {
+      "call": "transact",
+      "document": "m",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 200,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "m",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ]
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0
+      }
+    },
+    {
+      "call": "transact",
+      "document": "m",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ],
+          "instance": "s9"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "object_unknown"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "m",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ],
+          "instance": "s1"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}
