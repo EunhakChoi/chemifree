@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, AtomKindView, AtomView, BondQueryDto, BondView, CommandDto,
-    CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
-    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, OperationResponse,
+    Application, ApplicationError, AtomConfigurationDto, AtomKindView, AtomView,
+    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CommandDto, CopyResponse,
+    DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse, ErrorCode,
+    GraphicShapeDto, HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse,
     PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
     RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
-    SettingsSource, TransactionSelections, TrashListResponse,
+    SettingsSource, StereoView, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -774,6 +775,7 @@ fn document_text(response: &DocumentResponse) -> String {
             bond_text(bond)
         ));
     }
+    lines.extend(stereo_lines(&document.stereo));
     for object in &document.scene.objects {
         match object {
             SceneObjectView::Instance {
@@ -941,11 +943,12 @@ fn atom_text(atom: &AtomView) -> String {
     text
 }
 
-/// The bond's order, and for a query bond what it stands for.
+/// The bond's order, and for a query bond what it stands for, and then its mark: a marked bond
+/// must not read as a plain one.
 fn bond_text(bond: &BondView) -> String {
     let order = serde_json::to_value(bond.order).expect("bond orders are serializable");
     let order = order.as_str().unwrap_or_default();
-    match &bond.query {
+    let text = match &bond.query {
         None => order.to_owned(),
         Some(BondQueryDto::Any {}) => format!("{order} any"),
         Some(BondQueryDto::List { orders }) => {
@@ -961,18 +964,83 @@ fn bond_text(bond: &BondView) -> String {
                 .collect();
             format!("{order} {}", kinds.join("|"))
         }
+    };
+    match &bond.mark {
+        None => text,
+        Some(mark) => format!("{text}  {}", mark_text(bond, mark)),
     }
+}
+
+/// How a mark reads, naming the atom at the narrow end: "wedge, narrow end at a1".
+fn mark_text(bond: &BondView, mark: &MarkDto) -> String {
+    let narrow_end = |narrow: &BondEndDto| match narrow {
+        BondEndDto::Begin => &bond.begin,
+        BondEndDto::End => &bond.end,
+    };
+    match mark {
+        MarkDto::Wedge { narrow } => format!("wedge, narrow end at {}", narrow_end(narrow)),
+        MarkDto::Hash { narrow } => format!("hash, narrow end at {}", narrow_end(narrow)),
+        MarkDto::Wavy {} => "wavy".to_owned(),
+        MarkDto::Crossed {} => "crossed".to_owned(),
+    }
+}
+
+/// One line per stated configuration: the neighbors in canonical order, and the turn or
+/// relation. Nothing is derived from the marks and no label is computed.
+fn stereo_lines(stereo: &StereoView) -> Vec<String> {
+    let mut lines = Vec::new();
+    for record in &stereo.atoms {
+        let line = match &record.configuration {
+            AtomConfigurationDto::Tetrahedral { neighbors, turn } => format!(
+                "  stereo {}  center  {}  {}",
+                record.atom,
+                neighbors.join(" "),
+                name(turn)
+            ),
+            AtomConfigurationDto::Unknown { neighbors } => format!(
+                "  stereo {}  center  {}  unknown",
+                record.atom,
+                neighbors.join(" ")
+            ),
+        };
+        lines.push(line);
+    }
+    for record in &stereo.bonds {
+        let line = match &record.configuration {
+            BondConfigurationDto::Relative {
+                begin_neighbor,
+                end_neighbor,
+                relation,
+            } => format!(
+                "  stereo {}  double bond  {begin_neighbor} {end_neighbor}  {}",
+                record.bond,
+                name(relation)
+            ),
+            BondConfigurationDto::Unknown {} => {
+                format!("  stereo {}  double bond  unknown", record.bond)
+            }
+        };
+        lines.push(line);
+    }
+    lines
 }
 
 #[cfg(test)]
 mod tests {
-    use chemifree_application::{Application, CommandDto, RegistryEntryState};
+    use chemifree_application::{
+        Application, AtomStereoView, BondStereoView, CommandDto, RegistryEntryState, RelationDto,
+        TurnDto,
+    };
     use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
     use serde_json::json;
 
     use super::*;
 
     fn shown(commands: serde_json::Value) -> String {
+        document_text(&drawn(commands))
+    }
+
+    fn drawn(commands: serde_json::Value) -> DocumentResponse {
         let data = tempfile::tempdir().unwrap();
         let application =
             Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
@@ -982,10 +1050,9 @@ mod tests {
             .document
             .id;
         let commands: Vec<CommandDto> = serde_json::from_value(commands).unwrap();
-        let response = application
+        application
             .apply_transaction(&id, None, 0, commands)
-            .unwrap();
-        document_text(&response)
+            .unwrap()
     }
 
     #[test]
@@ -1056,6 +1123,83 @@ mod tests {
             ]
         );
     }
+    #[test]
+    fn a_marked_bond_and_stated_configurations_are_not_shown_as_plain() {
+        // No entry point sets stereo yet, so the views carry what a document holding stereo
+        // would show (the application tests build such documents and read them).
+        let mut response = drawn(json!([
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+            {"op": "add_atom", "element": "C", "position": {"x": 30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "add_atom", "element": "C", "position": {"x": 60, "y": 0},
+             "bond_to": {"atom": "$1", "order": "double"}}
+        ]));
+        response.document.bonds[0].mark = Some(MarkDto::Wedge {
+            narrow: BondEndDto::End,
+        });
+        response.document.bonds[1].mark = Some(MarkDto::Crossed {});
+        response.document.stereo.bonds.push(BondStereoView {
+            bond: "b2".into(),
+            configuration: BondConfigurationDto::Unknown {},
+        });
+        let text = document_text(&response);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[4..=6],
+            [
+                "  b1  a1–a2  single  wedge, narrow end at a2",
+                "  b2  a2–a3  double  crossed",
+                "  stereo b2  double bond  unknown",
+            ],
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn stated_configurations_print_one_line_each_in_canonical_order() {
+        let stereo = StereoView {
+            atoms: vec![
+                AtomStereoView {
+                    atom: "a1".into(),
+                    configuration: AtomConfigurationDto::Tetrahedral {
+                        neighbors: ["a2", "a3", "a4", "implicit_hydrogen"].map(String::from),
+                        turn: TurnDto::Anticlockwise,
+                    },
+                },
+                AtomStereoView {
+                    atom: "a7".into(),
+                    configuration: AtomConfigurationDto::Unknown {
+                        neighbors: ["a2", "a8", "a9", "lone_pair"].map(String::from),
+                    },
+                },
+            ],
+            bonds: vec![
+                BondStereoView {
+                    bond: "b5".into(),
+                    configuration: BondConfigurationDto::Relative {
+                        begin_neighbor: "a3".into(),
+                        end_neighbor: "a4".into(),
+                        relation: RelationDto::OppositeSides,
+                    },
+                },
+                BondStereoView {
+                    bond: "b6".into(),
+                    configuration: BondConfigurationDto::Unknown {},
+                },
+            ],
+        };
+        assert_eq!(
+            stereo_lines(&stereo),
+            [
+                "  stereo a1  center  a2 a3 a4 implicit_hydrogen  anticlockwise",
+                "  stereo a7  center  a2 a8 a9 lone_pair  unknown",
+                "  stereo b5  double bond  a3 a4  opposite_sides",
+                "  stereo b6  double bond  unknown",
+            ]
+        );
+        assert_eq!(stereo_lines(&StereoView::default()), Vec::<String>::new());
+    }
+
     #[test]
     fn the_settings_are_shown_with_every_document() {
         let text = shown(json!([

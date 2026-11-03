@@ -18,6 +18,9 @@ use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
     StateError,
 };
+use chemifree_domain::stereo::{
+    BondEnd, CenterState, DoubleBondState, Relation, Slot, StereoKey, StereoMark, StereoState, Turn,
+};
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -1234,6 +1237,21 @@ pub struct DocumentView {
     pub scene: SceneView,
     pub selection: SelectionDto,
     pub settings: SettingsDto,
+    /// Stated stereo configurations. Added within v1; always present, with empty lists when no
+    /// configuration is stated. No record means "unspecified": it says nothing about whether an
+    /// atom or bond is stereogenic.
+    pub stereo: StereoView,
+}
+
+impl DocumentView {
+    /// Whether the drawing holds any stereo mark or stated configuration, of any kind
+    /// (including wavy, crossed, and `unknown`). Operations that ignore stereo say so when this
+    /// is true.
+    pub fn holds_stereo(&self) -> bool {
+        !self.stereo.atoms.is_empty()
+            || !self.stereo.bonds.is_empty()
+            || self.bonds.iter().any(|bond| bond.mark.is_some())
+    }
 }
 
 /// Positions are scene points; x grows right and y grows down.
@@ -1338,6 +1356,180 @@ pub struct BondView {
     pub order: BondOrderDto,
     /// What a bond of order `query` stands for; null otherwise. Added within v1.
     pub query: Option<BondQueryDto>,
+    /// How the bond is drawn; null for a plain bond. Added within v1. A drawing fact only: it
+    /// states no configuration, and `null` means "plain", not "non-stereogenic".
+    pub mark: Option<MarkDto>,
+}
+
+/// A bond mark. `begin` and `end` in a mark are the bond's own `begin` and `end`; the bond is
+/// never rewritten to move the narrow end. The public functional model's `wedge_begin` and
+/// `hash_end` display values name the same facts as `wedge` and `hash` with `narrow`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MarkDto {
+    /// Solid wedge on a single bond.
+    Wedge { narrow: BondEndDto },
+    /// Hashed wedge on a single bond.
+    Hash { narrow: BondEndDto },
+    /// Wavy single bond: unknown or either. No narrow end.
+    Wavy {},
+    /// Crossed double bond: unknown or either. No narrow end.
+    Crossed {},
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BondEndDto {
+    Begin,
+    End,
+}
+
+/// The stated stereo configurations of a document: centers by atom id, then double bonds by
+/// bond id, each with its slots in canonical order.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct StereoView {
+    pub atoms: Vec<AtomStereoView>,
+    pub bonds: Vec<BondStereoView>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct AtomStereoView {
+    pub atom: String,
+    pub configuration: AtomConfigurationDto,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BondStereoView {
+    pub bond: String,
+    pub configuration: BondConfigurationDto,
+}
+
+/// What is stated about a tetrahedral stereocenter. `neighbors` are four distinct slots in
+/// canonical order: atom ids ascending, then `implicit_hydrogen`, then `lone_pair`. `turn` is
+/// seen looking from the first slot toward the center: `anticlockwise` is OpenSMILES `@` (the
+/// public model's positive `parity`), `clockwise` is `@@` (negative).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AtomConfigurationDto {
+    Tetrahedral {
+        neighbors: [String; 4],
+        turn: TurnDto,
+    },
+    /// Stated unknown over this neighbor set.
+    Unknown { neighbors: [String; 4] },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnDto {
+    Anticlockwise,
+    Clockwise,
+}
+
+/// What is stated about a double bond. The neighbors are in canonical form: the
+/// lowest-identifier explicit neighbor of the end, or `implicit_hydrogen` where the end has no
+/// other explicit neighbor. `opposite_sides` is the public model's `opposite_side`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BondConfigurationDto {
+    Relative {
+        begin_neighbor: String,
+        end_neighbor: String,
+        relation: RelationDto,
+    },
+    /// Stated unknown or either.
+    Unknown {},
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationDto {
+    SameSide,
+    OppositeSides,
+}
+
+impl From<StereoMark> for MarkDto {
+    fn from(mark: StereoMark) -> Self {
+        let end = |narrow| match narrow {
+            BondEnd::Begin => BondEndDto::Begin,
+            BondEnd::End => BondEndDto::End,
+        };
+        match mark {
+            StereoMark::Wedge { narrow } => Self::Wedge {
+                narrow: end(narrow),
+            },
+            StereoMark::Hash { narrow } => Self::Hash {
+                narrow: end(narrow),
+            },
+            StereoMark::Wavy => Self::Wavy {},
+            StereoMark::Crossed => Self::Crossed {},
+        }
+    }
+}
+
+/// A slot as the wire spells it: an atom id, `implicit_hydrogen`, or `lone_pair`. An atom id
+/// can never equal either word.
+fn slot_name(slot: Slot) -> String {
+    match slot {
+        Slot::Atom(atom) => atom.to_string(),
+        Slot::ImplicitHydrogen => "implicit_hydrogen".to_owned(),
+        Slot::LonePair => "lone_pair".to_owned(),
+    }
+}
+
+impl StereoView {
+    fn new(document: &Document) -> Self {
+        let mut view = Self::default();
+        for (key, state) in document.stereo().iter() {
+            match (key, state) {
+                (StereoKey::Center(atom), StereoState::Center(center)) => {
+                    let configuration = match center {
+                        CenterState::Tetrahedral { slots, turn } => {
+                            AtomConfigurationDto::Tetrahedral {
+                                neighbors: slots.map(slot_name),
+                                turn: match turn {
+                                    Turn::Anticlockwise => TurnDto::Anticlockwise,
+                                    Turn::Clockwise => TurnDto::Clockwise,
+                                },
+                            }
+                        }
+                        CenterState::Unknown { slots } => AtomConfigurationDto::Unknown {
+                            neighbors: slots.map(slot_name),
+                        },
+                    };
+                    view.atoms.push(AtomStereoView {
+                        atom: atom.to_string(),
+                        configuration,
+                    });
+                }
+                (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) => {
+                    let configuration = match state {
+                        DoubleBondState::Relative {
+                            begin_ref,
+                            end_ref,
+                            relation,
+                        } => BondConfigurationDto::Relative {
+                            begin_neighbor: slot_name(*begin_ref),
+                            end_neighbor: slot_name(*end_ref),
+                            relation: match relation {
+                                Relation::SameSide => RelationDto::SameSide,
+                                Relation::OppositeSides => RelationDto::OppositeSides,
+                            },
+                        },
+                        DoubleBondState::Unknown => BondConfigurationDto::Unknown {},
+                    };
+                    view.bonds.push(BondStereoView {
+                        bond: bond.to_string(),
+                        configuration,
+                    });
+                }
+                // The table keeps each record's kind equal to its key's, so this is unreachable
+                // for a valid document; skipping keeps the view total without a panic path.
+                _ => {}
+            }
+        }
+        view
+    }
 }
 
 /// State of the in-memory editing session that holds the working copy.
@@ -1424,6 +1616,7 @@ impl DocumentResponse {
                             BondOrder::Query(query) => Some(query.into()),
                             _ => None,
                         },
+                        mark: bond.mark.map(MarkDto::from),
                     })
                     .collect(),
                 molecule: MoleculeView { id: MOLECULE_ID },
@@ -1502,6 +1695,7 @@ impl DocumentResponse {
                         .collect(),
                 },
                 settings: settings_view(document.settings()),
+                stereo: StereoView::new(document),
             },
             session: SessionView {
                 saved_revision,

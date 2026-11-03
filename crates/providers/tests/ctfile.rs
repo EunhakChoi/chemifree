@@ -311,3 +311,27 @@ fn aromatic_type_four_is_refused_as_a_query_family_bond() {
         .unwrap_err();
     assert_eq!(error.code, "unsupported_bond");
 }
+
+#[test]
+fn a_bond_stereo_topology_or_reaction_column_is_refused_not_ignored() {
+    // Bond block columns 10-12 (stereo), 13-15 (unused), 16-18 (topology), 19-21 (reaction
+    // center). A wedge drawn in the file must never be read as a plain bond.
+    for (column, replacement) in [
+        ("stereo", "  1  2  1  1  0  0  0"),
+        ("hashed stereo", "  1  2  1  6  0  0  0"),
+        ("either stereo", "  1  2  1  4  0  0  0"),
+        ("unused", "  1  2  1  0  1  0  0"),
+        ("topology", "  1  2  1  0  0  1  0"),
+        ("reaction center", "  1  2  1  0  0  0  1"),
+    ] {
+        let input = MOL.replace("  1  2  1  0  0  0  0", replacement);
+        let error = V2000Codec
+            .read(CtFormat::Mol, input.as_bytes())
+            .expect_err(column);
+        assert_eq!(
+            (error.code, error.record),
+            ("unsupported_bond_field", 1),
+            "{column}"
+        );
+    }
+}

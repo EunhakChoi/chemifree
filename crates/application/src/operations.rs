@@ -53,7 +53,7 @@ use smiles::{SmilesExportParameters, SmilesImportParameters};
 use substructure::SubstructureParameters;
 pub use substructure::{
     AtomPair, BondPair, MATCH_CODES, MappingView, MatchCodeRow, SubstructureLimits,
-    SubstructureResult,
+    SubstructureResult, SubstructureStereo,
 };
 
 /// The operation contract version this service speaks.
@@ -227,6 +227,20 @@ pub struct IdentityResult {
     pub snapshot: DocumentResult,
     pub identity: IdentityView,
     pub comparison: Option<IdentityComparison>,
+    /// What this model does with stereo. Added within v1.
+    pub stereo: IdentityStereo,
+}
+
+/// Stereo and `chem.identity`. `compared` is a property of the model, not of the pair: it is
+/// `false` in every reply because this model never reads stereo, whether or not the drawings
+/// hold any. The `*_present` fields are facts about the compared documents.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct IdentityStereo {
+    pub compared: bool,
+    /// The source document holds a stereo mark or stated configuration.
+    pub source_present: bool,
+    /// The same for `other_document_id`; null when no other document was given.
+    pub other_present: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -1157,6 +1171,19 @@ fn identity_failure(
     response
 }
 
+/// The loss a comparison reports for each side that holds stereo it did not read. `path` names
+/// the side in the reply.
+fn stereo_not_read(path: &str) -> Loss {
+    Loss {
+        consent: LossConsent::NotRequired,
+        feature: "stereo".into(),
+        source_path: path.into(),
+        disposition: LossDisposition::Unknown,
+        reason: "The drawing holds stereo marks or stated configurations that this comparison does not read: mirror images and cis/trans forms are not told apart.".into(),
+        semantic_impact: SemanticImpact::Stereo,
+    }
+}
+
 fn converted(
     known: &Known,
     revision: Option<u64>,
@@ -2010,6 +2037,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Ok(value) => value,
                         Err(error) => return identity_failure(known, revision, p.mode, "source", snapshot, error),
                     };
+                    let other_graph_stereo = other.as_ref().map(|(_, other_graph)| other_graph.has_stereo());
                     let comparison = if let Some((other_snapshot, other_graph)) = other {
                         let other_identity = match identity_view(&other_graph, p.mode) {
                             Ok(value) => value,
@@ -2023,15 +2051,28 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     } else {
                         None
                     };
-                    let mut response = known.reply(
-                        Outcome::Ok,
+                    let stereo = IdentityStereo {
+                        compared: false,
+                        source_present: graph.has_stereo(),
+                        other_present: other_graph_stereo,
+                    };
+                    let mut losses = Vec::new();
+                    if stereo.source_present {
+                        losses.push(stereo_not_read("snapshot"));
+                    }
+                    if stereo.other_present == Some(true) {
+                        losses.push(stereo_not_read("comparison.snapshot"));
+                    }
+                    let mut response = converted(
+                        known,
                         Some(revision),
-                        Some(OperationResult::Identity(Box::new(IdentityResult {
+                        OperationResult::Identity(Box::new(IdentityResult {
                             snapshot: snapshot.into(),
                             identity,
                             comparison,
-                        }))),
-                        Vec::new(),
+                            stereo,
+                        })),
+                        losses,
                     );
                     response.model_id = Some(p.mode.model_id().into());
                     response

@@ -70,6 +70,18 @@ pub struct SubstructureResult {
     /// Every mapping, ordered by the target atoms assigned in query-atom order. An empty list
     /// is a complete answer: the query does not occur.
     pub mappings: Vec<MappingView>,
+    /// What this model does with stereo. Added within v1.
+    pub stereo: SubstructureStereo,
+}
+
+/// Stereo and `chem.substructure`. `compared` is a property of the model, not of the pair: it
+/// is `false` in every reply because this model never reads stereo, whether or not the drawings
+/// hold any. The `*_present` fields are facts about the two documents.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct SubstructureStereo {
+    pub compared: bool,
+    pub query_present: bool,
+    pub target_present: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -230,6 +242,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let revision = query_snapshot.document.revision;
         match substructure::find(&query, &target) {
             Ok(matches) => {
+                let stereo = SubstructureStereo {
+                    compared: false,
+                    query_present: query.has_stereo(),
+                    target_present: target.has_stereo(),
+                };
+                let mut losses = Vec::new();
+                if stereo.query_present {
+                    losses.push(stereo_not_read("query"));
+                }
+                if stereo.target_present {
+                    losses.push(stereo_not_read("target"));
+                }
                 let result = SubstructureResult {
                     query: query_snapshot.into(),
                     target: target_snapshot.into(),
@@ -237,12 +261,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     limits: LIMITS,
                     steps: matches.steps,
                     mappings: matches.mappings.into_iter().map(view).collect(),
+                    stereo,
                 };
-                let mut response = known.reply(
-                    Outcome::Ok,
+                let mut response = converted(
+                    known,
                     Some(revision),
-                    Some(OperationResult::Substructure(Box::new(result))),
-                    Vec::new(),
+                    OperationResult::Substructure(Box::new(result)),
+                    losses,
                 );
                 response.model_id = Some(substructure::MODEL_ID.into());
                 response

@@ -61,7 +61,7 @@ impl FormatText {
         let mut refused = Vec::new();
         if connected.ctfile {
             names.push("MOL/SDF".to_owned());
-            refused.push("MOL/SDF stereo, query and advanced fields are refused");
+            refused.push("MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused");
             read_write.push("bounded V2000 MOL/SDF".to_owned());
             import.push("append one selected record of a bounded V2000 MOL/SDF subset".to_owned());
             export.push("bounded V2000 MOL/SDF with per-record losses".to_owned());
@@ -80,7 +80,7 @@ impl FormatText {
         }
         if let Some(limits) = connected.smiles {
             let limit = describe_limit(limits.max_input_bytes);
-            refused.push("SMILES stereochemistry, query atoms and reaction SMILES are refused");
+            refused.push("SMILES stereochemistry, query atoms and reaction SMILES are refused on read, and stereo in a drawing is written only after the caller accepts that it is dropped");
             names.push("SMILES".to_owned());
             read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit} and {} nested branches, written in recorded or canonical form)", limits.max_branch_depth));
             import.push(format!("append one SMILES string (at most {limit})"));
