@@ -668,7 +668,9 @@ const TRANSACTION_PARTS: [Entry; 34] = [
         "stereo_marks",
         "Records drawn stereo marks. Only set_configuration_from_drawing reads them to store a \
          configuration, on request, and chem.stereo reads them to compare a stored configuration \
-         with the drawing without editing; the editor does not draw them yet.",
+         with the drawing without editing. The web editor draws wedge, hashed wedge, wavy and \
+         crossed marks; its bond tool sends set_configuration_from_drawing in the same \
+         transaction as a mark it draws.",
     )
     .carried_out_by(&["set_bond_mark"]),
     runs(

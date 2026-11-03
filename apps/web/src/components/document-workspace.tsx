@@ -73,7 +73,9 @@ import * as edits from '@/editor/atom-edits'
 import { stillApplicable } from '@/editor/commands'
 import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
-import { StructureCanvas, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
+import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
+import { MarkGlyph } from '@/editor/stroke-shapes'
+import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
@@ -83,9 +85,9 @@ import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { IdentityPanel } from '@/components/identity-panel'
 import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
-import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
+import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor, type StereoStatus } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
-import { stereoCounts, type StereoNote } from '@/lib/stereo-contract'
+import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
 import {
   ATTACHMENT_POINTS,
   sameInspectionSnapshot,
@@ -128,6 +130,23 @@ const DRAWN_ORDERS: { value: DrawnOrder; label: string; glyph: string }[] = [
 const ORDERS: { value: BondOrder; label: string; glyph: string }[] = [
   ...DRAWN_ORDERS,
   { value: 'query', label: 'Query bond', glyph: '?' },
+]
+/**
+ * The stereo marks the bond tool draws, after the bond kinds. The hashed wedge is tapered with
+ * a narrow end; the public plain hash bond is untapered and is not drawn here.
+ */
+const DRAWN_MARKS: { value: 'wedge' | 'hash' | 'wavy'; label: string; hint: string }[] = [
+  {
+    value: 'wedge',
+    label: 'Wedge bond',
+    hint: 'Wedge bond. Drag from the stereocenter: the narrow end is where the drag starts. Click a bond to mark it, again to move the narrow end, again to clear.',
+  },
+  {
+    value: 'hash',
+    label: 'Hashed wedge bond',
+    hint: 'Hashed wedge bond, tapered. Drag from the stereocenter: the narrow end is where the drag starts. Click a bond to mark it, again to move the narrow end, again to clear.',
+  },
+  { value: 'wavy', label: 'Wavy bond', hint: 'Wavy bond (configuration unknown). Click a bond to mark it, again to clear.' },
 ]
 const QUERY_ATOMS: { value: Exclude<QueryAtom['kind'], 'list'>; label: string }[] = [
   { value: 'any', label: 'Query: any atom' },
@@ -227,7 +246,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks and stated configurations are recorded but not drawn, derived or compared here; naming remains unimplemented.
+          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks are drawn and a mark gesture stores the configuration it shows; stored configurations are not compared with the drawing, no CIP label is computed, and naming remains unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -532,7 +551,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const { document, session } = current
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
-  const [bondOrder, setBondOrder] = useState<DrawnOrder>('single')
+  const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const { selection, setSelection } = editor
   const exists = new Set([
     ...document.atoms.map((atom) => atom.id),
@@ -645,6 +664,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       {current.recovery && <RecoveryNotice editor={editor} recovery={current.recovery} unsaved={session.unsaved_changes} />}
       {editor.copyNotice && <CopyNoticeBanner editor={editor} notice={editor.copyNotice} title={document.title} />}
       <StereoNotice document={document} />
+      <StereoStatusLine status={editor.stereoStatus} document={document} />
       <StereoNotes notes={current.notes ?? []} />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -682,14 +702,14 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         </ToggleGroup>
         <Separator orientation="vertical" className="h-6" />
         <ToggleGroup
-          aria-label="Bond order for new bonds"
+          aria-label="Bond kind for new bonds"
           variant="outline"
           size="sm"
           spacing={0}
-          value={[bondOrder]}
+          value={[bondKind]}
           onValueChange={(values) => {
             if (!values[0]) return
-            setBondOrder(values[0] as DrawnOrder)
+            setBondKind(values[0] as DrawnKind)
             setTool('bond')
           }}
         >
@@ -697,6 +717,13 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             <ToggleGroupItem key={order.value} value={order.value} aria-label={order.label} className="min-w-8 font-mono">
               {order.glyph}
             </ToggleGroupItem>
+          ))}
+          {DRAWN_MARKS.map((item) => (
+            <Hint key={item.value} label={item.hint}>
+              <ToggleGroupItem value={item.value} aria-label={item.label} className="min-w-8">
+                <MarkGlyph mark={item.value === 'wavy' ? { kind: 'wavy' } : { kind: item.value, narrow: 'begin' }} />
+              </ToggleGroupItem>
+            </Hint>
           ))}
         </ToggleGroup>
         {document.settings && (
@@ -713,10 +740,11 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             document={document}
             tool={tool}
             element={element}
-            bondOrder={bondOrder}
+            bondKind={bondKind}
             selection={selected}
             onSelectionChange={setSelection}
             onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
+            onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             disabled={editor.busy}
           />
         </div>
@@ -734,7 +762,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         </div>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Bond tool: click an atom to grow a chain, drag to bond, click a bond to cycle its order. Atom tool: click empty space
+        Bond tool: click an atom to grow a chain, drag to bond, click a bond to cycle its order. With a wedge, hashed wedge or wavy bond chosen, click a bond to mark it, again to move the narrow end, again to clear. Atom tool: click empty space
         to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select. Each
         placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
       </p>
@@ -743,9 +771,10 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
 }
 
 /**
- * Says that the drawing holds stereo the editor does not draw, derive or compare. A marked bond
- * is a plain line on the canvas until marks can be drawn; this line and the bond's accessible
- * name are the only signals, so the line is present whenever any mark or configuration is.
+ * Says what the drawing holds in stereo and what the editor does with it. Marks are drawn, and a
+ * mark gesture stores the configuration it shows; nothing compares a stored configuration with
+ * the drawing, so a disagreement is not shown, and nothing judges whether an atom is a
+ * stereocenter. This line is present whenever any mark or configuration is.
  */
 function StereoNotice({ document }: { document: DocumentView }) {
   const { marks, configurations } = stereoCounts(document)
@@ -754,7 +783,24 @@ function StereoNotice({ document }: { document: DocumentView }) {
   return (
     <p role="note" data-testid="stereo-notice" className="text-xs leading-relaxed text-muted-foreground">
       This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept and
-      saved, but the editor does not draw, derive or compare them yet; a marked bond is named in its label.
+      saved. Drawing a wedge, hashed wedge or wavy bond stores the configuration the drawing then shows and replaces one
+      already stored for that atom; undo restores it. The editor does not compare a stored configuration with the drawing:
+      moving atoms or changing bonds does not update it, and a disagreement is not shown. Whether an atom is a stereocenter
+      is not assessed.
+    </p>
+  )
+}
+
+/**
+ * What the last stereo gesture did: the mark, what was stored from the drawing and which stored
+ * configuration it replaced, or why nothing was stored. A live region that exists before its
+ * text does, so a screen reader announces it. It shows only for the revision it describes.
+ */
+function StereoStatusLine({ status, document }: { status: StereoStatus | null; document: DocumentView }) {
+  const shown = status?.documentId === document.id && status.revision === document.revision
+  return (
+    <p role="status" data-testid="stereo-status" className="text-xs leading-relaxed empty:sr-only">
+      {shown ? status.text : null}
     </p>
   )
 }
@@ -1495,9 +1541,31 @@ function QueryListField({ atom, editor }: { atom: AtomView; editor: DocumentEdit
   )
 }
 
-/** A bond's kind, and for a query bond the kinds it allows (none listed: any kind). */
+/** The drawn marks a bond can be given in the inspector; crossed is called "either" there. */
+const MARK_CHOICES: { value: 'plain' | StereoMark['kind']; label: string; text: string }[] = [
+  { value: 'plain', label: 'Plain', text: 'Plain' },
+  { value: 'wedge', label: 'Wedge', text: 'Wedge' },
+  { value: 'hash', label: 'Hashed wedge', text: 'Hashed wedge' },
+  { value: 'wavy', label: 'Wavy', text: 'Wavy' },
+  { value: 'crossed', label: 'Crossed double bond (either)', text: 'Either' },
+]
+
+/**
+ * A bond's kind, its drawn mark (the keyboard path to what the bond tool draws: a mark and the
+ * configuration the drawing shows are sent together), and for a query bond the kinds it allows
+ * (none listed: any kind).
+ */
 function BondInspector({ bond, editor }: { bond: BondView; editor: DocumentEditor }) {
   const listed = bond.query?.kind === 'list' ? bond.query.orders : []
+  const choices = MARK_CHOICES.filter((choice) => (bond.order === 'double' ? choice.value === 'plain' || choice.value === 'crossed' : choice.value !== 'crossed'))
+  function drawMark(make: (current: BondView) => StereoMark | null) {
+    void editor.markBond((latest) => {
+      const current = latest.bonds.find((item) => item.id === bond.id)
+      if (!current) return null
+      const mark = make(current)
+      return JSON.stringify(mark) === JSON.stringify(current.mark) ? null : setMark(latest, inspectorWhere(latest), current, mark)
+    })
+  }
   return (
     <FieldGroup className="gap-3">
       <Choice label="Kind" id="bond-order">
@@ -1522,6 +1590,58 @@ function BondInspector({ bond, editor }: { bond: BondView; editor: DocumentEdito
           ))}
         </ToggleGroup>
       </Choice>
+      <Choice label="Drawn mark" id="bond-mark">
+        {bond.order === 'single' || bond.order === 'double' ? (
+          <ToggleGroup
+            aria-labelledby="bond-mark"
+            variant="outline"
+            size="sm"
+            spacing={1}
+            className="flex-wrap"
+            value={[bond.mark?.kind ?? 'plain']}
+            onValueChange={(values) => {
+              const choice = choices.find((item) => item.value === values[0])?.value
+              if (!choice) return
+              drawMark((current) =>
+                choice === 'plain' ? null
+                : choice === 'wavy' || choice === 'crossed' ? { kind: choice }
+                : { kind: choice, narrow: current.mark?.kind === 'wedge' || current.mark?.kind === 'hash' ? current.mark.narrow : 'begin' },
+              )
+            }}
+          >
+            {choices.map((choice) => (
+              <ToggleGroupItem key={choice.value} value={choice.value} aria-label={choice.label} className="text-xs">
+                {choice.text}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        ) : (
+          <p className="text-xs text-muted-foreground">A mark needs a single bond (wedge, hashed wedge, wavy) or a double bond (crossed).</p>
+        )}
+      </Choice>
+      {(bond.mark?.kind === 'wedge' || bond.mark?.kind === 'hash') && (
+        <Choice label="Narrow end" id="bond-narrow">
+          <ToggleGroup
+            aria-labelledby="bond-narrow"
+            variant="outline"
+            size="sm"
+            spacing={1}
+            value={[bond.mark.narrow === 'begin' ? bond.begin : bond.end]}
+            onValueChange={(values) => {
+              const kind = bond.mark?.kind
+              if ((kind !== 'wedge' && kind !== 'hash') || (values[0] !== bond.begin && values[0] !== bond.end)) return
+              const narrow = values[0] === bond.begin ? 'begin' : 'end'
+              drawMark(() => ({ kind, narrow }))
+            }}
+          >
+            {[bond.begin, bond.end].map((atom) => (
+              <ToggleGroupItem key={atom} value={atom} aria-label={`Narrow end at ${atom}`} className="min-w-8 font-mono text-xs">
+                {atom}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </Choice>
+      )}
       {bond.order === 'dative' && (
         <p className="text-xs text-muted-foreground" data-testid="dative-direction">
           From {bond.begin} (the donor) to {bond.end}. To reverse it, draw it again from {bond.end}.

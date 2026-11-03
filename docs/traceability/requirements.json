@@ -248,7 +248,7 @@
       "parts": [
         {
           "id": "MODEL-03.1",
-          "summary": "Drawn stereo marks (wedge and hash on single bonds with the narrow end recorded in the mark, wavy on single bonds, crossed on double bonds) and stated configurations (tetrahedral centers with three or four bonded neighbors, double bonds, and an explicit unknown) are stored apart from each other, set and cleared by three commands, refused with stable reasons, cleared with a neighbor change and reported in the reply, and kept through undo, redo, save and reopen. Statements only: these commands label nothing, check nothing against the drawing and compare nothing (reading a configuration off the drawing is MODEL-03.2, comparing it with the drawing is MODEL-03.3), and the editor has no tool for them.",
+          "summary": "Drawn stereo marks (wedge and hash on single bonds with the narrow end recorded in the mark, wavy on single bonds, crossed on double bonds) and stated configurations (tetrahedral centers with three or four bonded neighbors, double bonds, and an explicit unknown) are stored apart from each other, set and cleared by three commands, refused with stable reasons, cleared with a neighbor change and reported in the reply, and kept through undo, redo, save and reopen. Statements only: these commands label nothing, check nothing against the drawing and compare nothing (reading a configuration off the drawing is MODEL-03.2, comparing it with the drawing is MODEL-03.3), and the commands themselves are not drawn (the web editor's mark gestures are MODEL-03.4).",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo.rs",
@@ -323,8 +323,28 @@
           "followups": []
         },
         {
+          "id": "MODEL-03.4",
+          "summary": "Drawn stereo marks in the web editor: the bond-kind group draws wedge, hashed wedge and wavy marks (crossed is set and shown through the bond inspector), a drag or click makes the bond, its mark and the configuration the drawing then shows in one transaction (one undo step) with the narrow end where the gesture started, the click cycle, order changes and the inspector clear the mark or stored double-bond configuration an edit would otherwise be refused for, a configuration the service will not derive leaves the mark in place with the reason shown, and a status line tells what a gesture stored, replaced or removed. Rendering constants are stand-ins for the public BoldWidth and HashSpacing document settings and every other geometry is a Chemifree choice. The editor does not compare a stored configuration with the drawing (the chem.stereo client and indicator are not implemented), has no mirror or flip, no crossed canvas tool, and does not update a stored configuration when atoms move. The browser smoke exercises the same gestures but is not an evidence check of this record.",
+          "status": "implemented",
+          "implementation": [
+            "apps/web/src/editor/geometry.ts",
+            "apps/web/src/editor/mark-gestures.ts",
+            "apps/web/src/editor/stereo-status.ts",
+            "apps/web/src/editor/stroke-shapes.tsx",
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/editor/bond-gestures.ts",
+            "apps/web/src/editor/atom-edits.ts",
+            "apps/web/src/hooks/use-document-editor.ts",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and drawing of marks and an agreement indicator in the editor.",
+          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, a crossed-mark canvas tool, and an agreement indicator in the editor.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1104,12 +1124,13 @@
       "parts": [
         {
           "id": "RENDER-01.1",
-          "summary": "The web canvas draws recorded atom labels and bonds with the document font, size and line width, and uses their measured layout bounds for clipping and view extent.",
+          "summary": "The web canvas draws recorded atom labels and bonds with the document font, size and line width, and uses their measured layout bounds for clipping and view extent. Stereo marks (wedge, hashed wedge, wavy, crossed) are drawn as strokes trimmed at labels with stand-in constants for the public BoldWidth and HashSpacing settings; no claim of matching another application's drawing.",
           "status": "implemented",
           "implementation": [
             "apps/web/src/editor/label.ts",
             "apps/web/src/editor/geometry.ts",
-            "apps/web/src/editor/structure-canvas.tsx"
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/editor/stroke-shapes.tsx"
           ],
           "evidence": [
             "check:test:client"

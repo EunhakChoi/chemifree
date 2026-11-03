@@ -20,7 +20,19 @@ import {
   type SettingsSource,
   type TrashListResponse,
 } from '@/lib/document-contract'
-import { stereoOf } from '@/lib/stereo-contract'
+import { sendMark, type DeriveOutcome, type MarkGesture } from '@/editor/mark-gestures'
+import { describeStereoChange } from '@/editor/stereo-status'
+import { holdsStereo, stereoOf } from '@/lib/stereo-contract'
+
+/**
+ * What the last stereo gesture did, in words. It says what happened at one revision of one
+ * document, so it is shown only while the page shows that revision.
+ */
+export interface StereoStatus {
+  documentId: string
+  revision: number
+  text: string
+}
 
 /** What became of the original when the copy was made. */
 export type CopiedFrom =
@@ -113,6 +125,7 @@ export function useDocumentEditor() {
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
+  const [stereoStatus, setStereoStatus] = useState<StereoStatus | null>(null)
   const [serviceGeneration, setServiceGeneration] = useState(0)
   const serviceGenerationRef = useRef(0)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
@@ -535,10 +548,48 @@ export function useDocumentEditor() {
           } else {
             adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
           }
+          // An edit that cleared a mark or a stored configuration so that the change could apply
+          // (a bond's order, say) says what it removed; the reply's notes list only the cascade.
+          if (groupSource && holdsStereo(groupSource)) {
+            const text = describeStereoChange(groupSource, response.document, { kind: 'none', why: null })
+            if (text) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text })
+          }
         })
       },
       [mutate, adoptSelection],
     ),
+    stereoStatus,
+    /**
+     * Sends a mark gesture built from the latest document (null: it no longer applies): the mark
+     * and the configuration the drawing shows in one transaction. If the service will not
+     * derive the configuration, the mark is sent alone and the reason is the status. A gesture
+     * the editor refused sends nothing and only says why.
+     */
+    markBond: useCallback((build: (latest: DocumentView) => MarkGesture | null) => {
+      const pressed = new Set(selectionRef.current)
+      let before: DocumentView | null = null
+      let outcome: DeriveOutcome = { kind: 'none', why: null }
+      return mutate((document) => {
+        before = null
+        const gesture = build(document.document)
+        if (!gesture) return null
+        if (gesture.kind === 'refused') {
+          setStereoStatus({ documentId: document.document.id, revision: document.document.revision, text: gesture.text })
+          return null
+        }
+        const shown = document.document
+        const selection = { before: selectionSnapshot(pressed, shown) }
+        return sendMark((commands) => client.transact(shown.id, shown.revision, commands, selection), gesture).then((sent) => {
+          before = shown
+          outcome = sent.outcome
+          return sent.response
+        })
+      }, (response) => {
+        adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
+        const text = before && describeStereoChange(before, response.document, outcome)
+        if (text) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text })
+      })
+    }, [mutate, adoptSelection]),
     // Undo and redo are not retried after a restart: the restarted service's history can
     // differ from the one this page saw even when the drawing matches.
     resetSettings: useCallback((to: SettingsSource) => {

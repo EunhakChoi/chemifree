@@ -4,7 +4,7 @@
  */
 import type { AtomView, BondOrder, BondView, DocumentView, Position } from '@/lib/document-contract'
 import { placed, textWidth, union, type AtomLabel, type Box } from '@/editor/label'
-import { markName } from '@/lib/stereo-contract'
+import { markName, type StereoMark } from '@/lib/stereo-contract'
 
 export const BOND_LENGTH = 30
 export const ATOM_HIT_RADIUS = 9
@@ -193,10 +193,40 @@ export const LABEL_GAP = 1.4
 /** A label box or placement frame keeps this much room inside the view box. */
 const LABEL_MARGIN = 4
 
-/** One stroke of a drawn bond: a straight line, or a polyline for an arrowhead or zigzag. */
+/**
+ * One stroke of a drawn bond: a straight line, a polyline for an arrowhead or zigzag, a filled
+ * polygon (a wedge), a set of short cross stripes (a hashed wedge), or a wave from `from` to
+ * `to` of `halfWaves` arcs bulging `amplitude` to alternate sides (see wavePath).
+ */
 export type Stroke =
   | { shape: 'line'; x1: number; y1: number; x2: number; y2: number; pattern: 'solid' | 'dashed' | 'dotted' }
   | { shape: 'polyline'; points: Position[] }
+  | { shape: 'polygon'; points: Position[] }
+  | { shape: 'stripes'; segments: Array<[Position, Position]> }
+  | { shape: 'wave'; from: Position; to: Position; halfWaves: number; amplitude: number }
+
+/**
+ * How stereo marks are drawn: every number in one place, in points. The public functional
+ * specification gives no rendered geometry for a mark; it declares the wedge width and the
+ * hash spacing as document settings (`BoldWidth`, `HashSpacing`), and its authored fixtures
+ * all use 4 and 2.7 with a line width of 1 and a bond length of 30. Those two values are
+ * used here as stand-ins for settings the document does not have yet: they do not scale with
+ * the bond length or the line width, as a setting in points would not. The settings belong to
+ * the CDXML codec's change. Everything else is a Chemifree choice: the taper (a point at the
+ * narrow end, a straight edge to the wide end), the stripe width (the line width), the first
+ * stripe's place (half a spacing from the narrow end), the wave, and the crossed lines.
+ */
+export const MARK_STYLE = {
+  /** Full width of a wedge or hashed wedge at its wide end (`BoldWidth`); never thinner than a line. */
+  wedgeWidth: 4,
+  /** Distance between the centres of two stripes of a hashed wedge (`HashSpacing`). */
+  hashSpacing: 2.7,
+  /** How far a wavy bond's curve bulges from its axis, and the length along it of one arc. */
+  waveAmplitude: 1.8,
+  waveArc: 4,
+  /** Most stripes or arcs one bond gets; a longer bond has them farther apart. */
+  maxParts: 400,
+} as const
 
 function grown(box: Box, by: number): Box {
   return { x: box.x - by, y: box.y - by, width: box.width + 2 * by, height: box.height + 2 * by }
@@ -253,6 +283,34 @@ export function clipped(
   // Only a box the segment starts (ends) in trims it.
   const start = fromA && fromA[0] <= 0 ? Math.min(1, Math.max(0, fromA[1])) : 0
   const end = intoB && intoB[1] >= 1 ? Math.max(0, Math.min(1, intoB[0])) : 1
+  return end > start && length > 0 ? [at(start), at(end)] : null
+}
+
+/**
+ * The part of the segment from `a` to `b` between the two grown label boxes: from where it last
+ * leaves the box at `a` to where it first enters the box at `b`, wherever along the segment
+ * that is. [clipped] trims a segment that starts (ends) in its box, which is every line of an
+ * ordinary bond but not a line that starts beside a small box and crosses it on the way to the
+ * other side, as the lines of a crossed double bond do when the line is wide.
+ */
+function clippedAcross(
+  a: Position,
+  b: Position,
+  aBox: Box | null,
+  bBox: Box | null,
+  gap: number,
+): [Position, Position] | null {
+  const length = distance(a, b)
+  const at = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  // `inside` gives where the whole line meets a box; only a box the segment itself meets trims it.
+  const met = (box: Box | null) => {
+    const range = box && inside(a, b, grown(box, gap))
+    return range && range[1] >= 0 && range[0] <= 1 ? range : null
+  }
+  const fromA = met(aBox)
+  const intoB = met(bBox)
+  const start = fromA ? Math.min(1, Math.max(0, fromA[1])) : 0
+  const end = intoB ? Math.max(0, Math.min(1, intoB[0])) : 1
   return end > start && length > 0 ? [at(start), at(end)] : null
 }
 
@@ -417,13 +475,105 @@ export function graphicUnderlay(lineWidth: number) {
   return Math.max(SELECTION_STROKE, lineWidth + 6)
 }
 
+/** Whether a bond of `order` can carry `mark`: wedge, hashed wedge and wavy a single bond, crossed a double bond. */
+export function markFits(kind: StereoMark['kind'], order: BondOrder) {
+  return kind === 'crossed' ? order === 'double' : order === 'single'
+}
+
+/**
+ * The strokes of a marked bond from `begin` to `end`, trimmed at label boxes like any bond
+ * (`gap` from each box), with the constants of MARK_STYLE; empty when the labels leave no room
+ * or the bond has no length. A wedge is a polygon from a point at its narrow end to the full
+ * width at the other, and a hashed wedge is stripes across the same taper. A label that trims
+ * the bond cuts the taper without changing its slope: the stripes keep their places, anchored
+ * at the narrow end of the whole bond. Wavy is a wave on the axis and crossed two lines
+ * crossing between the places a double bond's lines would be.
+ */
+export function markStrokes(
+  mark: StereoMark,
+  begin: Position,
+  end: Position,
+  beginBox: Box | null,
+  endBox: Box | null,
+  spacing: number,
+  lineWidth: number,
+): Stroke[] {
+  const length = distance(begin, end)
+  if (length === 0) return []
+  const gap = LABEL_GAP + lineWidth / 2
+  const ux = (end.x - begin.x) / length
+  const uy = (end.y - begin.y) / length
+  const along = (at: number): Position => ({ x: begin.x + ux * at, y: begin.y + uy * at })
+  const beside = (point: Position, offset: number): Position => ({ x: round(point.x - uy * offset), y: round(point.y + ux * offset) })
+  if (mark.kind === 'crossed') {
+    const offset = (OFFSETS.double?.[1] ?? 0) * spacing
+    return [offset, -offset].flatMap((side): Stroke[] => {
+      const segment = clippedAcross(beside(begin, side), beside(end, -side), beginBox, endBox, gap)
+      return segment ? [{ shape: 'line', x1: round(segment[0].x), y1: round(segment[0].y), x2: round(segment[1].x), y2: round(segment[1].y), pattern: 'solid' }] : []
+    })
+  }
+  const visible = clipped(begin, end, beginBox, endBox, gap)
+  if (!visible) return []
+  const [a, b] = visible
+  const from = distance(begin, a)
+  const to = distance(begin, b)
+  if (mark.kind === 'wavy') {
+    const halfWaves = Math.min(MARK_STYLE.maxParts, Math.max(2, Math.round((to - from) / MARK_STYLE.waveArc)))
+    return [{ shape: 'wave', from: { x: round(a.x), y: round(a.y) }, to: { x: round(b.x), y: round(b.y) }, halfWaves, amplitude: MARK_STYLE.waveAmplitude }]
+  }
+  // The taper is measured from the narrow end of the whole bond, so cutting it keeps its slope.
+  const narrowAtBegin = 'narrow' in mark && mark.narrow === 'begin'
+  const fromNarrow = (at: number) => (narrowAtBegin ? at : length - at)
+  const half = (at: number) => (Math.max(MARK_STYLE.wedgeWidth, lineWidth) / 2) * (fromNarrow(at) / length)
+  if (mark.kind === 'wedge') {
+    // A cut end that is still at the narrow point is one corner, not two.
+    const corners = (at: number): Position[] => (half(at) < 0.005 ? [beside(along(at), 0)] : [beside(along(at), half(at)), beside(along(at), -half(at))])
+    return [{ shape: 'polygon', points: [...corners(from), ...corners(to).reverse()] }]
+  }
+  const pitch = Math.max(MARK_STYLE.hashSpacing, length / MARK_STYLE.maxParts)
+  const stripe = (at: number): [Position, Position] => {
+    const reach = Math.max(lineWidth / 2, half(at))
+    return [beside(along(at), reach), beside(along(at), -reach)]
+  }
+  const segments: Array<[Position, Position]> = []
+  for (let k = 0; (k + 0.5) * pitch <= length; k += 1) {
+    const at = narrowAtBegin ? (k + 0.5) * pitch : length - (k + 0.5) * pitch
+    if (at >= from && at <= to) segments.push(stripe(at))
+  }
+  // A short visible piece between two stripe places still shows the mark.
+  return [{ shape: 'stripes', segments: segments.length > 0 ? segments : [stripe((from + to) / 2)] }]
+}
+
+/**
+ * The SVG path of a wave stroke: `halfWaves` quadratic arcs along the axis from `from` to `to`,
+ * each bulging `amplitude` to the side opposite its neighbour's, the slope continuous where
+ * they meet and both ends on the axis.
+ */
+export function wavePath({ from, to, halfWaves, amplitude }: Extract<Stroke, { shape: 'wave' }>) {
+  const length = distance(from, to)
+  if (length === 0) return `M ${from.x} ${from.y}`
+  const nx = -(to.y - from.y) / length
+  const ny = (to.x - from.x) / length
+  const node = (index: number) => ({
+    x: round(from.x + ((to.x - from.x) * index) / halfWaves),
+    y: round(from.y + ((to.y - from.y) * index) / halfWaves),
+  })
+  // A quadratic arc peaks half way to its control point.
+  const first = node(0)
+  const next = node(1)
+  const control = { x: round((first.x + next.x) / 2 + 2 * amplitude * nx), y: round((first.y + next.y) / 2 + 2 * amplitude * ny) }
+  const rest = Array.from({ length: halfWaves - 1 }, (_, index) => node(index + 2))
+  return `M ${first.x} ${first.y} Q ${control.x} ${control.y} ${next.x} ${next.y}${rest.map((p) => ` T ${p.x} ${p.y}`).join('')}`
+}
+
 /**
  * The strokes that draw `bond` from `begin` to `end`, each trimmed where it meets a label box
  * (null for a bare vertex) so that strokes `lineWidth` wide keep [LABEL_GAP] from it. Every
  * kind looks different: aromatic is a line with a dashed line beside it on `side` (see
  * bondSides), shortened at bare vertices; dative a line with an arrowhead at its end (the bond
- * points away from its donor); query a dotted line; and unknown a zigzag. `spacing` (see
- * bondSpacing) multiplies how far apart parallel lines are.
+ * points away from its donor); query a dotted line; and unknown a zigzag. A bond whose mark
+ * fits its order is drawn as the mark (see markStrokes). `spacing` (see bondSpacing)
+ * multiplies how far apart parallel lines are.
  */
 export function bondStrokes(
   bond: BondView,
@@ -437,6 +587,9 @@ export function bondStrokes(
 ): Stroke[] {
   const length = distance(begin, end)
   if (length === 0) return []
+  if (bond.mark && markFits(bond.mark.kind, bond.order)) {
+    return markStrokes(bond.mark, begin, end, beginBox, endBox, spacing, lineWidth)
+  }
   const gap = LABEL_GAP + lineWidth / 2
   const clip = (a: Position, b: Position) => clipped(a, b, beginBox, endBox, gap)
   const ux = (end.x - begin.x) / length
@@ -521,8 +674,7 @@ export function drawingStrokes(
 
 /**
  * How `bond` is read out: its kind and the atoms it joins, its mark and which end is narrow
- * when it has one ("wedge, narrow end at a1": the editor does not draw marks yet, so the name
- * is where a marked bond differs from a plain one), and its placement when given.
+ * when it has one ("wedge, narrow end at a1"), and its placement when given.
  */
 export function bondName(bond: BondView, placement: string | null = null) {
   const marked = bond.mark == null ? '' : `, ${markName(bond.mark, bond)}`

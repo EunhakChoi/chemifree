@@ -3384,6 +3384,270 @@ step = 'after short_wide_bond_is_selectable'
   }
 }
 
+// Stereo marks drawn with the bond tool and the inspector: a wedge from a drag, the configuration it
+// stores in the same transaction (one undo step), hashed wedge, wavy and crossed, a refusal that
+// keeps the mark, what an order change clears, and the keyboard path through the inspector.
+{
+  const markPage = await context.newPage()
+  try {
+    await markPage.goto(BASE)
+    const write = (path, body) =>
+      markPage.evaluate(async ({ path, body }) => {
+        const session = await (await fetch('/api/v1/session')).json()
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', [session.header]: session.token },
+          body: JSON.stringify(body),
+        })
+        return { status: response.status, body: await response.json() }
+      }, { path, body })
+    const read = (id) => markPage.evaluate(async (id) => (await fetch(`/api/v1/documents/${id}`)).json(), id)
+    const place = (point) =>
+      markPage.evaluate(({ x, y }) => {
+        const svg = document.querySelector('svg[data-structure-canvas]')
+        const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM())
+        return { x: p.x, y: p.y }
+      }, point)
+    const idle = () => markPage.waitForFunction(() => !document.querySelector('[data-slot="spinner"]'))
+    const bonded = (x, y, element, order = 'single') => ({ op: 'add_atom', element, position: { x, y }, bond_to: { atom: '$0', order } })
+    const make = async (key, title, commands) => {
+      const created = await write('/api/v1/documents', { request_id: `smoke-marks-${key}`, title })
+      assert.ok(created.status < 300, JSON.stringify(created.body))
+      const id = created.body.document.id
+      const drawn = await write(`/api/v1/documents/${id}/transactions`, { request_id: `smoke-marks-draw-${key}`, expected_revision: 0, commands })
+      assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+      return id
+    }
+    const center = (x, y) => ({ op: 'add_atom', element: 'C', position: { x, y } })
+    const first = await make('first', 'Smoke marks', [center(100, 100), bonded(100, 70, 'F'), bonded(126, 115, 'Cl')])
+    const second = await make('second', 'Smoke marks refused', [
+      center(100, 100), bonded(100, 70, 'F'), bonded(126, 115, 'Cl'), bonded(74, 115, 'N'),
+      { op: 'set_bond_mark', bond: '$3', mark: { kind: 'wavy' } },
+      { op: 'add_atom', element: 'C', position: { x: 300, y: 100 } },
+      { op: 'add_atom', element: 'C', position: { x: 330, y: 100 }, bond_to: { atom: '$5', order: 'double' } },
+    ])
+    const open = async (id) => {
+      await markPage.reload()
+      await markPage.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+      await markPage.getByTestId('save-state').waitFor()
+    }
+    const status = markPage.getByTestId('stereo-status')
+    const inspector = markPage.getByRole('complementary', { name: 'Selection' })
+    const bondName = (id) => markPage.locator(`g[data-bond-kind][aria-label^="Bond ${id}:"]`)
+    const middle = async (doc, a, b) => {
+      const at = (id) => doc.document.atoms.find((atom) => atom.id === id).position
+      return place({ x: (at(a).x + at(b).x) / 2, y: (at(a).y + at(b).y) / 2 })
+    }
+    // A status line above the canvas moves it, so a bond's place on the screen is read again at each click.
+    const clickBetween = async (doc, a, b) => {
+      const at = await middle(doc, a, b)
+      await markPage.mouse.click(at.x, at.y)
+    }
+    // The service answers before the page has drawn the reply: edits wait for the new revision, and what
+    // the page shows is checked until it shows it.
+    const raf = () => markPage.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+    const edit = async (id, act) => {
+      const revision = (await read(id)).document.revision
+      await act()
+      await markPage.waitForFunction(
+        async ({ id, revision }) => (await (await fetch(`/api/v1/documents/${id}`)).json()).document.revision !== revision,
+        { id, revision },
+      )
+      await idle()
+      await raf()
+    }
+    const eventually = async (check) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await check()
+        } catch (failure) {
+          if (attempt >= 50) {
+            failure.message += `\nstatus: ${await status.textContent().catch(() => '(none)')}`
+            throw failure
+          }
+          await raf()
+        }
+      }
+    }
+    const press = (name) => markPage.getByRole('button', { name, exact: true }).first().click()
+
+    await open(first)
+    // The status line is a live region that exists, and is in the accessibility tree, before it has text.
+    assert.equal(await markPage.getByRole('status').and(markPage.getByTestId('stereo-status')).count(), 1, 'the empty status line is in the accessibility tree')
+    assert.equal(await status.textContent(), '')
+    assert.notEqual(await status.evaluate((element) => getComputedStyle(element).display), 'none')
+    // Arrow keys move through every bond kind, the orders and the marks, in the order they are shown, from one tab stop.
+    const kinds = markPage.getByRole('group', { name: 'Bond kind for new bonds', exact: true })
+    const labels = await kinds.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
+    assert.deepEqual(labels.slice(-3), ['Wedge bond', 'Hashed wedge bond', 'Wavy bond'])
+    assert.ok(labels.length >= 8, labels.join(', '))
+    assert.equal(await kinds.getByRole('button').evaluateAll((buttons) => buttons.filter((button) => button.tabIndex === 0).length), 1, 'one tab stop')
+    await kinds.getByRole('button', { name: labels[0], exact: true }).focus()
+    const visited = [labels[0]]
+    for (let index = 1; index < labels.length; index += 1) {
+      await markPage.keyboard.press('ArrowRight')
+      visited.push(await markPage.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+    }
+    assert.deepEqual(visited, labels, 'the arrow keys visit every bond kind in order')
+    // The tools are named and pressed state shows which is chosen.
+    for (const name of ['Wedge bond', 'Hashed wedge bond', 'Wavy bond']) {
+      assert.equal(await markPage.getByRole('button', { name, exact: true }).getAttribute('aria-pressed'), 'false', name)
+    }
+    await press('Wedge bond')
+    assert.equal(await markPage.getByRole('button', { name: 'Wedge bond', exact: true }).getAttribute('aria-pressed'), 'true')
+    let doc = await read(first)
+    const start = await place(doc.document.atoms.find((atom) => atom.id === 'a1').position)
+    const target = await place({ x: 60, y: 125 })
+    await markPage.mouse.move(start.x, start.y)
+    await markPage.mouse.down()
+    await markPage.mouse.move(start.x - 20, start.y + 10, { steps: 4 })
+    // While dragging, the mark shows where its narrow end will be.
+    await eventually(async () => assert.equal(await markPage.locator('[data-bond-preview="wedge"] polygon').count(), 1, 'the drag previews a wedge'))
+    await markPage.mouse.move(target.x, target.y, { steps: 4 })
+    await edit(first, () => markPage.mouse.up())
+    doc = await read(first)
+    assert.equal(doc.document.revision, 2, 'the mark and its configuration are one revision')
+    const wedge = doc.document.bonds.find((bond) => bond.id === 'b3')
+    assert.deepEqual(wedge.mark, { kind: 'wedge', narrow: 'begin' })
+    assert.equal(doc.document.stereo.atoms.length, 1)
+    assert.equal(doc.document.stereo.atoms[0].atom, 'a1')
+    const polygon = markPage.locator('g[data-bond-mark="wedge"] polygon[data-stroke="wedge"]')
+    await polygon.waitFor()
+    const points = (await polygon.getAttribute('points')).split(' ').map((p) => p.split(',').map(Number))
+    const a1 = doc.document.atoms.find((atom) => atom.id === 'a1').position
+    assert.equal(points.length, 3, 'a point and two wide corners')
+    assert.ok(Math.hypot(points[0][0] - a1.x, points[0][1] - a1.y) < 0.6, 'the narrow end is at a1')
+    assert.ok(Math.abs(Math.hypot(points[1][0] - points[2][0], points[1][1] - points[2][1]) - 4) < 0.1, 'the wide end is 4 pt wide')
+    await eventually(async () => assert.match(await bondName('b3').getAttribute('aria-label'), /wedge, narrow end at a1$/))
+    await eventually(async () => assert.match(await status.textContent(), /^Wedge mark on b3, narrow end at a1\. Configuration of a1 stored from the drawing \((clockwise|anticlockwise)\)\.$/))
+    // One undo removes the bond, its mark and the configuration together; redo brings them back.
+    await edit(first, () => press('Undo'))
+    doc = await read(first)
+    assert.equal(doc.document.bonds.length, 2)
+    assert.deepEqual(doc.document.stereo, { atoms: [], bonds: [] })
+    await eventually(async () => assert.equal(await polygon.count(), 0))
+    await edit(first, () => press('Redo'))
+    doc = await read(first)
+    assert.equal(doc.document.bonds.length, 3)
+    assert.equal(doc.document.stereo.atoms.length, 1)
+    await polygon.waitFor()
+    await markPage.screenshot({ path: join(outDir, 'editor-marks-wedge.png') })
+    // A hovered wedge is marked as any hovered bond is: by the underlay, which is wider than the wedge.
+    const hover = await middle(doc, 'a1', 'a4')
+    await markPage.mouse.move(hover.x, hover.y)
+    const underlay = markPage.locator('[data-underlay="b3"]')
+    await eventually(async () => assert.equal(await underlay.count(), 1, 'the hovered wedge has an underlay'))
+    assert.ok(Number(await underlay.getAttribute('stroke-width')) >= 8, 'wider than the wedge')
+    await markPage.mouse.move(5, 5)
+    await eventually(async () => assert.equal(await underlay.count(), 0))
+
+    // A hashed wedge over it keeps the narrow end; the configuration it shows replaces the stored one.
+    const shape = doc
+    await press('Hashed wedge bond')
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    const hashed = markPage.locator('g[data-bond-mark="hash"] path[data-stroke="hash"]')
+    await hashed.waitFor()
+    assert.ok(Number(await hashed.getAttribute('data-stripes')) >= 8, 'a stripe every 2.7 pt')
+    await eventually(async () => assert.match(await status.textContent(), /^Hashed wedge mark on b3, narrow end at a1\. Configuration of a1 stored from the drawing \(\w+\)\. It replaced a stored configuration \(\w+\); undo restores it\.$/))
+    // Again: the narrow end moves to a4, which has one bond, so nothing is stored; a1's record is kept.
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    await eventually(async () => assert.match(await bondName('b3').getAttribute('aria-label'), /hashed wedge, narrow end at a4$/))
+    await eventually(async () => assert.match(await status.textContent(), /Nothing stored: a4 has 1 bond; a stereocenter needs 3 or 4\. The stored configuration of a1 is kept; the drawing no longer shows it\.$/))
+    assert.equal((await read(first)).document.stereo.atoms.length, 1)
+    await markPage.screenshot({ path: join(outDir, 'editor-marks-hashed-wedge.png') })
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    assert.equal((await read(first)).document.bonds.find((bond) => bond.id === 'b3').mark, null)
+    await eventually(async () => assert.match(await status.textContent(), /^Hashed wedge mark removed from b3\.$/))
+
+    // Wavy: a wave on the axis, and an unknown configuration for the center.
+    await press('Wavy bond')
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    await markPage.locator('g[data-bond-mark="wavy"] path[data-stroke="wave"]').waitFor()
+    assert.equal((await read(first)).document.stereo.atoms[0].configuration.kind, 'unknown')
+    await markPage.screenshot({ path: join(outDir, 'editor-marks-wavy.png') })
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    await eventually(async () => assert.equal(await markPage.locator('svg[data-structure-canvas] path[data-stroke="wave"]').count(), 0))
+
+    // The bond tool with a kind of bond chosen clears a mark first, and the inspector's change of kind
+    // clears it in the same transaction: neither is refused.
+    await press('Wedge bond')
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    await press('Single bond')
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    assert.equal((await read(first)).document.bonds.find((bond) => bond.id === 'b3').mark, null)
+    assert.equal((await read(first)).document.bonds.find((bond) => bond.id === 'b3').order, 'single', 'the click only cleared the mark')
+    await eventually(async () => assert.match(await status.textContent(), /^Wedge mark removed from b3\./))
+    await press('Wedge bond')
+    await edit(first, () => clickBetween(shape, 'a1', 'a4'))
+    await press('Select and move')
+    await clickBetween(shape, 'a1', 'a4')
+    const revisionBefore = (await read(first)).document.revision
+    await edit(first, () => inspector.getByRole('group', { name: 'Kind', exact: true }).getByRole('button', { name: 'Double bond' }).click())
+    doc = await read(first)
+    assert.equal(doc.document.revision, revisionBefore + 1, 'one transaction')
+    assert.equal(doc.document.bonds.find((bond) => bond.id === 'b3').order, 'double')
+    assert.equal(doc.document.bonds.find((bond) => bond.id === 'b3').mark, null)
+    assert.equal(await markPage.getByText('Edit rejected').count(), 0)
+    await eventually(async () => assert.match(await status.textContent(), /^Wedge mark removed from b3: it needs a single bond\./))
+
+    // The keyboard path: the inspector's own controls set the mark and its narrow end.
+    await edit(first, () => inspector.getByRole('group', { name: 'Kind', exact: true }).getByRole('button', { name: 'Single bond' }).click())
+    const marks = inspector.getByRole('group', { name: 'Drawn mark', exact: true })
+    assert.deepEqual(await marks.getByRole('button').evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label'))), ['Plain', 'Wedge', 'Hashed wedge', 'Wavy'])
+    await marks.getByRole('button', { name: 'Wedge', exact: true }).focus()
+    await edit(first, () => markPage.keyboard.press('Space'))
+    assert.deepEqual((await read(first)).document.bonds.find((bond) => bond.id === 'b3').mark, { kind: 'wedge', narrow: 'begin' })
+    await inspector.getByRole('group', { name: 'Narrow end', exact: true }).getByRole('button', { name: 'Narrow end at a4' }).focus()
+    await edit(first, () => markPage.keyboard.press('Enter'))
+    assert.deepEqual((await read(first)).document.bonds.find((bond) => bond.id === 'b3').mark, { kind: 'wedge', narrow: 'end' })
+    await eventually(async () => assert.equal(await markPage.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Narrow end at a4', 'focus stays on the control'))
+
+    // A wedge over a double bond is refused without a request.
+    await open(second)
+    doc = await read(second)
+    const before = doc.document.revision
+    await press('Wedge bond')
+    const pair = doc
+    await clickBetween(pair, 'a5', 'a6')
+    await status.filter({ hasText: 'A wedge mark needs a single bond' }).waitFor()
+    assert.equal((await read(second)).document.revision, before, 'nothing was sent')
+    await eventually(async () => assert.equal(await status.textContent(), 'A wedge mark needs a single bond; b4 is a double bond. Change it to single first.'))
+    // The same bond takes a crossed mark in the inspector: two lines, the configuration unknown.
+    await press('Select and move')
+    await clickBetween(pair, 'a5', 'a6')
+    await edit(second, () => markPage.getByRole('button', { name: 'Crossed double bond (either)' }).click())
+    doc = await read(second)
+    assert.deepEqual(doc.document.bonds.find((bond) => bond.id === 'b4').mark, { kind: 'crossed' })
+    assert.deepEqual(doc.document.stereo.bonds, [{ bond: 'b4', configuration: { kind: 'unknown' } }])
+    await eventually(async () => assert.equal(await markPage.locator('g[data-bond-mark="crossed"] line').count(), 2))
+    await eventually(async () => assert.match(await bondName('b4').getAttribute('aria-label'), /double bond between a5 and a6, crossed$/))
+
+    // A wedge the service cannot read a configuration from (a wavy bond to an atom that cannot be a
+    // center beside it) is kept, and the reason is shown instead of an error.
+    doc = await read(second)
+    const revisionRefused = doc.document.revision
+    // The wedge is still the chosen kind; pressing it again changes nothing, so the tool is chosen.
+    await press('Bond')
+    assert.equal(await markPage.getByRole('button', { name: 'Wedge bond', exact: true }).getAttribute('aria-pressed'), 'true')
+    const from = await place(doc.document.atoms.find((atom) => atom.id === 'a1').position)
+    const down = await place({ x: 100, y: 140 })
+    await markPage.mouse.move(from.x, from.y)
+    await markPage.mouse.down()
+    await markPage.mouse.move(down.x, down.y, { steps: 5 })
+    await edit(second, () => markPage.mouse.up())
+    doc = await read(second)
+    assert.equal(doc.document.revision, revisionRefused + 1)
+    assert.equal(doc.document.bonds.filter((bond) => bond.mark?.kind === 'wedge').length, 1, 'the mark was kept')
+    assert.deepEqual(doc.document.stereo.atoms, [], 'no configuration was stored')
+    await eventually(async () => assert.match(await status.textContent(), /Not stored: .*\(stereo_not_derivable_conflicting_marks\)\.$/))
+    assert.equal(await markPage.getByText('Edit rejected').count(), 0, 'a refused derivation is not an error')
+    results.stereo_marks_drawn_and_edited = true
+    step = 'after stereo_marks_drawn_and_edited'
+  } finally {
+    await markPage.close()
+  }
+}
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

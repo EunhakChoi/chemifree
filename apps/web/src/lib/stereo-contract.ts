@@ -2,9 +2,11 @@
  * Hand-maintained mirror of the stereo parts of the v1 document contract in
  * crates/application/src/contract.rs: bond marks and stated configurations. Representation
  * only. Nothing here derives a configuration from a mark, computes a CIP label, or compares
- * two drawings; the editor does not draw marks yet. (The service derives a configuration from
- * the marks and one instance's positions only when it is sent `set_configuration_from_drawing`;
- * this module reads and checks what the service answers, it takes no part in the derivation.)
+ * two drawings; the editor draws marks (editor/geometry.ts) and sends marks and the
+ * configuration the service derives from them (editor/mark-gestures.ts). (The service derives
+ * a configuration from the marks and one instance's positions only when it is sent
+ * `set_configuration_from_drawing`; this module reads and checks what the service answers, it
+ * takes no part in the derivation.)
  *
  * The validators are strict on purpose: they accept exactly the values the service sends
  * today. A later mark kind (unknown, hollow, bold) or slot kind makes them refuse the whole
@@ -189,15 +191,26 @@ export function holdsStereo(document: { bonds: ReadonlyArray<{ mark?: StereoMark
   return marks + configurations > 0
 }
 
+/**
+ * The words for a mark kind. The public specification's plain hash bond is untapered; the mark
+ * here, tapered with a narrow end, is its hashed wedge, so that is the name.
+ */
+export const MARK_NAMES: Record<StereoMark['kind'], string> = {
+  wedge: 'wedge',
+  hash: 'hashed wedge',
+  wavy: 'wavy',
+  crossed: 'crossed',
+}
+
 /** How a mark reads, naming the atom at the narrow end: "wedge, narrow end at a1". */
 export function markName(mark: StereoMark, bond: { begin: string; end: string }): string {
   switch (mark.kind) {
     case 'wedge':
     case 'hash':
-      return `${mark.kind}, narrow end at ${mark.narrow === 'begin' ? bond.begin : bond.end}`
+      return `${MARK_NAMES[mark.kind]}, narrow end at ${mark.narrow === 'begin' ? bond.begin : bond.end}`
     case 'wavy':
     case 'crossed':
-      return mark.kind
+      return MARK_NAMES[mark.kind]
     default: {
       const unhandled: never = mark
       return unhandled
