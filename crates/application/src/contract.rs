@@ -536,6 +536,19 @@ pub enum CommandDto {
         #[serde(deserialize_with = "nullable")]
         configuration: Option<BondConfigurationDto>,
     },
+    /// Stores the configuration the bond marks and one scene instance's positions show. With
+    /// neither list, for each center a wedge, hash or wavy mark bears on and each crossed
+    /// double bond; with `atoms` and/or `bonds` (IDs or `"$N"`, each non-empty), exactly those,
+    /// all of which must derive. `instance` may be left out while the document has one scene
+    /// instance. Added within v1.
+    SetConfigurationFromDrawing {
+        #[serde(default)]
+        atoms: Option<Vec<String>>,
+        #[serde(default)]
+        bonds: Option<Vec<String>>,
+        #[serde(default)]
+        instance: Option<String>,
+    },
 }
 
 /// Reads an object into a map, refusing a repeated key instead of keeping the last value.
@@ -972,6 +985,21 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         } => Command::SetBondConfiguration {
             bond: bond_ref(bond)?,
             configuration: configuration.as_ref().map(bond_configuration).transpose()?,
+        },
+        CommandDto::SetConfigurationFromDrawing {
+            atoms,
+            bonds,
+            instance,
+        } => Command::SetConfigurationFromDrawing {
+            atoms: atoms
+                .as_ref()
+                .map(|atoms| atoms.iter().map(|id| atom_ref(id)).collect())
+                .transpose()?,
+            bonds: bonds
+                .as_ref()
+                .map(|bonds| bonds.iter().map(|id| bond_ref(id)).collect())
+                .transpose()?,
+            instance: instance.as_deref().map(instance_id).transpose()?,
         },
     })
 }

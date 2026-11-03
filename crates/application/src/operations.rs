@@ -512,7 +512,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 33] = [
+const TRANSACTION_PARTS: [Entry; 34] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -595,6 +595,13 @@ const TRANSACTION_PARTS: [Entry; 33] = [
          states it unknown.",
     ),
     runs(
+        "set_configuration_from_drawing",
+        "Stores the configuration that wedge, hash, wavy and crossed marks and one scene \
+         instance's positions show, for the named centers and double bonds (default: every one \
+         a mark bears on), or refuses with the reason. Idempotent. Read off the drawing, not \
+         judged: no CIP label, no check that an atom is stereogenic.",
+    ),
+    runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
          default). Representation only: no hydrogen count is computed from valence.",
@@ -650,19 +657,23 @@ const TRANSACTION_PARTS: [Entry; 33] = [
     .carried_out_by(&["update_settings"]),
     runs(
         "stereo_marks",
-        "Records drawn stereo marks. Representation only: no configuration is derived from \
-         them, and the editor does not draw them yet.",
+        "Records drawn stereo marks. Only set_configuration_from_drawing reads them, on \
+         request; the editor does not draw them yet.",
     )
     .carried_out_by(&["set_bond_mark"]),
     runs(
         "stereo_configuration",
         "Records tetrahedral centers (3 or 4 neighbors) and double bonds as stated, apart from \
-         the marks. Representation only: no CIP labels, no check that a center is stereogenic, \
-         no groups, no derivation from the drawing, no comparison in chem.identity or \
-         chem.substructure, no stereo check in chem.validate, and no stereo in MOL, SDF, SMILES, \
-         CDXML or CDX.",
+         the marks; only set_configuration_from_drawing derives one from the marks, on request. \
+         Nothing is judged: no CIP labels, no check that a center is stereogenic, no groups, \
+         no comparison in chem.identity or chem.substructure, no stereo check in chem.validate, \
+         and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )
-    .carried_out_by(&["set_atom_configuration", "set_bond_configuration"]),
+    .carried_out_by(&[
+        "set_atom_configuration",
+        "set_bond_configuration",
+        "set_configuration_from_drawing",
+    ]),
 ];
 
 const PROPERTY_PARTS: [Entry; 3] = [
@@ -2122,13 +2133,22 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {
-                    Ok(p) => known.document(self.apply_transaction_selecting(
-                        &p.document_id,
-                        request_id,
-                        p.expected_revision,
-                        p.commands,
-                        TransactionSelections { before: p.selection_before, after: p.selection_after },
-                    )),
+                    Ok(p) => {
+                        let derives = p.commands.iter().any(|command| {
+                            matches!(command, CommandDto::SetConfigurationFromDrawing { .. })
+                        });
+                        let mut reply = known.document(self.apply_transaction_selecting(
+                            &p.document_id,
+                            request_id,
+                            p.expected_revision,
+                            p.commands,
+                            TransactionSelections { before: p.selection_before, after: p.selection_after },
+                        ));
+                        if derives {
+                            reply.model_id = Some(chemifree_domain::stereo_drawing::MODEL_ID.into());
+                        }
+                        reply
+                    }
                     Err(invalid) => known.invalid(invalid),
                 }
             }

@@ -680,6 +680,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "set_bond_mark",
             "set_atom_configuration",
             "set_bond_configuration",
+            "set_configuration_from_drawing",
         ]
     );
     let placement = capabilities
@@ -732,9 +733,18 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
     assert_eq!(carried_out_by("stereo_marks"), ["set_bond_mark"]);
     assert_eq!(
         carried_out_by("stereo_configuration"),
-        ["set_atom_configuration", "set_bond_configuration"]
+        [
+            "set_atom_configuration",
+            "set_bond_configuration",
+            "set_configuration_from_drawing"
+        ]
     );
-    assert_eq!(commands.len(), 23, "{commands:?}");
+    assert_eq!(commands.len(), 24, "{commands:?}");
     assert_eq!(capabilities.len(), 10, "{capabilities:?}");
+    assert_eq!(
+        transaction["sub_operations"].as_array().unwrap().len(),
+        34,
+        "24 command rows and 10 capability rows"
+    );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }
