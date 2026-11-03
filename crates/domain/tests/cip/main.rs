@@ -539,6 +539,49 @@ fn reaching_a_node_cap_is_unsupported_never_none_and_never_a_label() {
     }
 }
 
+/// Atom 1 has two equal branches. Each is a carbon that holds a methyl and two quaternary
+/// carbons, and each of those holds a methyl and two propenyl groups. Whether two positions of
+/// a quaternary carbon could differ needs the descriptors of the propenyl bonds below it, and
+/// the carbon above it asks again about the same bonds, so the cost of each descriptor is
+/// charged once for the whole classification, not once per question.
+const TWIN_BRANCHES: &str =
+    "F[C@H](C(C(/C=C/C)(/C=C/C)C)(C(/C=C/C)(/C=C/C)C)C)C(C(/C=C/C)(/C=C/C)C)(C(/C=C/C)(/C=C/C)C)C";
+
+#[test]
+fn a_descriptor_needed_by_several_questions_is_charged_once_per_classification() {
+    let built = parse(TWIN_BRANCHES).build();
+    let at = |item_nodes| Limits {
+        item_nodes,
+        request_nodes: usize::MAX,
+    };
+    // With each descriptor charged once the classification costs 592 nodes; charged again for
+    // every question that asks for it, 624, which a cap of 600 would refuse as a limit
+    // although the work needs less.
+    let free = run(&built, &[1], at(usize::MAX)).unwrap().remove(0);
+    assert_eq!((text(&free), free.nodes), ("none".to_owned(), 592));
+    let enough = run(&built, &[1], at(600)).unwrap().remove(0);
+    assert_eq!((text(&enough), enough.nodes), ("none".to_owned(), 592));
+    let exact = run(&built, &[1], at(592)).unwrap().remove(0);
+    assert_eq!(text(&exact), "none");
+    // A cap below the real cost is still a limit, never a label.
+    let short = run(&built, &[1], at(591)).unwrap().remove(0);
+    assert_eq!(text(&short), "unsupported:cip_digraph_limit");
+    // The same work however the molecule is numbered.
+    let mut rng = Rng(0x7b57_0002_c0ff_ee11);
+    let molecule = parse(TWIN_BRANCHES);
+    for _ in 0..4 {
+        let atom_order = rng.shuffled(molecule.atoms.len());
+        let bond_order = rng.shuffled(molecule.bonds.len());
+        let shuffled = molecule.build_ordered(&atom_order, &bond_order);
+        let report = run(&shuffled, &[1], at(600)).unwrap().remove(0);
+        assert_eq!(
+            (text(&report), report.nodes),
+            ("none".to_owned(), 592),
+            "{atom_order:?} {bond_order:?}"
+        );
+    }
+}
+
 #[test]
 fn the_request_cap_stops_the_request_and_does_not_depend_on_the_order() {
     let built = parse("O[C@H]([C@H](O)C(=O)O)C(=O)O").build();
@@ -1193,6 +1236,7 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
     let mut rng = Rng(0x1234_5678_9abc_def1);
     let (mut assigned, mut tied_none, mut refused, mut ambiguous, mut centers, mut cycles) =
         (0, 0, 0, 0, 0, 0);
+    let mut nested = 0;
     for index in 0..4500 {
         let molecule = generated(&mut rng, index);
         let built = molecule.build();
@@ -1222,6 +1266,21 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
                 // A ring with a double bond that the aromaticity model cannot classify is
                 // refused rather than read as Kekule; the naive reference does not refuse.
                 refused += 1;
+                continue;
+            }
+            if text(&report) == "unsupported:cip_rule3_nested_descriptor" {
+                // A descriptor read through the labeled center's own ring or double bond
+                // (see `Reason::Rule3NestedDescriptor`): the naive reference reads it from the
+                // whole molecule and does not refuse. Only a molecule with a double bond can
+                // reach this.
+                assert!(
+                    molecule
+                        .bonds
+                        .iter()
+                        .any(|bond| bond.2 == BondOrder::Double),
+                    "{shown}"
+                );
+                nested += 1;
                 continue;
             }
             let found = reference.ranks(center.neighbors);
@@ -1274,6 +1333,7 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
         assigned > 300 && tied_none > 50 && refused > 10 && ambiguous > 5,
         "{assigned} {tied_none} {refused} {ambiguous} {cycles}"
     );
+    assert!(nested < centers / 20, "{nested} of {centers} refused");
     assert!(
         cycles * 20 < centers,
         "{cycles} of {centers} not comparable"
@@ -1308,11 +1368,16 @@ fn descriptors_have_four_values_and_reasons_distinct_codes() {
     let codes: BTreeMap<_, _> = [
         Reason::DoubleBondStructure,
         Reason::StereoCycle,
+        Reason::Rule3NestedDescriptor,
         Reason::LigandStereoUnspecified,
         Reason::DigraphLimit,
     ]
     .iter()
     .map(|r| (r.code(), ()))
     .collect();
-    assert_eq!(codes.len(), 4);
+    assert_eq!(codes.len(), 5);
+    assert_eq!(
+        Reason::Rule3NestedDescriptor.code(),
+        "cip_rule3_nested_descriptor"
+    );
 }

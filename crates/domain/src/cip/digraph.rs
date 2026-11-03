@@ -41,6 +41,10 @@ pub(super) struct Arena<'c, 'g> {
     center: AtomId,
     /// The farthest sphere whose atoms are expanded.
     spheres: usize,
+    /// A bond left out of the digraph: no atom reached through it is a real node of its other
+    /// end. The duplicate that a double bond adds on the end it leaves is kept. See
+    /// [`Arena::without_bond`].
+    cut: Option<[AtomId; 2]>,
     nodes: Vec<Node>,
 }
 
@@ -50,8 +54,18 @@ impl<'c, 'g> Arena<'c, 'g> {
             context,
             center,
             spheres,
+            cut: None,
             nodes: Vec::new(),
         }
+    }
+
+    /// This arena with the bond between `ends` left out: expanding either end never makes a real
+    /// node of the other (the duplicate a double bond adds is kept). This is the digraph of a
+    /// double bond seen from inside the digraph rooted at one of its own ends, where the other
+    /// end is not a ligand.
+    pub(super) fn without_bond(mut self, ends: Option<[AtomId; 2]>) -> Self {
+        self.cut = ends;
+        self
     }
 
     pub(super) fn len(&self) -> usize {
@@ -144,6 +158,30 @@ impl<'c, 'g> Arena<'c, 'g> {
             children: None,
         });
         self.nodes.len() - 1
+    }
+
+    /// The atoms of the real nodes whose children were built: the atoms this arena looked at
+    /// the neighbors of. What a comparison read of the molecule is within these atoms and
+    /// their neighbors.
+    pub(super) fn expanded_atoms(&self) -> impl Iterator<Item = AtomId> + '_ {
+        self.nodes
+            .iter()
+            .filter_map(|node| match (node.kind, &node.children) {
+                (Kind::Real(atom), Some(children)) if !children.is_empty() => Some(atom),
+                _ => None,
+            })
+    }
+
+    /// Whether a ring closure is among the nodes: a duplicate of an atom on the path that is
+    /// neither the far end of a multiple bond nor the parent a double bond leads back to.
+    pub(super) fn closes_ring(&self) -> bool {
+        self.nodes.iter().any(|node| match node.kind {
+            // A duplicate is one sphere below the atom that was expanded, so the atom it stands
+            // for is 3 or more spheres above it when it is a ring closure, 2 above for the
+            // parent of a double bond, and level with it for the far end of a multiple bond.
+            Kind::Duplicate { of_depth, .. } => node.depth >= of_depth.saturating_add(3),
+            _ => false,
+        })
     }
 
     /// The sphere of `atom` on the path from the root to `index`, if it is on it. The center is
@@ -255,7 +293,12 @@ impl<'c, 'g> Arena<'c, 'g> {
                 },
                 None => Kind::Real(neighbor),
             };
-            found.push((first, z, mass, order));
+            let left_out = self
+                .cut
+                .is_some_and(|ends| ends.contains(&atom) && ends.contains(&neighbor));
+            if !left_out {
+                found.push((first, z, mass, order));
+            }
             for _ in 1..order {
                 let duplicate = Kind::Duplicate {
                     of: neighbor,

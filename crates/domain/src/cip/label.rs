@@ -171,6 +171,9 @@ struct Budget<'a, 'g> {
     interrupt: &'a dyn Interrupt,
     oracle: &'a Oracle<'a, 'g>,
     requested: BTreeSet<BondId>,
+    /// The descriptors whose cost, with what they needed, is already in `nodes`: a descriptor
+    /// several inner-center checks ask for is paid for once.
+    charged: BTreeSet<BondId>,
 }
 
 impl Budget<'_, '_> {
@@ -220,7 +223,13 @@ fn could_differ(
             budget.charge(over, over)?;
             return Ok(true);
         }
-        Ok(_) => budget.charge(engine.nodes(), engine.arena.len())?,
+        Ok(_) => {
+            let own = engine.arena.len();
+            let descriptors = budget
+                .oracle
+                .closure_cost_into(&mut budget.charged, engine.requested());
+            budget.charge(own.saturating_add(descriptors), own)?;
+        }
     }
     // A tie with nothing refused or ambiguous is two positions no rule can tell apart.
     Ok(!matches!(outcome, Ok((Ordering::Equal, _)))
@@ -263,20 +272,21 @@ fn could_be_inner_center(
     if candidates.len() < 3 {
         return Ok(false);
     }
-    let mut classes: Vec<Slot> = Vec::new();
-    for candidate in candidates {
-        let mut known = false;
-        for &class in &classes {
-            if !could_differ(context, inner, (class, candidate), budget)? {
-                known = true;
-                break;
-            }
-        }
-        if !known {
-            classes.push(candidate);
+    // Every pair is asked, not only each candidate against the classes found so far: which
+    // pairs the shorter way asks follows the order the neighbors are listed in, which follows
+    // identifiers, and so would the work counted.
+    let mut alike = vec![vec![false; candidates.len()]; candidates.len()];
+    for later in 1..candidates.len() {
+        for earlier in 0..later {
+            let pair = (candidates[earlier], candidates[later]);
+            let differ = could_differ(context, inner, pair, budget)?;
+            alike[earlier][later] = !differ;
         }
     }
-    Ok(classes.len() >= 3)
+    let classes = (0..candidates.len())
+        .filter(|&later| !(0..later).any(|earlier| alike[earlier][later]))
+        .count();
+    Ok(classes >= 3)
 }
 
 /// What a tie between two ligands means, given the arena that holds their complete digraphs.
@@ -327,9 +337,28 @@ pub(super) struct Ranking {
     pub(super) own_nodes: usize,
     /// The double bonds Rule 3 asked about, directly.
     pub(super) requested: BTreeSet<BondId>,
+    /// The double bonds the comparisons of the pairs asked about, not counting the tie
+    /// classifications (which only ask whether a rule left out of this slice could separate).
+    pub(super) read: BTreeSet<BondId>,
+    /// The atoms the digraphs of those comparisons expanded.
+    pub(super) expanded: BTreeSet<AtomId>,
+    /// A digraph of those comparisons closes a ring.
+    pub(super) closes_ring: bool,
     pub(super) unsupported: Vec<Reason>,
     /// A comparison depended on a ligand double bond whose geometry is not stated.
     pub(super) ambiguous: bool,
+}
+
+/// What bounds one ranking and which bond, if any, its digraphs leave out.
+#[derive(Clone, Copy)]
+pub(super) struct Scope {
+    /// The nodes the ranking may charge.
+    pub(super) cap: usize,
+    /// The farthest sphere expanded.
+    pub(super) spheres: usize,
+    /// A bond left out of the digraphs of the pairs (not of the tie classifications): see
+    /// [`Arena::without_bond`].
+    pub(super) without_bond: Option<[AtomId; 2]>,
 }
 
 /// Compares every pair of `slots` around `root` and classifies the ties.
@@ -348,10 +377,14 @@ pub(super) fn rank_slots(
     oracle: &Oracle<'_, '_>,
     root: AtomId,
     slots: &[Slot],
-    cap: usize,
-    spheres: usize,
+    scope: Scope,
     interrupt: &dyn Interrupt,
 ) -> Result<Ranking, Interrupted> {
+    let Scope {
+        cap,
+        spheres,
+        without_bond,
+    } = scope;
     let over = cap.saturating_add(1);
     let count = slots.len();
     let mut ranking = Ranking {
@@ -360,6 +393,9 @@ pub(super) fn rank_slots(
         nodes: 0,
         own_nodes: 0,
         requested: BTreeSet::new(),
+        read: BTreeSet::new(),
+        expanded: BTreeSet::new(),
+        closes_ring: false,
         unsupported: Vec::new(),
         ambiguous: false,
     };
@@ -367,7 +403,8 @@ pub(super) fn rank_slots(
         for j in (i + 1)..count {
             // Every pair is compared, so the sum does not depend on the order of the slots and
             // no pair's failure hides another's.
-            let mut engine = Engine::new(context, oracle, root, cap, spheres, interrupt);
+            let mut engine = Engine::new(context, oracle, root, cap, spheres, interrupt)
+                .without_bond(without_bond);
             let outcome = match engine.arena.roots(slots[i], slots[j]) {
                 Ok((a, b)) => engine.compare(a, b, Rule::R3),
                 Err(reason) => {
@@ -394,6 +431,11 @@ pub(super) fn rank_slots(
             };
             ranking.nodes = ranking.nodes.saturating_add(engine.nodes());
             ranking.own_nodes = ranking.own_nodes.saturating_add(engine.arena.len());
+            // What a comparison read is only kept when it finished: how far one that hit a
+            // limit got follows the order its neighbors were visited in.
+            ranking.read.extend(engine.requested().iter().copied());
+            ranking.expanded.extend(engine.arena.expanded_atoms());
+            ranking.closes_ring |= engine.arena.closes_ring();
             if let Some(reason) = engine.refusal() {
                 ranking.unsupported.push(reason);
                 continue;
@@ -414,6 +456,7 @@ pub(super) fn rank_slots(
                     interrupt,
                     oracle,
                     requested: BTreeSet::new(),
+                    charged: BTreeSet::new(),
                 };
                 let classified = classify_tie(&engine, &mut budget);
                 ranking.nodes = ranking.nodes.saturating_add(budget.nodes.min(over));
@@ -478,17 +521,29 @@ pub(super) fn center(
         report.warnings.push(Warning::SlotUnusual);
     }
     let slots = positions.slots;
-    let ranking = rank_slots(
+    let mut ranking = rank_slots(
         context,
         oracle,
         id,
         &slots,
-        item_cap,
-        MAX_SPHERES,
+        Scope {
+            cap: item_cap,
+            spheres: MAX_SPHERES,
+            without_bond: None,
+        },
         interrupt,
     )
     .map_err(Stop::Interrupted)?;
     report.nodes = ranking.nodes;
+    // Past the cap the item is a limit: see `rank_slots`.
+    if ranking.nodes <= item_cap
+        && oracle
+            .seen_from_inside(ranking.read.clone(), None, 0)
+            .map_err(Stop::Interrupted)?
+            .differs
+    {
+        ranking.unsupported.push(Reason::Rule3NestedDescriptor);
+    }
     if let Some(&reason) = ranking.unsupported.iter().min() {
         report.state = State::Unsupported(reason);
         return Ok(report);

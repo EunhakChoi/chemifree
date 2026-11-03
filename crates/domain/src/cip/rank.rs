@@ -1,5 +1,6 @@
 //! Comparison of two ligands by Rules 1a, 1b, 2 and 3, each over the whole digraph.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -210,6 +211,9 @@ pub(super) struct Engine<'c, 'g> {
     requested: BTreeSet<BondId>,
     charged: BTreeSet<BondId>,
     rule_3_nodes: usize,
+    /// What [`Engine::nodes`] found for the sizes it was computed at: the arena, the
+    /// descriptors asked for, and the count.
+    counted: Cell<Option<(usize, usize, usize)>>,
     geometry: BTreeMap<NodeIx, Option<Geometry>>,
     compared: BTreeMap<(NodeIx, NodeIx, Rule), (Ordering, Option<Rule>)>,
     sorted: BTreeMap<(NodeIx, Rule), Vec<NodeIx>>,
@@ -234,10 +238,17 @@ impl<'c, 'g> Engine<'c, 'g> {
             requested: BTreeSet::new(),
             charged: BTreeSet::new(),
             rule_3_nodes: 0,
+            counted: Cell::new(None),
             geometry: BTreeMap::new(),
             compared: BTreeMap::new(),
             sorted: BTreeMap::new(),
         }
+    }
+
+    /// Leaves the bond between `ends` out of the digraphs: see [`Arena::without_bond`].
+    pub(super) fn without_bond(mut self, ends: Option<[AtomId; 2]>) -> Self {
+        self.arena = self.arena.without_bond(ends);
+        self
     }
 
     /// The smallest reason a comparison of this engine met that the model cannot decide.
@@ -256,10 +267,18 @@ impl<'c, 'g> Engine<'c, 'g> {
     }
 
     /// Nodes materialized: the arena, and every descriptor Rule 3 needed with what it needed.
+    /// Walking the descriptors is not free, so the count is kept until the arena or the set of
+    /// descriptors grows.
     pub(super) fn nodes(&self) -> usize {
-        self.arena
-            .len()
-            .saturating_add(self.oracle.closure_cost(&self.requested))
+        let (arena, asked) = (self.arena.len(), self.requested.len());
+        if let Some((counted_arena, counted_asked, nodes)) = self.counted.get()
+            && (counted_arena, counted_asked) == (arena, asked)
+        {
+            return nodes;
+        }
+        let nodes = arena.saturating_add(self.oracle.closure_cost(&self.requested));
+        self.counted.set(Some((arena, asked, nodes)));
+        nodes
     }
 
     fn refuse(&mut self, reason: Reason) {
