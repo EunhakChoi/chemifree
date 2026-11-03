@@ -1,9 +1,11 @@
 import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
-import { placements, settingsOf, type AtomView, type BondOrder, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
+import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
-import { drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
+import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
+import { cycleMark, isMarkKind, markBondGesture, type MarkGesture } from '@/editor/mark-gestures'
+import { StrokeShapes } from '@/editor/stroke-shapes'
 import {
   atomIndex,
   bondName,
@@ -32,18 +34,13 @@ import { atomLabel, atomName, labelStyleOf, placed, type AtomLabel, type Box, ty
 
 export type { DrawnOrder } from '@/editor/bond-gestures'
 
+/** What the bond tool draws: a kind of bond, or a stereo mark on a single bond. */
+export type DrawnKind = DrawnOrder | 'wedge' | 'hash' | 'wavy'
+
 export type Tool = 'select' | 'atom' | 'bond' | 'erase'
 
 /** Below this pointer travel (pt) a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
-/** A bond tool click cycles single, double, and triple; any other kind becomes single. */
-const nextOrder = (order: BondOrder): DrawnOrder => (order === 'single' ? 'double' : order === 'double' ? 'triple' : 'single')
-
-const DASHES: Record<Extract<Stroke, { shape: 'line' }>['pattern'], string | undefined> = {
-  solid: undefined,
-  dashed: '2.5 2',
-  dotted: '0.1 2.2',
-}
 
 /**
  * Gestures act in the scene instance (placement) where they start; `instance` is null for a
@@ -95,11 +92,13 @@ interface StructureCanvasProps {
   document: DocumentView
   tool: Tool
   element: string
-  bondOrder: DrawnOrder
+  bondKind: DrawnKind
   /** Selected atom (`a…`) and bond (`b…`) identifiers. */
   selection: ReadonlySet<string>
   onSelectionChange: (selection: Set<string>) => void
   onCommands: (commands: Command[]) => void
+  /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
+  onMark: (gesture: MarkGesture) => void
   disabled: boolean
 }
 
@@ -112,10 +111,11 @@ export function StructureCanvas({
   document,
   tool,
   element,
-  bondOrder,
+  bondKind,
   selection,
   onSelectionChange,
   onCommands,
+  onMark,
   disabled,
 }: StructureCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
@@ -299,8 +299,28 @@ export function StructureCanvas({
     if (!gesture) return
     const point = toDocument(event)
     const dragged = distance(point, gesture.start) >= DRAG_THRESHOLD
+    const mark = markGesture(gesture, point, dragged)
+    if (mark) {
+      onMark(mark)
+      return
+    }
     const commands = gestureCommands(gesture, point, dragged)
     if (commands.length > 0) onCommands(commands)
+  }
+
+  /** The stereo mark a bond tool gesture makes when a mark is selected: null for every other gesture. */
+  function markGesture(gesture: Drag, point: Position, dragged: boolean): MarkGesture | null {
+    if (tool !== 'bond' || !isMarkKind(bondKind)) return null
+    if (gesture.kind === 'bond') {
+      const ends = bondEnds(gesture, point, dragged)
+      return ends && markBondGesture(document, gesture.instance, ends.from, ends.to, bondKind)
+    }
+    if (gesture.kind === 'click' && !dragged && gesture.hit?.kind === 'bond') {
+      const hit = gesture.hit
+      const bond = document.bonds.find((candidate) => candidate.id === hit.id)
+      return bond ? cycleMark(document, { instance: gesture.instance }, bond, bondKind) : null
+    }
+    return null
   }
 
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
@@ -335,22 +355,23 @@ export function StructureCanvas({
     }
   }
 
-  /** A bond gesture's commands: the bond begins where the gesture starts (see drawBond). */
-  function bondCommands(gesture: Extract<Drag, { kind: 'bond' }>, point: Position, dragged: boolean): Command[] {
+  /** Where a bond gesture's bond begins (where the gesture starts) and ends; null if it has no end. */
+  function bondEnds(gesture: Extract<Drag, { kind: 'bond' }>, point: Position, dragged: boolean): { from: BondEnd; to: BondEnd } | null {
     const from: BondEnd = gesture.fromAtom ? { atom: gesture.fromAtom } : { point: gesture.start }
-    let to: BondEnd
     if (!dragged) {
       const end = gesture.fromAtom
         ? freeNeighborPosition(drawingOf(gesture.instance).view, gesture.fromAtom, bondLength)
         : snappedEndpoint(gesture.start, { x: gesture.start.x + 26, y: gesture.start.y - 15 }, bondLength)
-      if (!end) return []
-      to = { point: end }
-    } else {
-      const target = bondTarget(gesture, point)
-      if (!target) return []
-      to = target.atom ? { atom: target.atom } : { point: target.position }
+      return end && { from, to: { point: end } }
     }
-    return drawBond(document, gesture.instance, from, to, bondOrder)
+    const target = bondTarget(gesture, point)
+    return target && { from, to: target.atom ? { atom: target.atom } : { point: target.position } }
+  }
+
+  /** A bond gesture's commands: the bond begins where the gesture starts (see drawBond). */
+  function bondCommands(gesture: Extract<Drag, { kind: 'bond' }>, point: Position, dragged: boolean): Command[] {
+    const ends = bondEnds(gesture, point, dragged)
+    return ends && !isMarkKind(bondKind) ? drawBond(document, gesture.instance, ends.from, ends.to, bondKind) : []
   }
 
   function clickCommands(hit: Hit, instance: string | null, point: Position): Command[] {
@@ -361,7 +382,7 @@ export function StructureCanvas({
     }
     if (tool === 'bond' && hit?.kind === 'bond') {
       const bond = document.bonds.find((candidate) => candidate.id === hit.id)
-      return bond ? [{ op: 'update_bond', bond: bond.id, order: nextOrder(bond.order) }] : []
+      return bond ? clickBond(document, bond) : []
     }
     if (tool === 'atom') {
       if (hit?.kind === 'atom') {
@@ -371,6 +392,13 @@ export function StructureCanvas({
       if (!hit) return [addAtom(element, instance, point)]
     }
     return []
+  }
+
+  /** What a mark drag would draw: the mark on a single bond that begins where the drag started. */
+  function previewStrokes(from: Position, to: Position, kind: Extract<DrawnKind, 'wedge' | 'hash' | 'wavy'>): Stroke[] {
+    const { lineWidth, spacing } = drawingOf(null)
+    const mark = kind === 'wavy' ? { kind } : { kind, narrow: 'begin' as const }
+    return bondStrokes({ id: 'preview', begin: 'a', end: 'b', order: 'single', query: null, mark }, from, to, null, null, 1, spacing, lineWidth)
   }
 
   /** An atom's position in a drawing, moved by the drag preview in the drag's placement. */
@@ -461,7 +489,11 @@ export function StructureCanvas({
         const drawing = drawings.find((item) => item.id === object.id)
         return drawing ? drawInstance(drawing) : null
       }) : drawings.map(drawInstance)}
-      {preview?.kind === 'bond' && (
+      {preview?.kind === 'bond' && isMarkKind(bondKind) ? (
+        <g className="fill-none stroke-primary" strokeWidth={settingsOf(document).line_width_pt} strokeLinejoin="round" data-bond-preview={bondKind}>
+          <StrokeShapes strokes={previewStrokes(preview.from, preview.to, bondKind)} bond="preview" fill="fill-primary stroke-none" />
+        </g>
+      ) : preview?.kind === 'bond' ? (
         <line
           x1={preview.from.x}
           y1={preview.from.y}
@@ -471,7 +503,7 @@ export function StructureCanvas({
           strokeWidth={settingsOf(document).line_width_pt}
           strokeDasharray="3 2"
         />
-      )}
+      ) : null}
       {preview?.kind === 'marquee' && (
         <rect
           x={Math.min(preview.from.x, preview.to.x)}
@@ -579,22 +611,7 @@ const DrawingLayer = memo(function DrawingLayer({
       >
         {drawing.view.bonds.map((bond) => (
           <g key={bond.id} role="img" aria-label={bondName(bond, placement)} data-bond-kind={bond.order} data-bond-mark={bond.mark?.kind}>
-            {strokesOf(bond).map((stroke, index) =>
-              stroke.shape === 'line' ? (
-                <line
-                  key={index}
-                  x1={stroke.x1}
-                  y1={stroke.y1}
-                  x2={stroke.x2}
-                  y2={stroke.y2}
-                  strokeDasharray={DASHES[stroke.pattern]}
-                  data-bond={bond.id}
-                  data-pattern={stroke.pattern}
-                />
-              ) : (
-                <polyline key={index} points={stroke.points.map((p) => `${p.x},${p.y}`).join(' ')} data-bond={bond.id} />
-              ),
-            )}
+            <StrokeShapes strokes={strokesOf(bond)} bond={bond.id} />
           </g>
         ))}
       </g>

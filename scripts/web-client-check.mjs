@@ -801,7 +801,7 @@ function assertFlows(label, name) {
   const centre = text.x - sum(widths) / 2 + sum(widths.slice(0, at)) + widths[at] / 2
   assert.ok(Math.abs(centre) < 1e-9, `${name}: the symbol's reserved width is centred on the atom (${centre})`)
 }
-const { bondName, bondRings, bondSides, bondStrokes, clipped, hitTest, leaningRight, placementFrame, viewBox } = await import(
+const { bondName, bondRings, bondSides, bondStrokes, clipped, drawingStrokes, hitTest, leaningRight, placementFrame, viewBox } = await import(
   '../apps/web/src/editor/geometry.ts'
 )
 const { drawBond } = await import('../apps/web/src/editor/bond-gestures.ts')
@@ -2393,7 +2393,7 @@ test('a marked bond is named with its mark and the atom at its narrow end', () =
   const marked = (mark) => ({ ...bondWith('b1', 'a1', 'a2'), mark })
   assert.equal(bondName(marked(null)), 'Bond b1: single bond between a1 and a2')
   assert.equal(bondName(marked({ kind: 'wedge', narrow: 'begin' })), 'Bond b1: single bond between a1 and a2, wedge, narrow end at a1')
-  assert.equal(bondName(marked({ kind: 'hash', narrow: 'end' })), 'Bond b1: single bond between a1 and a2, hash, narrow end at a2')
+  assert.equal(bondName(marked({ kind: 'hash', narrow: 'end' })), 'Bond b1: single bond between a1 and a2, hashed wedge, narrow end at a2')
   assert.equal(bondName(marked({ kind: 'wavy' })), 'Bond b1: single bond between a1 and a2, wavy')
   assert.equal(bondName({ ...bondWith('b1', 'a1', 'a2', 'double'), mark: { kind: 'crossed' } }, 's2'), 'Bond b1 in s2: double bond between a1 and a2, crossed')
 })
@@ -2518,4 +2518,542 @@ test('a substructure search that ignored stereo is accepted only as partial, wit
   plain.result.stereo = { compared: false, query_present: false, target_present: false }
   service({ '/api/v1/operations': [() => json(200, plain)] })
   assert.deepEqual((await new DocumentClient().searchSubstructure('match-query', 'match-target')).stereo, { queryPresent: false, targetPresent: false })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Stereo marks drawn by the editor: wedge, hashed wedge, wavy and crossed strokes, the commands
+// of a mark gesture, and what it says. Expected values are written out, not recomputed.
+// ---------------------------------------------------------------------------------------------
+
+const { markStrokes, wavePath, markFits, strokeReach, MARK_STYLE, distance } = await import('../apps/web/src/editor/geometry.ts')
+const { clickBond, staleStereoClears } = await import('../apps/web/src/editor/bond-gestures.ts')
+const { cycleMark, inspectorWhere, markBondGesture, sendMark, setMark } = await import('../apps/web/src/editor/mark-gestures.ts')
+const { describeStereoChange } = await import('../apps/web/src/editor/stereo-status.ts')
+
+const pt = (x, y) => ({ x, y })
+const strokesOf = (mark, begin, end, boxes = [null, null], spacing = 1, lineWidth = 1.2, order = 'single') =>
+  bondStrokes({ ...bondWith('b1', 'a1', 'a2', order), mark }, begin, end, boxes[0], boxes[1], 1, spacing, lineWidth)
+const sortedPoints = (points) => points.map(({ x, y }) => [x, y]).sort((p, q) => p[0] - q[0] || p[1] - q[1])
+
+test('a wedge is a polygon from a point at its narrow end to 4 pt at the other, whichever end is narrow', () => {
+  assert.deepEqual(strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(30, 0)), [
+    { shape: 'polygon', points: [pt(0, 0), pt(30, -2), pt(30, 2)] },
+  ])
+  assert.deepEqual(strokesOf({ kind: 'wedge', narrow: 'end' }, pt(0, 0), pt(30, 0)), [
+    { shape: 'polygon', points: [pt(0, 2), pt(0, -2), pt(30, 0)] },
+  ])
+})
+
+test('a wedge is 4 pt wide at its wide end whatever the bond length: the width is a setting in points', () => {
+  for (const length of [15, 30, 60, 200]) {
+    const [stroke] = strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(length, 0))
+    const wide = stroke.points.filter((p) => p.x === length)
+    assert.equal(wide.length, 2, `${length} pt`)
+    assert.equal(distance(wide[0], wide[1]), 4, `${length} pt`)
+  }
+  assert.equal(MARK_STYLE.wedgeWidth, 4)
+  assert.equal(MARK_STYLE.hashSpacing, 2.7)
+})
+
+test('a wedge is never thinner than its line', () => {
+  const [thick] = strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(30, 0), [null, null], bondSpacing(10), 10)
+  assert.deepEqual(thick.points, [pt(0, 0), pt(30, -5), pt(30, 5)])
+})
+
+test('a label cuts a wedge without changing its slope', () => {
+  // The box grown by the stroke gap (1.4 + 0.6) ends at x = 8, where the half width is 2 * 8 / 30.
+  const near = { x: -6, y: -4, width: 12, height: 8 }
+  assert.deepEqual(strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(30, 0), [near, null]), [
+    { shape: 'polygon', points: [pt(8, 0.53), pt(8, -0.53), pt(30, -2), pt(30, 2)] },
+  ])
+  // Cut at x = 22, where the full wedge is 2 * 22 / 30 = 1.47 wide on each side.
+  const far = { x: 24, y: -4, width: 12, height: 8 }
+  assert.deepEqual(strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(30, 0), [null, far]), [
+    { shape: 'polygon', points: [pt(0, 0), pt(22, -1.47), pt(22, 1.47)] },
+  ])
+})
+
+test('a mark has no ink where labels leave no room or the bond has no length', () => {
+  const box = { x: -20, y: -5, width: 70, height: 10 }
+  for (const mark of [{ kind: 'wedge', narrow: 'begin' }, { kind: 'hash', narrow: 'end' }, { kind: 'wavy' }]) {
+    assert.deepEqual(strokesOf(mark, pt(0, 0), pt(30, 0), [box, null]), [], mark.kind)
+    assert.deepEqual(strokesOf(mark, pt(5, 5), pt(5, 5)), [], `${mark.kind} of no length`)
+  }
+  assert.deepEqual(strokesOf({ kind: 'crossed' }, pt(0, 0), pt(0, 0), [null, null], 1, 1.2, 'double'), [])
+})
+
+test('swapping a bond end for end together with its narrow end gives the same picture', () => {
+  const begin = pt(10, 60)
+  const end = pt(35.98, 45)
+  const points = (stroke) => (stroke.shape === 'polygon' ? stroke.points : stroke.segments.flat())
+  for (const kind of ['wedge', 'hash']) {
+    const forward = markStrokes({ kind, narrow: 'begin' }, begin, end, null, null, 1, 1.2)[0]
+    const swapped = markStrokes({ kind, narrow: 'end' }, end, begin, null, null, 1, 1.2)[0]
+    assert.deepEqual(sortedPoints(points(swapped)), sortedPoints(points(forward)), kind)
+  }
+})
+
+test('a hashed wedge has a stripe every 2.7 pt from its narrow end, longer toward the wide end', () => {
+  const [begin] = strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(30, 0))
+  assert.equal(begin.shape, 'stripes')
+  assert.equal(begin.segments.length, 11)
+  assert.deepEqual(begin.segments[0], [pt(1.35, 0.6), pt(1.35, -0.6)], 'no shorter than a line is wide')
+  assert.deepEqual(begin.segments[10], [pt(28.35, 1.89), pt(28.35, -1.89)])
+  const [end] = strokesOf({ kind: 'hash', narrow: 'end' }, pt(0, 0), pt(30, 0))
+  assert.deepEqual(end.segments[0], [pt(28.65, 0.6), pt(28.65, -0.6)])
+  assert.deepEqual(end.segments[10], [pt(1.65, 1.89), pt(1.65, -1.89)])
+})
+
+test('a label removes stripes without moving the others, and a short piece keeps one stripe', () => {
+  const whole = strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(30, 0))[0].segments
+  // The box grown by the gap ends at x = 22: the stripes at 1.35 + 2.7 k up to 20.25 stay.
+  const cut = strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(30, 0), [null, { x: 24, y: -4, width: 12, height: 8 }])[0].segments
+  assert.deepEqual(cut, whole.slice(0, 8))
+  assert.equal(strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(1, 0))[0].segments.length, 1)
+  // The taper still runs from 0 to 2 over the whole 1 pt, so the stripe half way is 1 long on each side.
+  assert.deepEqual(strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(1, 0))[0].segments[0], [pt(0.5, 1), pt(0.5, -1)])
+})
+
+test('a very long hashed wedge or wave has a bounded number of parts', () => {
+  const [hashed] = strokesOf({ kind: 'hash', narrow: 'begin' }, pt(0, 0), pt(100000, 0))
+  assert.ok(hashed.segments.length <= MARK_STYLE.maxParts && hashed.segments.length >= MARK_STYLE.maxParts - 1, `${hashed.segments.length}`)
+  const [wave] = strokesOf({ kind: 'wavy' }, pt(0, 0), pt(100000, 0))
+  assert.equal(wave.halfWaves, MARK_STYLE.maxParts)
+})
+
+test('a wavy bond is a wave on its axis, with arcs bulging to alternate sides', () => {
+  const [wave] = strokesOf({ kind: 'wavy' }, pt(0, 0), pt(30, 0))
+  assert.deepEqual(wave, { shape: 'wave', from: pt(0, 0), to: pt(30, 0), halfWaves: 8, amplitude: 1.8 })
+  assert.equal(
+    wavePath(wave),
+    'M 0 0 Q 1.88 3.6 3.75 0 T 7.5 0 T 11.25 0 T 15 0 T 18.75 0 T 22.5 0 T 26.25 0 T 30 0',
+  )
+  assert.equal(strokesOf({ kind: 'wavy' }, pt(0, 0), pt(5, 0))[0].halfWaves, 2, 'at least two arcs')
+})
+
+test('a crossed double bond is two lines crossing between the places of its two lines', () => {
+  assert.deepEqual(strokesOf({ kind: 'crossed' }, pt(0, 0), pt(30, 0), [null, null], 1, 1.2, 'double'), [
+    { shape: 'line', x1: 0, y1: 2.2, x2: 30, y2: -2.2, pattern: 'solid' },
+    { shape: 'line', x1: 0, y1: -2.2, x2: 30, y2: 2.2, pattern: 'solid' },
+  ])
+})
+
+test('a marked bond is drawn as its mark only where the mark fits the bond order', () => {
+  assert.equal(markFits('wedge', 'single'), true)
+  assert.equal(markFits('wavy', 'double'), false)
+  assert.equal(markFits('crossed', 'double'), true)
+  assert.equal(markFits('crossed', 'single'), false)
+  // A wedge on a double bond cannot come from the service; the picture stays the double bond.
+  assert.deepEqual(
+    strokesOf({ kind: 'wedge', narrow: 'begin' }, pt(0, 0), pt(30, 0), [null, null], 1, 1.2, 'double').map((s) => s.shape),
+    ['line', 'line'],
+  )
+})
+
+test('the ink of every mark stays within the reach the view box and placement frames allow', () => {
+  for (const lineWidth of [0.1, 1.2, 3, 10]) {
+    const spacing = bondSpacing(lineWidth)
+    const room = strokeReach(lineWidth, spacing)
+    const across = (stroke) => {
+      switch (stroke.shape) {
+        case 'polygon': return Math.max(...stroke.points.map((p) => Math.abs(p.y)))
+        case 'stripes': return Math.max(...stroke.segments.flat().map((p) => Math.abs(p.y)))
+        case 'wave': return stroke.amplitude + lineWidth / 2
+        case 'line': return Math.max(Math.abs(stroke.y1), Math.abs(stroke.y2)) + lineWidth / 2
+        default: throw new Error(stroke.shape)
+      }
+    }
+    for (const [mark, order] of [[{ kind: 'wedge', narrow: 'begin' }, 'single'], [{ kind: 'hash', narrow: 'end' }, 'single'], [{ kind: 'wavy' }, 'single'], [{ kind: 'crossed' }, 'double']]) {
+      for (const stroke of strokesOf(mark, pt(0, 0), pt(30, 0), [null, null], spacing, lineWidth, order)) {
+        assert.ok(across(stroke) <= room, `${mark.kind} at line width ${lineWidth}: ${across(stroke)} > ${room}`)
+      }
+    }
+  }
+})
+
+test('a marked bond is found where a plain one is, and its narrow end gives way to the atom', () => {
+  const marked = {
+    ...document('doc-hit', 1).document,
+    atoms: [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 30, 0)],
+    bonds: [{ ...bondWith('b1', 'a1', 'a2'), mark: { kind: 'wedge', narrow: 'begin' } }],
+  }
+  assert.deepEqual(hitTest(marked, pt(15, 4.9)), { kind: 'bond', id: 'b1' })
+  assert.equal(hitTest(marked, pt(15, 5.1)), null)
+  assert.deepEqual(hitTest(marked, pt(1, 0.5)), { kind: 'atom', id: 'a1' })
+})
+
+test('a mark is named with its words, the hashed wedge as such', () => {
+  const named = (mark) => bondName({ ...bondWith('b1', 'a1', 'a2'), mark })
+  assert.equal(named({ kind: 'wedge', narrow: 'end' }), 'Bond b1: single bond between a1 and a2, wedge, narrow end at a2')
+  assert.equal(named({ kind: 'hash', narrow: 'begin' }), 'Bond b1: single bond between a1 and a2, hashed wedge, narrow end at a1')
+  assert.equal(named({ kind: 'wavy' }), 'Bond b1: single bond between a1 and a2, wavy')
+  assert.equal(bondName({ ...bondWith('b1', 'a1', 'a2', 'double'), mark: { kind: 'crossed' } }), 'Bond b1: double bond between a1 and a2, crossed')
+})
+
+/** The public two-center drawing, typed by hand: F[C@H](Cl)[C@H](Br)I with one hashed wedge per center. */
+function publicFixture(marks) {
+  const value = document('doc-public', 2).document
+  value.atoms = [
+    atomWith('a1', 'F', 0, 40), atomWith('a2', 'C', 0, 0), atomWith('a3', 'Cl', -35, -18),
+    atomWith('a4', 'C', 35, -18), atomWith('a5', 'Br', 35, -58), atomWith('a6', 'I', 70, 0),
+  ]
+  value.bonds = [
+    { ...bondWith('b1', 'a1', 'a2'), mark: marks ? { kind: 'hash', narrow: 'end' } : null },
+    bondWith('b2', 'a2', 'a3'), bondWith('b3', 'a2', 'a4'),
+    { ...bondWith('b4', 'a4', 'a5'), mark: marks ? { kind: 'hash', narrow: 'begin' } : null },
+    bondWith('b5', 'a4', 'a6'),
+  ]
+  return value
+}
+
+test('the public two-center drawing is drawn with both narrow ends on the centers, the end variant swapped or not', () => {
+  const fixture = publicFixture(true)
+  const place = new Map(fixture.atoms.map((atom) => [atom.id, atom.position]))
+  const strokes = drawingStrokes(fixture, new Map())
+  const lengthOf = (segment) => distance(segment[0], segment[1])
+  // b1 runs from the fluorine to a2 with its narrow end at its end (a2): its first stripe is the
+  // short one next to a2 and the last, next to the fluorine, is the longest.
+  const [b1] = strokes.get('b1')
+  assert.ok(distance(b1.segments[0][0], place.get('a2')) < distance(b1.segments[0][0], place.get('a1')))
+  assert.ok(lengthOf(b1.segments[0]) < lengthOf(b1.segments.at(-1)))
+  // b4 runs from a4 to the bromine with its narrow end at its begin (a4).
+  const [b4] = strokes.get('b4')
+  assert.ok(distance(b4.segments[0][0], place.get('a4')) < distance(b4.segments[0][0], place.get('a5')))
+  assert.ok(lengthOf(b4.segments[0]) < lengthOf(b4.segments.at(-1)))
+  // The same bond written the other way round, with the narrow end flipped, is the same picture.
+  const swapped = markStrokes({ kind: 'hash', narrow: 'begin' }, place.get('a2'), place.get('a1'), null, null, 1, 1.2)[0]
+  assert.deepEqual(sortedPoints(swapped.segments.flat()), sortedPoints(b1.segments.flat()))
+  const swappedB4 = markStrokes({ kind: 'hash', narrow: 'end' }, place.get('a5'), place.get('a4'), null, null, 1, 1.2)[0]
+  assert.deepEqual(sortedPoints(swappedB4.segments.flat()), sortedPoints(b4.segments.flat()))
+})
+
+test('the public two-center drawing marks its centers as a user would: one click, then the other end', () => {
+  const plain = publicFixture(false)
+  const hashed = cycleMark(plain, { instance: null }, plain.bonds[0], 'hash')
+  // The first click puts the narrow end at the bond's begin, the fluorine, which cannot be a center.
+  assert.deepEqual(hashed.commands, [{ op: 'set_bond_mark', bond: 'b1', mark: { kind: 'hash', narrow: 'begin' } }])
+  assert.match(hashed.why, /^a1 has 1 bond; a stereocenter needs 3 or 4\.$/)
+  const marked = { ...plain, bonds: [{ ...plain.bonds[0], mark: { kind: 'hash', narrow: 'begin' } }, ...plain.bonds.slice(1)] }
+  assert.deepEqual(cycleMark(marked, { instance: null }, marked.bonds[0], 'hash').commands, [
+    { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'hash', narrow: 'end' } },
+    { op: 'set_configuration_from_drawing', atoms: ['a2'] },
+  ])
+  // A drag from the center to the fluorine marks the same bond with its narrow end at the center.
+  assert.deepEqual(markBondGesture(plain, null, { atom: 'a2' }, { atom: 'a1' }, 'hash').commands, [
+    { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'hash', narrow: 'end' } },
+    { op: 'set_configuration_from_drawing', atoms: ['a2'] },
+  ])
+})
+
+/**
+ * a1 (100, 100) with three bonds (a2, a3, a5); a4 alone; a6 with two (a7, a8); a9 with four
+ * (a10 to a13); b14 joins two other atoms by a double bond.
+ */
+function marksDocument() {
+  const value = document('doc-marks', 3).document
+  const around = (center, ...others) => others.map(([id, x, y]) => atomWith(id, 'C', x, y))
+  value.atoms = [
+    atomWith('a1', 'C', 100, 100), atomWith('a2', 'C', 130, 100), atomWith('a3', 'C', 85, 126), atomWith('a5', 'C', 115, 74),
+    atomWith('a4', 'C', 60, 60),
+    atomWith('a6', 'C', 200, 100), atomWith('a7', 'C', 230, 100), atomWith('a8', 'C', 185, 126),
+    atomWith('a9', 'C', 300, 100), ...around('a9', ['a10', 330, 100], ['a11', 300, 130], ['a12', 270, 100], ['a13', 300, 70]),
+    atomWith('a14', 'C', 400, 100), atomWith('a15', 'C', 430, 100),
+  ]
+  value.bonds = [
+    bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a1', 'a3'), bondWith('b3', 'a1', 'a5'),
+    bondWith('b4', 'a6', 'a7'), bondWith('b5', 'a6', 'a8'),
+    bondWith('b6', 'a9', 'a10'), bondWith('b7', 'a9', 'a11'), bondWith('b8', 'a9', 'a12'), bondWith('b9', 'a9', 'a13'),
+    bondWith('b10', 'a14', 'a15', 'double'),
+  ]
+  return value
+}
+const withMark = (value, bond, mark) => ({ ...value, bonds: value.bonds.map((b) => (b.id === bond ? { ...b, mark } : b)) })
+const derive = (atoms, extra = {}) => ({ op: 'set_configuration_from_drawing', atoms, ...extra })
+const newCarbon = (from, x, y) => ({ op: 'add_atom', element: 'C', position: pt(x, y), bond_to: { atom: from, order: 'single' } })
+
+test('a drag from a center with three bonds makes a wedge at the drag start and stores what the drawing shows', () => {
+  const gesture = markBondGesture(marksDocument(), null, { atom: 'a1' }, { point: pt(100, 70) }, 'wedge')
+  assert.deepEqual(gesture, {
+    kind: 'send',
+    commands: [newCarbon('a1', 100, 70), { op: 'set_bond_mark', bond: '$0', mark: { kind: 'wedge', narrow: 'begin' } }, derive(['a1'])],
+    markOnly: [newCarbon('a1', 100, 70), { op: 'set_bond_mark', bond: '$0', mark: { kind: 'wedge', narrow: 'begin' } }],
+    why: null,
+  })
+})
+
+test('the configuration is asked for only when the narrow end has 3 or 4 bonds once the gesture is done', () => {
+  const document = marksDocument()
+  const why = (from) => markBondGesture(document, null, { atom: from }, { point: pt(10, 10) }, 'hash').why
+  assert.equal(why('a4'), 'a4 has 1 bond; a stereocenter needs 3 or 4.')
+  assert.equal(why('a3'), 'a3 has 2 bonds; a stereocenter needs 3 or 4.')
+  assert.equal(why('a9'), 'a9 has 5 bonds; a stereocenter needs 3 or 4.')
+  assert.equal(why('a6'), null, 'two bonds and the new one make three')
+  assert.equal(why('a1'), null, 'three and the new one make four')
+  const query = { ...document, atoms: document.atoms.map((a) => (a.id === 'a1' ? { ...a, kind: 'query', query: { kind: 'any' } } : a)) }
+  assert.equal(markBondGesture(query, null, { atom: 'a1' }, { point: pt(10, 10) }, 'wedge').why, 'a1 is a query atom, which cannot hold a configuration.')
+  const blocked = markBondGesture(document, null, { atom: 'a4' }, { point: pt(10, 10) }, 'wedge')
+  assert.equal(blocked.markOnly, null)
+  assert.equal(blocked.commands.at(-1).op, 'set_bond_mark', 'no derive command')
+})
+
+test('a gesture that adds a bond between two atoms, or from empty space, sets the mark on the bond it makes', () => {
+  const document = marksDocument()
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a4' }, 'hash').commands, [
+    { op: 'add_bond', begin: 'a1', end: 'a4', order: 'single' },
+    { op: 'set_bond_mark', bond: '$0', mark: { kind: 'hash', narrow: 'begin' } },
+    derive(['a1']),
+  ])
+  const toAtom = markBondGesture(document, null, { point: pt(10, 10) }, { atom: 'a6' }, 'wedge')
+  assert.deepEqual(toAtom.commands, [
+    { op: 'add_atom', element: 'C', position: pt(10, 10) },
+    { op: 'add_bond', begin: '$0', end: 'a6', order: 'single' },
+    { op: 'set_bond_mark', bond: '$1', mark: { kind: 'wedge', narrow: 'begin' } },
+  ])
+  assert.equal(toAtom.why, 'the new atom has one bond; a stereocenter needs 3 or 4.')
+  assert.deepEqual(markBondGesture(document, null, { point: pt(10, 10) }, { point: pt(40, 10) }, 'wedge').commands, [
+    { op: 'add_atom', element: 'C', position: pt(10, 10) },
+    { op: 'add_atom', element: 'C', position: pt(40, 10), bond_to: { atom: '$0', order: 'single' } },
+    { op: 'set_bond_mark', bond: '$1', mark: { kind: 'wedge', narrow: 'begin' } },
+  ])
+  assert.equal(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a1' }, 'wedge'), null)
+})
+
+test('over an existing single bond a mark gesture marks it with the narrow end where the drag started', () => {
+  const document = marksDocument()
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a2' }, 'wedge').commands, [
+    { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } },
+    derive(['a1']),
+  ])
+  const fromEnd = markBondGesture(document, null, { atom: 'a2' }, { atom: 'a1' }, 'wedge')
+  assert.deepEqual(fromEnd.commands, [{ op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'end' } }])
+  assert.equal(fromEnd.why, 'a2 has 1 bond; a stereocenter needs 3 or 4.')
+})
+
+test('a mark over a bond that is not single is refused in words and sends nothing', () => {
+  const document = marksDocument()
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a14' }, { atom: 'a15' }, 'wedge'), {
+    kind: 'refused',
+    text: 'A wedge mark needs a single bond; b10 is a double bond. Change it to single first.',
+  })
+  assert.equal(cycleMark(document, { instance: null }, document.bonds[9], 'hash').text, 'A hashed wedge mark needs a single bond; b10 is a double bond. Change it to single first.')
+  assert.equal(cycleMark(document, { instance: null }, document.bonds[9], 'wavy').text, 'A wavy mark needs a single bond; b10 is a double bond. Change it to single first.')
+})
+
+test('a wavy mark asks for the configuration of each end that could be a center', () => {
+  const document = marksDocument()
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a6' }, 'wavy').commands.at(-1), derive(['a1', 'a6']))
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a4' }, 'wavy').commands.at(-1), derive(['a1']))
+  const neither = markBondGesture(document, null, { atom: 'a3' }, { atom: 'a4' }, 'wavy')
+  assert.equal(neither.markOnly, null)
+  assert.match(neither.why, /^neither end could be a stereocenter \(a3 has 2 bonds/)
+})
+
+test('the gesture names the scene instance it was drawn in for the configuration, and none without a scene', () => {
+  const document = marksDocument()
+  assert.deepEqual(markBondGesture(document, 's1', { atom: 'a1' }, { atom: 'a2' }, 'wedge').commands.at(-1), derive(['a1'], { instance: 's1' }))
+  assert.deepEqual(markBondGesture(document, null, { atom: 'a1' }, { atom: 'a2' }, 'wedge').commands.at(-1), derive(['a1']))
+})
+
+test('repeated clicks on a bond cycle plain, narrow end at the begin, narrow end at the end, plain', () => {
+  const document = marksDocument()
+  const step = (bond, kind) => cycleMark(document.bonds ? { ...document, bonds: document.bonds.map((b) => (b.id === 'b1' ? bond : b)) } : document, { instance: null }, bond, kind).commands[0].mark
+  const plain = document.bonds[0]
+  assert.deepEqual(step(plain, 'wedge'), { kind: 'wedge', narrow: 'begin' })
+  assert.deepEqual(step({ ...plain, mark: { kind: 'wedge', narrow: 'begin' } }, 'wedge'), { kind: 'wedge', narrow: 'end' })
+  assert.equal(step({ ...plain, mark: { kind: 'wedge', narrow: 'end' } }, 'wedge'), null)
+  assert.deepEqual(step({ ...plain, mark: { kind: 'wedge', narrow: 'end' } }, 'hash'), { kind: 'hash', narrow: 'end' }, 'the other tool keeps the narrow end')
+  assert.deepEqual(step({ ...plain, mark: { kind: 'hash', narrow: 'begin' } }, 'wedge'), { kind: 'wedge', narrow: 'begin' })
+  assert.deepEqual(step({ ...plain, mark: { kind: 'wavy' } }, 'hash'), { kind: 'hash', narrow: 'begin' })
+  assert.deepEqual(step(plain, 'wavy'), { kind: 'wavy' })
+  assert.deepEqual(step({ ...plain, mark: { kind: 'wedge', narrow: 'begin' } }, 'wavy'), { kind: 'wavy' })
+  assert.equal(step({ ...plain, mark: { kind: 'wavy' } }, 'wavy'), null)
+  // Clearing sends the clear alone.
+  assert.deepEqual(cycleMark(document, { instance: null }, { ...plain, mark: { kind: 'wedge', narrow: 'end' } }, 'wedge'), {
+    kind: 'send', commands: [{ op: 'set_bond_mark', bond: 'b1', mark: null }], markOnly: null, why: null,
+  })
+})
+
+test('the inspector sets a crossed mark with the bond configuration derived, and none for several placements', () => {
+  const document = marksDocument()
+  const bond = document.bonds[9]
+  assert.deepEqual(setMark(document, { instance: 's1' }, bond, { kind: 'crossed' }), {
+    kind: 'send',
+    commands: [{ op: 'set_bond_mark', bond: 'b10', mark: { kind: 'crossed' } }, { op: 'set_configuration_from_drawing', bonds: ['b10'], instance: 's1' }],
+    markOnly: [{ op: 'set_bond_mark', bond: 'b10', mark: { kind: 'crossed' } }],
+    why: null,
+  })
+  assert.equal(setMark(document, { why: 'several' }, document.bonds[0], { kind: 'wedge', narrow: 'begin' }).markOnly, null)
+  assert.equal(setMark(document, { instance: null }, document.bonds[0], { kind: 'crossed' }).text, 'A crossed mark needs a double bond; b1 is a single bond. Change it to double first.')
+  const scene = (ids) => ({ ...document, scene: { instances: ids.map((id) => ({ id, positions: [] })) } })
+  assert.deepEqual(inspectorWhere(document), { instance: null })
+  assert.deepEqual(inspectorWhere(scene(['s1'])), { instance: 's1' })
+  assert.match(inspectorWhere(scene(['s1', 's2'])).why, /several placements/)
+})
+
+test('a gesture that names an atom or bond that is gone lapses, and one that names a new bond does not', () => {
+  const document = marksDocument()
+  const gesture = markBondGesture(document, null, { atom: 'a1' }, { atom: 'a4' }, 'wedge')
+  assert.equal(stillApplicable(gesture.commands, document), gesture.commands)
+  assert.equal(stillApplicable(gesture.commands, { ...document, atoms: document.atoms.filter((a) => a.id !== 'a1') }), null)
+  const clear = cycleMark(withMark(document, 'b1', { kind: 'wavy' }), { instance: null }, document.bonds[0], 'wavy')
+  assert.equal(stillApplicable(clear.commands, { ...document, bonds: [] }), null)
+})
+
+/** a1 = a2 (b1, double) with a3 on a1 and a4 on a2; the bond is crossed and has a stated configuration. */
+function alkene() {
+  const value = document('doc-alkene', 2).document
+  value.atoms = [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 30, 0), atomWith('a3', 'C', -15, 26), atomWith('a4', 'C', 45, 26)]
+  value.bonds = [{ ...bondWith('b1', 'a1', 'a2', 'double'), mark: { kind: 'crossed' } }, bondWith('b2', 'a1', 'a3'), bondWith('b3', 'a2', 'a4')]
+  value.stereo = { atoms: [], bonds: [{ bond: 'b1', configuration: { kind: 'unknown' } }] }
+  return value
+}
+const clearMark = { op: 'set_bond_mark', bond: 'b1', mark: null }
+const clearBond = { op: 'set_bond_configuration', bond: 'b1', configuration: null }
+
+test('a bond tool click clears a mark first; otherwise it cycles the order after clearing a stored configuration', () => {
+  const document = marksDocument()
+  assert.deepEqual(clickBond(document, withMark(document, 'b1', { kind: 'wedge', narrow: 'begin' }).bonds[0]), [{ op: 'set_bond_mark', bond: 'b1', mark: null }])
+  assert.deepEqual(clickBond(document, document.bonds[0]), [{ op: 'update_bond', bond: 'b1', order: 'double' }])
+  const configured = { ...alkene(), bonds: alkene().bonds.map((b) => ({ ...b, mark: null })) }
+  assert.deepEqual(clickBond(configured, configured.bonds[0]), [clearBond, { op: 'update_bond', bond: 'b1', order: 'triple' }])
+  assert.deepEqual(clickBond(alkene(), alkene().bonds[0]), [clearMark], 'a crossed mark goes before the order changes')
+})
+
+test('what an order change would break is cleared in the same transaction', () => {
+  const value = alkene()
+  const [crossed] = value.bonds
+  assert.deepEqual(staleStereoClears(value, crossed, 'triple'), [clearMark, clearBond])
+  assert.deepEqual(staleStereoClears(value, crossed, 'double'), [], 'the same order keeps both')
+  assert.deepEqual(staleStereoClears(value, crossed, 'single'), [clearMark, clearBond])
+  const wedge = withMark(marksDocument(), 'b1', { kind: 'wedge', narrow: 'begin' })
+  assert.deepEqual(staleStereoClears(wedge, wedge.bonds[0], 'aromatic'), [clearMark])
+  assert.deepEqual(staleStereoClears(wedge, wedge.bonds[0], 'single'), [])
+  assert.deepEqual(drawBond(value, null, { atom: 'a1' }, { atom: 'a2' }, 'single'), [clearMark, clearBond, { op: 'update_bond', bond: 'b1', order: 'single' }])
+  assert.deepEqual(drawBond(value, null, { atom: 'a1' }, { atom: 'a2' }, 'double'), [{ op: 'update_bond', bond: 'b1', order: 'double' }])
+})
+
+test('the inspector changes the kind of a marked or configured bond after clearing what it cannot keep', () => {
+  const value = alkene()
+  assert.deepEqual(edits.setBondKind('b1', { order: 'single' })(value), [clearMark, clearBond, { op: 'update_bond', bond: 'b1', ...{ order: 'single' } }])
+  const wedge = withMark(marksDocument(), 'b1', { kind: 'wedge', narrow: 'begin' })
+  assert.deepEqual(edits.setBondKind('b1', { order: 'double' })(wedge), [clearMark, { op: 'update_bond', bond: 'b1', order: 'double' }])
+  assert.equal(edits.setBondKind('b1', { order: 'single' })(wedge), null, 'no change to send')
+  assert.deepEqual(edits.setBondKind('b2', { order: 'double' })(wedge), [{ op: 'update_bond', bond: 'b2', order: 'double' }])
+})
+
+/** What the service does on a refused or accepted transaction, recording what was sent. */
+function marksService(...answers) {
+  const bodies = []
+  service({ '/transactions': answers })
+  const inner = globalThis.fetch
+  globalThis.fetch = (path, init) => {
+    if (init?.body) bodies.push(JSON.parse(init.body))
+    return inner(path, init)
+  }
+  const client = new DocumentClient()
+  return { bodies, transact: (commands) => client.transact('doc-marks', 3, commands) }
+}
+const refusal = (index, reason) =>
+  json(422, { api_version: 'v1', code: 'invalid_command', message: `command ${index}: atom a1: the drawing is too flat to determine a configuration`, command_index: index, reason })
+const gestureWithDerive = () => markBondGesture(marksDocument(), null, { atom: 'a1' }, { atom: 'a2' }, 'wedge')
+
+test('a mark the service will not derive a configuration for is sent again alone, at the same revision, with the reason', async () => {
+  const sent = marksService(() => refusal(1, 'stereo_not_derivable_degenerate'), () => json(200, document('doc-marks', 4)))
+  const result = await sendMark(sent.transact, gestureWithDerive())
+  assert.equal(result.response.document.revision, 4)
+  assert.deepEqual(result.outcome, { kind: 'refused', reason: 'stereo_not_derivable_degenerate', message: 'atom a1: the drawing is too flat to determine a configuration' })
+  assert.equal(sent.bodies.length, 2)
+  assert.deepEqual(sent.bodies.map((body) => body.expected_revision), [3, 3])
+  assert.deepEqual(sent.bodies[0].commands.map((command) => command.op), ['set_bond_mark', 'set_configuration_from_drawing'])
+  assert.deepEqual(sent.bodies[1].commands.map((command) => command.op), ['set_bond_mark'])
+})
+
+test('a gesture is not sent again for any other refusal, and its refusal is the caller’s', async () => {
+  const cases = {
+    'a refusal of an earlier command': refusal(0, 'stereo_mark_bond_order'),
+    'a refusal that is not about stereo': json(422, { api_version: 'v1', code: 'invalid_command', message: 'm', command_index: 1, reason: 'object_unknown' }),
+    'a refusal without a reason': json(422, { api_version: 'v1', code: 'invalid_command', message: 'm', command_index: 1 }),
+    'a revision conflict': error(409, 'revision_conflict'),
+  }
+  for (const [name, reply] of Object.entries(cases)) {
+    const sent = marksService(() => reply)
+    await assert.rejects(sendMark(sent.transact, gestureWithDerive()), ApiErrorLike, name)
+    assert.equal(sent.bodies.length, 1, name)
+  }
+  const alone = marksService(() => refusal(1, 'stereo_not_derivable_degenerate'))
+  const markOnly = { ...gestureWithDerive(), markOnly: null }
+  await assert.rejects(sendMark(alone.transact, markOnly), ApiErrorLike, 'a gesture with no derive command has nothing to fall back to')
+  assert.equal(alone.bodies.length, 1)
+})
+const ApiErrorLike = (failure) => failure?.name === 'ApiError'
+
+const stored = (neighbors, turn) => ({ kind: 'tetrahedral', neighbors, turn })
+const a1Record = (turn) => ({ atom: 'a1', configuration: stored(['a2', 'a3', 'a5', 'implicit_hydrogen'], turn) })
+const markedA1 = (turn) => ({ ...withMark(marksDocument(), 'b1', { kind: 'wedge', narrow: 'begin' }), stereo: { atoms: turn ? [a1Record(turn)] : [], bonds: [] } })
+const unstated = () => ({ ...marksDocument(), stereo: { atoms: [], bonds: [] } })
+const sent = { kind: 'sent' }
+
+test('the status line says what was stored from the drawing, and which stored configuration it replaced', () => {
+  assert.equal(
+    describeStereoChange(unstated(), markedA1('clockwise'), sent),
+    'Wedge mark on b1, narrow end at a1. Configuration of a1 stored from the drawing (clockwise).',
+  )
+  assert.equal(
+    describeStereoChange({ ...unstated(), stereo: { atoms: [a1Record('anticlockwise')], bonds: [] } }, markedA1('clockwise'), sent),
+    'Wedge mark on b1, narrow end at a1. Configuration of a1 stored from the drawing (clockwise). It replaced a stored configuration (anticlockwise); undo restores it.',
+  )
+  const same = { ...unstated(), stereo: { atoms: [a1Record('clockwise')], bonds: [] } }
+  assert.equal(
+    describeStereoChange(same, markedA1('clockwise'), sent),
+    'Wedge mark on b1, narrow end at a1. Configuration of a1 stored from the drawing (clockwise).',
+    'nothing is said to be replaced when the drawing shows what was stored',
+  )
+})
+
+test('the status line says why nothing was stored: the atom cannot be a center, or the service would not derive it', () => {
+  assert.equal(
+    describeStereoChange(unstated(), markedA1(null), { kind: 'none', why: 'a1 has 2 bonds; a stereocenter needs 3 or 4.' }),
+    'Wedge mark on b1, narrow end at a1. Nothing stored: a1 has 2 bonds; a stereocenter needs 3 or 4.',
+  )
+  const hashed = { ...unstated(), bonds: unstated().bonds.map((b) => (b.id === 'b1' ? { ...b, mark: { kind: 'hash', narrow: 'begin' } } : b)) }
+  assert.equal(
+    describeStereoChange(unstated(), hashed, { kind: 'refused', reason: 'stereo_not_derivable_degenerate', message: 'atom a1: the drawing is too flat to determine a configuration' }),
+    'Hashed wedge mark on b1, narrow end at a1. Not stored: atom a1: the drawing is too flat to determine a configuration (stereo_not_derivable_degenerate).',
+  )
+})
+
+test('the status line says a stored configuration is kept when its mark is cleared or its narrow end moves away', () => {
+  const kept = 'The stored configuration of a1 is kept; the drawing no longer shows it.'
+  assert.equal(describeStereoChange(markedA1('clockwise'), { ...unstated(), stereo: markedA1('clockwise').stereo }, sent), `Wedge mark removed from b1. ${kept}`)
+  const flipped = { ...markedA1('clockwise'), bonds: markedA1('clockwise').bonds.map((b) => (b.id === 'b1' ? { ...b, mark: { kind: 'wedge', narrow: 'end' } } : b)) }
+  assert.equal(describeStereoChange(markedA1('clockwise'), flipped, { kind: 'none', why: 'a2 has 1 bond; a stereocenter needs 3 or 4.' }), `Wedge mark on b1, narrow end at a2. Nothing stored: a2 has 1 bond; a stereocenter needs 3 or 4. ${kept}`)
+})
+
+test('switching a wedge to a hashed wedge at the same narrow end does not say the configuration was left behind', () => {
+  const hashed = { ...markedA1('clockwise'), bonds: markedA1('clockwise').bonds.map((b) => (b.id === 'b1' ? { ...b, mark: { kind: 'hash', narrow: 'begin' } } : b)) }
+  assert.equal(
+    describeStereoChange(markedA1('clockwise'), hashed, sent),
+    'Hashed wedge mark on b1, narrow end at a1. Configuration of a1 stored from the drawing (clockwise).',
+  )
+})
+
+test('the status line says what a change of order removed: the mark, and a stored double-bond configuration', () => {
+  const before = alkene()
+  const after = { ...before, bonds: before.bonds.map((b) => (b.id === 'b1' ? { ...b, order: 'single', mark: null } : b)), stereo: { atoms: [], bonds: [] } }
+  assert.equal(
+    describeStereoChange(before, after, { kind: 'none', why: null }),
+    'Crossed mark removed from b1: it needs a double bond. The stored configuration of b1 (unknown) was removed: it needs a double bond. Undo restores it.',
+  )
+  // A configuration the neighbor cascade cleared on a bond that stays double is the reply's notes' to tell.
+  const cascaded = { ...before, stereo: { atoms: [], bonds: [] } }
+  assert.equal(describeStereoChange(before, cascaded, { kind: 'none', why: null }), null)
+  assert.equal(describeStereoChange(before, { ...before, bonds: [] }, { kind: 'none', why: null }), null, 'a deleted bond is not a removed mark')
+})
+
+test('a crossed mark stores the bond configuration and says so', () => {
+  const before = { ...alkene(), bonds: alkene().bonds.map((b) => ({ ...b, mark: null })), stereo: { atoms: [], bonds: [{ bond: 'b1', configuration: { kind: 'relative', begin_neighbor: 'a3', end_neighbor: 'a4', relation: 'opposite_sides' } }] } }
+  assert.equal(
+    describeStereoChange(before, alkene(), sent),
+    'Crossed mark on b1. Configuration of b1 stored from the drawing (unknown). It replaced a stored configuration (opposite sides); undo restores it.',
+  )
 })

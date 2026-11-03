@@ -131,7 +131,7 @@ export interface BondView {
   query: BondQuery | null
   /**
    * How the bond is drawn; null for a plain bond, and filled in as null for older replies. A
-   * drawing fact only: it states no configuration. The editor does not draw it yet.
+   * drawing fact only: it states no configuration.
    */
   mark: StereoMark | null
 }

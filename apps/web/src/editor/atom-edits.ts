@@ -5,6 +5,7 @@
  * send a combination the service refuses: setting a query clears the charge and isotope it
  * cannot carry, and a charge or isotope is never sent for a query atom.
  */
+import { staleStereoClears } from '@/editor/bond-gestures'
 import {
   ATTACHMENT_POINTS,
   MAX_STATED_HYDROGENS,
@@ -139,12 +140,15 @@ export function toggleAttachmentPoint(atom: string, point: number): Edit {
   }
 }
 
-/** Sets a bond's kind; `query` comes with order `query` and only with it. */
+/**
+ * Sets a bond's kind; `query` comes with order `query` and only with it. A mark or stored
+ * configuration the new kind cannot keep is cleared first, in the same transaction.
+ */
 export function setBondKind(bond: string, kind: BondKind): Edit {
   return (latest) => {
     const current = bondIn(latest, bond)
     if (!current || (current.order === kind.order && same(current.query, kind.query ?? null))) return null
-    return [{ op: 'update_bond', bond, ...kind }]
+    return [...staleStereoClears(latest, current, kind.order), { op: 'update_bond', bond, ...kind }]
   }
 }
 
