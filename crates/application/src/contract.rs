@@ -1679,6 +1679,35 @@ fn slot_name(slot: Slot) -> String {
     }
 }
 
+/// A center state as snapshots and commands spell it.
+pub fn center_dto(state: &CenterState) -> AtomConfigurationDto {
+    match state {
+        CenterState::Tetrahedral { slots, turn } => AtomConfigurationDto::Tetrahedral {
+            neighbors: slots.map(slot_name),
+            turn: (*turn).into(),
+        },
+        CenterState::Unknown { slots } => AtomConfigurationDto::Unknown {
+            neighbors: slots.map(slot_name),
+        },
+    }
+}
+
+/// A double-bond state as snapshots and commands spell it.
+pub fn double_bond_dto(state: &DoubleBondState) -> BondConfigurationDto {
+    match state {
+        DoubleBondState::Relative {
+            begin_ref,
+            end_ref,
+            relation,
+        } => BondConfigurationDto::Relative {
+            begin_neighbor: slot_name(*begin_ref),
+            end_neighbor: slot_name(*end_ref),
+            relation: (*relation).into(),
+        },
+        DoubleBondState::Unknown => BondConfigurationDto::Unknown {},
+    }
+}
+
 impl StereoView {
     /// The document's records as snapshots show them.
     ///
@@ -1691,41 +1720,14 @@ impl StereoView {
         let mut view = Self::default();
         for record in document.stereo().typed()? {
             match record {
-                StereoRecord::Center { atom, state } => {
-                    let configuration = match state {
-                        CenterState::Tetrahedral { slots, turn } => {
-                            AtomConfigurationDto::Tetrahedral {
-                                neighbors: slots.map(slot_name),
-                                turn: (*turn).into(),
-                            }
-                        }
-                        CenterState::Unknown { slots } => AtomConfigurationDto::Unknown {
-                            neighbors: slots.map(slot_name),
-                        },
-                    };
-                    view.atoms.push(AtomStereoView {
-                        atom: atom.to_string(),
-                        configuration,
-                    });
-                }
-                StereoRecord::DoubleBond { bond, state } => {
-                    let configuration = match state {
-                        DoubleBondState::Relative {
-                            begin_ref,
-                            end_ref,
-                            relation,
-                        } => BondConfigurationDto::Relative {
-                            begin_neighbor: slot_name(*begin_ref),
-                            end_neighbor: slot_name(*end_ref),
-                            relation: (*relation).into(),
-                        },
-                        DoubleBondState::Unknown => BondConfigurationDto::Unknown {},
-                    };
-                    view.bonds.push(BondStereoView {
-                        bond: bond.to_string(),
-                        configuration,
-                    });
-                }
+                StereoRecord::Center { atom, state } => view.atoms.push(AtomStereoView {
+                    atom: atom.to_string(),
+                    configuration: center_dto(state),
+                }),
+                StereoRecord::DoubleBond { bond, state } => view.bonds.push(BondStereoView {
+                    bond: bond.to_string(),
+                    configuration: double_bond_dto(state),
+                }),
             }
         }
         Ok(view)
