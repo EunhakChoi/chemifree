@@ -378,7 +378,7 @@ fn a_time_limit_of_zero_is_refused_the_same_way_every_time_and_changes_nothing()
 }
 
 #[test]
-fn the_server_default_applies_without_a_request_limit_and_a_request_may_only_lower_it() {
+fn the_server_default_applies_without_a_request_limit_and_a_request_may_raise_it() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory).with_compute_limits(ComputeLimits {
         default_time_ms: 0,

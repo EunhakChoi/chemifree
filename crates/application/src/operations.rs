@@ -902,7 +902,8 @@ struct AromaticityConversionParameters {
     selection_before: Option<SelectionDto>,
     #[serde(default)]
     selection_after: Option<SelectionDto>,
-    /// A time limit below the server's default; above the server's maximum it is refused.
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
     #[serde(default)]
     time_limit_ms: Option<u64>,
 }
