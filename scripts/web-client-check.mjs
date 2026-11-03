@@ -2256,6 +2256,31 @@ test('a reply holding marks and stated configurations is accepted as sent', () =
   assert.equal(isDocumentResponse(unknown), true, 'unknown is an explicit record, with a lone pair as a slot')
 })
 
+const { sameContent } = await import('../apps/web/src/hooks/use-document-editor.ts')
+
+test('a reopened copy counts as the same content only when its stereo configurations match', () => {
+  const shown = stereoDrawing().document
+  assert.equal(sameContent(structuredClone(shown), shown), true)
+  const lostAll = { ...structuredClone(shown), stereo: { atoms: [], bonds: [] } }
+  assert.equal(sameContent(lostAll, shown), false, 'both configurations missing from the reopened copy')
+  const omitted = structuredClone(shown)
+  delete omitted.stereo
+  assert.equal(sameContent(omitted, shown), false, 'an omitted table is the empty one')
+  const lostAtom = structuredClone(shown)
+  lostAtom.stereo.atoms = []
+  assert.equal(sameContent(lostAtom, shown), false, 'the atom configuration is missing')
+  const lostBond = structuredClone(shown)
+  lostBond.stereo.bonds = []
+  assert.equal(sameContent(lostBond, shown), false, 'the bond configuration is missing')
+  const turned = structuredClone(shown)
+  turned.stereo.atoms[0].configuration.turn = 'clockwise'
+  assert.equal(sameContent(turned, shown), false, 'a different stated turn')
+  const bare = { ...structuredClone(shown), stereo: { atoms: [], bonds: [] } }
+  const plain = structuredClone(bare)
+  delete plain.stereo
+  assert.equal(sameContent(plain, bare), true, 'an omitted table equals an empty one')
+})
+
 test('an older reply with no marks and no stereo table is accepted and filled in', async () => {
   const older = stereoDrawing()
   delete older.document.stereo
@@ -2265,6 +2290,58 @@ test('an older reply with no marks and no stereo table is accepted and filled in
   const reply = await new DocumentClient().transact('doc-stereo', 0, [])
   assert.deepEqual(reply.document.bonds.map((bond) => bond.mark), [null, null, null, null, null, null])
   assert.deepEqual(reply.document.stereo, { atoms: [], bonds: [] })
+  assert.deepEqual(reply.notes, [], 'an older service reports no notes')
+})
+
+const clearedNote = (path = 'atoms[a1]') => ({
+  feature: 'stereo_configuration', source_path: path, disposition: 'dropped', semantic_impact: 'stereo',
+  reason: 'The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back.',
+})
+
+test('the notes a transaction reply carries are read, and a malformed note is refused', async () => {
+  const withNotes = stereoDrawing()
+  withNotes.notes = [clearedNote(), clearedNote('bonds[b4]')]
+  assert.equal(isDocumentResponse(withNotes), true)
+  service({ '/transactions': [() => json(200, withNotes)] })
+  const reply = await new DocumentClient().transact('doc-stereo', 0, [{ op: 'delete_atoms', atoms: ['a2'] }])
+  assert.deepEqual(reply.notes.map((note) => note.source_path), ['atoms[a1]', 'bonds[b4]'])
+  const refused = (change) => {
+    const value = stereoDrawing()
+    value.notes = [clearedNote()]
+    change(value.notes[0])
+    return isDocumentResponse(value)
+  }
+  const cases = {
+    'a note about another feature': (n) => { n.feature = 'hydrogen_state' },
+    'a note that is not a drop': (n) => { n.disposition = 'normalized' },
+    'a note with another impact': (n) => { n.semantic_impact = 'chemistry' },
+    'a note with no reason': (n) => { delete n.reason },
+    'a note with a field the contract does not have': (n) => { n.consent = 'required' },
+  }
+  for (const [why, change] of Object.entries(cases)) assert.equal(refused(change), false, why)
+  const notAList = stereoDrawing()
+  notAList.notes = clearedNote()
+  assert.equal(isDocumentResponse(notAList), false, 'notes is a list')
+})
+
+test('the stereo commands lapse with the bond or atom they name, and words and $N are not ids', () => {
+  const drawing = stereoDrawing().document
+  const center = { op: 'set_atom_configuration', atom: 'a1', configuration: { kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } }
+  const alkene = { op: 'set_bond_configuration', bond: 'b4', configuration: { kind: 'relative', begin_neighbor: 'a7', end_neighbor: 'implicit_hydrogen', relation: 'same_side' } }
+  const mark = { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } }
+  assert.deepEqual(stillApplicable([center, alkene, mark], drawing), [center, alkene, mark])
+  const fresh = [
+    { op: 'add_atom', element: 'N', position: { x: 0, y: 0 }, bond_to: { atom: 'a1', order: 'single' } },
+    { op: 'set_bond_mark', bond: '$0', mark: null },
+    { op: 'set_atom_configuration', atom: 'a1', configuration: { kind: 'unknown', neighbors: ['a2', 'a3', 'a4', '$0'] } },
+  ]
+  assert.deepEqual(stillApplicable(fresh, drawing), fresh, '$N names what an earlier command created')
+  const without = (id) => ({ ...drawing, atoms: drawing.atoms.filter((atom) => atom.id !== id), bonds: drawing.bonds.filter((bond) => bond.id !== id) })
+  assert.equal(stillApplicable([mark], without('b1')), null, 'the marked bond is gone')
+  assert.equal(stillApplicable([center], without('a3')), null, 'a neighbor named by the center is gone')
+  assert.equal(stillApplicable([center], without('a1')), null, 'the center is gone')
+  assert.equal(stillApplicable([alkene], without('a7')), null, 'a neighbor of the double bond is gone')
+  assert.equal(stillApplicable([{ op: 'set_bond_configuration', bond: 'b4', configuration: null }], without('b4')), null)
 })
 
 test('a malformed mark or stereo table is refused, and so is a kind the client does not know yet', () => {

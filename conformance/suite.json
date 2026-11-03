@@ -1,5 +1,5 @@
 {
-  "suite_version": 15,
+  "suite_version": 16,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -41,6 +41,20 @@
     "cases/smiles-import-export.json",
     "cases/smiles-malformed-and-unsupported-refused.json",
     "cases/substructure-search-kekule-in-aromatic.json",
-    "cases/substructure-search-refuses-unclassified-ring.json"
+    "cases/substructure-search-refuses-unclassified-ring.json",
+    "cases/stereo-marks-recorded-undo-redo.json",
+    "cases/stereo-configuration-persists-across-reopen.json",
+    "cases/stereo-parity-pair-and-renumbering.json",
+    "cases/stereo-double-bond-pair-and-unknown.json",
+    "cases/stereo-mark-and-configuration-independent.json",
+    "cases/stereo-mark-and-configuration-refused.json",
+    "cases/stereo-configuration-cleared-with-neighbor.json",
+    "cases/stereo-order-change-and-conversion-refused.json",
+    "cases/stereo-smiles-export-needs-consent.json",
+    "cases/stereo-molfile-export-refused.json",
+    "cases/stereo-identity-and-substructure-not-compared.json",
+    "cases/stereo-cip-label-from-stored-configuration.json",
+    "cases/stereo-enhanced-group-membership.json",
+    "cases/stereo-molfile-stereo-round-trip.json"
   ]
 }

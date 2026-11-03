@@ -1,6 +1,17 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
-import { holdsStereo, isStereoMark, isStereoView, stereoOf, type StereoMark, type StereoView } from '@/lib/stereo-contract'
+import {
+  holdsStereo,
+  isStereoMark,
+  isStereoNotes,
+  isStereoView,
+  stereoOf,
+  type AtomConfiguration,
+  type BondConfiguration,
+  type StereoMark,
+  type StereoNote,
+  type StereoView,
+} from '@/lib/stereo-contract'
 
 /**
  * A bond's kind. `aromatic`, `dative` (from `begin`, the donor), `query`, and `unknown` were
@@ -406,6 +417,11 @@ export interface DocumentResponse {
   document: DocumentView
   session: SessionView
   recovery: RecoveryView | null
+  /**
+   * What this request cleared of stereo (a transaction that changed the neighbors of a stated
+   * configuration). Empty for every other reply, and absent from an older service's.
+   */
+  notes?: StereoNote[]
 }
 
 /** A document saved as a new one; the copy is open in its own session. */
@@ -511,6 +527,11 @@ export type Command =
   | { op: 'move_objects'; objects: string[]; delta: Position }
   | { op: 'add_reference' | 'remove_reference'; source: string; target: ReferenceTarget }
   | ({ op: 'update_settings' } & SettingsEdit)
+  /** `bond` is an id or `$N`, the bond created by command N (an `add_bond`, or an `add_atom` with `bond_to`). `null` clears. */
+  | { op: 'set_bond_mark'; bond: string; mark: StereoMark | null }
+  /** Neighbors are atom ids, `$N` for a created atom, `implicit_hydrogen` or `lone_pair`, in any order. `null` clears. */
+  | { op: 'set_atom_configuration'; atom: string; configuration: AtomConfiguration | null }
+  | { op: 'set_bond_configuration'; bond: string; configuration: BondConfiguration | null }
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene
@@ -708,6 +729,7 @@ function withStates(response: DocumentResponse): DocumentResponse {
   const bonds = response.document.bonds as Array<BondView | Omit<BondView, 'query' | 'mark'> | Omit<BondView, 'mark'>>
   return {
     ...response,
+    notes: response.notes ?? [],
     document: {
       ...response.document,
       stereo: stereoOf(response.document),
@@ -937,7 +959,8 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     isCount(session.redo_depth) &&
     isCountOrNull(session.draft_revision) &&
     isDraftFailure(session.draft_failure) &&
-    isRecovery(value.recovery)
+    isRecovery(value.recovery) &&
+    (value.notes === undefined || isStereoNotes(value.notes))
   )
 }
 

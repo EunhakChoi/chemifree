@@ -1,0 +1,327 @@
+{
+  "id": "stereo-order-change-and-conversion-refused",
+  "title": "A bond order change or an aromaticity conversion that would break a marked or configured bond is refused whole; with the mark removed the conversion goes through",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 1,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 2,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 3,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 4,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 5,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$0",
+          "end": "$1",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$2",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$2",
+          "end": "$3",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$3",
+          "end": "$4",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$4",
+          "end": "$5",
+          "order": "double"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$5",
+          "end": "$0",
+          "order": "single"
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 10,
+            "y": 20
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 40,
+            "y": 20
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": -10,
+            "y": 40
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 40
+          },
+          "bond_to": {
+            "atom": "$13",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "b7",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a9",
+            "end_neighbor": "a10",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "update_bond",
+          "bond": "b2",
+          "order": "double"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_mark_bond_order"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "update_bond",
+          "bond": "b7",
+          "order": "single"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_double_bond_required"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "convert-marked",
+        "profile": "preserve-semantics",
+        "operation": "chem.aromaticity_convert",
+        "parameters": {
+          "expected_revision": 2,
+          "to": "aromatic"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "stereo_mark_bond_order"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "convert-unmarked",
+        "profile": "preserve-semantics",
+        "operation": "chem.aromaticity_convert",
+        "parameters": {
+          "expected_revision": 3,
+          "to": "aromatic"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 4,
+        "result": {
+          "document": {
+            "bonds": [
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "aromatic"
+              },
+              {
+                "order": "double"
+              },
+              {
+                "order": "single"
+              },
+              {
+                "order": "single"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

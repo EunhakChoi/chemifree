@@ -776,6 +776,13 @@ fn document_text(response: &DocumentResponse) -> String {
         ));
     }
     lines.extend(stereo_lines(&document.stereo));
+    // What this request cleared; a later `get` shows none.
+    lines.extend(
+        response
+            .notes
+            .iter()
+            .map(|note| format!("  note  {}", note.reason)),
+    );
     for object in &document.scene.objects {
         match object {
             SceneObjectView::Instance {
@@ -1125,8 +1132,8 @@ mod tests {
     }
     #[test]
     fn a_marked_bond_and_stated_configurations_are_not_shown_as_plain() {
-        // No entry point sets stereo yet, so the views carry what a document holding stereo
-        // would show (the application tests build such documents and read them).
+        // The views carry what a document holding stereo shows; `set_bond_mark` and the
+        // configuration commands make such documents, and the application tests send them.
         let mut response = drawn(json!([
             {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
             {"op": "add_atom", "element": "C", "position": {"x": 30, "y": 0},
@@ -1152,6 +1159,45 @@ mod tests {
                 "  stereo b2  double bond  unknown",
             ],
             "{text}"
+        );
+    }
+
+    #[test]
+    fn a_transaction_that_cleared_stereo_prints_each_note_after_the_drawing() {
+        let data = tempfile::tempdir().unwrap();
+        let application =
+            Application::new(LocalCapabilities, FileDocumentRepository::new(data.path()));
+        let id = application.create_document(None, None).unwrap().document.id;
+        let setup: Vec<CommandDto> = serde_json::from_value(json!([
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+            {"op": "add_atom", "element": "F", "position": {"x": 0, "y": 30},
+             "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "add_atom", "element": "Cl", "position": {"x": 30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "add_atom", "element": "Br", "position": {"x": -30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "set_atom_configuration", "atom": "$0", "configuration": {
+                "kind": "tetrahedral", "neighbors": ["a2", "a3", "a4", "implicit_hydrogen"],
+                "turn": "clockwise"}}
+        ]))
+        .unwrap();
+        application.apply_transaction(&id, None, 0, setup).unwrap();
+        let delete: Vec<CommandDto> =
+            serde_json::from_value(json!([{"op": "delete_atoms", "atoms": ["a4"]}])).unwrap();
+        let response = application.apply_transaction(&id, None, 1, delete).unwrap();
+        let text = document_text(&response);
+        let lines: Vec<&str> = text.lines().collect();
+        let note = "  note  The stereo configuration of atom a1 was cleared because its bonded \
+                    neighbors changed. Undoing this edit, while it is still in the history, \
+                    brings it back.";
+        assert!(
+            lines.contains(&note) && !lines.iter().any(|line| line.starts_with("  stereo ")),
+            "{text}"
+        );
+        let read = document_text(&application.document(&id).unwrap());
+        assert!(
+            !read.contains("  note  "),
+            "a later read repeats no note: {read}"
         );
     }
 

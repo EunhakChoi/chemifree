@@ -677,6 +677,9 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_reference",
             "remove_reference",
             "update_settings",
+            "set_bond_mark",
+            "set_atom_configuration",
+            "set_bond_configuration",
         ]
     );
     let placement = capabilities
@@ -726,6 +729,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         ["add_atom", "update_atom"]
     );
     assert_eq!(carried_out_by("document_settings"), ["update_settings"]);
-    assert_eq!(capabilities.len(), 8, "{capabilities:?}");
+    assert_eq!(carried_out_by("stereo_marks"), ["set_bond_mark"]);
+    assert_eq!(
+        carried_out_by("stereo_configuration"),
+        ["set_atom_configuration", "set_bond_configuration"]
+    );
+    assert_eq!(commands.len(), 23, "{commands:?}");
+    assert_eq!(capabilities.len(), 10, "{capabilities:?}");
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

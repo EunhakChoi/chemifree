@@ -1,0 +1,13 @@
+{
+  "id": "stereo-cip-label-from-stored-configuration",
+  "title": "A CIP label is derived from a stored configuration and kept apart from the drawn marks",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "pending": {
+    "followup": "P26",
+    "reason": "CIP labels are not implemented; the representation (P25) stores no label and derives none."
+  }
+}

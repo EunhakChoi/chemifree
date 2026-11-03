@@ -1,0 +1,428 @@
+{
+  "id": "stereo-mark-and-configuration-refused",
+  "title": "A stereo command that cannot hold is refused with a stable reason and the failing command's index, and the transaction changes nothing",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 230,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 250,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$5",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "aromatic"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 400,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 430,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$10",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 460,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$11",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 390,
+            "y": 10
+          },
+          "bond_to": {
+            "atom": "$10",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 470,
+            "y": 10
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "first command is fine"
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b4",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "stereo_mark_bond_order"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b1",
+          "mark": {
+            "kind": "crossed"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_mark_bond_order"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b7",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_mark_bond_order"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "a5"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_center_neighbors"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a6",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a5",
+              "a8",
+              "implicit_hydrogen",
+              "lone_pair"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_center_unsupported"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b1",
+          "configuration": {
+            "kind": "unknown"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_double_bond_required"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b4",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a6",
+            "end_neighbor": "a8",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_reference_invalid"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b8",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a14",
+            "end_neighbor": "a13",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_geometry_unsupported"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b8",
+          "configuration": {
+            "kind": "unknown"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_geometry_unsupported"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$0",
+          "mark": null
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

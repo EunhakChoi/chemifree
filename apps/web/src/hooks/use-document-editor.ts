@@ -20,6 +20,7 @@ import {
   type SettingsSource,
   type TrashListResponse,
 } from '@/lib/document-contract'
+import { stereoOf } from '@/lib/stereo-contract'
 
 /** What became of the original when the copy was made. */
 export type CopiedFrom =
@@ -73,13 +74,18 @@ export type EditSelection = { kind: 'group'; objects: string[] }
 
 const client = new DocumentClient()
 
-/** Same title, graph, scene, and settings, whatever revision number names them. */
-function sameContent(a: DocumentView, b: DocumentView) {
+/**
+ * Same title, graph, stereo table, scene, and settings, whatever revision number names them. An
+ * omitted stereo table is the empty one, so a service that states none equals one that states
+ * an empty table, but not one that states configurations.
+ */
+export function sameContent(a: DocumentView, b: DocumentView) {
   return (
     a.id === b.id &&
     a.title === b.title &&
     JSON.stringify(a.atoms) === JSON.stringify(b.atoms) &&
     JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
+    JSON.stringify(stereoOf(a)) === JSON.stringify(stereoOf(b)) &&
     JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
     JSON.stringify(a.settings) === JSON.stringify(b.settings)
   )

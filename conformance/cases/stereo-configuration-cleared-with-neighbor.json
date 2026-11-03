@@ -1,0 +1,561 @@
+{
+  "id": "stereo-configuration-cleared-with-neighbor",
+  "title": "A configuration whose bonded neighbors change is cleared and the reply says so in notes; undo restores it, and a clear the client asked for or re-set in the same transaction is not listed",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "history",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 230,
+            "y": 100
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "double"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 250,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$5",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "b4",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a7",
+            "end_neighbor": "a8",
+            "relation": "opposite_sides"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "delete_atoms",
+          "atoms": [
+            "a2"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": [
+          {
+            "feature": "stereo_configuration",
+            "source_path": "atoms[a1]",
+            "disposition": "dropped",
+            "semantic_impact": "stereo",
+            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back."
+          }
+        ]
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 70,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "a1",
+            "order": "single"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": [
+          {
+            "feature": "stereo_configuration",
+            "source_path": "atoms[a1]",
+            "disposition": "dropped",
+            "semantic_impact": "stereo",
+            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back."
+          }
+        ]
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 5,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 6,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 7,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 8,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 70,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "a1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "$0"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "a10"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 9,
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [
+              {
+                "bond": "b4",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a7",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 10,
+      "commands": [
+        {
+          "op": "delete_bonds",
+          "bonds": [
+            "b4"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": [
+          {
+            "feature": "stereo_configuration",
+            "source_path": "bonds[b4]",
+            "disposition": "dropped",
+            "semantic_impact": "stereo",
+            "reason": "The stereo configuration of bond b4 was cleared because the bond was deleted. Undoing this edit, while it is still in the history, brings it back."
+          }
+        ]
+      }
+    }
+  ]
+}

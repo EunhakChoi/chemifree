@@ -3,6 +3,10 @@
  * reaches them. By then an earlier request (an undo, say) may have removed what they name.
  */
 import type { Command, DocumentView } from '@/lib/document-contract'
+import { IMPLICIT_HYDROGEN, LONE_PAIR } from '@/lib/stereo-contract'
+
+/** The neighbors of a stereo command that are atoms: not the two words that name no atom. */
+const namedAtoms = (neighbors: string[]) => neighbors.filter((id) => id !== IMPLICIT_HYDROGEN && id !== LONE_PAIR)
 
 function referencedIds(command: Command): string[] {
   switch (command.op) {
@@ -43,6 +47,14 @@ function referencedIds(command: Command): string[] {
     case 'add_reference':
     case 'remove_reference':
       return [command.source, command.target.id]
+    case 'set_bond_mark':
+      return [command.bond]
+    case 'set_atom_configuration':
+      return command.configuration === null ? [command.atom] : [command.atom, ...namedAtoms(command.configuration.neighbors)]
+    case 'set_bond_configuration':
+      return command.configuration === null || command.configuration.kind === 'unknown'
+        ? [command.bond]
+        : [command.bond, ...namedAtoms([command.configuration.begin_neighbor, command.configuration.end_neighbor])]
     default: {
       const unknown: never = command
       return unknown

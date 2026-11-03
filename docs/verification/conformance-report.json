@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 15,
+  "suite_version": 16,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -558,23 +558,216 @@
       "pending": null,
       "failure": null,
       "case_sha256": "914c75920a003a9a7b19daf725c91f5c12cd035ce40780ae6ec11fbaa38696d2"
+    },
+    {
+      "id": "stereo-marks-recorded-undo-redo",
+      "title": "Drawn stereo marks are set and cleared by command, keep their narrow end, never swap the bond's ends, and follow undo and redo",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "830d6c099b0f77a83d11c196d050690b25cbc69a7627ea46050b48f2932d50c7"
+    },
+    {
+      "id": "stereo-configuration-persists-across-reopen",
+      "title": "A stated configuration is stored in canonical form, saved, reopened, undone, redone, and a restatement changes nothing",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "79ab8c6aead5d56f2ee8a0178b416f027c5e86267c0e46bf704af8f23f0b2ca9"
+    },
+    {
+      "id": "stereo-parity-pair-and-renumbering",
+      "title": "One centre on [F, Cl, Br, implicit hydrogen] stored with positive and with negative parity differs only in the turn, and every restatement in another order lands on one of the two",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e7ea3ec45c25718099c35343a6a5e50ecd7de8121ea20b8051d890e693d40277"
+    },
+    {
+      "id": "stereo-double-bond-pair-and-unknown",
+      "title": "The same alkene stated same side and opposite sides gives two snapshots that differ only in the relation; unknown is a statement and clearing is not",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e46333a23f44284806955a26791a2750c8b1d4e5a37453272d484340b93ce72d"
+    },
+    {
+      "id": "stereo-mark-and-configuration-independent",
+      "title": "A drawn mark and a stated configuration are separate statements: changing or clearing one never changes the other, and they are not checked against each other",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e357c92d743068c20216962dc517df9eef30dd42b659bf4d28d7a1269007b00d"
+    },
+    {
+      "id": "stereo-mark-and-configuration-refused",
+      "title": "A stereo command that cannot hold is refused with a stable reason and the failing command's index, and the transaction changes nothing",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "b520866519bdb95bb5381a10dfaf873a48f42e3d4a9351ba0f038af7b778a47f"
+    },
+    {
+      "id": "stereo-configuration-cleared-with-neighbor",
+      "title": "A configuration whose bonded neighbors change is cleared and the reply says so in notes; undo restores it, and a clear the client asked for or re-set in the same transaction is not listed",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "53362695b53c797de0011ae0c1c5f5c0f0076e9a3dc7f76bbfd0a213439e7dc0"
+    },
+    {
+      "id": "stereo-order-change-and-conversion-refused",
+      "title": "A bond order change or an aromaticity conversion that would break a marked or configured bond is refused whole; with the mark removed the conversion goes through",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "4cbee972ed5dafffb786c1bbcc358b4f28d5635d893919e003bf0d3d775f07ed"
+    },
+    {
+      "id": "stereo-smiles-export-needs-consent",
+      "title": "SMILES text carries no stereo, so a drawing that holds any is exported only after consent to a digest of what is dropped, and the digest does not survive a change",
+      "requirements": [
+        "MODEL-03",
+        "CODEC-05"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "af7baa412303b2fc61314b961f0d5c392f5b8785e2feb43c005bae04448c1c87"
+    },
+    {
+      "id": "stereo-molfile-export-refused",
+      "title": "A V2000 molfile cannot carry the stereo of a drawing yet, so the export is refused and names the record; without stereo it writes",
+      "requirements": [
+        "MODEL-03",
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "b13925154b053d050546a4bfe3dea91170be4ada6ce02aeea1ef89e88e4a9baa"
+    },
+    {
+      "id": "stereo-identity-and-substructure-not-compared",
+      "title": "Identity and substructure search never read stereo: two drawings with opposite stated turns match, and the reply says stereo was not compared and was present",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "63d6fdc4e1a20488fb43e49577436bdc8f9d02d22f3971f0a4a8a30373c12d22"
+    },
+    {
+      "id": "stereo-cip-label-from-stored-configuration",
+      "title": "A CIP label is derived from a stored configuration and kept apart from the drawn marks",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P26",
+        "reason": "CIP labels are not implemented; the representation (P25) stores no label and derives none."
+      },
+      "failure": null,
+      "case_sha256": "980b7934257a6f01a0c1481ead853b85edabe67b31437cdae5aaa344cb2e52fc"
+    },
+    {
+      "id": "stereo-enhanced-group-membership",
+      "title": "Enhanced stereo group membership is recorded and read back",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P27",
+        "reason": "Enhanced stereo groups are not implemented; no command creates or reads a group."
+      },
+      "failure": null,
+      "case_sha256": "bbd24b2e4dbd149b59a17610ec8727f5129ef364785cc33ae7bfdfd695113ffa"
+    },
+    {
+      "id": "stereo-molfile-stereo-round-trip",
+      "title": "Wedge columns and parity of a V2000 molfile round-trip into the stored marks and configurations",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "not_run",
+      "pending": {
+        "followup": "P29",
+        "reason": "V2000 export refuses stereo and import reports it unsupported until the molfile stereo mapping exists."
+      },
+      "failure": null,
+      "case_sha256": "9edeef1109679fd0ec4fa9b38a3a526e51c54d5f0b95a92dbc83f526052b64ff"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 25,
+      "passed": 33,
       "failed": 0,
-      "not_run": 0
+      "not_run": 3
     },
     "reject": {
-      "passed": 16,
+      "passed": 19,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 41,
+      "passed": 52,
       "failed": 0,
-      "not_run": 0
+      "not_run": 3
     }
   }
 }

@@ -1,0 +1,366 @@
+{
+  "id": "stereo-mark-and-configuration-independent",
+  "title": "A drawn mark and a stated configuration are separate statements: changing or clearing one never changes the other, and they are not checked against each other",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "anticlockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b1",
+          "mark": {
+            "kind": "hash",
+            "narrow": "end"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": {
+                "kind": "hash",
+                "narrow": "end"
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 5,
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "mark": {
+                "kind": "hash",
+                "narrow": "end"
+              }
+            },
+            {
+              "id": "b2",
+              "begin": "a1",
+              "end": "a3",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "begin": "a1",
+              "end": "a4",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}
