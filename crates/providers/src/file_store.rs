@@ -18,7 +18,7 @@
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
 //! - `migrated/<id>.v<N>.json`: the exact bytes of a document file of an earlier version `N`
-//!   (1, 2, or 3), kept by the first save that replaces it with the current version (reading and
+//!   (1 to 5), kept by the first save that replaces it with the current version (reading and
 //!   migrating a file never writes). Under the save lock, the copy is written to a temporary
 //!   file, flushed to disk, and renamed into place before the document is replaced. A copy is
 //!   never overwritten: a later version `N` file with other bytes under the same ID is kept as
@@ -1267,6 +1267,68 @@ mod tests {
         assert_within_read_limit(&document);
     }
 
+    /// The same, with a stereocenter on every interior atom of the full document and the history
+    /// full of the largest stereo changes: 500 four-digit centers per entry (a transaction's
+    /// most), each turning from a tetrahedral statement into an unknown one and back, both sides
+    /// present.
+    #[test]
+    fn a_document_with_stereo_records_in_every_history_entry_encodes_within_the_read_limit() {
+        use chemifree_domain::stereo::{AtomConfiguration, SlotRef, Turn};
+
+        let mut document = at_every_limit();
+        let slot = |serial: usize| SlotRef::Atom(atom_ref(serial));
+        let neighbors = |serial: usize| {
+            [
+                slot(serial - 2),
+                slot(serial - 1),
+                slot(serial + 1),
+                slot(serial + 2),
+            ]
+        };
+        // Every interior atom has four neighbors: (n-2, n-1, n+1, n+2).
+        let interior: Vec<usize> = (3..=MAX_ATOMS - 2).collect();
+        for batch in interior.chunks(MAX_COMMANDS) {
+            let commands: Vec<_> = batch
+                .iter()
+                .map(|&serial| Command::SetAtomConfiguration {
+                    atom: atom_ref(serial),
+                    configuration: Some(AtomConfiguration::Tetrahedral {
+                        neighbors: neighbors(serial),
+                        turn: Turn::Anticlockwise,
+                    }),
+                })
+                .collect();
+            document.apply(&commands).unwrap();
+        }
+        assert_eq!(document.stereo().len(), interior.len());
+        let top = &interior[interior.len() - MAX_COMMANDS..];
+        for round in 0..HISTORY_LIMIT {
+            let commands: Vec<_> = top
+                .iter()
+                .map(|&serial| Command::SetAtomConfiguration {
+                    atom: atom_ref(serial),
+                    configuration: Some(if round % 2 == 0 {
+                        AtomConfiguration::Unknown {
+                            neighbors: neighbors(serial),
+                        }
+                    } else {
+                        AtomConfiguration::Tetrahedral {
+                            neighbors: neighbors(serial),
+                            turn: Turn::Anticlockwise,
+                        }
+                    }),
+                })
+                .collect();
+            document.apply(&commands).unwrap();
+        }
+        assert_eq!(document.undo_depth(), HISTORY_LIMIT);
+        assert_within_read_limit(&document);
+    }
+
+    fn atom_ref(serial: usize) -> AtomRef {
+        AtomRef::Id(AtomId::from_serial(serial as u32).unwrap())
+    }
+
     #[test]
     fn stored_revision_reads_the_committed_revision_only() {
         let (_directory, repository) = scratch();
@@ -1353,7 +1415,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":5", "\"format_version\":99"),
+            valid.replace("\"format_version\":6", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {

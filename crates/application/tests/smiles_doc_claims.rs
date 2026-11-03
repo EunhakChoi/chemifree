@@ -65,11 +65,7 @@ fn graph_of(text: &str) -> Option<MoleculeGraph> {
             .map(|(i, b)| {
                 (
                     BondId::from_serial(u32::try_from(i + 1).unwrap()).unwrap(),
-                    Bond {
-                        begin: id(b.begin),
-                        end: id(b.end),
-                        order: b.order.clone(),
-                    },
+                    Bond::new(id(b.begin), id(b.end), b.order.clone()),
                 )
             })
             .collect(),
@@ -165,11 +161,7 @@ fn build(atoms: Vec<Atom>, bonds: Vec<(usize, usize, BondOrder)>) -> MoleculeGra
             .map(|(i, (a, b, order))| {
                 (
                     BondId::from_serial(u32::try_from(i + 1).unwrap()).unwrap(),
-                    Bond {
-                        begin: id(a),
-                        end: id(b),
-                        order,
-                    },
+                    Bond::new(id(a), id(b), order),
                 )
             })
             .collect(),
