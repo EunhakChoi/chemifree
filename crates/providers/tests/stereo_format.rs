@@ -10,6 +10,7 @@ use chemifree_domain::document::{
     NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont};
 use chemifree_domain::stereo::{
     AtomConfiguration, BondConfiguration, BondEnd, Relation, SlotRef, StereoKey, StereoMark, Turn,
 };
@@ -267,6 +268,53 @@ fn a_recovery_draft_carries_marks_configurations_and_history() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
+fn a_crossed_mark_and_a_double_bond_configuration_on_one_bond_survive_a_save_in_either_order() {
+    let crossed = Command::SetBondMark {
+        bond: BondRef::Id(bond(1)),
+        mark: Some(StereoMark::Crossed),
+    };
+    let configuration = Command::SetBondConfiguration {
+        bond: BondRef::Id(bond(1)),
+        configuration: Some(BondConfiguration::Relative {
+            begin_neighbor: s(3),
+            end_neighbor: s(5),
+            relation: Relation::SameSide,
+        }),
+    };
+    for (name, first, second) in [
+        ("mark first", &crossed, &configuration),
+        ("configuration first", &configuration, &crossed),
+    ] {
+        let mut document = Document::new(id(), "Alkene").unwrap();
+        let mut commands: Vec<Command> = (0..5).map(|_| new_atom()).collect();
+        commands.extend([
+            add_bond(1, 2, BondOrder::Double),
+            add_bond(1, 3, BondOrder::Single),
+            add_bond(1, 4, BondOrder::Single),
+            add_bond(2, 5, BondOrder::Single),
+        ]);
+        document.apply(&commands).unwrap();
+        document.apply(std::slice::from_ref(first)).unwrap();
+        document.apply(std::slice::from_ref(second)).unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let repository = FileDocumentRepository::new(root.path());
+        repository.save(&document, None).unwrap();
+        let reopened = repository.load(&id()).unwrap().unwrap();
+        assert_eq!(reopened, document, "{name}");
+        let bonds: Vec<_> = reopened.bonds().collect();
+        assert_eq!(bonds[0].1.mark, Some(StereoMark::Crossed), "{name}");
+        assert!(
+            reopened
+                .stereo()
+                .get(StereoKey::DoubleBond(bond(1)))
+                .is_some(),
+            "{name}: the configuration is stored beside the mark"
+        );
+    }
+}
+
+#[test]
 fn a_version_5_file_reads_with_no_stereo_and_its_first_save_keeps_the_original_bytes() {
     let original = fixture("v5-scene-document.json");
     let (root, repository, path) = stored(&original);
@@ -296,6 +344,26 @@ fn a_version_5_file_reads_with_no_stereo_and_its_first_save_keeps_the_original_b
     assert_eq!(read_json(&path)["format_version"], 6);
     assert_eq!(repository.load(&id()).unwrap(), Some(document));
     assert!(root.path().join("migrated").is_dir());
+}
+
+#[test]
+fn a_version_5_file_keeps_its_stored_settings_when_it_is_read() {
+    // Only versions 1-4 receive the built-in settings; version 5 already stores its own.
+    let default_settings = r#""settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_size_pt":12.0,"carbon_labels":"default","display_unit":"pt"}"#;
+    let own_settings = r#""settings":{"bond_length_pt":42.5,"line_width_pt":2.5,"label_font":"monospace","label_size_pt":14.0,"carbon_labels":"all","display_unit":"mm"}"#;
+    let text = String::from_utf8(fixture("v5-scene-document.json")).unwrap();
+    assert_eq!(text.matches(default_settings).count(), 1, "fixture shape");
+    let (_root, repository, _path) =
+        stored(text.replace(default_settings, own_settings).as_bytes());
+
+    let document = repository.load(&id()).unwrap().unwrap();
+    let settings = document.settings();
+    assert_eq!(settings.bond_length_pt, 42.5);
+    assert_eq!(settings.line_width_pt, 2.5);
+    assert_eq!(settings.label_font, LabelFont::Monospace);
+    assert_eq!(settings.label_size_pt, 14.0);
+    assert_eq!(settings.carbon_labels, CarbonLabels::All);
+    assert_eq!(settings.display_unit, DisplayUnit::Mm);
 }
 
 #[test]
