@@ -1057,7 +1057,7 @@
    "acceptance": "그림 방향과 화학 parity를 각각 검사하고 Undo/Redo·저장·재개방에서 유지한다.",
    "kind": "core",
    "id": "P25",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1066,7 +1066,8 @@
    "depends_on": [
     "P11",
     "P10"
-   ]
+   ],
+   "note": "입체 표시와 명시된 입체 배치의 표현·쓰기를 구현했다(독립 브랜치 feat/p25a-3-stereo-commands, 미병합): 도메인 저장 모델, 파일 형식 6, 명령 `set_bond_mark`·`set_atom_configuration`·`set_bond_configuration`(HTTP·CLI·연산 계약 1), 닫힌 `reason` 목록의 거절, 이웃 변경 시 자동 해제와 응답 `notes`(해제는 `partial`로 알리고 Undo가 되살림), Undo/Redo·저장·재개방 유지, 스냅샷 표시와 웹 문구 안내. 도면에서 배치 유도·일관성 검사·거울상/뒤집기(a3), 쐐기 도구와 그리기(P25b), CIP(P26), 그룹(P27), 형식별 입출력(P29)은 미구현이다."
   },
   {
    "phase": "stereo",
@@ -3606,7 +3607,7 @@
     "phase3-stereo-default-contracts.md",
     "phase2-stereo-signedness-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P25",
     "P26",

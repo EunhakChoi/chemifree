@@ -243,11 +243,42 @@
         "document.transaction",
         "chem.validate"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "MODEL-03.1",
+          "summary": "Drawn stereo marks (wedge and hash on single bonds with the narrow end recorded in the mark, wavy on single bonds, crossed on double bonds) and stated configurations (tetrahedral centers with three or four bonded neighbors, double bonds, and an explicit unknown) are stored apart from each other, set and cleared by three commands, refused with stable reasons, cleared with a neighbor change and reported in the reply, and kept through undo, redo, save and reopen. Statements only: nothing is derived, labeled, checked against the drawing or compared, and the editor has no tool for them.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/stereo.rs",
+            "crates/domain/src/document.rs",
+            "crates/providers/src/file_format.rs",
+            "crates/application/src/contract.rs",
+            "crates/application/src/documents.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/lib/stereo-contract.ts"
+          ],
+          "evidence": [
+            "case:stereo-marks-recorded-undo-redo",
+            "case:stereo-configuration-persists-across-reopen",
+            "case:stereo-parity-pair-and-renumbering",
+            "case:stereo-double-bond-pair-and-unknown",
+            "case:stereo-mark-and-configuration-independent",
+            "case:stereo-mark-and-configuration-refused",
+            "case:stereo-configuration-cleared-with-neighbor",
+            "case:stereo-order-change-and-conversion-refused",
+            "case:stereo-smiles-export-needs-consent",
+            "case:stereo-molfile-export-refused",
+            "case:stereo-identity-and-substructure-not-compared",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Derivation of a configuration from a drawing and the check that a mark and a configuration agree, CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip operations, and drawing of marks in the editor.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

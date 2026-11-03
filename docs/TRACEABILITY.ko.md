@@ -8,11 +8,13 @@ P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결
 
 P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다(canonical 형식은 Chemifree 자체 형식이며 다른 도구와 호환되지 않는다). 입체, query/반응 SMILES와 InChI는 후속 범위다. 입체 표시·배치가 있는 도면을 SMILES로 쓰면 `stereo_marks`·`stereo_configuration` 손실에 동의가 필요하고 텍스트에는 입체가 없다.
 
+P25a-2b는 입체 표시와 명시된 입체 배치의 저장·설정·해제(MODEL-03.1, 구현)를 연결한다. 도면에서 배치 유도, 일관성 검사, CIP, 동위원소·대칭·분할·고급 그룹은 MODEL-03.rest(미구현)로 남고, 형식별 입체 입출력(CODEC-03, CODEC-05)은 근거 사례로만 연결되며 구현 표시가 아니다. P25는 진행 중이다.
+
 P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 연결한다(MODEL-02.7). 고리·차수·수소 개수 조건, 입체와 질의 SMILES는 기록할 수 없으므로 후속 범위다. 입체가 있는 도면은 일치 대응을 입체 없이 계산하므로 응답이 `partial`과 `stereo` 손실을 함께 보고한다(`chem.identity`도 같다). RDKit 비교(`scripts/verify-query-rdkit.py`)는 수동 실행이며 `npm run check` 밖이고 fixture 범위를 넘는 동등성을 주장하지 않는다.
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 16, not_implemented 17) · 부분 76개(implemented 31, partial 10, unverified 2, not_implemented 33) · conformance 사례 41개(passed 41: accept 25·reject 16, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 17, not_implemented 16) · 부분 77개(implemented 32, partial 10, unverified 2, not_implemented 33) · conformance 사례 55개(passed 52: accept 33·reject 19, not_run 3, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
