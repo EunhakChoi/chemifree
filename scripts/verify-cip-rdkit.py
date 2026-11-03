@@ -26,7 +26,7 @@ involved in this half. For every expectation the script
 4. for R and S, also reads the mirror-image SMILES (every `@` swapped with `@@`) and requires
    the opposite descriptor, an RDKit-only check of the mirror-image property;
 5. for every R, S, E, Z and none expectation, writes the same molecule with its atoms
-   renumbered in the reverse order (RDKit writes the SMILES, so its `/` and `\` marks are keyed
+   renumbered in the reverse order (RDKit writes the SMILES, so its `/` and `\\` marks are keyed
    by the order it writes, not by the stored begin and end) and requires the same label on
    the same unit. This is the E/Z order check issue #113 asks for: a label that depended on
    which atom of a double bond is written first would show here.
@@ -42,6 +42,7 @@ algorithm. The public specification's validator was a newer RDKit (2026.03.x); t
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import pathlib
 import sys
@@ -105,8 +106,12 @@ def _reversed(mol: rdkit.Chem.Mol) -> tuple[str, list[int]]:
     return smiles, [position[count - 1 - old] for old in range(count)]
 
 
-def check(fixture: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """Returns the result lines and the problems found for one fixture."""
+def check(fixture: dict[str, Any]) -> tuple[list[str], list[str], collections.Counter[str]]:
+    """Returns the result lines, the problems found and the counts for one fixture.
+
+    The counts are `atoms` and `bonds` (expectations compared with RDKit: R, S, E, Z, none) and
+    `informational` (unsupported, ambiguous or unspecified rows, which are only reported).
+    """
     name = fixture["name"]
     smiles = fixture["smiles"]
     differs = fixture.get("rdkit_differs")
@@ -115,16 +120,20 @@ def check(fixture: dict[str, Any]) -> tuple[list[str], list[str]]:
     reversed_mol = _read(reversed_smiles, f"{name} reversed ({reversed_smiles})")
     lines: list[str] = []
     problems: list[str] = []
+    counts: collections.Counter[str] = collections.Counter()
     for expectation in fixture["expect"]:
         unit = expectation["atom"] if "atom" in expectation else expectation["bond"]
         expected = expectation["label"]
-        shown = f"{'atom' if 'atom' in expectation else 'bond'} {unit}"
+        kind = "atom" if "atom" in expectation else "bond"
+        shown = f"{kind} {unit}"
         seen = _unit_label(mol, unit, f"{name} ({smiles})")
         if expected.split(":", 1)[0] in ("unsupported", "ambiguous", "unspecified"):
+            counts["informational"] += 1
             lines.append(
                 f"{name} {shown}: Chemifree says {expected}; RDKit says {seen} (informational)"
             )
             continue
+        counts[f"{kind}s"] += 1
         agrees = seen == expected
         if agrees and differs:
             problems.append(f"{name} {shown}: RDKit now agrees; drop rdkit_differs")
@@ -149,7 +158,7 @@ def check(fixture: dict[str, Any]) -> tuple[list[str], list[str]]:
                 problems.append(
                     f"{name} {shown}: mirror image is {mirrored}, expected {opposite}"
                 )
-    return lines, problems
+    return lines, problems, counts
 
 
 def main() -> int:
@@ -165,10 +174,10 @@ def main() -> int:
         sys.stderr.write("the fixture file pins a different RDKit version\n")
         return 2
     problems: list[str] = []
-    checked = 0
+    totals: collections.Counter[str] = collections.Counter()
     for fixture in document["fixtures"]:
-        lines, found = check(fixture)
-        checked += len(lines)
+        lines, found, counts = check(fixture)
+        totals.update(counts)
         for line in lines:
             sys.stdout.write(line + "\n")
         problems.extend(found)
@@ -176,7 +185,9 @@ def main() -> int:
         sys.stderr.write(problem + "\n")
     sys.stdout.write(
         f"RDKit {rdkit.__version__} ({document['rdkit_labeler']}): "
-        f"{len(document['fixtures'])} fixtures, {checked} atoms, {len(problems)} problems\n"
+        f"{len(document['fixtures'])} fixtures, {totals['atoms']} atoms and "
+        f"{totals['bonds']} bonds compared, {totals['informational']} informational rows "
+        f"(not compared), {len(problems)} problems\n"
     )
     return 1 if problems else 0
 
