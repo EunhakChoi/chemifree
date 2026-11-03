@@ -3530,6 +3530,9 @@ test('a reply is shown only for the drawing on screen, positions and service pro
   const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'boom' }
   assert.deepEqual(agreementView(value, failed, 0, false, true), { kind: 'failed', message: 'boom' })
   assert.equal(view(moved, failed), 'checking', 'a failure belongs to the drawing it was asked about')
+  assert.deepEqual(agreementView(value, failed, 0, true, true), { kind: 'checking' }, 'pressing Check again shows that a retry is running')
+  assert.deepEqual(agreementView(value, failed, 0, true, false), { kind: 'checking' }, 'also with automatic checking off')
+  assert.equal(view(value, ok, 0, true), 'ready', 'a reply stays shown while the same drawing is checked again')
 })
 
 test('what the page says while checking, between checks and after one never says the drawing has no stereo', async () => {
@@ -3722,4 +3725,49 @@ test('stopping forgets a change that has not started; asking now does not wait',
   advance(0)
   assert.equal(requests.length, 1, 'a request asked for during one follows it at once')
   await finish()
+})
+
+test('a check that rejects anyway does not stop the scheduler or leave an unhandled rejection', async () => {
+  const unhandled = []
+  const record = (reason) => { unhandled.push(reason) }
+  process.on('unhandledRejection', record)
+  try {
+    let now = 0
+    let next = 1
+    const tasks = new Map()
+    const timers = {
+      set: (task, ms) => { tasks.set(next, { at: now + ms, task }); return next++ },
+      clear: (handle) => { tasks.delete(handle) },
+    }
+    const advance = (ms) => {
+      const end = now + ms
+      for (;;) {
+        const due = [...tasks].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        tasks.delete(due[0])
+        now = due[1].at
+        due[1].task()
+      }
+      now = end
+    }
+    const calls = []
+    const scheduler = new CheckScheduler(() => new Promise((resolve, reject) => { calls.push({ resolve, reject }) }), timers)
+    scheduler.changed()
+    advance(300)
+    assert.equal(calls.length, 1)
+    scheduler.changed()
+    calls.shift().reject(new Error('the check broke its contract'))
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(unhandled, [], 'the scheduler does not turn a rejection into an unhandled one')
+    advance(300)
+    assert.equal(calls.length, 1, 'a change queued during the rejected check still starts one more')
+    calls.shift().resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    scheduler.changed()
+    advance(300)
+    assert.equal(calls.length, 1, 'and the running flag was cleared, so later changes start requests')
+  } finally {
+    process.off('unhandledRejection', record)
+  }
 })

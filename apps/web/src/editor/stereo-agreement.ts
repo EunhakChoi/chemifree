@@ -34,7 +34,7 @@ export interface ItemRef {
   id: string
 }
 
-const itemName = (item: ItemRef) => `${item.kind === 'atom' ? 'Center' : 'Double bond'} ${item.id}`
+export const itemName = (item: ItemRef) => `${item.kind === 'atom' ? 'Center' : 'Double bond'} ${item.id}`
 
 /** How one stored item and one instance's drawing relate. */
 export interface AgreementRow {
@@ -267,7 +267,8 @@ export type CheckOutcome =
  * A reply is shown only for the exact drawing on screen, positions included, and the service
  * process that gave it; anything else is "checking" (or "not compared" when the user turned
  * checking off), and nothing is drawn on the canvas for it. A failure is shown only for the
- * drawing it was asked about.
+ * drawing it was asked about, and only while no retry is running; a reply stays shown while the
+ * same drawing is checked again.
  */
 export function agreementView(
   document: DocumentView,
@@ -279,7 +280,8 @@ export function agreementView(
   if (!holdsStereo(document)) return { kind: 'none' }
   if (outcome && outcome.generation === generation) {
     if (outcome.kind === 'ok' && samePropertySnapshot(document, outcome.inspection.snapshot)) return { kind: 'ready', inspection: outcome.inspection }
-    if (outcome.kind === 'failed' && samePropertySnapshot(document, outcome.snapshot)) return { kind: 'failed', message: outcome.message }
+    // A failure stays shown until a retry is running; then the view says so, which also takes the retry button away.
+    if (outcome.kind === 'failed' && !busy && samePropertySnapshot(document, outcome.snapshot)) return { kind: 'failed', message: outcome.message }
   }
   return busy || automatic ? { kind: 'checking' } : { kind: 'unchecked' }
 }
@@ -394,7 +396,8 @@ export const CHECK_DELAY_MS = 300
  * one request runs, unless the user is dragging, in which case it waits for the release. One
  * request is in flight at a time, and any number of changes meanwhile cause exactly one more
  * when it ends. `now` asks without waiting. `stop` forgets a change that has not started.
- * `check` reports its own failure; one that rejects anyway is not hidden.
+ * `check` reports its own failure and never rejects; if it does anyway, the scheduler carries on
+ * and does not raise it a second time.
  */
 export class CheckScheduler {
   private readonly check: () => Promise<void>
@@ -477,9 +480,7 @@ export class CheckScheduler {
       this.due = true
       this.wait(wait)
     }
-    this.check().then(finish, (failure: unknown) => {
-      finish()
-      throw failure
-    })
+    // The check owns its error reporting, so a rejection is not rethrown here (that would be an unhandled one).
+    this.check().then(finish, finish)
   }
 }

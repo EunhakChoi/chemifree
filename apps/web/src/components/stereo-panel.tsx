@@ -10,6 +10,7 @@ import {
   AGREEMENT_LABELS,
   actionName,
   agreementRows,
+  itemName,
   listedDiagnostics,
   NOT_JUDGED,
   NOTHING_TO_COMPARE,
@@ -17,7 +18,6 @@ import {
   rowSentence,
   updatableRows,
   viewSentence,
-  type AgreementRow,
   type AgreementView,
   type Resolution,
 } from '@/editor/stereo-agreement'
@@ -33,8 +33,6 @@ interface StereoPanelProps {
   onResolve: (resolution: Resolution) => void
   busy: boolean
 }
-
-const itemName = (row: AgreementRow) => `${row.item.kind === 'atom' ? 'Center' : 'Double bond'} ${row.item.id}`
 
 /**
  * How each stored configuration compares with the drawing of each placement, as the service
@@ -104,7 +102,7 @@ export function StereoPanel({ view, automatic, onAutomaticChange, onCheckNow, on
                   className="flex flex-col gap-1 border-t pt-2 text-xs"
                 >
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium">{itemName(row)}</span>
+                    <span className="font-medium">{itemName(row.item)}</span>
                     <Badge variant="outline">{row.instance}</Badge>
                     <Badge variant={row.agreement === 'disagrees' ? 'destructive' : row.agreement === 'agrees' ? 'secondary' : 'outline'}>
                       {row.agreement === 'disagrees' && <span aria-hidden="true">≠</span>}
