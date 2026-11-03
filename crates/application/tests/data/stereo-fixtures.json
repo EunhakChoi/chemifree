@@ -1,0 +1,168 @@
+{
+  "schema": 1,
+  "about": "Drawings with hand-stated expected configurations for domain::stereo_drawing. Atoms: [element, x, y] in document coordinates (y down); the fixture index i is atom a(i+1). Bonds: [first, second, kind, mark] with kind - or =, and mark empty, W (wedge), H (hash) with the narrow end at the first listed atom, W< or H< with the narrow end at the second, w (wavy) or x (crossed). expect.centers lists a center, a neighbor order (atom indexes, H for the implicit hydrogen, LP for a lone pair) and the turn over that order: clockwise, anticlockwise or unknown. expect.double_bonds lists a bond index, its two references (atom indexes) and the relation: same, opposite or unknown. refused names the expected reason and whether RDKit assigns chirality to that drawing (null: not asserted). rdkit_differs, where present, says why RDKit 2022.03.2 reads a fixture differently from the stated expectation; scripts/verify-stereo-rdkit.py checks every fixture against RDKit and fails when a fixture without that field disagrees or one with it agrees.",
+  "rdkit_version": "2022.03.2",
+  "fixtures": [
+    {
+      "name": "wedge-fan-clockwise",
+      "note": "E1: F top plain, Cl lower right wedge, Br lower left plain, implicit hydrogen",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "clockwise"}]}
+    },
+    {
+      "name": "wedge-fan-reflected",
+      "note": "E1 reflected left to right: the mirror image",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 74, 115], ["Br", 126, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "anticlockwise"}]}
+    },
+    {
+      "name": "hash-instead-of-wedge",
+      "note": "E1 with a hash: the mirror image of the wedge drawing",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "H"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "anticlockwise"}]}
+    },
+    {
+      "name": "hash-reflected",
+      "note": "hash drawing reflected: the wedge drawing's configuration",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 74, 115], ["Br", 126, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "H"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "clockwise"}]}
+    },
+    {
+      "name": "narrow-end-listed-second",
+      "note": "the same wedge written from the Cl side; the narrow end is still the center",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [2, 0, "-", "W<"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "clockwise"}]}
+    },
+    {
+      "name": "br-moved-across-the-gap",
+      "note": "E3: Br moved to the upper right; the turn flips",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 126, 85]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "anticlockwise"}]}
+    },
+    {
+      "name": "rotated-quarter-turn",
+      "note": "E1 rotated 90 degrees about the center; the configuration is unchanged",
+      "atoms": [["C", 100, 100], ["F", 130, 100], ["Cl", 85, 126], ["Br", 85, 74]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "clockwise"}]}
+    },
+    {
+      "name": "opensmiles-at",
+      "note": "N[C@](Br)(O)C drawn with N as a wedge, Br 12 o'clock, O 8 o'clock, C 4 o'clock",
+      "atoms": [["C", 100, 100], ["N", 100, 130], ["Br", 100, 70], ["O", 74, 115], ["C", 126, 115]],
+      "bonds": [[0, 1, "-", "W"], [0, 2, "-", ""], [0, 3, "-", ""], [0, 4, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "anticlockwise"}]}
+    },
+    {
+      "name": "opensmiles-atat",
+      "note": "N[C@@](Br)(O)C: O and C exchanged",
+      "atoms": [["C", 100, 100], ["N", 100, 130], ["Br", 100, 70], ["O", 126, 115], ["C", 74, 115]],
+      "bonds": [[0, 1, "-", "W"], [0, 2, "-", ""], [0, 3, "-", ""], [0, 4, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "clockwise"}]}
+    },
+    {
+      "name": "cross-wedge-and-hash",
+      "note": "E4: N, E plain; S wedge, W hash",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 130, 100], ["Br", 100, 130], ["I", 70, 100]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", ""], [0, 3, "-", "W"], [0, 4, "-", "H"]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "clockwise"}]}
+    },
+    {
+      "name": "cross-single-wedge",
+      "note": "one wedge on the south bond of a cross (D = +2)",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 130, 100], ["Br", 100, 130], ["I", 70, 100]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", ""], [0, 3, "-", "W"], [0, 4, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "clockwise"}]}
+    },
+    {
+      "name": "cross-adjacent-wedge-and-hash",
+      "note": "N wedge, E hash, S and W plain: the four vectors do not enclose the center (D = +4)",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 130, 100], ["Br", 100, 130], ["I", 70, 100]],
+      "bonds": [[0, 1, "-", "W"], [0, 2, "-", "H"], [0, 3, "-", ""], [0, 4, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "clockwise"}]}
+    },
+    {
+      "name": "cross-opposite-wedges",
+      "note": "N and S both wedges, E and W plain (D = +4): not enclosing",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 130, 100], ["Br", 100, 130], ["I", 70, 100]],
+      "bonds": [[0, 1, "-", "W"], [0, 2, "-", ""], [0, 3, "-", "W"], [0, 4, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, 4], "turn": "clockwise"}]}
+    },
+    {
+      "name": "cross-opposite-wedge-and-hash",
+      "note": "E5: N wedge, S hash, E and W plain: D = 0, so Chemifree refuses; RDKit 2022.03.2 assigns a configuration to this drawing (a documented difference, not an agreement)",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 130, 100], ["Br", 100, 130], ["I", 70, 100]],
+      "bonds": [[0, 1, "-", "W"], [0, 2, "-", ""], [0, 3, "-", "H"], [0, 4, "-", ""]],
+      "refused": {"atom": 0, "reason": "stereo_not_derivable_degenerate", "rdkit_chirality": true}
+    },
+    {
+      "name": "sulfoxide-lone-pair",
+      "note": "S(=O)(Cl)C with a wedge on the Cl bond: the fourth position is a lone pair",
+      "atoms": [["S", 100, 100], ["O", 100, 70], ["Cl", 126, 115], ["C", 74, 115]],
+      "bonds": [[0, 1, "=", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "LP"], "turn": "clockwise"}]}
+    },
+    {
+      "name": "wavy-bond-is-unknown",
+      "note": "a wavy bond at the center: unknown",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "w"], [0, 3, "-", ""]],
+      "expect": {"centers": [{"atom": 0, "order": [1, 2, 3, "H"], "turn": "unknown"}]}
+    },
+    {
+      "name": "wavy-beside-wedge-conflicts",
+      "note": "Cl wedge and Br wavy at the same center",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", "W"], [0, 3, "-", "w"]],
+      "refused": {"atom": 0, "reason": "stereo_not_derivable_conflicting_marks", "rdkit_chirality": false}
+    },
+    {
+      "name": "no-mark-no-statement",
+      "note": "a plain drawing states nothing",
+      "atoms": [["C", 100, 100], ["F", 100, 70], ["Cl", 126, 115], ["Br", 74, 115]],
+      "bonds": [[0, 1, "-", ""], [0, 2, "-", ""], [0, 3, "-", ""]],
+      "refused": {"atom": 0, "reason": "stereo_not_derivable_no_marks", "rdkit_chirality": false}
+    },
+    {
+      "name": "sp2-carbon-fourth-position",
+      "note": "a wedge on a carbonyl carbon: the fourth position cannot be named",
+      "atoms": [["C", 100, 100], ["O", 100, 70], ["C", 126, 115], ["C", 74, 115]],
+      "bonds": [[0, 1, "=", ""], [0, 2, "-", "W"], [0, 3, "-", ""]],
+      "refused": {"atom": 0, "reason": "stereo_not_derivable_fourth_position", "rdkit_chirality": false}
+    },
+    {
+      "name": "public-two-center-drawing",
+      "note": "phase3-stereo-and-missing-number.cdxml of the public specification: F[C@H](Cl)[C@H](Br)I, one tapered hash per center",
+      "atoms": [["F", 0, 40], ["C", 0, 0], ["Cl", -35, -18], ["C", 35, -18], ["Br", 35, -58], ["I", 70, 0]],
+      "bonds": [[0, 1, "-", "H<"], [1, 2, "-", ""], [1, 3, "-", ""], [3, 4, "-", "H"], [3, 5, "-", ""]],
+      "expect": {"centers": [{"atom": 1, "order": [0, "H", 2, 3], "turn": "anticlockwise"}, {"atom": 3, "order": [1, "H", 4, 5], "turn": "anticlockwise"}]}
+    },
+    {
+      "name": "trans-butene",
+      "note": "zig-zag: the references are on opposite sides",
+      "atoms": [["C", 70, 115], ["C", 100, 100], ["C", 130, 100], ["C", 160, 85]],
+      "bonds": [[0, 1, "-", ""], [1, 2, "=", ""], [2, 3, "-", ""]],
+      "expect": {"double_bonds": [{"bond": 1, "refs": [0, 3], "relation": "opposite"}]}
+    },
+    {
+      "name": "cis-butene",
+      "note": "U shape: the references are on the same side",
+      "atoms": [["C", 70, 115], ["C", 100, 100], ["C", 130, 100], ["C", 160, 115]],
+      "bonds": [[0, 1, "-", ""], [1, 2, "=", ""], [2, 3, "-", ""]],
+      "expect": {"double_bonds": [{"bond": 1, "refs": [0, 3], "relation": "same"}]}
+    },
+    {
+      "name": "crossed-double-bond-is-unknown",
+      "note": "a crossed double bond states unknown",
+      "atoms": [["C", 70, 115], ["C", 100, 100], ["C", 130, 100], ["C", 160, 85]],
+      "bonds": [[0, 1, "-", ""], [1, 2, "=", "x"], [2, 3, "-", ""]],
+      "expect": {"double_bonds": [{"bond": 1, "refs": [0, 3], "relation": "unknown"}]}
+    }
+  ]
+}
