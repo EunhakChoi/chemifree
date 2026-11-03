@@ -195,6 +195,11 @@ fn analyze(
             }
         });
     }
+    // The precedence is deliberate: a bond with two tied substituents at one end is not
+    // stereogenic, whatever the other end could not be ranked for (a refusal, an ambiguity),
+    // so a tie at either end is `Tie` before an unsupported or ambiguous end is reported. Then
+    // the smallest reason of an unsupported end, then an ambiguous end. A limit is not a reason
+    // here but a charge: see `double_bond`, which makes the item a limit first.
     let outcome = if found.contains(&End3::Tie) {
         Outcome::Tie
     } else if let Some(reason) = found.iter().filter_map(End3::unsupported).min() {

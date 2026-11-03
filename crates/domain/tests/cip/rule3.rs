@@ -985,6 +985,35 @@ fn double_bonds_asked_in_any_order_get_the_same_label_reason_and_charge() {
     }
 }
 
+#[test]
+fn a_tied_end_makes_a_bond_not_stereogenic_whatever_the_other_end_cannot_say() {
+    // The bond is not stereogenic if either end has two substituents that tie, so an ambiguity
+    // or a refusal at the other end does not matter and the answer is `none`. The same other end
+    // beside a stereogenic end is what the ambiguity or refusal is about.
+    for (other_end, reason) in [
+        ("(C=CC)C=CC", "ambiguous:cip_ligand_stereo_unspecified"),
+        ("(C[Fe])C[Fe]", "unsupported:cip_hydrogens_unknown"),
+    ] {
+        assert_eq!(bond_label(&format!("CC=C{other_end}"), 1, 2), reason);
+        assert_eq!(bond_label(&format!("C=C{other_end}"), 0, 1), "none");
+    }
+    // The exception is a limit: an end whose ranking ran past the sphere bound is charged more
+    // than the item may use, and the item is then a limit whatever the other end says.
+    let arm = format!("{}[2H]", "C(C)".repeat(40) + "C");
+    let plain = "C(C)".repeat(40) + "C";
+    for smiles in [format!("CC=C({arm}){plain}"), format!("C=C({arm}){plain}")] {
+        let at = if smiles.starts_with("CC") {
+            (1, 2)
+        } else {
+            (0, 1)
+        };
+        assert_eq!(
+            bond_label(&smiles, at.0, at.1),
+            "unsupported:cip_digraph_limit"
+        );
+    }
+}
+
 /// The nodes a center is charged when its two ligands are the same cage or fused polycycle: the
 /// worst case for a tie, since both digraphs are read to their last sphere and classified. A
 /// deterministic count of the accounting in the module comment of `cip.rs`; a change to the
