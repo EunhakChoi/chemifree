@@ -212,6 +212,19 @@ pub enum StereoState {
     DoubleBond(DoubleBondState),
 }
 
+/// One stored record read as its kind: a center or a double bond with the state of that kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StereoRecord<'a> {
+    Center {
+        atom: AtomId,
+        state: &'a CenterState,
+    },
+    DoubleBond {
+        bond: BondId,
+        state: &'a DoubleBondState,
+    },
+}
+
 /// The stated configurations of a document, in key order. A table inside a document holds only
 /// records that satisfy every structural rule against the document's graph.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -226,6 +239,28 @@ impl StereoTable {
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (StereoKey, &StereoState)> {
         self.records.iter().map(|(key, state)| (*key, state))
+    }
+
+    /// Every record in key order, each read as its kind.
+    ///
+    /// # Errors
+    ///
+    /// [`StereoError::RecordInvalid`] when a record's state is not of the kind its key names.
+    /// A table inside a document never holds one; a reader that lists records asks this
+    /// instead of skipping the record, so an inconsistency cannot hide stored stereo.
+    pub fn typed(&self) -> Result<Vec<StereoRecord<'_>>, StereoError> {
+        self.records
+            .iter()
+            .map(|(key, state)| match (key, state) {
+                (StereoKey::Center(atom), StereoState::Center(state)) => {
+                    Ok(StereoRecord::Center { atom: *atom, state })
+                }
+                (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) => {
+                    Ok(StereoRecord::DoubleBond { bond: *bond, state })
+                }
+                _ => Err(StereoError::RecordInvalid),
+            })
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -304,7 +339,7 @@ impl StereoTable {
                 (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) => {
                     check_double_bond(*bond, state, &graph)?;
                 }
-                _ => return Err(StereoError::Conflict.into()),
+                _ => return Err(StereoError::RecordInvalid.into()),
             }
         }
         Ok(())
@@ -331,9 +366,12 @@ pub enum StereoError {
     ReferenceInvalid,
     /// A double bond with a cumulated double or triple bond at an end.
     GeometryUnsupported,
-    /// A stored record that is not in canonical form or whose kind does not match its key. An
-    /// edit that would break a stored configuration reports the rule it breaks instead.
-    Conflict,
+    /// A stored record that is not in canonical form or whose kind does not match its key: a
+    /// problem of stored data, not of a command, so no command produces it. An edit that would
+    /// break a stored configuration reports the rule it breaks instead. It is not the later
+    /// conflict between a stated configuration and a drawn mark, which will be a consistency
+    /// finding about a valid document.
+    RecordInvalid,
 }
 
 impl StereoError {
@@ -345,7 +383,7 @@ impl StereoError {
         Self::DoubleBondRequired,
         Self::ReferenceInvalid,
         Self::GeometryUnsupported,
-        Self::Conflict,
+        Self::RecordInvalid,
     ];
 
     /// The stable machine-readable code.
@@ -357,7 +395,7 @@ impl StereoError {
             Self::DoubleBondRequired => "stereo_double_bond_required",
             Self::ReferenceInvalid => "stereo_reference_invalid",
             Self::GeometryUnsupported => "stereo_geometry_unsupported",
-            Self::Conflict => "stereo_conflict",
+            Self::RecordInvalid => "stereo_record_invalid",
         }
     }
 }
@@ -384,7 +422,7 @@ impl fmt::Display for StereoError {
             Self::GeometryUnsupported => {
                 "a double bond configuration does not cover a cumulated double or triple bond"
             }
-            Self::Conflict => {
+            Self::RecordInvalid => {
                 "a stored stereo record is not in canonical form or does not match its key"
             }
         })
@@ -586,9 +624,9 @@ fn check_reference(slot: Slot, others: &[AtomId]) -> Result<(), StereoError> {
     match (slot, others) {
         (Slot::ImplicitHydrogen, []) => Ok(()),
         (Slot::Atom(atom), [lowest, ..]) if atom == *lowest => Ok(()),
-        (Slot::Atom(atom), _) if others.contains(&atom) => Err(StereoError::Conflict),
+        (Slot::Atom(atom), _) if others.contains(&atom) => Err(StereoError::RecordInvalid),
         (Slot::LonePair, []) | (Slot::ImplicitHydrogen | Slot::LonePair, [_]) => {
-            Err(StereoError::Conflict)
+            Err(StereoError::RecordInvalid)
         }
         _ => Err(StereoError::ReferenceInvalid),
     }
@@ -704,6 +742,52 @@ mod tests {
             is_odd_permutation(&[Some(3), None, Some(1), Some(2)]),
             Some(true)
         );
+    }
+
+    #[test]
+    fn a_record_whose_kind_differs_from_its_key_is_an_error_not_a_gap() {
+        let center = CenterState::tetrahedral(
+            [
+                Slot::Atom(AtomId::from_serial(2).unwrap()),
+                Slot::Atom(AtomId::from_serial(3).unwrap()),
+                Slot::Atom(AtomId::from_serial(4).unwrap()),
+                Slot::ImplicitHydrogen,
+            ],
+            Turn::Clockwise,
+        )
+        .unwrap();
+        let atom = AtomId::from_serial(1).unwrap();
+        let bond = BondId::from_serial(1).unwrap();
+        let valid = StereoTable::from_records(BTreeMap::from([
+            (StereoKey::Center(atom), StereoState::Center(center)),
+            (
+                StereoKey::DoubleBond(bond),
+                StereoState::DoubleBond(DoubleBondState::Unknown),
+            ),
+        ]));
+        assert_eq!(
+            valid.typed().unwrap(),
+            [
+                StereoRecord::Center {
+                    atom,
+                    state: &center
+                },
+                StereoRecord::DoubleBond {
+                    bond,
+                    state: &DoubleBondState::Unknown
+                },
+            ]
+        );
+        let mismatched = StereoTable::from_records(BTreeMap::from([
+            (StereoKey::Center(atom), StereoState::Center(center)),
+            (StereoKey::DoubleBond(bond), StereoState::Center(center)),
+        ]));
+        assert_eq!(mismatched.typed(), Err(StereoError::RecordInvalid));
+    }
+
+    #[test]
+    fn the_name_of_the_stored_data_reason_does_not_claim_a_conflict() {
+        assert_eq!(StereoError::RecordInvalid.code(), "stereo_record_invalid");
     }
 
     #[test]

@@ -516,7 +516,8 @@ pub enum EditError {
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
     Settings(SettingsError),
-    /// `BondRef::Created` must name an earlier `AddBond` command of the same transaction.
+    /// `BondRef::Created` must name an earlier command of the same transaction that added a
+    /// bond: an `AddBond`, or an `AddAtom` with `bond_to`.
     UnresolvedBondReference(usize),
     /// A refused stereo mark or configuration, with its stable code.
     Stereo(StereoError),
@@ -1193,6 +1194,9 @@ fn validate_isotope(isotope: Option<u16>) -> Result<(), EditError> {
 enum Created {
     Nothing,
     Atom(AtomId),
+    /// An `AddAtom` with `bond_to`: the new atom, and the bond it was added with. The index
+    /// names the atom where an atom is expected and the bond where a bond is.
+    AtomAndBond(AtomId, BondId),
     Bond(BondId),
     Object(ObjectId),
 }
@@ -1327,7 +1331,7 @@ impl Draft {
         match atom {
             AtomRef::Id(id) => Ok(id),
             AtomRef::Created(index) => match self.created.get(index) {
-                Some(Created::Atom(id)) => Ok(*id),
+                Some(Created::Atom(id) | Created::AtomAndBond(id, _)) => Ok(*id),
                 _ => Err(EditError::UnresolvedReference(index)),
             },
         }
@@ -1337,7 +1341,7 @@ impl Draft {
         match bond {
             BondRef::Id(id) => Ok(id),
             BondRef::Created(index) => match self.created.get(index) {
-                Some(Created::Bond(id)) => Ok(*id),
+                Some(Created::Bond(id) | Created::AtomAndBond(_, id)) => Ok(*id),
                 _ => Err(EditError::UnresolvedBondReference(index)),
             },
         }
@@ -1432,7 +1436,7 @@ impl Draft {
                         .insert(PositionKey { instance, atom: id }, point);
                 }
                 if let Some((atom, order)) = target {
-                    self.insert_bond(atom, id, order)?;
+                    created = Created::AtomAndBond(id, self.insert_bond(atom, id, order)?);
                 }
             }
             Command::AddBond { begin, end, order } => {

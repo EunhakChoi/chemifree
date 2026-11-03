@@ -1437,6 +1437,223 @@ fn a_bond_added_in_a_transaction_can_be_configured_by_its_command_index() {
     );
 }
 
+/// A new atom bonded from `from` by `order`.
+fn atom_bonded(from: AtomRef, order: BondOrder) -> Command {
+    Command::AddAtom {
+        atom: Atom::from(Element::CARBON),
+        positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+        bond_to: Some(BondTo { atom: from, order }),
+    }
+}
+
+#[test]
+fn the_bond_an_added_atom_brings_can_be_named_by_its_command_index() {
+    let mut document = empty();
+    run(
+        &mut document,
+        &[
+            new_atom(),
+            atom_bonded(AtomRef::Created(0), BondOrder::Single),
+            Command::SetBondMark {
+                bond: BondRef::Created(1),
+                mark: Some(wedge(BondEnd::End)),
+            },
+            // The same index still names the atom where an atom is expected.
+            atom_bonded(AtomRef::Created(1), BondOrder::Double),
+            Command::SetBondConfiguration {
+                bond: BondRef::Created(3),
+                configuration: Some(BondConfiguration::Unknown),
+            },
+        ],
+    );
+    let marks: Vec<_> = document
+        .bonds()
+        .map(|(id, bond)| (id, bond.begin, bond.end, bond.mark))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            (bond(1), atom(1), atom(2), Some(wedge(BondEnd::End))),
+            (bond(2), atom(2), atom(3), None),
+        ],
+        "the wedge is on the bond the second command added, not on the double bond"
+    );
+    assert_eq!(
+        double_bond_state(&document, 2),
+        Some(DoubleBondState::Unknown)
+    );
+
+    // A command that added an atom without a bond, or a later one, names no bond.
+    for index in [0, 9] {
+        let error = refusal(
+            &mut document,
+            &[Command::SetBondMark {
+                bond: BondRef::Created(index),
+                mark: None,
+            }],
+        );
+        assert_eq!(
+            (error.index, &error.error),
+            (Some(0), &EditError::UnresolvedBondReference(index)),
+            "$ {index} creates no bond"
+        );
+    }
+    // And a command that only added a bond does not name an atom.
+    let error = refusal(
+        &mut document,
+        &[
+            add_bond(1, 3, BondOrder::Single),
+            Command::SetAtomConfiguration {
+                atom: AtomRef::Created(0),
+                configuration: None,
+            },
+        ],
+    );
+    assert_eq!(
+        (error.index, &error.error),
+        (Some(1), &EditError::UnresolvedReference(0))
+    );
+}
+
+#[test]
+fn a_double_bond_end_may_be_a_query_atom_but_a_center_may_not() {
+    // Configure first, then make an end a query atom: the statement is about how two
+    // neighbors lie across the bond, which does not depend on the end's element.
+    let mut document = alkene();
+    run(
+        &mut document,
+        &[relative(1, s(3), s(5), Relation::SameSide)],
+    );
+    run(
+        &mut document,
+        &[Command::UpdateAtom {
+            atom: atom(1),
+            edit: AtomEdit {
+                kind: Some(AtomKind::Query(QueryAtom::Any)),
+                ..AtomEdit::default()
+            },
+        }],
+    );
+    assert!(double_bond_state(&document, 1).is_some());
+
+    // Make an end a query atom first, then state the configuration.
+    let mut document = alkene();
+    run(
+        &mut document,
+        &[Command::UpdateAtom {
+            atom: atom(2),
+            edit: AtomEdit {
+                kind: Some(AtomKind::Query(QueryAtom::Halogen)),
+                ..AtomEdit::default()
+            },
+        }],
+    );
+    run(
+        &mut document,
+        &[relative(1, s(3), s(5), Relation::OppositeSides)],
+    );
+    assert!(double_bond_state(&document, 1).is_some());
+
+    // A center is a statement about a four-coordinate atom, which a query atom is not.
+    let mut document = center_with(4);
+    run(
+        &mut document,
+        &[Command::UpdateAtom {
+            atom: atom(1),
+            edit: AtomEdit {
+                kind: Some(AtomKind::Query(QueryAtom::Any)),
+                ..AtomEdit::default()
+            },
+        }],
+    );
+    assert_refused(
+        &mut document,
+        tetra(1, [s(2), s(3), s(4), s(5)], Turn::Clockwise),
+        StereoError::CenterUnsupported,
+        "a stereocenter on a query atom",
+    );
+}
+
+/// `a1=a2=a3`, with `a4` on `a1` and `a5` on `a3`: the first double bond is `b1`.
+fn allene() -> Document {
+    let mut document = empty();
+    let mut commands: Vec<Command> = (0..5).map(|_| new_atom()).collect();
+    commands.extend([
+        add_bond(1, 2, BondOrder::Double),
+        add_bond(2, 3, BondOrder::Double),
+        add_bond(1, 4, BondOrder::Single),
+        add_bond(3, 5, BondOrder::Single),
+    ]);
+    run(&mut document, &commands);
+    document
+}
+
+#[test]
+fn on_a_cumulated_bond_a_statement_is_refused_but_the_crossed_depiction_is_kept() {
+    let mut document = allene();
+    // "Unknown" is a statement about the bond, and which axis it is about is not settled for
+    // a cumulene, so it is refused like a relative configuration.
+    for configuration in [
+        BondConfiguration::Unknown,
+        BondConfiguration::Relative {
+            begin_neighbor: s(4),
+            end_neighbor: s(3),
+            relation: Relation::SameSide,
+        },
+    ] {
+        let error = refusal(
+            &mut document,
+            &[Command::SetBondConfiguration {
+                bond: BondRef::Id(bond(1)),
+                configuration: Some(configuration),
+            }],
+        );
+        assert_eq!(
+            (error.index, stereo_refusal(&error)),
+            (Some(0), Some(StereoError::GeometryUnsupported)),
+            "{configuration:?} on an allene end"
+        );
+    }
+    // The crossed mark is a depiction, checked against the bond's order only.
+    run(&mut document, &[mark(1, Some(StereoMark::Crossed))]);
+    let (_, stored) = document.bonds().next().unwrap();
+    assert_eq!(stored.mark, Some(StereoMark::Crossed));
+}
+
+#[test]
+fn a_neighbor_change_clears_a_configured_double_bond_but_an_order_change_is_refused() {
+    let configured = || {
+        let mut document = alkene();
+        run(
+            &mut document,
+            &[relative(1, s(3), s(5), Relation::SameSide)],
+        );
+        document
+    };
+
+    // Which atoms the record is about changes: it is cleared, and the reply says so.
+    let mut document = configured();
+    let applied = run(&mut document, &[add_bond(2, 3, BondOrder::Single)]);
+    assert_eq!(applied.cleared, [StereoKey::DoubleBond(bond(1))]);
+    assert!(document.stereo().is_empty());
+
+    // The same atoms but a bond that would make the record contradict itself: refused, and
+    // nothing is erased.
+    let mut document = configured();
+    let error = refusal(
+        &mut document,
+        &[Command::UpdateBond {
+            bond: bond(2),
+            order: BondOrder::Triple,
+        }],
+    );
+    assert_eq!(
+        (error.index, stereo_refusal(&error)),
+        (Some(0), Some(StereoError::GeometryUnsupported))
+    );
+    assert!(double_bond_state(&document, 1).is_some());
+}
+
 // ---------------------------------------------------------------------------------------------
 // Identity, no-op detection, history, restore
 // ---------------------------------------------------------------------------------------------
