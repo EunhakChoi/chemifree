@@ -85,7 +85,7 @@ import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
-import { stereoCounts } from '@/lib/stereo-contract'
+import { stereoCounts, type StereoNote } from '@/lib/stereo-contract'
 import {
   ATTACHMENT_POINTS,
   sameInspectionSnapshot,
@@ -645,6 +645,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       {current.recovery && <RecoveryNotice editor={editor} recovery={current.recovery} unsaved={session.unsaved_changes} />}
       {editor.copyNotice && <CopyNoticeBanner editor={editor} notice={editor.copyNotice} title={document.title} />}
       <StereoNotice document={document} />
+      <StereoNotes notes={current.notes ?? []} />
 
       <div className="flex flex-wrap items-center gap-2">
         <ToggleGroup
@@ -755,6 +756,21 @@ function StereoNotice({ document }: { document: DocumentView }) {
       This drawing has {count(marks, 'stereo mark')} and {count(configurations, 'stored configuration')}. They are kept and
       saved, but the editor does not draw, derive or compare them yet; a marked bond is named in its label.
     </p>
+  )
+}
+
+/**
+ * Says what the last edit cleared of stereo: the reply to a transaction lists each stated
+ * configuration removed because the edit changed the atoms it was about. Undo restores it.
+ */
+function StereoNotes({ notes }: { notes: readonly StereoNote[] }) {
+  if (notes.length === 0) return null
+  return (
+    <ul role="note" data-testid="stereo-notes" className="list-disc pl-5 text-xs leading-relaxed text-muted-foreground">
+      {notes.map((note) => (
+        <li key={note.source_path}>{note.reason}</li>
+      ))}
+    </ul>
   )
 }
 

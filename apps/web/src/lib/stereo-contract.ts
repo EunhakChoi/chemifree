@@ -53,6 +53,19 @@ export interface StereoView {
   bonds: Array<{ bond: string; configuration: BondConfiguration }>
 }
 
+/**
+ * What a transaction cleared of stereo because it changed what the record was about: one entry
+ * per record, shaped like the contract's loss entries. Describes that request only.
+ */
+export interface StereoNote {
+  feature: 'stereo_configuration'
+  /** `atoms[a1]` for a center, `bonds[b5]` for a double bond. */
+  source_path: string
+  disposition: 'dropped'
+  reason: string
+  semantic_impact: 'stereo'
+}
+
 /** A document with no stated configuration, and what an older service's reply is read as. */
 export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds: [] })
 
@@ -188,4 +201,21 @@ export function markName(mark: StereoMark, bond: { begin: string; end: string })
       return unhandled
     }
   }
+}
+
+/** Whether `value` is the `notes` list of a document reply, which holds only stereo notes. */
+export function isStereoNotes(value: unknown): value is StereoNote[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (note) =>
+        isRecord(note) &&
+        hasOnly(note, ['feature', 'source_path', 'disposition', 'reason', 'semantic_impact']) &&
+        note.feature === 'stereo_configuration' &&
+        typeof note.source_path === 'string' &&
+        note.disposition === 'dropped' &&
+        typeof note.reason === 'string' &&
+        note.semantic_impact === 'stereo',
+    )
+  )
 }
