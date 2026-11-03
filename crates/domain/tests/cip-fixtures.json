@@ -948,24 +948,254 @@
   {
    "name": "1,3-diethylidenecyclobutane",
    "smiles": "CC=C1CC(=CC)C1",
-   "source": "each double bond's descriptor would need the other's: the ring branches at an end meet the other bond alike, so only that descriptor could separate them. The model refuses with a stereo cycle; it does not look through the ring symmetry",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic (an earlier version refused this as a stereo cycle)",
    "expect": [
     {
      "bond": [
       1,
       2
      ],
-     "label": "unsupported:cip_stereo_cycle"
+     "label": "none"
     },
     {
      "bond": [
       4,
       5
      ],
-     "label": "unsupported:cip_stereo_cycle"
+     "label": "none"
     }
-   ],
-   "rdkit_differs": "RDKit finds both bonds not stereogenic, which they are; the model's refusal is the conservative answer"
+   ]
+  },
+  {
+   "name": "1,4-diethylidenecyclohexane",
+   "smiles": "CC=C1CCC(=CC)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,4-diethylidenecyclohexane, geometry stated",
+   "smiles": "C/C=C1\\CC/C(=C\\C)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic; a stored geometry on such a bond is only flagged",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,5-diethylidenecyclooctane",
+   "smiles": "CC=C1CCCC(=CC)CCC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "2,6-diethylidenespiro[3.3]heptane",
+   "smiles": "CC=C1CC2(C1)CC(=CC)C2",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "4-ethylidene-1-methylenecyclohexane",
+   "smiles": "C=C1CCC(=CC)CC1",
+   "source": "the two ring branches at an end of each double bond reach the other double bond alike, so the bond is one value in both and Rule 3 does not need it; the bond is not stereogenic",
+   "expect": [
+    {
+     "bond": [
+      0,
+      1
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      4,
+      5
+     ],
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "1,2-diethylidenecyclohexane (E,Z)",
+   "smiles": "C/C=C1\\CCCC\\C1=C\\C",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "1,2-diethylidenecyclohexane (Z,Z)",
+   "smiles": "C/C=C1/CCCC\\C1=C\\C",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      7,
+      8
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "1,3-diethylidenecyclohexane (Z,E)",
+   "smiles": "C/C=C1/CCC/C(=C\\C)C1",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "1,3-diethylidenecyclohexane (E,E)",
+   "smiles": "C/C=C1\\CCC/C(=C\\C)C1",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      6,
+      7
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
+   "name": "2,5-diethylidenenorbornane (E,Z)",
+   "smiles": "C/C=C1\\CC2/C(=C\\C)CC1C2",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "Z"
+    }
+   ]
+  },
+  {
+   "name": "2,5-diethylidenenorbornane (Z,Z)",
+   "smiles": "C/C=C1/CC2/C(=C\\C)CC1C2",
+   "source": "the ring branches at each end differ by Rule 1a, so the bond is stereogenic and its geometry is read as for any alkene",
+   "expect": [
+    {
+     "bond": [
+      1,
+      2
+     ],
+     "label": "Z"
+    },
+    {
+     "bond": [
+      5,
+      6
+     ],
+     "label": "Z"
+    }
+   ]
   }
  ]
 }

@@ -22,7 +22,12 @@
 //! no double bond). The descriptor of a ligand double bond is intrinsic: it ranks the two
 //! substituents at each end of the bond in the whole molecule (the partner excluded as a
 //! ligand), with the same rules, and reads the stored relation through them. A bond whose
-//! descriptor depends on itself is [`Reason::StereoCycle`]. A ligand double bond that is
+//! descriptor depends on itself is [`Reason::StereoCycle`]. Two nodes at the same position of
+//! the two digraphs of a comparison that are joined to their parents by one and the same double
+//! bond are equal under Rule 3 whatever its descriptor, and the descriptor is not asked for: the
+//! two ring branches at an end of 1,4-diethylidenecyclohexane meet the other double bond alike,
+//! so neither bond is a cycle (both are `none`). Two different bonds whose descriptors need each
+//! other (tetra-ethylidenecyclobutane) still are. A ligand double bond that is
 //! stereogenic but has no stored record, or is stored as unknown, has no descriptor: when a
 //! Rule 3 comparison has to place it against a descriptor it could equal, the result is
 //! [`State::Ambiguous`] with [`Reason::LigandStereoUnspecified`], never a guess and never

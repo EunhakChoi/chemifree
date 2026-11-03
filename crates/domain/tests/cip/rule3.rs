@@ -821,16 +821,18 @@ fn text_of(report: &BondReport) -> String {
 
 #[test]
 fn double_bonds_whose_descriptors_need_each_other_are_a_stereo_cycle_not_a_guess() {
-    // 1,3-diethylidenecyclobutane: the two ring branches at an end of one double bond meet the
-    // other double bond alike, so only the other's descriptor could separate them, and it needs
-    // the first's in turn. (RDKit calls both bonds not stereogenic, which they are; the model
-    // does not look through the symmetry and refuses.)
-    let smiles = "CC=C1CC(=CC)C1";
+    // Tetra-ethylidenecyclobutane: at each ring carbon the two ring branches meet different
+    // double bonds (the neighbors' own), so only those descriptors could separate them, and each
+    // needs the first's in turn. A stated record changes nothing: the ranking is what cannot be
+    // finished.
+    let smiles = "CC=C1C(=CC)C(=CC)C1=CC";
     let plain = parse(smiles);
+    let doubles = double_bonds_of(&plain);
+    assert_eq!(doubles.len(), 4);
     let built = plain.build();
-    let both = [bond_index(&plain, 1, 2), bond_index(&plain, 4, 5)];
-    let forward = bond_reports(&built, &both, Limits::default()).unwrap();
-    let backward = bond_reports(&built, &[both[1], both[0]], Limits::default()).unwrap();
+    let forward = bond_reports(&built, &doubles, Limits::default()).unwrap();
+    let reversed: Vec<usize> = doubles.iter().rev().copied().collect();
+    let backward = bond_reports(&built, &reversed, Limits::default()).unwrap();
     for report in forward.iter().chain(&backward) {
         assert_eq!(
             state_text(report.state),
@@ -840,11 +842,10 @@ fn double_bonds_whose_descriptors_need_each_other_are_a_stereo_cycle_not_a_guess
         assert!(report.ends.is_none());
     }
     // Neither the order of the request nor which bond asked first changes what a bond is charged.
-    assert_eq!(forward[0].nodes, backward[1].nodes);
-    assert_eq!(forward[1].nodes, backward[0].nodes);
+    for (i, report) in forward.iter().enumerate() {
+        assert_eq!(report.nodes, backward[3 - i].nodes);
+    }
     assert!(forward[0].nodes > 0 && forward[0].nodes < 1000);
-
-    // A stated record changes nothing: the ranking is what cannot be finished.
     let stated = with_record(
         smiles,
         (1, 2),
@@ -856,16 +857,6 @@ fn double_bonds_whose_descriptors_need_each_other_are_a_stereo_cycle_not_a_guess
     assert_eq!(state_text(report.state), "unsupported:cip_stereo_cycle");
     assert!(report.stored.is_some());
 
-    // All four ethylidene bonds of the tetra-substituted ring depend on one another.
-    let ring = parse("CC=C1C(=CC)C(=CC)C1=CC");
-    let doubles: Vec<usize> = (0..ring.bonds.len())
-        .filter(|&i| ring.bonds[i].2 == BondOrder::Double)
-        .collect();
-    assert_eq!(doubles.len(), 4);
-    for report in bond_reports(&ring.build(), &doubles, Limits::default()).unwrap() {
-        assert_eq!(state_text(report.state), "unsupported:cip_stereo_cycle");
-    }
-
     // The same ring with nothing to separate its branches is not a cycle: Rule 3 is not asked.
     let methylene = parse("C=C1C(=C)C(=C)C1=C");
     let doubles: Vec<usize> = (0..methylene.bonds.len())
@@ -874,12 +865,76 @@ fn double_bonds_whose_descriptors_need_each_other_are_a_stereo_cycle_not_a_guess
     for report in bond_reports(&methylene.build(), &doubles, Limits::default()).unwrap() {
         assert_eq!(state_text(report.state), "none");
     }
+}
 
-    // A center whose ligands need the cycle is refused with it, never given a label.
-    assert_eq!(
-        center_label("F[C@H](CC=C1CC(=CC)C1)CC=C1CC(=CC)C1", 1),
-        "unsupported:cip_stereo_cycle"
+/// Every permutation of `0..count`, in a fixed order.
+fn permutations(count: usize) -> Vec<Vec<usize>> {
+    if count == 0 {
+        return vec![Vec::new()];
+    }
+    let mut all = Vec::new();
+    for tail in permutations(count - 1) {
+        for place in 0..count {
+            let mut order = tail.clone();
+            order.insert(place, count - 1);
+            all.push(order);
+        }
+    }
+    all
+}
+
+/// The indices of the double bonds of a molecule.
+fn double_bonds_of(molecule: &Molecule) -> Vec<usize> {
+    (0..molecule.bonds.len())
+        .filter(|&i| molecule.bonds[i].2 == BondOrder::Double)
+        .collect()
+}
+
+/// The label, reason and charge of every double bond of the molecule, asked for in each order
+/// of the bonds: the lists (by bond index) must be identical, and that list is returned.
+fn same_in_every_order(molecule: &Molecule) -> Vec<(String, usize)> {
+    let built = molecule.build();
+    let doubles = double_bonds_of(molecule);
+    let mut seen: Option<Vec<(String, usize)>> = None;
+    for order in permutations(doubles.len()) {
+        let asked: Vec<usize> = order.iter().map(|&i| doubles[i]).collect();
+        let reports = bond_reports(&built, &asked, Limits::default()).unwrap();
+        let mut by_bond = vec![(String::new(), 0); doubles.len()];
+        for (&position, report) in order.iter().zip(&reports) {
+            by_bond[position] = (state_text(report.state), report.nodes);
+        }
+        match &seen {
+            None => seen = Some(by_bond),
+            Some(first) => assert_eq!(first, &by_bond, "asked in the order {order:?}"),
+        }
+    }
+    seen.unwrap()
+}
+
+#[test]
+fn two_ring_branches_that_reach_the_same_double_bond_do_not_make_a_stereo_cycle() {
+    // Neither molecule is stereogenic at either exocyclic bond: the two ring branches at an end
+    // meet the other double bond alike (it is one bond, so its descriptor is one value), and
+    // RDKit's labeler gives none for both bonds.
+    for smiles in ["CC=C1CCC(=CC)CC1", "CC=C1CC(=CC)C1"] {
+        for (label, _) in same_in_every_order(&parse(smiles)) {
+            assert_eq!(label, "none", "{smiles}");
+        }
+        // The scan lists neither, and a stored record is flagged as stored on a bond that is not
+        // stereogenic.
+        let (_, _, found) = scan(smiles);
+        assert!(found.double_bonds.is_empty(), "{smiles}");
+    }
+    let stated = with_record(
+        "CC=C1CCC(=CC)CC1",
+        (1, 2),
+        Neighbor::Atom(0),
+        Neighbor::Atom(3),
+        Some(Relation::SameSide),
     );
+    let report = bond_report(&stated, 1, 2);
+    assert_eq!(state_text(report.state), "none");
+    assert_eq!(report.warnings, vec![Warning::StoredNotStereogenic]);
 }
 
 /// The nodes a center is charged when its two ligands are the same cage or fused polycycle: the

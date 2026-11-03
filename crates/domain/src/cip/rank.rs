@@ -284,29 +284,57 @@ impl<'c, 'g> Engine<'c, 'g> {
     /// The descriptor of the double bond into each node of these spheres (only a real node
     /// whose real parent is joined to it by a double bond has one), asked for before the
     /// spheres are compared so that which descriptors a comparison needs does not depend on the
-    /// order it reaches them in.
+    /// order it reaches them in. A pair of nodes that sit at the same position and are joined
+    /// to their parents by the same double bond is not asked about: see
+    /// [`Engine::same_double_bond`].
     fn fetch_geometries(&mut self, spheres: [&[Vec<NodeIx>]; 2]) -> Result<(), Halt> {
-        for &node in spheres
-            .into_iter()
-            .flat_map(|groups| groups.iter().flatten())
-        {
-            if self.geometry.contains_key(&node) {
-                continue;
+        let [left, right] = spheres;
+        for (l, r) in left.iter().zip(right) {
+            for position in 0..l.len().max(r.len()) {
+                let (a, b) = (l.get(position).copied(), r.get(position).copied());
+                if self.same_double_bond(a, b) {
+                    continue;
+                }
+                for node in [a, b].into_iter().flatten() {
+                    if self.geometry.contains_key(&node) {
+                        continue;
+                    }
+                    let found = self.node_geometry(node)?;
+                    self.geometry.insert(node, found);
+                }
             }
-            let found = self.node_geometry(node)?;
-            self.geometry.insert(node, found);
         }
         Ok(())
     }
 
-    fn node_geometry(&mut self, node: NodeIx) -> Result<Option<Geometry>, Halt> {
+    /// The double bond that joins a real node to its real parent, if it is a double bond.
+    fn double_bond_into(&self, node: NodeIx) -> Option<BondId> {
         let arena = &self.arena;
         let current = arena.node(node);
         let (Kind::Real(atom), Some(_), 2) = (current.kind, arena.parent(node), current.bond_in)
         else {
-            return Ok(None);
+            return None;
         };
-        let Some(bond) = arena.context().bond_between(arena.parent_atom(node), atom) else {
+        arena.context().bond_between(arena.parent_atom(node), atom)
+    }
+
+    /// Whether two nodes at the same position are joined to their parents by one and the same
+    /// double bond. The descriptor of a bond is one value, so Rule 3 finds the two equal
+    /// whatever it is and does not need it. This is what happens when the two branches of a
+    /// ring reach the same ligand double bond; asking for the descriptor then would make a bond
+    /// that sits across a symmetric ring look as if its descriptor depended on itself.
+    fn same_double_bond(&self, a: Option<NodeIx>, b: Option<NodeIx>) -> bool {
+        match (a, b) {
+            (Some(a), Some(b)) => {
+                let bond = self.double_bond_into(a);
+                bond.is_some() && bond == self.double_bond_into(b)
+            }
+            _ => false,
+        }
+    }
+
+    fn node_geometry(&mut self, node: NodeIx) -> Result<Option<Geometry>, Halt> {
+        let Some(bond) = self.double_bond_into(node) else {
             return Ok(None);
         };
         self.requested.insert(bond);
@@ -368,11 +396,11 @@ impl<'c, 'g> Engine<'c, 'g> {
             }
             for (l, r) in left.iter().zip(&right) {
                 for position in 0..l.len().max(r.len()) {
-                    let verdict = compare_views(
-                        rule,
-                        self.view(l.get(position).copied()),
-                        self.view(r.get(position).copied()),
-                    );
+                    let (a, b) = (l.get(position).copied(), r.get(position).copied());
+                    if rule == Rule::R3 && self.same_double_bond(a, b) {
+                        continue;
+                    }
+                    let verdict = compare_views(rule, self.view(a), self.view(b));
                     if let Some(reason) = verdict.refusal {
                         self.refuse(reason);
                     }
