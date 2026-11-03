@@ -3047,7 +3047,9 @@ test('the status line says what a change of order removed: the mark, and a store
   // A configuration the neighbor cascade cleared on a bond that stays double is the reply's notes' to tell.
   const cascaded = { ...before, stereo: { atoms: [], bonds: [] } }
   assert.equal(describeStereoChange(before, cascaded, { kind: 'none', why: null }), null)
-  assert.equal(describeStereoChange(before, { ...before, bonds: [] }, { kind: 'none', why: null }), 'Crossed mark on b1 was removed with the bond.', 'a deleted bond takes its mark with it')
+  // The service removes the configuration record of a bond it deletes.
+  const deleted = { ...before, bonds: [], stereo: { atoms: [], bonds: [] } }
+  assert.equal(describeStereoChange(before, deleted, { kind: 'none', why: null }), 'Crossed mark on b1 was removed with the bond.', 'a deleted bond takes its mark with it')
 })
 
 test('a crossed mark stores the bond configuration and says so', () => {
@@ -3111,14 +3113,54 @@ test('the status line says a stored configuration is kept only when nothing stor
     describeStereoChange(markedA1('clockwise'), { ...wavy(markedA1('clockwise')), stereo: stored }, sent),
     'Wavy mark on b1. Configuration of a1 stored from the drawing (unknown). It replaced a stored configuration (clockwise); undo restores it.',
   )
-  // Made wavy where the service stored nothing (the center could not be read): the old record stays and is not shown.
+  // Made wavy where the service stored nothing (the center could not be read): a wavy bond shows both its
+  // atoms (one definition for every mark), so the old record at a1 is not told as unshown.
   assert.equal(
     describeStereoChange(markedA1('clockwise'), wavy(markedA1('clockwise')), { kind: 'none', why: 'a2 has 1 bond; a stereocenter needs 3 or 4.' }),
-    `Wavy mark on b1. Nothing stored: a2 has 1 bond; a stereocenter needs 3 or 4. ${kept}`,
+    'Wavy mark on b1. Nothing stored: a2 has 1 bond; a stereocenter needs 3 or 4.',
+  )
+  // A wedge moved to the other end of the bond, nothing stored there: the record at a1 stays and nothing shows it.
+  const flipped = withMark(markedA1('clockwise'), 'b1', { kind: 'wedge', narrow: 'end' })
+  assert.equal(
+    describeStereoChange(markedA1('clockwise'), flipped, { kind: 'none', why: 'a2 has 1 bond; a stereocenter needs 3 or 4.' }),
+    `Wedge mark on b1, narrow end at a2. Nothing stored: a2 has 1 bond; a stereocenter needs 3 or 4. ${kept}`,
   )
   // Another marked bond still has its narrow end at a1.
   const both = withMark(markedA1('clockwise'), 'b2', { kind: 'hash', narrow: 'begin' })
   assert.equal(describeStereoChange(both, withMark(both, 'b1', null), sent), 'Wedge mark removed from b1.', 'b2 still shows a1')
+})
+
+const keptOf = (item) => `The stored configuration of ${item} is kept; the drawing no longer shows it.`
+const unknownRecord = (atom) => ({ atom, configuration: { kind: 'unknown' } })
+const stereoOf = (atoms, bonds = []) => ({ atoms, bonds })
+const wavyB1WithRecords = () => ({ ...withMark(unstated(), 'b1', { kind: 'wavy' }), stereo: stereoOf([unknownRecord('a1'), unknownRecord('a2')]) })
+
+test('a wavy mark still shows both its atoms, so clearing a wedge at one of them does not say it is no longer shown', () => {
+  const both = withMark({ ...markedA1('clockwise'), stereo: stereoOf([a1Record('clockwise')]) }, 'b2', { kind: 'wavy' })
+  assert.equal(describeStereoChange(both, withMark(both, 'b1', null), sent), 'Wedge mark removed from b1.')
+})
+
+test('removing the only wavy mark that showed two atoms says both stored configurations are kept, also when its bond is deleted', () => {
+  const stored = wavyB1WithRecords()
+  assert.equal(describeStereoChange(stored, withMark(stored, 'b1', null), sent), `Wavy mark removed from b1. ${keptOf('a1')} ${keptOf('a2')}`)
+  const deleted = { ...stored, bonds: stored.bonds.filter((bond) => bond.id !== 'b1') }
+  assert.equal(describeStereoChange(stored, deleted, { kind: 'none', why: null }), `Wavy mark on b1 was removed with the bond. ${keptOf('a1')} ${keptOf('a2')}`)
+})
+
+test('a wavy mark replaced by a wedge at one end says the other end is no longer shown', () => {
+  const stored = wavyB1WithRecords()
+  const hashed = { ...withMark(stored, 'b1', { kind: 'hash', narrow: 'begin' }), stereo: stereoOf([a1Record('clockwise'), unknownRecord('a2')]) }
+  assert.equal(
+    describeStereoChange(stored, hashed, sent),
+    `Hashed wedge mark on b1, narrow end at a1. Configuration of a1 stored from the drawing (clockwise). It replaced a stored configuration (unknown); undo restores it. ${keptOf('a2')}`,
+  )
+})
+
+test('a crossed mark shows its double bond like the drawing of it says, so removing it keeps the stored configuration told', () => {
+  const crossed = { ...withMark(unstated(), 'b10', { kind: 'crossed' }), stereo: stereoOf([], [{ bond: 'b10', configuration: { kind: 'unknown' } }]) }
+  assert.equal(describeStereoChange(crossed, withMark(crossed, 'b10', null), sent), `Crossed mark removed from b10. ${keptOf('b10')}`)
+  const deleted = { ...crossed, bonds: crossed.bonds.filter((bond) => bond.id !== 'b10') }
+  assert.equal(describeStereoChange(crossed, deleted, sent), `Crossed mark on b10 was removed with the bond. ${keptOf('b10')}`)
 })
 
 test('drawing the mark a bond already has sends nothing, unless it can still store the configuration of a center without one', () => {

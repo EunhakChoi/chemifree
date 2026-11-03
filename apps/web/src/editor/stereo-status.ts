@@ -50,23 +50,27 @@ function storedFromDrawing(before: DocumentView, after: DocumentView, item: stri
 
 const NEEDS: Record<StereoMark['kind'], string> = { wedge: 'single', hash: 'single', wavy: 'single', crossed: 'double' }
 
-/** The atoms or bond whose configuration the drawing of `mark` on `bond` states. */
-const shownItems = (bond: BondView, mark: StereoMark) =>
-  mark.kind === 'crossed' ? [bond.id] : mark.kind === 'wavy' ? [bond.begin, bond.end] : [narrowAtom(mark, bond) ?? '']
+/**
+ * The atoms or bond whose configuration the drawing of `mark` on `bond` states: the narrow end of a
+ * wedge or hashed wedge, both atoms of a wavy bond, the double bond of a crossed one. Every question
+ * of what the drawing still shows, or no longer shows, is answered from this one definition.
+ */
+const shownItems = (bond: BondView, mark: StereoMark | null) =>
+  mark === null ? [] : mark.kind === 'crossed' ? [bond.id] : mark.kind === 'wavy' ? [bond.begin, bond.end] : [narrowAtom(mark, bond) ?? '']
 
 /**
  * What a transaction did to the stereo of `before`, or null when it did nothing of the kind: a
  * mark set, changed or removed on a bond that stays, a mark that went with a deleted bond, the
  * configuration of its atoms stored from the drawing (`derive` says whether that was asked and
  * how it went), and a stored double-bond configuration removed from a bond that is no longer
- * double. A stored configuration of an atom that no remaining mark shows any more is kept, and
- * the line says so, unless this gesture stored it again.
+ * double. A stored configuration of an atom or double bond that no remaining mark shows any more
+ * is kept, and the line says so, unless this gesture stored it again.
  */
 export function describeStereoChange(before: DocumentView, after: DocumentView, derive: DeriveOutcome): string | null {
   const sentences: string[] = []
   const bondsBefore = new Map(before.bonds.map((bond) => [bond.id, bond]))
   const bondsAfter = new Set(after.bonds.map((bond) => bond.id))
-  // The atoms whose mark no longer shows them, and those this gesture stored a configuration for.
+  // The atoms and double bonds no mark shows any more, and those this gesture stored a configuration for.
   const unshown = new Set<string>()
   const restored = new Set<string>()
   for (const bond of after.bonds) {
@@ -106,22 +110,23 @@ export function describeStereoChange(before: DocumentView, after: DocumentView, 
       const reason = markFits(wasMark.kind, bond.order) ? '' : `: it needs a ${NEEDS[wasMark.kind]} bond`
       sentences.push(`${markWords(wasMark)} removed from ${bond.id}${reason}.`)
     }
-    const oldCenter = narrowAtom(wasMark, bond)
-    if (oldCenter && oldCenter !== narrowAtom(bond.mark, bond)) unshown.add(oldCenter)
+    if (was) {
+      const stillShown = shownItems(bond, bond.mark)
+      for (const item of shownItems(was, wasMark)) if (!stillShown.includes(item)) unshown.add(item)
+    }
   }
   for (const bond of before.bonds) {
     if (bondsAfter.has(bond.id) || !bond.mark) continue
     // The reply's notes tell which configurations the deletion cleared; the mark itself is told here.
     sentences.push(`${markWords(bond.mark)} on ${bond.id} was removed with the bond.`)
-    const center = narrowAtom(bond.mark, bond)
-    if (center) unshown.add(center)
+    for (const item of shownItems(bond, bond.mark)) unshown.add(item)
   }
   // A mark drawn over itself that the service would not read a configuration for changes nothing else to say.
   if (sentences.length === 0 && derive.kind === 'refused') sentences.push(`Not stored: ${derive.message.replace(/\.$/, '')} (${derive.reason}).`)
-  const shownAfter = new Set(after.bonds.flatMap((bond) => (bond.mark && 'narrow' in bond.mark ? [narrowAtom(bond.mark, bond) ?? ''] : [])))
-  for (const atom of unshown) {
-    if (stored(after, atom) !== undefined && !restored.has(atom) && !shownAfter.has(atom)) {
-      sentences.push(`The stored configuration of ${atom} is kept; the drawing no longer shows it.`)
+  const shownAfter = new Set(after.bonds.flatMap((bond) => shownItems(bond, bond.mark)))
+  for (const item of unshown) {
+    if (stored(after, item) !== undefined && !restored.has(item) && !shownAfter.has(item)) {
+      sentences.push(`The stored configuration of ${item} is kept; the drawing no longer shows it.`)
     }
   }
   for (const bond of after.bonds) {
