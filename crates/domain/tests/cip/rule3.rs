@@ -930,3 +930,37 @@ fn the_default_caps_hold_for_cage_and_fused_polycyclic_ligands_except_the_cubyl_
         assert_eq!(report.nodes, nodes, "{name}");
     }
 }
+
+#[test]
+fn descriptors_nested_deeper_than_the_bound_are_a_limit_whatever_the_caps_and_the_order() {
+    // Pentaethylidenecyclopentane: each descriptor needs the others, one after the other; the
+    // fifth nested request is past MAX_RULE_3_NESTING and is refused as a limit, not as a cycle.
+    let molecule = parse("CC=C1C(=CC)C(=CC)C(=CC)C1=CC");
+    let doubles: Vec<usize> = (0..molecule.bonds.len())
+        .filter(|&i| molecule.bonds[i].2 == BondOrder::Double)
+        .collect();
+    assert_eq!(doubles.len(), 5);
+    let built = molecule.build();
+    let raised = Limits {
+        item_nodes: 50_000_000,
+        request_nodes: 50_000_000_000,
+    };
+    let reversed: Vec<usize> = doubles.iter().rev().copied().collect();
+    for (order, limits) in [
+        (&doubles, raised),
+        (&reversed, raised),
+        (&doubles, Limits::default()),
+    ] {
+        for report in bond_reports(&built, order, limits).unwrap() {
+            assert_eq!(
+                state_text(report.state),
+                "unsupported:cip_digraph_limit",
+                "{report:?}"
+            );
+        }
+    }
+    // The raised caps leave nothing for the node count to blame: the charge is the same
+    // `cap + 1` a refused nesting counts, and it is not a count of nodes materialized.
+    let report = &bond_reports(&built, &doubles[..1], raised).unwrap()[0];
+    assert!(report.nodes > 50_000_000, "{report:?}");
+}
