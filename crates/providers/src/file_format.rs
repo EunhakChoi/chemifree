@@ -1,20 +1,23 @@
-//! Chemifree document file format, version 5 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 6 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 5 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
-//! references, positions, selection, and document settings. History records their changes together.
-//! An atom state records its kind (an element or a query),
-//! charge, isotope, hydrogen state, radical, and attachment points; a bond state its order and,
-//! for a query bond, its query. Files are compact JSON, so the largest document a save allows,
-//! full history included, stays within the read limit.
+//! Version 6 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
+//! references, positions, stated stereo configurations (`stereo`), selection, and document
+//! settings. History records their changes together. An atom state records its kind (an element
+//! or a query), charge, isotope, hydrogen state, radical, and attachment points; a bond state its
+//! order, for a query bond its query, and, for a bond drawn with a stereo mark, the mark (with
+//! the narrow end of a wedge, so a bond's `begin` and `end` are never swapped). Files are
+//! compact JSON, so the largest document a save allows, full history included, stays within the
+//! read limit.
 //!
 //! Older versions are still read and migrated in memory, history included: version 2 atoms and
 //! bonds get the defaults (an element atom, inferred hydrogens, no radical, no attachment
 //! points), and version 1 files, which kept one position on each atom, also move those
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
-//! Reading never writes; the next write is version 5. Other versions are refused.
+//! Versions 1–5 have no stereo marks or configurations, so they read with none. Reading never
+//! writes; the next write is version 6. Other versions are refused.
 
 use std::collections::BTreeSet;
 
@@ -31,13 +34,16 @@ use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings}
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
+use chemifree_domain::stereo::{
+    BondEnd, CenterState, DoubleBondState, Relation, Slot, StereoKey, StereoMark, StereoState, Turn,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 5;
+const DRAFT_FORMAT_VERSION: u32 = 6;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -45,10 +51,13 @@ const VERSION_1: u32 = 1;
 const VERSION_2: u32 = 2;
 const VERSION_3: u32 = 3;
 const VERSION_4: u32 = 4;
+/// The version before stereo marks and configurations; read and migrated, never written.
+const VERSION_5: u32 = 5;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Version 5 adds document settings to the version 4 scene and history.
+/// Version 6 adds stereo marks on bonds and stated stereo configurations to the version 5
+/// scene and history.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -82,6 +91,8 @@ struct SceneDocument {
     objects: Vec<Stored<SceneState>>,
     references: Vec<StoredReference>,
     positions: Vec<ScenePosition>,
+    /// Stated configurations; the id is an atom's (a center) or a bond's (a double bond).
+    stereo: Vec<Stored<StoredStereoState>>,
     selection: StoredSelection,
     next_atom: u32,
     next_bond: u32,
@@ -207,7 +218,86 @@ struct SceneChangeSet {
     objects: Vec<Keyed<SceneState>>,
     references: Vec<StoredReferenceChange>,
     positions: Vec<PositionChange>,
+    stereo: Vec<Keyed<StoredStereoState>>,
     selection: StoredChange<StoredSelection>,
+}
+
+/// Version 5 is the scene format with document settings, before stereo marks and
+/// configurations. Its exact shape is kept separately so a version 5 file cannot silently
+/// contain a mark or stereo records, and a version 6 file cannot omit `stereo`.
+mod v5 {
+    use serde::{Deserialize, Serialize};
+
+    use super::{
+        AtomState, Keyed, PositionChange, ScenePosition, SceneState, Stored, StoredChange,
+        StoredMolecule, StoredPage, StoredReference, StoredReferenceChange, StoredSelection,
+        StoredSettings, UnmarkedBondState, required_option,
+    };
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct File {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Draft {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub base_revision: u64,
+        pub saved_at_ms: u64,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Document {
+        pub id: String,
+        pub revision: u64,
+        pub title: String,
+        pub settings: StoredSettings,
+        pub molecule: StoredMolecule<AtomState, UnmarkedBondState>,
+        pub pages: Vec<StoredPage>,
+        pub roots: Vec<String>,
+        pub objects: Vec<Stored<SceneState>>,
+        pub references: Vec<StoredReference>,
+        pub positions: Vec<ScenePosition>,
+        pub selection: StoredSelection,
+        pub next_atom: u32,
+        pub next_bond: u32,
+        pub next_object: u32,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct History {
+        pub undo: Vec<ChangeSet>,
+        pub redo: Vec<ChangeSet>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct ChangeSet {
+        pub title: Option<StoredChange<String>>,
+        #[serde(deserialize_with = "required_option")]
+        pub settings: Option<StoredChange<StoredSettings>>,
+        pub atoms: Vec<Keyed<AtomState>>,
+        pub bonds: Vec<Keyed<UnmarkedBondState>>,
+        pub roots: Option<StoredChange<Vec<String>>>,
+        pub objects: Vec<Keyed<SceneState>>,
+        pub references: Vec<StoredReferenceChange>,
+        pub positions: Vec<PositionChange>,
+        pub selection: StoredChange<StoredSelection>,
+    }
 }
 
 /// Version 4 is the independently implemented scene format, before document settings.
@@ -216,9 +306,9 @@ mod v4 {
     use serde::Deserialize;
 
     use super::{
-        AtomState, BondState, Keyed, PositionChange, ScenePosition, SceneState, Stored,
-        StoredChange, StoredMolecule, StoredPage, StoredReference, StoredReferenceChange,
-        StoredSelection,
+        AtomState, Keyed, PositionChange, ScenePosition, SceneState, Stored, StoredChange,
+        StoredMolecule, StoredPage, StoredReference, StoredReferenceChange, StoredSelection,
+        UnmarkedBondState,
     };
 
     #[derive(Deserialize)]
@@ -251,7 +341,7 @@ mod v4 {
         pub id: String,
         pub revision: u64,
         pub title: String,
-        pub molecule: StoredMolecule<AtomState, BondState>,
+        pub molecule: StoredMolecule<AtomState, UnmarkedBondState>,
         pub pages: Vec<StoredPage>,
         pub roots: Vec<String>,
         pub objects: Vec<Stored<SceneState>>,
@@ -275,7 +365,7 @@ mod v4 {
     pub(super) struct ChangeSet {
         pub title: Option<StoredChange<String>>,
         pub atoms: Vec<Keyed<AtomState>>,
-        pub bonds: Vec<Keyed<BondState>>,
+        pub bonds: Vec<Keyed<UnmarkedBondState>>,
         pub roots: Option<StoredChange<Vec<String>>>,
         pub objects: Vec<Keyed<SceneState>>,
         pub references: Vec<StoredReferenceChange>,
@@ -293,7 +383,7 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
-impl From<v4::Document> for SceneDocument {
+impl From<v4::Document> for v5::Document {
     fn from(value: v4::Document) -> Self {
         Self {
             id: value.id,
@@ -314,7 +404,7 @@ impl From<v4::Document> for SceneDocument {
     }
 }
 
-impl From<v4::History> for SceneHistory {
+impl From<v4::History> for v5::History {
     fn from(value: v4::History) -> Self {
         Self {
             undo: value.undo.into_iter().map(Into::into).collect(),
@@ -323,7 +413,7 @@ impl From<v4::History> for SceneHistory {
     }
 }
 
-impl From<v4::ChangeSet> for SceneChangeSet {
+impl From<v4::ChangeSet> for v5::ChangeSet {
     fn from(value: v4::ChangeSet) -> Self {
         Self {
             title: value.title,
@@ -334,6 +424,75 @@ impl From<v4::ChangeSet> for SceneChangeSet {
             objects: value.objects,
             references: value.references,
             positions: value.positions,
+            selection: value.selection,
+        }
+    }
+}
+
+/// Versions 1–5 state no stereo: no bond has a mark and no record exists.
+impl From<v5::Document> for SceneDocument {
+    fn from(value: v5::Document) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            title: value.title,
+            settings: value.settings,
+            molecule: StoredMolecule {
+                id: value.molecule.id,
+                atoms: value.molecule.atoms,
+                bonds: value
+                    .molecule
+                    .bonds
+                    .into_iter()
+                    .map(|bond| Stored {
+                        id: bond.id,
+                        state: bond.state.into(),
+                    })
+                    .collect(),
+            },
+            pages: value.pages,
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            stereo: Vec::new(),
+            selection: value.selection,
+            next_atom: value.next_atom,
+            next_bond: value.next_bond,
+            next_object: value.next_object,
+        }
+    }
+}
+
+impl From<v5::History> for SceneHistory {
+    fn from(value: v5::History) -> Self {
+        Self {
+            undo: value.undo.into_iter().map(Into::into).collect(),
+            redo: value.redo.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<v5::ChangeSet> for SceneChangeSet {
+    fn from(value: v5::ChangeSet) -> Self {
+        Self {
+            title: value.title,
+            settings: value.settings,
+            atoms: value.atoms,
+            bonds: value
+                .bonds
+                .into_iter()
+                .map(|keyed| Keyed {
+                    id: keyed.id,
+                    before: keyed.before.map(Into::into),
+                    after: keyed.after.map(Into::into),
+                })
+                .collect(),
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            stereo: Vec::new(),
             selection: value.selection,
         }
     }
@@ -471,7 +630,19 @@ struct StoredPoint {
     y: f64,
 }
 
-/// A version 3 bond: `query` is present exactly when `order` is `query`.
+/// A bond of versions 3 to 5: `query` is present exactly when `order` is `query`. These
+/// versions have no stereo mark, so this shape refuses one.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct UnmarkedBondState {
+    begin: String,
+    end: String,
+    order: StoredOrder,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query: Option<StoredBondQuery>,
+}
+
+/// A version 6 bond: as before, and `mark` when the bond is drawn as a stereo depiction.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BondState {
@@ -480,6 +651,85 @@ struct BondState {
     order: StoredOrder,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     query: Option<StoredBondQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mark: Option<StoredMark>,
+}
+
+impl From<UnmarkedBondState> for BondState {
+    fn from(value: UnmarkedBondState) -> Self {
+        Self {
+            begin: value.begin,
+            end: value.end,
+            order: value.order,
+            query: value.query,
+            mark: None,
+        }
+    }
+}
+
+/// How a bond is drawn. A wedge or hash records which end of the bond is narrow.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredMark {
+    Wedge { narrow: StoredBondEnd },
+    Hash { narrow: StoredBondEnd },
+    Wavy {},
+    Crossed {},
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredBondEnd {
+    Begin,
+    End,
+}
+
+/// One stated configuration. Its record's id is an atom's for a center and a bond's for a double
+/// bond; `Document::restore` checks that the kind matches.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredStereoState {
+    Center { state: StoredCenter },
+    DoubleBond { state: StoredDoubleBond },
+}
+
+/// A center's neighbor slots are atom ids, `implicit_hydrogen`, or `lone_pair`, in canonical
+/// order (atoms ascending, then hydrogen, then lone pair).
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredCenter {
+    Tetrahedral {
+        neighbors: [String; 4],
+        turn: StoredTurn,
+    },
+    Unknown {
+        neighbors: [String; 4],
+    },
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredTurn {
+    Anticlockwise,
+    Clockwise,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+enum StoredDoubleBond {
+    Relative {
+        begin_ref: String,
+        end_ref: String,
+        relation: StoredRelation,
+    },
+    Unknown {},
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredRelation {
+    SameSide,
+    OppositeSides,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -691,6 +941,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Five,
     Four,
     Three,
     Two,
@@ -707,13 +958,14 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        VERSION_5 => Ok(Version::Five),
         VERSION_4 => Ok(Version::Four),
         VERSION_3 => Ok(Version::Three),
         VERSION_2 => Ok(Version::Two),
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, and {current}"
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, and {current}"
         )),
     }
 }
@@ -803,6 +1055,14 @@ fn stored(document: &Document) -> Current {
                 y: point.y(),
             })
             .collect(),
+        stereo: parts
+            .stereo
+            .iter()
+            .map(|(key, state)| Stored {
+                id: stereo_key_id(*key),
+                state: stored_stereo_state(state),
+            })
+            .collect(),
         selection: stored_selection(&parts.selection),
         next_atom: parts.next_atom,
         next_bond: parts.next_bond,
@@ -831,7 +1091,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1, 2, or 3), which a save
+/// The earlier version of a document file this build reads (1 to 5), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -848,24 +1108,31 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Two) => Some(VERSION_2),
         Ok(Version::Three) => Some(VERSION_3),
         Ok(Version::Four) => Some(VERSION_4),
+        Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Current) | Err(_) => None,
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1, 2, or 3
-/// file is migrated.
+/// Parses and fully validates a stored document, including its history; a version 1 to 5 file
+/// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let parts = match version(bytes, FORMAT, FORMAT_VERSION, "document")? {
         Version::Current => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
         }
-        Version::Four => {
-            let file: v4::File = parse(bytes, "document")?;
+        Version::Five => {
+            let file: v5::File = parse(bytes, "document")?;
             scene_parts(file.document.into(), file.history.into())?
         }
+        Version::Four => {
+            let file: v4::File = parse(bytes, "document")?;
+            let (document, history): (v5::Document, v5::History) =
+                (file.document.into(), file.history.into());
+            scene_parts(document.into(), history.into())?
+        }
         Version::Three => {
-            let file: File<AtomState, BondState> = parse(bytes, "document")?;
+            let file: File<AtomState, UnmarkedBondState> = parse(bytes, "document")?;
             parts(file.document, file.history)?
         }
         Version::Two => {
@@ -880,7 +1147,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1, 2, or 3 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 5 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let (parts, base_revision, saved_at_ms) =
         match version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")? {
@@ -889,13 +1156,20 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
                 let parts = scene_parts(file.document, file.history)?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
-            Version::Four => {
-                let file: v4::Draft = parse(bytes, "draft")?;
+            Version::Five => {
+                let file: v5::Draft = parse(bytes, "draft")?;
                 let parts = scene_parts(file.document.into(), file.history.into())?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
+            Version::Four => {
+                let file: v4::Draft = parse(bytes, "draft")?;
+                let (document, history): (v5::Document, v5::History) =
+                    (file.document.into(), file.history.into());
+                let parts = scene_parts(document.into(), history.into())?;
+                (parts, file.base_revision, file.saved_at_ms)
+            }
             Version::Three => {
-                let file: DraftFile<AtomState, BondState> = parse(bytes, "draft")?;
+                let file: DraftFile<AtomState, UnmarkedBondState> = parse(bytes, "draft")?;
                 let parts = parts(file.document, file.history)?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
@@ -985,6 +1259,11 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
                     point(position.x, position.y)?,
                 ))
             })
+            .collect::<Result<_, String>>()?,
+        stereo: stored
+            .stereo
+            .into_iter()
+            .map(|record| Ok((stereo_key(&record.id)?, read_stereo_state(record.state)?)))
             .collect::<Result<_, String>>()?,
         selection: read_selection(stored.selection)?,
         next_atom: stored.next_atom,
@@ -1155,6 +1434,19 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
             ))
         })
         .collect::<Result<_, String>>()?;
+    set.stereo = stored
+        .stereo
+        .into_iter()
+        .map(|keyed| {
+            Ok((
+                stereo_key(&keyed.id)?,
+                Change {
+                    before: keyed.before.map(read_stereo_state).transpose()?,
+                    after: keyed.after.map(read_stereo_state).transpose()?,
+                },
+            ))
+        })
+        .collect::<Result<_, String>>()?;
     set.selection = Change {
         before: read_selection(stored.selection.before)?,
         after: read_selection(stored.selection.after)?,
@@ -1264,6 +1556,7 @@ fn parts<A: AtomRecord, B: BondRecord>(
             .collect(),
         references: Vec::new(),
         positions,
+        stereo: Vec::new(),
         selection: Selection::default(),
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
@@ -1307,6 +1600,7 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
         objects: vec![(instance, SceneObject::Instance)],
         references: Vec::new(),
         positions,
+        stereo: Vec::new(),
         selection: Selection::default(),
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
@@ -1358,6 +1652,7 @@ fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSe
         objects: Vec::new(),
         references: Vec::new(),
         positions,
+        stereo: Vec::new(),
         selection: Change::default(),
     })
 }
@@ -1387,15 +1682,15 @@ impl AtomRecord for v2::AtomState {
 
 impl BondRecord for v2::BondState {
     fn into_bond(self) -> Result<Bond, String> {
-        Ok(Bond {
-            begin: atom_id(&self.begin)?,
-            end: atom_id(&self.end)?,
-            order: match self.order {
+        Ok(Bond::new(
+            atom_id(&self.begin)?,
+            atom_id(&self.end)?,
+            match self.order {
                 v2::Order::Single => BondOrder::Single,
                 v2::Order::Double => BondOrder::Double,
                 v2::Order::Triple => BondOrder::Triple,
             },
-        })
+        ))
     }
 }
 
@@ -1429,37 +1724,203 @@ impl AtomRecord for AtomState {
     }
 }
 
+impl BondRecord for UnmarkedBondState {
+    fn into_bond(self) -> Result<Bond, String> {
+        Ok(Bond::new(
+            atom_id(&self.begin)?,
+            atom_id(&self.end)?,
+            read_order(self.order, self.query)?,
+        ))
+    }
+}
+
 impl BondRecord for BondState {
     fn into_bond(self) -> Result<Bond, String> {
-        let order = match (self.order, self.query) {
-            (StoredOrder::Query, Some(query)) => BondOrder::Query(match query {
-                StoredBondQuery::Any {} => BondQuery::Any,
-                StoredBondQuery::List { orders } => BondQuery::OneOf(
-                    orders
-                        .into_iter()
-                        .map(|order| match order {
-                            StoredQueryOrder::Single => QueryBondOrder::Single,
-                            StoredQueryOrder::Double => QueryBondOrder::Double,
-                            StoredQueryOrder::Triple => QueryBondOrder::Triple,
-                            StoredQueryOrder::Aromatic => QueryBondOrder::Aromatic,
-                        })
-                        .collect(),
-                ),
-            }),
-            (StoredOrder::Query, None) => return Err("a query bond needs its query".to_owned()),
-            (_, Some(_)) => return Err("only a query bond has a query".to_owned()),
-            (StoredOrder::Single, None) => BondOrder::Single,
-            (StoredOrder::Double, None) => BondOrder::Double,
-            (StoredOrder::Triple, None) => BondOrder::Triple,
-            (StoredOrder::Aromatic, None) => BondOrder::Aromatic,
-            (StoredOrder::Dative, None) => BondOrder::Dative,
-            (StoredOrder::Unknown, None) => BondOrder::Unknown,
-        };
         Ok(Bond {
-            begin: atom_id(&self.begin)?,
-            end: atom_id(&self.end)?,
-            order,
+            mark: self.mark.map(read_mark),
+            ..Bond::new(
+                atom_id(&self.begin)?,
+                atom_id(&self.end)?,
+                read_order(self.order, self.query)?,
+            )
         })
+    }
+}
+
+fn read_order(order: StoredOrder, query: Option<StoredBondQuery>) -> Result<BondOrder, String> {
+    Ok(match (order, query) {
+        (StoredOrder::Query, Some(query)) => BondOrder::Query(match query {
+            StoredBondQuery::Any {} => BondQuery::Any,
+            StoredBondQuery::List { orders } => BondQuery::OneOf(
+                orders
+                    .into_iter()
+                    .map(|order| match order {
+                        StoredQueryOrder::Single => QueryBondOrder::Single,
+                        StoredQueryOrder::Double => QueryBondOrder::Double,
+                        StoredQueryOrder::Triple => QueryBondOrder::Triple,
+                        StoredQueryOrder::Aromatic => QueryBondOrder::Aromatic,
+                    })
+                    .collect(),
+            ),
+        }),
+        (StoredOrder::Query, None) => return Err("a query bond needs its query".to_owned()),
+        (_, Some(_)) => return Err("only a query bond has a query".to_owned()),
+        (StoredOrder::Single, None) => BondOrder::Single,
+        (StoredOrder::Double, None) => BondOrder::Double,
+        (StoredOrder::Triple, None) => BondOrder::Triple,
+        (StoredOrder::Aromatic, None) => BondOrder::Aromatic,
+        (StoredOrder::Dative, None) => BondOrder::Dative,
+        (StoredOrder::Unknown, None) => BondOrder::Unknown,
+    })
+}
+
+fn read_mark(mark: StoredMark) -> StereoMark {
+    let end = |end| match end {
+        StoredBondEnd::Begin => BondEnd::Begin,
+        StoredBondEnd::End => BondEnd::End,
+    };
+    match mark {
+        StoredMark::Wedge { narrow } => StereoMark::Wedge {
+            narrow: end(narrow),
+        },
+        StoredMark::Hash { narrow } => StereoMark::Hash {
+            narrow: end(narrow),
+        },
+        StoredMark::Wavy {} => StereoMark::Wavy,
+        StoredMark::Crossed {} => StereoMark::Crossed,
+    }
+}
+
+fn stored_mark(mark: StereoMark) -> StoredMark {
+    let end = |end| match end {
+        BondEnd::Begin => StoredBondEnd::Begin,
+        BondEnd::End => StoredBondEnd::End,
+    };
+    match mark {
+        StereoMark::Wedge { narrow } => StoredMark::Wedge {
+            narrow: end(narrow),
+        },
+        StereoMark::Hash { narrow } => StoredMark::Hash {
+            narrow: end(narrow),
+        },
+        StereoMark::Wavy => StoredMark::Wavy {},
+        StereoMark::Crossed => StoredMark::Crossed {},
+    }
+}
+
+/// A record id is an atom's (a center) or a bond's (a double bond).
+fn stereo_key(id: &str) -> Result<StereoKey, String> {
+    AtomId::parse(id)
+        .map(StereoKey::Center)
+        .or_else(|| BondId::parse(id).map(StereoKey::DoubleBond))
+        .ok_or_else(|| format!("invalid stereo record identifier {id:?}"))
+}
+
+fn stereo_key_id(key: StereoKey) -> String {
+    match key {
+        StereoKey::Center(atom) => atom.to_string(),
+        StereoKey::DoubleBond(bond) => bond.to_string(),
+    }
+}
+
+const IMPLICIT_HYDROGEN: &str = "implicit_hydrogen";
+const LONE_PAIR: &str = "lone_pair";
+
+fn read_slot(value: &str) -> Result<Slot, String> {
+    match value {
+        IMPLICIT_HYDROGEN => Ok(Slot::ImplicitHydrogen),
+        LONE_PAIR => Ok(Slot::LonePair),
+        id => atom_id(id).map(Slot::Atom),
+    }
+}
+
+fn stored_slot(slot: &Slot) -> String {
+    match slot {
+        Slot::Atom(atom) => atom.to_string(),
+        Slot::ImplicitHydrogen => IMPLICIT_HYDROGEN.to_owned(),
+        Slot::LonePair => LONE_PAIR.to_owned(),
+    }
+}
+
+fn read_slots(slots: [String; 4]) -> Result<[Slot; 4], String> {
+    let [first, second, third, fourth] = slots;
+    Ok([
+        read_slot(&first)?,
+        read_slot(&second)?,
+        read_slot(&third)?,
+        read_slot(&fourth)?,
+    ])
+}
+
+/// A stored configuration as the domain's; slots must already be in canonical order, which
+/// `Document::restore` checks along with everything else about the record.
+fn read_stereo_state(state: StoredStereoState) -> Result<StereoState, String> {
+    Ok(match state {
+        StoredStereoState::Center { state } => StereoState::Center(match state {
+            StoredCenter::Tetrahedral { neighbors, turn } => CenterState::Tetrahedral {
+                slots: read_slots(neighbors)?,
+                turn: match turn {
+                    StoredTurn::Anticlockwise => Turn::Anticlockwise,
+                    StoredTurn::Clockwise => Turn::Clockwise,
+                },
+            },
+            StoredCenter::Unknown { neighbors } => CenterState::Unknown {
+                slots: read_slots(neighbors)?,
+            },
+        }),
+        StoredStereoState::DoubleBond { state } => StereoState::DoubleBond(match state {
+            StoredDoubleBond::Relative {
+                begin_ref,
+                end_ref,
+                relation,
+            } => DoubleBondState::Relative {
+                begin_ref: read_slot(&begin_ref)?,
+                end_ref: read_slot(&end_ref)?,
+                relation: match relation {
+                    StoredRelation::SameSide => Relation::SameSide,
+                    StoredRelation::OppositeSides => Relation::OppositeSides,
+                },
+            },
+            StoredDoubleBond::Unknown {} => DoubleBondState::Unknown,
+        }),
+    })
+}
+
+fn stored_stereo_state(state: &StereoState) -> StoredStereoState {
+    match state {
+        StereoState::Center(CenterState::Tetrahedral { slots, turn }) => {
+            StoredStereoState::Center {
+                state: StoredCenter::Tetrahedral {
+                    neighbors: slots.each_ref().map(stored_slot),
+                    turn: match turn {
+                        Turn::Anticlockwise => StoredTurn::Anticlockwise,
+                        Turn::Clockwise => StoredTurn::Clockwise,
+                    },
+                },
+            }
+        }
+        StereoState::Center(CenterState::Unknown { slots }) => StoredStereoState::Center {
+            state: StoredCenter::Unknown {
+                neighbors: slots.each_ref().map(stored_slot),
+            },
+        },
+        StereoState::DoubleBond(DoubleBondState::Relative {
+            begin_ref,
+            end_ref,
+            relation,
+        }) => StoredStereoState::DoubleBond {
+            state: StoredDoubleBond::Relative {
+                begin_ref: stored_slot(begin_ref),
+                end_ref: stored_slot(end_ref),
+                relation: match relation {
+                    Relation::SameSide => StoredRelation::SameSide,
+                    Relation::OppositeSides => StoredRelation::OppositeSides,
+                },
+            },
+        },
+        StereoState::DoubleBond(DoubleBondState::Unknown) => StoredStereoState::DoubleBond {
+            state: StoredDoubleBond::Unknown {},
+        },
     }
 }
 
@@ -1550,6 +2011,7 @@ fn bond_state(bond: &Bond) -> BondState {
         end: bond.end.to_string(),
         order,
         query,
+        mark: bond.mark.map(stored_mark),
     }
 }
 
@@ -1693,6 +2155,15 @@ fn stored_scene_change_set(set: &ChangeSet) -> SceneChangeSet {
                 after: change.after,
             })
             .collect(),
+        stereo: set
+            .stereo
+            .iter()
+            .map(|(key, change)| Keyed {
+                id: stereo_key_id(*key),
+                before: change.before.as_ref().map(stored_stereo_state),
+                after: change.after.as_ref().map(stored_stereo_state),
+            })
+            .collect(),
         selection: StoredChange {
             before: stored_selection(&set.selection.before),
             after: stored_selection(&set.selection.after),
@@ -1764,6 +2235,7 @@ fn to_change_set<A: AtomRecord, B: BondRecord>(
             })
             .collect::<Result<_, String>>()?,
         references: Vec::new(),
+        stereo: Vec::new(),
         selection: Change::default(),
         positions: stored
             .positions

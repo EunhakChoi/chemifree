@@ -38,11 +38,7 @@ fn build(atoms: Vec<Atom>, bonds: Vec<(usize, usize, BondOrder)>) -> MoleculeGra
             .map(|(i, (begin, end, order))| {
                 (
                     BondId::from_serial(u32::try_from(i + 1).unwrap()).unwrap(),
-                    Bond {
-                        begin: id(begin),
-                        end: id(end),
-                        order,
-                    },
+                    Bond::new(id(begin), id(end), order),
                 )
             })
             .collect(),
@@ -655,11 +651,7 @@ fn a_bond_that_joins_no_two_atoms_is_refused_not_walked() {
             vec![(id(0), atom("C"))],
             vec![(
                 BondId::from_serial(1).unwrap(),
-                Bond {
-                    begin: id(0),
-                    end: id(5),
-                    order: BondOrder::Single,
-                },
+                Bond::new(id(0), id(5), BondOrder::Single),
             )],
         );
         assert_eq!(refusal(&dangling, style), SmilesCode::BondEndpointsInvalid);

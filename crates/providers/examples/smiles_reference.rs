@@ -117,11 +117,7 @@ fn main() -> ExitCode {
             .map(|(i, b)| {
                 (
                     BondId::from_serial(u32::try_from(i + 1).expect("small")).expect("positive"),
-                    Bond {
-                        begin: id(b.begin),
-                        end: id(b.end),
-                        order: b.order.clone(),
-                    },
+                    Bond::new(id(b.begin), id(b.end), b.order.clone()),
                 )
             })
             .collect(),

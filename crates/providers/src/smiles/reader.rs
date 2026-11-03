@@ -735,11 +735,7 @@ impl Reader<'_> {
                 .map(|(i, b)| {
                     (
                         bond_id(i),
-                        Bond {
-                            begin: atom_id(b.begin),
-                            end: atom_id(b.end),
-                            order: BondOrder::Single,
-                        },
+                        Bond::new(atom_id(b.begin), atom_id(b.end), BondOrder::Single),
                     )
                 })
                 .collect(),
