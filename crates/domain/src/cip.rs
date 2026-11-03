@@ -83,7 +83,20 @@
 //! Rule 3 ranks the ends of ligand double bonds inside a comparison, which is a nested
 //! computation. Those use their own arenas, bounded by [`MAX_NESTED_SPHERES`] spheres and by
 //! [`MAX_RULE_3_NESTING`] descriptors waiting on one another; going past either is
-//! [`Reason::DigraphLimit`]. Each descriptor is computed once per request, and every pair that
+//! [`Reason::DigraphLimit`]. The stack of the deepest cases that can be built within a document
+//! was measured in a debug build by lowering a thread's stack until the labeler overflowed:
+//! a spine of 250 tied levels alone needs about 0.92 MiB, four descriptors waiting on one
+//! another in arenas 25 to 32 spheres deep about 0.13 MiB, and the two together (a spine of 215
+//! levels above that nest, 245 spheres in all) about 0.89 MiB, so the nested bounds do not add
+//! to the center's. The test that builds them runs with 1.5 MiB.
+//!
+//! A double bond is ranked within [`MAX_NESTED_SPHERES`] spheres of each of its ends whether it
+//! is labeled itself or its descriptor is needed by Rule 3, while the ligands of a center are
+//! ranked within [`MAX_SPHERES`]. Two substituents that differ only 33 to 256 spheres away are
+//! therefore separated as the ligands of a center and refused ([`Reason::DigraphLimit`]) as the
+//! two substituents at an end of a double bond, so a label near the bound can depend on the
+//! root it is asked from. This is a documented limit: the refusal is `unsupported`, never a
+//! wrong label. Each descriptor is computed once per request, and every pair that
 //! needs it is charged what it cost again (the descriptor and the descriptors it needs), so
 //! the work counted does not depend on which pair or item ran first. A descriptor whose
 //! computation met a cycle (a bond asked for while it was being computed) is the exception: its

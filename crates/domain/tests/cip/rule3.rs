@@ -1084,3 +1084,178 @@ fn descriptors_nested_deeper_than_the_bound_are_a_limit_whatever_the_caps_and_th
     let report = &bond_reports(&built, &doubles[..1], raised).unwrap()[0];
     assert!(report.nodes > 50_000_000, "{report:?}");
 }
+
+// ---------------------------------------------------------------------------------------
+// The stack at the deepest nesting of spheres and descriptors.
+// ---------------------------------------------------------------------------------------
+
+/// Builds molecules from parts, atom by atom.
+struct Parts(Molecule);
+
+impl Parts {
+    fn atom(&mut self, symbol: &str) -> usize {
+        self.0.atoms.push(crate::support::element(symbol));
+        self.0.atoms.len() - 1
+    }
+
+    fn bond(&mut self, a: usize, b: usize, order: BondOrder) -> usize {
+        self.0.bonds.push((a, b, order));
+        self.0.bonds.len() - 1
+    }
+
+    /// `levels` carbons, each with a methyl, hanging from `from`; returns the last carbon.
+    /// Ordering the two children of each carbon compares the rest of the spine, so a spine
+    /// nests the comparison once per level.
+    fn spine(&mut self, mut from: usize, levels: usize) -> usize {
+        for _ in 0..levels {
+            let carbon = self.atom("C");
+            self.bond(from, carbon, BondOrder::Single);
+            let methyl = self.atom("C");
+            self.bond(carbon, methyl, BondOrder::Single);
+            from = carbon;
+        }
+        from
+    }
+
+    /// A stereogenic double bond hanging from `from`, stored as `relation`. At `depth` 0 its far
+    /// end carries a methyl. Deeper, the far end carries two substituents that tie under Rules 1a
+    /// to 2 (a spine of `levels` and a smaller group) and differ only by the geometry of the
+    /// bond at the bottom of each, so its descriptor needs two descriptors of `depth - 1`.
+    fn group(&mut self, from: usize, depth: usize, levels: usize, relation: Relation) {
+        let near = self.atom("C");
+        self.bond(from, near, BondOrder::Single);
+        let far = self.atom("C");
+        let index = self.bond(near, far, BondOrder::Double);
+        let (begin, end) = if depth == 0 {
+            let methyl = self.atom("C");
+            self.bond(far, methyl, BondOrder::Single);
+            (from, methyl)
+        } else {
+            let mut first = 0;
+            for (n, inner) in [Relation::SameSide, Relation::OppositeSides]
+                .into_iter()
+                .enumerate()
+            {
+                let top = self.atom("C");
+                self.bond(far, top, BondOrder::Single);
+                let bottom = self.spine(top, levels);
+                self.group(bottom, depth - 1, levels, inner);
+                if n == 0 {
+                    first = top;
+                }
+            }
+            (from, first)
+        };
+        self.0.doubles.push(Double {
+            bond: index,
+            begin: Neighbor::Atom(begin),
+            end: Neighbor::Atom(end),
+            relation: Some(relation),
+        });
+    }
+}
+
+/// A center with fluorine, chlorine and two ligands that are the same spine of `outer` levels
+/// ending in the same nest of double bonds, stored with opposite geometry at the top, so the two
+/// tie under Rules 1a to 2 over the whole digraph and only the descriptors of the nest part them.
+fn nest(outer: usize, depth: usize, inner: usize) -> (Molecule, usize) {
+    let mut parts = Parts(Molecule::default());
+    let center = parts.atom("C");
+    let fluorine = parts.atom("F");
+    let chlorine = parts.atom("Cl");
+    parts.bond(center, fluorine, BondOrder::Single);
+    parts.bond(center, chlorine, BondOrder::Single);
+    let mut firsts = Vec::new();
+    for relation in [Relation::SameSide, Relation::OppositeSides] {
+        let head = parts.atom("C");
+        parts.bond(center, head, BondOrder::Single);
+        firsts.push(head);
+        let bottom = parts.spine(head, outer);
+        parts.group(bottom, depth, inner, relation);
+    }
+    parts.0.centers.push(crate::support::Center {
+        atom: center,
+        neighbors: [
+            Neighbor::Atom(fluorine),
+            Neighbor::Atom(chlorine),
+            Neighbor::Atom(firsts[0]),
+            Neighbor::Atom(firsts[1]),
+        ],
+        turn: chemifree_domain::stereo::Turn::Clockwise,
+    });
+    (parts.0, center)
+}
+
+/// The label of the center of [`nest`], computed on a thread with a stack of `kibibytes`.
+fn nest_label(outer: usize, depth: usize, inner: usize, kibibytes: usize) -> String {
+    std::thread::Builder::new()
+        .stack_size(kibibytes * 1024)
+        .spawn(move || {
+            let (molecule, center) = nest(outer, depth, inner);
+            assert!(molecule.atoms.len() <= chemifree_domain::document::MAX_ATOMS);
+            let built = molecule.build();
+            text(
+                &crate::run(&built, &[center], Limits::default())
+                    .expect("within limits")
+                    .remove(0),
+            )
+        })
+        .unwrap()
+        .join()
+        .expect("the labeler overflowed its stack")
+}
+
+#[test]
+fn the_deepest_nesting_of_spheres_and_descriptors_fits_the_stack_of_a_worker_thread() {
+    // Three nested levels of double bonds: the center asks for the descriptor of one, whose
+    // ends are ranked by the descriptors of two more, and so on, so that four descriptors wait
+    // on one another (MAX_RULE_3_NESTING) while the arenas that rank their ends are 25 to 32
+    // spheres deep (MAX_NESTED_SPHERES). Above them a spine of tied levels takes the center's
+    // own comparison as deep as the sphere bound lets it go. Measured with the stack size
+    // lowered until the labeler overflowed (a debug build, the profile `cargo test` uses): the
+    // nest alone needs about 0.13 MiB, a spine of 250 levels alone about 0.92 MiB, and the two
+    // together (215 levels above the nest) about 0.89 MiB. Each case runs with 1.5 MiB, a
+    // margin that a growth of the frames of about 60% would use up before a 2 MiB worker
+    // thread overflows.
+    for (outer, depth, inner, expected) in [
+        (0, 3, 7, "resolved"),
+        (100, 3, 7, "resolved"),
+        (215, 3, 7, "resolved"),
+        // One level more than the nested arenas hold: the descriptor of the top bond is a limit.
+        (0, 3, 8, "unsupported:cip_digraph_limit"),
+        // The center's own sphere bound.
+        (250, 3, 2, "unsupported:cip_digraph_limit"),
+    ] {
+        let label = nest_label(outer, depth, inner, 1536);
+        if expected == "resolved" {
+            assert!(
+                matches!(label.as_str(), "R" | "S"),
+                "{outer}, {depth}, {inner}: {label}"
+            );
+        } else {
+            assert_eq!(label, expected, "{outer}, {depth}, {inner}");
+        }
+    }
+}
+
+#[test]
+fn a_distinction_far_from_a_double_bond_is_refused_there_and_resolved_in_a_center() {
+    // The same two substituents, which differ only by a deuterium `levels` spheres away, are
+    // ranked under the bound of the root they hang from: 256 spheres for the ligands of a center,
+    // MAX_NESTED_SPHERES (32) for the ends of a double bond, whether the bond is labeled
+    // itself or its descriptor is needed by Rule 3. The refusal is a limit, never a label.
+    let far = |levels: usize| {
+        let arm = format!("{}[2H]", "C(C)".repeat(levels) + "C");
+        let plain = "C(C)".repeat(levels) + "C";
+        (
+            bond_label(&format!("CC=C({arm}){plain}"), 1, 2),
+            center_label(&format!("[C@](F)(Cl)({arm}){plain}"), 0),
+        )
+    };
+    let (bond, center) = far(20);
+    assert_eq!(bond, "unspecified");
+    assert!(matches!(center.as_str(), "R" | "S"), "{center}");
+    let (bond, center) = far(40);
+    assert_eq!(bond, "unsupported:cip_digraph_limit");
+    assert!(matches!(center.as_str(), "R" | "S"), "{center}");
+}
