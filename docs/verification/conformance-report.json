@@ -570,7 +570,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "2c65e1f850a8592bfaafc669b34cc791f940641ba27260962d8c27492bc13192"
+      "case_sha256": "830d6c099b0f77a83d11c196d050690b25cbc69a7627ea46050b48f2932d50c7"
     },
     {
       "id": "stereo-configuration-persists-across-reopen",
