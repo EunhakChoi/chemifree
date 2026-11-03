@@ -85,7 +85,12 @@
 //! [`MAX_RULE_3_NESTING`] descriptors waiting on one another; going past either is
 //! [`Reason::DigraphLimit`]. Each descriptor is computed once per request, and every pair that
 //! needs it is charged what it cost again (the descriptor and the descriptors it needs), so
-//! the work counted does not depend on which pair or item ran first.
+//! the work counted does not depend on which pair or item ran first. A descriptor whose
+//! computation met a cycle (a bond asked for while it was being computed) is the exception: its
+//! result depends on which bond of the cycle was asked for first, so it is not kept for the
+//! request but reused only while the stack of bonds being computed is the same, and a bond
+//! asked for later is computed afresh. The label, reason and charge of a bond are therefore
+//! the same whatever the order in which the bonds of a request are listed.
 
 mod bond;
 mod context;

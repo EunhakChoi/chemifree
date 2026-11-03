@@ -269,10 +269,24 @@ fn orient(
 }
 
 /// The memo and the stack of the descriptors of one request.
+///
+/// An analysis is kept for the whole request (`memo`) only when its computation met no refusal
+/// that came from the stack: a bond asked for while it is being computed is a cycle, and the
+/// answer it gets (and so the answer of everything that asked, down to the bond that closes the
+/// cycle) depends on which bond of the cycle was asked for first. Such an analysis is only
+/// reused while the stack is the one it was computed under (`provisional`), so no result depends
+/// on the order bonds were asked in, and a bond asked for later is computed afresh.
 #[derive(Default)]
 struct Memory {
     memo: BTreeMap<BondId, Analysis>,
+    provisional: BTreeMap<(BondId, Vec<BondId>), (Analysis, usize)>,
+    /// The latest analysis of every bond, kept or not; only the cost of a descriptor is read
+    /// from it (see [`Oracle::closure`]).
+    latest: BTreeMap<BondId, Analysis>,
     stack: Vec<BondId>,
+    /// The lowest stack position a cycle refusal pointed at during the computation now running,
+    /// or `usize::MAX`.
+    cycle_at: usize,
     /// How many requests were refused for nesting too deep; a result that saw one is not kept.
     nesting_hits: usize,
 }
@@ -295,39 +309,58 @@ impl<'c, 'g> Oracle<'c, 'g> {
             context,
             cap,
             interrupt,
-            memory: RefCell::new(Memory::default()),
+            memory: RefCell::new(Memory {
+                cycle_at: usize::MAX,
+                ..Memory::default()
+            }),
         }
     }
 
     /// The analysis of `bond`. A bond that is being computed already (its descriptor depends on
-    /// itself) and a request beyond [`MAX_RULE_3_NESTING`] answer with a refusal that is not
-    /// kept.
+    /// itself) answers with a [`Reason::StereoCycle`] refusal, and a request beyond
+    /// [`MAX_RULE_3_NESTING`] with a [`Reason::DigraphLimit`] one; neither refusal is kept as
+    /// the bond's own. An analysis that met a cycle is reused only under the same stack.
     ///
     /// # Errors
     ///
     /// An interrupt.
     pub(super) fn analysis(&self, bond: BondId) -> Result<Analysis, Interrupted> {
-        {
+        let (hits, outer_cycle_at) = {
             let mut memory = self.memory.borrow_mut();
             if let Some(found) = memory.memo.get(&bond) {
                 return Ok(found.clone());
             }
-            if memory.stack.contains(&bond) {
+            if let Some(position) = memory.stack.iter().position(|&asked| asked == bond) {
+                memory.cycle_at = memory.cycle_at.min(position);
                 return Ok(Analysis::refused(Reason::StereoCycle));
             }
             if memory.stack.len() >= MAX_RULE_3_NESTING {
                 memory.nesting_hits += 1;
                 return Ok(Analysis::refused(Reason::DigraphLimit));
             }
+            let key = (bond, memory.stack.clone());
+            if let Some((found, cycle_at)) = memory.provisional.get(&key).cloned() {
+                memory.cycle_at = memory.cycle_at.min(cycle_at);
+                return Ok(found);
+            }
             memory.stack.push(bond);
-        }
-        let hits = self.memory.borrow().nesting_hits;
+            let outer = std::mem::replace(&mut memory.cycle_at, usize::MAX);
+            (memory.nesting_hits, outer)
+        };
         let result = analyze(self.context, self, bond, self.cap, self.interrupt);
         let mut memory = self.memory.borrow_mut();
         memory.stack.pop();
+        let cycle_at = memory.cycle_at;
+        memory.cycle_at = outer_cycle_at.min(cycle_at);
         let analysis = result?;
         if memory.nesting_hits == hits {
-            memory.memo.insert(bond, analysis.clone());
+            memory.latest.insert(bond, analysis.clone());
+            if cycle_at == usize::MAX {
+                memory.memo.insert(bond, analysis.clone());
+            } else {
+                let key = (bond, memory.stack.clone());
+                memory.provisional.insert(key, (analysis.clone(), cycle_at));
+            }
         }
         Ok(analysis)
     }
@@ -366,7 +399,15 @@ impl<'c, 'g> Oracle<'c, 'g> {
         if !visited.insert(bond) {
             return 0;
         }
-        let Some(found) = self.memory.borrow().memo.get(&bond).cloned() else {
+        let kept = {
+            let memory = self.memory.borrow();
+            memory
+                .memo
+                .get(&bond)
+                .or_else(|| memory.latest.get(&bond))
+                .cloned()
+        };
+        let Some(found) = kept else {
             // A bond whose computation is on the stack is being paid for by its own asker.
             return if self.memory.borrow().stack.contains(&bond) {
                 0

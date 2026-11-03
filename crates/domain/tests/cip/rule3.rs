@@ -937,6 +937,54 @@ fn two_ring_branches_that_reach_the_same_double_bond_do_not_make_a_stereo_cycle(
     assert_eq!(report.warnings, vec![Warning::StoredNotStereogenic]);
 }
 
+#[test]
+fn double_bonds_asked_in_any_order_get_the_same_label_reason_and_charge() {
+    // The first two are symmetric rings where one bond's analysis meets a cycle refusal while
+    // another bond is being computed. A result computed under that refusal must not be reused
+    // by a bond asked for later: asked for in the order E1, M1, E2, M2 the ethylidene bonds were
+    // a stereo cycle, and asked for E2 first E2 was `none`. Neither bond is stereogenic.
+    let none = "none";
+    let cycle = "unsupported:cip_stereo_cycle";
+    for (smiles, expected) in [
+        ("C(=CC)1C(=C)C(=CC)C(=C)1", vec![none; 4]),
+        ("C1C(=CC)CC(=C)CC(=CC)CC(=C)1", vec![none; 4]),
+        ("C(=C)1C(=C)C(=C)C(=C)1", vec![none; 4]),
+        // Not a cycle of labels, but the work counted depended on which bond was asked first
+        // when a result computed under a refusal was kept.
+        ("C(=C)1C(C)C(=C)C(C)C(=C)C(C)1", vec![none; 3]),
+        ("CC=C1CCC(=CC)CC1", vec![none; 2]),
+        // Genuine cycles: the four ethylidene bonds, and the 1,3,5-trisubstituted ring whose
+        // branches meet different bonds at every step.
+        ("CC=C1C(=CC)C(=CC)C1=CC", vec![cycle; 4]),
+        ("C1C(=CC)CC(=CC)CC1=CC", vec![cycle; 3]),
+    ] {
+        let labels = same_in_every_order(&parse(smiles));
+        let seen: Vec<&str> = labels.iter().map(|(label, _)| label.as_str()).collect();
+        assert_eq!(seen, expected, "{smiles}");
+        for (bond, (_, nodes)) in labels.iter().enumerate() {
+            assert!(*nodes > 0 && *nodes < 5000, "{smiles} bond {bond}: {nodes}");
+        }
+        // The scan asks in the order of the bond identifiers and lists what is not `none`; each
+        // listed bond has the label and the charge it has when asked for alone.
+        let (molecule, built, found) = scan(smiles);
+        let doubles = double_bonds_of(&molecule);
+        let listed: Vec<(String, usize)> = found
+            .double_bonds
+            .iter()
+            .map(|report| (state_text(report.state), report.nodes))
+            .collect();
+        let alone: Vec<(String, usize)> = doubles
+            .iter()
+            .zip(&labels)
+            .filter(|(_, (label, _))| label != "none")
+            .map(|(_, entry)| entry.clone())
+            .collect();
+        assert_eq!(listed, alone, "{smiles}");
+        let ids: Vec<BondId> = doubles.iter().map(|&i| built.bond_ids[i]).collect();
+        assert!(found.double_bonds.iter().all(|r| ids.contains(&r.bond)));
+    }
+}
+
 /// The nodes a center is charged when its two ligands are the same cage or fused polycycle: the
 /// worst case for a tie, since both digraphs are read to their last sphere and classified. A
 /// deterministic count of the accounting in the module comment of `cip.rs`; a change to the
