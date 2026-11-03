@@ -598,8 +598,10 @@ const TRANSACTION_PARTS: [Entry; 34] = [
         "set_configuration_from_drawing",
         "Stores the configuration that wedge, hash, wavy and crossed marks and one scene \
          instance's positions show, for the named centers and double bonds (default: every one \
-         a mark bears on), or refuses with the reason. Idempotent. Read off the drawing, not \
-         judged: no CIP label, no check that an atom is stereogenic.",
+         a mark bears on), or refuses with the reason. It replaces the stored record of every \
+         item it processes, a configuration stated by hand included, and writes nothing for an \
+         item it skips. Idempotent. Read off the drawing, not judged: no CIP label, no check \
+         that an atom is stereogenic.",
     ),
     runs(
         "hydrogen_state",
@@ -664,8 +666,9 @@ const TRANSACTION_PARTS: [Entry; 34] = [
     runs(
         "stereo_configuration",
         "Records tetrahedral centers (3 or 4 neighbors) and double bonds as stated, apart from \
-         the marks; only set_configuration_from_drawing derives one from the marks, on request. \
-         Nothing is judged: no CIP labels, no check that a center is stereogenic, no groups, \
+         the marks: no mark blocks a stated configuration. Only set_configuration_from_drawing \
+         derives one from the marks, on request, replacing the stored record of each item it \
+         processes. Nothing is judged: no CIP labels, no check that a center is stereogenic, no groups, \
          no comparison in chem.identity or chem.substructure, no stereo check in chem.validate, \
          and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )

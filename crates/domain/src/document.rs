@@ -452,17 +452,38 @@ pub enum Command {
         configuration: Option<BondConfiguration>,
     },
     /// Stores the configuration the bond marks and the positions of one scene instance show
-    /// (see [`crate::stereo_drawing`]), replacing what is stored for those items.
+    /// (see [`crate::stereo_drawing`]).
+    ///
+    /// For every item it processes it replaces the stored record, whatever it is: a statement
+    /// made by [`Self::SetAtomConfiguration`] or [`Self::SetBondConfiguration`], `unknown`, or
+    /// another label all give way to what the drawing shows. A drawn mark never blocks a stated
+    /// configuration when that is written, but this command reads marks, so it overwrites the
+    /// statement for the items it processes. It writes nothing for an item it skips or does not
+    /// name, and nothing at all when it refuses.
     ///
     /// With neither list, the items are those a mark bears on: each possible center at the
     /// narrow end of a wedge or hash or at an end of a wavy bond, and each crossed double bond.
-    /// Marks that could never hold a record (a narrow end on a terminal atom, a crossed mark on
-    /// a cumulated bond) are skipped; any other item the drawing does not determine refuses the
-    /// command. With a list (`atoms` and/or `bonds`, each non-empty), exactly the named items
-    /// are derived and every one must derive. `instance` follows `move_atoms`: it may be left
-    /// out only while the document has one scene instance. It runs against the transaction's
-    /// state at its position, so it may name atoms and bonds created earlier in the same
-    /// transaction. Storing what is already stored changes nothing.
+    /// A mark whose narrow end could never hold a center record (a terminal atom, a query atom,
+    /// an atom with five neighbors) is not in the scope at all. A crossed double bond that
+    /// fails structurally is skipped: any structurally impossible item is skipped without a
+    /// note, and the reply does not list what was skipped. Two causes can occur there,
+    /// [`StereoError::GeometryUnsupported`] (a cumulated double or triple bond at an end) and
+    /// [`StereoError::ReferenceInvalid`] (an end with more than two other neighbors);
+    /// [`StereoError::CenterUnsupported`] and [`StereoError::DoubleBondRequired`] cannot,
+    /// because the scope holds only possible centers and double bonds. Any other item the
+    /// drawing does not determine refuses the command.
+    ///
+    /// With a list (`atoms` and/or `bonds`, each non-empty), exactly the named items are
+    /// derived and every one must derive, with its structural reason when the model cannot hold
+    /// it. A list goes through the same de-duplication as `move_atoms`: repeats, also two
+    /// references that resolve to one atom (`"a1"` and `"$0"`), are one item, and items are
+    /// processed centers first and then double bonds, each by ascending identifier, so a failing
+    /// item is named by its lowest identifier, not by its position in the list.
+    ///
+    /// `instance` follows `move_atoms`: it may be left out only while the document has one
+    /// scene instance. The command runs against the transaction's state at its position, so it
+    /// may name atoms and bonds created earlier in the same transaction. Storing what is already
+    /// stored changes nothing.
     SetConfigurationFromDrawing {
         atoms: Option<Vec<AtomRef>>,
         bonds: Option<Vec<BondRef>>,
@@ -1428,8 +1449,9 @@ impl Draft {
             None if listed => Vec::new(),
             None => drawing.crossed_double_bonds(),
         };
-        // Without a list, an item the model could never hold a record for is left out; with
-        // one, the caller asked for it, so it is refused with its structural reason.
+        // Without a list, any structurally impossible item (in this scope only a crossed double
+        // bond with `GeometryUnsupported` or `ReferenceInvalid`) is left out without a note;
+        // with one, the caller asked for it, so it is refused with its structural reason.
         let skippable = |cause: &DeriveError| !listed && matches!(cause, DeriveError::Structure(_));
         let mut derived = Vec::with_capacity(centers.len() + double_bonds.len());
         for atom in centers {

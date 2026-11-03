@@ -5,19 +5,21 @@
 //! (E1: F top, Cl lower right with a wedge at the center, Br lower left, the fourth position
 //! a hydrogen, clockwise over `[F, Cl, Br, H]`; E3: Br moved to the upper right, anticlockwise).
 
+use std::collections::BTreeMap;
+
 use chemifree_domain::document::{
-    Applied, Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command,
+    Applied, Atom, AtomEdit, AtomId, AtomRef, Bond, BondId, BondOrder, BondRef, BondTo, Command,
     Document, DocumentId, EditError, NewAtomPositions, ObjectId, Outcome, Point, TransactionError,
     Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::TransactionSelection;
-use chemifree_domain::states::Hydrogens;
+use chemifree_domain::states::{AtomKind, Hydrogens, QueryAtom};
 use chemifree_domain::stereo::{
-    AtomConfiguration, BondEnd, CenterState, DoubleBondState, Slot, SlotRef, StereoError,
-    StereoKey, StereoMark, StereoState, Turn,
+    AtomConfiguration, BondConfiguration, BondEnd, CenterState, DoubleBondState, Relation, Slot,
+    SlotRef, StereoError, StereoKey, StereoMark, StereoState, Turn,
 };
-use chemifree_domain::stereo_drawing::{DeriveError, NotDerivable};
+use chemifree_domain::stereo_drawing::{DeriveError, Drawing, NotDerivable};
 
 fn aid(serial: u32) -> AtomId {
     AtomId::from_serial(serial).unwrap()
@@ -557,6 +559,272 @@ fn lists_follow_the_usual_target_rules() {
     assert_eq!(center(&document, 1), Some(e1_clockwise()));
 }
 
+/// A tetrahedral configuration of `center` over three atom neighbors and an implicit hydrogen.
+fn state_center(center: u32, neighbors: [u32; 3], turn: Turn) -> Command {
+    let [a, b, c] = neighbors.map(|n| SlotRef::Atom(AtomRef::Id(aid(n))));
+    Command::SetAtomConfiguration {
+        atom: AtomRef::Id(aid(center)),
+        configuration: Some(AtomConfiguration::Tetrahedral {
+            neighbors: [a, b, c, SlotRef::ImplicitHydrogen],
+            turn,
+        }),
+    }
+}
+
+#[test]
+fn the_command_replaces_a_stated_record_of_every_item_it_processes_and_writes_nothing_else() {
+    let mut build = Build::default();
+    // a1..a4: marked halo whose stated configuration is `unknown`, a statement the drawing
+    // contradicts.
+    let (_, marked) = build.halo(100.0, 100.0);
+    build.mark(marked[1], wedge(BondEnd::Begin));
+    // a5..a8: unmarked halo with a stated turn: no mark bears on it, so it is not processed.
+    build.halo(300.0, 100.0);
+    // a9=a10 with a11 on a9 and a12 on a10: crossed, with a stated relation.
+    let (c1, c2) = (build.atom("C", 500.0, 100.0), build.atom("C", 530.0, 100.0));
+    let (r1, r2) = (build.atom("C", 485.0, 80.0), build.atom("C", 545.0, 120.0));
+    let crossed = build.bond(c1, c2, BondOrder::Double);
+    build.bond(c1, r1, BondOrder::Single);
+    build.bond(c2, r2, BondOrder::Single);
+    build.mark(crossed, Some(StereoMark::Crossed));
+    // a13, a14: a wedge whose narrow end is a terminal atom: skipped.
+    let carbon = build.atom("C", 700.0, 100.0);
+    let oxygen = build.atom("O", 730.0, 100.0);
+    let terminal = build.bond(carbon, oxygen, BondOrder::Single);
+    build.mark(terminal, wedge(BondEnd::End));
+    let mut document = build.document();
+    let unknown_center =
+        CenterState::unknown([slot(2), slot(3), slot(4), Slot::ImplicitHydrogen]).unwrap();
+    run(
+        &mut document,
+        &[
+            Command::SetAtomConfiguration {
+                atom: AtomRef::Id(aid(1)),
+                configuration: Some(AtomConfiguration::Unknown {
+                    neighbors: [
+                        SlotRef::Atom(AtomRef::Id(aid(2))),
+                        SlotRef::Atom(AtomRef::Id(aid(3))),
+                        SlotRef::Atom(AtomRef::Id(aid(4))),
+                        SlotRef::ImplicitHydrogen,
+                    ],
+                }),
+            },
+            state_center(5, [6, 7, 8], Turn::Anticlockwise),
+            Command::SetBondConfiguration {
+                bond: BondRef::Id(bid(crossed)),
+                configuration: Some(BondConfiguration::Relative {
+                    begin_neighbor: SlotRef::Atom(AtomRef::Id(aid(r1))),
+                    end_neighbor: SlotRef::Atom(AtomRef::Id(aid(r2))),
+                    relation: Relation::OppositeSides,
+                }),
+            },
+        ],
+    );
+    let stated_relation = double_bond(&document, crossed).unwrap();
+    assert_ne!(stated_relation, DoubleBondState::Unknown);
+    let stated_turn = center(&document, 5);
+    assert_eq!(center(&document, 1), Some(unknown_center));
+    let before = document.clone();
+
+    // A list restricts the overwriting to what it names: the other items keep their records.
+    run(&mut document, &[derive(Some(&[1]), None)]);
+    assert_eq!(
+        center(&document, 1),
+        Some(e1_clockwise()),
+        "unknown is replaced"
+    );
+    assert_eq!(double_bond(&document, crossed), Some(stated_relation));
+
+    // Without a list, every marked item is processed and replaces its stated record.
+    let mut document = before;
+    let applied = run(&mut document, &[derive(None, None)]);
+    assert_eq!(applied.outcome, Outcome::Changed);
+    assert!(applied.cleared.is_empty());
+    assert_eq!(
+        center(&document, 1),
+        Some(e1_clockwise()),
+        "unknown is replaced"
+    );
+    assert_eq!(
+        double_bond(&document, crossed),
+        Some(DoubleBondState::Unknown),
+        "a stated relation is replaced by the crossed mark's unknown"
+    );
+    // Nothing else is written: the unmarked center keeps its statement and the skipped terminal
+    // wedge stores nothing.
+    assert_eq!(center(&document, 5), stated_turn);
+    assert_eq!(document.stereo().len(), 3);
+    assert_eq!(center(&document, carbon), None);
+    // The mark does not block a stated configuration at write time, and the drawing is not
+    // changed by the command.
+    assert_eq!(document.bond(bid(2)).unwrap().mark, wedge(BondEnd::Begin));
+    document.undo().unwrap();
+    assert_eq!(center(&document, 1), Some(unknown_center));
+    assert_eq!(double_bond(&document, crossed), Some(stated_relation));
+}
+
+/// A crossed double bond between two new carbons at `x` with `begin_others` other single-bonded
+/// neighbors at its begin atom and `end_others` at its end atom, and, when `cumulated_at` is
+/// given, a further double bond on that end. Returns the bond.
+fn crossed_bond(
+    build: &mut Build,
+    x: f64,
+    (begin_others, end_others): (u32, u32),
+    cumulated_at: Option<BondEnd>,
+) -> u32 {
+    let begin = build.atom("C", x, 100.0);
+    let end = build.atom("C", x + 30.0, 100.0);
+    let bond = build.bond(begin, end, BondOrder::Double);
+    for (atom, count, dx) in [(begin, begin_others, -20.0), (end, end_others, 50.0)] {
+        for index in 0..count {
+            let other = build.atom("C", x + dx, 60.0 + 20.0 * f64::from(index));
+            build.bond(atom, other, BondOrder::Single);
+        }
+    }
+    if let Some(side) = cumulated_at {
+        let (atom, dx) = match side {
+            BondEnd::Begin => (begin, -30.0),
+            BondEnd::End => (end, 60.0),
+        };
+        let other = build.atom("C", x + dx, 100.0);
+        build.bond(atom, other, BondOrder::Double);
+    }
+    build.mark(bond, Some(StereoMark::Crossed));
+    bond
+}
+
+#[test]
+fn without_a_list_a_crossed_bond_the_model_cannot_hold_is_skipped_for_every_structural_cause() {
+    let mut build = Build::default();
+    let (_, halo) = build.halo(100.0, 100.0);
+    build.mark(halo[1], wedge(BondEnd::Begin));
+    let held_back = [
+        // Three other neighbors at one end, either end: ReferenceInvalid.
+        (
+            crossed_bond(&mut build, 300.0, (3, 1), None),
+            StereoError::ReferenceInvalid,
+        ),
+        (
+            crossed_bond(&mut build, 500.0, (1, 3), None),
+            StereoError::ReferenceInvalid,
+        ),
+        // A cumulated double bond at one end, either end: GeometryUnsupported.
+        (
+            crossed_bond(&mut build, 700.0, (1, 1), Some(BondEnd::Begin)),
+            StereoError::GeometryUnsupported,
+        ),
+        (
+            crossed_bond(&mut build, 900.0, (1, 1), Some(BondEnd::End)),
+            StereoError::GeometryUnsupported,
+        ),
+    ];
+    let mut document = build.document();
+
+    // Named, each is refused with the structural reason the skip hides.
+    for (bond, expected) in held_back {
+        let error = refuse(&mut document, &[derive(None, Some(&[bond]))]);
+        assert_eq!(
+            cause_of(&error).1,
+            DeriveError::Structure(expected),
+            "bond b{bond}"
+        );
+    }
+
+    // Without a list they are skipped, and the center beside them is stored.
+    let applied = run(&mut document, &[derive(None, None)]);
+    assert_eq!(applied.outcome, Outcome::Changed);
+    assert!(applied.cleared.is_empty());
+    assert_eq!(
+        document
+            .stereo()
+            .iter()
+            .map(|(key, _)| key)
+            .collect::<Vec<_>>(),
+        [StereoKey::Center(aid(1))],
+        "a bond the model cannot hold gets neither a record nor a refusal"
+    );
+
+    // With nothing else in the scope the command changes nothing.
+    let mut only_skipped = Build::default();
+    crossed_bond(&mut only_skipped, 300.0, (3, 1), None);
+    let mut document = only_skipped.document();
+    let applied = run(&mut document, &[derive(None, None)]);
+    assert_eq!(applied.outcome, Outcome::Unchanged);
+    assert!(document.stereo().is_empty());
+}
+
+#[test]
+fn duplicates_merge_and_a_failing_item_is_named_by_lowest_id_not_by_list_position() {
+    let mut build = Build::default();
+    // a1..a4: derivable. a5..a9: flat (wedge opposite hash). a10..a13: no mark.
+    let (_, halo) = build.halo(100.0, 100.0);
+    build.mark(halo[1], wedge(BondEnd::Begin));
+    let (_, cross) = build.star(
+        300.0,
+        100.0,
+        &[(0.0, -30.0), (30.0, 0.0), (0.0, 30.0), (-30.0, 0.0)],
+    );
+    build.mark(cross[0], wedge(BondEnd::Begin));
+    build.mark(
+        cross[2],
+        Some(StereoMark::Hash {
+            narrow: BondEnd::Begin,
+        }),
+    );
+    build.halo(500.0, 100.0);
+    let mut document = build.document();
+
+    // Both fail; the higher id comes first in the list, the lower id is named.
+    let error = refuse(&mut document, &[derive(Some(&[10, 5]), None)]);
+    assert_eq!(
+        cause_of(&error),
+        (
+            StereoKey::Center(aid(5)),
+            DeriveError::NotDerivable(NotDerivable::Degenerate),
+            Some(0)
+        ),
+        "a5 is named although a10 was listed first"
+    );
+    let error = refuse(&mut document, &[derive(Some(&[10, 10, 5, 5]), None)]);
+    assert_eq!(cause_of(&error).0, StereoKey::Center(aid(5)));
+
+    // Centers are checked before double bonds, whatever the ids: b1 is a single bond (refused
+    // with the structural reason) but the unmarked center a10 is named first.
+    let error = refuse(&mut document, &[derive(Some(&[10]), Some(&[1]))]);
+    assert_eq!(cause_of(&error).0, StereoKey::Center(aid(10)));
+
+    // Repeats, also through `$N`, are one item: the result equals the single-item command.
+    let mut once = wedged_halo();
+    run(&mut once, &[derive(Some(&[1]), None)]);
+    let mut repeated = wedged_halo();
+    let applied = run(&mut repeated, &[derive(Some(&[1, 1, 1]), None)]);
+    assert_eq!(applied.outcome, Outcome::Changed);
+    assert_eq!(repeated, once);
+
+    let mut created = Document::new(DocumentId::parse("doc-dup").unwrap(), "Dup").unwrap();
+    run(
+        &mut created,
+        &[
+            created_atom("C", 100.0, 100.0, None),
+            created_atom("F", 100.0, 70.0, Some(0)),
+            created_atom("Cl", 126.0, 115.0, Some(0)),
+            created_atom("Br", 74.0, 115.0, Some(0)),
+            Command::SetBondMark {
+                bond: BondRef::Created(2),
+                mark: wedge(BondEnd::Begin),
+            },
+            // `a1` and `$0` are the same atom.
+            Command::SetConfigurationFromDrawing {
+                atoms: Some(vec![AtomRef::Id(aid(1)), AtomRef::Created(0)]),
+                bonds: None,
+                instance: None,
+            },
+        ],
+    );
+    assert_eq!(center(&created, 1), Some(e1_clockwise()));
+    assert_eq!(created.stereo().len(), 1);
+}
+
 // ---------------------------------------------------------------------------------------------
 // $N, instances, history
 // ---------------------------------------------------------------------------------------------
@@ -1037,7 +1305,20 @@ fn random_sequences_with_derivation_keep_every_invariant_and_replay_exactly() {
                             assert_eq!(again.outcome, Outcome::Unchanged, "seed {seed}");
                         }
                         Ok(_) => {}
-                        Err(_) => {
+                        Err(error) => {
+                            if let EditError::FromDrawing { cause, .. } = &error.error {
+                                // The existence checks come first, and a document holds a
+                                // position of every instance for every atom.
+                                assert!(
+                                    !matches!(
+                                        cause,
+                                        DeriveError::UnknownAtom(_)
+                                            | DeriveError::UnknownBond(_)
+                                            | DeriveError::MissingPosition(_)
+                                    ),
+                                    "seed {seed}: unreachable cause {cause:?}"
+                                );
+                            }
                             refused_derivations += u32::from(is_derive);
                             assert_eq!(document, before, "seed {seed}: refused changes");
                         }
@@ -1065,5 +1346,165 @@ fn random_sequences_with_derivation_keep_every_invariant_and_replay_exactly() {
     assert!(
         refused_derivations > 100,
         "too few derivations were refused: {refused_derivations}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The scope lists and the derivations read the same marks
+// ---------------------------------------------------------------------------------------------
+
+struct Sketch {
+    atoms: BTreeMap<AtomId, Atom>,
+    bonds: BTreeMap<BondId, Bond>,
+    positions: Vec<(AtomId, Point)>,
+}
+
+impl Sketch {
+    fn drawing(&self) -> Drawing<'_> {
+        Drawing::new(&self.atoms, &self.bonds, self.positions.iter().copied())
+    }
+}
+
+/// A small random drawing straight from maps, so that marks the bond's order cannot carry (a
+/// document never holds one) and query atoms occur too.
+fn random_sketch(random: &mut Random) -> Sketch {
+    let count = 3 + random.below(6);
+    let mut sketch = Sketch {
+        atoms: BTreeMap::new(),
+        bonds: BTreeMap::new(),
+        positions: Vec::new(),
+    };
+    for serial in 1..=u32::try_from(count).unwrap() {
+        let kind = if random.below(6) == 0 {
+            AtomKind::Query(QueryAtom::Any)
+        } else {
+            AtomKind::Element(Element::CARBON)
+        };
+        sketch.atoms.insert(aid(serial), Atom::new(kind));
+        let position = Point::new(random.coordinate(), random.coordinate()).unwrap();
+        sketch.positions.push((aid(serial), position));
+    }
+    for serial in 1..=u32::try_from(count + 3).unwrap() {
+        let (begin, end) = (
+            aid(1 + u32::try_from(random.below(count)).unwrap()),
+            aid(1 + u32::try_from(random.below(count)).unwrap()),
+        );
+        let joined = sketch.bonds.values().any(|bond| {
+            (bond.begin, bond.end) == (begin, end) || (bond.begin, bond.end) == (end, begin)
+        });
+        if begin == end || joined {
+            continue;
+        }
+        let order = random_order(
+            random,
+            &[
+                BondOrder::Single,
+                BondOrder::Single,
+                BondOrder::Single,
+                BondOrder::Double,
+                BondOrder::Double,
+                BondOrder::Triple,
+                BondOrder::Aromatic,
+                BondOrder::Dative,
+            ],
+        );
+        let mut bond = Bond::new(begin, end, order);
+        bond.mark = random_mark(random);
+        sketch.bonds.insert(bid(serial), bond);
+    }
+    sketch
+}
+
+/// `marked_centers` and `crossed_double_bonds` are the scope of the no-list command; the
+/// derivations are what it then runs. They must agree on which marks bear on which items, or the
+/// scope would store what no mark shows or leave out what one does.
+#[test]
+fn the_no_list_scope_is_exactly_the_items_the_derivations_find_a_mark_for() {
+    let (mut listed_centers, mut structural_centers, mut unmarked_centers) = (0_u32, 0_u32, 0_u32);
+    let (mut unfit_marks, mut listed_bonds, mut skipped_bonds, mut other_double_bonds) =
+        (0_u32, 0_u32, 0_u32, 0_u32);
+    for seed in 0..400 {
+        let mut random = Random::new(seed);
+        let sketch = random_sketch(&mut random);
+        let drawing = sketch.drawing();
+        let centers = drawing.marked_centers();
+        let crossed = drawing.crossed_double_bonds();
+        unfit_marks += u32::try_from(
+            sketch
+                .bonds
+                .values()
+                .filter(|bond| bond.mark.is_some_and(|mark| !mark.fits(&bond.order)))
+                .count(),
+        )
+        .unwrap();
+
+        for &atom in sketch.atoms.keys() {
+            let answer = drawing.derive_center(atom);
+            if centers.contains(&atom) {
+                listed_centers += 1;
+                assert!(
+                    !matches!(
+                        answer,
+                        Err(DeriveError::NotDerivable(NotDerivable::NoMarks)
+                            | DeriveError::Structure(_))
+                    ),
+                    "seed {seed}: {atom} is in the scope but the derivation finds no mark \
+                     or no center: {answer:?}"
+                );
+            } else {
+                match answer {
+                    Err(DeriveError::NotDerivable(NotDerivable::NoMarks)) => unmarked_centers += 1,
+                    Err(DeriveError::Structure(_)) => structural_centers += 1,
+                    other => {
+                        panic!("seed {seed}: {atom} is not in the scope but derives: {other:?}")
+                    }
+                }
+            }
+        }
+
+        for (&id, bond) in &sketch.bonds {
+            let answer = drawing.derive_double_bond(id);
+            if crossed.contains(&id) {
+                listed_bonds += 1;
+                match answer {
+                    Ok(DoubleBondState::Unknown) => {}
+                    Err(DeriveError::Structure(
+                        StereoError::ReferenceInvalid | StereoError::GeometryUnsupported,
+                    )) => skipped_bonds += 1,
+                    other => panic!("seed {seed}: {id} is in the scope but answers {other:?}"),
+                }
+            } else {
+                assert!(
+                    !matches!(answer, Ok(DoubleBondState::Unknown)),
+                    "seed {seed}: {id} ({:?}, {:?}) is not in the scope but is derived unknown",
+                    bond.order,
+                    bond.mark
+                );
+                other_double_bonds += u32::from(answer.is_ok());
+            }
+        }
+    }
+    // The generator reaches every branch above, so none of the checks is vacuous.
+    assert!(listed_centers > 100, "listed centers: {listed_centers}");
+    assert!(
+        structural_centers > 300,
+        "terminal or query: {structural_centers}"
+    );
+    assert!(
+        unmarked_centers > 100,
+        "unmarked centers: {unmarked_centers}"
+    );
+    assert!(
+        unfit_marks > 300,
+        "marks a bond cannot carry: {unfit_marks}"
+    );
+    assert!(listed_bonds > 30, "listed double bonds: {listed_bonds}");
+    assert!(
+        skipped_bonds > 0,
+        "structurally impossible listed bonds: {skipped_bonds}"
+    );
+    assert!(
+        other_double_bonds > 30,
+        "uncrossed derived bonds: {other_double_bonds}"
     );
 }
