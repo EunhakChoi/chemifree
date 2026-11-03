@@ -619,6 +619,35 @@ fn canonical_reference(slot: Slot, others: &[AtomId]) -> Result<(Slot, bool), St
     }
 }
 
+/// Reads the one form the first version 6 build stored that is no longer canonical: a lone
+/// pair as the reference of a double-bond end with no other explicit neighbor. That build
+/// accepted it only at such an end, so no graph is needed to recognize it; it is rewritten as
+/// the implicit hydrogen, flipping the relation, by the same rule the commands apply
+/// ([`canonical_reference`]). Any other record is left as it is, for validation to accept or
+/// refuse.
+pub(crate) fn read_legacy_reference(state: &mut StereoState) {
+    let StereoState::DoubleBond(DoubleBondState::Relative {
+        begin_ref,
+        end_ref,
+        relation,
+    }) = state
+    else {
+        return;
+    };
+    let mut swapped_ends = 0_u8;
+    for reference in [begin_ref, end_ref] {
+        if *reference == Slot::LonePair
+            && let Ok((canonical, true)) = canonical_reference(Slot::LonePair, &[])
+        {
+            *reference = canonical;
+            swapped_ends += 1;
+        }
+    }
+    if swapped_ends == 1 {
+        *relation = relation.flipped();
+    }
+}
+
 /// The record a relative configuration of double bond `bond` stores, or the refusal. The
 /// references are canonicalized; the result satisfies [`check_double_bond`].
 pub(crate) fn relative_double_bond(

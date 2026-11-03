@@ -576,6 +576,135 @@ fn damaged_stereo_records_make_the_file_unreadable() {
     });
 }
 
+// ---------------------------------------------------------------------------------------------
+// The form version 6 first stored for a bare double-bond end
+// ---------------------------------------------------------------------------------------------
+
+/// A lone double bond `a1=a2`: both ends are bare, so each end's two positions are an implicit
+/// hydrogen and a lone pair. Three edits give the document, an undo entry and a redo entry that
+/// each carry a record of the bond:
+/// - undo `b1`'s record: none -> same side (the document's own record);
+/// - redo: same side -> opposite sides.
+fn bare_double_bond() -> Document {
+    let mut document = Document::new(id(), "Imine").unwrap();
+    document
+        .apply(&[new_atom(), new_atom(), add_bond(1, 2, BondOrder::Double)])
+        .unwrap();
+    let relative = |relation| Command::SetBondConfiguration {
+        bond: BondRef::Id(bond(1)),
+        configuration: Some(BondConfiguration::Relative {
+            begin_neighbor: SlotRef::ImplicitHydrogen,
+            end_neighbor: SlotRef::ImplicitHydrogen,
+            relation,
+        }),
+    };
+    document.apply(&[relative(Relation::SameSide)]).unwrap();
+    document
+        .apply(&[relative(Relation::OppositeSides)])
+        .unwrap();
+    document.undo().unwrap();
+    document
+}
+
+/// Rewrites a stored double-bond state into the form the first version 6 build accepted: the
+/// named ends' implicit hydrogen replaced by the lone pair, the relation flipped once for each.
+fn as_legacy_lone_pairs(state: &mut Value, ends: &[&str]) {
+    let inner = &mut state["state"];
+    assert_eq!(inner["mode"], "relative", "{inner}");
+    for end in ends {
+        assert_eq!(inner[*end], "implicit_hydrogen", "{end} of {inner}");
+        inner[*end] = json!("lone_pair");
+        inner["relation"] = json!(match inner["relation"].as_str().unwrap() {
+            "same_side" => "opposite_sides",
+            _ => "same_side",
+        });
+    }
+}
+
+/// The stored forms of one document and its history, all in the legacy form.
+fn with_legacy_references(file: &mut Value) {
+    as_legacy_lone_pairs(&mut file["document"]["stereo"][0]["state"], &["begin_ref"]);
+    let undo = file["history"]["undo"].as_array_mut().unwrap();
+    let step = undo
+        .iter_mut()
+        .find(|set| !set["stereo"].as_array().unwrap().is_empty())
+        .expect("an undo entry with the record");
+    as_legacy_lone_pairs(&mut step["stereo"][0]["after"], &["begin_ref", "end_ref"]);
+    let redo = &mut file["history"]["redo"][0]["stereo"][0];
+    as_legacy_lone_pairs(&mut redo["before"], &["end_ref"]);
+    as_legacy_lone_pairs(&mut redo["after"], &["begin_ref", "end_ref"]);
+}
+
+#[test]
+fn a_lone_pair_stored_at_a_bare_double_bond_end_reads_back_as_the_implicit_hydrogen() {
+    let document = bare_double_bond();
+    assert!(document.undo_depth() > 0 && document.redo_depth() > 0);
+    assert_eq!(document.stereo().len(), 1);
+
+    // A document with its history.
+    let root = tempfile::tempdir().unwrap();
+    FileDocumentRepository::new(root.path())
+        .save(&document, None)
+        .unwrap();
+    let mut file = read_json(&root.path().join("documents").join(format!("{ID}.json")));
+    assert_eq!(
+        file["document"]["stereo"][0]["state"]["state"]["begin_ref"], "implicit_hydrogen",
+        "the writer stores the canonical form"
+    );
+    with_legacy_references(&mut file);
+    let (_root, repository, path) = stored(&serde_json::to_vec(&file).unwrap());
+    let reopened = repository.load(&id()).unwrap().unwrap();
+    assert_eq!(reopened, document, "the same state, read in canonical form");
+    assert_eq!(
+        reopened.stereo().get(StereoKey::DoubleBond(bond(1))),
+        document.stereo().get(StereoKey::DoubleBond(bond(1)))
+    );
+    // Undo and redo walk the normalized history.
+    let mut walked = reopened.clone();
+    let mut expected = document.clone();
+    while walked.undo().is_ok() {
+        expected.undo().unwrap();
+        assert_eq!(walked.stereo(), expected.stereo());
+    }
+    assert!(walked.stereo().is_empty());
+    while walked.redo().is_ok() {
+        expected.redo().unwrap();
+        assert_eq!(walked.stereo(), expected.stereo());
+    }
+    assert_eq!(walked, expected);
+    assert!(
+        fs::read(&path).unwrap() == serde_json::to_vec(&file).unwrap(),
+        "reading does not rewrite the file"
+    );
+
+    // A recovery draft of the same document.
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    repository.save(&document, None).unwrap();
+    let draft = Draft {
+        document: document.clone(),
+        base_revision: document.revision(),
+        saved_at_ms: 1_767_225_600_000,
+    };
+    repository.write_draft(&draft).unwrap();
+    repository.release_draft(&id());
+    let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
+    let mut draft_file = read_json(&draft_path);
+    with_legacy_references(&mut draft_file);
+    fs::write(&draft_path, serde_json::to_vec(&draft_file).unwrap()).unwrap();
+    assert_eq!(repository.claim_draft(&id()), Ok(Some(Ok(draft))));
+}
+
+#[test]
+fn a_lone_pair_at_an_end_with_a_neighbor_is_still_unreadable() {
+    // Only the first build's one form is normalized: here the end has a neighbor, so a lone
+    // pair never was storable.
+    let (file, _) = saved_stereo_file();
+    let mut broken = file.clone();
+    broken["document"]["stereo"][1]["state"]["state"]["begin_ref"] = json!("lone_pair");
+    assert_unreadable(&broken, "a lone pair at an end with an explicit neighbor");
+}
+
 #[test]
 fn a_version_6_document_keeps_its_bond_ends_when_marks_change() {
     // The ends are in the file exactly as drawn, whichever end the mark is narrow at.

@@ -972,11 +972,6 @@ fn restoring_a_non_canonical_double_bond_reference_is_refused() {
     }
     for (document, state, why) in [
         (
-            imine(),
-            relative_state(n(3), Slot::LonePair, Relation::SameSide),
-            "a lone pair at an end with no explicit neighbor",
-        ),
-        (
             alkene(),
             relative_state(n(3), h, Relation::SameSide),
             "an implicit hydrogen at an end with one explicit neighbor",
@@ -997,6 +992,33 @@ fn restoring_a_non_canonical_double_bond_reference_is_refused() {
             "{why}"
         );
     }
+}
+
+#[test]
+fn a_stored_lone_pair_at_a_bare_end_is_read_as_the_implicit_hydrogen_with_the_relation_flipped() {
+    // The first version 6 build accepted a lone pair at an end with no explicit neighbor.
+    // Restoring reads that one form as the canonical record of the same state.
+    let document = imine();
+    let mut parts = document.to_parts();
+    parts.undo.clear();
+    parts.redo.clear();
+    parts.stereo = vec![(
+        StereoKey::DoubleBond(bond(1)),
+        StereoState::DoubleBond(relative_state(
+            Slot::Atom(atom(3)),
+            Slot::LonePair,
+            Relation::SameSide,
+        )),
+    )];
+    let restored = Document::restore(parts).unwrap();
+    assert_eq!(
+        restored.stereo().get(StereoKey::DoubleBond(bond(1))),
+        Some(&StereoState::DoubleBond(relative_state(
+            Slot::Atom(atom(3)),
+            Slot::ImplicitHydrogen,
+            Relation::OppositeSides,
+        )))
+    );
 }
 
 #[test]
