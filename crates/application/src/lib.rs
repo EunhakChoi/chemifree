@@ -168,6 +168,22 @@ pub struct ComputeLimits {
     pub max_time_ms: u64,
 }
 
+impl ComputeLimits {
+    /// The largest time limit, in milliseconds, either value is held to: one hour. A larger
+    /// configured value is lowered to it, so that a limit never means "no deadline".
+    pub const CAP_MS: u64 = 3_600_000;
+
+    /// These limits with both values at most [`Self::CAP_MS`] and the default at most the
+    /// maximum.
+    fn capped(self) -> Self {
+        let max_time_ms = self.max_time_ms.min(Self::CAP_MS);
+        Self {
+            default_time_ms: self.default_time_ms.min(max_time_ms),
+            max_time_ms,
+        }
+    }
+}
+
 impl Default for ComputeLimits {
     /// Five seconds by default and eight at most, below the ten seconds after which the web
     /// client gives up on a request.
@@ -219,10 +235,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     }
 
     /// Replaces the time limits of computations, as an entry adapter or a test configures them.
+    /// Values above [`ComputeLimits::CAP_MS`] are lowered to it.
     #[must_use]
     pub fn with_compute_limits(self, compute_limits: ComputeLimits) -> Self {
         Self {
-            compute_limits,
+            compute_limits: compute_limits.capped(),
             ..self
         }
     }

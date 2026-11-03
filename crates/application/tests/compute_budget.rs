@@ -133,16 +133,27 @@ fn finishes<T: Send>(label: &str, release: &Release, work: impl FnOnce() -> T + 
     })
 }
 
-/// Counts checkpoints and cancels at the `cancel_at`-th.
+/// Counts checkpoints and stops, for `reason`, at the `cancel_at`-th.
 struct CancelAt {
     cancel_at: usize,
+    reason: Interrupted,
     calls: AtomicUsize,
+}
+
+impl CancelAt {
+    fn new(cancel_at: usize, reason: Interrupted) -> Self {
+        Self {
+            cancel_at,
+            reason,
+            calls: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl Interrupt for CancelAt {
     fn check(&self) -> Result<(), Interrupted> {
         if self.calls.fetch_add(1, Ordering::SeqCst) + 1 == self.cancel_at {
-            Err(Interrupted::Cancelled)
+            Err(self.reason)
         } else {
             Ok(())
         }
@@ -323,10 +334,7 @@ fn cancelled_conversion_changes_nothing_and_is_computed_again_when_retried() {
     let id = benzene_document(&app, "cancelled");
     let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
     // The entry is checkpoint 1 and the benzene system is checkpoint 2.
-    let cancel = CancelAt {
-        cancel_at: 2,
-        calls: AtomicUsize::new(0),
-    };
+    let cancel = CancelAt::new(2, Interrupted::Cancelled);
     let reply =
         serde_json::to_value(app.execute_with(&convert_request(&id, "convert", 1), &cancel))
             .unwrap();
@@ -407,4 +415,32 @@ fn the_server_default_applies_without_a_request_limit_and_a_request_may_only_low
     );
     assert_eq!(above["diagnostics"][0]["path"], "parameters.time_limit_ms");
     assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], 6_000);
+}
+#[test]
+fn configured_limits_are_capped_so_a_limit_never_means_no_deadline() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory).with_compute_limits(ComputeLimits {
+        default_time_ms: u64::MAX,
+        max_time_ms: u64::MAX,
+    });
+    let id = benzene_document(&app, "capped");
+    let hour = 3_600_000;
+    assert_eq!(ComputeLimits::CAP_MS, hour);
+    let above = call(
+        &app,
+        "above",
+        "chem.aromaticity_convert",
+        json!({"document_id": id, "expected_revision": 1, "to": "aromatic", "time_limit_ms": u64::MAX}),
+    );
+    assert_eq!(above["diagnostics"][0]["code"], "invalid_request", "{above}");
+    assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], hour);
+    // The default is capped as well: a request that sets no limit still runs, and with a real
+    // deadline.
+    let ok = call(
+        &app,
+        "no-limit",
+        "chem.aromaticity_convert",
+        json!({"document_id": id, "expected_revision": 1, "to": "aromatic"}),
+    );
+    assert_eq!(ok["outcome"], "ok", "{ok}");
 }

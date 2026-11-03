@@ -1979,7 +1979,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                             });
                         }
                     };
-                    let deadline = Instant::now().checked_add(Duration::from_millis(limit_ms));
+                    // Limits are capped far below what an `Instant` can add; a deadline that could not be
+                    // formed would still stop the computation at once rather than never.
+                    let now = Instant::now();
+                    let deadline = Some(now.checked_add(Duration::from_millis(limit_ms)).unwrap_or(now));
                     let budget = Budget::new(cancel, deadline);
                     let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
                         TransactionSelections { before: p.selection_before, after: p.selection_after },
