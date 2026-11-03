@@ -770,12 +770,19 @@ fn a_digraph_deeper_than_the_sphere_bound_is_refused_and_does_not_overflow_the_s
         text(&spine_label(levels, uncapped)),
         "unsupported:cip_digraph_limit"
     );
-    // A spine within the bound is ranked: Rule 1a separates it from the methyl.
-    let short = spine_label(200, uncapped);
-    assert!(
-        matches!(text(&short).as_str(), "R" | "S"),
-        "{}",
-        text(&short)
+    // A spine just within the bound is ranked (on the same 2 MiB stack): Rule 1a separates
+    // it from the methyl. One level more reaches the sphere the bound refuses.
+    for levels in [200, 254] {
+        let short = spine_label(levels, uncapped);
+        assert!(
+            matches!(text(&short).as_str(), "R" | "S"),
+            "{levels} levels: {}",
+            text(&short)
+        );
+    }
+    assert_eq!(
+        text(&spine_label(256, uncapped)),
+        "unsupported:cip_digraph_limit"
     );
 }
 
