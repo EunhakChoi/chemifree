@@ -467,10 +467,9 @@ fn a_stop_after_the_last_checkpoint_of_the_computation_still_prevents_the_edit()
                     let _ = reply.send(());
                 }
             });
-            let reply = serde_json::to_value(
-                app.execute_with(&convert_request(&id, "convert", 1), &stop),
-            )
-            .unwrap();
+            let reply =
+                serde_json::to_value(app.execute_with(&convert_request(&id, "convert", 1), &stop))
+                    .unwrap();
             // Ends the reader, which the scope waits for.
             stop.pings.lock().unwrap().take();
             reply
@@ -512,14 +511,20 @@ fn the_same_request_id_with_another_time_limit_is_a_different_request() {
     let replay = serde_json::to_value(app.execute(&with_limit(1_000))).unwrap();
     assert_eq!(replay, first, "the same request replays");
     let other = serde_json::to_value(app.execute(&with_limit(2_000))).unwrap();
-    assert_eq!(other["diagnostics"][0]["code"], "request_id_reused", "{other}");
+    assert_eq!(
+        other["diagnostics"][0]["code"], "request_id_reused",
+        "{other}"
+    );
     let none = call(
         &app,
         "limited",
         "chem.aromaticity_convert",
         json!({"document_id": id, "expected_revision": 1, "to": "aromatic"}),
     );
-    assert_eq!(none["diagnostics"][0]["code"], "request_id_reused", "{none}");
+    assert_eq!(
+        none["diagnostics"][0]["code"], "request_id_reused",
+        "{none}"
+    );
 }
 
 #[test]
@@ -556,7 +561,10 @@ fn configured_limits_are_capped_so_a_limit_never_means_no_deadline() {
         "chem.aromaticity_convert",
         json!({"document_id": id, "expected_revision": 1, "to": "aromatic", "time_limit_ms": u64::MAX}),
     );
-    assert_eq!(above["diagnostics"][0]["code"], "invalid_request", "{above}");
+    assert_eq!(
+        above["diagnostics"][0]["code"], "invalid_request",
+        "{above}"
+    );
     assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], hour);
     // The default is capped as well: a request that sets no limit still runs, and with a real
     // deadline.
