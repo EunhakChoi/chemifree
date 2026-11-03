@@ -14,7 +14,7 @@ P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 �
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 17, not_implemented 16) · 부분 78개(implemented 33, partial 10, unverified 2, not_implemented 33) · conformance 사례 60개(passed 57: accept 37·reject 20, not_run 3, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 17, not_implemented 16) · 부분 78개(implemented 33, partial 10, unverified 2, not_implemented 33) · conformance 사례 61개(passed 58: accept 38·reject 20, not_run 3, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

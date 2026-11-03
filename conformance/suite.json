@@ -55,6 +55,7 @@
     "cases/stereo-identity-and-substructure-not-compared.json",
     "cases/stereo-set-from-drawing.json",
     "cases/stereo-set-from-drawing-parity-pair.json",
+    "cases/stereo-set-from-drawing-replaces-stated-configurations.json",
     "cases/stereo-set-from-drawing-public-two-centers.json",
     "cases/stereo-set-from-drawing-refused.json",
     "cases/stereo-set-from-drawing-wavy-and-crossed-give-unknown.json",

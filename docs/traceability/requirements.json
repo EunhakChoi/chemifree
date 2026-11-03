@@ -278,7 +278,7 @@
         },
         {
           "id": "MODEL-03.2",
-          "summary": "Derivation of a configuration from a drawing: set_configuration_from_drawing stores the center or double-bond state that wedge, hash, wavy and crossed marks and one scene instance's positions show, on request only, idempotently and as one undo step, or refuses with one of six stereo_not_derivable_* reasons. The rules (frame, sign, fourth position, scope) are Chemifree choices named chemifree-stereo-1; the pure rules for the mirror image, the flip and a changed neighbor order (mirrored, flipped_over, turn_for_order) are defined and tested. Nothing judges whether an atom is stereogenic, computes a CIP label or compares a stored configuration with the drawing, and no mirror or flip command exists.",
+          "summary": "Derivation of a configuration from a drawing: set_configuration_from_drawing stores the center or double-bond state that wedge, hash, wavy and crossed marks and one scene instance's positions show, on request only, idempotently and as one undo step, replacing the stored record of every item it processes (a configuration stated by hand and an unknown included) and writing nothing for an item it skips, or refuses with one of six stereo_not_derivable_* reasons. The rules (frame, sign, fourth position, scope) are Chemifree choices named chemifree-stereo-1; the pure rules for the mirror image, the flip and a changed neighbor order (mirrored, flipped_over, turn_for_order) are defined and tested. Nothing judges whether an atom is stereogenic, computes a CIP label or compares a stored configuration with the drawing (it overwrites the statement of what it processes and reports no disagreement), and no mirror or flip command exists.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_drawing.rs",
@@ -292,6 +292,7 @@
           "evidence": [
             "case:stereo-set-from-drawing",
             "case:stereo-set-from-drawing-parity-pair",
+            "case:stereo-set-from-drawing-replaces-stated-configurations",
             "case:stereo-set-from-drawing-public-two-centers",
             "case:stereo-set-from-drawing-refused",
             "case:stereo-set-from-drawing-wavy-and-crossed-give-unknown",

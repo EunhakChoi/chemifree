@@ -613,7 +613,7 @@
     },
     {
       "id": "stereo-mark-and-configuration-independent",
-      "title": "A drawn mark and a stated configuration are separate statements: changing or clearing one never changes the other, and they are not checked against each other",
+      "title": "A drawn mark and a stated configuration are separate statements: setting or clearing one with its own command never changes the other, and those commands do not check them against each other",
       "requirements": [
         "MODEL-03"
       ],
@@ -622,7 +622,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "e357c92d743068c20216962dc517df9eef30dd42b659bf4d28d7a1269007b00d"
+      "case_sha256": "c8b5a455724d0a72cf0a3c9e5de3b59df80c3a293087541f24f1629673eedeb0"
     },
     {
       "id": "stereo-mark-and-configuration-refused",
@@ -731,6 +731,19 @@
       "case_sha256": "f9d1cf8a9180eb78a522365b8de3002c37c9b34517654f16f08c8a39c5d743a0"
     },
     {
+      "id": "stereo-set-from-drawing-replaces-stated-configurations",
+      "title": "The derivation replaces the stored record of every item it processes, a configuration stated by hand and an unknown included, and writes nothing for an unmarked center or a skipped mark; undo restores the statements",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "777c91075cad60b448fe6695df24766352993b4b2579ab6263f1e73ba6ea226b"
+    },
+    {
       "id": "stereo-set-from-drawing-public-two-centers",
       "title": "The public authored two-centre drawing (one tapered hash at each centre) gives anticlockwise at both centres in the canonical orders, which is F[C@H](Cl)[C@H](Br)I",
       "requirements": [
@@ -820,7 +833,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 37,
+      "passed": 38,
       "failed": 0,
       "not_run": 3
     },
@@ -830,7 +843,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 57,
+      "passed": 58,
       "failed": 0,
       "not_run": 3
     }
