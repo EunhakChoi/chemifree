@@ -1986,7 +1986,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     let budget = Budget::new(cancel, deadline);
                     let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
                         TransactionSelections { before: p.selection_before, after: p.selection_after },
-                        Compute { interrupt: &budget, limit_ms });
+                        Compute { interrupt: &budget, limit_ms, requested_ms: p.time_limit_ms });
                     let mut reply = known.document(outcome);
                     reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
                     reply

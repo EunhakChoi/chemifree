@@ -417,6 +417,50 @@ fn the_server_default_applies_without_a_request_limit_and_a_request_may_only_low
     assert_eq!(above["diagnostics"][0]["details"]["maximum_ms"], 6_000);
 }
 #[test]
+fn the_same_request_id_with_another_time_limit_is_a_different_request() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    let id = benzene_document(&app, "fingerprint");
+    let with_limit = |limit: u64| {
+        request(
+            "limited",
+            "chem.aromaticity_convert",
+            json!({"document_id": id, "expected_revision": 1, "to": "aromatic", "time_limit_ms": limit}),
+        )
+    };
+    let first = serde_json::to_value(app.execute(&with_limit(1_000))).unwrap();
+    assert_eq!(first["outcome"], "ok", "{first}");
+    let replay = serde_json::to_value(app.execute(&with_limit(1_000))).unwrap();
+    assert_eq!(replay, first, "the same request replays");
+    let other = serde_json::to_value(app.execute(&with_limit(2_000))).unwrap();
+    assert_eq!(other["diagnostics"][0]["code"], "request_id_reused", "{other}");
+    let none = call(
+        &app,
+        "limited",
+        "chem.aromaticity_convert",
+        json!({"document_id": id, "expected_revision": 1, "to": "aromatic"}),
+    );
+    assert_eq!(none["diagnostics"][0]["code"], "request_id_reused", "{none}");
+}
+
+#[test]
+fn a_stopped_attempt_is_not_recorded_so_the_request_id_may_ask_for_another_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    let id = benzene_document(&app, "retry-limit");
+    let ask = |limit: u64| {
+        call(
+            &app,
+            "retry",
+            "chem.aromaticity_convert",
+            json!({"document_id": id, "expected_revision": 1, "to": "aromatic", "time_limit_ms": limit}),
+        )
+    };
+    assert_eq!(ask(0)["diagnostics"][0]["code"], "time_limit");
+    let retried = ask(1_000);
+    assert_eq!(retried["outcome"], "ok", "{retried}");
+}
+#[test]
 fn configured_limits_are_capped_so_a_limit_never_means_no_deadline() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory).with_compute_limits(ComputeLimits {

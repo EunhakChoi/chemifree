@@ -1,6 +1,6 @@
 {
   "id": "compute-time-limit-refused",
-  "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again",
+  "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again, with another limit if wished; once completed, the same request ID with another limit is request_id_reused",
   "requirements": ["API-01", "OPS-02"],
   "axis": "protocol",
   "kind": "reject",
@@ -25,6 +25,8 @@
     {"call":"get","document":"d","expect":{"document":{"revision":1,"bonds":[{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"},{"order":"double"},{"order":"single"}]},"session":{"undo_depth":1,"redo_depth":0}}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"limited","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic"}},
      "expect":{"outcome":"ok","document_revision":2,"result":{"session":{"undo_depth":2}}}},
+    {"call":"operation","document":"d","request":{"contract":1,"request_id":"limited","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":1,"to":"aromatic","time_limit_ms":1000}},
+     "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"request_id_reused","severity":"error"}]}},
     {"call":"operation","document":"d","request":{"contract":1,"request_id":"too-long","profile":"preserve-semantics","operation":"chem.aromaticity_convert","parameters":{"expected_revision":2,"to":"kekule","time_limit_ms":8001}},
      "expect":{"outcome":"error","result":null,"diagnostics":[{"code":"invalid_request","path":"parameters.time_limit_ms","details":{"maximum_ms":8000}}]}}
   ]

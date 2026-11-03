@@ -59,6 +59,9 @@ enum Mutation {
         expected_revision: u64,
         conversion: AromaticityConversion,
         selection: TransactionSelections,
+        /// The time limit as the request stated it (not the resolved one), so that the same
+        /// request ID with another limit is a different request.
+        time_limit_ms: Option<u64>,
     },
     ResetSettings {
         expected_revision: u64,
@@ -900,6 +903,7 @@ impl<R: DocumentRepository> Documents<R> {
             expected_revision,
             conversion,
             selection,
+            time_limit_ms: compute.requested_ms,
         };
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
@@ -2404,6 +2408,8 @@ pub(crate) struct Compute<'a> {
     pub interrupt: &'a dyn Interrupt,
     /// The time limit in force, in milliseconds, reported when it stops the computation.
     pub limit_ms: u64,
+    /// The limit the request asked for, if it asked for one.
+    pub requested_ms: Option<u64>,
 }
 
 /// A computation stopped before it finished: `limit_ms` is the time limit that was in force.
