@@ -185,7 +185,10 @@ impl Relation {
 pub enum DoubleBondState {
     /// `begin_ref` is a neighbor position of the bond's `begin` atom and `end_ref` of its `end`
     /// atom, each in canonical form: the lowest-identifier explicit neighbor, or, where the
-    /// atom has no other explicit neighbor, an implicit hydrogen or a lone pair.
+    /// atom has no other explicit neighbor, an implicit hydrogen. The two positions of an end
+    /// are complementary, not interchangeable labels: naming the other one (a lone pair, or an
+    /// implicit hydrogen at an end with one neighbor) stores the position above with the
+    /// relation flipped.
     Relative {
         begin_ref: Slot,
         end_ref: Slot,
@@ -322,7 +325,9 @@ pub enum StereoError {
     /// A bond configuration on a bond that is not double.
     DoubleBondRequired,
     /// A double-bond reference that is the partner, not bonded to its end, the wrong kind of
-    /// slot for that end, or on an end with three or more other neighbors.
+    /// slot for that end (an implicit hydrogen or lone pair where the end has two explicit
+    /// neighbors, or an atom where it has none), or on an end with three or more other
+    /// neighbors.
     ReferenceInvalid,
     /// A double bond with a cumulated double or triple bond at an end.
     GeometryUnsupported,
@@ -374,7 +379,7 @@ impl fmt::Display for StereoError {
             Self::ReferenceInvalid => {
                 "a double-bond reference is a neighbor of its own end other than the double \
                  bond's partner, on an end with at most two other neighbors, or an implicit \
-                 hydrogen or lone pair where the end has none"
+                 hydrogen or lone pair where the end has at most one"
             }
             Self::GeometryUnsupported => {
                 "a double bond configuration does not cover a cumulated double or triple bond"
@@ -421,8 +426,9 @@ pub enum AtomConfiguration {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BondConfiguration {
     /// `begin_neighbor` is a neighbor position of the bond's `begin` atom, `end_neighbor` of its
-    /// `end` atom. Either neighbor of an end with two may be named; the core stores the
-    /// canonical one and adjusts `relation`.
+    /// `end` atom. An sp2 end has two positions: naming either one is accepted (either neighbor
+    /// of an end with two, or the implicit hydrogen or lone pair opposite the single neighbor of
+    /// an end with one), and the core stores the canonical one and adjusts `relation`.
     Relative {
         begin_neighbor: SlotRef,
         end_neighbor: SlotRef,
@@ -572,22 +578,41 @@ pub(crate) fn check_double_bond(
     }
 }
 
-/// `others` are the end's neighbors besides the double bond's partner, ascending.
+/// `others` are the end's neighbors besides the double bond's partner, ascending. A stored
+/// reference is canonical: the lowest-identifier neighbor, or, at an end with no other explicit
+/// neighbor, an implicit hydrogen. A lone pair, or a non-atom slot at an end that has a
+/// neighbor, names the other position of the end and is never stored.
 fn check_reference(slot: Slot, others: &[AtomId]) -> Result<(), StereoError> {
-    match (slot, others.first()) {
-        (Slot::ImplicitHydrogen | Slot::LonePair, None) => Ok(()),
-        (Slot::Atom(atom), Some(lowest)) if atom == *lowest => Ok(()),
-        (Slot::Atom(atom), Some(_)) if others.contains(&atom) => Err(StereoError::Conflict),
+    match (slot, others) {
+        (Slot::ImplicitHydrogen, []) => Ok(()),
+        (Slot::Atom(atom), [lowest, ..]) if atom == *lowest => Ok(()),
+        (Slot::Atom(atom), _) if others.contains(&atom) => Err(StereoError::Conflict),
+        (Slot::LonePair, []) | (Slot::ImplicitHydrogen | Slot::LonePair, [_]) => {
+            Err(StereoError::Conflict)
+        }
         _ => Err(StereoError::ReferenceInvalid),
     }
 }
 
-/// A double-bond reference as stored: the lowest-identifier neighbor, and whether naming
-/// another neighbor of a two-neighbor end swapped it (which flips the relation).
+/// A double-bond reference as stored, and whether storing it swapped to the complementary
+/// position of the end (which flips the relation).
+///
+/// An sp2 end has two substituent positions, so naming one fixes the other:
+/// - two explicit neighbors: naming the higher-identifier one is stored as the lowest, flipped;
+/// - one explicit neighbor `n`: naming an implicit hydrogen or a lone pair names the position
+///   opposite `n`, stored as `n`, flipped;
+/// - no explicit neighbor: the positions are an implicit hydrogen and a lone pair, and the
+///   canonical one is the implicit hydrogen, so a lone pair is stored as the hydrogen, flipped.
+///
+/// The model records no hydrogen or lone-pair inventory, so it does not check that the atom
+/// really has a lone pair; which label a position has is derived from the atom at derivation
+/// time.
 fn canonical_reference(slot: Slot, others: &[AtomId]) -> Result<(Slot, bool), StereoError> {
-    match (slot, others.first()) {
-        (Slot::ImplicitHydrogen | Slot::LonePair, None) => Ok((slot, false)),
-        (Slot::Atom(atom), Some(lowest)) if others.contains(&atom) => {
+    match (slot, others) {
+        (Slot::ImplicitHydrogen, []) => Ok((Slot::ImplicitHydrogen, false)),
+        (Slot::LonePair, []) => Ok((Slot::ImplicitHydrogen, true)),
+        (Slot::ImplicitHydrogen | Slot::LonePair, [only]) => Ok((Slot::Atom(*only), true)),
+        (Slot::Atom(atom), [lowest, ..]) if others.contains(&atom) => {
             Ok((Slot::Atom(*lowest), atom != *lowest))
         }
         _ => Err(StereoError::ReferenceInvalid),
