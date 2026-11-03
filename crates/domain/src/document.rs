@@ -700,10 +700,11 @@ pub enum Outcome {
     Unchanged,
 }
 
-/// The result of a transaction that was applied: its outcome, and the stereo records the edit
-/// itself invalidated and removed (not records the commands cleared on purpose), in key order.
-/// Only records that existed before the transaction and are gone after it are listed, so a record
-/// created and invalidated within the transaction, or set again afterwards, is not.
+/// The result of a transaction that was applied: its outcome, and the stereo records that
+/// existed before it and are gone after it because a change invalidated them or deleted what
+/// they belong to (the record of a deleted atom or bond is listed), in key order. Records a
+/// `Set*` command cleared explicitly are not listed, nor are records created and removed within
+/// the transaction, nor a record that was removed and set again.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Applied {
     pub outcome: Outcome,
@@ -1204,8 +1205,9 @@ struct Draft {
     next_object: u32,
     /// What each earlier command created, by command index.
     created: Vec<Created>,
-    /// Stereo records removed because a change made them meaningless, not because a command
-    /// cleared them. See [`Draft::discard_stereo`].
+    /// Stereo records removed because a change made them meaningless or deleted their atom or
+    /// bond, not because a `Set*` command cleared them; it may include records created within
+    /// the transaction, which the reply filters out. See [`Draft::discard_stereo`].
     cascaded: BTreeSet<StereoKey>,
 }
 
@@ -1251,8 +1253,9 @@ impl Draft {
         Ok(id)
     }
 
-    /// Removes the stereo records that a change to the bonded neighbors of the `touched` atoms
-    /// leaves meaningless and remembers them for the reply. Every such removal goes through
+    /// Removes the stereo records that a change to the bonded neighbors of the `touched` atoms,
+    /// or the deletion of their atom or bond, leaves meaningless and remembers them for the
+    /// reply. Every such removal goes through
     /// here, the one place a cleared center is reported.
     fn discard_stereo(&mut self, touched: &BTreeSet<AtomId>) {
         let cleared =

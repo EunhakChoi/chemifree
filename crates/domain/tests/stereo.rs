@@ -1046,6 +1046,30 @@ fn a_double_bond_configuration_is_cleared_when_either_end_gains_or_loses_a_neigh
 }
 
 #[test]
+fn deleting_a_configured_double_bond_lists_its_own_record_as_cleared() {
+    let mut document = alkene();
+    run(
+        &mut document,
+        &[relative(1, s(3), s(5), Relation::SameSide)],
+    );
+    let before = document.clone();
+    let applied = run(
+        &mut document,
+        &[Command::DeleteBonds {
+            bonds: vec![bond(1)],
+        }],
+    );
+    assert_eq!(applied.cleared, [StereoKey::DoubleBond(bond(1))]);
+    assert!(document.stereo().is_empty());
+    document.undo().unwrap();
+    assert_eq!(
+        document.stereo(),
+        before.stereo(),
+        "undo restores the record"
+    );
+}
+
+#[test]
 fn explicit_clears_and_records_made_in_the_same_transaction_are_not_reported() {
     let mut document = configured_center();
     let applied = run(&mut document, &[clear_center(1)]);
