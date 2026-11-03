@@ -1,0 +1,965 @@
+{
+  "id": "stereo-drawn-and-stored-disagree",
+  "title": "chem.stereo compares the stored configuration with what each scene instance draws without editing: it agrees, disagrees after an atom is moved, is per instance, and reports an unmarked drawing as only stored; chem.validate has no stereo diagnostics",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "$0"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "agrees",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 1,
+              "stereo": {
+                "atoms": [
+                  {
+                    "atom": "a1",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a2",
+                        "a3",
+                        "a4",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  }
+                ],
+                "bonds": []
+              }
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a4"
+          ],
+          "delta": {
+            "x": 52,
+            "y": -30
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "disagrees",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 2,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "anticlockwise"
+                  },
+                  "reason": null,
+                  "agreement": "disagrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 2,
+              "stereo": {
+                "atoms": [
+                  {
+                    "atom": "a1",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a2",
+                        "a3",
+                        "a4",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  }
+                ],
+                "bonds": []
+              }
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "drawing_disagrees",
+            "severity": "warning",
+            "details": {
+              "item": "atom",
+              "id": "a1",
+              "instance": "s1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "anticlockwise"
+              }
+            }
+          },
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a4"
+          ],
+          "delta": {
+            "x": -52,
+            "y": 30
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "agrees-again",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 3,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 3
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "add_instance",
+          "offset": {
+            "x": 200,
+            "y": 0
+          }
+        },
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a4"
+          ],
+          "delta": {
+            "x": 52,
+            "y": -30
+          },
+          "instance": "s2"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "two-instances",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 4,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1",
+            "s2"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": false
+                },
+                {
+                  "instance": "s2",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "anticlockwise"
+                  },
+                  "reason": null,
+                  "agreement": "disagrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 4
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "drawing_disagrees",
+            "severity": "warning",
+            "details": {
+              "item": "atom",
+              "id": "a1",
+              "instance": "s2"
+            }
+          },
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "only-s1",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {
+          "instance": "s1"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 4,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 4
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1"
+          ],
+          "instance": "s2"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 5,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "after-derive-from-s2",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 5,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1",
+            "s2"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "anticlockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  },
+                  "reason": null,
+                  "agreement": "disagrees",
+                  "label_differs": false
+                },
+                {
+                  "instance": "s2",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a2",
+                      "a3",
+                      "a4",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "anticlockwise"
+                  },
+                  "reason": null,
+                  "agreement": "agrees",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 5
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "drawing_disagrees",
+            "severity": "warning",
+            "details": {
+              "item": "atom",
+              "id": "a1",
+              "instance": "s1"
+            }
+          },
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "validate",
+        "profile": "preserve-semantics",
+        "operation": "chem.validate",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-valence-3",
+        "diagnostics": []
+      }
+    },
+    {
+      "call": "create",
+      "bind": "u"
+    },
+    {
+      "call": "transact",
+      "document": "u",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "u",
+      "request": {
+        "contract": 1,
+        "request_id": "unmarked",
+        "profile": "preserve-semantics",
+        "operation": "chem.stereo",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "model_id": "chemifree-stereo-1",
+        "loss_report": [],
+        "result": {
+          "stereogenicity_assessed": false,
+          "valence_model": "chemifree-valence-3",
+          "instances": [
+            "s1"
+          ],
+          "atoms": [
+            {
+              "atom": "a1",
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "drawn": [
+                {
+                  "instance": "s1",
+                  "configuration": null,
+                  "reason": "stereo_not_derivable_no_marks",
+                  "agreement": "only_stored",
+                  "label_differs": false
+                }
+              ]
+            }
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 1
+            }
+          }
+        },
+        "diagnostics": [
+          {
+            "code": "configuration_without_marks",
+            "severity": "info",
+            "details": {
+              "item": "atom",
+              "id": "a1"
+            }
+          },
+          {
+            "code": "stereo_not_checked",
+            "severity": "info"
+          }
+        ]
+      }
+    }
+  ]
+}

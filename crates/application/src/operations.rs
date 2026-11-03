@@ -16,6 +16,7 @@
 mod import;
 mod interchange;
 mod smiles;
+mod stereo;
 mod substructure;
 
 use chemifree_domain::budget::{Budget, Interrupt, NEVER};
@@ -50,6 +51,10 @@ use crate::properties::{
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 use import::{ImportFormat, ImportRequest, Staged};
 use smiles::{SmilesExportParameters, SmilesImportParameters};
+use stereo::StereoParameters;
+pub use stereo::{
+    AtomDrawnView, AtomInspection, BondDrawnView, BondInspection, MAX_ENTRIES, StereoResult,
+};
 use substructure::SubstructureParameters;
 pub use substructure::{
     AtomPair, BondPair, MATCH_CODES, MappingView, MatchCodeRow, SubstructureLimits,
@@ -220,6 +225,8 @@ pub enum OperationResult {
     Identity(Box<IdentityResult>),
     /// `chem.substructure`: every mapping of a query drawing in a target drawing.
     Substructure(Box<SubstructureResult>),
+    /// `chem.stereo`: stored against drawn stereo, per item and scene instance.
+    Stereo(Box<StereoResult>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -659,8 +666,9 @@ const TRANSACTION_PARTS: [Entry; 34] = [
     .carried_out_by(&["update_settings"]),
     runs(
         "stereo_marks",
-        "Records drawn stereo marks. Only set_configuration_from_drawing reads them, on \
-         request; the editor does not draw them yet.",
+        "Records drawn stereo marks. Only set_configuration_from_drawing reads them to store a \
+         configuration, on request, and chem.stereo reads them to compare a stored configuration \
+         with the drawing without editing; the editor does not draw them yet.",
     )
     .carried_out_by(&["set_bond_mark"]),
     runs(
@@ -668,9 +676,10 @@ const TRANSACTION_PARTS: [Entry; 34] = [
         "Records tetrahedral centers (3 or 4 neighbors) and double bonds as stated, apart from \
          the marks: no mark blocks a stated configuration. Only set_configuration_from_drawing \
          derives one from the marks, on request, replacing the stored record of each item it \
-         processes. Nothing is judged: no CIP labels, no check that a center is stereogenic, no groups, \
-         no comparison in chem.identity or chem.substructure, no stereo check in chem.validate, \
-         and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
+         processes. chem.stereo compares a stored record with the drawing, read-only. Nothing is \
+         judged: no CIP labels, no check that a center is stereogenic, no groups, no comparison \
+         in chem.identity or chem.substructure (they do not read stereo), no stereo check in \
+         chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )
     .carried_out_by(&[
         "set_atom_configuration",
@@ -770,6 +779,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Read-only substructure search of one drawing in another: every atom and bond mapping under a named model, or a refusal or limit.",
+            ),
+            &[],
+        ),
+        Op::ChemStereo => (
+            runs(
+                id,
+                "Read-only comparison of the stored stereo configurations with what each scene instance's drawing shows, per center and double bond, with advisory findings. Nothing is derived into the document and nothing is judged: no CIP label, no stereogenicity, no ring or strain plausibility.",
             ),
             &[],
         ),
@@ -2132,6 +2148,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemSubstructure => match parameters::<SubstructureParameters>(parameters_value) {
                 Ok(p) => self.substructure(known, p),
+                Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemStereo => match parameters::<StereoParameters>(parameters_value) {
+                Ok(p) => self.stereo(known, p),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::DocumentTransaction => {

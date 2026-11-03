@@ -241,13 +241,14 @@
       "summary": "Drawn stereo marks, chemical configuration, CIP labels and enhanced stereo groups are kept apart.",
       "operations": [
         "document.transaction",
-        "chem.validate"
+        "chem.validate",
+        "chem.stereo"
       ],
       "status": "partial",
       "parts": [
         {
           "id": "MODEL-03.1",
-          "summary": "Drawn stereo marks (wedge and hash on single bonds with the narrow end recorded in the mark, wavy on single bonds, crossed on double bonds) and stated configurations (tetrahedral centers with three or four bonded neighbors, double bonds, and an explicit unknown) are stored apart from each other, set and cleared by three commands, refused with stable reasons, cleared with a neighbor change and reported in the reply, and kept through undo, redo, save and reopen. Statements only: these commands label nothing, check nothing against the drawing and compare nothing (reading a configuration off the drawing is MODEL-03.2), and the editor has no tool for them.",
+          "summary": "Drawn stereo marks (wedge and hash on single bonds with the narrow end recorded in the mark, wavy on single bonds, crossed on double bonds) and stated configurations (tetrahedral centers with three or four bonded neighbors, double bonds, and an explicit unknown) are stored apart from each other, set and cleared by three commands, refused with stable reasons, cleared with a neighbor change and reported in the reply, and kept through undo, redo, save and reopen. Statements only: these commands label nothing, check nothing against the drawing and compare nothing (reading a configuration off the drawing is MODEL-03.2, comparing it with the drawing is MODEL-03.3), and the editor has no tool for them.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo.rs",
@@ -278,7 +279,7 @@
         },
         {
           "id": "MODEL-03.2",
-          "summary": "Derivation of a configuration from a drawing: set_configuration_from_drawing stores the center or double-bond state that wedge, hash, wavy and crossed marks and one scene instance's positions show, on request only, idempotently and as one undo step, replacing the stored record of every item it processes (a configuration stated by hand and an unknown included) and writing nothing for an item it skips, or refuses with one of six stereo_not_derivable_* reasons. The rules (frame, sign, fourth position, scope) are Chemifree choices named chemifree-stereo-1; the pure rules for the mirror image, the flip and a changed neighbor order (mirrored, flipped_over, turn_for_order) are defined and tested. Nothing judges whether an atom is stereogenic, computes a CIP label or compares a stored configuration with the drawing (it overwrites the statement of what it processes and reports no disagreement), and no mirror or flip command exists.",
+          "summary": "Derivation of a configuration from a drawing: set_configuration_from_drawing stores the center or double-bond state that wedge, hash, wavy and crossed marks and one scene instance's positions show, on request only, idempotently and as one undo step, replacing the stored record of every item it processes (a configuration stated by hand and an unknown included) and writing nothing for an item it skips, or refuses with one of six stereo_not_derivable_* reasons. The rules (frame, sign, fourth position, scope) are Chemifree choices named chemifree-stereo-1; the pure rules for the mirror image, the flip and a changed neighbor order (mirrored, flipped_over, turn_for_order) are defined and tested. Nothing judges whether an atom is stereogenic or computes a CIP label, the command itself reports no disagreement (it overwrites the statement of what it processes; the comparison is MODEL-03.3), and no mirror or flip command exists.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_drawing.rs",
@@ -303,8 +304,27 @@
           "followups": []
         },
         {
+          "id": "MODEL-03.3",
+          "summary": "Consistency inspection: the read-only operation chem.stereo (chemifree-stereo-1, separate from chem.validate, which stays valence-only) compares each stored configuration with what each scene instance's drawing shows, per center and double bond that is stored or marked, as agrees, disagrees, only_stored, only_drawn or neither, with a structured label_differs field for the one non-atom position, a stereogenicity_assessed false marker and closed advisory diagnostics (drawing_disagrees, drawing_not_derivable, marks_without_configuration, configuration_without_marks, mark_narrow_end_not_a_center, center_has_aromatic_bond, double_bond_substituents_same_side, wavy_between_possible_centers, drawing_weak_evidence, stereo_not_checked). It stores, derives and edits nothing, is bounded at 20,000 entries (resource_limit naming instance), judges no stereogenicity, computes no CIP label and checks no ring or strain plausibility; chem.identity and chem.substructure still do not read stereo; the editor shows no indicator.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/stereo_inspection.rs",
+            "crates/domain/src/stereo_drawing.rs",
+            "crates/application/src/operations/stereo.rs",
+            "crates/application/src/operations.rs",
+            "crates/application/src/contract.rs"
+          ],
+          "evidence": [
+            "case:stereo-drawn-and-stored-disagree",
+            "case:stereo-inspection-only-drawn-label-and-not-derivable",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "The check that a mark and a configuration agree (planned as the read-only chem.stereo inspection), CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and drawing of marks in the editor.",
+          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and drawing of marks and an agreement indicator in the editor.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

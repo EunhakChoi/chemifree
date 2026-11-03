@@ -1020,6 +1020,7 @@ try {
     assert.deepEqual(identity.loss_report, [])
     assert.deepEqual(identity.result.stereo, { compared: false, source_present: false, other_present: false })
     assert.equal(catalog.result.operations.find((operation) => operation.id === 'chem.substructure').execution, 'executable')
+    assert.equal(catalog.result.operations.find((operation) => operation.id === 'chem.stereo').execution, 'executable')
     const matched = await both((id) => request('op-substructure', 'chem.substructure', { query_document_id: id, target_document_id: id }))
     assert.equal(matched.model_id, 'chemifree-substructure-1')
     assert.equal(matched.outcome, 'ok')
@@ -1113,6 +1114,16 @@ try {
         kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } }])
       const derivedAgain = await both(transact('op-stereo-derive-again', 5, [derive]))
       assert.equal(derivedAgain.document_revision, 5, 'storing what is stored changes nothing')
+      // The read-only comparison of the stored turn with the drawing: it agrees, names its model and
+      // the exact revision, and judges no stereogenicity; a bad instance is a parameter fault.
+      const inspected = await both((id) => request('op-stereo-inspect', 'chem.stereo', { document_id: id }))
+      assert.deepEqual([inspected.outcome, inspected.model_id, inspected.document_revision], ['ok', 'chemifree-stereo-1', 5])
+      assert.equal(inspected.result.stereogenicity_assessed, false)
+      assert.equal(inspected.result.atoms[0].atom, 'a1')
+      assert.equal(inspected.result.atoms[0].drawn[0].agreement, 'agrees')
+      assert.deepEqual(inspected.diagnostics.map((diagnostic) => diagnostic.code), ['stereo_not_checked'])
+      const badInstance = await both((id) => request('op-stereo-instance', 'chem.stereo', { document_id: id, instance: 's99' }))
+      assert.deepEqual([badInstance.outcome, badInstance.diagnostics[0].code, badInstance.diagnostics[0].path], ['error', 'invalid_request', 'parameters.instance'])
       const underivable = await both(transact('op-stereo-underivable', 5, [
         { op: 'set_bond_mark', bond: 'b2', mark: null }, derive,
       ]))

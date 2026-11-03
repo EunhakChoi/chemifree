@@ -48,7 +48,8 @@
 //! tilted than that is answered with confidence. The limit is not tightened: coordinates typed
 //! with three decimals on a bond 30 points long deviate by about `3e-5` radians, far below it,
 //! and a larger threshold would refuse pictures a user means. A reader that wants to flag weak
-//! evidence can compare `|D|` with its own threshold.
+//! evidence asks [`Drawing::derive_center_with_strength`] and compares `|D|` with
+//! [`WEAK_EVIDENCE`], as the stereo inspection does.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
@@ -68,6 +69,10 @@ pub const MODEL_ID: &str = "chemifree-stereo-1";
 pub const MIN_BOND_LENGTH: f64 = 1e-3;
 /// A center whose `|D|` (dimensionless) is below this is refused as degenerate.
 pub const DEGENERACY_LIMIT: f64 = 1e-3;
+/// A center whose `|D|` is below this but not below [`DEGENERACY_LIMIT`] is derived, and an
+/// inspection reports the evidence as weak. `|D|` of 0.1 is about 1.4 degrees of tilt for a
+/// nearly straight pair of plain bonds with one wedge (`|D| = 4 * epsilon`).
+pub const WEAK_EVIDENCE: f64 = 0.1;
 /// A double-bond reference whose bond makes a sine below this with the double bond is refused as
 /// lying on its axis.
 pub const COLLINEAR_SINE: f64 = 1e-3;
@@ -185,6 +190,20 @@ impl DeriveError {
 
 impl std::error::Error for DeriveError {}
 
+/// A wedge or hash whose narrow end cannot hold a center record: see
+/// [`Drawing::misplaced_marks`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MisplacedMark {
+    pub bond: BondId,
+    /// The atom at the mark's narrow end, which the mark is about.
+    pub narrow: AtomId,
+    /// The atom at the wide end.
+    pub other: AtomId,
+    /// Whether the wide end could hold a center record, so the mark may have been drawn from
+    /// the wrong end.
+    pub other_could_be_center: bool,
+}
+
 /// The graph, its bond marks and the positions of one scene instance, with the neighbor map
 /// built once. Deriving one center or double bond afterwards costs only its neighborhood.
 pub struct Drawing<'a> {
@@ -271,6 +290,108 @@ impl<'a> Drawing<'a> {
             .collect()
     }
 
+    /// The wedges and hashes whose narrow end could not hold a center record (a terminal atom, a
+    /// query atom, an atom with five or more neighbors): they bear on nothing, so
+    /// [`Self::marked_centers`] leaves them out. Ascending by bond. A mark the bond's order
+    /// cannot carry counts as no mark. Work is linear in the bonds.
+    pub fn misplaced_marks(&self) -> Vec<MisplacedMark> {
+        let mut found = Vec::new();
+        for (&id, bond) in self.bonds {
+            let Some(StereoMark::Wedge { narrow } | StereoMark::Hash { narrow }) =
+                bond.mark.filter(|mark| mark.fits(&bond.order))
+            else {
+                continue;
+            };
+            let narrow_atom = narrow_atom(bond, narrow);
+            if self.can_be_center(narrow_atom) {
+                continue;
+            }
+            let other = if narrow_atom == bond.begin {
+                bond.end
+            } else {
+                bond.begin
+            };
+            found.push(MisplacedMark {
+                bond: id,
+                narrow: narrow_atom,
+                other,
+                other_could_be_center: self.can_be_center(other),
+            });
+        }
+        found
+    }
+
+    /// The wavy bonds that join two atoms which could both hold a center record, ascending. Each
+    /// end is read on its own (see the module documentation): an end with its own wedge or hash
+    /// follows it, an end without one is unknown. Work is linear in the bonds.
+    pub fn wavy_between_centers(&self) -> Vec<BondId> {
+        self.bonds
+            .iter()
+            .filter(|(_, bond)| {
+                bond.mark == Some(StereoMark::Wavy)
+                    && bond.order == BondOrder::Single
+                    && self.can_be_center(bond.begin)
+                    && self.can_be_center(bond.end)
+            })
+            .map(|(&id, _)| id)
+            .collect()
+    }
+
+    /// Whether any bond of `atom` is aromatic.
+    pub fn has_aromatic_bond(&self, atom: AtomId) -> bool {
+        self.graph.neighbors(atom).iter().any(|&(_, bond)| {
+            self.graph
+                .bond(bond)
+                .is_some_and(|bond| bond.order == BondOrder::Aromatic)
+        })
+    }
+
+    /// The ends of double bond `bond` that have two other neighbors drawn on the same side of
+    /// the double bond's line, in `begin`, `end` order. [`Self::derive_double_bond`] then follows
+    /// the lowest-identifier neighbor, which is a best effort, not a reading of both. An end
+    /// whose geometry cannot be read (a neighbor on top of the end or on the axis), a bond that
+    /// is not double and an end with other than two neighbors are not listed.
+    ///
+    /// # Errors
+    ///
+    /// [`DeriveError::UnknownBond`] and [`DeriveError::MissingPosition`].
+    pub fn same_side_ends(&self, bond: BondId) -> Result<Vec<AtomId>, DeriveError> {
+        let target = self
+            .graph
+            .bond(bond)
+            .ok_or(DeriveError::UnknownBond(bond))?;
+        if target.order != BondOrder::Double {
+            return Ok(Vec::new());
+        }
+        let begin = self.position(target.begin)?;
+        let end = self.position(target.end)?;
+        let axis = (end.x() - begin.x(), end.y() - begin.y());
+        let axis_squared = axis.0 * axis.0 + axis.1 * axis.1;
+        let mut found = Vec::new();
+        for (atom, partner, from) in [
+            (target.begin, target.end, begin),
+            (target.end, target.begin, end),
+        ] {
+            let Ok(others) = self.graph.other_neighbors(atom, partner) else {
+                continue;
+            };
+            let [first, second] = others[..] else {
+                continue;
+            };
+            let sides = [first, second]
+                .map(|reference| self.side_of_axis(axis, axis_squared, from, reference));
+            match sides {
+                [Ok(a), Ok(b)] if a.is_sign_positive() == b.is_sign_positive() => {
+                    found.push(atom);
+                }
+                [Err(error @ DeriveError::MissingPosition(_)), _]
+                | [_, Err(error @ DeriveError::MissingPosition(_))] => return Err(error),
+                _ => {}
+            }
+        }
+        Ok(found)
+    }
+
     /// The configuration of the stereocenter at `atom` that the drawing shows, in canonical
     /// slot order: [`CenterState::Unknown`] when only a wavy bond bears on it, otherwise
     /// tetrahedral (see the module documentation for the frame).
@@ -296,6 +417,22 @@ impl<'a> Drawing<'a> {
     /// `FourthPosition` and `Degenerate`, checked in that order. An unknown center reads no
     /// geometry, so it cannot be coincident or degenerate.
     pub fn derive_center(&self, atom: AtomId) -> Result<CenterState, DeriveError> {
+        self.derive_center_with_strength(atom)
+            .map(|(state, _)| state)
+    }
+
+    /// [`Self::derive_center`] and, with a tetrahedral result, the strength of the evidence:
+    /// `|D|`, which is at least [`DEGENERACY_LIMIT`] and below [`WEAK_EVIDENCE`] when the
+    /// drawing is nearly flat. An unknown (wavy) result reads no geometry and has no strength.
+    /// The state, the refusals and their order are exactly those of [`Self::derive_center`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::derive_center`].
+    pub fn derive_center_with_strength(
+        &self,
+        atom: AtomId,
+    ) -> Result<(CenterState, Option<f64>), DeriveError> {
         let record = self
             .graph
             .atom(atom)
@@ -368,7 +505,7 @@ impl<'a> Drawing<'a> {
             .try_into()
             .map_err(|_| StereoError::CenterUnsupported)?;
         if unknown {
-            return Ok(CenterState::unknown(slots)?);
+            return Ok((CenterState::unknown(slots)?, None));
         }
 
         let orientation = orientation(&vectors);
@@ -381,7 +518,10 @@ impl<'a> Drawing<'a> {
         };
         // The slots are already canonical (atoms ascending, then the non-atom slot), so the
         // constructor keeps the turn as it is.
-        Ok(CenterState::tetrahedral(slots, turn)?)
+        Ok((
+            CenterState::tetrahedral(slots, turn)?,
+            Some(orientation.abs()),
+        ))
     }
 
     /// The relation of the two references of double bond `bond` that the drawing shows: both

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 17,
+  "suite_version": 18,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -783,6 +783,32 @@
       "case_sha256": "4c8a367e598312df70606a55e71c73f6515522eff1acb9c9656317a51b3f9b11"
     },
     {
+      "id": "stereo-drawn-and-stored-disagree",
+      "title": "chem.stereo compares the stored configuration with what each scene instance draws without editing: it agrees, disagrees after an atom is moved, is per instance, and reports an unmarked drawing as only stored; chem.validate has no stereo diagnostics",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "acf9b76003a69043a15772363c084e165efa211383b0126f4d83d3a5910eaead"
+    },
+    {
+      "id": "stereo-inspection-only-drawn-label-and-not-derivable",
+      "title": "chem.stereo reports a marked center nothing is stored for as only drawn, two marks that conflict as not derivable with the reason, a stored hydrogen against a drawn lone pair as agreeing with label_differs, and a wedge whose narrow end is a terminal atom; it stores nothing",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e5c7dcf07acbc9ba7d0d9c43ecccb2fa44800cb8f49e6dbcb67c230b665eae08"
+    },
+    {
       "id": "stereo-cip-label-from-stored-configuration",
       "title": "A CIP label is derived from a stored configuration and kept apart from the drawn marks",
       "requirements": [
@@ -833,7 +859,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 38,
+      "passed": 40,
       "failed": 0,
       "not_run": 3
     },
@@ -843,7 +869,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 58,
+      "passed": 60,
       "failed": 0,
       "not_run": 3
     }
