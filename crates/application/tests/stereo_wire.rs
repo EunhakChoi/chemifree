@@ -631,7 +631,7 @@ fn note(path: &str, why: &str) -> Value {
         "feature": "stereo_configuration",
         "source_path": path,
         "disposition": "dropped",
-        "reason": format!("The stereo configuration of {subject} was cleared because {why}. Undo restores it."),
+        "reason": format!("The stereo configuration of {subject} was cleared because {why}. Undoing this edit, while it is still in the history, brings it back."),
         "semantic_impact": "stereo"
     })
 }

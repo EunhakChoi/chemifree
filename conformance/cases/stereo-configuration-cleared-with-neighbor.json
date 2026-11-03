@@ -213,7 +213,7 @@
             "source_path": "atoms[a1]",
             "disposition": "dropped",
             "semantic_impact": "stereo",
-            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undo restores it."
+            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back."
           }
         ]
       }
@@ -297,7 +297,7 @@
             "source_path": "atoms[a1]",
             "disposition": "dropped",
             "semantic_impact": "stereo",
-            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undo restores it."
+            "reason": "The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back."
           }
         ]
       }
@@ -552,7 +552,7 @@
             "source_path": "bonds[b4]",
             "disposition": "dropped",
             "semantic_impact": "stereo",
-            "reason": "The stereo configuration of bond b4 was cleared because the bond was deleted. Undo restores it."
+            "reason": "The stereo configuration of bond b4 was cleared because the bond was deleted. Undoing this edit, while it is still in the history, brings it back."
           }
         ]
       }

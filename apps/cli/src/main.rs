@@ -1188,7 +1188,8 @@ mod tests {
         let text = document_text(&response);
         let lines: Vec<&str> = text.lines().collect();
         let note = "  note  The stereo configuration of atom a1 was cleared because its bonded \
-                    neighbors changed. Undo restores it.";
+                    neighbors changed. Undoing this edit, while it is still in the history, \
+                    brings it back.";
         assert!(
             lines.contains(&note) && !lines.iter().any(|line| line.starts_with("  stereo ")),
             "{text}"

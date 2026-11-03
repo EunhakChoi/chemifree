@@ -648,7 +648,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "7247b80f47aacffaea7c343c08470c59d96dab2b09cc9faaafe336752ddd8906"
+      "case_sha256": "53362695b53c797de0011ae0c1c5f5c0f0076e9a3dc7f76bbfd0a213439e7dc0"
     },
     {
       "id": "stereo-order-change-and-conversion-refused",

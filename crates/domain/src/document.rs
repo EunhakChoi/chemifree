@@ -2105,6 +2105,11 @@ impl Document {
         self.content.bonds.iter().map(|(id, bond)| (*id, bond))
     }
 
+    /// The bond with this identifier, if the document has it.
+    pub fn bond(&self, id: BondId) -> Option<&Bond> {
+        self.content.bonds.get(&id)
+    }
+
     /// The molecule's scene instances in identifier (creation) order, wherever they are in the
     /// containment tree; there is always at least one.
     pub fn instances(&self) -> impl Iterator<Item = ObjectId> + '_ {

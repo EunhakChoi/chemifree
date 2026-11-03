@@ -3371,7 +3371,7 @@ step = 'after short_wide_bond_is_selectable'
     await stereoPage.mouse.click(at.x, at.y)
     const notes = stereoPage.getByTestId('stereo-notes')
     await notes.waitFor()
-    assert.match(await notes.textContent(), /stereo configuration of atom a1 was cleared because its bonded neighbors changed\. Undo restores it\./)
+    assert.match(await notes.textContent(), /stereo configuration of atom a1 was cleared because its bonded neighbors changed\. Undoing this edit, while it is still in the history, brings it back\./)
     assert.match(await notice.textContent(), /0 stored configurations/)
     await stereoPage.getByRole('button', { name: 'Undo' }).click()
     await stereoPage.getByTestId('stereo-notes').waitFor({ state: 'detached' })

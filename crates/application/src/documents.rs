@@ -8,9 +8,10 @@ use std::{panic, thread};
 
 use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{
-    Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS, MAX_TITLE_CHARS,
+    Applied, Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS, MAX_TITLE_CHARS,
     Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
+use chemifree_domain::scene::TransactionSelection;
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
@@ -947,16 +948,10 @@ impl<R: DocumentRepository> Documents<R> {
             if commands.is_empty() {
                 return Ok(Vec::new());
             }
-            // The commands are generated, so an index into them means nothing to the caller;
-            // a stereo refusal is of the conversion as a whole, with the rule it breaks.
-            session
+            let result = session
                 .document
-                .apply_selecting(&commands, &domain_selection)
-                .map(|_: Outcome| Vec::new())
-                .map_err(|error| ApplicationError {
-                    command_index: None,
-                    ..rejected_edit(error)
-                })
+                .apply_reporting(&commands, &domain_selection);
+            conversion_notes(&session.document, result)
         })
     }
 
@@ -976,11 +971,10 @@ impl<R: DocumentRepository> Documents<R> {
             selection,
         };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
-            let applied = session
+            let result = session
                 .document
-                .apply_reporting(&domain_commands, &domain_selection)
-                .map_err(rejected_edit)?;
-            Ok(cleared_stereo_notes(&session.document, &applied.cleared))
+                .apply_reporting(&domain_commands, &domain_selection);
+            edit_notes(&session.document, result)
         })
     }
 
@@ -1038,15 +1032,18 @@ impl<R: DocumentRepository> Documents<R> {
         self.mutate(id, request_id, expected_revision, mutation, |session| {
             let before = session.response();
             let mut candidate = session.document.clone();
+            let mut notes = Vec::new();
             if !commands.is_empty() {
-                candidate.apply(commands).map_err(rejected_edit)?;
+                let result = candidate.apply_reporting(commands, &TransactionSelection::default());
+                notes = edit_notes(&candidate, result)?;
             }
             let projected =
                 DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
             verify(&before.document, &projected.document)?;
             session.document = candidate;
-            // An import adds atoms and bonds between new atoms only, so it clears no record.
-            Ok(Vec::new())
+            // An import adds atoms and bonds between new atoms only, so `notes` is empty; if
+            // that ever stops being true the reply is `partial` instead of silently `ok`.
+            Ok(notes)
         })
     }
 
@@ -1100,11 +1097,10 @@ impl<R: DocumentRepository> Documents<R> {
         }
         let command = Command::UpdateSettings(target()?.to_edit());
         self.mutate_running(id, request_id, expected_revision, mutation, |session| {
-            session
+            let result = session
                 .document
-                .apply_selecting(&[command], &domain_selection)
-                .map(|_: Outcome| Vec::new())
-                .map_err(rejected_edit)
+                .apply_reporting(&[command], &domain_selection);
+            edit_notes(&session.document, result)
         })
     }
 
@@ -2482,7 +2478,7 @@ fn cleared_stereo_notes(document: &Document, cleared: &[StereoKey]) -> Vec<Loss>
                     )
                 }
                 StereoKey::DoubleBond(bond) => {
-                    let kept = document.bonds().any(|(id, _)| id == *bond);
+                    let kept = document.bond(*bond).is_some();
                     (
                         format!("bonds[{bond}]"),
                         format!("bond {bond}"),
@@ -2500,13 +2496,43 @@ fn cleared_stereo_notes(document: &Document, cleared: &[StereoKey]) -> Vec<Loss>
                 source_path,
                 disposition: LossDisposition::Dropped,
                 reason: format!(
-                    "The stereo configuration of {subject} was cleared because {why}. Undo \
-                     restores it."
+                    "The stereo configuration of {subject} was cleared because {why}. Undoing \
+                     this edit, while it is still in the history, brings it back."
                 ),
                 semantic_impact: SemanticImpact::Stereo,
             }
         })
         .collect()
+}
+
+/// The notes of an applied edit, or its refusal: what a transaction, a settings change and an
+/// import all answer, so that no path can clear a stated record and still be `ok`.
+fn edit_notes(
+    document: &Document,
+    result: Result<Applied, TransactionError>,
+) -> Result<Vec<Loss>, ApplicationError> {
+    result
+        .map(|applied| cleared_stereo_notes(document, &applied.cleared))
+        .map_err(rejected_edit)
+}
+
+/// Like [`edit_notes`] for an aromaticity conversion. Its commands are generated, so an index
+/// into them means nothing to the caller: a stereo refusal is of the conversion as a whole,
+/// with the rule it breaks and no command index. Every other refusal keeps its index.
+fn conversion_notes(
+    document: &Document,
+    result: Result<Applied, TransactionError>,
+) -> Result<Vec<Loss>, ApplicationError> {
+    edit_notes(document, result).map_err(|refused| {
+        if refused.invalid_stereo.is_some() {
+            ApplicationError {
+                command_index: None,
+                ..refused
+            }
+        } else {
+            refused
+        }
+    })
 }
 
 fn rejected_edit(error: TransactionError) -> ApplicationError {
@@ -2646,6 +2672,97 @@ fn refused(refusal: Refusal) -> ApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chemifree_domain::document::{AtomId, BondId, Point};
+    use chemifree_domain::states::StateError;
+    use chemifree_domain::stereo::StereoError;
+
+    fn drawing() -> Document {
+        let id = DocumentId::parse("notes").expect("valid identifier");
+        let mut document = Document::new(id, "Notes").expect("valid title");
+        document
+            .apply(&[Command::AddAtom {
+                atom: chemifree_domain::document::Atom::new(
+                    chemifree_domain::element::Element::from_symbol("C")
+                        .expect("carbon")
+                        .into(),
+                ),
+                positions: chemifree_domain::document::NewAtomPositions::Single(
+                    Point::new(0.0, 0.0).unwrap(),
+                ),
+                bond_to: None,
+            }])
+            .expect("an atom");
+        document
+    }
+
+    fn forged(cleared: Vec<StereoKey>) -> Result<Applied, TransactionError> {
+        Ok(Applied {
+            outcome: Outcome::Changed,
+            cleared,
+        })
+    }
+
+    fn refused(index: usize, error: EditError) -> Result<Applied, TransactionError> {
+        Err(TransactionError {
+            index: Some(index),
+            error,
+        })
+    }
+
+    #[test]
+    fn a_conversion_that_cleared_a_record_reports_it_like_a_transaction() {
+        // No conversion clears a record today (it only changes bond orders), so the list is
+        // forced: the point is that the path maps it to notes, which make the reply `partial`.
+        let document = drawing();
+        let a1 = AtomId::from_serial(1).unwrap();
+        let bond = BondId::from_serial(1).unwrap();
+        let cleared = vec![StereoKey::Center(a1), StereoKey::DoubleBond(bond)];
+        let via_transaction = edit_notes(&document, forged(cleared.clone())).unwrap();
+        let via_conversion = conversion_notes(&document, forged(cleared)).unwrap();
+        assert_eq!(via_transaction.len(), 2);
+        assert_eq!(via_conversion, via_transaction);
+        assert_eq!(via_conversion[0].source_path, "atoms[a1]");
+        assert_eq!(via_conversion[1].source_path, "bonds[b1]");
+        assert!(
+            via_conversion[1].reason.contains("the bond was deleted"),
+            "{}",
+            via_conversion[1].reason
+        );
+        assert!(
+            conversion_notes(&document, forged(Vec::new()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn only_a_stereo_refusal_of_a_conversion_loses_its_command_index() {
+        let document = drawing();
+        let stereo = conversion_notes(
+            &document,
+            refused(3, EditError::Stereo(StereoError::MarkBondOrder)),
+        )
+        .unwrap_err();
+        assert_eq!(stereo.command_index, None);
+        assert_eq!(stereo.reason_code(), Some("stereo_mark_bond_order"));
+        let other = conversion_notes(
+            &document,
+            refused(3, EditError::InvalidState(StateError::QueryAtomCharge)),
+        )
+        .unwrap_err();
+        assert_eq!(
+            other.command_index,
+            Some(3),
+            "as before the stereo commands"
+        );
+        // A transaction keeps the index of a stereo refusal.
+        let transaction = edit_notes(
+            &document,
+            refused(3, EditError::Stereo(StereoError::MarkBondOrder)),
+        )
+        .unwrap_err();
+        assert_eq!(transaction.command_index, Some(3));
+    }
 
     #[test]
     fn aromaticity_refusals_that_are_not_model_limits_name_their_cause() {

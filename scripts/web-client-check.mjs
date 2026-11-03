@@ -2270,7 +2270,7 @@ test('an older reply with no marks and no stereo table is accepted and filled in
 
 const clearedNote = (path = 'atoms[a1]') => ({
   feature: 'stereo_configuration', source_path: path, disposition: 'dropped', semantic_impact: 'stereo',
-  reason: 'The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undo restores it.',
+  reason: 'The stereo configuration of atom a1 was cleared because its bonded neighbors changed. Undoing this edit, while it is still in the history, brings it back.',
 })
 
 test('the notes a transaction reply carries are read, and a malformed note is refused', async () => {

@@ -761,7 +761,8 @@ function StereoNotice({ document }: { document: DocumentView }) {
 
 /**
  * Says what the last edit cleared of stereo: the reply to a transaction lists each stated
- * configuration removed because the edit changed the atoms it was about. Undo restores it.
+ * configuration removed because the edit changed the atoms it was about. Undoing that edit,
+ * while it is still in the history, brings the configuration back.
  */
 function StereoNotes({ notes }: { notes: readonly StereoNote[] }) {
   if (notes.length === 0) return null
