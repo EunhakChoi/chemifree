@@ -1491,11 +1491,10 @@ impl Draft {
                 updated.validate()?;
                 *target = updated;
                 // A stored configuration must stay valid; the order change that would break it
-                // is refused rather than erasing it.
+                // is refused with the rule it breaks rather than erasing the configuration.
                 self.content
                     .stereo
-                    .validate(&self.content.atoms, &self.content.bonds)
-                    .map_err(|_| StereoError::Conflict)?;
+                    .validate(&self.content.atoms, &self.content.bonds)?;
             }
             Command::DeleteAtoms { atoms } => {
                 let targets = unique(atoms)?;

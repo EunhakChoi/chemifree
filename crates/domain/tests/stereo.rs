@@ -462,6 +462,104 @@ fn changing_the_order_of_a_marked_bond_is_refused_not_erased() {
 }
 
 #[test]
+fn an_order_change_that_breaks_a_stored_configuration_reports_the_rule_it_breaks() {
+    let configured = || {
+        let mut document = alkene();
+        run(
+            &mut document,
+            &[relative(1, s(3), s(5), Relation::SameSide)],
+        );
+        document
+    };
+
+    // The configured bond stops being double.
+    let mut document = configured();
+    let error = refusal(
+        &mut document,
+        &[Command::UpdateBond {
+            bond: bond(1),
+            order: BondOrder::Single,
+        }],
+    );
+    assert_eq!(
+        (error.index, stereo_refusal(&error)),
+        (Some(0), Some(StereoError::DoubleBondRequired))
+    );
+
+    // A neighboring bond becomes double, so an end of the configured bond is cumulated.
+    let mut document = configured();
+    let error = refusal(
+        &mut document,
+        &[Command::UpdateBond {
+            bond: bond(3),
+            order: BondOrder::Double,
+        }],
+    );
+    assert_eq!(
+        (error.index, stereo_refusal(&error)),
+        (Some(0), Some(StereoError::GeometryUnsupported))
+    );
+}
+
+/// A mark and a stated configuration are separate statements and never validate against each
+/// other: both are stored whichever is set first, and both come back through undo, redo, and
+/// a restore of the stored parts.
+fn assert_mark_and_configuration_coexist(
+    start: &Document,
+    first: &Command,
+    second: &Command,
+    bond_serial: u32,
+    key: StereoKey,
+) {
+    let mut document = start.clone();
+    run(&mut document, std::slice::from_ref(first));
+    run(&mut document, std::slice::from_ref(second));
+    let stated = |document: &Document| {
+        let marked = document
+            .bonds()
+            .find(|(id, _)| *id == bond(bond_serial))
+            .unwrap()
+            .1
+            .mark;
+        (marked, document.stereo().get(key).copied())
+    };
+    let both = stated(&document);
+    assert!(
+        both.0.is_some() && both.1.is_some(),
+        "the mark and the configuration are both stored: {both:?}"
+    );
+
+    document.undo().unwrap();
+    document.undo().unwrap();
+    assert_eq!(stated(&document), (None, None), "undo removes both");
+    document.redo().unwrap();
+    document.redo().unwrap();
+    assert_eq!(stated(&document), both, "redo restores both");
+
+    let restored = Document::restore(document.to_parts()).unwrap();
+    assert_eq!(restored, document, "stored parts restore both statements");
+}
+
+#[test]
+fn a_crossed_mark_and_a_double_bond_configuration_coexist_in_either_order() {
+    let crossed = mark(1, Some(StereoMark::Crossed));
+    let configuration = relative(1, s(3), s(5), Relation::OppositeSides);
+    let key = StereoKey::DoubleBond(bond(1));
+    assert_mark_and_configuration_coexist(&alkene(), &crossed, &configuration, 1, key);
+    assert_mark_and_configuration_coexist(&alkene(), &configuration, &crossed, 1, key);
+}
+
+#[test]
+fn a_wedge_and_a_center_configuration_coexist_in_either_order() {
+    let wedge_mark = mark(1, Some(wedge(BondEnd::Begin)));
+    let configuration = tetra(1, [s(2), s(3), s(4), s(5)], Turn::Anticlockwise);
+    let key = StereoKey::Center(atom(1));
+    let start = center_with(4);
+    assert_mark_and_configuration_coexist(&start, &wedge_mark, &configuration, 1, key);
+    assert_mark_and_configuration_coexist(&start, &configuration, &wedge_mark, 1, key);
+}
+
+#[test]
 fn setting_the_mark_a_bond_already_has_changes_nothing() {
     let mut document = bond_with_order(BondOrder::Single);
     run(&mut document, &[mark(1, Some(StereoMark::Wavy))]);

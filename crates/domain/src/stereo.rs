@@ -326,8 +326,8 @@ pub enum StereoError {
     ReferenceInvalid,
     /// A double bond with a cumulated double or triple bond at an end.
     GeometryUnsupported,
-    /// An edit that would leave a stored configuration invalid, or a stored record that is not
-    /// in canonical form or whose kind does not match its key.
+    /// A stored record that is not in canonical form or whose kind does not match its key. An
+    /// edit that would break a stored configuration reports the rule it breaks instead.
     Conflict,
 }
 
@@ -380,8 +380,7 @@ impl fmt::Display for StereoError {
                 "a double bond configuration does not cover a cumulated double or triple bond"
             }
             Self::Conflict => {
-                "this would leave a stored configuration invalid; clear it in the same \
-                 transaction first"
+                "a stored stereo record is not in canonical form or does not match its key"
             }
         })
     }
