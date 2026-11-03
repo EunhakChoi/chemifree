@@ -1450,7 +1450,7 @@
         },
         {
           "id": "API-01.5",
-          "summary": "chem.aromaticity_convert computes outside the session lock on a copy of the graph, under a time limit (default 5 s, at most 8 s, set per request by time_limit_ms); a stopped computation is the time_limit diagnostic (or cancelled when its host cancels it), changes nothing, and is not remembered for replay; a result computed for a revision that is no longer current is refused with revision_conflict. A time-based refusal depends on the machine; time_limit carries only limit_ms. Other operations have no time limit or cancel yet.",
+          "summary": "chem.aromaticity_convert computes outside the session lock on a copy of the graph, under a time limit (default 5 s, at most 8 s, set per request by time_limit_ms); a stopped computation is the time_limit diagnostic (or cancelled when its host cancels it), changes nothing, and is not remembered for replay (a stop is honoured until the result is committed under the lock, and the requested time_limit_ms is part of the replay comparison once a request has completed); a result computed for a revision that is no longer current is refused with revision_conflict. A time-based refusal depends on the machine; time_limit carries only limit_ms. Other operations have no time limit or cancel yet.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/budget.rs",

@@ -452,7 +452,7 @@
     },
     {
       "id": "compute-time-limit-refused",
-      "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again",
+      "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again, with another limit if wished; once completed, the same request ID with another limit is request_id_reused",
       "requirements": [
         "API-01",
         "OPS-02"
@@ -462,7 +462,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "759c2999e885cce64ae3e97e9278f4d0195473c032ecc8a11bb0cd404c65dcaf"
+      "case_sha256": "449064e667f0f840953d9221bf7b8894c491fb758af14d87b29d4b9f5019c1a6"
     },
     {
       "id": "graph-identity",
