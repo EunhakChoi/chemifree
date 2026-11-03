@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use chemifree_domain::document::{
     Atom, AtomId, AtomRef, Bond, BondId, BondOrder, BondRef, Command, Document, DocumentId,
-    NewAtomPositions, Point,
+    EditError, NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::TransactionSelection;
@@ -845,6 +845,70 @@ fn an_explicitly_named_end_of_a_wavy_bond_without_a_mark_of_its_own_is_unknown()
 }
 
 #[test]
+fn a_wavy_bond_to_an_sp2_carbon_with_three_neighbors_counts_as_a_possible_center() {
+    // Pins a deliberate structural approximation: whether the other end of a wavy bond "can be
+    // a center" is only a neighbor-count and element test (a non-query atom with 3 or 4
+    // neighbors), not a chemical one. a2 is an sp2 carbon (a double bond to a5, a single bond
+    // to a6, and the wavy bond), which is no stereocenter, but it has three neighbors, so the
+    // wavy bond is not read as a conflict at a1: a1 follows its own wedge.
+    let mut sketch = wavy_pair(wedge(BondEnd::Begin), None);
+    sketch.bond(4, 2, 5, BondOrder::Double, None);
+    let mut plain = sketch.marked(|mark| mark);
+    plain.bonds.get_mut(&bid(1)).unwrap().mark = None;
+    let a1 = sketch.center(1);
+    assert!(
+        matches!(a1, Ok(CenterState::Tetrahedral { .. })),
+        "no conflict with an sp2 neighbor: {a1:?}"
+    );
+    assert_eq!(a1, plain.center(1), "it reads as if the bond were plain");
+    // With only two neighbors the other end cannot be a center, and the same drawing conflicts.
+    let mut terminal = sketch.marked(|mark| mark);
+    terminal.bonds.remove(&bid(5));
+    assert_eq!(refused(terminal.center(1)), NotDerivable::ConflictingMarks);
+}
+
+#[test]
+fn a_wedge_on_a_bond_that_cannot_carry_it_is_no_mark_at_all() {
+    // A document never holds this (a wedge fits a single bond only), but `Drawing::new` takes
+    // arbitrary maps. Such a mark neither lifts the neighbor nor counts as a mark.
+    let mut on_double = cross(wedge(BondEnd::Begin), None);
+    on_double.bonds.get_mut(&bid(3)).unwrap().order = BondOrder::Double;
+    assert_eq!(refused(on_double.center(1)), NotDerivable::NoMarks);
+    // A wedge to the south and a hash to the north cancel to a flat picture (D = 0) when both
+    // count. With the wedge on a triple bond only the hash lifts: anticlockwise, D = -2 by hand
+    // (N (0, 1, -1), E (1, 0, 0), S (0, -1, 0), W (-1, 0, 0)).
+    let mut ignored_wedge = cross(wedge(BondEnd::Begin), None);
+    ignored_wedge.bonds.get_mut(&bid(1)).unwrap().mark = hash(BondEnd::Begin);
+    assert_eq!(
+        refused(ignored_wedge.center(1)),
+        NotDerivable::Degenerate,
+        "both marks valid: flat"
+    );
+    ignored_wedge.bonds.get_mut(&bid(3)).unwrap().order = BondOrder::Triple;
+    assert_eq!(
+        ignored_wedge.center(1),
+        Ok(tetra(quad(2, 3, 4, 5), Turn::Anticlockwise))
+    );
+}
+
+#[test]
+fn a_wavy_mark_on_a_bond_that_cannot_carry_it_does_not_make_the_center_unknown() {
+    let mut on_double = cross(None, None);
+    on_double.bonds.get_mut(&bid(1)).unwrap().order = BondOrder::Double;
+    on_double.bonds.get_mut(&bid(1)).unwrap().mark = Some(StereoMark::Wavy);
+    assert_eq!(refused(on_double.center(1)), NotDerivable::NoMarks);
+    // And it is no conflict beside a valid wedge either: the wedge is read on its own.
+    let mut beside_wedge = cross(wedge(BondEnd::Begin), None);
+    beside_wedge.bonds.get_mut(&bid(1)).unwrap().order = BondOrder::Double;
+    beside_wedge.bonds.get_mut(&bid(1)).unwrap().mark = Some(StereoMark::Wavy);
+    assert_eq!(
+        beside_wedge.center(1),
+        Ok(tetra(quad(2, 3, 4, 5), Turn::Clockwise)),
+        "the wedge alone: D = +2 by hand"
+    );
+}
+
+#[test]
 fn a_wavy_single_bond_beside_a_double_bond_is_not_read_as_either_e_or_z() {
     // Deliberate limit: the usual "either" marker on a bond next to a double bond states
     // nothing about the double bond here.
@@ -1175,10 +1239,75 @@ fn the_fourth_position_of_a_three_neighbor_center_by_table() {
             no,
         ),
         (
-            "silicon stated 1",
+            // The valence model has no entry for silicon, so it cannot call the stated count
+            // valid; a stated count is not taken at face value.
+            "silicon stated 1 (unlisted element)",
             atom_of("Si", 0, Specified(1), Radical::None),
             vec![S, S, S],
+            no,
+        ),
+        (
+            "carbon dication stated 1 (unlisted charge)",
+            atom_of("C", 2, Specified(1), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "C stated 1 with an attachment point (unsupported by the model)",
+            Atom {
+                attachment_points: AttachmentPoints::new(&[1]).unwrap(),
+                ..atom_of("C", 0, Specified(1), Radical::None)
+            },
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "ammonium N+ stated 1 (a protonated amine is a centre)",
+            atom_of("N", 1, Specified(1), Radical::None),
+            vec![S, S, S],
             h,
+        ),
+        (
+            "borohydride B- stated 1",
+            atom_of("B", -1, Specified(1), Radical::None),
+            vec![S, S, S],
+            h,
+        ),
+        (
+            "P stated 1 with three single bonds (valence 4, hypervalent)",
+            atom_of("P", 0, Specified(1), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "S stated 1 with three single bonds (valence 4, hypervalent)",
+            atom_of("S", 0, Specified(1), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "O+ stated 1 (valence 4, hypervalent)",
+            atom_of("O", 1, Specified(1), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "carbocation stated 0",
+            atom_of("C", 1, Specified(0), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "oxonium O+ stated 0",
+            atom_of("O", 1, Specified(0), Radical::None),
+            vec![S, S, S],
+            no,
+        ),
+        (
+            "N- stated 0 (valence 3 where the model allows 2)",
+            atom_of("N", -1, Specified(0), Radical::None),
+            vec![S, S, S],
+            no,
         ),
         (
             "silicon stated 0",
@@ -1229,9 +1358,18 @@ fn the_fourth_position_of_a_three_neighbor_center_by_table() {
             no,
         ),
     ];
-    for (name, atom, orders, expected) in rows {
-        assert_eq!(fourth_position(id(1), &atom, &orders), expected, "{name}");
-    }
+    let mismatches: Vec<String> = rows
+        .into_iter()
+        .filter_map(|(name, atom, orders, expected)| {
+            let actual = fourth_position(id(1), &atom, &orders);
+            (actual != expected).then(|| format!("{name}: expected {expected:?}, got {actual:?}"))
+        })
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "rows differ:\n{}",
+        mismatches.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1567,6 +1705,94 @@ fn derived_double_bonds_are_accepted_and_stored_unchanged_by_a_document() {
             Some(&StereoState::DoubleBond(derived))
         );
     }
+}
+
+/// Derives crossed double bond `b1` of `sketch` and stores the result through a document,
+/// the way the stored-state tests above do.
+fn derive_and_store_crossed(sketch: &Sketch) -> Result<DoubleBondState, DeriveError> {
+    let mut document = document_of(sketch);
+    let derived =
+        Drawing::of_document(&document, document.first_instance()).derive_double_bond(bid(1))?;
+    assert_eq!(
+        derived,
+        sketch.double_bond(1).unwrap(),
+        "document path equals map path"
+    );
+    document
+        .apply_reporting(
+            &[Command::SetBondConfiguration {
+                bond: BondRef::Id(bid(1)),
+                configuration: Some(BondConfiguration::Unknown),
+            }],
+            &TransactionSelection::default(),
+        )
+        .unwrap_or_else(|error| panic!("the model refused the derived state {derived:?}: {error}"));
+    assert_eq!(
+        document.stereo().get(StereoKey::DoubleBond(bid(1))),
+        Some(&StereoState::DoubleBond(derived)),
+        "the stored record is the derived state"
+    );
+    Ok(derived)
+}
+
+#[test]
+fn a_crossed_terminal_or_half_terminal_double_bond_is_unknown_and_the_document_stores_it() {
+    // C=O with no other neighbor at either end.
+    let mut terminal = Sketch::default();
+    terminal
+        .atom(1, "C", 0.0, 0.0)
+        .atom(2, "O", 30.0, 0.0)
+        .bond(1, 1, 2, BondOrder::Double, Some(StereoMark::Crossed));
+    assert_eq!(
+        derive_and_store_crossed(&terminal),
+        Ok(DoubleBondState::Unknown)
+    );
+    // One end has a neighbor, the other none: an uncrossed bond would be NoReference.
+    let mut half = Sketch::default();
+    half.atom(1, "C", 0.0, 0.0)
+        .atom(2, "N", 30.0, 0.0)
+        .atom(3, "C", -15.0, 20.0)
+        .bond(1, 1, 2, BondOrder::Double, Some(StereoMark::Crossed))
+        .single(2, 1, 3, None);
+    assert_eq!(
+        derive_and_store_crossed(&half),
+        Ok(DoubleBondState::Unknown)
+    );
+    let mut uncrossed = half.marked(|mark| mark);
+    uncrossed.bonds.get_mut(&bid(1)).unwrap().mark = None;
+    assert_eq!(
+        uncrossed.double_bond(1),
+        Err(DeriveError::NotDerivable(NotDerivable::NoReference))
+    );
+}
+
+#[test]
+fn a_crossed_double_bond_beside_a_cumulated_bond_is_refused_as_the_document_refuses_it() {
+    // An allene C1=C2=C3 whose first double bond is crossed: derive never returns a state
+    // the model cannot hold, so it reports the model's own refusal.
+    let mut allene = Sketch::default();
+    allene
+        .atom(1, "C", 0.0, 0.0)
+        .atom(2, "C", 30.0, 0.0)
+        .atom(3, "C", 60.0, 0.0)
+        .bond(1, 1, 2, BondOrder::Double, Some(StereoMark::Crossed))
+        .bond(2, 2, 3, BondOrder::Double, None);
+    let refusal = DeriveError::Structure(StereoError::GeometryUnsupported);
+    assert_eq!(allene.double_bond(1), Err(refusal));
+    let mut document = document_of(&allene);
+    assert_eq!(derive_and_store_crossed(&allene), Err(refusal));
+    let stored = document.apply_reporting(
+        &[Command::SetBondConfiguration {
+            bond: BondRef::Id(bid(1)),
+            configuration: Some(BondConfiguration::Unknown),
+        }],
+        &TransactionSelection::default(),
+    );
+    assert_eq!(
+        stored.map_err(|error| error.error),
+        Err(EditError::Stereo(StereoError::GeometryUnsupported)),
+        "the document refuses the same state for the same reason"
+    );
 }
 
 #[test]

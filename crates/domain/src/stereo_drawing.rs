@@ -177,7 +177,9 @@ pub struct Drawing<'a> {
 
 impl<'a> Drawing<'a> {
     /// A drawing of `atoms` and `bonds` (whose marks it reads) at `positions`. The caller
-    /// supplies bonds between listed atoms, as a document guarantees. Work is linear in the
+    /// supplies bonds between listed atoms and marks that fit their bond's order
+    /// ([`StereoMark::fits`]), as a document guarantees; the maps are otherwise unchecked.
+    /// [`Self::derive_center`] reads a mark that does not fit as no mark. Work is linear in the
     /// atoms and bonds, once.
     pub fn new(
         atoms: &'a BTreeMap<AtomId, Atom>,
@@ -216,6 +218,19 @@ impl<'a> Drawing<'a> {
     /// slot order: [`CenterState::Unknown`] when only a wavy bond bears on it, otherwise
     /// tetrahedral (see the module documentation for the frame).
     ///
+    /// A bond mark is read only if the bond's order can carry it ([`StereoMark::fits`]: wedge,
+    /// hash and wavy on a single bond). A document guarantees that; a drawing built from
+    /// arbitrary maps may not, and a mark that does not fit contributes no lift and counts as
+    /// no mark at all (it is neither a wavy bond nor a conflict).
+    ///
+    /// A wavy bond is checked against the other end with a deliberately structural test: the
+    /// other end "can be a center" when it is a non-query atom with three or four neighbors,
+    /// whatever its bonds are. An sp2 carbon with three neighbors therefore counts as a possible
+    /// center, so a wavy bond to it does not conflict with this end's own wedge or hash: this
+    /// end follows its mark and reads the wavy bond as plain. Only a wavy bond to an atom that
+    /// could not hold a center record at all (a terminal atom, a query atom, five neighbors) is
+    /// a conflict beside a mark of the center's own. No valence or hybridization is consulted.
+    ///
     /// # Errors
     ///
     /// [`DeriveError::UnknownAtom`]; [`StereoError::CenterUnsupported`] for a query atom or
@@ -244,7 +259,9 @@ impl<'a> Drawing<'a> {
                 .bond(bond_id)
                 .ok_or(DeriveError::UnknownBond(bond_id))?;
             orders.push(chemistry::bond_order_value(&bond.order));
-            lifts.push(match bond.mark {
+            // A mark the bond's order cannot carry (a document never holds one) is no mark.
+            let mark = bond.mark.filter(|mark| mark.fits(&bond.order));
+            lifts.push(match mark {
                 Some(StereoMark::Wedge { narrow }) if narrow_atom(bond, narrow) == atom => {
                     own_mark = true;
                     1.0
@@ -314,7 +331,9 @@ impl<'a> Drawing<'a> {
     /// references on the same side of the double bond's line (cis) or opposite sides (trans).
     /// The references are each end's lowest-identifier other neighbor, the canonical form a
     /// stored record has. A crossed double bond is [`DoubleBondState::Unknown`] without reading
-    /// any position. Handedness never matters here, so there is no mirror law to apply.
+    /// any position, even when an end has no other neighbor (an uncrossed one is `NoReference`);
+    /// only the structural checks below come first, so it never returns a state a document
+    /// would refuse to store. Handedness never matters here, so there is no mirror law to apply.
     ///
     /// # Errors
     ///
@@ -416,26 +435,43 @@ fn orientation(vectors: &[[f64; 3]]) -> f64 {
         + a[2] * (b[0] * c[1] - b[1] * c[0])
 }
 
-/// The position that completes the neighbors of a center: for `orders` holding the integral
-/// valence contribution of each bonded neighbor (`None` where a bond has none), the shared rule
-/// every reader of a drawing uses.
+/// The position that completes the neighbors of a center, by the one rule every reader of a
+/// drawing shares. `orders` holds the integral valence contribution of each bonded neighbor
+/// (`None` where a bond has none).
 ///
-/// - Three neighbors: [`Slot::ImplicitHydrogen`] when the atom has exactly one hydrogen (stated,
-///   or inferred from valence by [`chemistry::assess`]); [`Slot::LonePair`] when it has none,
-///   the valence model finds the atom valid, and it is a neutral N or P with three single
-///   bonds or a neutral S with a valence sum of four (the sulfoxide case). Everything else is `FourthPosition`: unknown hydrogens, a radical,
-///   an aromatic or otherwise valueless bond, a stated count that the valence model
-///   contradicts, two or more hydrogens, sp2 carbon, carbocations, boron, hypervalent
-///   nitrogen, charged heteroatoms, and any hydrogen on a center with a multiple bond.
-///   Naming a fourth position never judges whether the atom is a stereocenter.
-/// - Four neighbors: `Ok(None)` unless hydrogens are stated as more than none, which would be a
-///   fifth position. The inferred count is not consulted.
+/// With three neighbors the atom passes these gates, in this order, or the result is
+/// `FourthPosition`:
 ///
-/// A change to `chemifree-valence-3` can change what an inferred atom is named here.
+/// - It is an element atom (a query atom is refused), has no radical, and its hydrogens are
+///   not unknown.
+/// - Every bond has an integral value (aromatic, dative, query and unknown bonds have none).
+/// - [`chemistry::assess`] finds it valid, with the stated or the inferred hydrogen count. A
+///   stated count is never taken at face value: the valence model must accept it, so a count
+///   it contradicts, an element or charge it does not list, and an atom with attachment points
+///   are all refused.
+///
+/// Then the hydrogen count `n` decides:
+///
+/// - `n = 1`: [`Slot::ImplicitHydrogen`], whatever the charge (an ammonium or a borohydride is a
+///   legitimate center), unless a bond is multiple or the bond order sum plus the hydrogen
+///   exceeds the lowest valence the model lists for the element and charge (hypervalent), which
+///   are refused.
+/// - `n = 0`: [`Slot::LonePair`] for a neutral N or P with a bond order sum of three, or a
+///   neutral S with a sum of four (the sulfoxide case). Refused: every other element
+///   (carbocations, carbanions, boron, sp2 carbon), every charged atom (charged heteroatoms
+///   such as an oxonium), and every other sum (hypervalent nitrogen).
+/// - `n >= 2`: refused.
+///
+/// With four neighbors the result is `Ok(None)`, unless hydrogens are stated as more than none,
+/// which would be a fifth position and is refused. The inferred count is not consulted. Any
+/// other number of neighbors is refused.
+///
+/// Naming a fourth position never judges whether the atom is a stereocenter. A change to
+/// `chemifree-valence-3` can change what an atom is named here.
 ///
 /// # Errors
 ///
-/// [`NotDerivable::FourthPosition`] as above, or for any other number of neighbors.
+/// [`NotDerivable::FourthPosition`], as above.
 pub fn fourth_position(
     id: AtomId,
     atom: &Atom,
@@ -458,14 +494,10 @@ pub fn fourth_position(
     }
     let sum = orders.iter().copied().sum::<Option<u16>>().ok_or(refused)?;
     let assessment = chemistry::assess(id, atom, orders);
-    let count = match (
-        atom.hydrogens,
-        assessment.finding,
-        assessment.hydrogen_count,
-    ) {
-        (Hydrogens::Specified(count), _, _) => u16::from(count),
-        (_, Finding::Valid, Some(count)) => count,
-        _ => return Err(refused),
+    // The model's count, which is the stated one when the atom states it, and only when the
+    // model accepts the whole atom.
+    let (Finding::Valid, Some(count)) = (assessment.finding, assessment.hydrogen_count) else {
+        return Err(refused);
     };
     let symbol = element.symbol();
     match count {
@@ -486,7 +518,7 @@ pub fn fourth_position(
                 "S" => 4,
                 _ => return Err(refused),
             };
-            if atom.charge != 0 || sum != lone_pair_sum || assessment.finding != Finding::Valid {
+            if atom.charge != 0 || sum != lone_pair_sum {
                 return Err(refused);
             }
             Ok(Some(Slot::LonePair))
