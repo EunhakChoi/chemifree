@@ -6,9 +6,9 @@ P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계
 
 P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
 
-P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다(canonical 형식은 Chemifree 자체 형식이며 다른 도구와 호환되지 않는다). 입체, query/반응 SMILES와 InChI는 후속 범위다.
+P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다(canonical 형식은 Chemifree 자체 형식이며 다른 도구와 호환되지 않는다). 입체, query/반응 SMILES와 InChI는 후속 범위다. 입체 표시·배치가 있는 도면을 SMILES로 쓰면 `stereo_marks`·`stereo_configuration` 손실에 동의가 필요하고 텍스트에는 입체가 없다.
 
-P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 연결한다(MODEL-02.7). 고리·차수·수소 개수 조건, 입체와 질의 SMILES는 기록할 수 없으므로 후속 범위다. RDKit 비교(`scripts/verify-query-rdkit.py`)는 수동 실행이며 `npm run check` 밖이고 fixture 범위를 넘는 동등성을 주장하지 않는다.
+P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 연결한다(MODEL-02.7). 고리·차수·수소 개수 조건, 입체와 질의 SMILES는 기록할 수 없으므로 후속 범위다. 입체가 있는 도면은 일치 대응을 입체 없이 계산하므로 응답이 `partial`과 `stereo` 손실을 함께 보고한다(`chem.identity`도 같다). RDKit 비교(`scripts/verify-query-rdkit.py`)는 수동 실행이며 `npm run check` 밖이고 fixture 범위를 넘는 동등성을 주장하지 않는다.
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
