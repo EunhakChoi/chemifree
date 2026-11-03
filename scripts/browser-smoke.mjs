@@ -3319,6 +3319,70 @@ step = 'after short_wide_bond_is_selectable'
   results.substructure_search_panel = true
 }
 
+// Stereo: a drawing made through the API shows its notice and its marked bond's name, and an
+// edit that clears a configuration shows the note the service sends. The editor has no tool to
+// set stereo, so the drawing is made by the stereo commands and only read here.
+{
+  const stereoPage = await context.newPage()
+  try {
+    await stereoPage.goto(BASE)
+    const stereoWrite = (path, body) =>
+      stereoPage.evaluate(async ({ path, body }) => {
+        const session = await (await fetch('/api/v1/session')).json()
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', [session.header]: session.token },
+          body: JSON.stringify(body),
+        })
+        return { status: response.status, body: await response.json() }
+      }, { path, body })
+    const stereoId = (await stereoWrite('/api/v1/documents', { request_id: 'smoke-stereo-create', title: 'Smoke stereo' })).body.document.id
+    const bonded = (x, y, element) => ({
+      op: 'add_atom', element, position: { x, y }, bond_to: { atom: '$0', order: 'single' },
+    })
+    const drawn = await stereoWrite(`/api/v1/documents/${stereoId}/transactions`, {
+      request_id: 'smoke-stereo-draw',
+      expected_revision: 0,
+      commands: [
+        { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+        bonded(100, 70, 'F'), bonded(126, 115, 'Cl'), bonded(74, 115, 'Br'),
+        { op: 'set_bond_mark', bond: '$2', mark: { kind: 'wedge', narrow: 'begin' } },
+        { op: 'set_atom_configuration', atom: '$0', configuration: {
+          kind: 'tetrahedral', neighbors: ['$3', '$1', '$2', 'implicit_hydrogen'], turn: 'clockwise' } },
+      ],
+    })
+    assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+    assert.deepEqual(drawn.body.notes, [])
+    await stereoPage.reload()
+    await stereoPage.locator(`li[data-document-id="${stereoId}"]`).getByRole('button', { name: 'Open' }).click()
+    const notice = stereoPage.getByTestId('stereo-notice')
+    await notice.waitFor()
+    assert.match(await notice.textContent(), /1 stereo mark and 1 stored configuration\./)
+    assert.ok((await stereoPage.locator('[aria-label*="wedge"]').count()) >= 1, 'the marked bond is named with its mark')
+    assert.equal(await stereoPage.getByTestId('stereo-notes').count(), 0, 'nothing was cleared yet')
+    // Erasing the fluorine changes the center's neighbors: the configuration goes, and the note says why.
+    const fluorine = drawn.body.document.atoms.find((atom) => atom.element === 'F').position
+    await stereoPage.getByRole('button', { name: 'Erase', exact: true }).first().click()
+    const at = await stereoPage.evaluate(({ x, y }) => {
+      const svg = document.querySelector('svg[data-structure-canvas]')
+      const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM())
+      return { x: p.x, y: p.y }
+    }, fluorine)
+    await stereoPage.mouse.click(at.x, at.y)
+    const notes = stereoPage.getByTestId('stereo-notes')
+    await notes.waitFor()
+    assert.match(await notes.textContent(), /stereo configuration of atom a1 was cleared because its bonded neighbors changed\. Undo restores it\./)
+    assert.match(await notice.textContent(), /0 stored configurations/)
+    await stereoPage.getByRole('button', { name: 'Undo' }).click()
+    await stereoPage.getByTestId('stereo-notes').waitFor({ state: 'detached' })
+    assert.match(await notice.textContent(), /1 stored configuration\./)
+    results.stereo_notice_and_cleared_note = true
+    step = 'after stereo_notice_and_cleared_note'
+  } finally {
+    await stereoPage.close()
+  }
+}
+
 // Layout: mobile widths without horizontal overflow, and system dark mode.
 for (const width of [390, 320]) {
   await page.setViewportSize({ width, height: 800 })

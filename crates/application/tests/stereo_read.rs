@@ -1,10 +1,10 @@
 //! Stereo that a document already holds, seen from the operations that cannot read it.
 //!
-//! No entry point sets a mark or a stated configuration yet, so every document here is built
-//! with the domain API, saved with the real file store, and then read by the Application. The
-//! tests pin what the snapshot shows and that comparison and export never present such a
-//! drawing as a plain structure: `partial` with a loss entry for comparisons, consent for
-//! SMILES, and a refusal for V2000.
+//! Every document here is built with the domain API, saved with the real file store, and then
+//! read by the Application, so that these tests do not depend on the write commands (those
+//! are covered in `stereo_wire.rs`). The tests pin what the snapshot shows and that comparison
+//! and export never present such a drawing as a plain structure: `partial` with a loss entry
+//! for comparisons, consent for SMILES, and a refusal for V2000.
 
 use chemifree_application::{Application, DocumentRepository};
 use chemifree_domain::document::{

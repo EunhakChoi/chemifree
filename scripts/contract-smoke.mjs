@@ -193,7 +193,8 @@ try {
   const edited = await write(`${doc}/transactions`, draw)
   assert.equal(edited.status, 200)
   assert.equal(edited.body.document.revision, 1)
-  // No command sets a stereo mark or configuration yet; the snapshot still says so explicitly.
+  // A drawing no stereo command touched says so explicitly, and the reply carries an empty `notes`.
+  assert.deepEqual(edited.body.notes, [])
   assert.equal(edited.body.document.bonds.length > 0 && edited.body.document.bonds.every((bond) => bond.mark === null), true)
   assert.deepEqual(edited.body.document.stereo, { atoms: [], bonds: [] })
   const replayed = await write(`${doc}/transactions`, draw)
@@ -1040,6 +1041,70 @@ try {
     assert.deepEqual([missingMass.outcome, missingMass.diagnostics[0].code, missingMass.result], ['unsupported', 'mass_data_unavailable', null])
     const afterProperties = await both((id) => request('op-after-properties', 'document.snapshot', { document_id: id }))
     assert.deepEqual(afterProperties.result, beforeProperties.result, 'property inspection changes neither graph nor history')
+    {
+      // Stereo: the three write commands, a refusal with its reason, the note a cascade clear
+      // leaves, and the downstream honesty of both exports agree between HTTP and the CLI.
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
+      const stereoCreate = request('op-stereo-create', 'document.create', { title: 'Stereo parity' })
+      httpDoc = (await viaHttp(stereoCreate)).body.result.document.id
+      cliDoc = (await viaCli(stereoCreate)).result.document.id
+      const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
+      const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
+      const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [33, 23, 10])
+      for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration']) {
+        assert.equal(commandRows.find((part) => part.id === command)?.execution, 'executable', command)
+      }
+      const atom = (x, y, element, bondTo) => ({
+        op: 'add_atom', element, position: { x, y }, ...(bondTo ? { bond_to: { atom: bondTo, order: 'single' } } : {}),
+      })
+      const transact = (name, revision, commands) => (id) =>
+        request(name, 'document.transaction', { document_id: id, expected_revision: revision, commands })
+      const drawn = await both(transact('op-stereo-draw', 0, [
+        atom(100, 100, 'C'), atom(100, 70, 'F', '$0'), atom(126, 115, 'Cl', '$0'), atom(74, 115, 'Br', '$0'),
+        { op: 'set_bond_mark', bond: '$2', mark: { kind: 'wedge', narrow: 'begin' } },
+        { op: 'set_atom_configuration', atom: '$0', configuration: {
+          kind: 'tetrahedral', neighbors: ['$3', '$1', '$2', 'implicit_hydrogen'], turn: 'clockwise' } },
+      ]))
+      assert.equal(drawn.outcome, 'ok')
+      assert.deepEqual(drawn.result.notes, [])
+      assert.deepEqual(drawn.result.document.bonds.map((bond) => bond.mark), [null, { kind: 'wedge', narrow: 'begin' }, null])
+      assert.deepEqual(drawn.result.document.stereo.atoms, [{ atom: 'a1', configuration: {
+        kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } }])
+      const refused = await both(transact('op-stereo-refused', 1, [
+        { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'crossed' } },
+      ]))
+      assert.deepEqual(
+        [refused.outcome, refused.diagnostics[0].code, refused.diagnostics[0].details.reason, refused.diagnostics[0].details.command_index],
+        ['error', 'invalid_command', 'stereo_mark_bond_order', 0])
+      const missing = await both(() => request('op-stereo-key', 'document.transaction', {
+        document_id: httpDoc, expected_revision: 1, commands: [{ op: 'set_bond_mark', bond: 'b1' }] }), 200)
+      assert.equal(missing.outcome, 'error', 'a missing mark key is a malformed command, not a clear')
+      // SMILES carries no stereo: refused until the consent digest of what is dropped is sent.
+      const smiles = (id) => request('op-stereo-smiles', 'document.export', { format: 'smiles', document_id: id, style: 'recorded' })
+      const needsConsent = await both(smiles)
+      assert.deepEqual(
+        [needsConsent.outcome, needsConsent.diagnostics[0].code, needsConsent.diagnostics[0].details.features],
+        ['error', 'loss_consent_required', ['stereo_marks', 'stereo_configuration']])
+      const consented = await both((id) => request('op-stereo-smiles-ok', 'document.export', {
+        format: 'smiles', document_id: id, style: 'recorded', accepted_losses: needsConsent.diagnostics[0].details.loss_digest }))
+      assert.deepEqual([consented.outcome, consented.result.content], ['partial', 'C(F)(Cl)Br'])
+      const molfile = await both((id) => request('op-stereo-mol', 'document.export', { format: 'mol', records: [{ document_id: id }] }))
+      assert.deepEqual([molfile.outcome, molfile.diagnostics[0].code], ['error', 'unsupported_stereo'])
+      // A neighbor deleted: the configuration is cleared, the reply says so and is `partial`.
+      const cleared = await both(transact('op-stereo-clear', 1, [{ op: 'delete_atoms', atoms: ['a2'] }]))
+      assert.equal(cleared.outcome, 'partial')
+      assert.deepEqual(cleared.result.notes.map((note) => [note.feature, note.source_path, note.disposition]),
+        [['stereo_configuration', 'atoms[a1]', 'dropped']])
+      assert.deepEqual(cleared.loss_report.map((loss) => loss.source_path), ['atoms[a1]'])
+      const restored = await both((id) => request('op-stereo-undo', 'history.undo', { document_id: id, expected_revision: 2 }))
+      assert.equal(restored.outcome, 'ok')
+      assert.equal(restored.result.document.stereo.atoms.length, 1, 'undo restores the cleared configuration')
+      assert.deepEqual(restored.result.notes, [])
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
     await both(() => request('op-x', 'chem.teleport', {}), 400)
     const malformed = await both(() => '{"contract": 1,', 400)
     assert.deepEqual([malformed.envelope, malformed.diagnostics[0].code], ['protocol_error', 'malformed_request'])
