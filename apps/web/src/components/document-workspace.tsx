@@ -75,7 +75,7 @@ import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { MarkGlyph } from '@/editor/stroke-shapes'
-import { inspectorWhere, setMark } from '@/editor/mark-gestures'
+import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
@@ -744,11 +744,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             selection={selected}
             onSelectionChange={setSelection}
             onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
-            onMark={(gesture) =>
-              void editor.markBond((latest) =>
-                gesture.kind === 'refused' || stillApplicable(gesture.commands, latest) ? gesture : null,
-              )
-            }
+            onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             disabled={editor.busy}
           />
         </div>
@@ -803,7 +799,7 @@ function StereoNotice({ document }: { document: DocumentView }) {
 function StereoStatusLine({ status, document }: { status: StereoStatus | null; document: DocumentView }) {
   const shown = status?.documentId === document.id && status.revision === document.revision
   return (
-    <p role="status" data-testid="stereo-status" className="text-xs leading-relaxed empty:hidden">
+    <p role="status" data-testid="stereo-status" className="text-xs leading-relaxed empty:sr-only">
       {shown ? status.text : null}
     </p>
   )

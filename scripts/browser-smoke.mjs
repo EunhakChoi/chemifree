@@ -3472,6 +3472,23 @@ step = 'after short_wide_bond_is_selectable'
     const press = (name) => markPage.getByRole('button', { name, exact: true }).first().click()
 
     await open(first)
+    // The status line is a live region that exists, and is in the accessibility tree, before it has text.
+    assert.equal(await markPage.getByRole('status').and(markPage.getByTestId('stereo-status')).count(), 1, 'the empty status line is in the accessibility tree')
+    assert.equal(await status.textContent(), '')
+    assert.notEqual(await status.evaluate((element) => getComputedStyle(element).display), 'none')
+    // Arrow keys move through every bond kind, the orders and the marks, in the order they are shown, from one tab stop.
+    const kinds = markPage.getByRole('group', { name: 'Bond kind for new bonds', exact: true })
+    const labels = await kinds.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
+    assert.deepEqual(labels.slice(-3), ['Wedge bond', 'Hashed wedge bond', 'Wavy bond'])
+    assert.ok(labels.length >= 8, labels.join(', '))
+    assert.equal(await kinds.getByRole('button').evaluateAll((buttons) => buttons.filter((button) => button.tabIndex === 0).length), 1, 'one tab stop')
+    await kinds.getByRole('button', { name: labels[0], exact: true }).focus()
+    const visited = [labels[0]]
+    for (let index = 1; index < labels.length; index += 1) {
+      await markPage.keyboard.press('ArrowRight')
+      visited.push(await markPage.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+    }
+    assert.deepEqual(visited, labels, 'the arrow keys visit every bond kind in order')
     // The tools are named and pressed state shows which is chosen.
     for (const name of ['Wedge bond', 'Hashed wedge bond', 'Wavy bond']) {
       assert.equal(await markPage.getByRole('button', { name, exact: true }).getAttribute('aria-pressed'), 'false', name)
@@ -3515,6 +3532,14 @@ step = 'after short_wide_bond_is_selectable'
     assert.equal(doc.document.stereo.atoms.length, 1)
     await polygon.waitFor()
     await markPage.screenshot({ path: join(outDir, 'editor-marks-wedge.png') })
+    // A hovered wedge is marked as any hovered bond is: by the underlay, which is wider than the wedge.
+    const hover = await middle(doc, 'a1', 'a4')
+    await markPage.mouse.move(hover.x, hover.y)
+    const underlay = markPage.locator('[data-underlay="b3"]')
+    await eventually(async () => assert.equal(await underlay.count(), 1, 'the hovered wedge has an underlay'))
+    assert.ok(Number(await underlay.getAttribute('stroke-width')) >= 8, 'wider than the wedge')
+    await markPage.mouse.move(5, 5)
+    await eventually(async () => assert.equal(await underlay.count(), 0))
 
     // A hashed wedge over it keeps the narrow end; the configuration it shows replaces the stored one.
     const shape = doc

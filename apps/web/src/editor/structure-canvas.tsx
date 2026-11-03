@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
-import { cycleMark, isMarkKind, markBondGesture, type MarkGesture } from '@/editor/mark-gestures'
+import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
 import { StrokeShapes } from '@/editor/stroke-shapes'
 import {
   atomIndex,
@@ -98,7 +98,7 @@ interface StructureCanvasProps {
   onSelectionChange: (selection: Set<string>) => void
   onCommands: (commands: Command[]) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
-  onMark: (gesture: MarkGesture) => void
+  onMark: (intent: MarkIntent) => void
   disabled: boolean
 }
 
@@ -299,26 +299,27 @@ export function StructureCanvas({
     if (!gesture) return
     const point = toDocument(event)
     const dragged = distance(point, gesture.start) >= DRAG_THRESHOLD
-    const mark = markGesture(gesture, point, dragged)
-    if (mark) {
-      onMark(mark)
+    const intent = markIntent(gesture, point, dragged)
+    if (intent) {
+      onMark(intent)
       return
     }
     const commands = gestureCommands(gesture, point, dragged)
     if (commands.length > 0) onCommands(commands)
   }
 
-  /** The stereo mark a bond tool gesture makes when a mark is selected: null for every other gesture. */
-  function markGesture(gesture: Drag, point: Position, dragged: boolean): MarkGesture | null {
+  /**
+   * What a bond tool gesture means when a mark is selected: null for every other gesture. The
+   * commands are built from the latest document when the request runs (see `buildMark`).
+   */
+  function markIntent(gesture: Drag, point: Position, dragged: boolean): MarkIntent | null {
     if (tool !== 'bond' || !isMarkKind(bondKind)) return null
     if (gesture.kind === 'bond') {
       const ends = bondEnds(gesture, point, dragged)
-      return ends && markBondGesture(document, gesture.instance, ends.from, ends.to, bondKind)
+      return ends && { kind: 'draw', instance: gesture.instance, from: ends.from, to: ends.to, mark: bondKind }
     }
     if (gesture.kind === 'click' && !dragged && gesture.hit?.kind === 'bond') {
-      const hit = gesture.hit
-      const bond = document.bonds.find((candidate) => candidate.id === hit.id)
-      return bond ? cycleMark(document, { instance: gesture.instance }, bond, bondKind) : null
+      return { kind: 'cycle', instance: gesture.instance, bond: gesture.hit.id, mark: bondKind }
     }
     return null
   }

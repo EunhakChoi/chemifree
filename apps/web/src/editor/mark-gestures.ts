@@ -8,6 +8,7 @@
  * center), and `sendMark` keeps the mark when the service refuses.
  */
 import { drawBond, type BondEnd } from '@/editor/bond-gestures'
+import { stillApplicable } from '@/editor/commands'
 import { degrees } from '@/editor/geometry'
 import {
   ApiError,
@@ -16,7 +17,7 @@ import {
   type DocumentResponse,
   type DocumentView,
 } from '@/lib/document-contract'
-import { MARK_NAMES, type StereoMark } from '@/lib/stereo-contract'
+import { MARK_NAMES, stereoOf, type StereoMark } from '@/lib/stereo-contract'
 
 /** The marks the bond tool draws. Crossed is set only in the inspector. */
 export type MarkKind = 'wedge' | 'hash' | 'wavy'
@@ -26,8 +27,8 @@ export const isMarkKind = (kind: string): kind is MarkKind => kind === 'wedge' |
 /**
  * What a gesture sends: `commands` end with the derive command when one is attached, and
  * `markOnly` is the same without it (null when none is attached). `why` says in words why no
- * derive command is attached, when it is not. A gesture the editor refuses on its own is only
- * its text; nothing is sent.
+ * derive command is attached, when it is not. A gesture the editor declines on its own (the bond
+ * cannot carry the mark, or already shows it) is only its text; nothing is sent.
  */
 export type MarkGesture =
   | { kind: 'send'; commands: Command[]; markOnly: Command[] | null; why: string | null }
@@ -139,6 +140,22 @@ export function cycleMark(document: DocumentView, where: Where, bond: BondView, 
 }
 
 /**
+ * What drawing a mark over a bond that already shows exactly that mark does: nothing to change,
+ * so nothing is sent and the text says so. The one thing such a drawing can still do is store
+ * the configuration of a center that has none (the mark was set in the inspector, or the
+ * service would not derive it then): that is how the user asks for it, so the gesture is sent
+ * as it is. The service treats the unchanged mark as no change (no revision, no undo step).
+ */
+function alreadyDrawn(document: DocumentView, bond: BondView, gesture: MarkGesture): MarkGesture {
+  if (gesture.kind === 'send' && gesture.markOnly !== null) {
+    const derive = gesture.commands[gesture.commands.length - 1]
+    const recorded = new Set(stereoOf(document).atoms.map((record) => record.atom))
+    if (derive.op === 'set_configuration_from_drawing' && (derive.atoms ?? []).some((atom) => !recorded.has(atom))) return gesture
+  }
+  return { kind: 'refused', text: `${bond.id} is already drawn that way.` }
+}
+
+/**
  * The gesture of a drag, or a click on an atom or empty space, with a mark kind selected. The
  * bond begins where the gesture starts and that end is the narrow one of a wedge. Over an
  * existing single bond it marks that bond; over another kind of bond it is refused.
@@ -155,7 +172,9 @@ export function markBondGesture(
     const existing = bondBetween(document, from.atom, to.atom)
     if (existing) {
       const narrow = existing.begin === from.atom ? 'begin' : 'end'
-      return setMark(document, where, existing, kind === 'wavy' ? { kind } : { kind, narrow })
+      const mark: StereoMark = kind === 'wavy' ? { kind } : { kind, narrow }
+      const gesture = setMark(document, where, existing, mark)
+      return JSON.stringify(existing.mark) === JSON.stringify(mark) ? alreadyDrawn(document, existing, gesture) : gesture
     }
   }
   const drawn = drawBond(document, instance, from, to, 'single')
@@ -168,6 +187,33 @@ export function markBondGesture(
   return assemble(document, where, drawn, bond, mark, kind === 'wavy' ? [start, ...finish] : [start])
 }
 
+/**
+ * What a mark gesture means, kept apart from the commands it makes: the commands are built from
+ * the document the gesture finally runs on, not the one on screen when it was drawn, since an
+ * edit queued before it (undo during a drag, say) can change a bond's order or an atom's bonds
+ * without changing any ID.
+ */
+export type MarkIntent =
+  | { kind: 'draw'; instance: string | null; from: BondEnd; to: BondEnd; mark: MarkKind }
+  | { kind: 'cycle'; instance: string | null; bond: string; mark: MarkKind }
+
+/**
+ * The gesture of `intent` on `document` (the latest): null when it no longer applies (an atom
+ * or bond it names is gone, a placement is gone, or it draws nothing). A refusal or a
+ * declined gesture is worded from this document too.
+ */
+export function buildMark(document: DocumentView, intent: MarkIntent): MarkGesture | null {
+  let gesture: MarkGesture | null
+  if (intent.kind === 'draw') {
+    gesture = markBondGesture(document, intent.instance, intent.from, intent.to, intent.mark)
+  } else {
+    const bond = document.bonds.find((candidate) => candidate.id === intent.bond)
+    gesture = bond ? cycleMark(document, { instance: intent.instance }, bond, intent.mark) : null
+  }
+  if (gesture?.kind === 'send' && stillApplicable(gesture.commands, document) === null) return null
+  return gesture
+}
+
 /** The part of a service refusal's message after its "command N: " prefix. */
 const refusalText = (failure: ApiError) => failure.message.replace(/^command \d+: /, '')
 
@@ -178,10 +224,27 @@ export type DeriveOutcome =
   | { kind: 'refused'; reason: string; message: string }
 
 /**
- * Sends a mark gesture with `transact`. When the service refuses its last command, the
- * configuration (a `stereo_*` reason), the mark is sent alone: the refused transaction changed
- * nothing, so the mark is kept and the reason goes to the status line. Any other failure is the
- * caller's.
+ * The reasons the derive command is refused with: it cannot read a configuration off the
+ * drawing (`stereo_not_derivable_*`), or the atom or bond cannot hold one. The reasons of
+ * `set_bond_mark` (`stereo_mark_bond_order`) and of a stored record that is malformed are not
+ * among them.
+ */
+const DERIVE_REASONS = new Set([
+  'stereo_center_unsupported',
+  'stereo_center_neighbors',
+  'stereo_double_bond_required',
+  'stereo_reference_invalid',
+  'stereo_geometry_unsupported',
+])
+const isDeriveReason = (reason: string | undefined) =>
+  reason !== undefined && (reason.startsWith('stereo_not_derivable_') || DERIVE_REASONS.has(reason))
+
+/**
+ * Sends a mark gesture with `transact`. When the service refuses the derive command (the one
+ * after the mark commands, with a reason that command gives), the mark is sent alone: the
+ * refused transaction changed nothing, so the mark is kept and the reason goes to the status
+ * line. Any other failure is the caller's, and so is a failure of the second send: no reason is
+ * returned then, since the mark was not stored.
  */
 export async function sendMark(
   transact: (commands: Command[]) => Promise<DocumentResponse>,
@@ -194,8 +257,8 @@ export async function sendMark(
     const refused =
       failure instanceof ApiError &&
       failure.code === 'invalid_command' &&
-      failure.commandIndex === gesture.commands.length - 1 &&
-      failure.stateReason?.startsWith('stereo_') === true
+      failure.commandIndex === gesture.markOnly.length &&
+      isDeriveReason(failure.stateReason)
     if (!(failure instanceof ApiError) || !refused) throw failure
     return {
       response: await transact(gesture.markOnly),

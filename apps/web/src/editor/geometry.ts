@@ -286,6 +286,34 @@ export function clipped(
   return end > start && length > 0 ? [at(start), at(end)] : null
 }
 
+/**
+ * The part of the segment from `a` to `b` between the two grown label boxes: from where it last
+ * leaves the box at `a` to where it first enters the box at `b`, wherever along the segment
+ * that is. [clipped] trims a segment that starts (ends) in its box, which is every line of an
+ * ordinary bond but not a line that starts beside a small box and crosses it on the way to the
+ * other side, as the lines of a crossed double bond do when the line is wide.
+ */
+function clippedAcross(
+  a: Position,
+  b: Position,
+  aBox: Box | null,
+  bBox: Box | null,
+  gap: number,
+): [Position, Position] | null {
+  const length = distance(a, b)
+  const at = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  // `inside` gives where the whole line meets a box; only a box the segment itself meets trims it.
+  const met = (box: Box | null) => {
+    const range = box && inside(a, b, grown(box, gap))
+    return range && range[1] >= 0 && range[0] <= 1 ? range : null
+  }
+  const fromA = met(aBox)
+  const intoB = met(bBox)
+  const start = fromA ? Math.min(1, Math.max(0, fromA[1])) : 0
+  const end = intoB ? Math.max(0, Math.min(1, intoB[0])) : 1
+  return end > start && length > 0 ? [at(start), at(end)] : null
+}
+
 /** How far an aromatic bond's dashed line runs beside its line. */
 const INNER_OFFSET = 3
 /** How much shorter the dashed line is at a bare vertex, so inner lines meeting there do not cross. */
@@ -480,7 +508,7 @@ export function markStrokes(
   if (mark.kind === 'crossed') {
     const offset = (OFFSETS.double?.[1] ?? 0) * spacing
     return [offset, -offset].flatMap((side): Stroke[] => {
-      const segment = clipped(beside(begin, side), beside(end, -side), beginBox, endBox, gap)
+      const segment = clippedAcross(beside(begin, side), beside(end, -side), beginBox, endBox, gap)
       return segment ? [{ shape: 'line', x1: round(segment[0].x), y1: round(segment[0].y), x2: round(segment[1].x), y2: round(segment[1].y), pattern: 'solid' }] : []
     })
   }

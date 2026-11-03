@@ -2527,7 +2527,7 @@ test('a substructure search that ignored stereo is accepted only as partial, wit
 
 const { markStrokes, wavePath, markFits, strokeReach, MARK_STYLE, distance } = await import('../apps/web/src/editor/geometry.ts')
 const { clickBond, staleStereoClears } = await import('../apps/web/src/editor/bond-gestures.ts')
-const { cycleMark, inspectorWhere, markBondGesture, sendMark, setMark } = await import('../apps/web/src/editor/mark-gestures.ts')
+const { buildMark, cycleMark, inspectorWhere, markBondGesture, sendMark, setMark } = await import('../apps/web/src/editor/mark-gestures.ts')
 const { describeStereoChange } = await import('../apps/web/src/editor/stereo-status.ts')
 
 const pt = (x, y) => ({ x, y })
@@ -3047,7 +3047,7 @@ test('the status line says what a change of order removed: the mark, and a store
   // A configuration the neighbor cascade cleared on a bond that stays double is the reply's notes' to tell.
   const cascaded = { ...before, stereo: { atoms: [], bonds: [] } }
   assert.equal(describeStereoChange(before, cascaded, { kind: 'none', why: null }), null)
-  assert.equal(describeStereoChange(before, { ...before, bonds: [] }, { kind: 'none', why: null }), null, 'a deleted bond is not a removed mark')
+  assert.equal(describeStereoChange(before, { ...before, bonds: [] }, { kind: 'none', why: null }), 'Crossed mark on b1 was removed with the bond.', 'a deleted bond takes its mark with it')
 })
 
 test('a crossed mark stores the bond configuration and says so', () => {
@@ -3056,4 +3056,155 @@ test('a crossed mark stores the bond configuration and says so', () => {
     describeStereoChange(before, alkene(), sent),
     'Crossed mark on b1. Configuration of b1 stored from the drawing (unknown). It replaced a stored configuration (opposite sides); undo restores it.',
   )
+})
+
+// ---------------------------------------------------------------------------------------------
+// Review round 1: a gesture is rebuilt on the latest document; what the status line and the
+// sender say about derivation; crossed lines beside a small label box.
+// ---------------------------------------------------------------------------------------------
+
+const crowded = (value) => ({ ...value, bonds: [...value.bonds, bondWith('b11', 'a2', 'a4'), bondWith('b12', 'a2', 'a3')] })
+
+test('a queued mark gesture is rebuilt on the latest document, so a bond whose order changed meanwhile is not sent a mark it cannot carry', () => {
+  const onScreen = marksDocument()
+  const intent = { kind: 'cycle', instance: null, bond: 'b1', mark: 'wedge' }
+  // What was built on the screen's document and sent after another edit (Undo during the drag) made b1 double.
+  const staleCommands = cycleMark(onScreen, { instance: null }, onScreen.bonds[0], 'wedge').commands
+  const doubled = { ...onScreen, bonds: onScreen.bonds.map((b) => (b.id === 'b1' ? { ...b, order: 'double' } : b)) }
+  assert.deepEqual(staleCommands[0], { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } })
+  assert.deepEqual(buildMark(doubled, intent), {
+    kind: 'refused',
+    text: 'A wedge mark needs a single bond; b1 is a double bond. Change it to single first.',
+  })
+  // The other way round: refused on the screen's document, single now.
+  assert.equal(buildMark(onScreen, intent).kind, 'send')
+  assert.equal(buildMark(doubled, intent).kind, 'refused')
+  assert.equal(buildMark(onScreen, { ...intent, bond: 'b99' }), null, 'a bond that is gone lapses')
+})
+
+test('a queued mark gesture asks for the configuration of an atom that became a center meanwhile', () => {
+  const onScreen = marksDocument()
+  const intent = { kind: 'draw', instance: null, from: { atom: 'a2' }, to: { atom: 'a1' }, mark: 'wedge' }
+  const stale = markBondGesture(onScreen, null, intent.from, intent.to, 'wedge')
+  assert.equal(stale.markOnly, null, 'a2 had one bond on the screen')
+  // Two bonds were added to a2 by edits queued before the gesture ran.
+  const built = buildMark(crowded(onScreen), intent)
+  assert.deepEqual(built.commands, [{ op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'end' } }, derive(['a2'])])
+  assert.equal(built.markOnly.length, 1)
+  // And it stops asking for one that stopped being a center.
+  const fewer = { ...onScreen, bonds: onScreen.bonds.filter((b) => b.id !== 'b2') }
+  assert.equal(buildMark(fewer, { kind: 'cycle', instance: null, bond: 'b1', mark: 'wedge' }).markOnly, null, 'a1 has two bonds now')
+  assert.equal(buildMark(onScreen, { ...intent, from: { atom: 'a99' } }), null, 'an atom that is gone lapses')
+  assert.equal(buildMark(onScreen, { ...intent, from: { atom: 'a99' }, to: { point: pt(10, 10) } }), null, 'so does a bond drawn from it to a point')
+  const placed = { ...crowded(onScreen), scene: { instances: [{ id: 's1', positions: [] }] } }
+  assert.notEqual(buildMark(placed, { ...intent, instance: 's1' }), null)
+  assert.equal(buildMark(placed, { ...intent, instance: 's9' }), null, 'a placement that is gone lapses')
+  assert.equal(buildMark(onScreen, { ...intent, from: { atom: 'a1' }, to: { atom: 'a1' } }), null, 'a drag that draws nothing')
+})
+
+test('the status line says a stored configuration is kept only when nothing stores or shows it', () => {
+  const kept = 'The stored configuration of a1 is kept; the drawing no longer shows it.'
+  const wavy = (value) => withMark(value, 'b1', { kind: 'wavy' })
+  const stored = { atoms: [{ atom: 'a1', configuration: { kind: 'unknown' } }], bonds: [] }
+  // A wedge made wavy at the same center: the gesture stored the unknown configuration there.
+  assert.equal(
+    describeStereoChange(markedA1('clockwise'), { ...wavy(markedA1('clockwise')), stereo: stored }, sent),
+    'Wavy mark on b1. Configuration of a1 stored from the drawing (unknown). It replaced a stored configuration (clockwise); undo restores it.',
+  )
+  // Made wavy where the service stored nothing (the center could not be read): the old record stays and is not shown.
+  assert.equal(
+    describeStereoChange(markedA1('clockwise'), wavy(markedA1('clockwise')), { kind: 'none', why: 'a2 has 1 bond; a stereocenter needs 3 or 4.' }),
+    `Wavy mark on b1. Nothing stored: a2 has 1 bond; a stereocenter needs 3 or 4. ${kept}`,
+  )
+  // Another marked bond still has its narrow end at a1.
+  const both = withMark(markedA1('clockwise'), 'b2', { kind: 'hash', narrow: 'begin' })
+  assert.equal(describeStereoChange(both, withMark(both, 'b1', null), sent), 'Wedge mark removed from b1.', 'b2 still shows a1')
+})
+
+test('drawing the mark a bond already has sends nothing, unless it can still store the configuration of a center without one', () => {
+  const onScreen = markedA1(null)
+  const drag = (value) => markBondGesture(value, null, { atom: 'a1' }, { atom: 'a2' }, 'wedge')
+  assert.deepEqual(drag(markedA1('clockwise')), { kind: 'refused', text: 'b1 is already drawn that way.' })
+  // The same mark with the narrow end at the other atom, or a different kind, is a change.
+  assert.equal(markBondGesture(markedA1('clockwise'), null, { atom: 'a1' }, { atom: 'a2' }, 'hash').kind, 'send')
+  assert.equal(markBondGesture(markedA1('clockwise'), null, { atom: 'a2' }, { atom: 'a1' }, 'wedge').kind, 'send')
+  // No configuration is stored for a1 (the mark was set in the inspector): the drag is sent to store it.
+  const mark = { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } }
+  assert.deepEqual(drag(onScreen), { kind: 'send', commands: [mark, derive(['a1'])], markOnly: [mark], why: null })
+  // A narrow end that cannot be a center has nothing to store.
+  const flat = markBondGesture(withMark(marksDocument(), 'b1', { kind: 'wedge', narrow: 'end' }), null, { atom: 'a2' }, { atom: 'a1' }, 'wedge')
+  assert.deepEqual(flat, { kind: 'refused', text: 'b1 is already drawn that way.' })
+  // And the status line says what the derive-only gesture stored.
+  assert.equal(describeStereoChange(onScreen, markedA1('clockwise'), sent), 'Configuration of a1 stored from the drawing (clockwise).')
+  assert.equal(describeStereoChange(markedA1('clockwise'), markedA1('clockwise'), sent), null, 'nothing changed, nothing said')
+  // The service would not derive it for the same mark: the reason is all that changed to say.
+  const refused = { kind: 'refused', reason: 'stereo_not_derivable_degenerate', message: 'atom a1: the drawing is too flat to determine a configuration' }
+  assert.equal(describeStereoChange(onScreen, onScreen, refused), 'Not stored: atom a1: the drawing is too flat to determine a configuration (stereo_not_derivable_degenerate).')
+})
+
+test('only the derive command refused for a reason it gives is sent again without it', async () => {
+  for (const reason of ['stereo_mark_bond_order', 'stereo_record_invalid']) {
+    const sentOnce = marksService(() => refusal(1, reason))
+    await assert.rejects(sendMark(sentOnce.transact, gestureWithDerive()), ApiErrorLike, reason)
+    assert.equal(sentOnce.bodies.length, 1, reason)
+  }
+  for (const reason of ['stereo_center_neighbors', 'stereo_double_bond_required', 'stereo_not_derivable_no_marks']) {
+    const sentTwice = marksService(() => refusal(1, reason), () => json(200, document('doc-marks', 4)))
+    assert.equal((await sendMark(sentTwice.transact, gestureWithDerive())).outcome.reason, reason)
+  }
+  // A gesture that makes the bond first: the derive command is the third, a refusal of the second is not its refusal.
+  const drawn = markBondGesture(marksDocument(), null, { atom: 'a1' }, { point: pt(100, 70) }, 'wedge')
+  assert.equal(drawn.commands.length, 3)
+  const mark = marksService(() => refusal(1, 'stereo_not_derivable_degenerate'))
+  await assert.rejects(sendMark(mark.transact, drawn), ApiErrorLike)
+  assert.equal(mark.bodies.length, 1)
+  const derived = marksService(() => refusal(2, 'stereo_not_derivable_degenerate'), () => json(200, document('doc-marks', 4)))
+  assert.equal((await sendMark(derived.transact, drawn)).outcome.kind, 'refused')
+  assert.equal(derived.bodies[1].commands.length, 2)
+})
+
+test('when the mark sent alone is refused too, that failure is the caller’s and no reason is returned', async () => {
+  const conflict = marksService(() => refusal(1, 'stereo_not_derivable_degenerate'), () => error(409, 'revision_conflict'))
+  await assert.rejects(sendMark(conflict.transact, gestureWithDerive()), (failure) => failure?.name === 'ApiError' && failure.code === 'revision_conflict')
+  assert.equal(conflict.bodies.length, 2)
+})
+
+test('deleting a marked bond says its mark went with it, and a stored configuration that stays is told as kept', () => {
+  const marked = markedA1('clockwise')
+  const gone = { ...marked, bonds: marked.bonds.filter((b) => b.id !== 'b1'), stereo: { atoms: [], bonds: [] } }
+  assert.equal(describeStereoChange(marked, gone, { kind: 'none', why: null }), 'Wedge mark on b1 was removed with the bond.')
+  const keeps = { ...gone, stereo: marked.stereo }
+  assert.equal(
+    describeStereoChange(marked, keeps, { kind: 'none', why: null }),
+    'Wedge mark on b1 was removed with the bond. The stored configuration of a1 is kept; the drawing no longer shows it.',
+  )
+  const unmarked = unstated()
+  assert.equal(describeStereoChange(unmarked, { ...unmarked, bonds: unmarked.bonds.filter((b) => b.id !== 'b1') }, { kind: 'none', why: null }), null, 'a plain bond says nothing')
+  // Deleting an atom takes its bonds, marked or not.
+  const atomGone = { ...gone, atoms: gone.atoms.filter((a) => a.id !== 'a1'), bonds: gone.bonds.filter((b) => b.begin !== 'a1' && b.end !== 'a1') }
+  assert.equal(describeStereoChange(marked, atomGone, { kind: 'none', why: null }), 'Wedge mark on b1 was removed with the bond.')
+})
+
+test('a crossed double bond keeps its ink out of label boxes the line width makes it start beside', () => {
+  // A 10 pt line spaces its lines 8.3 times as far apart as a 1.2 pt one: 18 pt from the axis, outside a 20 pt tall label.
+  const lineWidth = 10
+  const spacing = bondSpacing(lineWidth)
+  const box = (at) => ({ x: at.x - 18, y: at.y - 8, width: 36, height: 16 })
+  for (const angle of [0, 0.5, Math.PI / 2, 2.4, 3.8]) {
+    const begin = pt(0, 0)
+    const end = pt(Math.cos(angle) * 70, Math.sin(angle) * 70)
+    const boxes = [box(begin), box(end)]
+    const strokes = strokesOf({ kind: 'crossed' }, begin, end, boxes, spacing, lineWidth, 'double')
+    assert.equal(strokes.length, 2, `angle ${angle}`)
+    for (const stroke of strokes) {
+      for (let k = 0; k <= 40; k += 1) {
+        const x = stroke.x1 + ((stroke.x2 - stroke.x1) * k) / 40
+        const y = stroke.y1 + ((stroke.y2 - stroke.y1) * k) / 40
+        for (const label of boxes) {
+          const within = x > label.x + 0.01 && x < label.x + label.width - 0.01 && y > label.y + 0.01 && y < label.y + label.height - 0.01
+          assert.equal(within, false, `angle ${angle}: (${x}, ${y}) is inside a label box`)
+        }
+      }
+    }
+  }
 })

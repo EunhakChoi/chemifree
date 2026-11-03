@@ -50,26 +50,53 @@ function storedFromDrawing(before: DocumentView, after: DocumentView, item: stri
 
 const NEEDS: Record<StereoMark['kind'], string> = { wedge: 'single', hash: 'single', wavy: 'single', crossed: 'double' }
 
+/** The atoms or bond whose configuration the drawing of `mark` on `bond` states. */
+const shownItems = (bond: BondView, mark: StereoMark) =>
+  mark.kind === 'crossed' ? [bond.id] : mark.kind === 'wavy' ? [bond.begin, bond.end] : [narrowAtom(mark, bond) ?? '']
+
 /**
  * What a transaction did to the stereo of `before`, or null when it did nothing of the kind: a
- * mark set, changed or removed on a bond that stays, the configuration of its atoms stored from
- * the drawing (`derive` says whether that was asked and how it went), and a stored double-bond
- * configuration removed from a bond that is no longer double. A stored configuration of an
- * atom whose mark moved away or was removed is kept, and the line says so.
+ * mark set, changed or removed on a bond that stays, a mark that went with a deleted bond, the
+ * configuration of its atoms stored from the drawing (`derive` says whether that was asked and
+ * how it went), and a stored double-bond configuration removed from a bond that is no longer
+ * double. A stored configuration of an atom that no remaining mark shows any more is kept, and
+ * the line says so, unless this gesture stored it again.
  */
 export function describeStereoChange(before: DocumentView, after: DocumentView, derive: DeriveOutcome): string | null {
   const sentences: string[] = []
   const bondsBefore = new Map(before.bonds.map((bond) => [bond.id, bond]))
+  const bondsAfter = new Set(after.bonds.map((bond) => bond.id))
+  // The atoms whose mark no longer shows them, and those this gesture stored a configuration for.
+  const unshown = new Set<string>()
+  const restored = new Set<string>()
   for (const bond of after.bonds) {
     const was = bondsBefore.get(bond.id)
     const wasMark = was?.mark ?? null
-    if (same(wasMark, bond.mark)) continue
+    if (same(wasMark, bond.mark)) {
+      // A mark drawn over itself changes no mark; it can still have stored a configuration.
+      if (bond.mark && derive.kind === 'sent') {
+        for (const item of shownItems(bond, bond.mark)) {
+          const text = same(stored(before, item), stored(after, item)) ? null : storedFromDrawing(before, after, item)
+          if (text) {
+            sentences.push(text)
+            restored.add(item)
+          }
+        }
+      }
+      continue
+    }
     if (bond.mark) {
       const where = narrowAtom(bond.mark, bond)
       sentences.push(`${markWords(bond.mark)} on ${bond.id}${where ? `, narrow end at ${where}` : ''}.`)
-      const items = bond.mark.kind === 'crossed' ? [bond.id] : bond.mark.kind === 'wavy' ? [bond.begin, bond.end] : [where ?? '']
+      const items = shownItems(bond, bond.mark)
       if (derive.kind === 'sent') {
-        sentences.push(...items.flatMap((item) => storedFromDrawing(before, after, item) ?? []))
+        for (const item of items) {
+          const text = storedFromDrawing(before, after, item)
+          if (text) {
+            sentences.push(text)
+            restored.add(item)
+          }
+        }
       } else if (derive.kind === 'none' && derive.why) {
         sentences.push(`Nothing stored: ${derive.why}`)
       } else if (derive.kind === 'refused') {
@@ -80,8 +107,21 @@ export function describeStereoChange(before: DocumentView, after: DocumentView, 
       sentences.push(`${markWords(wasMark)} removed from ${bond.id}${reason}.`)
     }
     const oldCenter = narrowAtom(wasMark, bond)
-    if (oldCenter && oldCenter !== narrowAtom(bond.mark, bond) && stored(after, oldCenter) !== undefined) {
-      sentences.push(`The stored configuration of ${oldCenter} is kept; the drawing no longer shows it.`)
+    if (oldCenter && oldCenter !== narrowAtom(bond.mark, bond)) unshown.add(oldCenter)
+  }
+  for (const bond of before.bonds) {
+    if (bondsAfter.has(bond.id) || !bond.mark) continue
+    // The reply's notes tell which configurations the deletion cleared; the mark itself is told here.
+    sentences.push(`${markWords(bond.mark)} on ${bond.id} was removed with the bond.`)
+    const center = narrowAtom(bond.mark, bond)
+    if (center) unshown.add(center)
+  }
+  // A mark drawn over itself that the service would not read a configuration for changes nothing else to say.
+  if (sentences.length === 0 && derive.kind === 'refused') sentences.push(`Not stored: ${derive.message.replace(/\.$/, '')} (${derive.reason}).`)
+  const shownAfter = new Set(after.bonds.flatMap((bond) => (bond.mark && 'narrow' in bond.mark ? [narrowAtom(bond.mark, bond) ?? ''] : [])))
+  for (const atom of unshown) {
+    if (stored(after, atom) !== undefined && !restored.has(atom) && !shownAfter.has(atom)) {
+      sentences.push(`The stored configuration of ${atom} is kept; the drawing no longer shows it.`)
     }
   }
   for (const bond of after.bonds) {
@@ -92,4 +132,3 @@ export function describeStereoChange(before: DocumentView, after: DocumentView, 
   }
   return sentences.length > 0 ? sentences.join(' ') : null
 }
-
