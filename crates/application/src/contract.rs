@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use chemifree_domain::document::{
-    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondTo, Command, Document, MAX_CHARGE,
-    MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
+    Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command, Document,
+    MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -19,13 +19,15 @@ use chemifree_domain::states::{
     StateError,
 };
 use chemifree_domain::stereo::{
-    BondEnd, CenterState, DoubleBondState, Relation, Slot, StereoKey, StereoMark, StereoState, Turn,
+    AtomConfiguration, BondConfiguration, BondEnd, CenterState, DoubleBondState, Relation, Slot,
+    SlotRef, StereoError, StereoMark, StereoRecord, Turn,
 };
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::API_VERSION;
 use crate::error::{ApplicationError, ErrorCode};
+use crate::operations::Loss;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -509,6 +511,31 @@ pub enum CommandDto {
         #[serde(default)]
         display_unit: Option<DisplayUnitDto>,
     },
+    /// Sets how a bond is drawn, or with `"mark": null` clears it. `mark` is required. `bond`
+    /// is a bond ID, or `"$N"` for the bond created by command N: an `add_bond`'s bond, or the
+    /// `bond_to` bond of an `add_atom`. Added within v1.
+    SetBondMark {
+        bond: String,
+        #[serde(deserialize_with = "nullable")]
+        mark: Option<MarkDto>,
+    },
+    /// States a stereocenter's neighbor order and turn (or states it unknown), or with
+    /// `"configuration": null` clears the statement. `configuration` is required. Neighbors
+    /// are atom IDs, `"$N"` for an atom created by command N, `"implicit_hydrogen"` or
+    /// `"lone_pair"`, in any order. Added within v1.
+    SetAtomConfiguration {
+        atom: String,
+        #[serde(deserialize_with = "nullable")]
+        configuration: Option<AtomConfigurationDto>,
+    },
+    /// States how one neighbor of each end of a double bond lies across it (or states it
+    /// unknown), or with `"configuration": null` clears the statement. `configuration` is
+    /// required; `bond` is as in `set_bond_mark`. Added within v1.
+    SetBondConfiguration {
+        bond: String,
+        #[serde(deserialize_with = "nullable")]
+        configuration: Option<BondConfigurationDto>,
+    },
 }
 
 /// Reads an object into a map, refusing a repeated key instead of keeping the last value.
@@ -537,6 +564,14 @@ fn distinct_keys<'de, D: Deserializer<'de>>(
     }
 
     deserializer.deserialize_map(Distinct).map(Some)
+}
+
+/// A required field whose value may be `null`: unlike a plain `Option` field, an absent key is
+/// an error, so a command cannot clear something by leaving a key out.
+fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(deserializer)
 }
 
 /// Distinguishes an explicit `null` (`Some(None)`) from an absent field (`None`).
@@ -920,7 +955,70 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             carbon_labels: *carbon_labels,
             display_unit: *display_unit,
         })),
+        CommandDto::SetBondMark { bond, mark } => Command::SetBondMark {
+            bond: bond_ref(bond)?,
+            mark: mark.as_ref().map(StereoMark::from),
+        },
+        CommandDto::SetAtomConfiguration {
+            atom,
+            configuration,
+        } => Command::SetAtomConfiguration {
+            atom: atom_ref(atom)?,
+            configuration: configuration.as_ref().map(atom_configuration).transpose()?,
+        },
+        CommandDto::SetBondConfiguration {
+            bond,
+            configuration,
+        } => Command::SetBondConfiguration {
+            bond: bond_ref(bond)?,
+            configuration: configuration.as_ref().map(bond_configuration).transpose()?,
+        },
     })
+}
+
+fn atom_configuration(dto: &AtomConfigurationDto) -> Result<AtomConfiguration, String> {
+    Ok(match dto {
+        AtomConfigurationDto::Tetrahedral { neighbors, turn } => AtomConfiguration::Tetrahedral {
+            neighbors: slot_refs(neighbors)?,
+            turn: (*turn).into(),
+        },
+        AtomConfigurationDto::Unknown { neighbors } => AtomConfiguration::Unknown {
+            neighbors: slot_refs(neighbors)?,
+        },
+    })
+}
+
+fn bond_configuration(dto: &BondConfigurationDto) -> Result<BondConfiguration, String> {
+    Ok(match dto {
+        BondConfigurationDto::Relative {
+            begin_neighbor,
+            end_neighbor,
+            relation,
+        } => BondConfiguration::Relative {
+            begin_neighbor: slot_ref(begin_neighbor)?,
+            end_neighbor: slot_ref(end_neighbor)?,
+            relation: (*relation).into(),
+        },
+        BondConfigurationDto::Unknown {} => BondConfiguration::Unknown,
+    })
+}
+
+/// A neighbor position as a command names it: `implicit_hydrogen`, `lone_pair`, or an atom
+/// (`a3`, or `$N`). An atom identifier can never equal either word.
+fn slot_ref(value: &str) -> Result<SlotRef, String> {
+    match value {
+        IMPLICIT_HYDROGEN => Ok(SlotRef::ImplicitHydrogen),
+        LONE_PAIR => Ok(SlotRef::LonePair),
+        _ => atom_ref(value).map(SlotRef::Atom),
+    }
+}
+
+fn slot_refs(values: &[String; 4]) -> Result<[SlotRef; 4], String> {
+    let mut slots = [SlotRef::ImplicitHydrogen; 4];
+    for (slot, value) in slots.iter_mut().zip(values) {
+        *slot = slot_ref(value)?;
+    }
+    Ok(slots)
 }
 
 /// The domain checks the values' ranges.
@@ -1189,6 +1287,18 @@ fn bond_id(value: &str) -> Result<BondId, String> {
     BondId::parse(value).ok_or_else(|| format!("{value:?} is not a bond identifier"))
 }
 
+/// A bond ID, or `$N` for the bond created by command N.
+fn bond_ref(value: &str) -> Result<BondRef, String> {
+    match value.strip_prefix('$') {
+        Some(index) if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) => index
+            .parse()
+            .map(BondRef::Created)
+            .map_err(|_| format!("{value:?} is not a command reference")),
+        Some(_) => Err(format!("{value:?} is not a command reference")),
+        None => bond_id(value).map(BondRef::Id),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DocumentResponse {
     pub api_version: &'static str,
@@ -1196,6 +1306,11 @@ pub struct DocumentResponse {
     pub session: SessionView,
     /// A recovery draft left by an earlier session of this document, if any.
     pub recovery: Option<RecoveryView>,
+    /// What this request cleared of stereo because the edit changed what it was about, as
+    /// loss entries; an empty list for every reply but a transaction that cleared something.
+    /// Added within v1; always present. It describes this request only: `get`, undo, redo and
+    /// later replies never repeat it, and a replayed `request_id` returns it again.
+    pub notes: Vec<Loss>,
 }
 
 /// An abandoned recovery draft: unsaved work of a session whose process ended.
@@ -1361,11 +1476,12 @@ pub struct BondView {
     pub mark: Option<MarkDto>,
 }
 
-/// A bond mark. `begin` and `end` in a mark are the bond's own `begin` and `end`; the bond is
-/// never rewritten to move the narrow end. The public functional model's `wedge_begin` and
-/// `hash_end` display values name the same facts as `wedge` and `hash` with `narrow`.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// A bond mark, as snapshots show it and `set_bond_mark` states it. `begin` and `end` in a mark
+/// are the bond's own `begin` and `end`; the bond is never rewritten to move the narrow end.
+/// The public functional model's `wedge_begin` and `hash_end` display values name the same
+/// facts as `wedge` and `hash` with `narrow`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum MarkDto {
     /// Solid wedge on a single bond.
     Wedge { narrow: BondEndDto },
@@ -1377,7 +1493,7 @@ pub enum MarkDto {
     Crossed {},
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BondEndDto {
     Begin,
@@ -1408,8 +1524,8 @@ pub struct BondStereoView {
 /// canonical order: atom ids ascending, then `implicit_hydrogen`, then `lone_pair`. `turn` is
 /// seen looking from the first slot toward the center: `anticlockwise` is OpenSMILES `@` (the
 /// public model's positive `parity`), `clockwise` is `@@` (negative).
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AtomConfigurationDto {
     Tetrahedral {
         neighbors: [String; 4],
@@ -1419,7 +1535,7 @@ pub enum AtomConfigurationDto {
     Unknown { neighbors: [String; 4] },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnDto {
     Anticlockwise,
@@ -1429,8 +1545,8 @@ pub enum TurnDto {
 /// What is stated about a double bond. The neighbors are in canonical form: the
 /// lowest-identifier explicit neighbor of the end, or `implicit_hydrogen` where the end has no
 /// other explicit neighbor. `opposite_sides` is the public model's `opposite_side`.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BondConfigurationDto {
     Relative {
         begin_neighbor: String,
@@ -1441,11 +1557,66 @@ pub enum BondConfigurationDto {
     Unknown {},
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationDto {
     SameSide,
     OppositeSides,
+}
+
+impl From<&MarkDto> for StereoMark {
+    fn from(mark: &MarkDto) -> Self {
+        let end = |narrow| match narrow {
+            BondEndDto::Begin => BondEnd::Begin,
+            BondEndDto::End => BondEnd::End,
+        };
+        match mark {
+            MarkDto::Wedge { narrow } => Self::Wedge {
+                narrow: end(*narrow),
+            },
+            MarkDto::Hash { narrow } => Self::Hash {
+                narrow: end(*narrow),
+            },
+            MarkDto::Wavy {} => Self::Wavy,
+            MarkDto::Crossed {} => Self::Crossed,
+        }
+    }
+}
+
+impl From<TurnDto> for Turn {
+    fn from(turn: TurnDto) -> Self {
+        match turn {
+            TurnDto::Anticlockwise => Self::Anticlockwise,
+            TurnDto::Clockwise => Self::Clockwise,
+        }
+    }
+}
+
+impl From<Turn> for TurnDto {
+    fn from(turn: Turn) -> Self {
+        match turn {
+            Turn::Anticlockwise => Self::Anticlockwise,
+            Turn::Clockwise => Self::Clockwise,
+        }
+    }
+}
+
+impl From<RelationDto> for Relation {
+    fn from(relation: RelationDto) -> Self {
+        match relation {
+            RelationDto::SameSide => Self::SameSide,
+            RelationDto::OppositeSides => Self::OppositeSides,
+        }
+    }
+}
+
+impl From<Relation> for RelationDto {
+    fn from(relation: Relation) -> Self {
+        match relation {
+            Relation::SameSide => Self::SameSide,
+            Relation::OppositeSides => Self::OppositeSides,
+        }
+    }
 }
 
 impl From<StereoMark> for MarkDto {
@@ -1467,30 +1638,37 @@ impl From<StereoMark> for MarkDto {
     }
 }
 
-/// A slot as the wire spells it: an atom id, `implicit_hydrogen`, or `lone_pair`. An atom id
-/// can never equal either word.
+/// The wire spellings of the two slots that are not atoms. An atom id can never equal either.
+const IMPLICIT_HYDROGEN: &str = "implicit_hydrogen";
+const LONE_PAIR: &str = "lone_pair";
+
+/// A slot as the wire spells it: an atom id, `implicit_hydrogen`, or `lone_pair`.
 fn slot_name(slot: Slot) -> String {
     match slot {
         Slot::Atom(atom) => atom.to_string(),
-        Slot::ImplicitHydrogen => "implicit_hydrogen".to_owned(),
-        Slot::LonePair => "lone_pair".to_owned(),
+        Slot::ImplicitHydrogen => IMPLICIT_HYDROGEN.to_owned(),
+        Slot::LonePair => LONE_PAIR.to_owned(),
     }
 }
 
 impl StereoView {
-    fn new(document: &Document) -> Self {
+    /// The document's records as snapshots show them.
+    ///
+    /// # Errors
+    ///
+    /// [`StereoError::RecordInvalid`] when a record's kind does not match its key. A document
+    /// never holds one (restore and every edit keep them equal), so the view refuses to be
+    /// built rather than leave a stored record out of a snapshot.
+    pub fn try_new(document: &Document) -> Result<Self, StereoError> {
         let mut view = Self::default();
-        for (key, state) in document.stereo().iter() {
-            match (key, state) {
-                (StereoKey::Center(atom), StereoState::Center(center)) => {
-                    let configuration = match center {
+        for record in document.stereo().typed()? {
+            match record {
+                StereoRecord::Center { atom, state } => {
+                    let configuration = match state {
                         CenterState::Tetrahedral { slots, turn } => {
                             AtomConfigurationDto::Tetrahedral {
                                 neighbors: slots.map(slot_name),
-                                turn: match turn {
-                                    Turn::Anticlockwise => TurnDto::Anticlockwise,
-                                    Turn::Clockwise => TurnDto::Clockwise,
-                                },
+                                turn: (*turn).into(),
                             }
                         }
                         CenterState::Unknown { slots } => AtomConfigurationDto::Unknown {
@@ -1502,7 +1680,7 @@ impl StereoView {
                         configuration,
                     });
                 }
-                (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) => {
+                StereoRecord::DoubleBond { bond, state } => {
                     let configuration = match state {
                         DoubleBondState::Relative {
                             begin_ref,
@@ -1511,10 +1689,7 @@ impl StereoView {
                         } => BondConfigurationDto::Relative {
                             begin_neighbor: slot_name(*begin_ref),
                             end_neighbor: slot_name(*end_ref),
-                            relation: match relation {
-                                Relation::SameSide => RelationDto::SameSide,
-                                Relation::OppositeSides => RelationDto::OppositeSides,
-                            },
+                            relation: (*relation).into(),
                         },
                         DoubleBondState::Unknown => BondConfigurationDto::Unknown {},
                     };
@@ -1523,12 +1698,9 @@ impl StereoView {
                         configuration,
                     });
                 }
-                // The table keeps each record's kind equal to its key's, so this is unreachable
-                // for a valid document; skipping keeps the view total without a panic path.
-                _ => {}
             }
         }
-        view
+        Ok(view)
     }
 }
 
@@ -1695,7 +1867,8 @@ impl DocumentResponse {
                         .collect(),
                 },
                 settings: settings_view(document.settings()),
-                stereo: StereoView::new(document),
+                stereo: StereoView::try_new(document)
+                    .expect("a document's stereo records are kept with the kind of their key"),
             },
             session: SessionView {
                 saved_revision,
@@ -1706,6 +1879,7 @@ impl DocumentResponse {
                 draft_failure: None,
             },
             recovery: None,
+            notes: Vec::new(),
         }
     }
 }

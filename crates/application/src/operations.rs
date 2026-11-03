@@ -326,6 +326,9 @@ pub struct DocumentResult {
     pub interchange_mapping: Option<InterchangeMapping>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import_mapping: Option<CtMapping>,
+    /// What the request cleared of stereo (see `DocumentResponse::notes`). Added within v1;
+    /// always present, and empty unless the operation is a transaction that cleared a record.
+    pub notes: Vec<Loss>,
 }
 
 impl From<DocumentResponse> for DocumentResult {
@@ -336,6 +339,7 @@ impl From<DocumentResponse> for DocumentResult {
             recovery: response.recovery,
             interchange_mapping: None,
             import_mapping: None,
+            notes: response.notes,
         }
     }
 }
@@ -508,7 +512,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 28] = [
+const TRANSACTION_PARTS: [Entry; 33] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -576,6 +580,21 @@ const TRANSACTION_PARTS: [Entry; 28] = [
         "Changes the document's style settings as an undoable edit.",
     ),
     runs(
+        "set_bond_mark",
+        "Sets or clears how a bond is drawn: wedge or hash (with the narrow end recorded in the \
+         mark) or wavy on a single bond, crossed on a double bond. A drawing fact only.",
+    ),
+    runs(
+        "set_atom_configuration",
+        "States or clears a stereocenter's neighbor order and turn, or states it unknown. \
+         Stated, not derived from the drawing.",
+    ),
+    runs(
+        "set_bond_configuration",
+        "States or clears how one neighbor on each end of a double bond lie across it, or \
+         states it unknown.",
+    ),
+    runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
          default). Representation only: no hydrogen count is computed from valence.",
@@ -629,6 +648,21 @@ const TRANSACTION_PARTS: [Entry; 28] = [
         "Each document stores and undoes its own style; preferences set new-document defaults.",
     )
     .carried_out_by(&["update_settings"]),
+    runs(
+        "stereo_marks",
+        "Records drawn stereo marks. Representation only: no configuration is derived from \
+         them, and the editor does not draw them yet.",
+    )
+    .carried_out_by(&["set_bond_mark"]),
+    runs(
+        "stereo_configuration",
+        "Records tetrahedral centers (3 or 4 neighbors) and double bonds as stated, apart from \
+         the marks. Representation only: no CIP labels, no check that a center is stereogenic, \
+         no groups, no derivation from the drawing, no comparison in chem.identity or \
+         chem.substructure, no stereo check in chem.validate, and no stereo in MOL, SDF, SMILES, \
+         CDXML or CDX.",
+    )
+    .carried_out_by(&["set_atom_configuration", "set_bond_configuration"]),
 ];
 
 const PROPERTY_PARTS: [Entry; 3] = [
@@ -1118,11 +1152,14 @@ impl Known {
         match outcome {
             Ok(response) => {
                 let revision = response.document.revision;
-                self.reply(
-                    Outcome::Ok,
+                // Stereo the edit cleared is a loss: `partial`, with the same entries as
+                // `result.notes`. Every other document reply has none and stays `ok`.
+                let losses = response.notes.clone();
+                converted(
+                    self,
                     Some(revision),
-                    Some(OperationResult::Document(Box::new(response.into()))),
-                    Vec::new(),
+                    OperationResult::Document(Box::new(response.into())),
+                    losses,
                 )
             }
             Err(error) => self.reply(

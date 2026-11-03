@@ -5,6 +5,7 @@ use std::fmt;
 use chemifree_domain::scene::SceneError;
 use chemifree_domain::settings::SettingsError;
 use chemifree_domain::states::StateError;
+use chemifree_domain::stereo::StereoError;
 use serde::Serialize;
 
 use crate::API_VERSION;
@@ -119,6 +120,8 @@ pub struct ApplicationError {
     pub invalid_scene: Option<SceneError>,
     /// The invalid document or new-document style value, when one was refused.
     pub invalid_settings: Option<SettingsError>,
+    /// Set with `InvalidCommand` when a stereo mark or configuration was refused.
+    pub invalid_stereo: Option<StereoError>,
     /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
     pub invalid_aromaticity: Option<&'static str>,
     /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
@@ -136,6 +139,7 @@ impl ApplicationError {
             invalid_state: None,
             invalid_scene: None,
             invalid_settings: None,
+            invalid_stereo: None,
             invalid_aromaticity: None,
             limit_ms: None,
         }
@@ -167,6 +171,7 @@ impl ApplicationError {
             .or(self.invalid_state.map(StateError::code))
             .or(self.invalid_scene.map(SceneError::code))
             .or(self.invalid_settings.map(SettingsError::code))
+            .or(self.invalid_stereo.map(StereoError::code))
             .or(self.invalid_aromaticity)
     }
 }
@@ -190,7 +195,8 @@ pub struct ErrorResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_index: Option<usize>,
     /// With `storage_failed`, a [`StorageReason`]; with `invalid_command`, a [`StateError`] code
-    /// when a combination of recorded states was refused.
+    /// when a combination of recorded states was refused, or a [`StereoError`] code when a
+    /// stereo mark or configuration was.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
 }

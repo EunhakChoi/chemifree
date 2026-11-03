@@ -12,6 +12,7 @@ use chemifree_domain::document::{
     Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::settings::Settings;
+use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -23,6 +24,7 @@ use crate::contract::{
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, StorageReason};
+use crate::operations::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use crate::repository::{
     DocumentRepository, Draft, DraftRecoveryTarget, DraftStatus, StorageError,
 };
@@ -943,13 +945,18 @@ impl<R: DocumentRepository> Documents<R> {
                 .check()
                 .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
             if commands.is_empty() {
-                return Ok(());
+                return Ok(Vec::new());
             }
+            // The commands are generated, so an index into them means nothing to the caller;
+            // a stereo refusal is of the conversion as a whole, with the rule it breaks.
             session
                 .document
                 .apply_selecting(&commands, &domain_selection)
-                .map(|_: Outcome| ())
-                .map_err(rejected_edit)
+                .map(|_: Outcome| Vec::new())
+                .map_err(|error| ApplicationError {
+                    command_index: None,
+                    ..rejected_edit(error)
+                })
         })
     }
 
@@ -969,11 +976,11 @@ impl<R: DocumentRepository> Documents<R> {
             selection,
         };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
-            session
+            let applied = session
                 .document
-                .apply_selecting(&domain_commands, &domain_selection)
-                .map(|_: Outcome| ())
-                .map_err(rejected_edit)
+                .apply_reporting(&domain_commands, &domain_selection)
+                .map_err(rejected_edit)?;
+            Ok(cleared_stereo_notes(&session.document, &applied.cleared))
         })
     }
 
@@ -1038,7 +1045,8 @@ impl<R: DocumentRepository> Documents<R> {
                 DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
             verify(&before.document, &projected.document)?;
             session.document = candidate;
-            Ok(())
+            // An import adds atoms and bonds between new atoms only, so it clears no record.
+            Ok(Vec::new())
         })
     }
 
@@ -1095,7 +1103,7 @@ impl<R: DocumentRepository> Documents<R> {
             session
                 .document
                 .apply_selecting(&[command], &domain_selection)
-                .map(|_: Outcome| ())
+                .map(|_: Outcome| Vec::new())
                 .map_err(rejected_edit)
         })
     }
@@ -1108,7 +1116,11 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<DocumentResponse, ApplicationError> {
         let mutation = Mutation::Undo { expected_revision };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
-            session.document.undo().map_err(history_error)
+            session
+                .document
+                .undo()
+                .map(|()| Vec::new())
+                .map_err(history_error)
         })
     }
 
@@ -1120,7 +1132,11 @@ impl<R: DocumentRepository> Documents<R> {
     ) -> Result<DocumentResponse, ApplicationError> {
         let mutation = Mutation::Redo { expected_revision };
         self.mutate(id, request_id, expected_revision, mutation, |session| {
-            session.document.redo().map_err(history_error)
+            session
+                .document
+                .redo()
+                .map(|()| Vec::new())
+                .map_err(history_error)
         })
     }
 
@@ -2194,7 +2210,7 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
         expected_revision: u64,
         mutation: Mutation,
-        change: impl FnOnce(&mut Session) -> Result<(), ApplicationError>,
+        change: impl FnOnce(&mut Session) -> Result<Vec<Loss>, ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
         validate_request_id(request_id)?;
         let document_id = parse_id(id)?;
@@ -2209,7 +2225,7 @@ impl<R: DocumentRepository> Documents<R> {
         request_id: Option<&str>,
         expected_revision: u64,
         mutation: Mutation,
-        change: impl FnOnce(&mut Session) -> Result<(), ApplicationError>,
+        change: impl FnOnce(&mut Session) -> Result<Vec<Loss>, ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
@@ -2221,11 +2237,16 @@ impl<R: DocumentRepository> Documents<R> {
         }
         session.expect_revision(expected_revision)?;
         let before = session.document.revision();
-        change(session)?;
+        let notes = change(session)?;
         if session.document.revision() != before && !session.is_drafted() {
             session.drafting.changed(Instant::now());
         }
-        let response = self.respond(session);
+        // The notes belong to this request alone: they are recorded with its reply, so a
+        // replay returns them, and no later reply repeats them.
+        let response = DocumentResponse {
+            notes,
+            ..self.respond(session)
+        };
         session.replays.record(request_id, mutation, &response);
         Ok(response)
     }
@@ -2438,6 +2459,56 @@ fn interruption(interrupted: Interrupted, limit_ms: u64) -> ApplicationError {
     }
 }
 
+/// One loss entry for each stereo record a transaction cleared, in key order (centers, then
+/// double bonds). The reason says why, judged from the document after the edit: the atom or
+/// bond is gone, or it is still there and the bonded neighbors it was about changed.
+fn cleared_stereo_notes(document: &Document, cleared: &[StereoKey]) -> Vec<Loss> {
+    cleared
+        .iter()
+        .map(|key| {
+            let (source_path, subject, why) = match key {
+                StereoKey::Center(atom) => {
+                    let kept = document
+                        .position(document.first_instance(), *atom)
+                        .is_some();
+                    (
+                        format!("atoms[{atom}]"),
+                        format!("atom {atom}"),
+                        if kept {
+                            "its bonded neighbors changed"
+                        } else {
+                            "the atom was deleted"
+                        },
+                    )
+                }
+                StereoKey::DoubleBond(bond) => {
+                    let kept = document.bonds().any(|(id, _)| id == *bond);
+                    (
+                        format!("bonds[{bond}]"),
+                        format!("bond {bond}"),
+                        if kept {
+                            "the bonded neighbors of one of its ends changed"
+                        } else {
+                            "the bond was deleted"
+                        },
+                    )
+                }
+            };
+            Loss {
+                consent: LossConsent::NotRequired,
+                feature: "stereo_configuration".into(),
+                source_path,
+                disposition: LossDisposition::Dropped,
+                reason: format!(
+                    "The stereo configuration of {subject} was cleared because {why}. Undo \
+                     restores it."
+                ),
+                semantic_impact: SemanticImpact::Stereo,
+            }
+        })
+        .collect()
+}
+
 fn rejected_edit(error: TransactionError) -> ApplicationError {
     let code = match error.error {
         EditError::RevisionLimit => ErrorCode::ResourceLimit,
@@ -2451,10 +2522,15 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         EditError::Settings(settings) => Some(settings),
         _ => None,
     };
+    let invalid_stereo = match error.error {
+        EditError::Stereo(stereo) => Some(stereo),
+        _ => None,
+    };
     ApplicationError {
         command_index: error.index,
         invalid_state,
         invalid_settings,
+        invalid_stereo,
         invalid_scene: error.error.scene_error(),
         ..ApplicationError::new(code, error.to_string())
     }
