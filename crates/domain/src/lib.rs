@@ -3,6 +3,7 @@
 pub mod aromaticity;
 pub mod budget;
 pub mod chemistry;
+pub mod cip;
 pub mod data;
 pub mod document;
 pub mod element;

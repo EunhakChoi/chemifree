@@ -1,0 +1,417 @@
+{
+ "schema": 1,
+ "note": "Stored configurations written as SMILES. 'atom' is the 0-based index of the atom in the SMILES string; 'label' is R, S, none, or unsupported:<reason>. verify-cip-rdkit.py reads the same file with RDKit alone.",
+ "rdkit_version": "2022.03.2",
+ "rdkit_labeler": "rdkit.Chem.rdCIPLabeler.AssignCIPLabels",
+ "fixtures": [
+  {
+   "name": "L-alanine",
+   "smiles": "N[C@@H](C)C(=O)O",
+   "source": "public name: L-alanine is (S); hand-derived order N > COOH > CH3 > H",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "D-glyceraldehyde",
+   "smiles": "C([C@H](C=O)O)O",
+   "source": "public name: D-glyceraldehyde is (R); hand-derived",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "(S)-bromochlorofluoromethane",
+   "smiles": "Br[C@H](Cl)F",
+   "source": "public name; hand-derived Br > Cl > F > H, even permutation",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "(R)-bromochlorofluoromethane",
+   "smiles": "Br[C@@H](Cl)F",
+   "source": "public name; mirror of the (S) fixture",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "five-atom halogen center",
+   "smiles": "F[C@](Cl)(Br)I",
+   "source": "public fixture: F[C@](Cl)(Br)I is S (cleanroom contract; RDKit)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "five-atom halogen center, mirror",
+   "smiles": "F[C@@](Cl)(Br)I",
+   "source": "public fixture: the mirror of F[C@](Cl)(Br)I is R",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "two centers (R,R)",
+   "smiles": "F[C@H](Cl)[C@H](Br)I",
+   "source": "public fixture: independent drawn-isomer reading is RR",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    },
+    {
+     "atom": 3,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "two centers (S,S)",
+   "smiles": "F[C@@H](Cl)[C@@H](Br)I",
+   "source": "mirror of the (R,R) fixture",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    },
+    {
+     "atom": 3,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "L-serine",
+   "smiles": "N[C@@H](CO)C(=O)O",
+   "source": "public name: L-serine is (S); COOH (O,O,O) beats CH2OH (O,H,H)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "L-cysteine",
+   "smiles": "N[C@@H](CS)C(=O)O",
+   "source": "public name: L-cysteine is (R); S in CH2SH beats O in COOH at sphere 2",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "L-lactic acid",
+   "smiles": "C[C@H](O)C(=O)O",
+   "source": "public name: L-(+)-lactic acid is (S); hand-derived",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "(R,R)-tartaric acid",
+   "smiles": "O[C@H]([C@@H](O)C(=O)O)C(=O)O",
+   "source": "public name: natural L-(+)-tartaric acid is (2R,3R); hand-derived",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    },
+    {
+     "atom": 2,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "meso-tartaric acid",
+   "smiles": "O[C@H]([C@H](O)C(=O)O)C(=O)O",
+   "source": "public name: meso-tartaric acid is (2R,3S); hand-derived",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    },
+    {
+     "atom": 2,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "CHDTX, explicit isotopic hydrogens",
+   "smiles": "[2H][C@]([3H])(F)Cl",
+   "source": "hand-derived: Cl > F > T > D by Rule 1a then Rule 2",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "CHDX, implicit hydrogen against deuterium",
+   "smiles": "[C@H]([2H])(F)Cl",
+   "source": "hand-derived: Cl > F > D > H (Rule 2)",
+   "expect": [
+    {
+     "atom": 0,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "Rule 1a over the whole digraph before Rule 2",
+   "smiles": "Cl[C@H]([13CH2]C)CCO",
+   "source": "hand-derived: O at sphere 3 of CH2CH2OH beats the 13C at sphere 1 of the other ligand (a sphere-first reading gives S)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "isotope-only difference, 13C methyl",
+   "smiles": "Cl[C@H]([13CH3])C",
+   "source": "hand-derived: Cl > 13CH3 > CH3 > H by Rule 2 alone",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "same without the isotope",
+   "smiles": "Cl[C@H](C)C",
+   "source": "two methyl ligands tie: not stereogenic",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "2-propanol",
+   "smiles": "C[C@H](C)O",
+   "source": "two methyl ligands tie",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "cyclohexanol C1",
+   "smiles": "O[C@H]1CCCCC1",
+   "source": "the two ring arms tie (ring-closure duplicate of C1 at the same sphere on both)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "cis-1,4-dimethylcyclohexane",
+   "smiles": "C[C@H]1CC[C@@H](C)CC1",
+   "source": "needs Rules 4 and 5 (ring cis/trans)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_rule_4_or_5_needed"
+    }
+   ]
+  },
+  {
+   "name": "trans-1,4-dimethylcyclohexane",
+   "smiles": "C[C@H]1CC[C@H](C)CC1",
+   "source": "needs Rules 4 and 5 (ring cis/trans)",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_rule_4_or_5_needed"
+    }
+   ]
+  },
+  {
+   "name": "cis-decalin bridgeheads",
+   "smiles": "[C@H]12CCCC[C@@H]1CCCC2",
+   "source": "ring bridgeheads: a tie that Rules 4 and 5 may break",
+   "expect": [
+    {
+     "atom": 0,
+     "label": "unsupported:cip_rule_4_or_5_needed"
+    }
+   ]
+  },
+  {
+   "name": "2,3,4-trihydroxyglutaric acid C3",
+   "smiles": "OC(=O)[C@H](O)[C@H](O)[C@H](O)C(=O)O",
+   "source": "pseudoasymmetric middle center (RDKit r); the outer centers are plain R and S",
+   "expect": [
+    {
+     "atom": 3,
+     "label": "R"
+    },
+    {
+     "atom": 5,
+     "label": "unsupported:cip_rule_4_or_5_needed"
+    },
+    {
+     "atom": 7,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "methyl ethyl sulfoxide",
+   "smiles": "C[S@](=O)CC",
+   "source": "three-coordinate S with a lone pair; hand-derived O > Et > Me > lone pair",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "methyl ethyl isopropyl phosphine",
+   "smiles": "C[P@](CC)C(C)C",
+   "source": "three-coordinate P with a lone pair; hand-derived iPr > Et > Me > lone pair",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "1-phenylethanol, aromatic spelling",
+   "smiles": "C[C@H](O)c1ccccc1",
+   "source": "hand-derived: OH > phenyl > CH3 > H, decided by Rule 1a",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "1-phenylethanol, Kekule spelling",
+   "smiles": "C[C@H](O)C1=CC=CC=C1",
+   "source": "same molecule as the aromatic spelling",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "1-(2-pyridyl)ethanol",
+   "smiles": "C[C@H](O)c1ccccn1",
+   "source": "a heteroaromatic ligand must be expanded: refused",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_aromatic_system"
+    }
+   ]
+  },
+  {
+   "name": "diphenylmethanol",
+   "smiles": "O[C@H](c1ccccc1)c1ccccc1",
+   "source": "two phenyl ligands tie at Rule 1a and Rule 1b is undefined for mancude duplicates: refused",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_mancude_rule_1b"
+    }
+   ]
+  },
+  {
+   "name": "two propenyl ligands",
+   "smiles": "Cl[C@H](C=CC)C=CC",
+   "source": "a tie that Rule 3 (Z before E) could break: pending",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_rule_3_pending"
+    }
+   ]
+  },
+  {
+   "name": "two vinyl ligands",
+   "smiles": "Cl[C@H](C=C)C=C",
+   "source": "terminal =CH2 has two identical positions: no Rule 3 question, a tie",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
+  },
+  {
+   "name": "two allenyl ligands with substituted ends",
+   "smiles": "Cl[C@H](C=C=CC)C=C=CC",
+   "source": "an axis that Rules 4 and 5 could use",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_rule_4_or_5_needed"
+    }
+   ]
+  },
+  {
+   "name": "11C methyl against an unlabeled methyl",
+   "smiles": "Cl[C@H]([11CH3])C",
+   "source": "hand-derived: a label below the table mass ranks lower under either reading of an unlabeled atom: Cl > CH3 > 11CH3 > H",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "12C methyl against an unlabeled methyl",
+   "smiles": "Cl[C@H]([12CH3])C",
+   "source": "refused on purpose: an unlabeled atom may be the most abundant isotope (a tie) or the atomic weight (above 12C), and the two readings disagree",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_mass_number"
+    }
+   ]
+  }
+ ]
+}
