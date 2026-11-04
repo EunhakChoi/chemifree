@@ -242,7 +242,8 @@
       "operations": [
         "document.transaction",
         "chem.validate",
-        "chem.stereo"
+        "chem.stereo",
+        "chem.cip"
       ],
       "status": "partial",
       "parts": [
@@ -364,8 +365,41 @@
           "followups": []
         },
         {
+          "id": "MODEL-03.6",
+          "summary": "CIP labels: the read-only operation chem.cip (chemifree-cip-1) computes R or S for stored tetrahedral centers and E or Z for stored double bonds from the current graph, on demand and never stored, by Rules 1a, 1b, 2 and 3 only (duplicate and phantom atoms, implicit hydrogens, mancude all-carbon aromatic rings). Every item has an explicit state: assigned, none, unspecified, unknown, ambiguous or unsupported with a reason from a closed list, and the outcome is partial with a loss entry for each ambiguous or unsupported item. A CipLabeler port with a built-in labeler whose answers the application validates; scope stored, stereogenic or named items; bounded by 20,000 digraph nodes per item and 2,000,000 per request (resource_limit), with no time limit (a documented gap). Rules 4a to 5, pseudoasymmetric r and s, heteroaromatic rings and axes or planes are not applied and a tie they might break is unsupported, never none; no claim of equivalence with any other program, and a manual one-version RDKit comparison is evidence only. The web editor does not request or show labels (P26c).",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/cip.rs",
+            "crates/application/src/cip.rs",
+            "crates/application/src/operations/cip.rs",
+            "crates/application/src/operations.rs",
+            "crates/domain/src/operation.rs"
+          ],
+          "evidence": [
+            "case:stereo-cip-label-from-stored-configuration",
+            "case:stereo-cip-mirror-image",
+            "case:stereo-cip-double-bond-e-z",
+            "case:stereo-cip-isotope-only",
+            "case:stereo-cip-renumbering",
+            "case:stereo-cip-symmetric-and-meso",
+            "case:stereo-cip-ring-ligands",
+            "case:stereo-cip-unknown-and-unspecified",
+            "case:stereo-cip-ambiguous",
+            "case:stereo-cip-unsupported",
+            "case:stereo-cip-every-reason",
+            "case:stereo-cip-limits-and-errors",
+            "case:stereo-cip-is-read-only",
+            "case:stereo-cip-public-references",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P26"
+          ]
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
+          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, a web display of CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
