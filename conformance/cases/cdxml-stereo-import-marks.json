@@ -1,0 +1,170 @@
+{
+  "id": "cdxml-stereo-import-marks",
+  "title": "A CDXML fragment with WedgeBegin marks, an Or 2, an Or 258, an And 2 and an Or with no number imports the marks, one derived configuration per center and four separate groups (258 stays 258 and Or 2 stays apart from And 2), survives reopening, and reports the hints it does not store",
+  "requirements": [
+    "CODEC-01",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview-stereo",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" Geometry=\"Tetrahedral\" BondOrdering=\"100 101 0 102\" EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"2\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><n id=\"14\" p=\"300 100\" Element=\"6\" EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"258\"/><n id=\"15\" p=\"300 70\" Element=\"9\"/><n id=\"16\" p=\"326 115\" Element=\"17\"/><n id=\"17\" p=\"274 115\" Element=\"35\"/><n id=\"18\" p=\"500 100\" Element=\"6\" EnhancedStereoType=\"And\" EnhancedStereoGroupNum=\"2\"/><n id=\"19\" p=\"500 70\" Element=\"9\"/><n id=\"20\" p=\"526 115\" Element=\"17\"/><n id=\"21\" p=\"474 115\" Element=\"35\"/><n id=\"22\" p=\"700 100\" Element=\"6\" EnhancedStereoType=\"Or\"/><n id=\"23\" p=\"700 70\" Element=\"9\"/><n id=\"24\" p=\"726 115\" Element=\"17\"/><n id=\"25\" p=\"674 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/><b id=\"103\" B=\"14\" E=\"15\" Order=\"1\"/><b id=\"104\" B=\"14\" E=\"16\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"105\" B=\"14\" E=\"17\" Order=\"1\"/><b id=\"106\" B=\"18\" E=\"19\" Order=\"1\"/><b id=\"107\" B=\"18\" E=\"20\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"108\" B=\"18\" E=\"21\" Order=\"1\"/><b id=\"109\" B=\"22\" E=\"23\" Order=\"1\"/><b id=\"110\" B=\"22\" E=\"24\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"111\" B=\"22\" E=\"25\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "Stereo",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "bonds": {
+              "$contains": [
+                {
+                  "mark": {
+                    "kind": "wedge",
+                    "narrow": "begin"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_geometry"
+            },
+            {
+              "feature": "bond_ordering"
+            },
+            {
+              "feature": "stereo_group_number",
+              "disposition": "normalized"
+            }
+          ]
+        }
+      },
+      "capture": {
+        "digest": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-stereo",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" Geometry=\"Tetrahedral\" BondOrdering=\"100 101 0 102\" EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"2\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><n id=\"14\" p=\"300 100\" Element=\"6\" EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"258\"/><n id=\"15\" p=\"300 70\" Element=\"9\"/><n id=\"16\" p=\"326 115\" Element=\"17\"/><n id=\"17\" p=\"274 115\" Element=\"35\"/><n id=\"18\" p=\"500 100\" Element=\"6\" EnhancedStereoType=\"And\" EnhancedStereoGroupNum=\"2\"/><n id=\"19\" p=\"500 70\" Element=\"9\"/><n id=\"20\" p=\"526 115\" Element=\"17\"/><n id=\"21\" p=\"474 115\" Element=\"35\"/><n id=\"22\" p=\"700 100\" Element=\"6\" EnhancedStereoType=\"Or\"/><n id=\"23\" p=\"700 70\" Element=\"9\"/><n id=\"24\" p=\"726 115\" Element=\"17\"/><n id=\"25\" p=\"674 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/><b id=\"103\" B=\"14\" E=\"15\" Order=\"1\"/><b id=\"104\" B=\"14\" E=\"16\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"105\" B=\"14\" E=\"17\" Order=\"1\"/><b id=\"106\" B=\"18\" E=\"19\" Order=\"1\"/><b id=\"107\" B=\"18\" E=\"20\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"108\" B=\"18\" E=\"21\" Order=\"1\"/><b id=\"109\" B=\"22\" E=\"23\" Order=\"1\"/><b id=\"110\" B=\"22\" E=\"24\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"111\" B=\"22\" E=\"25\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "Stereo",
+          "page_id": 1,
+          "fragment_id": 2,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "stereo": {
+              "groups": [
+                {
+                  "kind": "and",
+                  "stored_number": 2,
+                  "members": [
+                    "a9"
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "stored_number": 0,
+                  "members": [
+                    "a13"
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "stored_number": 2,
+                  "members": [
+                    "a1"
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "stored_number": 258,
+                  "members": [
+                    "a5"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "imported",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "imported",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 2,
+                "members": [
+                  "a9"
+                ]
+              },
+              {
+                "kind": "or",
+                "stored_number": 0,
+                "members": [
+                  "a13"
+                ]
+              },
+              {
+                "kind": "or",
+                "stored_number": 2,
+                "members": [
+                  "a1"
+                ]
+              },
+              {
+                "kind": "or",
+                "stored_number": 258,
+                "members": [
+                  "a5"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

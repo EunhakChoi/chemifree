@@ -1,5 +1,5 @@
 {
-  "suite_version": 22,
+  "suite_version": 23,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -37,6 +37,8 @@
     "cases/compute-time-limit-refused.json",
     "cases/graph-identity.json",
     "cases/cdxml-rich-projection.json",
+    "cases/cdxml-stereo-import-marks.json",
+    "cases/cdxml-stereo-import-refusals.json",
     "cases/cdx-binary-interchange.json",
     "cases/smiles-import-export.json",
     "cases/smiles-malformed-and-unsupported-refused.json",

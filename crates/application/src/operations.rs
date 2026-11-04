@@ -731,7 +731,7 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          compute labels or judge stereogenicity. chem.cip computes CIP labels from stored \
          configurations, read-only (its model and rules are named in the chem.cip entry). No \
          comparison in chem.identity or chem.substructure (they do not read stereo or groups), \
-         no stereo check in chem.validate, no stereo in SMILES, CDXML or CDX, and a MOL or SDF \
+         no stereo check in chem.validate, no stereo in SMILES (CDXML and CDX import reads bond marks, configurations and groups and nothing writes them from a drawing), and a MOL or SDF \
          file carries only the bond marks (V2000 bond stereo column, V3000 CFG) and the \
          configurations they show; both dialects are read back.",
     )
