@@ -1128,6 +1128,41 @@ enum CtabChoice {
     Auto,
 }
 
+/// Resolves the `mol-v2000` and `mol-v3000` format ids to `mol`. For an export the id sets
+/// `ctab`; an explicit `ctab` that names another dialect (or `auto`) is `format_ctab_conflict`.
+/// For an import the dialect is returned, and the selected record must be in it. Any other
+/// `format` value is left alone.
+fn ct_format_alias(parameters: &mut Value, export: bool) -> Result<Option<CtTab>, Diagnostic> {
+    let Some(map) = parameters.as_object_mut() else {
+        return Ok(None);
+    };
+    let (tab, name) = match map.get("format").and_then(Value::as_str) {
+        Some("mol-v2000") => (CtTab::V2000, "v2000"),
+        Some("mol-v3000") => (CtTab::V3000, "v3000"),
+        _ => return Ok(None),
+    };
+    map.insert("format".into(), "mol".into());
+    if export {
+        match map.get("ctab") {
+            None => {
+                map.insert("ctab".into(), name.into());
+            }
+            Some(Value::String(chosen)) if chosen == name => {}
+            Some(_) => {
+                return Err(ct_failure(CtError {
+                    code: "format_ctab_conflict",
+                    message: format!(
+                        "The format id names {name}; `ctab` must be {name} or left out."
+                    ),
+                    record: 1,
+                    line: None,
+                }));
+            }
+        }
+    }
+    Ok(Some(tab))
+}
+
 fn ct_failure(error: CtError) -> Diagnostic {
     let mut details = Map::new();
     details.insert("record".into(), error.record.into());
@@ -1516,6 +1551,9 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 struct CtImportFormat<'a> {
     codec: &'a dyn CtCodec,
     p: &'a CtImportParameters,
+    /// The dialect a `mol-v2000` or `mol-v3000` format id asks for; the selected record must be
+    /// in it.
+    required: Option<CtTab>,
 }
 
 impl CtImportFormat<'_> {
@@ -1551,6 +1589,17 @@ impl ImportFormat for CtImportFormat<'_> {
                     line: None,
                 })
             })?;
+        if let Some(required) = self.required {
+            let found = input.value[selected].ctab;
+            if found != required {
+                return Err(self.refusal_at(
+                    "format_ctab_conflict",
+                    &format!(
+                        "The format id names {required:?} but the selected record is {found:?}; use format \"mol\" to read either."
+                    ),
+                ));
+            }
+        }
         Ok((input, selected))
     }
 
@@ -1635,7 +1684,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 "rich interchange",
                 self.interchange_codec.is_some(),
             ),
-            Some("mol" | "sdf") => (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some()),
+            Some("mol" | "sdf" | "mol-v2000" | "mol-v3000") => {
+                (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some())
+            }
             _ if self.ctfile_codec.is_none() && self.interchange_codec.is_some() => {
                 return Backend::Interchange;
             }
@@ -1674,7 +1725,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
-    fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
+    fn ct_import(
+        &self,
+        known: &Known,
+        p: CtImportParameters,
+        required: Option<CtTab>,
+    ) -> OperationResponse {
         let Some(codec) = &self.ctfile_codec else {
             return known.not_running();
         };
@@ -1689,6 +1745,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let format = CtImportFormat {
             codec: codec.as_ref(),
             p: &p,
+            required,
         };
         self.run_import(known, &format, request, self.preview_generation)
     }
@@ -1751,6 +1808,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 &domain,
                 &snapshot.document,
                 index,
+                target,
             ));
             mappings.push(CtExportMapping {
                 atoms: snapshot
@@ -2375,10 +2433,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Err(invalid) => known.invalid(invalid),
                 },
                 Backend::Interchange => self.dispatch_interchange_import(known, parameters_value),
-                Backend::Ct => match parameters::<CtImportParameters>(parameters_value) {
-                    Ok(p) => self.ct_import(known, p),
-                    Err(invalid) => known.invalid(invalid),
-                },
+                Backend::Ct => {
+                    let mut parameters_value = parameters_value;
+                    match ct_format_alias(&mut parameters_value, false) {
+                        Ok(required) => match parameters::<CtImportParameters>(parameters_value) {
+                            Ok(p) => self.ct_import(known, p, required),
+                            Err(invalid) => known.invalid(invalid),
+                        },
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::DocumentExport => match self.format_backend(&parameters_value) {
@@ -2387,10 +2451,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Err(invalid) => known.invalid(invalid),
                 },
                 Backend::Interchange => self.dispatch_interchange_export(known, parameters_value),
-                Backend::Ct => match parameters::<CtExportParameters>(parameters_value) {
-                    Ok(p) => self.ct_export(known, p),
-                    Err(invalid) => known.invalid(invalid),
-                },
+                Backend::Ct => {
+                    let mut parameters_value = parameters_value;
+                    match ct_format_alias(&mut parameters_value, true) {
+                        Ok(_) => match parameters::<CtExportParameters>(parameters_value) {
+                            Ok(p) => self.ct_export(known, p),
+                            Err(invalid) => known.invalid(invalid),
+                        },
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {

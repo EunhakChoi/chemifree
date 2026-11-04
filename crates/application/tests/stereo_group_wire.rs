@@ -877,8 +877,8 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
         json!(["stereo_configuration", "stereo_group"]),
         "{refused}"
     );
-    // A MOL file has no groups either (no V3000 collections yet): it needs consent, and the
-    // groups are listed whatever the version.
+    // V2000 has no groups: it needs consent. V3000 writes them as collections (the consent it
+    // can still need, for centers in no group, is another feature).
     for ctab in ["v2000", "v3000"] {
         let mol = call(
             &app,
@@ -893,7 +893,11 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
         let features = mol["diagnostics"][0]["details"]["features"]
             .as_array()
             .unwrap();
-        assert!(features.contains(&json!("stereo_group")), "{mol}");
+        assert_eq!(
+            features.contains(&json!("stereo_group")),
+            ctab == "v2000",
+            "{ctab}: {mol}"
+        );
     }
 }
 

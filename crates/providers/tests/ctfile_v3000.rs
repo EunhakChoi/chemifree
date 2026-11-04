@@ -161,8 +161,8 @@ fn reads_collections_with_any_number_and_crlf_line_ends() {
         [
             abs(CtCollectionKind::Absolute, None, &[1, 3]),
             abs(CtCollectionKind::Or, Some(0), &[0]),
-            abs(CtCollectionKind::And, Some(-128), &[2, 3]),
-            abs(CtCollectionKind::And, Some(258), &[]),
+            abs(CtCollectionKind::And, Some(-128), &[2, 4]),
+            abs(CtCollectionKind::And, Some(258), &[5]),
         ]
     );
 }
@@ -354,6 +354,7 @@ fn refuses_each_unsupported_collection_with_its_reason() {
         ("count mismatch", "MDLV30/STEABS ATOMS=(2 1)", "v3000_count_mismatch"),
         ("unknown atom", "MDLV30/STEABS ATOMS=(1 9)", "v3000_unknown_atom_index"),
         ("atom twice in one", "MDLV30/STEABS ATOMS=(2 1 1)", "v3000_duplicate_index"),
+        ("empty collection", "MDLV30/STEABS ATOMS=(0)", "v3000_empty_collection"),
     ];
     for (name, line, code) in cases {
         assert_eq!(
@@ -581,7 +582,7 @@ fn writer_refusals_and_reports() {
         number: None,
         atoms: vec![0],
     });
-    assert_eq!(write(&grouped), Err("v3000_collection_not_supported_yet"));
+    assert!(write(&grouped).is_ok(), "V3000 writes collections now");
     assert_eq!(
         V2000Codec
             .write_ctab(CtFormat::Mol, CtTab::V2000, std::slice::from_ref(&grouped))
@@ -591,17 +592,27 @@ fn writer_refusals_and_reports() {
     );
     let mut chiral = two();
     chiral.chiral = true;
-    for tab in [CtTab::V3000, CtTab::V2000] {
-        let result = V2000Codec
-            .write_ctab(CtFormat::Mol, tab, std::slice::from_ref(&chiral))
-            .unwrap();
-        assert!(
-            result.losses.iter().any(|l| l.feature == "chiral_flag"
-                && l.disposition == LossDisposition::Dropped
-                && l.semantic_impact == SemanticImpact::Stereo),
-            "{tab:?}: the unwritten chiral flag is reported"
-        );
-    }
+    let v2000 = V2000Codec
+        .write_ctab(CtFormat::Mol, CtTab::V2000, std::slice::from_ref(&chiral))
+        .unwrap();
+    assert!(
+        v2000.losses.iter().any(|l| l.feature == "chiral_flag"
+            && l.disposition == LossDisposition::Dropped
+            && l.semantic_impact == SemanticImpact::Stereo),
+        "the V2000 writer states 0 and reports the flag"
+    );
+    let v3000 = V2000Codec
+        .write_ctab(CtFormat::Mol, CtTab::V3000, std::slice::from_ref(&chiral))
+        .unwrap();
+    assert!(
+        v3000.losses.iter().all(|l| l.feature != "chiral_flag"),
+        "the V3000 writer states the flag, so nothing is dropped"
+    );
+    assert!(
+        v3000.value.contains("M  V30 COUNTS 2 1 0 0 1\n"),
+        "{}",
+        v3000.value
+    );
     let mut rounded = two();
     rounded.atoms[0].x = 0.123456;
     let result = V2000Codec
@@ -730,10 +741,12 @@ fn every_v3000_reason_in_the_source_has_a_family_and_the_table_lists_no_other() 
             used.insert(part);
         }
     }
+    // Reasons the application's projection owns (it reads the codec's record, not the file).
+    const PROJECTION_OWNED: [&str; 1] = ["v3000_collection_member_not_stereocenter"];
     let listed: std::collections::BTreeSet<_> = CT_REASON_FAMILIES
         .iter()
         .map(|(code, _)| *code)
-        .filter(|code| code.starts_with("v3000_"))
+        .filter(|code| code.starts_with("v3000_") && !PROJECTION_OWNED.contains(code))
         .collect();
     assert_eq!(used, listed, "the table and the V3000 source disagree");
 }
@@ -840,4 +853,152 @@ fn an_either_double_bond_reports_no_coordinate_stereo_and_a_plain_one_does() {
     };
     assert!(!has(&marked(2, CtBondStereo::Either)));
     assert!(has(&marked(2, CtBondStereo::None)));
+}
+
+/// A file with three atoms and the given collection lines.
+fn grouped_file(lines: &[&str]) -> String {
+    let body: String = lines.iter().map(|l| format!("M  V30 {l}\n")).collect();
+    base().replacen(
+        "M  V30 END CTAB",
+        &format!("M  V30 BEGIN COLLECTION\n{body}M  V30 END COLLECTION\nM  V30 END CTAB"),
+        1,
+    )
+}
+
+#[test]
+#[rustfmt::skip]
+fn refuses_collections_that_repeat_an_identity_or_an_atom() {
+    let cases: [(&str, &[&str], &str); 5] = [
+        ("two STEABS", &["MDLV30/STEABS ATOMS=(1 1)", "MDLV30/STEABS ATOMS=(1 2)"], "v3000_duplicate_collection"),
+        ("same type and index", &["MDLV30/STERAC1 ATOMS=(1 1)", "MDLV30/STERAC1 ATOMS=(1 2)"], "v3000_duplicate_collection"),
+        ("one atom in and1 and or1", &["MDLV30/STERAC1 ATOMS=(1 1)", "MDLV30/STEREL1 ATOMS=(1 1)"], "v3000_collection_atom_shared"),
+        ("atom in absolute and and", &["MDLV30/STEABS ATOMS=(1 2)", "MDLV30/STERAC1 ATOMS=(2 1 2)"], "v3000_collection_atom_shared"),
+        ("stated zero twice", &["MDLV30/STEREL0 ATOMS=(1 1)", "MDLV30/STEREL0 ATOMS=(1 2)"], "v3000_duplicate_collection"),
+    ];
+    for (name, lines, code) in cases {
+        let text = grouped_file(lines);
+        let found = read(&text).map(|_| ()).map_err(|(c, _)| c);
+        assert_eq!(found, Err(code), "{name}");
+    }
+    // The same index of different kinds, and different indices, are separate collections.
+    let fine = grouped_file(&["MDLV30/STERAC1 ATOMS=(1 1)", "MDLV30/STEREL1 ATOMS=(1 2)", "MDLV30/STERAC2 ATOMS=(1 3)"]);
+    assert_eq!(read(&fine).unwrap()[0].collections.len(), 3);
+}
+
+#[test]
+fn writes_collections_in_the_records_order_with_sorted_members_and_the_chiral_flag() {
+    let mut item = record(
+        vec![
+            atom("C", 0.0),
+            atom("C", 1.0),
+            atom("C", 2.0),
+            atom("C", 3.0),
+        ],
+        vec![bond(0, 1, 1)],
+    );
+    item.chiral = true;
+    item.collections = vec![
+        CtCollection {
+            kind: CtCollectionKind::Absolute,
+            number: None,
+            atoms: vec![3, 0],
+        },
+        CtCollection {
+            kind: CtCollectionKind::And,
+            number: Some(-7),
+            atoms: vec![2],
+        },
+        CtCollection {
+            kind: CtCollectionKind::Or,
+            number: Some(0),
+            atoms: vec![1],
+        },
+    ];
+    let text = write(&item).unwrap();
+    assert!(text.contains("M  V30 COUNTS 4 1 0 0 1\n"), "{text}");
+    assert!(
+        text.contains(
+            "M  V30 END BOND\nM  V30 BEGIN COLLECTION\nM  V30 MDLV30/STEABS ATOMS=(2 1 4)\nM  V30 MDLV30/STERAC-7 ATOMS=(1 3)\nM  V30 MDLV30/STEREL0 ATOMS=(1 2)\nM  V30 END COLLECTION\nM  V30 END CTAB\n"
+        ),
+        "{text}"
+    );
+    let back = &read(&text).unwrap()[0];
+    assert!(back.chiral);
+    assert_eq!(back.collections.len(), 3);
+    assert_eq!(back.collections[0].atoms, [0, 3]);
+    assert_eq!(
+        (back.collections[1].kind, back.collections[1].number),
+        (CtCollectionKind::And, Some(-7))
+    );
+}
+
+#[test]
+fn the_writer_refuses_collections_the_reader_would_refuse() {
+    let base_record = || {
+        record(
+            vec![atom("C", 0.0), atom("C", 1.0), atom("C", 2.0)],
+            vec![bond(0, 1, 1)],
+        )
+    };
+    let collection = |kind, number, atoms: &[usize]| CtCollection {
+        kind,
+        number,
+        atoms: atoms.to_vec(),
+    };
+    let cases = [
+        (
+            "empty",
+            vec![collection(CtCollectionKind::Absolute, None, &[])],
+            "v3000_empty_collection",
+        ),
+        (
+            "atom out of range",
+            vec![collection(CtCollectionKind::Absolute, None, &[3])],
+            "v3000_unknown_atom_index",
+        ),
+        (
+            "member twice",
+            vec![collection(CtCollectionKind::Absolute, None, &[1, 1])],
+            "v3000_duplicate_index",
+        ),
+        (
+            "two absolute",
+            vec![
+                collection(CtCollectionKind::Absolute, None, &[0]),
+                collection(CtCollectionKind::Absolute, None, &[1]),
+            ],
+            "v3000_duplicate_collection",
+        ),
+        (
+            "same type and number",
+            vec![
+                collection(CtCollectionKind::Or, Some(1), &[0]),
+                collection(CtCollectionKind::Or, Some(1), &[1]),
+            ],
+            "v3000_duplicate_collection",
+        ),
+        (
+            "atom in two",
+            vec![
+                collection(CtCollectionKind::Or, Some(1), &[0]),
+                collection(CtCollectionKind::And, Some(1), &[0]),
+            ],
+            "v3000_collection_atom_shared",
+        ),
+        (
+            "absolute with a number",
+            vec![collection(CtCollectionKind::Absolute, Some(1), &[0])],
+            "v3000_invalid_collection",
+        ),
+        (
+            "and without a number",
+            vec![collection(CtCollectionKind::And, None, &[0])],
+            "v3000_invalid_collection",
+        ),
+    ];
+    for (name, collections, code) in cases {
+        let mut item = base_record();
+        item.collections = collections;
+        assert_eq!(write(&item), Err(code), "{name}");
+    }
 }

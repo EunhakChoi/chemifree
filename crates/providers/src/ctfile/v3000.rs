@@ -832,7 +832,73 @@ fn read_collections(
             atoms: positions,
         });
     }
+    if let Err((at, code, message)) = check_collections(&out, usize::MAX) {
+        let line = items.get(at).map(|item| item.line);
+        return Err(error(code, record, line, message));
+    }
     Ok(out)
+}
+
+/// The rules of a set of collections, shared by the reader and the writer: none is empty, an
+/// atom is in at most one, the absolute collection is unique and has no number, a numbered kind
+/// has one, and two collections never share kind and number (a repeated index is a duplicate,
+/// not a merge). Returns the offending collection's position with a closed reason; `atom_count`
+/// bounds the member positions (the reader has resolved them already and passes `usize::MAX`).
+pub(super) fn check_collections(
+    collections: &[CtCollection],
+    atom_count: usize,
+) -> Result<(), (usize, &'static str, &'static str)> {
+    let mut identities = HashSet::new();
+    let mut owner: HashMap<usize, usize> = HashMap::new();
+    for (at, collection) in collections.iter().enumerate() {
+        if collection.atoms.is_empty() {
+            return Err((
+                at,
+                "v3000_empty_collection",
+                "A stereo collection lists no atoms.",
+            ));
+        }
+        let numbered = collection.kind != CtCollectionKind::Absolute;
+        if numbered != collection.number.is_some() {
+            return Err((
+                at,
+                "v3000_invalid_collection",
+                "STEABS has no number; STERAC and STEREL each have one.",
+            ));
+        }
+        if !identities.insert((collection.kind as u8, collection.number)) {
+            return Err((
+                at,
+                "v3000_duplicate_collection",
+                "Two collections have the same type and index.",
+            ));
+        }
+        let mut within = HashSet::new();
+        for &atom in &collection.atoms {
+            if atom >= atom_count {
+                return Err((
+                    at,
+                    "v3000_unknown_atom_index",
+                    "A collection names an atom the record does not have.",
+                ));
+            }
+            if !within.insert(atom) {
+                return Err((
+                    at,
+                    "v3000_duplicate_index",
+                    "An atom is listed twice in one collection.",
+                ));
+            }
+            if owner.insert(atom, at).is_some() {
+                return Err((
+                    at,
+                    "v3000_collection_atom_shared",
+                    "An atom is listed in more than one collection.",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Writes one logical line, breaking between tokens with `-` continuations so that no physical
@@ -927,7 +993,12 @@ pub(super) fn write_table(
     put(out, "BEGIN CTAB", record)?;
     put(
         out,
-        &format!("COUNTS {} {} 0 0 0", item.atoms.len(), item.bonds.len()),
+        &format!(
+            "COUNTS {} {} 0 0 {}",
+            item.atoms.len(),
+            item.bonds.len(),
+            u8::from(item.chiral)
+        ),
         record,
     )?;
     if !item.atoms.is_empty() {
@@ -1051,9 +1122,53 @@ pub(super) fn write_table(
     if !item.bonds.is_empty() {
         put(out, "END BOND", record)?;
     }
+    write_collections(out, item, record)?;
     put(out, "END CTAB", record)?;
     out.push_str("M  END\n");
     Ok(())
+}
+
+/// The `COLLECTION` block: one line per collection in the record's order, members ascending.
+fn write_collections(out: &mut String, item: &CtRecord, record: usize) -> Result<(), CtError> {
+    if item.collections.is_empty() {
+        return Ok(());
+    }
+    if item.collections.len() > MAX_COLLECTIONS {
+        return Err(error(
+            "resource_limit",
+            record,
+            None,
+            "A V3000 record holds at most 2000 collections.",
+        ));
+    }
+    if let Err((_, code, message)) = check_collections(&item.collections, item.atoms.len()) {
+        return Err(error(code, record, None, message));
+    }
+    put(out, "BEGIN COLLECTION", record)?;
+    for collection in &item.collections {
+        let name = match (collection.kind, collection.number) {
+            (CtCollectionKind::Absolute, _) => "STEABS".to_owned(),
+            (CtCollectionKind::And, Some(n)) => format!("STERAC{n}"),
+            (CtCollectionKind::Or, Some(n)) => format!("STEREL{n}"),
+            _ => {
+                return Err(error(
+                    "v3000_invalid_collection",
+                    record,
+                    None,
+                    "A numbered collection needs its number.",
+                ));
+            }
+        };
+        let mut members = collection.atoms.clone();
+        members.sort_unstable();
+        let mut text = format!("MDLV30/{name} ATOMS=({}", members.len());
+        for member in members {
+            write!(text, " {}", member + 1).expect("String writes do not fail");
+        }
+        text.push(')');
+        put(out, &text, record)?;
+    }
+    put(out, "END COLLECTION", record)
 }
 
 #[cfg(test)]

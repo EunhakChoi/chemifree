@@ -67,11 +67,13 @@ pub struct CtRecord {
     /// the caller's `tab` argument; this field is ignored when writing.
     #[serde(skip)]
     pub ctab: CtTab,
-    /// The V3000 `COUNTS` chiral flag as read; no meaning is given to it and the writer does
-    /// not write it. Not serialized.
+    /// The V3000 `COUNTS` chiral flag. A reader gives it no meaning; the V3000 writer states it as
+    /// given (the projection sets it for a drawing with an absolute group), and the V2000 writer
+    /// states 0. Not serialized.
     #[serde(skip)]
     pub chiral: bool,
-    /// V3000 stereo collections as read; the writer refuses a record that holds any. Not serialized.
+    /// V3000 stereo collections. The V3000 writer states them, the V2000 writer refuses a record
+    /// that holds any. Not serialized.
     #[serde(skip)]
     pub collections: Vec<CtCollection>,
 }
@@ -231,6 +233,13 @@ pub const CT_REASON_FAMILIES: &[(&str, &str)] = &[
     ("v3000_invalid_radical", "malformed_input"),
     ("v3000_invalid_isotope", "malformed_input"),
     ("v3000_invalid_collection", "malformed_input"),
+    ("v3000_empty_collection", "malformed_input"),
+    ("v3000_duplicate_collection", "malformed_input"),
+    ("v3000_collection_atom_shared", "malformed_input"),
+    (
+        "v3000_collection_member_not_stereocenter",
+        "malformed_input",
+    ),
     ("v3000_unknown_atom_index", "dangling_reference"),
     ("v3000_unsupported_block", "unsupported_feature"),
     ("v3000_sgroup_not_supported", "unsupported_feature"),
