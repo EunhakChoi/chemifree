@@ -89,6 +89,25 @@ export type EditSelection = { kind: 'group'; objects: string[] }
 const client = new DocumentClient()
 
 /**
+ * The view to show when an autosave reply describes the revision already on screen. The reply
+ * brings the new session state (the draft revision) but states no notes, so the notes of the
+ * edit that produced this revision stay until another reply replaces them.
+ */
+export function adoptedView(shown: DocumentResponse, reply: DocumentResponse): DocumentResponse {
+  return { ...reply, notes: reply.notes?.length ? reply.notes : (shown.notes ?? []) }
+}
+
+/** Whether `reply` describes the revision and content already shown. */
+export function describesShown(shown: DocumentResponse | null, reply: DocumentResponse) {
+  return shown !== null && shown.document.revision === reply.document.revision && sameContent(shown.document, reply.document)
+}
+
+/** The view after a read or draft reply: the shown one's notes survive a reply for the same revision and content; anything else replaces the view. */
+export function viewAfterRead(shown: DocumentResponse | null, reply: DocumentResponse): DocumentResponse {
+  return shown !== null && describesShown(shown, reply) ? adoptedView(shown, reply) : reply
+}
+
+/**
  * Same title, graph, stereo table, scene, and settings, whatever revision number names them. An
  * omitted stereo table is the empty one, so a service that states none equals one that states
  * an empty table, but not one that states configurations.
@@ -256,8 +275,8 @@ export function useDocumentEditor() {
     adopt: useCallback(
       (response: DocumentResponse) => {
         const shown = currentRef.current
-        const same = shown?.document.revision === response.document.revision && sameContent(shown.document, response.document)
-        if (same) setCurrent(response)
+        const same = describesShown(shown, response)
+        if (same) setCurrent(viewAfterRead(shown, response))
         return same
       },
       [setCurrent],
@@ -270,7 +289,7 @@ export function useDocumentEditor() {
           void run(async () => {
             try {
               const fresh = await client.reread(documentId)
-              if (currentRef.current?.document.id === documentId) setCurrent(fresh)
+              if (currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
               resolve()
             } catch (failure) {
               reject(failure)

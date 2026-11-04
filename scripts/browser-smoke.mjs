@@ -4212,6 +4212,19 @@ step = 'after short_wide_bond_is_selectable'
       ])
       const notes = agreePage.getByTestId('stereo-notes')
       await notes.waitFor()
+      // The recovery draft is written about a second after an edit. Its reply states no notes, and it must not clear the ones the user is reading.
+      // An earlier draft can leave the indicator at 'saved', so wait for the draft of this edit's own revision, in the service and then on screen.
+      const editedRevision = (await read(groupsId)).document.revision
+      await agreePage.waitForFunction(
+        async ({ id, revision }) => (await (await fetch(`/api/v1/documents/${id}`)).json()).session.draft_revision === revision,
+        { id: groupsId, revision: editedRevision },
+      )
+      await agreePage.waitForFunction(
+        (revision) => document.querySelector('[data-testid="draft-state"]')?.textContent?.includes(`(revision ${revision})`),
+        editedRevision,
+      )
+      await raf()
+      await notes.waitFor({ timeout: 2000 })
       assert.ok((await notes.locator('li').count()) >= 1, 'the reply states that the members no longer belong together')
       await newNumber.fill('')
 
