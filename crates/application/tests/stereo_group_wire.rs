@@ -1081,3 +1081,63 @@ fn the_catalog_lists_the_group_commands_and_the_capability_that_they_carry_out()
         assert!(!text.contains("No groups"), "{text}");
     }
 }
+
+#[test]
+fn setting_what_is_set_and_adding_a_member_the_group_has_change_nothing() {
+    let (app, _directory, id) = grouped();
+    let before = serde_json::to_value(app.document(&id).unwrap()).unwrap();
+    let reply = ok(transact(
+        &app,
+        &id,
+        "same",
+        2,
+        &json!([
+            {"op": "set_stereo_group_number", "group": "e1", "number": 1},
+            {"op": "set_stereo_group_kind", "group": "e1", "kind": "or"},
+            {"op": "add_stereo_group_members", "group": "e1", "atoms": ["a1", "a5"]}
+        ]),
+    ));
+    assert_eq!(reply["document"]["revision"], 2, "{reply}");
+    assert_eq!(reply["notes"], json!([]));
+    assert_eq!(
+        serde_json::to_value(app.document(&id).unwrap()).unwrap()["session"],
+        before["session"],
+        "no history entry"
+    );
+}
+
+#[test]
+fn the_example_in_the_contract_is_what_the_service_sends() {
+    let contract = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/CONTRACT.md"
+    ))
+    .unwrap();
+    let start = contract
+        .find("### Stereo groups")
+        .expect("the section exists");
+    let section = &contract[start..];
+    let section = &section[..section[1..]
+        .find("\n#")
+        .map_or(section.len(), |end| end + 1)];
+    let blocks: Vec<Value> = section
+        .split("```json\n")
+        .skip(1)
+        .map(|block| {
+            let body = block.split("```").next().unwrap();
+            serde_json::from_str(body).unwrap_or_else(|error| panic!("{error}: {body}"))
+        })
+        .collect();
+    assert_eq!(blocks.len(), 2, "one request and its reply");
+
+    let (app, _directory, id) = four_centers();
+    let mut request = blocks[0].clone();
+    request["parameters"]["document_id"] = json!(id);
+    let reply = serde_json::to_value(app.execute(request.to_string().as_bytes())).unwrap();
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(
+        reply["result"]["document"]["stereo"]["groups"],
+        blocks[1]["groups"]
+    );
+    assert_eq!(reply["result"]["notes"], blocks[1]["notes"]);
+}

@@ -358,7 +358,7 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
         losses.push(consent_loss(
             "stereo_group",
             format!("groups[{}]", groups.join(", ")),
-            "SMILES has no enhanced stereo groups here; the absolute, and and or groups are not written, so a document that states which centers belong together reads as a single compound.",
+            "This SMILES writer has no enhanced stereo groups; the absolute, and and or groups are not written, so a document that states which centers belong together reads as a single compound.",
         ));
     }
     losses

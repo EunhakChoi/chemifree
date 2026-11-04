@@ -3525,7 +3525,7 @@ step = 'after short_wide_bond_is_selectable'
     await edit(first, () => press('Undo'))
     doc = await read(first)
     assert.equal(doc.document.bonds.length, 2)
-    assert.deepEqual(doc.document.stereo, { atoms: [], bonds: [] })
+    assert.deepEqual(doc.document.stereo, { atoms: [], bonds: [], groups: [] })
     await eventually(async () => assert.equal(await polygon.count(), 0))
     await edit(first, () => press('Redo'))
     doc = await read(first)
@@ -3916,7 +3916,7 @@ step = 'after short_wide_bond_is_selectable'
     await eventually(async () => assert.equal(await summary.textContent(), 'Compared with the drawing: 1 agrees.'))
     await edit(drawnOnly, () => press('Undo'))
     await eventually(async () => assert.equal(await row('a1').getAttribute('data-agreement'), 'only_drawn'))
-    assert.deepEqual((await read(drawnOnly)).document.stereo, { atoms: [], bonds: [] })
+    assert.deepEqual((await read(drawnOnly)).document.stereo, { atoms: [], bonds: [], groups: [] })
 
     // A stored configuration no mark shows: "Remove stored" removes it, and says which value.
     const storedOnly = await make('stored', 'Smoke stored only', [
@@ -3931,7 +3931,7 @@ step = 'after short_wide_bond_is_selectable'
     assert.match(await row('a1').textContent(), /Stored clockwise; the drawing in s1 shows nothing usable: no wedge, hashed wedge or wavy bond bears on it \(stereo_not_derivable_no_marks\)\./)
     await edit(storedOnly, () => panel.getByRole('button', { name: 'Remove the stored configuration of a1 (row s1)', exact: true }).click())
     await eventually(async () => assert.equal(await status.textContent(), 'a1: removed the stored clockwise. Undo restores it.'))
-    assert.deepEqual((await read(storedOnly)).document.stereo, { atoms: [], bonds: [] })
+    assert.deepEqual((await read(storedOnly)).document.stereo, { atoms: [], bonds: [], groups: [] })
     await eventually(async () => assert.equal(await row('a1').count(), 0))
     await eventually(async () => assert.match(await panel.getByTestId('stereo-panel-state').textContent(), /is not assessed\.$/))
     await edit(storedOnly, () => press('Undo'))

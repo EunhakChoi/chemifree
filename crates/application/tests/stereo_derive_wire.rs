@@ -534,7 +534,8 @@ fn contract_examples() -> Vec<Value> {
         .find("### Deriving a configuration from a drawing")
         .expect("the section exists");
     let section = &contract[start..];
-    let end = section.find("\n## ").unwrap_or(section.len());
+    // Up to the next heading of any level: a later subsection has examples of its own.
+    let end = section.find("\n#").unwrap_or(section.len());
     section[..end]
         .split("```json\n")
         .skip(1)

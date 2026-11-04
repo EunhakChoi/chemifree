@@ -196,7 +196,7 @@ try {
   // A drawing no stereo command touched says so explicitly, and the reply carries an empty `notes`.
   assert.deepEqual(edited.body.notes, [])
   assert.equal(edited.body.document.bonds.length > 0 && edited.body.document.bonds.every((bond) => bond.mark === null), true)
-  assert.deepEqual(edited.body.document.stereo, { atoms: [], bonds: [] })
+  assert.deepEqual(edited.body.document.stereo, { atoms: [], bonds: [], groups: [] })
   const replayed = await write(`${doc}/transactions`, draw)
   assert.deepEqual(replayed.body, edited.body, 'a retried request_id replays its result')
   const reused = await write(`${doc}/transactions`, { ...draw, commands: draw.commands.slice(0, 1) })
@@ -1027,7 +1027,7 @@ try {
     assert.equal(matched.outcome, 'ok')
     assert.deepEqual(matched.loss_report, [])
     assert.deepEqual(matched.result.stereo, { compared: false, query_present: false, target_present: false })
-    assert.deepEqual(matched.result.query.document.stereo, { atoms: [], bonds: [] })
+    assert.deepEqual(matched.result.query.document.stereo, { atoms: [], bonds: [], groups: [] })
     assert.deepEqual(matched.result.mappings, [{ atoms: [{ query: 'a1', target: 'a1' }], bonds: [] }])
     assert.equal(matched.result.query.document.revision, 1)
     const unmatched = await both((id) => request('op-substructure-missing', 'chem.substructure', { query_document_id: id, target_document_id: 'no-such-document' }))
@@ -1054,8 +1054,10 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [34, 24, 10])
-      for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing']) {
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [43, 32, 11])
+      for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
+        'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
+        'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {
         assert.equal(commandRows.find((part) => part.id === command)?.execution, 'executable', command)
       }
       const atom = (x, y, element, bondTo) => ({
@@ -1145,6 +1147,31 @@ try {
       assert.deepEqual(
         [underivable.outcome, underivable.model_id, underivable.diagnostics[0].code, underivable.diagnostics[0].details.reason, underivable.diagnostics[0].details.command_index],
         ['error', 'chemifree-stereo-1', 'invalid_command', 'stereo_not_derivable_no_marks', 1])
+      // Enhanced stereo groups: a create, two refusals with their reasons and command index, the
+      // consent a SMILES export then needs and the note a delete leaves are the same on both adapters.
+      const groupedA1 = await both(transact('op-group-create', 5, [{ op: 'create_stereo_group', kind: 'or', atoms: ['a1'], number: 1 }]))
+      assert.equal(groupedA1.outcome, 'ok')
+      assert.deepEqual(groupedA1.result.document.stereo.groups, [
+        { id: 'e1', kind: 'or', stored_number: 1, number: 1, label: 'or1', members: ['a1'] }])
+      for (const [name, command, reason] of [
+        ['op-group-taken', { op: 'create_stereo_group', kind: 'and', atoms: ['a1'], number: null }, 'stereo_group_member_taken'],
+        ['op-group-range', { op: 'create_stereo_group', kind: 'and', atoms: ['a1'], number: 2147483648 }, 'stereo_group_number_range'],
+      ]) {
+        const refusedGroup = await both(transact(name, 6, [{ op: 'rename', title: 'first command is fine' }, command]))
+        assert.deepEqual(
+          [refusedGroup.outcome, refusedGroup.diagnostics[0].code, refusedGroup.diagnostics[0].details.reason, refusedGroup.diagnostics[0].details.command_index],
+          ['error', 'invalid_command', reason, 1], name)
+      }
+      const unreadGroup = await both(() => request('op-group-key', 'document.transaction', {
+        document_id: httpDoc, expected_revision: 6, commands: [{ op: 'create_stereo_group', kind: 'or', atoms: ['a1'] }] }), 200)
+      assert.equal(unreadGroup.outcome, 'error', 'a missing number key is a malformed command, not a clear')
+      const groupConsent = await both((id) => request('op-group-smiles', 'document.export', { format: 'smiles', document_id: id, style: 'recorded' }))
+      assert.deepEqual(groupConsent.diagnostics[0].details.features, ['stereo_marks', 'stereo_configuration', 'stereo_group'])
+      const groupDeleted = await both(transact('op-group-delete', 6, [{ op: 'set_atom_configuration', atom: 'a1', configuration: null }]))
+      assert.equal(groupDeleted.outcome, 'partial')
+      assert.deepEqual(groupDeleted.result.notes.map((note) => [note.feature, note.source_path, note.disposition]),
+        [['stereo_group_member', 'atoms[a1]', 'dropped'], ['stereo_group', 'groups[e1]', 'dropped']])
+      assert.deepEqual(groupDeleted.result.document.stereo.groups, [])
       httpDoc = outerHttp
       cliDoc = outerCli
     }

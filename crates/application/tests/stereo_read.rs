@@ -305,7 +305,10 @@ fn a_drawing_without_stereo_says_nothing_about_it() {
             .all(|bond| bond.get("mark") == Some(&Value::Null)),
         "a plain bond has an explicit null mark"
     );
-    assert_eq!(document["stereo"], json!({"atoms": [], "bonds": [], "groups": []}));
+    assert_eq!(
+        document["stereo"],
+        json!({"atoms": [], "bonds": [], "groups": []})
+    );
 }
 
 #[test]
