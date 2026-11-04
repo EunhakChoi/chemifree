@@ -19,8 +19,10 @@ use chemifree_domain::element::Element;
 use super::{Lines, ascii_line, error, loss};
 
 /// Counts line of a V3000 record: 39 columns, `V3000` in columns 35-39, all numeric fields zero
-/// (the real counts are in the `COUNTS` line).
-const COUNTS_LINE: &str = "  0  0  0     0  0              0 V3000";
+/// except the obsolete property count, which is 999 as the CTfile description gives it (the real
+/// counts are in the `COUNTS` line). Public ChemDraw files show 0 there, so the reader accepts
+/// both (see `read_counts_line`).
+const COUNTS_LINE: &str = "  0  0  0     0  0            999 V3000";
 const PREFIX: &str = "M  V30 ";
 pub(super) const MAX_ATOMS: usize = 2000;
 pub(super) const MAX_BONDS: usize = 4000;
@@ -227,13 +229,23 @@ fn counts(
         )
     };
     if words.first() != Some(&"COUNTS") || !(6..=7).contains(&words.len()) {
-        return Err(bad("Expected COUNTS with 5 or 6 numbers."));
+        return Err(bad(
+            "Expected COUNTS with five numbers and an optional REGNO=<n>.",
+        ));
     }
     let number = |i: usize| int(words[i], "v3000_invalid_counts_line", record, line);
     let (atoms, bonds, sgroups, three_d, chiral) =
         (number(1)?, number(2)?, number(3)?, number(4)?, number(5)?);
     if words.len() == 7 {
-        number(6)?;
+        // The optional sixth number is tagged: `REGNO=<n>`.
+        let tagged = words[6]
+            .strip_prefix("REGNO=")
+            .map(|n| int(n, "v3000_invalid_counts_line", record, line));
+        if tagged.is_none_or(|n| n.is_err()) {
+            return Err(bad(
+                "The optional COUNTS registry number is REGNO=<integer>.",
+            ));
+        }
         losses.push(loss(
             record,
             ".counts.regno",
@@ -460,6 +472,22 @@ fn unique_index(
     Ok(value)
 }
 
+/// One loss for every atom that states a mass, rather than one per atom.
+fn isotope_loss<T: ToString>(record: usize, atoms: &[T]) -> Option<Loss> {
+    if atoms.is_empty() {
+        return None;
+    }
+    let list: Vec<_> = atoms.iter().map(T::to_string).collect();
+    Some(loss(
+        record,
+        &format!(".atoms[{}].isotope", list.join(", ")),
+        "isotope_validation",
+        LossDisposition::Unknown,
+        SemanticImpact::Chemistry,
+        "The public guide does not identify the PTABLE.DAT revision needed to verify the absolute mass bound.",
+    ))
+}
+
 /// Splits `NAME=value` properties of an atom or bond line, refusing a repeated name.
 fn properties<'a>(
     words: &[&'a str],
@@ -498,6 +526,7 @@ fn read_atoms(
     losses: &mut Vec<Loss>,
 ) -> Result<(Vec<CtAtom>, HashMap<i32, usize>), CtError> {
     let mut atoms = Vec::with_capacity(items.len());
+    let mut isotopes = Vec::new();
     let mut index = HashMap::new();
     let mut seen = HashSet::new();
     for item in items {
@@ -573,7 +602,7 @@ fn read_atoms(
                                 )
                             })?,
                     );
-                    losses.push(loss(record, &format!(".atoms[{file_index}].isotope"), "isotope_validation", LossDisposition::Unknown, SemanticImpact::Chemistry, "The public guide does not identify the PTABLE.DAT revision needed to verify the absolute mass bound."));
+                    isotopes.push(file_index);
                 }
                 "HCOUNT" | "SUBST" | "UNSAT" | "RBCNT" => {
                     return Err(refuse(
@@ -598,6 +627,7 @@ fn read_atoms(
         index.insert(file_index, atoms.len());
         atoms.push(atom);
     }
+    losses.extend(isotope_loss(record, &isotopes));
     Ok((atoms, index))
 }
 
@@ -771,14 +801,22 @@ fn read_collections(
 
 /// Writes one logical line, breaking between tokens with `-` continuations so that no physical
 /// line passes 80 columns.
-fn put(out: &mut String, text: &str) {
+///
+/// A line that has no space within the room of one physical line (a token that cannot fit) is
+/// `resource_limit`, not a panic.
+fn put(out: &mut String, text: &str, record: usize) -> Result<(), CtError> {
     let mut rest = text;
     while PREFIX.len() + rest.len() > MAX_PHYSICAL {
         // A continued line holds the prefix, the text, a space and the hyphen.
         let room = MAX_PHYSICAL - PREFIX.len() - 2;
-        let cut = rest[..=room]
-            .rfind(' ')
-            .expect("tokens are shorter than a line");
+        let Some(cut) = rest.get(..=room).and_then(|head| head.rfind(' ')) else {
+            return Err(error(
+                "resource_limit",
+                record,
+                None,
+                "A V3000 token is longer than a physical line.",
+            ));
+        };
         out.push_str(PREFIX);
         out.push_str(&rest[..=cut]);
         out.push_str("-\n");
@@ -787,6 +825,7 @@ fn put(out: &mut String, text: &str) {
     out.push_str(PREFIX);
     out.push_str(rest);
     out.push('\n');
+    Ok(())
 }
 
 /// Writes the counts line through `M  END` for a V3000 record.
@@ -806,14 +845,16 @@ pub(super) fn write_table(
     }
     out.push_str(COUNTS_LINE);
     out.push('\n');
-    put(out, "BEGIN CTAB");
+    put(out, "BEGIN CTAB", record)?;
     put(
         out,
         &format!("COUNTS {} {} 0 0 0", item.atoms.len(), item.bonds.len()),
-    );
+        record,
+    )?;
     if !item.atoms.is_empty() {
-        put(out, "BEGIN ATOM");
+        put(out, "BEGIN ATOM", record)?;
     }
+    let mut isotopes = Vec::new();
     for (i, atom) in item.atoms.iter().enumerate() {
         if Element::from_symbol(&atom.element).is_none() {
             return Err(error(
@@ -869,15 +910,16 @@ pub(super) fn write_table(
                 ));
             }
             write!(text, " MASS={mass}").expect("String writes do not fail");
-            losses.push(loss(record, &format!(".atoms[{}].isotope", i + 1), "isotope_validation", LossDisposition::Unknown, SemanticImpact::Chemistry, "The public guide does not identify the PTABLE.DAT revision needed to verify the absolute mass bound."));
+            isotopes.push(i + 1);
         }
-        put(out, &text);
+        put(out, &text, record)?;
     }
     if !item.atoms.is_empty() {
-        put(out, "END ATOM");
+        put(out, "END ATOM", record)?;
     }
+    losses.extend(isotope_loss(record, &isotopes));
     if !item.bonds.is_empty() {
-        put(out, "BEGIN BOND");
+        put(out, "BEGIN BOND", record)?;
     }
     let mut pairs = HashSet::new();
     for (i, bond) in item.bonds.iter().enumerate() {
@@ -915,12 +957,27 @@ pub(super) fn write_table(
                 bond.begin + 1,
                 bond.end + 1
             ),
-        );
+            record,
+        )?;
     }
     if !item.bonds.is_empty() {
-        put(out, "END BOND");
+        put(out, "END BOND", record)?;
     }
-    put(out, "END CTAB");
+    put(out, "END CTAB", record)?;
     out.push_str("M  END\n");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_token_longer_than_a_line_is_an_error_not_a_panic() {
+        let mut out = String::new();
+        let long = format!("1 C {}", "9".repeat(100));
+        let error = put(&mut out, &long, 1).unwrap_err();
+        assert_eq!(error.code, "resource_limit");
+        put(&mut out, "1 C 0.0000 0.0000 0.0000 0", 1).unwrap();
+    }
 }

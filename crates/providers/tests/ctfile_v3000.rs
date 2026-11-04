@@ -9,7 +9,8 @@ use chemifree_application::ctfile::{
 use chemifree_application::{LossDisposition, SemanticImpact};
 use chemifree_providers::V2000Codec;
 
-const COUNTS_LINE: &str = "  0  0  0     0  0              0 V3000";
+const COUNTS_LINE: &str = "  0  0  0     0  0            999 V3000";
+const COUNTS_LINE_ZERO: &str = "  0  0  0     0  0              0 V3000";
 const CORE: &str = include_str!("data/ctfile-v3000/core.mol");
 const COLLECTIONS: &str = include_str!("data/ctfile-v3000/collections-crlf.mol");
 const CONTINUED: &str = include_str!("data/ctfile-v3000/continued.mol");
@@ -122,12 +123,7 @@ fn reads_the_core_subset() {
         [
             (
                 "isotope_validation",
-                "records[1].atoms[2].isotope",
-                LossDisposition::Unknown
-            ),
-            (
-                "isotope_validation",
-                "records[1].atoms[5].isotope",
+                "records[1].atoms[2, 5].isotope",
                 LossDisposition::Unknown
             ),
             (
@@ -200,7 +196,7 @@ fn an_sdf_may_mix_a_v2000_and_a_v3000_record() {
 
 #[test]
 fn a_registry_number_is_dropped_and_reported() {
-    let text = base().replace("COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 0 4711");
+    let text = base().replace("COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 0 REGNO=4711");
     let result = V2000Codec
         .read_ctab(CtFormat::Mol, text.as_bytes())
         .unwrap();
@@ -223,6 +219,10 @@ fn refuses_each_unsupported_or_malformed_construct_with_its_reason_and_line() {
         ("extra atom line", "M  V30 END ATOM", "M  V30 4 C 3 0 0 0\nM  V30 END ATOM", "v3000_count_mismatch", 11),
         ("block with zero count", "COUNTS 3 2", "COUNTS 3 0", "v3000_count_mismatch", 13),
         ("four counts", "COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0", "v3000_invalid_counts_line", 6),
+        ("bare registry number", "COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 0 4711", "v3000_invalid_counts_line", 6),
+        ("registry number not a number", "COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 0 REGNO=x", "v3000_invalid_counts_line", 6),
+        ("empty registry number", "COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 0 REGNO=", "v3000_invalid_counts_line", 6),
+        ("odd appendix count", COUNTS_LINE, "  0  0  0     0  0            777 V3000", "invalid_counts", 4),
         ("negative count", "COUNTS 3 2", "COUNTS -1 2", "v3000_invalid_counts_line", 6),
         ("chiral flag 2", "COUNTS 3 2 0 0 0", "COUNTS 3 2 0 0 2", "v3000_invalid_counts_line", 6),
         ("count over int32", "COUNTS 3 2", "COUNTS 3000000000 2", "v3000_invalid_counts_line", 6),
@@ -614,4 +614,107 @@ fn the_v2000_writer_is_unchanged_by_the_selector() {
 fn text_after_m_end_of_a_mol_file_is_refused() {
     let text = format!("{}junk\n", base());
     assert_eq!(read(&text).map(|_| ()), Err(("trailing_content", Some(18))));
+}
+
+#[test]
+fn reads_both_spellings_of_the_appendix_count() {
+    let zero = base().replace(COUNTS_LINE, COUNTS_LINE_ZERO);
+    assert_ne!(zero, base());
+    assert_eq!(read(&zero).unwrap(), read(&base()).unwrap());
+    assert_eq!(
+        write(&record(vec![], vec![])).unwrap().lines().nth(3),
+        Some(COUNTS_LINE)
+    );
+}
+
+#[test]
+fn a_v3000_double_bond_loss_does_not_speak_of_v2000() {
+    let text = base();
+    let read_loss = V2000Codec
+        .read_ctab(CtFormat::Mol, text.as_bytes())
+        .unwrap()
+        .losses;
+    let item = record(vec![atom("C", 0.0), atom("C", 1.0)], vec![bond(0, 1, 2)]);
+    let written = V2000Codec
+        .write_ctab(CtFormat::Mol, CtTab::V3000, std::slice::from_ref(&item))
+        .unwrap()
+        .losses;
+    assert_eq!(
+        written
+            .iter()
+            .filter(|l| l.feature == "coordinate_stereo")
+            .count(),
+        1
+    );
+    for loss in read_loss
+        .iter()
+        .chain(&written)
+        .filter(|l| l.feature == "coordinate_stereo")
+    {
+        assert!(
+            !loss.reason.contains("V2000"),
+            "V3000 loss mentions V2000: {}",
+            loss.reason
+        );
+    }
+    let v2000 = V2000Codec
+        .write_ctab(CtFormat::Mol, CtTab::V2000, std::slice::from_ref(&item))
+        .unwrap()
+        .losses;
+    assert_eq!(
+        v2000[0].reason,
+        "V2000 double-bond stereo code 0 can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."
+    );
+}
+
+#[test]
+fn many_isotopes_give_one_aggregated_loss_on_read_and_on_write() {
+    let mut atoms = vec![atom("C", 0.0), atom("C", 1.0), atom("C", 2.0)];
+    for a in &mut atoms {
+        a.isotope = Some(13);
+    }
+    let item = record(atoms, vec![]);
+    let written = V2000Codec
+        .write_ctab(CtFormat::Mol, CtTab::V3000, std::slice::from_ref(&item))
+        .unwrap();
+    let paths: Vec<_> = written
+        .losses
+        .iter()
+        .map(|l| l.source_path.as_str())
+        .collect();
+    assert_eq!(paths, ["records[1].atoms[1, 2, 3].isotope"]);
+    let read_back = V2000Codec
+        .read_ctab(CtFormat::Mol, written.value.as_bytes())
+        .unwrap();
+    let paths: Vec<_> = read_back
+        .losses
+        .iter()
+        .map(|l| l.source_path.as_str())
+        .collect();
+    assert_eq!(paths, ["records[1].atoms[1, 2, 3].isotope"]);
+}
+
+#[test]
+fn every_v3000_reason_in_the_source_has_a_family_and_the_table_lists_no_other() {
+    let source = include_str!("../src/ctfile/v3000.rs");
+    let mut used = std::collections::BTreeSet::new();
+    for part in source.split('"') {
+        if part.starts_with("v3000_")
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b == b'_' || b.is_ascii_digit())
+        {
+            assert!(
+                ct_reason_family(part).is_some(),
+                "{part} has no diagnostic family"
+            );
+            used.insert(part);
+        }
+    }
+    let listed: std::collections::BTreeSet<_> = CT_REASON_FAMILIES
+        .iter()
+        .map(|(code, _)| *code)
+        .filter(|code| code.starts_with("v3000_"))
+        .collect();
+    assert_eq!(used, listed, "the table and the V3000 source disagree");
 }

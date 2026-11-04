@@ -696,7 +696,7 @@ fn parse_record(
             losses.push(loss(record, &format!(".atoms[{}].isotope", index + 1), "isotope_validation", LossDisposition::Unknown, SemanticImpact::Chemistry, "The public guide does not identify the PTABLE.DAT revision needed to verify the absolute mass bound."));
         }
     }
-    stereo_losses(&bonds, record, losses);
+    stereo_losses(&bonds, CtTab::V2000, record, losses);
     Ok(CtRecord {
         title,
         program,
@@ -720,8 +720,12 @@ fn parse_v3000_record(
     losses: &mut Vec<Loss>,
 ) -> Result<CtRecord, CtError> {
     // The numeric fields of the counts line are unused in V3000; they may be blank or integers.
+    // The field in columns 31-33 is the obsolete property count: 999 in the CTfile description,
+    // 0 in the public ChemDraw files; both are accepted and nothing else.
+    let appendix = number(counts, 30, 33, record, lines.line()).ok();
     if !counts[39..].trim().is_empty()
-        || (0..33)
+        || !matches!(appendix, Some(0 | 999))
+        || (0..30)
             .step_by(3)
             .any(|start| number(counts, start, start + 3, record, lines.line()).is_err())
     {
@@ -729,11 +733,11 @@ fn parse_v3000_record(
             "invalid_counts",
             record,
             lines.line(),
-            "A V3000 counts line holds only blank or integer fields before the version.",
+            "A V3000 counts line holds integer fields, with 0 or 999 in columns 31-33, before the version.",
         ));
     }
     let table = v3000::read_table(lines, record, losses)?;
-    stereo_losses(&table.bonds, record, losses);
+    stereo_losses(&table.bonds, CtTab::V3000, record, losses);
     Ok(CtRecord {
         title,
         program,
@@ -747,10 +751,25 @@ fn parse_v3000_record(
     })
 }
 
-fn stereo_losses(bonds: &[CtBond], record: usize, losses: &mut Vec<Loss>) {
+fn stereo_losses(bonds: &[CtBond], tab: CtTab, record: usize, losses: &mut Vec<Loss>) {
+    let reason = match tab {
+        CtTab::V2000 => {
+            "V2000 double-bond stereo code 0 can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."
+        }
+        CtTab::V3000 => {
+            "A V3000 double bond without a CFG property can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."
+        }
+    };
     for (index, bond) in bonds.iter().enumerate() {
         if bond.order == 2 {
-            losses.push(loss(record, &format!(".bonds[{}]", index + 1), "coordinate_stereo", LossDisposition::Unknown, SemanticImpact::Stereo, "V2000 double-bond stereo code 0 can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."));
+            losses.push(loss(
+                record,
+                &format!(".bonds[{}]", index + 1),
+                "coordinate_stereo",
+                LossDisposition::Unknown,
+                SemanticImpact::Stereo,
+                reason,
+            ));
         }
     }
 }
@@ -1075,7 +1094,7 @@ fn write_record(
         .expect("String writes do not fail");
     if tab == CtTab::V3000 {
         v3000::write_table(out, item, record, losses)?;
-        stereo_losses(&item.bonds, record, losses);
+        stereo_losses(&item.bonds, CtTab::V3000, record, losses);
         return write_data(out, item, format, record);
     }
     writeln!(
@@ -1213,7 +1232,7 @@ fn write_record(
         }
     }
     out.push_str("M  END\n");
-    stereo_losses(&item.bonds, record, losses);
+    stereo_losses(&item.bonds, CtTab::V2000, record, losses);
     write_data(out, item, format, record)
 }
 

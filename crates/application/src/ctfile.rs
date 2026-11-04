@@ -54,7 +54,8 @@ pub struct CtRecord {
     pub bonds: Vec<CtBond>,
     /// Ordered; duplicate names are retained rather than overwritten.
     pub fields: Vec<CtField>,
-    /// The dialect the record was read from. Not serialized.
+    /// The dialect the record was read from. Not serialized. The dialect a writer produces is
+    /// the caller's `tab` argument; this field is ignored when writing.
     #[serde(skip)]
     pub ctab: CtTab,
     /// The V3000 `COUNTS` chiral flag as read; no meaning is given to it and the writer does
@@ -166,8 +167,11 @@ pub fn ct_reason_family(reason: &str) -> Option<&'static str> {
         .map(|(_, family)| *family)
 }
 
-/// Every reason the V3000 path can produce, with its family. The `v3000_*` codes are new; the
-/// others are shared framing codes that the V3000 path also uses.
+/// Every `v3000_*` reason, with its family (a provider test scans the V3000 source for them),
+/// plus the shared framing and limit codes the V3000 path commonly produces. Codes of the
+/// fixed-width V2000 columns and of the SD data section (`invalid_field`, `truncated_atom`,
+/// `unsupported_counts`, ...) are not listed; this table is not a complete list of every code
+/// a `read_ctab` can return.
 pub const CT_REASON_FAMILIES: &[(&str, &str)] = &[
     ("empty_input", "malformed_input"),
     ("truncated", "malformed_input"),
