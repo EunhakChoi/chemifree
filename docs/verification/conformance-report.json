@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 20,
+  "suite_version": 21,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -678,8 +678,8 @@
       "case_sha256": "af7baa412303b2fc61314b961f0d5c392f5b8785e2feb43c005bae04448c1c87"
     },
     {
-      "id": "stereo-molfile-export-refused",
-      "title": "A V2000 molfile cannot carry the stereo of a drawing yet, so the export is refused and names the record; without stereo it writes",
+      "id": "stereo-molfile-export-consent",
+      "title": "A V2000 molfile writes the wedge; a configuration the marks do not show is listed and written only after the caller repeats the loss digest",
       "requirements": [
         "MODEL-03",
         "CODEC-03"
@@ -689,7 +689,33 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "b13925154b053d050546a4bfe3dea91170be4ada6ce02aeea1ef89e88e4a9baa"
+      "case_sha256": "ce6ea64f3427d8c0d1d39010e2d68ebabfdef8ab46c5415dea0ef520b63fdce1"
+    },
+    {
+      "id": "molfile-v3000-wedge-round-trip",
+      "title": "A wedge drawing is written as V3000 with CFG=1, imported into another document with its mark and the configuration it shows, and survives reopening",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "774d4018d3181cad122746da92d32359de1875fff4b755b2b3a67d16826531a5"
+    },
+    {
+      "id": "molfile-v3000-refusals-leave-document-unchanged",
+      "title": "V3000 constructs this profile cannot hold (stereo collections, a bond mark on an aromatic bond, a dangling atom, a query bond type) are refused with their reason and the document keeps its revision",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "ed39344dac7a3f7760e65ef063a7f9b2c7f0f9b2930930d66f1e31dbf174aa7a"
     },
     {
       "id": "stereo-identity-and-substructure-not-compared",
@@ -1006,19 +1032,16 @@
     },
     {
       "id": "stereo-molfile-stereo-round-trip",
-      "title": "Wedge columns and parity of a V2000 molfile round-trip into the stored marks and configurations",
+      "title": "The wedge column of a V2000 molfile is read into the stored mark and the configuration it shows; a stereo value no mark can carry is refused",
       "requirements": [
         "CODEC-03"
       ],
       "axis": "encoding",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P29",
-        "reason": "V2000 export refuses stereo and import reports it unsupported until the molfile stereo mapping exists."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "9edeef1109679fd0ec4fa9b38a3a526e51c54d5f0b95a92dbc83f526052b64ff"
+      "case_sha256": "7e16944d07e8d7bb23797181a8c84c7c7eef420e938bba6e0ad19730c1d7fd15"
     },
     {
       "id": "stereo-group-number-0-negative-omitted",
@@ -1171,19 +1194,19 @@
   ],
   "counts": {
     "accept": {
-      "passed": 66,
+      "passed": 68,
       "failed": 0,
-      "not_run": 1
+      "not_run": 0
     },
     "reject": {
-      "passed": 20,
+      "passed": 21,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 86,
+      "passed": 89,
       "failed": 0,
-      "not_run": 1
+      "not_run": 0
     }
   }
 }

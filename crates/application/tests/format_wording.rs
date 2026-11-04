@@ -65,9 +65,9 @@ const GOLDEN: [Combination; 7] = [
         (true, false, false),
         [
             "MOL/SDF subset",
-            "Read and write bounded V2000 MOL/SDF with explicit losses. MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused; other formats are unsupported.",
-            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset.",
-            "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses.",
+            "Read and write bounded V2000 and V3000 MOL/SDF with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 stereo collections, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry is written only after the caller accepts that it is dropped; other formats are unsupported.",
+            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto) with per-record losses and accepted_losses consent for stereo it cannot carry.",
         ],
     ),
     (
@@ -83,9 +83,9 @@ const GOLDEN: [Combination; 7] = [
         (true, true, false),
         [
             "MOL/SDF, CDXML and CDX subsets",
-            "Read and write bounded V2000 MOL/SDF, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
-            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset; read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection.",
-            "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content.",
+            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 stereo collections, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
+            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset; read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto) with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content.",
         ],
     ),
     (
@@ -101,9 +101,9 @@ const GOLDEN: [Combination; 7] = [
         (true, false, true),
         [
             "MOL/SDF and SMILES subsets",
-            "Read and write bounded V2000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused; SMILES stereochemistry, query atoms and reaction SMILES are refused on read, and stereo in a drawing is written only after the caller accepts that it is dropped; other formats are unsupported.",
-            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset; append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Read and write bounded V2000 and V3000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 stereo collections, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry is written only after the caller accepts that it is dropped; SMILES stereochemistry, query atoms and reaction SMILES are refused on read, and stereo in a drawing is written only after the caller accepts that it is dropped; other formats are unsupported.",
+            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset; append one SMILES string (at most 16 KiB).",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto) with per-record losses and accepted_losses consent for stereo it cannot carry; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
     ),
     (
@@ -119,9 +119,9 @@ const GOLDEN: [Combination; 7] = [
         (true, true, true),
         [
             "MOL/SDF, CDXML, CDX and SMILES subsets",
-            "Read and write bounded V2000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES stereochemistry, query atoms and reaction SMILES are refused on read, and stereo in a drawing is written only after the caller accepts that it is dropped; other formats are unsupported.",
-            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 MOL/SDF subset; read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: bounded V2000 MOL/SDF with per-record losses; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 stereo collections, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES stereochemistry, query atoms and reaction SMILES are refused on read, and stereo in a drawing is written only after the caller accepts that it is dropped; other formats are unsupported.",
+            "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset; read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto) with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
         ],
     ),
 ];

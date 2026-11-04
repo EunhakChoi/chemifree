@@ -6,7 +6,7 @@ use std::path::Path;
 
 use chemifree_application::Application;
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
+    CtAtom, CtBond, CtBondStereo, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, V2000Codec};
 
@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 begin: 0,
                 end: 1,
                 order: 1,
+                stereo: CtBondStereo::None,
             }],
             fields: vec![],
             ctab: CtTab::V2000,
@@ -81,11 +82,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     begin: 0,
                     end: 1,
                     order: 1,
+                    stereo: CtBondStereo::None,
                 },
                 CtBond {
                     begin: 1,
                     end: 2,
                     order: 4,
+                    stereo: CtBondStereo::None,
                 },
             ],
             fields: vec![],
@@ -108,6 +111,87 @@ fn main() -> Result<(), Box<dyn Error>> {
                 &serde_json::json!({"records":parsed.value,"losses":parsed.losses})
             )?
         );
+    } else if mode == "write-marks" {
+        // Drawings built through the operations and exported by them, so the narrow-end
+        // swap and the projection are the ones the service uses: a center with a wedge, the
+        // same center with the wedge narrow at the bond's end, and a chain with either marks.
+        let directory = tempfile::tempdir()?;
+        let app = Application::new(
+            LocalCapabilities,
+            FileDocumentRepository::new(directory.path()),
+        )
+        .with_ctfile_codec(V2000Codec);
+        let run = |request: serde_json::Value| -> Result<serde_json::Value, Box<dyn Error>> {
+            Ok(serde_json::to_value(
+                app.execute(&serde_json::to_vec(&request)?),
+            )?)
+        };
+        let atom_at = |x: f64, y: f64, element: &str, to: Option<&str>| {
+            let mut command =
+                serde_json::json!({"op":"add_atom","element":element,"position":{"x":x,"y":y}});
+            if let Some(to) = to {
+                command["bond_to"] = serde_json::json!({"atom":to,"order":"single"});
+            }
+            command
+        };
+        let drawings = [
+            (
+                "center",
+                vec![
+                    atom_at(100.0, 100.0, "C", None),
+                    atom_at(100.0, 70.0, "F", Some("$0")),
+                    atom_at(126.0, 115.0, "Cl", Some("$0")),
+                    atom_at(74.0, 115.0, "Br", Some("$0")),
+                    serde_json::json!({"op":"set_bond_mark","bond":"$2","mark":{"kind":"wedge","narrow":"begin"}}),
+                ],
+            ),
+            (
+                "center-end",
+                vec![
+                    atom_at(100.0, 70.0, "F", None),
+                    atom_at(100.0, 100.0, "C", Some("$0")),
+                    atom_at(126.0, 115.0, "Cl", Some("$1")),
+                    atom_at(74.0, 115.0, "Br", Some("$1")),
+                    serde_json::json!({"op":"set_bond_mark","bond":"$1","mark":{"kind":"wedge","narrow":"end"}}),
+                ],
+            ),
+            (
+                "chain",
+                vec![
+                    atom_at(0.0, 0.0, "C", None),
+                    atom_at(30.0, 0.0, "C", Some("$0")),
+                    atom_at(60.0, 0.0, "C", Some("$1")),
+                    serde_json::json!({"op":"add_atom","element":"C","position":{"x":60,"y":30},"bond_to":{"atom":"$2","order":"double"}}),
+                    serde_json::json!({"op":"set_bond_mark","bond":"$1","mark":{"kind":"hash","narrow":"end"}}),
+                    serde_json::json!({"op":"set_bond_mark","bond":"$2","mark":{"kind":"wavy"}}),
+                    serde_json::json!({"op":"set_bond_mark","bond":"$3","mark":{"kind":"crossed"}}),
+                ],
+            ),
+        ];
+        for (name, commands) in drawings {
+            let created = run(
+                serde_json::json!({"contract":1,"request_id":format!("c-{name}"),"profile":"preserve-semantics","operation":"document.create","parameters":{"title":name}}),
+            )?;
+            let id = created["result"]["document"]["id"]
+                .as_str()
+                .ok_or("no id")?
+                .to_owned();
+            let edit = run(
+                serde_json::json!({"contract":1,"request_id":format!("t-{name}"),"profile":"preserve-semantics","operation":"document.transaction","parameters":{"document_id":id,"expected_revision":0,"commands":commands}}),
+            )?;
+            if edit["outcome"] != "ok" {
+                return Err(format!("edit failed: {edit}").into());
+            }
+            for ctab in ["v2000", "v3000"] {
+                let written = run(
+                    serde_json::json!({"contract":1,"request_id":format!("e-{name}-{ctab}"),"profile":"preserve-semantics","operation":"document.export","parameters":{"format":"mol","ctab":ctab,"records":[{"document_id":id}]}}),
+                )?;
+                let text = written["result"]["content"]
+                    .as_str()
+                    .ok_or(format!("no content: {written}"))?;
+                fs::write(Path::new(&path).join(format!("{name}-{ctab}.mol")), text)?;
+            }
+        }
     } else if mode == "preview" {
         let source = fs::read_to_string(path)?;
         let directory = tempfile::tempdir()?;

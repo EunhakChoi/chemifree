@@ -11,7 +11,8 @@ use std::fmt::Write as _;
 mod v3000;
 
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord, CtResult, CtTab,
+    CtAtom, CtBond, CtBondStereo, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord,
+    CtResult, CtTab,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::element::Element;
@@ -355,14 +356,32 @@ fn parse_bond(
             "Only single, double and triple bonds are supported.",
         ));
     }
-    for start in (9..21).step_by(3) {
+    // Columns 10-12 are the bond stereo: 1 wedge, 6 hash and 4 either on a single bond, 3 either
+    // on a double bond. Any other value, and every other field of the line, is refused.
+    let stereo = match (number(line, 9, 12, record, line_no)?, order) {
+        (0, _) => CtBondStereo::None,
+        (1, 1) => CtBondStereo::Wedge,
+        (6, 1) => CtBondStereo::Hash,
+        (4, 1) | (3, 2) => CtBondStereo::Either,
+        (value, _) => {
+            return Err(error(
+                "unsupported_bond_field",
+                record,
+                line_no,
+                format!(
+                    "Bond stereo {value} is not a wedge (1) or hash (6) on a single bond, or either (4 single, 3 double)."
+                ),
+            ));
+        }
+    };
+    for start in (12..21).step_by(3) {
         if number(line, start, start + 3, record, line_no)? != 0 {
             return Err(error(
                 "unsupported_bond_field",
                 record,
                 line_no,
                 format!(
-                    "Bond stereo, topology and reaction fields are unsupported (column {}).",
+                    "Bond topology and reaction fields are unsupported (column {}).",
                     start + 1
                 ),
             ));
@@ -383,6 +402,7 @@ fn parse_bond(
         begin: begin - 1,
         end: end - 1,
         order: u8::try_from(order).expect("checked order"),
+        stereo,
     })
 }
 
@@ -761,7 +781,8 @@ fn stereo_losses(bonds: &[CtBond], tab: CtTab, record: usize, losses: &mut Vec<L
         }
     };
     for (index, bond) in bonds.iter().enumerate() {
-        if bond.order == 2 {
+        // An either mark states the arrangement is unknown; nothing is left to read from coordinates.
+        if bond.order == 2 && bond.stereo != CtBondStereo::Either {
             losses.push(loss(
                 record,
                 &format!(".bonds[{}]", index + 1),
@@ -1076,7 +1097,7 @@ fn write_record(
             "resource_limit",
             record,
             None,
-            "V2000 supports at most 999 atoms and bonds.",
+            "V2000 supports at most 999 atoms and bonds; write V3000 (ctab v3000 or auto).",
         ));
     }
     if item.fields.len() > MAX_FIELDS {
@@ -1143,7 +1164,7 @@ fn write_record(
                     "Coordinate does not fit ten columns.",
                 ));
             }
-            if formatted.trim().parse::<f64>().ok() != Some(value) {
+            if chemifree_application::ctfile::written_coordinate(value) != Some(value) {
                 losses.push(loss(
                     record,
                     &format!(".atoms[{}].coordinates", i + 1),
@@ -1213,12 +1234,15 @@ fn write_record(
                 "More than one bond connects the same atoms.",
             ));
         }
+        // Column 10-12: up 1, down 6, either 4 (a single bond) or 3 (a double bond).
+        let mark = v3000::mark_code(bond, &v3000::V2000_MARKS, record)?;
         writeln!(
             out,
-            "{:>3}{:>3}{:>3}  0  0  0  0",
+            "{:>3}{:>3}{:>3}{:>3}  0  0  0",
             bond.begin + 1,
             bond.end + 1,
-            bond.order
+            bond.order,
+            mark
         )
         .expect("String writes do not fail");
     }

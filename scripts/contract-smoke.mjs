@@ -1095,7 +1095,11 @@ try {
         format: 'smiles', document_id: id, style: 'recorded', accepted_losses: needsConsent.diagnostics[0].details.loss_digest }))
       assert.deepEqual([consented.outcome, consented.result.content], ['partial', 'C(F)(Cl)Br'])
       const molfile = await both((id) => request('op-stereo-mol', 'document.export', { format: 'mol', records: [{ document_id: id }] }))
-      assert.deepEqual([molfile.outcome, molfile.diagnostics[0].code], ['error', 'unsupported_stereo'])
+      // A MOL file writes the mark (bond stereo column 1) and asks no consent: the stated
+      // configuration is the one the wedge shows.
+      assert.equal(molfile.outcome, 'partial')
+      assert.match(molfile.result.content, /\n {2}1 {2}\d {2}1 {2}1 {2}0 {2}0 {2}0\n/)
+      assert.equal(molfile.result.ctab, 'v2000')
       // A neighbor deleted: the configuration is cleared, the reply says so and is `partial`.
       const cleared = await both(transact('op-stereo-clear', 1, [{ op: 'delete_atoms', atoms: ['a2'] }]))
       assert.equal(cleared.outcome, 'partial')

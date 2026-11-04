@@ -2,16 +2,23 @@
 
 use std::collections::HashMap;
 
-use chemifree_domain::document::{Atom, AtomRef, BondOrder, Command, NewAtomPositions, Point};
+use chemifree_domain::document::{
+    Atom, AtomRef, BondOrder, BondRef, Command, Document, DocumentId, NewAtomPositions, Point,
+};
 use chemifree_domain::element::Element;
 use chemifree_domain::states::{AtomKind, Radical};
+use chemifree_domain::stereo::{BondEnd, StereoKey, StereoMark, StereoState};
+use chemifree_domain::stereo_drawing::Drawing;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::contract::{
-    AtomKindView, BondOrderDto, DocumentView, HydrogensDto, RadicalDto, SceneObjectView,
+    AtomKindView, BondEndDto, BondOrderDto, DocumentView, HydrogensDto, MarkDto, RadicalDto,
+    SceneObjectView,
 };
-use crate::ctfile::{CtAtom, CtBond, CtError, CtField, CtRadical, CtRecord, CtTab};
+use crate::ctfile::{
+    CtAtom, CtBond, CtBondStereo, CtError, CtField, CtRadical, CtRecord, CtTab, written_coordinate,
+};
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 /// V2000 coordinates are in angstroms; the editor's positions are points with y increasing down.
@@ -37,13 +44,21 @@ fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason
     }
 }
 
-fn implicit_hydrogen_uncertainty(record: usize) -> Loss {
+fn implicit_hydrogen_uncertainty(record: usize, tab: CtTab) -> Loss {
+    let reason = match tab {
+        CtTab::V2000 => {
+            "Default V2000 hydrogen and valence fields do not establish the same implicit hydrogen count in every reader. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader."
+        }
+        CtTab::V3000 => {
+            "The V3000 file states no hydrogen count for its atoms. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader."
+        }
+    };
     Loss {
         consent: LossConsent::NotRequired,
         feature: "default_hydrogen_interpretation".into(),
         source_path: format!("records[{record}].atoms"),
         disposition: LossDisposition::Unknown,
-        reason: "Default V2000 hydrogen and valence fields do not establish the same implicit hydrogen count in every reader. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader.".into(),
+        reason: reason.into(),
         semantic_impact: SemanticImpact::Chemistry,
     }
 }
@@ -60,6 +75,22 @@ pub(crate) fn import_commands(
             index,
             "unsupported_scene",
             "Import requires exactly one molecule placement.",
+        ));
+    }
+    if !record.collections.is_empty() {
+        return Err(projection_error(
+            index,
+            "v3000_collection_not_supported_yet",
+            "The record holds V3000 stereo collections, which are not mapped to stereo groups yet; nothing was imported.",
+        ));
+    }
+    if record.chiral {
+        losses.push(loss(
+            index,
+            ".counts.chiral",
+            "chiral_flag",
+            SemanticImpact::Stereo,
+            "The chiral flag is read but not interpreted; the drawing has no chiral flag and states no absolute stereochemistry from it.",
         ));
     }
     if !record.title.is_empty() && record.title != doc.title {
@@ -90,7 +121,7 @@ pub(crate) fn import_commands(
         ));
     }
     if !record.atoms.is_empty() {
-        losses.push(implicit_hydrogen_uncertainty(index));
+        losses.push(implicit_hydrogen_uncertainty(index, record.ctab));
     }
     let mut commands = Vec::with_capacity(record.atoms.len() + record.bonds.len());
     for (i, source) in record.atoms.iter().enumerate() {
@@ -144,6 +175,7 @@ pub(crate) fn import_commands(
             1 => BondOrder::Single,
             2 => BondOrder::Double,
             3 => BondOrder::Triple,
+            4 => BondOrder::Aromatic,
             _ => {
                 return Err(projection_error(
                     index,
@@ -158,7 +190,94 @@ pub(crate) fn import_commands(
             order,
         });
     }
+    let first_bond = record.atoms.len();
+    let mut marked = false;
+    for (j, bond) in record.bonds.iter().enumerate() {
+        let mark = match (bond.stereo, bond.order) {
+            (CtBondStereo::None, _) => continue,
+            (CtBondStereo::Wedge, 1) => StereoMark::Wedge {
+                narrow: BondEnd::Begin,
+            },
+            (CtBondStereo::Hash, 1) => StereoMark::Hash {
+                narrow: BondEnd::Begin,
+            },
+            (CtBondStereo::Either, 1) => StereoMark::Wavy,
+            (CtBondStereo::Either, 2) => StereoMark::Crossed,
+            _ => {
+                return Err(projection_error(
+                    index,
+                    "unsupported_bond",
+                    format!("Bond {} carries a mark its order cannot.", j + 1),
+                ));
+            }
+        };
+        marked = true;
+        commands.push(Command::SetBondMark {
+            bond: BondRef::Created(first_bond + j),
+            mark: Some(mark),
+        });
+    }
+    if marked {
+        commands.extend(derived_configurations(&commands, index, losses));
+    }
     Ok(commands)
+}
+
+/// No configuration could be derived for the record at all (the scratch drawing was refused):
+/// the marks stay and one loss says why, so the import never silently stores less.
+fn unreadable_record(index: usize, cause: &str, losses: &mut Vec<Loss>) -> Option<Command> {
+    losses.push(loss(
+        index,
+        ".atoms",
+        "stereo_unreadable",
+        SemanticImpact::Stereo,
+        &format!("The drawn marks could not be read into configurations ({cause}); the marks are kept and no configuration is stored."),
+    ));
+    None
+}
+
+/// The command that stores the configuration each marked center's drawing shows, and a loss
+/// for each center the drawing does not determine. The derivation is the domain's own, run on
+/// a scratch document of the record alone (an import adds a separate component, so a center's
+/// neighbourhood is the same there); a center that does not derive keeps its mark and stores
+/// nothing, so one degenerate center never refuses the whole import.
+fn derived_configurations(
+    commands: &[Command],
+    index: usize,
+    losses: &mut Vec<Loss>,
+) -> Option<Command> {
+    let id = DocumentId::parse("scratch").expect("scratch identifier is valid");
+    let mut scratch = match Document::new(id, "scratch") {
+        Ok(scratch) => scratch,
+        Err(cause) => return unreadable_record(index, &cause.to_string(), losses),
+    };
+    if let Err(cause) = scratch.apply(commands) {
+        return unreadable_record(index, &cause.to_string(), losses);
+    }
+    let instance = scratch.first_instance();
+    let drawing = Drawing::of_document(&scratch, instance);
+    let centers: std::collections::HashSet<_> = drawing.marked_centers().into_iter().collect();
+    let mut readable = Vec::with_capacity(centers.len());
+    for (position, (atom, _)) in scratch.atoms().enumerate() {
+        if !centers.contains(&atom) {
+            continue;
+        }
+        match drawing.derive_center(atom) {
+            Ok(_) => readable.push(AtomRef::Created(position)),
+            Err(cause) => losses.push(loss(
+                index,
+                &format!(".atoms[{}]", position + 1),
+                "stereo_unreadable",
+                SemanticImpact::Stereo,
+                &format!("The drawn marks at this atom do not determine a configuration ({cause}); the marks are kept and no configuration is stored."),
+            )),
+        }
+    }
+    (!readable.is_empty()).then_some(Command::SetConfigurationFromDrawing {
+        atoms: Some(readable),
+        bonds: None,
+        instance: None,
+    })
 }
 
 pub(crate) fn unselected_losses(records: &[CtRecord], selected: usize, losses: &mut Vec<Loss>) {
@@ -180,7 +299,28 @@ pub(crate) fn unselected_losses(records: &[CtRecord], selected: usize, losses: &
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Target {
     V2000,
+    V3000,
     Smiles,
+}
+
+impl Target {
+    /// How a drawing-level loss names the format.
+    fn format(self) -> &'static str {
+        match self {
+            Self::V2000 => "this V2000 profile",
+            Self::V3000 => "this V3000 profile",
+            Self::Smiles => "SMILES",
+        }
+    }
+
+    /// The CTfile dialect, or `None` for SMILES.
+    fn dialect(self) -> Option<&'static str> {
+        match self {
+            Self::V2000 => Some("V2000"),
+            Self::V3000 => Some("V3000"),
+            Self::Smiles => None,
+        }
+    }
 }
 
 fn drawing_loss(
@@ -210,11 +350,8 @@ pub(crate) fn drawing_losses(
     losses: &mut Vec<Loss>,
 ) {
     let smiles = target == Target::Smiles;
-    let format = if smiles {
-        "SMILES"
-    } else {
-        "this V2000 profile"
-    };
+    let format = target.format();
+    let dialect = target.dialect().unwrap_or("");
     let mut push = |path: &str, feature: &str, impact, reason: &str| {
         losses.push(drawing_loss(prefix, path, feature, impact, reason));
     };
@@ -239,10 +376,12 @@ pub(crate) fn drawing_losses(
             ".ids",
             "native_ids",
             SemanticImpact::Document,
-            if smiles {
-                "Native atom and bond IDs are not written; the written atom order maps text positions to them."
+            &if smiles {
+                "Native atom and bond IDs are not written; the written atom order maps text positions to them.".to_owned()
             } else {
-                "Native atom and bond IDs are mapped to file indices and are not embedded in V2000."
+                format!(
+                    "Native atom and bond IDs are mapped to file indices and are not embedded in {dialect}."
+                )
             },
         );
     }
@@ -251,10 +390,10 @@ pub(crate) fn drawing_losses(
             &format!(".scene.instances[{}]", first.id),
             "placement_id",
             SemanticImpact::Document,
-            if smiles {
-                "The placement and its ID are not written; SMILES has no placement."
+            &if smiles {
+                "The placement and its ID are not written; SMILES has no placement.".to_owned()
             } else {
-                "The placement ID is not embedded in V2000."
+                format!("The placement ID is not embedded in {dialect}.")
             },
         );
     }
@@ -364,26 +503,127 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
     losses
 }
 
-/// Convert a drawing to the part representable by this codec; no document is changed.
+/// A position as a reader of the written file sees it: the export's mapping to angstroms, the
+/// shared four-decimal rounding of the writers, and the import's mapping back to points.
+fn written_point(point: Point) -> Point {
+    let x = written_coordinate(point.x() / POINTS_PER_ANGSTROM);
+    let y = written_coordinate(-point.y() / POINTS_PER_ANGSTROM);
+    match (x, y) {
+        (Some(x), Some(y)) => {
+            Point::new(x * POINTS_PER_ANGSTROM, -y * POINTS_PER_ANGSTROM).unwrap_or(point)
+        }
+        _ => point,
+    }
+}
+
+/// Whether the drawing needs V3000 to be written at all: more than 999 atoms or bonds, or an
+/// aromatic bond, which V2000 has no type for. What `ctab: "auto"` decides on.
+pub(crate) fn needs_v3000(doc: &DocumentView) -> bool {
+    doc.atoms.len() > MAX_V2000_ITEMS
+        || doc.bonds.len() > MAX_V2000_ITEMS
+        || doc
+            .bonds
+            .iter()
+            .any(|bond| bond.order == BondOrderDto::Aromatic)
+}
+
+const MAX_V2000_ITEMS: usize = 999;
+
+/// The stereo a MOL or SDF file does not carry of the drawing, each reported only when the
+/// drawing holds it, in ID order. Wedge, hash, wavy and crossed marks are written. A stored
+/// configuration is carried only through the marks and the coordinates, so one the drawing does
+/// not show (a derivation of the drawn marks that differs from it or that fails) needs consent,
+/// as does every enhanced stereo group, singletons included: neither dialect carries them yet.
+pub(crate) fn molfile_stereo_losses(
+    document: &Document,
+    view: &DocumentView,
+    index: usize,
+) -> Vec<Loss> {
+    let consent_loss = |feature: &str, source_path: String, reason: &str| Loss {
+        consent: LossConsent::Required,
+        feature: feature.into(),
+        source_path: format!("records[{index}].{source_path}"),
+        disposition: LossDisposition::Dropped,
+        reason: reason.into(),
+        semantic_impact: SemanticImpact::Stereo,
+    };
+    // The comparison reads the coordinates the file will hold, not the document's own.
+    let drawing = Drawing::of_document_shown(document, document.first_instance(), written_point);
+    let mut centers = Vec::new();
+    let mut double_bonds = Vec::new();
+    for (key, state) in document.stereo().iter() {
+        match (key, state) {
+            (StereoKey::Center(atom), StereoState::Center(stored))
+                if drawing.derive_center(atom).ok().as_ref() != Some(stored) =>
+            {
+                centers.push(atom.to_string());
+            }
+            (StereoKey::DoubleBond(bond), StereoState::DoubleBond(stored))
+                if drawing.derive_double_bond(bond).ok().as_ref() != Some(stored) =>
+            {
+                double_bonds.push(bond.to_string());
+            }
+            _ => {}
+        }
+    }
+    let mut losses = Vec::new();
+    if !centers.is_empty() {
+        losses.push(consent_loss(
+            "stereo_configuration_not_drawn",
+            format!("atoms[{}]", centers.join(", ")),
+            "The stated configuration of this center is not what its drawn marks and positions show, and a MOL file states stereo only through the marks, so a reader gets another configuration or none.",
+        ));
+    }
+    if !double_bonds.is_empty() {
+        losses.push(consent_loss(
+            "stereo_bond_configuration",
+            format!("bonds[{}]", double_bonds.join(", ")),
+            "The stated double-bond configuration is not shown by a crossed mark or by the coordinates, and a MOL file has no field for it, so a reader gets another arrangement or none.",
+        ));
+    }
+    if !view.stereo.groups.is_empty() {
+        let groups: Vec<&str> = view.stereo.groups.iter().map(|g| g.id.as_str()).collect();
+        losses.push(consent_loss(
+            "stereo_group",
+            format!("groups[{}]", groups.join(", ")),
+            "This MOL writer does not write V3000 stereo collections yet; the absolute, and and or groups are not written, so a document that states which centers belong together reads as a single compound.",
+        ));
+    }
+    if view.holds_stereo() {
+        losses.push(Loss {
+            consent: LossConsent::NotRequired,
+            feature: "chiral_flag".into(),
+            source_path: format!("records[{index}].counts.chiral"),
+            disposition: LossDisposition::Unknown,
+            reason: "The chiral flag is written as 0 and no absolute stereochemistry is stated; how a reader treats the written marks with flag 0 is not established by the sources this profile follows.".into(),
+            semantic_impact: SemanticImpact::Stereo,
+        });
+    }
+    losses
+}
+
+/// Convert a drawing to the part representable by the chosen dialect; no document is changed.
 ///
-/// A drawing that holds stereo is refused whole: this V2000 profile does not write wedge or
-/// parity fields (V2000 can carry them), and silently writing the graph alone would present a
-/// stereo drawing as a plain structure.
+/// Wedge, hash, wavy and crossed marks are written (a wedge or hash whose narrow end is the
+/// bond's `end` is written with the endpoints swapped, the bond staying the same bond). What the
+/// file cannot carry of the stereo is reported by [`molfile_stereo_losses`], which the caller
+/// adds. V2000 has no type for an aromatic bond and a query is in neither dialect yet; each is
+/// refused with the reason.
 pub(crate) fn export_record(
     doc: &DocumentView,
     index: usize,
     fields: Vec<CtField>,
+    target: Target,
     losses: &mut Vec<Loss>,
 ) -> Result<CtRecord, CtError> {
-    if doc.holds_stereo() {
-        return Err(projection_error(
-            index,
-            "unsupported_stereo",
-            "The drawing holds stereo marks or stated configurations, which this V2000 profile does not write; nothing was exported.",
-        ));
-    }
+    let tab = if target == Target::V3000 {
+        CtTab::V3000
+    } else {
+        CtTab::V2000
+    };
+    let dialect = target.dialect().unwrap_or("V2000");
     if !doc.atoms.is_empty() {
-        losses.push(implicit_hydrogen_uncertainty(index));
+        losses.push(implicit_hydrogen_uncertainty(index, tab));
     }
     let mut atoms = Vec::with_capacity(doc.atoms.len());
     let mut ids = HashMap::new();
@@ -401,7 +641,7 @@ pub(crate) fn export_record(
                 &format!(".atoms[{}].hydrogens", atom.id),
                 "hydrogen_state",
                 SemanticImpact::Chemistry,
-                "The stored hydrogen state is not represented in this V2000 profile.",
+                &format!("The stored hydrogen state is not represented in this {dialect} profile."),
             ));
         }
         if !atom.attachment_points.is_empty() {
@@ -443,23 +683,50 @@ pub(crate) fn export_record(
             BondOrderDto::Single => 1,
             BondOrderDto::Double => 2,
             BondOrderDto::Triple => 3,
+            BondOrderDto::Aromatic if tab == CtTab::V3000 => 4,
+            BondOrderDto::Aromatic => {
+                return Err(projection_error(
+                    index,
+                    "unsupported_bond",
+                    format!(
+                        "Bond {} is aromatic, which V2000 cannot carry; write V3000 (ctab v3000 or auto).",
+                        bond.id
+                    ),
+                ));
+            }
             _ => {
                 return Err(projection_error(
                     index,
                     "unsupported_bond",
-                    format!("Bond {} is not single, double or triple.", bond.id),
+                    format!(
+                        "Bond {} is not single, double, triple or aromatic.",
+                        bond.id
+                    ),
                 ));
             }
         };
-        let begin = *ids.get(bond.begin.as_str()).ok_or_else(|| {
+        let (begin, end) = (bond.begin.as_str(), bond.end.as_str());
+        let (stereo, swap) = match &bond.mark {
+            None => (CtBondStereo::None, false),
+            Some(MarkDto::Wedge { narrow }) => (CtBondStereo::Wedge, *narrow == BondEndDto::End),
+            Some(MarkDto::Hash { narrow }) => (CtBondStereo::Hash, *narrow == BondEndDto::End),
+            Some(MarkDto::Wavy {} | MarkDto::Crossed {}) => (CtBondStereo::Either, false),
+        };
+        let (begin, end) = if swap { (end, begin) } else { (begin, end) };
+        let begin = *ids.get(begin).ok_or_else(|| {
             projection_error(index, "invalid_bond", "Bond references a missing atom.")
         })?;
-        let end = *ids.get(bond.end.as_str()).ok_or_else(|| {
+        let end = *ids.get(end).ok_or_else(|| {
             projection_error(index, "invalid_bond", "Bond references a missing atom.")
         })?;
-        bonds.push(CtBond { begin, end, order });
+        bonds.push(CtBond {
+            begin,
+            end,
+            order,
+            stereo,
+        });
     }
-    drawing_losses(doc, &format!("records[{index}]"), Target::V2000, losses);
+    drawing_losses(doc, &format!("records[{index}]"), target, losses);
     Ok(CtRecord {
         title: doc.title.clone(),
         program: String::new(),
@@ -467,7 +734,7 @@ pub(crate) fn export_record(
         atoms,
         bonds,
         fields,
-        ctab: CtTab::V2000,
+        ctab: tab,
         chiral: false,
         collections: Vec::new(),
     })
@@ -494,4 +761,23 @@ pub(crate) fn digest<T: Serialize>(value: &T) -> String {
     serde_json::to_writer(&mut writer, value)
         .expect("validated projection contains serializable finite values");
     format!("{:x}", writer.0.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scratch_drawing_that_cannot_be_built_costs_a_loss_not_silence() {
+        // Commands that cannot apply: a mark on a bond no command created.
+        let commands = [Command::SetBondMark {
+            bond: BondRef::Created(5),
+            mark: Some(StereoMark::Wavy),
+        }];
+        let mut losses = Vec::new();
+        assert!(derived_configurations(&commands, 3, &mut losses).is_none());
+        assert_eq!(losses.len(), 1, "{losses:?}");
+        assert_eq!(losses[0].feature, "stereo_unreadable");
+        assert_eq!(losses[0].source_path, "records[3].atoms");
+    }
 }

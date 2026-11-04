@@ -613,13 +613,14 @@ fn a_wavy_mark_alone_and_an_unknown_record_alone_each_need_consent() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn v2000_export_refuses_a_drawing_that_holds_stereo_and_names_the_record() {
+fn v2000_export_writes_the_marks_and_asks_consent_for_the_stereo_it_cannot_carry() {
     let (app, _directory) = app_with(&[
         full(1, false),
         full(2, true),
         halo_center(3, &[mark(1, StereoMark::Wavy)]),
     ]);
-    // An SDF names the record that holds stereo and returns no content for the clean one.
+    // A drawing with a configuration its marks do not show is refused until the caller accepts
+    // the listed losses; the SDF names the record's path and returns no content.
     let refused = call(
         &app,
         "refuse-sdf",
@@ -627,28 +628,51 @@ fn v2000_export_refuses_a_drawing_that_holds_stereo_and_names_the_record() {
         json!({"format": "sdf", "records": [{"document_id": name(1)}, {"document_id": name(2)}]}),
     );
     assert_eq!(refused["outcome"], "error", "{refused}");
-    assert_eq!(refused["diagnostics"][0]["code"], "unsupported_stereo");
-    assert_eq!(refused["diagnostics"][0]["details"]["record"], 2);
+    assert_eq!(refused["diagnostics"][0]["code"], "loss_consent_required");
     assert!(refused["result"].is_null());
-    let refused = call(
+    let losses = &refused["diagnostics"][0]["details"]["losses"];
+    for loss in losses.as_array().unwrap() {
+        let path = loss["source_path"].as_str().unwrap();
+        assert!(path.starts_with("records[2]."), "{path}");
+    }
+    // Repeating the request with the digest writes the marks: wedge 1, hash 6 with its narrow
+    // end first, either 4 on a single bond and 3 on a double bond.
+    let digest = refused["diagnostics"][0]["details"]["loss_digest"].clone();
+    let accepted = call(
         &app,
-        "refuse-mol",
+        "accept-sdf",
         "document.export",
-        json!({"format": "mol", "records": [{"document_id": name(2)}]}),
+        json!({"format": "sdf", "accepted_losses": digest,
+               "records": [{"document_id": name(1)}, {"document_id": name(2)}]}),
     );
-    assert_eq!(refused["outcome"], "error", "{refused}");
-    assert_eq!(refused["diagnostics"][0]["code"], "unsupported_stereo");
-    assert_eq!(refused["diagnostics"][0]["details"]["record"], 1);
-    assert!(refused["result"].is_null());
-    // A wavy mark alone is enough, and a stereo-free record writes.
+    assert_eq!(accepted["outcome"], "partial", "{accepted}");
+    assert_eq!(accepted["result"]["ctab"], "v2000");
+    let content = accepted["result"]["content"].as_str().unwrap();
+    let second = content.split("$$$$\n").nth(1).unwrap();
+    let bond_lines: Vec<&str> = second.lines().skip(4 + 15).take(11).collect();
+    assert_eq!(bond_lines[0], "  1  2  1  1  0  0  0", "wedge: {second}");
+    assert_eq!(
+        bond_lines[1], "  3  1  1  6  0  0  0",
+        "hash, narrow at the bond's end: {second}"
+    );
+    assert_eq!(bond_lines[2], "  1  4  1  4  0  0  0", "wavy: {second}");
+    assert_eq!(
+        bond_lines[4], "  6  7  2  3  0  0  0",
+        "crossed double: {second}"
+    );
+    // A wavy mark alone stores no configuration: it writes without consent.
     let wavy = call(
         &app,
         "wavy",
         "document.export",
         json!({"format": "mol", "records": [{"document_id": name(3)}]}),
     );
-    assert_eq!(
-        wavy["diagnostics"][0]["code"], "unsupported_stereo",
+    assert_eq!(wavy["outcome"], "partial", "{wavy}");
+    assert!(
+        wavy["result"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("  1  2  1  4  0  0  0"),
         "{wavy}"
     );
     let clean = call(

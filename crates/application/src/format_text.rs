@@ -61,10 +61,12 @@ impl FormatText {
         let mut refused = Vec::new();
         if connected.ctfile {
             names.push("MOL/SDF".to_owned());
-            refused.push("MOL/SDF stereo is refused on read and a drawing that holds stereo is refused on write, and query and advanced fields are refused");
-            read_write.push("bounded V2000 MOL/SDF".to_owned());
-            import.push("append one selected record of a bounded V2000 MOL/SDF subset".to_owned());
-            export.push("bounded V2000 MOL/SDF with per-record losses".to_owned());
+            refused.push("MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 stereo collections, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry is written only after the caller accepts that it is dropped");
+            read_write.push("bounded V2000 and V3000 MOL/SDF".to_owned());
+            import.push(
+                "append one selected record of a bounded V2000 or V3000 MOL/SDF subset".to_owned(),
+            );
+            export.push("bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto) with per-record losses and accepted_losses consent for stereo it cannot carry".to_owned());
         }
         if let Some(limit) = connected.interchange_binary_limit {
             let limit = describe_limit(limit);

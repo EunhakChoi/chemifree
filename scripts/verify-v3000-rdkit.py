@@ -3,8 +3,12 @@
 Hand-run, like verify-v2000-rdkit.py: build the ctfile_reference example and pass its
 absolute path. Compared: atoms, charges, isotopes, radicals and bond types of what Chemifree
 writes (read by RDKit) and of what RDKit writes (read by Chemifree), plus a continued line.
+Bond marks (P28b1): the service-written wedge, hash and either marks, in V2000 and V3000, are
+read by RDKit (the chirality the file gives, which shows the narrow end, and the crossed double bond);
+and RDKit-written V3000 wedge marks are read by Chemifree (bond kind and begin atom).
 Not compared: collection numbers (RDKit does not preserve zero or negative ones), query
-features, SGroups and stereo, which this codec core refuses or does not interpret.
+features, SGroups and stereo groups, which are refused or not mapped yet; the CIP label RDKit
+derives for the wedge fixture is checked against a hand derivation, not against Chemifree.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import tempfile
 
 import rdkit
 import rdkit.Chem
+import rdkit.Chem.rdDepictor
 
 _LOGGER = logging.getLogger(__name__)
 _FIXTURES = (
@@ -29,6 +34,90 @@ _FIXTURES = (
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def _marks(binary: pathlib.Path, root: pathlib.Path) -> None:
+    """Service-written marks read by RDKit, and RDKit-written marks read by Chemifree."""
+    subprocess.run(  # noqa: S603
+        [str(binary), "write-marks", str(root)], check=True
+    )
+    for dialect in ("v2000", "v3000"):
+        # RDKit applies a wedge while it reads and then clears the bond direction, so the
+        # chirality it assigns is the observable. Hand derivation for both drawings: H is
+        # behind the plane, Br (lower left) to Cl (lower right) to F (top) runs
+        # counterclockwise seen from the front, so S. In `center-end` the wedge bond is
+        # written with the center first, so the narrow end is the center and the stereo shows.
+        for name, center_index in (("center", 0), ("center-end", 1)):
+            center = rdkit.Chem.MolFromMolFile(
+                str(root / f"{name}-{dialect}.mol"), sanitize=True, removeHs=False
+            )
+            _require(center is not None, f"RDKit refused {name}-{dialect}")
+            labels = rdkit.Chem.FindMolChiralCenters(
+                center, useLegacyImplementation=False
+            )
+            _require(
+                labels == [(center_index, "S")],
+                f"{name}-{dialect}: chirality differs: {labels}",
+            )
+        chain = rdkit.Chem.MolFromMolFile(
+            str(root / f"chain-{dialect}.mol"), sanitize=False, removeHs=False
+        )
+        _require(chain is not None, f"RDKit refused chain-{dialect}")
+        bonds = {
+            (b.GetBeginAtomIdx(), b.GetEndAtomIdx()): (
+                str(b.GetBondDir()),
+                str(b.GetStereo()),
+            )
+            for b in chain.GetBonds()
+        }
+        _require(len(bonds) == 3, f"{dialect}: chain bonds differ: {bonds}")
+        # RDKit keeps no direction for the hash and the single either bond after reading
+        # (they bear on no center here); only the crossed double bond is observable.
+        _require(
+            bonds[(2, 3)][1] == "STEREOANY",
+            f"{dialect}: crossed double bond differs: {bonds}",
+        )
+    reverse = rdkit.Chem.MolFromSmiles("N[C@@H](C)C(=O)O")
+    rdkit.Chem.rdDepictor.Compute2DCoords(reverse)
+    rdkit.Chem.WedgeMolBonds(reverse, reverse.GetConformer())
+    expected = sorted(
+        (b.GetBeginAtomIdx(), b.GetEndAtomIdx(), str(b.GetBondDir()))
+        for b in reverse.GetBonds()
+        if b.GetBondDir() in (rdkit.Chem.BondDir.BEGINWEDGE, rdkit.Chem.BondDir.BEGINDASH)
+    )
+    _require(len(expected) == 1, f"RDKit wedged {len(expected)} bonds")
+    path = root / "rdkit-wedge.mol"
+    path.write_text(rdkit.Chem.MolToV3KMolBlock(reverse), encoding="utf-8")
+    output = subprocess.run(  # noqa: S603
+        [str(binary), "read-v3000", str(path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    record = json.loads(output.stdout)["records"][0]
+    kinds = {"wedge": "BEGINWEDGE", "hash": "BEGINDASH"}
+    parsed = sorted(
+        (b["begin"], b["end"], kinds[b["stereo"]])
+        for b in record["bonds"]
+        if b["stereo"] in kinds
+    )
+    _require(parsed == expected, f"Chemifree read RDKit's marks as {parsed}")
+    # The V2000 direction: RDKit writes the bond stereo column, Chemifree's V2000 reader reads it.
+    path = root / "rdkit-wedge-v2000.mol"
+    path.write_text(rdkit.Chem.MolToMolBlock(reverse), encoding="utf-8")
+    output = subprocess.run(  # noqa: S603
+        [str(binary), "read", str(path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    record = json.loads(output.stdout)["records"][0]
+    parsed = sorted(
+        (b["begin"], b["end"], kinds[b["stereo"]])
+        for b in record["bonds"]
+        if b["stereo"] in kinds
+    )
+    _require(parsed == expected, f"Chemifree read RDKit's V2000 marks as {parsed}")
 
 
 def main() -> None:
@@ -75,6 +164,7 @@ def main() -> None:
                 fixture is not None and fixture.GetNumAtoms() == count,
                 f"RDKit did not read {name}",
             )
+        _marks(binary, root)
         source = rdkit.Chem.MolFromSmiles("CCC(=O)O")
         _require(source is not None, "RDKit could not build the reference")
         source.GetAtomWithIdx(0).SetIsotope(13)
