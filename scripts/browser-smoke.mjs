@@ -3725,6 +3725,8 @@ step = 'after short_wide_bond_is_selectable'
     // Waits long enough for a debounce (300 ms) to have fired, to show that nothing was asked.
     const quiet = () => agreePage.waitForTimeout(700)
     const drag = async (from, to) => {
+      // The panel beside the canvas is tall, so a click on one of its buttons can scroll the canvas out of the viewport.
+      await agreePage.locator('svg[data-structure-canvas]').scrollIntoViewIfNeeded()
       const a = await place(from)
       const b = await place(to)
       await agreePage.mouse.move(a.x, a.y)
@@ -3779,7 +3781,8 @@ step = 'after short_wide_bond_is_selectable'
     assert.equal(await row('a4').getAttribute('data-agreement'), 'agrees')
     assert.equal(await panel.getAttribute('aria-busy'), 'false')
     assert.match(await row('a2').textContent(), /Stored clockwise; the drawing in s1 shows anticlockwise\./)
-    assert.match(await panel.textContent(), /Only stored configurations are compared with the drawing\. No CIP label is computed and no atom is judged stereogenic\./)
+    assert.match(await panel.textContent(), /Only stored configurations are compared with the drawing\. CIP labels describe the stored configuration, not the drawing\./)
+    assert.doesNotMatch(await agreePage.locator('body').textContent(), /No CIP label is computed/)
     const ring = rings.filter({ has: agreePage.locator('xpath=self::*[@data-agreement="disagrees"]') })
     assert.equal(await rings.count(), 1, 'one ring: the center that disagrees')
     assert.equal(await ring.getAttribute('data-agreement-item'), 'a2')
@@ -3933,6 +3936,120 @@ step = 'after short_wide_bond_is_selectable'
     await eventually(async () => assert.match(await panel.getByTestId('stereo-panel-state').textContent(), /is not assessed\.$/))
     await edit(storedOnly, () => press('Undo'))
     await eventually(async () => assert.equal(await row('a1').getAttribute('data-agreement'), 'only_stored'))
+
+    // CIP labels (P26c): off by default, and then the page sends no chem.cip request at all. A switch asks
+    // chem.cip once (scope "stored"), draws "(S)" or "(R)" near each assigned center and "(E)" or "(Z)" near
+    // each assigned double bond as an overlay, and puts the label next to the agreement in the panel. Nothing is
+    // written to the document.
+    {
+      const cipBodies = []
+      agreePage.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().endsWith('/api/v1/operations') && request.postData()?.includes('"chem.cip"')) {
+          const body = request.postDataJSON()
+          if (!body.request_id.startsWith('smoke-cip-ref')) cipBodies.push(body)
+        }
+      })
+      // `$n` names the n-th command of the transaction: the ten of `centers` come first, so the fluorine is $10.
+      const cipId = await make('cip', 'Smoke CIP', [
+        ...centers('clockwise'),
+        { op: 'add_atom', element: 'F', position: { x: 160, y: 100 } },
+        { op: 'add_atom', element: 'C', position: { x: 190, y: 100 }, bond_to: { atom: '$10', order: 'single' } },
+        { op: 'add_atom', element: 'C', position: { x: 220, y: 100 }, bond_to: { atom: '$11', order: 'double' } },
+        { op: 'add_atom', element: 'Br', position: { x: 250, y: 100 }, bond_to: { atom: '$12', order: 'single' } },
+        { op: 'set_bond_configuration', bond: '$12', configuration: { kind: 'relative', begin_neighbor: '$10', end_neighbor: '$13', relation: 'same_side' } },
+      ])
+      // What the service says the labels are: the page must show exactly these.
+      const reference = await write('/api/v1/operations', {
+        contract: 1, request_id: 'smoke-cip-ref', profile: 'preserve-semantics', operation: 'chem.cip', parameters: { document_id: cipId },
+      })
+      assert.equal(reference.body.outcome, 'ok', JSON.stringify(reference.body.diagnostics))
+      const expected = new Map([
+        ...reference.body.result.atoms.map((item) => [item.atom, item.descriptor]),
+        ...reference.body.result.bonds.map((item) => [item.bond, item.descriptor]),
+      ])
+      assert.deepEqual([...expected.keys()].sort(), ['a2', 'a4', 'b7'].sort())
+      assert.ok(['R', 'S'].includes(expected.get('a2')) && ['R', 'S'].includes(expected.get('a4')) && ['E', 'Z'].includes(expected.get('b7')))
+      const labels = agreePage.locator('svg[data-structure-canvas] [data-cip-label]')
+      const cell = (item) => row(item).getByTestId('cip-cell')
+      const cipState = panel.getByTestId('cip-state')
+      const atomSwitch = panel.getByRole('switch', { name: 'Atom stereo labels', exact: true })
+      const bondSwitch = panel.getByRole('switch', { name: 'Bond stereo labels', exact: true })
+      const shown = async () => Object.fromEntries(await labels.evaluateAll((all) => all.map((node) => [node.getAttribute('data-cip-item'), node.textContent])))
+
+      await open(cipId)
+      await eventually(async () => assert.equal(await row('b7').count(), 1))
+      await quiet()
+      assert.equal(cipBodies.length, 0, 'both switches off: no chem.cip request')
+      assert.equal(await atomSwitch.getAttribute('aria-checked'), 'false', 'default off')
+      assert.equal(await bondSwitch.getAttribute('aria-checked'), 'false', 'default off')
+      assert.equal(await labels.count(), 0)
+      assert.equal(await panel.getByTestId('cip-cell').count(), 0)
+      assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.')
+      assert.match(await panel.textContent(), /CIP labels describe the stored configuration, not the drawing\./)
+      assert.doesNotMatch(await agreePage.locator('body').textContent(), /No CIP label is computed/)
+      const untouched = await read(cipId)
+
+      await atomSwitch.click()
+      await eventually(async () => assert.deepEqual(await shown(), { a2: `(${expected.get('a2')})`, a4: `(${expected.get('a4')})` }))
+      const label = labels.first()
+      assert.equal(await label.getAttribute('role'), 'img')
+      assert.equal(await label.evaluate((node) => getComputedStyle(node).pointerEvents), 'none')
+      assert.equal(await label.evaluate((node) => node.closest('[data-editor-overlay]') !== null), true)
+      assert.match(await label.getAttribute('aria-label'), /^Center a[24]: CIP label [RS], of the stored configuration$/)
+      assert.equal(cipBodies.length >= 1, true)
+      assert.deepEqual([...new Set(cipBodies.map((body) => JSON.stringify(body.parameters)))], [JSON.stringify({ document_id: cipId, scope: 'stored' })], 'only the stored scope is ever asked')
+      // The label sits in the panel next to the agreement: a2 stores clockwise and the hashed wedge draws anticlockwise.
+      await eventually(async () => assert.equal(await cell('a2').locator('span').first().textContent(), `CIP: ${expected.get('a2')}`))
+      assert.match(await cell('a2').textContent(), /of the stored configuration, which disagrees with the drawing in s1 \(disagrees\)/)
+      assert.match(await cell('a4').textContent(), new RegExp(`CIP: ${expected.get('a4')}.*which agrees with the drawing in s1`))
+      assert.equal(await cell('b7').locator('span').first().textContent(), `CIP: ${expected.get('b7')}`, 'the panel row of the bond has its label though only the atom switch is on')
+      assert.equal(await shown().then((all) => 'b7' in all), false, 'the bond switch draws the bond label')
+      assert.equal(await agreePage.getByTestId('stereo-agreement').textContent(), 'Compared with the drawing: 1 disagrees with the drawing, 1 agrees, 1 is stored only.', 'the comparison and the rings are unchanged')
+      assert.equal(await rings.count(), 2, 'rings: a2 disagrees and b7 is stored only (a4 agrees); they are the agreement indicator\'s')
+      await agreePage.screenshot({ path: join(outDir, 'editor-cip-atoms.png') })
+
+      const asked = cipBodies.length
+      await bondSwitch.click()
+      await eventually(async () => assert.deepEqual(await shown(), { a2: `(${expected.get('a2')})`, a4: `(${expected.get('a4')})`, b7: `(${expected.get('b7')})` }))
+      assert.equal(cipBodies.length, asked, 'the second switch draws what was already answered')
+      await atomSwitch.click()
+      await eventually(async () => assert.deepEqual(await shown(), { b7: `(${expected.get('b7')})` }))
+      await bondSwitch.click()
+      await eventually(async () => assert.equal(await labels.count(), 0))
+      await eventually(async () => assert.equal(await panel.getByTestId('cip-cell').count(), 0))
+      assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.')
+      const afterOff = cipBodies.length
+      await quiet()
+      assert.equal(cipBodies.length, afterOff, 'switched off, nothing is asked')
+      assert.deepEqual(await read(cipId), untouched, 'labels never change the document, its stored configurations, its marks or its session')
+
+      // A refused or limited request is shown as such, with no label, and can be tried again.
+      const limit = {
+        envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-cip-1', document_revision: null, loss_report: [], result: null,
+        diagnostics: [{ code: 'resource_limit', severity: 'error', message: '3 items need more than 1000 digraph nodes together for the centers.', path: 'parameters.atoms',
+          details: { limit: 1000, request_limit: 2000000, items: 3, item_limit: 20000, stage: 'centers', parameter: 'atoms' } }],
+      }
+      let refuse = true
+      await agreePage.route('**/api/v1/operations', async (route) => {
+        if (refuse && route.request().postDataJSON()?.operation === 'chem.cip') {
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(limit) })
+        }
+        return route.continue()
+      })
+      await atomSwitch.click()
+      await eventually(async () => assert.equal(await cipState.textContent(), 'CIP labels unavailable: 3 items need more than 1000 digraph nodes together for the centers.'))
+      assert.equal(await labels.count(), 0, 'no label after a refusal')
+      assert.equal(await cell('a2').locator('span').first().textContent(), 'CIP: unavailable')
+      refuse = false
+      await agreePage.getByRole('button', { name: 'Try CIP labels again', exact: true }).click()
+      await eventually(async () => assert.deepEqual(await shown(), { a2: `(${expected.get('a2')})`, a4: `(${expected.get('a4')})` }))
+      await agreePage.unroute('**/api/v1/operations')
+      await atomSwitch.click()
+      await eventually(async () => assert.equal(await labels.count(), 0))
+      assert.deepEqual(await read(cipId), untouched)
+      results.cip_labels_web = true
+      step = 'after cip_labels_web'
+    }
 
     results.stereo_agreement_indicator = true
     step = 'after stereo_agreement_indicator'
