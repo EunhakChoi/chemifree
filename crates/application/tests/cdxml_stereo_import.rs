@@ -4,8 +4,9 @@
 //!
 //! The CDXML sources are hand-authored here. The configurations the shared corpus
 //! `data/stereo-fixtures.json` states by hand are the expected values for the drawings it
-//! describes, written as CDXML. The bond display tags of the binary CDX are not public, so the
-//! binary tests cover the atom tags only and pin that a bond tag stays refused.
+//! describes, written as CDXML. The binary bond `Display` (`0x0601`, INT16) is read through the
+//! same table as the CDXML names; `Display2` and `DoublePosition` have no public tag here, so
+//! the binary tests pin that a bond carrying one stays refused.
 
 #[path = "../../providers/tests/common/mod.rs"]
 mod common;

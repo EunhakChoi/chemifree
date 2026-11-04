@@ -2,8 +2,10 @@
 //! tree keeps for them. Only what the public sources confirm is read: the bond `Display` and
 //! `Display2` values and the atom `Geometry`, `BondOrdering`, `AS`, `EnhancedStereoType` and
 //! `EnhancedStereoGroupNum` attributes in CDXML, and the atom tags `0430`, `0431`, `0446` and
-//! `0447` in CDX. The CDX tags of the bond display values are not public, so a binary bond that
-//! carries one stays an unread property and is refused, exactly as before.
+//! `0447` in CDX, and the binary bond `Display` (`0601`, an `INT16`), which is decoded through
+//! the same `LOOKS` table as the CDXML names. `Display2` and `DoublePosition` have no tag in the
+//! public sources used, so a binary bond that carries one stays an unread property and is
+//! refused, exactly as before.
 
 use chemifree_domain::interchange::{Object, ObjectKind, PropertyKind, PropertyValue, XmlName};
 use chemifree_domain::stereo::{BondEnd, StereoMark};
@@ -195,7 +197,15 @@ fn enhanced_number(value: &PropertyValue, path: &str) -> Result<i32, Interchange
 fn check_geometry(value: &PropertyValue, path: &str) -> Result<(), InterchangeError> {
     let tetrahedral = match value {
         PropertyValue::Text(text) => text == "Tetrahedral",
-        PropertyValue::Bytes(bytes) => bytes.as_slice() == [CDX_GEOMETRY_TETRAHEDRAL],
+        PropertyValue::Bytes(bytes) => match bytes.as_slice() {
+            [byte] => *byte == CDX_GEOMETRY_TETRAHEDRAL,
+            other => {
+                return Err(invalid(
+                    path,
+                    &format!("a Geometry of {} bytes where one is expected", other.len()),
+                ));
+            }
+        },
         _ => false,
     };
     if tetrahedral {
@@ -812,11 +822,18 @@ mod tests {
             text("Geometry", "Planar"),
             text("Geometry", "tetrahedral"),
             binary(0x0430, &[6]),
-            binary(0x0430, &[7, 0]),
         ] {
             assert_eq!(
                 member(vec![refused]).unwrap_err().code,
                 "unsupported_geometry"
+            );
+        }
+        // A width other than one byte is a malformed payload, whatever the bytes say.
+        for malformed in [&[][..], &[7, 0][..], &[6, 7][..], &[7, 7, 7][..]] {
+            assert_eq!(
+                member(vec![binary(0x0430, malformed)]).unwrap_err().code,
+                "invalid_stereo_attribute",
+                "{malformed:?}"
             );
         }
     }
