@@ -1,5 +1,5 @@
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
+    CtAtom, CtBond, CtBondStereo, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
 };
 use chemifree_application::{LossDisposition, SemanticImpact};
 use chemifree_providers::V2000Codec;
@@ -28,6 +28,7 @@ fn record() -> CtRecord {
             begin: 0,
             end: 1,
             order: 1,
+            stereo: CtBondStereo::None,
         }],
         fields: vec![],
         ctab: CtTab::V2000,
@@ -58,12 +59,14 @@ fn independently_authored_table_exposes_atoms_bonds_and_possible_stereo() {
             CtBond {
                 begin: 0,
                 end: 1,
-                order: 1
+                order: 1,
+                stereo: CtBondStereo::None,
             },
             CtBond {
                 begin: 1,
                 end: 2,
-                order: 2
+                order: 2,
+                stereo: CtBondStereo::None,
             }
         ]
     );

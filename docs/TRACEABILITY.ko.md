@@ -10,7 +10,8 @@ P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 
 
 P25a-2b는 입체 표시와 명시된 입체 배치의 저장·설정·해제(MODEL-03.1, 구현)를, P25a-3a는 요청이 있을 때만 도면에서 배치를 읽어 저장하는 `set_configuration_from_drawing`(MODEL-03.2, 구현)을, P25a-3b는 저장 배치와 도면을 비교하는 읽기 전용 `chem.stereo`(MODEL-03.3, 구현)를 연결한다. P25b-1은 웹 편집기에서 쐐기·해시 쐐기·물결 결합 표시를 그리고 같은 Undo 단계에 도면에서 읽은 배치를 저장하는 제스처(MODEL-03.4, 구현)를, P25b-2는 웹 편집기가 입체가 있는 도면에서 `chem.stereo`를 스스로 불러 요약 줄·Stereo 패널·캔버스 링으로 저장 배치와 도면의 일치를 보이고 한 번의 클릭으로 갱신·저장·제거하는 표시(MODEL-03.5, 구현; 증거는 `check:test:client`이며 브라우저 스모크는 본문에서만 언급한다)를 연결한다. P26b는 저장된 배치에서 R/S/E/Z를 읽기 전용으로 계산하는 `chem.cip`(`chemifree-cip-1`, 규칙 1a·1b·2·3만, MODEL-03.6, 부분; 증거는 적합성 사례 14개와 `check:check:rust`·`check:test:contracts`)을 연결한다. 규칙 4a–5·의사비대칭 r/s·헤테로방향족·축/평면, 동위원소·대칭·분할·고급 그룹, 거울상·뒤집기 명령, crossed 캔버스 도구는 MODEL-03.rest(미구현)로 남고, 형식별 입체 입출력(CODEC-03, CODEC-05)은 근거 사례로만 연결되며 구현 표시가 아니다. P26c는 CIP의 웹 표시(원자·결합 레이블 스위치 둘, 기본 꺼짐, 저장 배치의 레이블만, MODEL-03.7, 구현; 증거는 `check:test:client`이고 브라우저 스모크는 증거 검사가 아니다)를 연결한다. P25와 P26은 진행 중이다.
 
-P28a는 MOL V3000 코덱 핵심(CODEC-03.v3000-core, 구현)을 제공자 계층에서만 연결한다: 논리 줄 읽기·이어쓰기·블록 파서와 핵심 부분집합 쓰기이며 연산·와이어·웹은 쓰지 않아 `document.import`·`document.export`는 여전히 V3000을 거절하고, 근거는 `cargo test`가 도는 `check:check:rust`다(RDKit 대조는 손으로 돌리는 스크립트라 근거로 세지 않는다). SGroup·query·입체·그룹 매핑·V2000 하향은 CODEC-03.rest에 남는다.
+P28a는 MOL V3000 코덱 핵심(CODEC-03.v3000-core, 구현)을 제공자 계층에서만 연결한다: 논리 줄 읽기·이어쓰기·블록 파서와 핵심 부분집합 쓰기이며 그 시점에는 연산·와이어·웹이 쓰지 않아 `document.import`·`document.export`가 V3000을 거절했고(P28b1이 연결했다, 아래), 근거는 `cargo test`가 도는 `check:check:rust`다(RDKit 대조는 손으로 돌리는 스크립트라 근거로 세지 않는다). SGroup·query·입체·그룹 매핑·V2000 하향은 CODEC-03.rest에 남는다.
+P28b1은 V3000 핵심 부분집합과 결합 표시를 `document.import`·`document.export`에 연결한다(CODEC-03.v3000-wire, 구현): 레코드의 V2000/V3000 판별, 방향족 결합, 쐐기·해시·물결·교차 표시의 입출력과 가져올 때의 배치 유도, `ctab` 요청 키, V2000 결합 입체 열 쓰기, 표시가 보여 주지 않는 입체에 대한 `accepted_losses` 동의다. 근거는 적합성 사례 `molfile-v3000-wedge-round-trip`·`stereo-molfile-export-consent`·`molfile-v3000-refusals-leave-document-unchanged`와 `cargo test`·계약 스모크이며, RDKit 대조는 여전히 손으로 돌리는 스크립트라 근거로 세지 않는다. query 원자·결합, dative, 입체 collection↔그룹 매핑, SGroup, V2000 결합 입체 읽기, 웹 선택은 CODEC-03.rest에 남는다. 이전 사례 `stereo-molfile-export-refused`는 `stereo-molfile-export-consent`로 바뀌었다.
 
 P27b는 향상된 입체 그룹(absolute·and·or)의 와이어 노출을 연결한다: `document.transaction`의 명령 8개와 스냅샷 `stereo.groups`, 의미가 바뀔 때의 통지, SMILES 내보내기의 동의 손실 `stereo_group`(MODEL-03.8과 STEREO-01.1, 구현; 증거는 적합성 사례 12개와 `check:check:rust`·`check:test:contracts`·`check:test:client`)이다. 웹 표시·편집(P27c)은 STEREO-01.2(구현, 증거 `check:test:client`)로 구현했고, V3000·CDXML·CDX 등 형식 입출력(P28·P29)은 STEREO-01.rest(미구현)로 남는다. 번호 0·음수·생략은 진술한 대로 저장되고 그 밖의 뜻을 주장하지 않으며, AND의 비율과 어떤 형식과의 동등성도 주장하지 않는다. 적합성 사례는 정해진 입력에 대한 기대값만 확립하고 그룹의 화학적 의미를 판단하지 않는다.
 
@@ -18,7 +19,7 @@ P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 �
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 87개(implemented 41, partial 11, unverified 2, not_implemented 33) · conformance 사례 87개(passed 86: accept 66·reject 20, not_run 1, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 88개(implemented 42, partial 11, unverified 2, not_implemented 33) · conformance 사례 89개(passed 88: accept 67·reject 21, not_run 1, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

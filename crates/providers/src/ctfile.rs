@@ -11,7 +11,8 @@ use std::fmt::Write as _;
 mod v3000;
 
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord, CtResult, CtTab,
+    CtAtom, CtBond, CtBondStereo, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord,
+    CtResult, CtTab,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::element::Element;
@@ -383,6 +384,7 @@ fn parse_bond(
         begin: begin - 1,
         end: end - 1,
         order: u8::try_from(order).expect("checked order"),
+        stereo: CtBondStereo::None,
     })
 }
 
@@ -761,7 +763,8 @@ fn stereo_losses(bonds: &[CtBond], tab: CtTab, record: usize, losses: &mut Vec<L
         }
     };
     for (index, bond) in bonds.iter().enumerate() {
-        if bond.order == 2 {
+        // An either mark states the arrangement is unknown; nothing is left to read from coordinates.
+        if bond.order == 2 && bond.stereo != CtBondStereo::Either {
             losses.push(loss(
                 record,
                 &format!(".bonds[{}]", index + 1),
@@ -1076,7 +1079,7 @@ fn write_record(
             "resource_limit",
             record,
             None,
-            "V2000 supports at most 999 atoms and bonds.",
+            "V2000 supports at most 999 atoms and bonds; write V3000 (ctab v3000 or auto).",
         ));
     }
     if item.fields.len() > MAX_FIELDS {
@@ -1213,12 +1216,15 @@ fn write_record(
                 "More than one bond connects the same atoms.",
             ));
         }
+        // Column 10-12: up 1, down 6, either 4 (a single bond) or 3 (a double bond).
+        let mark = v3000::mark_code(bond, &v3000::V2000_MARKS, record)?;
         writeln!(
             out,
-            "{:>3}{:>3}{:>3}  0  0  0  0",
+            "{:>3}{:>3}{:>3}{:>3}  0  0  0",
             bond.begin + 1,
             bond.end + 1,
-            bond.order
+            bond.order,
+            mark
         )
         .expect("String writes do not fail");
     }

@@ -950,7 +950,7 @@ fn a_conversion_over_a_marked_ring_bond_is_refused_whole_without_a_command_index
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn stereo_made_through_the_wire_needs_consent_to_leave_in_smiles_and_is_refused_in_mol() {
+fn stereo_made_through_the_wire_needs_consent_to_leave_in_smiles_and_is_written_as_marks_in_mol() {
     let (app, _directory) = application();
     let id = created(&app);
     ok(transact(
@@ -980,7 +980,16 @@ fn stereo_made_through_the_wire_needs_consent_to_leave_in_smiles_and_is_refused_
         "document.export",
         &json!({"format": "mol", "records": [{"document_id": id}]}),
     );
-    assert_eq!(mol["diagnostics"][0]["code"], "unsupported_stereo", "{mol}");
+    // The center's stated configuration is what its wedge shows, so a MOL file carries it and
+    // asks for no consent; the mark is the file's bond stereo column.
+    assert_eq!(mol["outcome"], "partial", "{mol}");
+    assert!(
+        mol["result"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("  1  3  1  1  0  0  0"),
+        "{mol}"
+    );
 }
 
 #[test]

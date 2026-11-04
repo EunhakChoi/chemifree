@@ -3,8 +3,8 @@
 //! computed by the code under test.
 
 use chemifree_application::ctfile::{
-    CT_REASON_FAMILIES, CtAtom, CtBond, CtCodec, CtCollection, CtCollectionKind, CtFormat,
-    CtRadical, CtRecord, CtTab, ct_reason_family,
+    CT_REASON_FAMILIES, CtAtom, CtBond, CtBondStereo, CtCodec, CtCollection, CtCollectionKind,
+    CtFormat, CtRadical, CtRecord, CtTab, ct_reason_family,
 };
 use chemifree_application::{LossDisposition, SemanticImpact};
 use chemifree_providers::V2000Codec;
@@ -77,7 +77,12 @@ fn record(atoms: Vec<CtAtom>, bonds: Vec<CtBond>) -> CtRecord {
 }
 
 fn bond(begin: usize, end: usize, order: u8) -> CtBond {
-    CtBond { begin, end, order }
+    CtBond {
+        begin,
+        end,
+        order,
+        stereo: CtBondStereo::None,
+    }
 }
 
 fn write(record: &CtRecord) -> Result<String, &'static str> {
@@ -289,7 +294,9 @@ fn refuses_each_unsupported_or_malformed_construct_with_its_reason_and_line() {
         ("query bond type", "2 2 2 3", "2 5 2 3", "v3000_unsupported_query", 14),
         ("dative bond type", "2 2 2 3", "2 9 2 3", "v3000_unsupported_bond", 14),
         ("bond type zero", "2 2 2 3", "2 0 2 3", "v3000_unsupported_bond", 14),
-        ("bond stereo", "2 2 2 3", "2 1 2 3 CFG=1", "v3000_unsupported_bond_property", 14),
+        ("wedge on a double bond", "2 2 2 3", "2 2 2 3 CFG=1", "v3000_unsupported_bond_property", 14),
+        ("hash on an aromatic bond", "2 2 2 3", "2 4 2 3 CFG=3", "v3000_unsupported_bond_property", 14),
+        ("bond CFG out of range", "2 2 2 3", "2 1 2 3 CFG=4", "v3000_invalid_bond", 14),
         ("ring topology", "2 2 2 3", "2 1 2 3 TOPO=1", "v3000_unsupported_query", 14),
         ("self bond", "2 2 2 3", "2 2 2 2", "v3000_invalid_bond", 14),
         ("repeated pair", "2 2 2 3", "2 2 2 1", "v3000_duplicate_bond", 14),
@@ -746,4 +753,91 @@ fn reads_the_charge_boundaries_and_refuses_beyond_them() {
                 .any(|r| r.atoms.iter().any(|a| i32::from(a.charge) == charge))
         );
     }
+}
+
+fn marked(order: u8, stereo: CtBondStereo) -> CtRecord {
+    let mut bond = bond(0, 1, order);
+    bond.stereo = stereo;
+    record(vec![atom("C", 0.0), atom("C", 1.0)], vec![bond])
+}
+
+#[test]
+fn reads_bond_cfg_as_wedge_either_and_hash() {
+    let text = base()
+        .replace("1 1 1 2\n", "1 1 1 2 CFG=1\n")
+        .replace("2 2 2 3\n", "2 2 2 3 CFG=2\n");
+    let item = &read(&text).unwrap()[0];
+    assert_eq!(item.bonds[0].stereo, CtBondStereo::Wedge);
+    assert_eq!(item.bonds[1].stereo, CtBondStereo::Either);
+    let hash = base().replace("1 1 1 2\n", "1 1 1 2 CFG=3\n");
+    assert_eq!(read(&hash).unwrap()[0].bonds[0].stereo, CtBondStereo::Hash);
+    let zero = base().replace("1 1 1 2\n", "1 1 1 2 CFG=0\n");
+    assert_eq!(read(&zero).unwrap()[0].bonds[0].stereo, CtBondStereo::None);
+}
+
+#[test]
+fn v3000_writes_cfg_one_two_and_three() {
+    for (order, stereo, line) in [
+        (1, CtBondStereo::Wedge, "M  V30 1 1 1 2 CFG=1\n"),
+        (1, CtBondStereo::Hash, "M  V30 1 1 1 2 CFG=3\n"),
+        (1, CtBondStereo::Either, "M  V30 1 1 1 2 CFG=2\n"),
+        (2, CtBondStereo::Either, "M  V30 1 2 1 2 CFG=2\n"),
+        (2, CtBondStereo::None, "M  V30 1 2 1 2\n"),
+    ] {
+        let text = write(&marked(order, stereo)).unwrap();
+        assert!(text.contains(line), "{stereo:?} on {order}: {text}");
+    }
+}
+
+#[test]
+fn v2000_writes_the_bond_stereo_column_one_six_four_and_three() {
+    for (order, stereo, line) in [
+        (1, CtBondStereo::Wedge, "  1  2  1  1  0  0  0\n"),
+        (1, CtBondStereo::Hash, "  1  2  1  6  0  0  0\n"),
+        (1, CtBondStereo::Either, "  1  2  1  4  0  0  0\n"),
+        (2, CtBondStereo::Either, "  1  2  2  3  0  0  0\n"),
+        (2, CtBondStereo::None, "  1  2  2  0  0  0  0\n"),
+    ] {
+        let item = marked(order, stereo);
+        let text = V2000Codec
+            .write_ctab(CtFormat::Mol, CtTab::V2000, std::slice::from_ref(&item))
+            .unwrap()
+            .value;
+        assert!(text.contains(line), "{stereo:?} on {order}: {text}");
+    }
+}
+
+#[test]
+fn a_mark_a_bond_cannot_carry_is_refused_on_write_in_both_dialects() {
+    for (order, stereo) in [
+        (2, CtBondStereo::Wedge),
+        (2, CtBondStereo::Hash),
+        (3, CtBondStereo::Either),
+        (4, CtBondStereo::Wedge),
+    ] {
+        let item = marked(order, stereo);
+        assert_eq!(
+            write(&item),
+            Err("unsupported_bond"),
+            "{stereo:?} on {order}"
+        );
+        let v2000 = V2000Codec.write_ctab(CtFormat::Mol, CtTab::V2000, std::slice::from_ref(&item));
+        if order != 4 {
+            assert_eq!(v2000.unwrap_err().code, "unsupported_bond");
+        }
+    }
+}
+
+#[test]
+fn an_either_double_bond_reports_no_coordinate_stereo_and_a_plain_one_does() {
+    let has = |item: &CtRecord| {
+        V2000Codec
+            .write_ctab(CtFormat::Mol, CtTab::V3000, std::slice::from_ref(item))
+            .unwrap()
+            .losses
+            .iter()
+            .any(|l| l.feature == "coordinate_stereo")
+    };
+    assert!(!has(&marked(2, CtBondStereo::Either)));
+    assert!(has(&marked(2, CtBondStereo::None)));
 }

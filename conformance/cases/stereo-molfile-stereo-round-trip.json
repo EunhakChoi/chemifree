@@ -8,6 +8,6 @@
   "kind": "accept",
   "pending": {
     "followup": "P29",
-    "reason": "V2000 export refuses stereo and import reports it unsupported until the molfile stereo mapping exists."
+    "reason": "V2000 export now writes the bond stereo column, but V2000 import still refuses a nonzero bond stereo column and atom parity (the V3000 round trip is molfile-v3000-wedge-round-trip)."
   }
 }

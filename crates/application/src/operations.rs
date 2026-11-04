@@ -42,7 +42,7 @@ use crate::contract::{
     TransactionSelections,
 };
 use crate::ct_projection;
-use crate::ctfile::{CtCodec, CtError, CtField, CtFormat, CtRecord, CtResult};
+use crate::ctfile::{CtCodec, CtError, CtField, CtFormat, CtRecord, CtResult, CtTab};
 use crate::documents::{AromaticityConversion, Compute, validate_request_id};
 use crate::error::{ApplicationError, ErrorCode};
 use crate::json;
@@ -378,6 +378,8 @@ pub struct CtPreviewResult {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CtExportResult {
     pub content: String,
+    /// The dialect every record was written in: `v2000` or `v3000`. A request writes one dialect.
+    pub ctab: &'static str,
     pub records: Vec<CtExportMapping>,
 }
 
@@ -729,7 +731,9 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          compute labels or judge stereogenicity. chem.cip computes CIP labels from stored \
          configurations, read-only (its model and rules are named in the chem.cip entry). No \
          comparison in chem.identity or chem.substructure (they do not read stereo or groups), \
-         no stereo check in chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
+         no stereo check in chem.validate, no stereo in SMILES, CDXML or CDX, and a MOL or SDF \
+         file carries only the bond marks (V2000 bond stereo column, V3000 CFG) and the \
+         configurations they show, and only V3000 is read back.",
     )
     .carried_out_by(&[
         "set_atom_configuration",
@@ -744,8 +748,8 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          each stored center, so no more than the 2,000-atom cap; at most one absolute group; a \
          stored number is any 32-bit signed integer. Nothing states a ratio, a chiral flag or \
          double-bond members. chem.cip, chem.identity, chem.substructure and chem.stereo \
-         ignore groups (chem.stereo says so); a SMILES export needs consent to drop them and a \
-         V2000 export refuses them with the configurations; no other format carries them yet.",
+         ignore groups (chem.stereo says so); a SMILES, V2000 or V3000 MOL export needs consent to \
+         drop them and no format carries them yet.",
     )
     .carried_out_by(&[
         "create_stereo_group",
@@ -1103,6 +1107,25 @@ struct CtExportRecord {
 struct CtExportParameters {
     format: CtFormat,
     records: Vec<CtExportRecord>,
+    /// The connection-table dialect to write. Omitted means `v2000`, as before the V3000
+    /// profile existed.
+    #[serde(default)]
+    ctab: CtabChoice,
+    /// The `loss_digest` of an earlier refusal, accepting the losses that need consent.
+    #[serde(default)]
+    accepted_losses: Option<String>,
+}
+
+/// The `ctab` request key of a MOL or SDF export.
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum CtabChoice {
+    #[default]
+    V2000,
+    V3000,
+    /// V3000 when a drawing needs it (more than 999 atoms or bonds, an aromatic bond),
+    /// otherwise V2000.
+    Auto,
 }
 
 fn ct_failure(error: CtError) -> Diagnostic {
@@ -1512,7 +1535,7 @@ impl ImportFormat for CtImportFormat<'_> {
     fn parse(&self) -> Result<Self::Parsed, Diagnostic> {
         let input = self
             .codec
-            .read(self.p.format, self.p.source.as_bytes())
+            .read_ctab(self.p.format, self.p.source.as_bytes())
             .map_err(ct_failure)?;
         let selected = self
             .p
@@ -1690,36 +1713,78 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 line: None,
             }));
         }
+        let mut snapshots = Vec::with_capacity(p.records.len());
+        for (i, source) in p.records.iter().enumerate() {
+            match self.documents.analysis_snapshot(&source.document_id) {
+                Ok(snapshot) => snapshots.push(snapshot),
+                Err(error) => return known.indexed_error(&error, i + 1),
+            }
+        }
+        let v3000 = match p.ctab {
+            CtabChoice::V2000 => false,
+            CtabChoice::V3000 => true,
+            CtabChoice::Auto => snapshots
+                .iter()
+                .any(|(response, _)| ct_projection::needs_v3000(&response.document)),
+        };
+        let (target, tab, name) = if v3000 {
+            (ct_projection::Target::V3000, CtTab::V3000, "v3000")
+        } else {
+            (ct_projection::Target::V2000, CtTab::V2000, "v2000")
+        };
         let mut records = Vec::with_capacity(p.records.len());
         let mut mappings = Vec::with_capacity(p.records.len());
         let mut losses = Vec::new();
-        for (i, source) in p.records.into_iter().enumerate() {
+        for (i, (source, (snapshot, domain))) in p.records.into_iter().zip(snapshots).enumerate() {
             let index = i + 1;
-            let snapshot = match self.document(&source.document_id) {
-                Ok(snapshot) => snapshot,
-                Err(error) => return known.indexed_error(&error, index),
+            let record = match ct_projection::export_record(
+                &snapshot.document,
+                index,
+                source.fields,
+                target,
+                &mut losses,
+            ) {
+                Ok(record) => record,
+                Err(error) => return known.invalid(ct_failure(error)),
             };
-            let document = &snapshot.document;
-            let record =
-                match ct_projection::export_record(document, index, source.fields, &mut losses) {
-                    Ok(record) => record,
-                    Err(error) => return known.invalid(ct_failure(error)),
-                };
+            losses.extend(ct_projection::molfile_stereo_losses(
+                &domain,
+                &snapshot.document,
+                index,
+            ));
             mappings.push(CtExportMapping {
-                atoms: document.atoms.iter().map(|atom| atom.id.clone()).collect(),
-                bonds: document.bonds.iter().map(|bond| bond.id.clone()).collect(),
+                atoms: snapshot
+                    .document
+                    .atoms
+                    .iter()
+                    .map(|atom| atom.id.clone())
+                    .collect(),
+                bonds: snapshot
+                    .document
+                    .bonds
+                    .iter()
+                    .map(|bond| bond.id.clone())
+                    .collect(),
                 snapshot: snapshot.into(),
             });
             records.push(record);
         }
-        match codec.write(p.format, &records) {
+        match codec.write_ctab(p.format, tab, &records) {
             Ok(output) => {
                 losses.extend(output.losses);
+                if let Some(refusal) = interchange::export_consent_refusal(
+                    &losses,
+                    output.value.as_bytes(),
+                    p.accepted_losses.as_deref(),
+                ) {
+                    return known.invalid(refusal);
+                }
                 converted(
                     known,
                     None,
                     OperationResult::CtExport(CtExportResult {
                         content: output.value,
+                        ctab: name,
                         records: mappings,
                     }),
                     losses,

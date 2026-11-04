@@ -877,14 +877,24 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
         json!(["stereo_configuration", "stereo_group"]),
         "{refused}"
     );
-    // The V2000 profile refuses the configurations, groups included, whole.
-    let mol = call(
-        &app,
-        "mol",
-        "document.export",
-        &json!({"format": "mol", "records": [{"document_id": id}]}),
-    );
-    assert_eq!(mol["diagnostics"][0]["code"], "unsupported_stereo", "{mol}");
+    // A MOL file has no groups either (no V3000 collections yet): it needs consent, and the
+    // groups are listed whatever the version.
+    for ctab in ["v2000", "v3000"] {
+        let mol = call(
+            &app,
+            "mol",
+            "document.export",
+            &json!({"format": "mol", "ctab": ctab, "records": [{"document_id": id}]}),
+        );
+        assert_eq!(
+            mol["diagnostics"][0]["code"], "loss_consent_required",
+            "{mol}"
+        );
+        let features = mol["diagnostics"][0]["details"]["features"]
+            .as_array()
+            .unwrap();
+        assert!(features.contains(&json!("stereo_group")), "{mol}");
+    }
 }
 
 /// A reply without the snapshot it carries, which names the groups.

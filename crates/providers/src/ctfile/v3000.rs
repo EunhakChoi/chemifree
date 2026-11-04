@@ -1,6 +1,6 @@
 //! The V3000 connection table: a logical-line reader, a block parser and a writer for the core
-//! subset (element atoms with coordinates, bonds of order 1 through 4, charge, absolute isotope,
-//! radical, and the stereo collections carried unmapped).
+//! subset (element atoms with coordinates, bonds of order 1 through 4 with a wedge, hash or
+//! either mark, charge, absolute isotope, radical, and the stereo collections carried unmapped).
 //!
 //! Everything outside that subset is refused with a closed `v3000_*` reason, never skipped:
 //! SGroups, query atoms and bonds and query properties, R-groups, atom parity, valence,
@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCollection, CtCollectionKind, CtError, CtRadical, CtRecord,
+    CtAtom, CtBond, CtBondStereo, CtCollection, CtCollectionKind, CtError, CtRadical, CtRecord,
 };
 use chemifree_application::{Loss, LossDisposition, SemanticImpact};
 use chemifree_domain::element::Element;
@@ -687,15 +687,43 @@ fn read_bonds(
                 "A bond joins two distinct atoms.".into(),
             ));
         }
-        if let Some((key, _)) = properties(&words[4..], record, line)?.first() {
-            let code = match *key {
-                "TOPO" | "ENDPTS" | "ATTACH" => "v3000_unsupported_query",
-                _ => "v3000_unsupported_bond_property",
+        let mut stereo = CtBondStereo::None;
+        for (key, value) in properties(&words[4..], record, line)? {
+            if key != "CFG" {
+                let code = match key {
+                    "TOPO" | "ENDPTS" | "ATTACH" => "v3000_unsupported_query",
+                    _ => "v3000_unsupported_bond_property",
+                };
+                return Err(refuse(
+                    code,
+                    format!("Bond property {key} is not supported."),
+                ));
+            }
+            stereo = match int(value, "v3000_invalid_bond", record, line)? {
+                0 => CtBondStereo::None,
+                1 => CtBondStereo::Wedge,
+                2 => CtBondStereo::Either,
+                3 => CtBondStereo::Hash,
+                _ => {
+                    return Err(refuse(
+                        "v3000_invalid_bond",
+                        "Bond CFG must be 0, 1, 2 or 3.".into(),
+                    ));
+                }
             };
-            return Err(refuse(
-                code,
-                format!("Bond property {key} is not supported."),
-            ));
+            // A wedge or hash is a single-bond depiction; an either mark sits on a single or a
+            // double bond. A mark on any other bond type is refused, never ignored.
+            let fits = match stereo {
+                CtBondStereo::None => true,
+                CtBondStereo::Wedge | CtBondStereo::Hash => order == 1,
+                CtBondStereo::Either => order == 1 || order == 2,
+            };
+            if !fits {
+                return Err(refuse(
+                    "v3000_unsupported_bond_property",
+                    "Bond CFG marks a single bond (wedge, hash, either) or a double bond (either) only.".into(),
+                ));
+            }
         }
         if !pairs.insert((begin.min(end), begin.max(end))) {
             return Err(refuse(
@@ -703,7 +731,12 @@ fn read_bonds(
                 "More than one bond connects the same atoms.".into(),
             ));
         }
-        bonds.push(CtBond { begin, end, order });
+        bonds.push(CtBond {
+            begin,
+            end,
+            order,
+            stereo,
+        });
     }
     Ok(bonds)
 }
@@ -829,6 +862,49 @@ fn put(out: &mut String, text: &str, record: usize) -> Result<(), CtError> {
     out.push_str(rest);
     out.push('\n');
     Ok(())
+}
+
+/// The wire values of the bond depictions in one dialect: wedge, hash, either on a single bond,
+/// either on a double bond.
+pub(super) struct MarkCodes {
+    pub wedge: u8,
+    pub hash: u8,
+    pub either_single: u8,
+    pub either_double: u8,
+}
+
+/// The `CFG` values of V3000.
+const V3000_MARKS: MarkCodes = MarkCodes {
+    wedge: 1,
+    hash: 3,
+    either_single: 2,
+    either_double: 2,
+};
+
+/// The bond stereo column values of V2000.
+pub(super) const V2000_MARKS: MarkCodes = MarkCodes {
+    wedge: 1,
+    hash: 6,
+    either_single: 4,
+    either_double: 3,
+};
+
+/// The value that states a bond's mark, 0 for none. A mark the bond's order cannot carry is
+/// refused, not written.
+pub(super) fn mark_code(bond: &CtBond, codes: &MarkCodes, record: usize) -> Result<u8, CtError> {
+    match (bond.stereo, bond.order) {
+        (CtBondStereo::None, _) => Ok(0),
+        (CtBondStereo::Wedge, 1) => Ok(codes.wedge),
+        (CtBondStereo::Hash, 1) => Ok(codes.hash),
+        (CtBondStereo::Either, 1) => Ok(codes.either_single),
+        (CtBondStereo::Either, 2) => Ok(codes.either_double),
+        _ => Err(error(
+            "unsupported_bond",
+            record,
+            None,
+            "A bond mark needs a single bond (wedge, hash, either) or a double bond (either).",
+        )),
+    }
 }
 
 /// Writes the counts line through `M  END` for a V3000 record.
@@ -959,17 +1035,18 @@ pub(super) fn write_table(
                 "More than one bond connects the same atoms.",
             ));
         }
-        put(
-            out,
-            &format!(
-                "{} {} {} {}",
-                i + 1,
-                bond.order,
-                bond.begin + 1,
-                bond.end + 1
-            ),
-            record,
-        )?;
+        let mut text = format!(
+            "{} {} {} {}",
+            i + 1,
+            bond.order,
+            bond.begin + 1,
+            bond.end + 1
+        );
+        match mark_code(bond, &V3000_MARKS, record)? {
+            0 => {}
+            code => write!(text, " CFG={code}").expect("String writes do not fail"),
+        }
+        put(out, &text, record)?;
     }
     if !item.bonds.is_empty() {
         put(out, "END BOND", record)?;

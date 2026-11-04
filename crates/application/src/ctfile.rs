@@ -3,9 +3,8 @@
 //! A record is independent of the editor: in particular it can carry a third coordinate,
 //! header lines and SD fields. Conversion to a drawing is a separate, loss-reporting step.
 //!
-//! The V3000 additions (`CtTab`, the `ctab` selector on the port, and the record fields
-//! `ctab`, `chiral` and `collections`) are provider-level only: they are not serialized, and
-//! no operation uses them yet.
+//! The V3000 additions are the `CtTab` selector on the port, the record fields `ctab`, `chiral`
+//! and `collections` (not serialized), and the bond field `stereo`.
 
 use serde::{Deserialize, Serialize};
 
@@ -95,6 +94,21 @@ pub struct CtBond {
     /// Single, double, or triple (1 through 3) in V2000; V3000 also carries aromatic (4).
     /// Other query bond types are outside this profile.
     pub order: u8,
+    /// How the bond is drawn. A wedge or hash is narrow at `begin`; the projection swaps the
+    /// endpoints when the drawing's narrow end is the other one.
+    pub stereo: CtBondStereo,
+}
+
+/// The bond depiction a connection table carries: V3000 `CFG` 1, 3 and 2, and the V2000 bond
+/// stereo column 1, 6 and 4 (3 on a double bond).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CtBondStereo {
+    None,
+    Wedge,
+    Hash,
+    /// Unknown or either: a wavy single bond or a crossed double bond.
+    Either,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
