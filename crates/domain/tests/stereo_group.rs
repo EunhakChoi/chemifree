@@ -124,6 +124,10 @@ fn group_refusal(
     commands: &[Command],
 ) -> (Option<usize>, StereoGroupError) {
     let error = refuse(document, commands);
+    assert!(
+        error.index.is_some(),
+        "a refused group command names its command: {error}"
+    );
     match error.error {
         EditError::StereoGroup(reason) => (error.index, reason),
         other => panic!("expected a group refusal, got {other:?}"),

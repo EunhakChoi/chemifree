@@ -2832,3 +2832,25 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
     *content = next;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_group_change_counts_toward_the_history_limit() {
+        let created = StereoGroup::new(GroupKind::Or, None, BTreeSet::from([AtomId(1)]));
+        let set = ChangeSet {
+            stereo_groups: vec![(
+                GroupId(1),
+                Change {
+                    before: None,
+                    after: Some(created),
+                },
+            )],
+            ..ChangeSet::default()
+        };
+        assert_eq!(set.size(), 1, "one changed group is one counted change");
+        assert!(!set.is_empty());
+    }
+}
