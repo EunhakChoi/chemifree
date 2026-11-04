@@ -1,27 +1,26 @@
 //! Projection between a CTfile record and the editor's single graph and page.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, BondRef, Command, Document, DocumentId, GroupId, GroupRef,
-    NewAtomPositions, Point,
+    Atom, AtomRef, BondOrder, BondRef, Command, Document, NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::states::{AtomKind, Radical};
-use chemifree_domain::stereo::{BondEnd, CenterState, StereoKey, StereoMark, StereoState};
-use chemifree_domain::stereo_drawing::Drawing;
+use chemifree_domain::stereo::{BondEnd, StereoMark};
 use chemifree_domain::stereo_group::GroupKind;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::contract::{
     AtomConfigurationDto, AtomKindView, BondEndDto, BondOrderDto, DocumentView, HydrogensDto,
-    MarkDto, RadicalDto, SceneObjectView, StereoGroupKindDto,
+    MarkDto, RadicalDto, SceneObjectView,
 };
 use crate::ctfile::{
     CtAtom, CtBond, CtBondStereo, CtCollection, CtCollectionKind, CtError, CtField, CtRadical,
     CtRecord, CtTab, written_coordinate,
 };
+use crate::stereo_projection::{self, GroupFault, GroupInput};
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 /// V2000 coordinates are in angstroms; the editor's positions are points with y increasing down.
@@ -221,7 +220,11 @@ pub(crate) fn import_commands(
         });
     }
     if marked {
-        let (command, centers) = derived_configurations(&commands, index, losses);
+        let (command, centers) = stereo_projection::derived_configurations(
+            &commands,
+            &format!("records[{index}]"),
+            losses,
+        );
         commands.extend(command);
         tetrahedral = centers;
     }
@@ -235,33 +238,10 @@ pub(crate) fn import_commands(
     Ok(commands)
 }
 
-/// Whether a derived center is a stored tetrahedral configuration (a wavy mark derives
-/// `unknown`, which no group can hold). The one predicate of the import's member check and the
-/// export's refusal, so a file this writes is one this reader accepts.
-fn is_tetrahedral(state: &CenterState) -> bool {
-    matches!(state, CenterState::Tetrahedral { .. })
-}
-
-/// The group members whose written depiction would not derive a tetrahedral configuration:
-/// derived on the positions and marks as the file will hold them (the same drawing the consent
-/// comparison reads). A V3000 file with such a member is refused by this reader, so the export
-/// refuses instead of writing it; consent cannot cover it.
+/// The group members whose written depiction would not derive a tetrahedral configuration, on
+/// the positions a MOL file holds (see [`stereo_projection::undrawn_group_members`]).
 pub(crate) fn undrawn_group_members(document: &Document, view: &DocumentView) -> Vec<String> {
-    let drawing = Drawing::of_document_shown(document, document.first_instance(), written_point);
-    let mut undrawn = Vec::new();
-    for group in &view.stereo.groups {
-        for member in &group.members {
-            let derives = AtomId::parse(member).is_some_and(|atom| {
-                drawing
-                    .derive_center(atom)
-                    .is_ok_and(|s| is_tetrahedral(&s))
-            });
-            if !derives {
-                undrawn.push(member.clone());
-            }
-        }
-    }
-    undrawn
+    stereo_projection::undrawn_group_members(document, view, written_point)
 }
 
 fn kind_of(kind: CtCollectionKind) -> GroupKind {
@@ -272,23 +252,9 @@ fn kind_of(kind: CtCollectionKind) -> GroupKind {
     }
 }
 
-fn dto_kind(kind: StereoGroupKindDto) -> GroupKind {
-    kind.into()
-}
-
-/// The smallest number from 1 up that `used` does not hold; `None` only if every positive
-/// 32-bit integer is in use. Deterministic, and never a number already in use.
-fn free_number(used: &BTreeSet<i32>) -> Option<i32> {
-    (1..=i32::MAX).find(|candidate| !used.contains(candidate))
-}
-
 /// The commands that turn the record's collections into stereo groups, after the configurations
-/// they refer to. A member must be an atom whose marks derived a tetrahedral configuration; one
-/// that is not refuses the whole record, because dropping it would change which centers the
-/// file says belong together. Appending to a document that has groups never merges two
-/// numbered groups and never drops a member: an absolute collection joins the document's
-/// absolute group and an `and` or `or` number the document already uses is replaced by a free
-/// one; both are reported.
+/// they refer to (the mapping itself is the format-neutral [`stereo_projection::group_commands`];
+/// this words its refusals as V3000 reasons).
 fn group_commands(
     record: &CtRecord,
     index: usize,
@@ -296,202 +262,41 @@ fn group_commands(
     tetrahedral: Option<&HashSet<usize>>,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, CtError> {
-    let mut commands = Vec::with_capacity(record.collections.len());
-    let Some(tetrahedral) = tetrahedral else {
-        // The marks could not be read into configurations at all (a `stereo_unreadable` loss
-        // says why); the members are not at fault, so the cause is named, not the atoms.
-        return if record.collections.is_empty() {
-            Ok(commands)
-        } else {
-            Err(projection_error(
-                index,
-                "v3000_collection_drawing_unreadable",
-                "The drawn marks of this record could not be read into configurations, so its stereo collections cannot be mapped to groups; nothing was imported.",
-            ))
-        };
-    };
-    let existing_absolute = doc
-        .stereo
-        .groups
+    let groups: Vec<GroupInput> = record
+        .collections
         .iter()
-        .find(|group| dto_kind(group.kind) == GroupKind::Absolute)
-        .and_then(|group| GroupId::parse(&group.id));
-    let in_document = |kind: GroupKind| -> BTreeSet<i32> {
-        doc.stereo
-            .groups
-            .iter()
-            .filter(|group| dto_kind(group.kind) == kind)
-            .filter_map(|group| group.number)
-            .collect()
-    };
-    // Computed once per kind: the numbers the document uses (a collection that stated one of
-    // them is renumbered), and those plus every number the file states or has been given so far,
-    // so a free number never meets another group of the file.
-    let mut used: HashMap<GroupKind, BTreeSet<i32>> = HashMap::new();
-    let mut reserved: HashMap<GroupKind, BTreeSet<i32>> = HashMap::new();
-    for kind in [GroupKind::And, GroupKind::Or] {
-        let numbers = in_document(kind);
-        let mut all = numbers.clone();
-        all.extend(
-            record
-                .collections
-                .iter()
-                .filter(|collection| kind_of(collection.kind) == kind)
-                .map(|collection| collection.number.unwrap_or(0)),
-        );
-        used.insert(kind, numbers);
-        reserved.insert(kind, all);
-    }
-    for (k, collection) in record.collections.iter().enumerate() {
-        let path = format!(".collections[{}]", k + 1);
-        let mut atoms = Vec::with_capacity(collection.atoms.len());
-        for &position in &collection.atoms {
-            if !tetrahedral.contains(&position) {
-                return Err(projection_error(
-                    index,
-                    "v3000_collection_member_not_stereocenter",
-                    format!(
-                        "Collection {} lists atom {}, which has no stored tetrahedral configuration from the drawn marks; nothing was imported.",
-                        k + 1,
-                        position + 1
-                    ),
-                ));
-            }
-            atoms.push(AtomRef::Created(position));
+        .map(|collection| GroupInput {
+            kind: kind_of(collection.kind),
+            number: collection.number,
+            atoms: collection.atoms.clone(),
+        })
+        .collect();
+    stereo_projection::group_commands(
+        &groups,
+        doc,
+        tetrahedral,
+        |k| format!("records[{index}].collections[{}]", k + 1),
+        losses,
+    )
+    .map_err(|fault| match fault {
+        GroupFault::DrawingUnreadable => projection_error(
+            index,
+            "v3000_collection_drawing_unreadable",
+            "The drawn marks of this record could not be read into configurations, so its stereo collections cannot be mapped to groups; nothing was imported.",
+        ),
+        GroupFault::MemberNotStereocenter { group, atom } => projection_error(
+            index,
+            "v3000_collection_member_not_stereocenter",
+            format!(
+                "Collection {} lists atom {}, which has no stored tetrahedral configuration from the drawn marks; nothing was imported.",
+                group + 1,
+                atom + 1
+            ),
+        ),
+        GroupFault::NoFreeNumber => {
+            projection_error(index, "resource_limit", "No free group number is left.")
         }
-        let kind = kind_of(collection.kind);
-        if kind == GroupKind::Absolute {
-            if let Some(group) = existing_absolute {
-                losses.push(stereo_loss(
-                    index,
-                    &path,
-                    "stereo_group_merged",
-                    "The document already has an absolute group; the file's absolute members joined it, so they now state the same thing as the document's own.",
-                ));
-                commands.push(Command::AddStereoGroupMembers {
-                    group: GroupRef::Id(group),
-                    atoms,
-                });
-            } else {
-                commands.push(Command::CreateStereoGroup {
-                    kind,
-                    number: None,
-                    atoms,
-                });
-            }
-            continue;
-        }
-        let stated = collection.number.unwrap_or(0);
-        let number = if used
-            .get(&kind)
-            .is_some_and(|numbers| numbers.contains(&stated))
-        {
-            let numbers = reserved.entry(kind).or_default();
-            let free = free_number(numbers).ok_or_else(|| {
-                projection_error(index, "resource_limit", "No free group number is left.")
-            })?;
-            numbers.insert(free);
-            losses.push(stereo_loss(
-                index,
-                &path,
-                "stereo_group_number",
-                &format!(
-                    "The document already has a {} group numbered {stated}; the file's group is numbered {free} instead and stays a separate group.",
-                    kind.as_str()
-                ),
-            ));
-            free
-        } else {
-            stated
-        };
-        commands.push(Command::CreateStereoGroup {
-            kind,
-            number: Some(number),
-            atoms,
-        });
-    }
-    Ok(commands)
-}
-
-fn stereo_loss(record: usize, path: &str, feature: &str, reason: &str) -> Loss {
-    Loss {
-        consent: LossConsent::NotRequired,
-        feature: feature.into(),
-        source_path: format!("records[{record}]{path}"),
-        disposition: LossDisposition::Normalized,
-        reason: reason.into(),
-        semantic_impact: SemanticImpact::Stereo,
-    }
-}
-
-/// No configuration could be derived for the record at all (the scratch drawing was refused):
-/// the marks stay and one loss says why, so the import never silently stores less.
-fn unreadable_record(
-    index: usize,
-    cause: &str,
-    losses: &mut Vec<Loss>,
-) -> (Option<Command>, Option<HashSet<usize>>) {
-    losses.push(loss(
-        index,
-        ".atoms",
-        "stereo_unreadable",
-        SemanticImpact::Stereo,
-        &format!("The drawn marks could not be read into configurations ({cause}); the marks are kept and no configuration is stored."),
-    ));
-    (None, None)
-}
-
-/// The command that stores the configuration each marked center's drawing shows, and a loss
-/// for each center the drawing does not determine. The derivation is the domain's own, run on
-/// a scratch document of the record alone (an import adds a separate component, so a center's
-/// neighbourhood is the same there); a center that does not derive keeps its mark and stores
-/// nothing, so one degenerate center never refuses the whole import. Also the positions of the
-/// atoms whose derived configuration is tetrahedral (a wavy mark derives `unknown`, which no
-/// group can hold).
-fn derived_configurations(
-    commands: &[Command],
-    index: usize,
-    losses: &mut Vec<Loss>,
-) -> (Option<Command>, Option<HashSet<usize>>) {
-    let id = DocumentId::parse("scratch").expect("scratch identifier is valid");
-    let mut scratch = match Document::new(id, "scratch") {
-        Ok(scratch) => scratch,
-        Err(cause) => return unreadable_record(index, &cause.to_string(), losses),
-    };
-    if let Err(cause) = scratch.apply(commands) {
-        return unreadable_record(index, &cause.to_string(), losses);
-    }
-    let instance = scratch.first_instance();
-    let drawing = Drawing::of_document(&scratch, instance);
-    let centers: std::collections::HashSet<_> = drawing.marked_centers().into_iter().collect();
-    let mut readable = Vec::with_capacity(centers.len());
-    let mut tetrahedral = HashSet::new();
-    for (position, (atom, _)) in scratch.atoms().enumerate() {
-        if !centers.contains(&atom) {
-            continue;
-        }
-        match drawing.derive_center(atom) {
-            Ok(state) => {
-                if is_tetrahedral(&state) {
-                    tetrahedral.insert(position);
-                }
-                readable.push(AtomRef::Created(position));
-            }
-            Err(cause) => losses.push(loss(
-                index,
-                &format!(".atoms[{}]", position + 1),
-                "stereo_unreadable",
-                SemanticImpact::Stereo,
-                &format!("The drawn marks at this atom do not determine a configuration ({cause}); the marks are kept and no configuration is stored."),
-            )),
-        }
-    }
-    let command = (!readable.is_empty()).then_some(Command::SetConfigurationFromDrawing {
-        atoms: Some(readable),
-        bonds: None,
-        instance: None,
-    });
-    (command, Some(tetrahedral))
+    })
 }
 
 pub(crate) fn unselected_losses(records: &[CtRecord], selected: usize, losses: &mut Vec<Loss>) {
@@ -767,24 +572,7 @@ pub(crate) fn molfile_stereo_losses(
         semantic_impact: SemanticImpact::Stereo,
     };
     // The comparison reads the coordinates the file will hold, not the document's own.
-    let drawing = Drawing::of_document_shown(document, document.first_instance(), written_point);
-    let mut centers = Vec::new();
-    let mut double_bonds = Vec::new();
-    for (key, state) in document.stereo().iter() {
-        match (key, state) {
-            (StereoKey::Center(atom), StereoState::Center(stored))
-                if drawing.derive_center(atom).ok().as_ref() != Some(stored) =>
-            {
-                centers.push(atom.to_string());
-            }
-            (StereoKey::DoubleBond(bond), StereoState::DoubleBond(stored))
-                if drawing.derive_double_bond(bond).ok().as_ref() != Some(stored) =>
-            {
-                double_bonds.push(bond.to_string());
-            }
-            _ => {}
-        }
-    }
+    let (centers, double_bonds) = stereo_projection::stored_not_drawn(document, written_point);
     let mut losses = Vec::new();
     if !centers.is_empty() {
         losses.push(consent_loss(
@@ -1032,32 +820,20 @@ fn export_collections(
     ids: &HashMap<&str, usize>,
     index: usize,
 ) -> Result<Vec<CtCollection>, CtError> {
-    let mut collections = Vec::with_capacity(doc.stereo.groups.len());
-    for group in &doc.stereo.groups {
-        let mut atoms = Vec::with_capacity(group.members.len());
-        for member in &group.members {
-            atoms.push(*ids.get(member.as_str()).ok_or_else(|| {
-                projection_error(index, "invalid_bond", "A group member is not an atom.")
-            })?);
-        }
-        atoms.sort_unstable();
-        let (kind, rank) = match group.kind {
-            StereoGroupKindDto::Absolute => (CtCollectionKind::Absolute, 0),
-            StereoGroupKindDto::And => (CtCollectionKind::And, 1),
-            StereoGroupKindDto::Or => (CtCollectionKind::Or, 2),
-        };
-        collections.push((
-            rank,
-            group.number,
-            CtCollection {
-                kind,
-                number: group.number,
-                atoms,
+    let groups = stereo_projection::listed_groups(doc, ids)
+        .ok_or_else(|| projection_error(index, "invalid_bond", "A group member is not an atom."))?;
+    Ok(groups
+        .into_iter()
+        .map(|group| CtCollection {
+            kind: match group.kind {
+                GroupKind::Absolute => CtCollectionKind::Absolute,
+                GroupKind::And => CtCollectionKind::And,
+                GroupKind::Or => CtCollectionKind::Or,
             },
-        ));
-    }
-    collections.sort_by_key(|(rank, number, _)| (*rank, *number));
-    Ok(collections.into_iter().map(|(_, _, c)| c).collect())
+            number: group.number,
+            atoms: group.atoms,
+        })
+        .collect())
 }
 
 /// A hasher that serde writes into directly, so a large request is hashed without being
@@ -1085,25 +861,6 @@ pub(crate) fn digest<T: Serialize>(value: &T) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn a_scratch_drawing_that_cannot_be_built_costs_a_loss_not_silence() {
-        // Commands that cannot apply: a mark on a bond no command created.
-        let commands = [Command::SetBondMark {
-            bond: BondRef::Created(5),
-            mark: Some(StereoMark::Wavy),
-        }];
-        let mut losses = Vec::new();
-        assert!(
-            derived_configurations(&commands, 3, &mut losses)
-                .0
-                .is_none()
-        );
-        assert_eq!(losses.len(), 1, "{losses:?}");
-        assert_eq!(losses[0].feature, "stereo_unreadable");
-        assert_eq!(losses[0].source_path, "records[3].atoms");
-    }
 
     #[test]
     fn every_v3000_reason_the_projection_names_has_a_family() {
@@ -1124,14 +881,5 @@ mod tests {
             }
         }
         assert!(found >= 1, "the scan found no V3000 reason");
-    }
-
-    #[test]
-    fn a_free_number_is_the_smallest_unused_positive_one() {
-        assert_eq!(free_number(&BTreeSet::new()), Some(1));
-        assert_eq!(free_number(&BTreeSet::from([-5, 0, 3])), Some(1));
-        assert_eq!(free_number(&BTreeSet::from([1, 2, 4])), Some(3));
-        assert_eq!(free_number(&BTreeSet::from([i32::MAX])), Some(1));
-        assert_eq!(free_number(&BTreeSet::from([i32::MIN, 1])), Some(2));
     }
 }
