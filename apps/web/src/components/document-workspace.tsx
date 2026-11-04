@@ -867,8 +867,8 @@ function StereoNotes({ notes }: { notes: readonly StereoNote[] }) {
   if (notes.length === 0) return null
   return (
     <ul role="note" data-testid="stereo-notes" className="list-disc pl-5 text-xs leading-relaxed text-muted-foreground">
-      {notes.map((note) => (
-        <li key={note.source_path}>{note.reason}</li>
+      {notes.map((note, index) => (
+        <li key={`${note.feature}:${note.source_path}:${index}`}>{note.reason}</li>
       ))}
     </ul>
   )

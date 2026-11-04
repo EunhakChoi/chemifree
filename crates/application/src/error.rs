@@ -126,6 +126,9 @@ pub struct ApplicationError {
     /// Set with `InvalidCommand` when `set_configuration_from_drawing` found that the drawing
     /// does not determine a configuration.
     pub invalid_derivation: Option<NotDerivable>,
+    /// Set with `InvalidCommand` when the wire refused a stereo group value (the code of a
+    /// number outside the 32-bit signed range); sent as `reason`.
+    pub invalid_stereo_group: Option<&'static str>,
     /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
     pub invalid_aromaticity: Option<&'static str>,
     /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
@@ -145,6 +148,7 @@ impl ApplicationError {
             invalid_settings: None,
             invalid_stereo: None,
             invalid_derivation: None,
+            invalid_stereo_group: None,
             invalid_aromaticity: None,
             limit_ms: None,
         }
@@ -178,6 +182,7 @@ impl ApplicationError {
             .or(self.invalid_settings.map(SettingsError::code))
             .or(self.invalid_stereo.map(StereoError::code))
             .or(self.invalid_derivation.map(NotDerivable::code))
+            .or(self.invalid_stereo_group)
             .or(self.invalid_aromaticity)
     }
 }

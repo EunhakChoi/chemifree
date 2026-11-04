@@ -684,6 +684,14 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "set_atom_configuration",
             "set_bond_configuration",
             "set_configuration_from_drawing",
+            "create_stereo_group",
+            "delete_stereo_group",
+            "set_stereo_group_kind",
+            "set_stereo_group_number",
+            "add_stereo_group_members",
+            "remove_stereo_group_members",
+            "merge_stereo_groups",
+            "split_stereo_group",
         ]
     );
     let placement = capabilities
@@ -742,12 +750,25 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "set_configuration_from_drawing"
         ]
     );
-    assert_eq!(commands.len(), 24, "{commands:?}");
-    assert_eq!(capabilities.len(), 10, "{capabilities:?}");
+    assert_eq!(
+        carried_out_by("stereo_group"),
+        [
+            "create_stereo_group",
+            "delete_stereo_group",
+            "set_stereo_group_kind",
+            "set_stereo_group_number",
+            "add_stereo_group_members",
+            "remove_stereo_group_members",
+            "merge_stereo_groups",
+            "split_stereo_group"
+        ]
+    );
+    assert_eq!(commands.len(), 32, "{commands:?}");
+    assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        34,
-        "24 command rows and 10 capability rows"
+        43,
+        "32 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

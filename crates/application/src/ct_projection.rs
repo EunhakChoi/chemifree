@@ -312,6 +312,8 @@ pub(crate) fn drawing_losses(
 /// so the caller must accept that they are dropped. Each loss is reported only when the drawing
 /// holds that kind, with its marks and records in ID order. Wavy and crossed marks and
 /// `unknown` records count too: "unknown" is a statement a format that cannot carry it drops.
+/// Every enhanced stereo group is reported too, singletons included: a target without group
+/// support carries none of them.
 pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
     let consent_loss = |feature: &str, source_path: String, reason: &str| Loss {
         consent: LossConsent::Required,
@@ -349,6 +351,14 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
             "stereo_configuration",
             paths.join(", "),
             "SMILES stereochemistry is not implemented; the stated configurations are not written, so mirror images and cis/trans forms give the same text.",
+        ));
+    }
+    if !doc.stereo.groups.is_empty() {
+        let groups: Vec<&str> = doc.stereo.groups.iter().map(|g| g.id.as_str()).collect();
+        losses.push(consent_loss(
+            "stereo_group",
+            format!("groups[{}]", groups.join(", ")),
+            "SMILES has no enhanced stereo groups here; the absolute, and and or groups are not written, so a document that states which centers belong together reads as a single compound.",
         ));
     }
     losses

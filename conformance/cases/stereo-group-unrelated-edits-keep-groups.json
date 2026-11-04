@@ -1,0 +1,235 @@
+{
+  "id": "stereo-group-unrelated-edits-keep-groups",
+  "title": "A title change, a move and a new atom leave the groups as they were and report nothing",
+  "requirements": [
+    "STEREO-01"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 0,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": -26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$0",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$1",
+              "$2",
+              "$3",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$4",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$5",
+              "$6",
+              "$7",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "groups": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "create_stereo_group",
+          "kind": "or",
+          "atoms": [
+            "a1",
+            "a5"
+          ],
+          "number": 1
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "groups": [
+              {
+                "id": "e1",
+                "kind": "or",
+                "stored_number": 1,
+                "number": 1,
+                "label": "or1",
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Renamed"
+        },
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a1",
+            "a5"
+          ],
+          "delta": {
+            "x": 4,
+            "y": 4
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 400,
+            "y": 400
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "groups": [
+              {
+                "id": "e1",
+                "kind": "or",
+                "stored_number": 1,
+                "number": 1,
+                "label": "or1",
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}
