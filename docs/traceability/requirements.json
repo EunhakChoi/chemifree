@@ -605,8 +605,21 @@
           "followups": []
         },
         {
+          "id": "CODEC-03.v3000-core",
+          "summary": "Provider-level V3000 connection-table core: logical-line reader with continuation, block parser, a core-subset writer (element atoms, bonds 1-4, charge, isotope, radical) and closed refusal reasons. No operation, wire field or UI uses it yet; query, SGroup, stereo and collection meaning are outside this part.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/ctfile/v3000.rs",
+            "crates/application/src/ctfile.rs"
+          ],
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-03.rest",
-          "summary": "V3000, query/stereo semantics and advanced MOL/SDF features remain open.",
+          "summary": "V3000 on the operations, query/stereo semantics, SGroups and advanced MOL/SDF features remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

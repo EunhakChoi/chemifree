@@ -6,7 +6,7 @@ use std::path::Path;
 
 use chemifree_application::Application;
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord,
+    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, V2000Codec};
 
@@ -42,6 +42,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 order: 1,
             }],
             fields: vec![],
+            ctab: CtTab::V2000,
+            chiral: false,
+            collections: vec![],
         };
         let mol = V2000Codec
             .write(CtFormat::Mol, std::slice::from_ref(&molecule))
@@ -57,6 +60,54 @@ fn main() -> Result<(), Box<dyn Error>> {
             .write(CtFormat::Sdf, &[molecule, second])
             .map_err(|error| io::Error::other(format!("{}: {}", error.code, error.message)))?;
         fs::write(Path::new(&path).join("records.sdf"), sdf.value)?;
+    } else if mode == "write-v3000" {
+        let mut carbon = atom("C", 1.0e15);
+        carbon.isotope = Some(13);
+        let mut oxygen = atom("O", 1.25);
+        oxygen.charge = -1;
+        oxygen.radical = CtRadical::Doublet;
+        let mut nitrogen = atom("N", 2.5);
+        nitrogen.y = 1.0e15;
+        nitrogen.z = -1.0e15;
+        nitrogen.charge = 1;
+        nitrogen.isotope = Some(15);
+        let molecule = CtRecord {
+            title: "Independent V3000 fixture".into(),
+            program: String::new(),
+            comment: String::new(),
+            atoms: vec![carbon, oxygen, nitrogen],
+            bonds: vec![
+                CtBond {
+                    begin: 0,
+                    end: 1,
+                    order: 1,
+                },
+                CtBond {
+                    begin: 1,
+                    end: 2,
+                    order: 4,
+                },
+            ],
+            fields: vec![],
+            ctab: CtTab::V3000,
+            chiral: false,
+            collections: vec![],
+        };
+        let text = V2000Codec
+            .write_ctab(CtFormat::Mol, CtTab::V3000, &[molecule])
+            .map_err(|error| io::Error::other(format!("{}: {}", error.code, error.message)))?;
+        fs::write(Path::new(&path).join("molecule-v3000.mol"), text.value)?;
+    } else if mode == "read-v3000" {
+        let bytes = fs::read(path)?;
+        let parsed = V2000Codec
+            .read_ctab(CtFormat::Mol, &bytes)
+            .map_err(|error| io::Error::other(format!("{}: {}", error.code, error.message)))?;
+        println!(
+            "{}",
+            serde_json::to_string(
+                &serde_json::json!({"records":parsed.value,"losses":parsed.losses})
+            )?
+        );
     } else if mode == "preview" {
         let source = fs::read_to_string(path)?;
         let directory = tempfile::tempdir()?;

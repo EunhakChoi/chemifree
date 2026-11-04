@@ -1,4 +1,5 @@
-//! A bounded, independently implemented V2000 MOL / SDfile codec.
+//! A bounded, independently implemented V2000 MOL / SDfile codec, with a V3000 connection table
+//! behind the explicit `read_ctab` / `write_ctab` entry points (see the `v3000` module).
 //!
 //! Framing is parsed in context: the three header lines and a data value are never searched
 //! as though they were record separators. Unsupported chemical directives are refused, not
@@ -7,8 +8,10 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
+mod v3000;
+
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord, CtResult,
+    CtAtom, CtBond, CtCodec, CtError, CtField, CtFormat, CtRadical, CtRecord, CtResult, CtTab,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::element::Element;
@@ -521,6 +524,7 @@ fn parse_property(
 fn parse_record(
     lines: &mut Lines<'_>,
     record: usize,
+    accept_v3000: bool,
     losses: &mut Vec<Loss>,
 ) -> Result<CtRecord, CtError> {
     let title = lines.next(record)?.to_owned();
@@ -538,6 +542,9 @@ fn parse_record(
             lines.line(),
             "V2000 counts line is incomplete.",
         ));
+    }
+    if accept_v3000 && counts[33..39].trim().eq_ignore_ascii_case("V3000") {
+        return parse_v3000_record(lines, counts, record, title, program, comment, losses);
     }
     if !counts[33..39].trim().eq_ignore_ascii_case("V2000") {
         return Err(error(
@@ -689,7 +696,7 @@ fn parse_record(
             losses.push(loss(record, &format!(".atoms[{}].isotope", index + 1), "isotope_validation", LossDisposition::Unknown, SemanticImpact::Chemistry, "The public guide does not identify the PTABLE.DAT revision needed to verify the absolute mass bound."));
         }
     }
-    stereo_losses(&bonds, record, losses);
+    stereo_losses(&bonds, CtTab::V2000, record, losses);
     Ok(CtRecord {
         title,
         program,
@@ -697,13 +704,72 @@ fn parse_record(
         atoms,
         bonds,
         fields: Vec::new(),
+        ctab: CtTab::V2000,
+        chiral: false,
+        collections: Vec::new(),
     })
 }
 
-fn stereo_losses(bonds: &[CtBond], record: usize, losses: &mut Vec<Loss>) {
+fn parse_v3000_record(
+    lines: &mut Lines<'_>,
+    counts: &str,
+    record: usize,
+    title: String,
+    program: String,
+    comment: String,
+    losses: &mut Vec<Loss>,
+) -> Result<CtRecord, CtError> {
+    // The numeric fields of the counts line are unused in V3000; they may be blank or integers.
+    // The field in columns 31-33 is the obsolete property count: 999 in the CTfile description,
+    // 0 in the public ChemDraw files; both are accepted and nothing else.
+    let appendix = number(counts, 30, 33, record, lines.line()).ok();
+    if !counts[39..].trim().is_empty()
+        || !matches!(appendix, Some(0 | 999))
+        || (0..30)
+            .step_by(3)
+            .any(|start| number(counts, start, start + 3, record, lines.line()).is_err())
+    {
+        return Err(error(
+            "invalid_counts",
+            record,
+            lines.line(),
+            "A V3000 counts line holds integer fields, with 0 or 999 in columns 31-33, before the version.",
+        ));
+    }
+    let table = v3000::read_table(lines, record, losses)?;
+    stereo_losses(&table.bonds, CtTab::V3000, record, losses);
+    Ok(CtRecord {
+        title,
+        program,
+        comment,
+        atoms: table.atoms,
+        bonds: table.bonds,
+        fields: Vec::new(),
+        ctab: CtTab::V3000,
+        chiral: table.chiral,
+        collections: table.collections,
+    })
+}
+
+fn stereo_losses(bonds: &[CtBond], tab: CtTab, record: usize, losses: &mut Vec<Loss>) {
+    let reason = match tab {
+        CtTab::V2000 => {
+            "V2000 double-bond stereo code 0 can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."
+        }
+        CtTab::V3000 => {
+            "A V3000 double bond without a CFG property can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."
+        }
+    };
     for (index, bond) in bonds.iter().enumerate() {
         if bond.order == 2 {
-            losses.push(loss(record, &format!(".bonds[{}]", index + 1), "coordinate_stereo", LossDisposition::Unknown, SemanticImpact::Stereo, "V2000 double-bond stereo code 0 can be interpreted from coordinates; this codec does not infer or preserve an E/Z assignment."));
+            losses.push(loss(
+                record,
+                &format!(".bonds[{}]", index + 1),
+                "coordinate_stereo",
+                LossDisposition::Unknown,
+                SemanticImpact::Stereo,
+                reason,
+            ));
         }
     }
 }
@@ -851,109 +917,161 @@ fn parse_data(
 
 impl CtCodec for V2000Codec {
     fn read(&self, format: CtFormat, input: &[u8]) -> Result<CtResult<Vec<CtRecord>>, CtError> {
-        if input.is_empty() {
-            return Err(error("empty_input", 1, None, "No MOL record was supplied."));
-        }
-        if input.len() > MAX_BYTES {
-            return Err(error("resource_limit", 1, None, "Input exceeds 4 MiB."));
-        }
-        let mut lines = Lines::new(input);
-        let mut records = Vec::new();
-        let mut losses = Vec::new();
-        while !lines.done() {
-            let index = records.len() + 1;
-            if index > MAX_RECORDS {
-                return Err(error(
-                    "resource_limit",
-                    index,
-                    None,
-                    "More than 128 records.",
-                ));
-            }
-            let mut item = parse_record(&mut lines, index, &mut losses)?;
-            if format == CtFormat::Sdf {
-                parse_data(&mut lines, index, &mut item, &mut losses)?;
-            }
-            records.push(item);
-            if format == CtFormat::Mol {
-                while !lines.done() {
-                    if !lines.next(index)?.trim().is_empty() {
-                        return Err(error(
-                            "trailing_content",
-                            index,
-                            lines.line(),
-                            "Unexpected content after M END in MOL file.",
-                        ));
-                    }
-                }
-            }
-        }
-        if records.is_empty() {
-            return Err(error("empty_input", 1, None, "No MOL record was supplied."));
-        }
-        Ok(CtResult {
-            value: records,
-            losses,
-        })
+        read_records(format, input, false)
     }
 
     fn write(&self, format: CtFormat, records: &[CtRecord]) -> Result<CtResult<String>, CtError> {
-        if records.is_empty() {
-            return Err(error(
-                "empty_input",
-                1,
-                None,
-                "At least one record is required.",
-            ));
-        }
-        if format == CtFormat::Mol && records.len() != 1 {
-            return Err(error(
-                "invalid_count",
-                2,
-                None,
-                "MOL contains exactly one record.",
-            ));
-        }
-        let mut output = String::new();
-        let mut losses = Vec::new();
-        for (index, record) in records.iter().enumerate() {
-            let number = index + 1;
-            if number > MAX_RECORDS {
-                return Err(error(
-                    "resource_limit",
-                    number,
-                    None,
-                    "More than 128 records.",
-                ));
-            }
-            write_record(&mut output, record, format, number, &mut losses)?;
-            if output.len() > MAX_BYTES {
-                return Err(error(
-                    "resource_limit",
-                    number,
-                    None,
-                    "Output exceeds 4 MiB.",
-                ));
-            }
-        }
-        Ok(CtResult {
-            value: output,
-            losses,
-        })
+        write_records(format, CtTab::V2000, records)
     }
+
+    fn read_ctab(
+        &self,
+        format: CtFormat,
+        input: &[u8],
+    ) -> Result<CtResult<Vec<CtRecord>>, CtError> {
+        read_records(format, input, true)
+    }
+
+    fn write_ctab(
+        &self,
+        format: CtFormat,
+        tab: CtTab,
+        records: &[CtRecord],
+    ) -> Result<CtResult<String>, CtError> {
+        write_records(format, tab, records)
+    }
+}
+
+fn read_records(
+    format: CtFormat,
+    input: &[u8],
+    accept_v3000: bool,
+) -> Result<CtResult<Vec<CtRecord>>, CtError> {
+    if input.is_empty() {
+        return Err(error("empty_input", 1, None, "No MOL record was supplied."));
+    }
+    if input.len() > MAX_BYTES {
+        return Err(error("resource_limit", 1, None, "Input exceeds 4 MiB."));
+    }
+    let mut lines = Lines::new(input);
+    let mut records = Vec::new();
+    let mut losses = Vec::new();
+    while !lines.done() {
+        let index = records.len() + 1;
+        if index > MAX_RECORDS {
+            return Err(error(
+                "resource_limit",
+                index,
+                None,
+                "More than 128 records.",
+            ));
+        }
+        let mut item = parse_record(&mut lines, index, accept_v3000, &mut losses)?;
+        if format == CtFormat::Sdf {
+            parse_data(&mut lines, index, &mut item, &mut losses)?;
+        }
+        records.push(item);
+        if format == CtFormat::Mol {
+            while !lines.done() {
+                if !lines.next(index)?.trim().is_empty() {
+                    return Err(error(
+                        "trailing_content",
+                        index,
+                        lines.line(),
+                        "Unexpected content after M END in MOL file.",
+                    ));
+                }
+            }
+        }
+    }
+    if records.is_empty() {
+        return Err(error("empty_input", 1, None, "No MOL record was supplied."));
+    }
+    Ok(CtResult {
+        value: records,
+        losses,
+    })
+}
+
+fn write_records(
+    format: CtFormat,
+    tab: CtTab,
+    records: &[CtRecord],
+) -> Result<CtResult<String>, CtError> {
+    if records.is_empty() {
+        return Err(error(
+            "empty_input",
+            1,
+            None,
+            "At least one record is required.",
+        ));
+    }
+    if format == CtFormat::Mol && records.len() != 1 {
+        return Err(error(
+            "invalid_count",
+            2,
+            None,
+            "MOL contains exactly one record.",
+        ));
+    }
+    let mut output = String::new();
+    let mut losses = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        let number = index + 1;
+        if number > MAX_RECORDS {
+            return Err(error(
+                "resource_limit",
+                number,
+                None,
+                "More than 128 records.",
+            ));
+        }
+        write_record(&mut output, record, format, tab, number, &mut losses)?;
+        if output.len() > MAX_BYTES {
+            return Err(error(
+                "resource_limit",
+                number,
+                None,
+                "Output exceeds 4 MiB.",
+            ));
+        }
+    }
+    Ok(CtResult {
+        value: output,
+        losses,
+    })
 }
 
 fn write_record(
     out: &mut String,
     item: &CtRecord,
     format: CtFormat,
+    tab: CtTab,
     record: usize,
     losses: &mut Vec<Loss>,
 ) -> Result<(), CtError> {
     title_ok(&item.title, record, None)?;
     simple_line(&item.program, record, None, "Program")?;
     simple_line(&item.comment, record, None, "Comment")?;
-    if item.atoms.len() > MAX_ITEMS || item.bonds.len() > MAX_ITEMS {
+    if !item.collections.is_empty() {
+        return Err(error(
+            "v3000_collection_not_supported_yet",
+            record,
+            None,
+            "Stereo collections are carried by the reader only; neither writer states them.",
+        ));
+    }
+    if item.chiral {
+        losses.push(loss(
+            record,
+            ".counts.chiral",
+            "chiral_flag",
+            LossDisposition::Dropped,
+            SemanticImpact::Stereo,
+            "The chiral flag is read but not interpreted, and the writer states 0.",
+        ));
+    }
+    if tab == CtTab::V2000 && (item.atoms.len() > MAX_ITEMS || item.bonds.len() > MAX_ITEMS) {
         return Err(error(
             "resource_limit",
             record,
@@ -974,6 +1092,11 @@ fn write_record(
     }
     writeln!(out, "{}\n{}\n{}", item.title, item.program, item.comment)
         .expect("String writes do not fail");
+    if tab == CtTab::V3000 {
+        v3000::write_table(out, item, record, losses)?;
+        stereo_losses(&item.bonds, CtTab::V3000, record, losses);
+        return write_data(out, item, format, record);
+    }
     writeln!(
         out,
         "{:>3}{:>3}  0  0  0  0  0  0  0  0999 V2000",
@@ -1109,6 +1232,16 @@ fn write_record(
         }
     }
     out.push_str("M  END\n");
+    stereo_losses(&item.bonds, CtTab::V2000, record, losses);
+    write_data(out, item, format, record)
+}
+
+fn write_data(
+    out: &mut String,
+    item: &CtRecord,
+    format: CtFormat,
+    record: usize,
+) -> Result<(), CtError> {
     if format == CtFormat::Sdf {
         for field in &item.fields {
             if !valid_field_name(&field.name) {
@@ -1153,6 +1286,5 @@ fn write_record(
         }
         out.push_str("$$$$\n");
     }
-    stereo_losses(&item.bonds, record, losses);
     Ok(())
 }

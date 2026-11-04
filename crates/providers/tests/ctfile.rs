@@ -1,5 +1,5 @@
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord,
+    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
 };
 use chemifree_application::{LossDisposition, SemanticImpact};
 use chemifree_providers::V2000Codec;
@@ -30,6 +30,9 @@ fn record() -> CtRecord {
             order: 1,
         }],
         fields: vec![],
+        ctab: CtTab::V2000,
+        chiral: false,
+        collections: vec![],
     }
 }
 
