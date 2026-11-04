@@ -590,3 +590,91 @@ fn hash_either_and_crossed_marks_survive_a_v2000_round_trip() {
     assert_eq!(first["bonds"][1]["mark"], again["bonds"][1]["mark"]);
     assert_eq!(again["bonds"][2]["mark"], json!({"kind": "crossed"}));
 }
+
+/// A center whose neighbours sit within 0.004 point (2e-4 angstrom) of it, found by a search over
+/// small random geometries: the unrounded drawing derives a clockwise configuration, while the
+/// four-decimal coordinates a file holds derive an anticlockwise one.
+fn tiny_center(app: &App) -> String {
+    let created = call(
+        app,
+        "tiny-create",
+        "document.create",
+        json!({"title": "Tiny"}),
+    );
+    let id = created["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let at = |x: f64, y: f64, element: &str| {
+        json!({"op": "add_atom", "element": element, "position": {"x": x, "y": y},
+               "bond_to": {"atom": "$0", "order": "single"}})
+    };
+    let reply = call(
+        app,
+        "tiny-edit",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 0, "commands": [
+            {"op": "add_atom", "element": "C", "position": {"x": 0.0, "y": 0.0}},
+            at(-0.0009000545226318812, 0.0012473861578479292, "F"),
+            at(-0.002107078102891128, 0.0002477045539257918, "Cl"),
+            at(-0.0017751553628192395, 0.0034908077621401633, "Br"),
+            {"op": "set_bond_mark", "bond": "$2", "mark": {"kind": "wedge", "narrow": "begin"}},
+            {"op": "set_configuration_from_drawing", "atoms": ["$0"]}]}),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    id
+}
+
+#[test]
+fn a_configuration_that_only_the_unrounded_drawing_shows_needs_consent() {
+    let (app, _directory, _unused) = setup();
+    let id = tiny_center(&app);
+    assert_eq!(
+        snapshot(&app, &id)["stereo"]["atoms"][0]["configuration"]["turn"],
+        "clockwise"
+    );
+    for ctab in ["v2000", "v3000"] {
+        let refused = export(&app, &id, json!({"ctab": ctab}));
+        assert_eq!(
+            refused["diagnostics"][0]["details"]["features"],
+            json!(["stereo_configuration_not_drawn"]),
+            "{ctab}: {refused}"
+        );
+    }
+}
+
+#[test]
+fn a_double_bond_configuration_that_only_the_unrounded_drawing_shows_needs_consent() {
+    // Found by a search over small random geometries: the unrounded drawing derives
+    // opposite sides, the file's four-decimal coordinates are degenerate.
+    let (app, _directory, id) = setup();
+    let at = |x: f64, y: f64, to: &str, order: &str| {
+        json!({"op": "add_atom", "element": "C", "position": {"x": x, "y": y},
+               "bond_to": {"atom": to, "order": order}})
+    };
+    let reply = call(
+        &app,
+        "alkene",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 0, "commands": [
+            {"op": "add_atom", "element": "C", "position": {"x": 0.0, "y": 0.0}},
+            at(0.004710008200258017, 0.0, "$0", "double"),
+            at(0.0013508389201015234, 0.0009827092401683332, "$0", "single"),
+            at(0.006290743350982666, -0.00125688917376101, "$1", "single"),
+            {"op": "set_configuration_from_drawing", "bonds": ["$1"]}]}),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(
+        snapshot(&app, &id)["stereo"]["bonds"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let refused = export(&app, &id, json!({"ctab": "v3000"}));
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["features"],
+        json!(["stereo_bond_configuration"]),
+        "{refused}"
+    );
+}

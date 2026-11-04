@@ -44,6 +44,16 @@ pub struct CtCollection {
     pub atoms: Vec<usize>,
 }
 
+/// The value a coordinate has once a writer has put it in a file: four decimals, read back. The
+/// writers and the export's stereo comparison both use this one function, so the comparison sees
+/// the coordinates the file holds. `None` for a value that does not format as a finite number.
+pub fn written_coordinate(value: f64) -> Option<f64> {
+    if !value.is_finite() {
+        return None;
+    }
+    format!("{value:.4}").parse::<f64>().ok()
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CtRecord {
     pub title: String,

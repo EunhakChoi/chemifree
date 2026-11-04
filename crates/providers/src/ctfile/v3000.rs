@@ -962,7 +962,7 @@ pub(super) fn write_table(
                     "Coordinate must be finite and fit 24 characters.",
                 ));
             }
-            if formatted.parse::<f64>().ok() != Some(value) {
+            if chemifree_application::ctfile::written_coordinate(value) != Some(value) {
                 losses.push(loss(
                     record,
                     &format!(".atoms[{}].coordinates", i + 1),

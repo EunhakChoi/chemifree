@@ -237,6 +237,24 @@ impl<'a> Drawing<'a> {
         Self::new(atoms, bonds, document.positions(instance))
     }
 
+    /// The drawing of `document` in scene instance `instance`, with every position passed through
+    /// `shown` first: the picture as a reader of a file written from the document would see it
+    /// (for example after coordinates are rounded to the file's decimals).
+    pub fn of_document_shown(
+        document: &'a Document,
+        instance: ObjectId,
+        shown: impl Fn(Point) -> Point,
+    ) -> Self {
+        let (atoms, bonds) = document.graph_maps();
+        Self::new(
+            atoms,
+            bonds,
+            document
+                .positions(instance)
+                .map(|(atom, point)| (atom, shown(point))),
+        )
+    }
+
     fn position(&self, atom: AtomId) -> Result<Point, DeriveError> {
         self.positions
             .get(&atom)

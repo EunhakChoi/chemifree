@@ -16,7 +16,9 @@ use crate::contract::{
     AtomKindView, BondEndDto, BondOrderDto, DocumentView, HydrogensDto, MarkDto, RadicalDto,
     SceneObjectView,
 };
-use crate::ctfile::{CtAtom, CtBond, CtBondStereo, CtError, CtField, CtRadical, CtRecord, CtTab};
+use crate::ctfile::{
+    CtAtom, CtBond, CtBondStereo, CtError, CtField, CtRadical, CtRecord, CtTab, written_coordinate,
+};
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 /// V2000 coordinates are in angstroms; the editor's positions are points with y increasing down.
@@ -501,6 +503,19 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
     losses
 }
 
+/// A position as a reader of the written file sees it: the export's mapping to angstroms, the
+/// shared four-decimal rounding of the writers, and the import's mapping back to points.
+fn written_point(point: Point) -> Point {
+    let x = written_coordinate(point.x() / POINTS_PER_ANGSTROM);
+    let y = written_coordinate(-point.y() / POINTS_PER_ANGSTROM);
+    match (x, y) {
+        (Some(x), Some(y)) => {
+            Point::new(x * POINTS_PER_ANGSTROM, -y * POINTS_PER_ANGSTROM).unwrap_or(point)
+        }
+        _ => point,
+    }
+}
+
 /// Whether the drawing needs V3000 to be written at all: more than 999 atoms or bonds, or an
 /// aromatic bond, which V2000 has no type for. What `ctab: "auto"` decides on.
 pub(crate) fn needs_v3000(doc: &DocumentView) -> bool {
@@ -532,7 +547,8 @@ pub(crate) fn molfile_stereo_losses(
         reason: reason.into(),
         semantic_impact: SemanticImpact::Stereo,
     };
-    let drawing = Drawing::of_document(document, document.first_instance());
+    // The comparison reads the coordinates the file will hold, not the document's own.
+    let drawing = Drawing::of_document_shown(document, document.first_instance(), written_point);
     let mut centers = Vec::new();
     let mut double_bonds = Vec::new();
     for (key, state) in document.stereo().iter() {

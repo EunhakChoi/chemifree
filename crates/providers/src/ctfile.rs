@@ -1164,7 +1164,7 @@ fn write_record(
                     "Coordinate does not fit ten columns.",
                 ));
             }
-            if formatted.trim().parse::<f64>().ok() != Some(value) {
+            if chemifree_application::ctfile::written_coordinate(value) != Some(value) {
                 losses.push(loss(
                     record,
                     &format!(".atoms[{}].coordinates", i + 1),
