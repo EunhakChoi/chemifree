@@ -286,7 +286,7 @@ fn documented_reading_claims_hold() {
     // "`$` is refused as `quadruple_bond_unsupported`", "`*` ... `wildcard_unsupported`"
     assert_eq!(refused("C$C"), "quadruple_bond_unsupported");
     assert_eq!(refused("*"), "wildcard_unsupported");
-    assert_eq!(refused("[C@H](F)Cl"), "stereo_unsupported");
+    assert_eq!(refused("[C@H](F)Cl"), "stereo_neighbor_count");
     assert_eq!(refused("[0C]"), "isotope_zero");
     assert_eq!(refused("[1000C]"), "isotope_out_of_range");
     // "Ending": text after whitespace is reported, leading whitespace and empty text are codes.
@@ -506,9 +506,9 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     assert!(bullet.contains("`C(.C)C`") && bullet.contains("`C.(C)C`"));
     assert_eq!(accepted("C(.C)C").bonds.len(), 1);
     assert_eq!(refusal("C.(C)C"), Some("branch_without_atom"));
-    // Two digits of hydrogens, and stereo, are refused.
+    // Two digits of hydrogens, and a directional bond, are refused.
     assert_eq!(refusal("[CH10]"), Some("invalid_hydrogen_count"));
-    assert_eq!(refusal("C[C@H](F)Cl"), Some("stereo_unsupported"));
+    assert_eq!(refusal("F/C=C/F"), Some("directional_bond_unsupported"));
     // The simple ions of the valence model need no consent; a metal does, and so does an
     // unlisted charge. This is what makes `[Na+].[Cl-]` a plain salt.
     assert!(bullet.contains("`[Na+].[Cl-]`"));

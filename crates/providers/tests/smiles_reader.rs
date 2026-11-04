@@ -172,11 +172,10 @@ fn the_earliest_opened_ring_is_the_one_reported() {
 #[test]
 fn valid_but_unsupported_text_is_unsupported_not_syntax() {
     for (text, code, offset, length) in [
-        ("[C@H](F)Cl", SmilesCode::StereoUnsupported, 2, 1),
-        ("[C@@H](F)Cl", SmilesCode::StereoUnsupported, 2, 1),
-        ("F/C=C/F", SmilesCode::StereoUnsupported, 1, 1),
-        ("F\\C=C\\F", SmilesCode::StereoUnsupported, 1, 1),
-        ("C@C", SmilesCode::StereoUnsupported, 1, 1),
+        ("[C@H](F)Cl", SmilesCode::StereoNeighborCount, 2, 1),
+        ("[C@@H](F)Cl", SmilesCode::StereoNeighborCount, 2, 2),
+        ("F/C=C/F", SmilesCode::DirectionalBondUnsupported, 1, 1),
+        ("F\\C=C\\F", SmilesCode::DirectionalBondUnsupported, 1, 1),
         ("*", SmilesCode::WildcardUnsupported, 0, 1),
         ("[*]", SmilesCode::WildcardUnsupported, 1, 1),
         ("C$C", SmilesCode::QuadrupleBondUnsupported, 1, 1),

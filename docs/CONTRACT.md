@@ -158,7 +158,7 @@ The codec accepts at most 4 MiB input or output, 128 records, 999 atoms and 999 
 
 `document.import` and `document.export` with `format: "smiles"` read and write one SMILES string through the same `Application::execute` as every other operation, so HTTP `POST /api/v1/operations`, `chemifree operations` and the web SMILES panel give the same replies. The port is `crates/application/src/smiles.rs`, the reader and writers are `crates/providers/src/smiles/`, and the operations are `crates/application/src/operations/smiles.rs`.
 
-**Implemented:** a bounded OpenSMILES subset reader; a recorded-order writer; a canonical writer; preview, consent and import into an open document; read-only export. **Not implemented:** stereochemistry (`@`, `/`, `\` are refused with `stereo_unsupported`, never ignored; a drawing that holds stereo marks or stated configurations is written without them only after the caller accepts the consent-required losses `stereo_marks` and `stereo_configuration`), query SMILES (`*` is refused with `wildcard_unsupported`), reaction SMILES, CXSMILES extensions, polymer or fragment-grouping SMILES, and InChI or any other identifier. The canonical form is Chemifree's own: it is bound to `chemifree-chemical-graph-2` and is not the canonical SMILES of RDKit, Open Babel or any other toolkit, and no text of this form has been compared with another toolkit's. Models: the reader and the recorded writer are `chemifree-smiles-1`; the canonical writer is `chemifree-smiles-canonical-1`. Both use the valence model `chemifree-valence-3` and the aromaticity model `chemifree-aromaticity-2`, and report them as `valence_model` and `aromaticity_model`. A reply's `model_id` names the reader/recorded writer or the canonical writer that produced its result. A canonical export also reports `graph_model: "chemifree-chemical-graph-2"`.
+**Implemented:** a bounded OpenSMILES subset reader; a recorded-order writer; a canonical writer; preview, consent and import into an open document; read-only export. **Stereo read (P29c, see "Stereo read" below):** the tetrahedral marks `@` and `@@` of bracket atoms are stored as configurations, and a CXSMILES block of the fields `a:`, `o<n>:` and `&<n>:` as enhanced stereo groups. **Not implemented:** stereo in written text (the writers write no `@`, `/`, `\` and no CX block; a drawing that holds stereo marks or stated configurations is written without them only after the caller accepts the consent-required losses `stereo_marks` and `stereo_configuration`), directional bonds `/` and `\` (refused with `directional_bond_unsupported`, never ignored), the `@TH`, `@AL`, `@SP`, `@TB` and `@OH` classes (`stereo_class_unsupported`), every other CXSMILES field (`cxsmiles_field_unsupported`), query SMILES (`*` is refused with `wildcard_unsupported`), reaction SMILES, polymer or fragment-grouping SMILES, and InChI or any other identifier. The canonical form is Chemifree's own: it is bound to `chemifree-chemical-graph-2` and is not the canonical SMILES of RDKit, Open Babel or any other toolkit, and no text of this form has been compared with another toolkit's. Models: the reader and the recorded writer are `chemifree-smiles-1`; the canonical writer is `chemifree-smiles-canonical-1`. Both use the valence model `chemifree-valence-3` and the aromaticity model `chemifree-aromaticity-2`, and report them as `valence_model` and `aromaticity_model`. A reply's `model_id` names the reader/recorded writer or the canonical writer that produced its result. A canonical export also reports `graph_model: "chemifree-chemical-graph-2"`.
 
 ### Reading
 
@@ -196,7 +196,7 @@ Every string either writer returns is accepted by the same reader: the codec rea
 
 ### Error codes
 
-Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsupported` (valid or plausible SMILES the drawing or this implementation cannot hold), `limit` and `not_writable` (the drawing has no string the reader accepts). The table is the codec's own and is compared with it by a test.
+Every refusal has one of five classes: `syntax` (the text is not SMILES), `unsupported` (valid or plausible SMILES the drawing or this implementation cannot hold), `chemistry` (the text contradicts itself, such as a stereo group member that is no stereocenter), `limit` and `not_writable` (the drawing has no string the reader accepts). A reading refusal also carries `details.family`, the closed diagnostic family of its class: `syntax` is `malformed_input`, `unsupported` is `unsupported_feature`, `chemistry` is `invalid_chemistry` and `limit` is `resource_limit`; a `not_writable` refusal has none. The table is the codec's own and is compared with it by a test.
 
 | Code | Class | Meaning |
 | --- | --- | --- |
@@ -229,7 +229,15 @@ Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsup
 | `bond_without_atom` | syntax | A bond symbol needs an atom before it. |
 | `dot_without_atom` | syntax | A dot needs an atom before it. |
 | `repeated_bond_symbol` | syntax | Two bond symbols cannot follow each other. |
-| `stereo_unsupported` | unsupported | Stereochemistry (@, /, \) is not supported yet. |
+| `stereo_class_unsupported` | unsupported | Only the tetrahedral marks @ and @@ are read; @TH, @AL, @SP, @TB and @OH classes are not supported. |
+| `stereo_center_unsupported_here` | unsupported | The drawing cannot hold a tetrahedral configuration on this atom. |
+| `stereo_neighbor_count` | unsupported | A tetrahedral mark needs four neighbours counting one bracket hydrogen: three or four bonds. |
+| `directional_bond_unsupported` | unsupported | The directional bonds / and \ (double bond configuration) are not read yet. |
+| `cxsmiles_malformed` | syntax | The CXSMILES block is not well formed: a bar, comma separated fields, a closing bar. |
+| `cxsmiles_atom_out_of_range` | syntax | A CXSMILES atom index is beyond the atoms of the SMILES text. |
+| `cxsmiles_field_unsupported` | unsupported | Only the stereo group fields a:, o<n>: and &<n>: of a CXSMILES block are read. |
+| `cxsmiles_group_member_not_stereocenter` | chemistry | A CXSMILES stereo group lists an atom that carries no @ or @@ mark in the text. |
+| `cxsmiles_member_repeated` | chemistry | A CXSMILES atom index appears twice among the stereo groups; a center is in one group. |
 | `wildcard_unsupported` | unsupported | The wildcard atom * is not supported. |
 | `quadruple_bond_unsupported` | unsupported | The quadruple bond $ is not supported. |
 | `ring_label_extended_unsupported` | unsupported | Ring labels written %(nnn) are not supported; use 0 to 99. |
@@ -282,8 +290,12 @@ Every refusal has one of four classes: `syntax` (the text is not SMILES), `unsup
 | `c1ccccc1:c1ccccc1` | `aromatic_bond_outside_ring` | 8 |
 | `c1ccccc1.c1cccc1` | `aromatic_system_unsupported` | 9 |
 | `c1ccc2c(c1)CCCC2` | `aromatic_system_unsupported` | 0 |
-| `F/C=C/F` | `stereo_unsupported` | 1 |
-| `[C@H](F)Cl` | `stereo_unsupported` | 2 |
+| `F/C=C/F` | `directional_bond_unsupported` | 1 |
+| `[C@H](F)Cl` | `stereo_neighbor_count` | 2 |
+| `[C@TH1H](F)(Cl)Br` | `stereo_class_unsupported` | 2 |
+| `[S@](=O)(C)CC` | `stereo_center_unsupported_here` | 2 |
+| `C[C@H](F)Cl |a:0|` | `cxsmiles_group_member_not_stereocenter` | 15 |
+| `C[C@H](F)Cl |r|` | `cxsmiles_field_unsupported` | 13 |
 | `[0C]` | `isotope_zero` | 1 |
 | `[C+9]` | `charge_out_of_range` | 2 |
 | `C%(123)C` | `ring_label_extended_unsupported` | 1 |

@@ -9,7 +9,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use chemifree_application::smiles::{
-    SmilesAtom, SmilesBond, SmilesCode, SmilesError, SmilesRead, Span,
+    SmilesAtom, SmilesBond, SmilesCode, SmilesError, SmilesRead, SmilesStereo, Span,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::document::{
@@ -20,8 +20,11 @@ use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::rings;
 use chemifree_domain::states::{AtomKind, Hydrogens, Radical};
+use chemifree_domain::stereo::Turn;
 
 use super::analysis::{self, determine_radical};
+use super::cx;
+use super::stereo::Neighborhoods;
 use super::tables;
 use super::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL};
 
@@ -77,6 +80,14 @@ struct OpenRing {
     symbol: Option<BondOrder>,
     span: Span,
     sequence: usize,
+    /// Where the opening atom's neighbour list holds this label's place.
+    slot: usize,
+}
+
+/// An atom token read: the atom and the tetrahedral mark written in its bracket.
+struct Scanned {
+    read: ReadAtom,
+    chirality: Option<(Turn, Span)>,
 }
 
 /// A bracket atom as written, before its semantics are checked.
@@ -87,6 +98,7 @@ struct Bracket {
     hydrogens: u8,
     charge: Option<(i16, Span)>,
     class: Option<Span>,
+    chirality: Option<(Turn, Span)>,
 }
 
 struct Reader<'a> {
@@ -109,6 +121,7 @@ struct Reader<'a> {
     dot: Option<Span>,
     /// Bracket atoms that named an atom class, by atom index; the class is not kept.
     classes: Vec<(usize, Span)>,
+    neighborhoods: Neighborhoods,
 }
 
 fn char_span(source: &str, offset: usize) -> Span {
@@ -164,6 +177,7 @@ pub(super) fn parse(source: &str) -> Result<Parsed, Fail> {
         pending: None,
         dot: None,
         classes: Vec::new(),
+        neighborhoods: Neighborhoods::default(),
     };
     reader.chain()?;
     reader.finish()
@@ -200,7 +214,9 @@ impl Reader<'_> {
                 b'$' => {
                     return Err(at(SmilesCode::QuadrupleBondUnsupported, self.here()));
                 }
-                b'/' | b'\\' | b'@' => return Err(at(SmilesCode::StereoUnsupported, self.here())),
+                b'/' | b'\\' => {
+                    return Err(at(SmilesCode::DirectionalBondUnsupported, self.here()));
+                }
                 b'0'..=b'9' | b'%' => self.ring_token()?,
                 _ => self.atom_token()?,
             }
@@ -389,11 +405,13 @@ impl Reader<'_> {
     ) -> Result<(), Fail> {
         let Some(open) = self.rings[label].take() else {
             self.ring_sequence += 1;
+            let slot = self.neighborhoods.open_ring(atom);
             self.rings[label] = Some(OpenRing {
                 atom,
                 symbol,
                 span,
                 sequence: self.ring_sequence,
+                slot,
             });
             return Ok(());
         };
@@ -405,7 +423,9 @@ impl Reader<'_> {
             (Some(symbol), _) | (None, Some(symbol)) => Some(symbol),
             (None, None) => None,
         };
-        self.add_bond(open.atom, atom, joined, span)
+        self.add_bond(open.atom, atom, joined, span)?;
+        self.neighborhoods.close_ring(atom, open.atom, open.slot);
+        Ok(())
     }
 
     fn add_bond(
@@ -434,16 +454,21 @@ impl Reader<'_> {
         let atom = if self.peek(0) == Some(b'[') {
             self.bracket_atom()?
         } else {
-            self.bare_atom()?
+            Scanned {
+                read: self.bare_atom()?,
+                chirality: None,
+            }
         };
         let index = self.atoms.len();
-        self.atoms.push(atom);
+        self.neighborhoods.add_atom(atom.chirality);
+        self.atoms.push(atom.read);
         if let Some(anchor) = self.anchor {
             let (symbol, span) = match self.pending.take() {
                 Some((symbol, span)) => (Some(symbol), span),
                 None => (None, Span::new(start, self.position - start)),
             };
             self.add_bond(anchor, index, symbol, span)?;
+            self.neighborhoods.chain_bond(anchor, index);
         }
         self.anchor = Some(index);
         self.current = Some(index);
@@ -489,14 +514,12 @@ impl Reader<'_> {
     }
 
     /// `[` isotope? symbol chiral? hcount? charge? class? `]` (Formal Grammar).
-    fn bracket_atom(&mut self) -> Result<ReadAtom, Fail> {
+    fn bracket_atom(&mut self) -> Result<Scanned, Fail> {
         let start = self.position;
         self.position += 1;
         let isotope = self.digits();
         let (element, aromatic) = self.bracket_symbol(start)?;
-        if self.peek(0) == Some(b'@') {
-            return Err(at(SmilesCode::StereoUnsupported, self.here()));
-        }
+        let chirality = self.chirality()?;
         let mut bracket = Bracket {
             element,
             aromatic,
@@ -504,6 +527,7 @@ impl Reader<'_> {
             hydrogens: 0,
             charge: None,
             class: None,
+            chirality,
         };
         if self.peek(0) == Some(b'H') {
             if element.symbol() == "H" {
@@ -547,6 +571,33 @@ impl Reader<'_> {
         }
         let span = Span::new(start, self.position - start);
         self.bracket_semantics(bracket, span)
+    }
+
+    /// `@` or `@@`; any other class (`@TH1`, `@SP2`, ...) is refused whole.
+    fn chirality(&mut self) -> Result<Option<(Turn, Span)>, Fail> {
+        if self.peek(0) != Some(b'@') {
+            return Ok(None);
+        }
+        let start = self.position;
+        self.position += 1;
+        let turn = if self.peek(0) == Some(b'@') {
+            self.position += 1;
+            Turn::Clockwise
+        } else {
+            Turn::Anticlockwise
+        };
+        let named = ["TH", "AL", "SP", "TB", "OH"]
+            .iter()
+            .any(|class| self.source[self.position..].starts_with(class));
+        if named {
+            self.position += 2;
+            while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+                self.position += 1;
+            }
+            let span = Span::new(start, self.position - start);
+            return Err(at(SmilesCode::StereoClassUnsupported, span));
+        }
+        Ok(Some((turn, Span::new(start, self.position - start))))
     }
 
     fn bracket_symbol(&mut self, open: usize) -> Result<(Element, bool), Fail> {
@@ -630,7 +681,7 @@ impl Reader<'_> {
         (value, Span::new(start, self.position - start))
     }
 
-    fn bracket_semantics(&mut self, bracket: Bracket, span: Span) -> Result<ReadAtom, Fail> {
+    fn bracket_semantics(&mut self, bracket: Bracket, span: Span) -> Result<Scanned, Fail> {
         let mut atom = Atom::new(AtomKind::Element(bracket.element));
         if let Some((value, digits)) = bracket.isotope {
             if value == 0 {
@@ -653,11 +704,14 @@ impl Reader<'_> {
             // Recorded as a loss by `finish`, which sees every atom; keep the span there.
             self.classes.push((self.atoms.len(), class));
         }
-        Ok(ReadAtom {
-            atom,
-            aromatic: bracket.aromatic,
-            bracket: true,
-            span,
+        Ok(Scanned {
+            read: ReadAtom {
+                atom,
+                aromatic: bracket.aromatic,
+                bracket: true,
+                span,
+            },
+            chirality: bracket.chirality,
         })
     }
 }
@@ -686,14 +740,29 @@ fn dropped(feature: &str, span: Span, reason: &str, impact: SemanticImpact) -> L
 }
 
 impl Reader<'_> {
-    /// Non-whitespace text after the terminator: the first to the last non-whitespace byte.
-    fn ignored_text(&self) -> Option<Span> {
-        let rest = self.source.get(self.position..)?;
+    /// The text after the terminator, split into the CXSMILES block when it starts with `|`
+    /// (the offsets of its two bars) and the non-whitespace text that is not read: the first to
+    /// the last non-whitespace byte, after the block when there is one.
+    fn trailing(&self) -> Result<(Option<(usize, usize)>, Option<Span>), Fail> {
         let blank = |c: char| u8::try_from(c).is_ok_and(tables::is_whitespace);
+        let Some(rest) = self.source.get(self.position..) else {
+            return Ok((None, None));
+        };
         let trimmed = rest.trim_start_matches(blank);
-        let start = self.position + (rest.len() - trimmed.len());
-        let text = trimmed.trim_end_matches(blank);
-        (!text.is_empty()).then(|| Span::new(start, text.len()))
+        let mut start = self.position + (rest.len() - trimmed.len());
+        let mut block = None;
+        let mut text = trimmed;
+        if trimmed.starts_with('|') {
+            let Some(length) = trimmed[1..].find('|') else {
+                return Err(at(SmilesCode::CxsmilesMalformed, Span::new(start, 1)));
+            };
+            let close = start + 1 + length;
+            block = Some((start, close));
+            text = trimmed[length + 2..].trim_start_matches(blank);
+            start = close + 1 + (trimmed.len() - length - 2 - text.len());
+        }
+        let text = text.trim_end_matches(blank);
+        Ok((block, (!text.is_empty()).then(|| Span::new(start, text.len()))))
     }
 
     /// Decides every bond's kind: an unspecified bond joining two aromatic atoms is aromatic
@@ -720,7 +789,7 @@ impl Reader<'_> {
     }
 
     fn finish(self) -> Result<Parsed, Fail> {
-        let ignored_text = self.ignored_text();
+        let (block, ignored_text) = self.trailing()?;
         // One graph is built for the whole read: first with every bond single, which is enough to
         // find the rings, then with the bond kinds decided and, last, the radicals found.
         let mut graph = MoleculeGraph::from_parts(
@@ -835,6 +904,33 @@ impl Reader<'_> {
         for ((_, atom), entry) in graph.atoms_mut().zip(&atoms) {
             atom.radical = entry.atom.radical;
         }
+        let stereo = {
+            let finished: Vec<&Atom> = atoms.iter().map(|entry| &entry.atom).collect();
+            let bonds: Vec<(usize, usize, &BondOrder)> = self
+                .bonds
+                .iter()
+                .zip(&orders)
+                .map(|(bond, order)| (bond.begin, bond.end, order))
+                .collect();
+            let centers = self.neighborhoods.centers(&finished, &bonds)?;
+            let groups = match block {
+                Some((open, close)) => cx::parse(self.source, open, close, atoms.len(), |index| {
+                    centers.iter().any(|center| center.atom == index)
+                })?,
+                None => Vec::new(),
+            };
+            // One command per atom, bond, configuration and group in one transaction.
+            let total = atoms.len() + self.bonds.len() + centers.len() + groups.len();
+            if total > MAX_COMMANDS {
+                let span = groups
+                    .last()
+                    .map(|group| group.span)
+                    .or_else(|| centers.last().map(|center| center.span))
+                    .unwrap_or_else(|| Span::new(0, 0));
+                return Err(at(SmilesCode::CommandLimit, span));
+            }
+            SmilesStereo { centers, groups }
+        };
         let read = SmilesRead {
             atoms: atoms
                 .into_iter()
@@ -855,6 +951,7 @@ impl Reader<'_> {
                 .collect(),
             ignored_text,
             losses,
+            stereo,
         };
         Ok(Parsed {
             read,
