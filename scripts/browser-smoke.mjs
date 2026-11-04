@@ -2889,6 +2889,111 @@ step = 'after short_wide_bond_is_selectable'
   results.ctfile_preview_import_export = true
 }
 
+// MOL version choice: V2000 is the default and asks consent for the group it cannot carry; V3000
+// writes the group as a COLLECTION after consent for the centers it does not state, the written
+// file reads back to the same group, and a refusal is worded and leaves the drawing unchanged.
+{
+  step = 'MOL V3000 export, consent and re-import'
+  const stereoCommands = [
+    { op: 'add_atom', element: 'F', position: { x: 0, y: 40 } },
+    { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
+    { op: 'add_atom', element: 'Cl', position: { x: -35, y: -18 }, bond_to: { atom: '$1', order: 'single' } },
+    { op: 'add_atom', element: 'C', position: { x: 35, y: -18 }, bond_to: { atom: '$1', order: 'single' } },
+    { op: 'add_atom', element: 'Br', position: { x: 35, y: -58 }, bond_to: { atom: '$3', order: 'single' } },
+    { op: 'add_atom', element: 'I', position: { x: 70, y: 0 }, bond_to: { atom: '$3', order: 'single' } },
+    { op: 'set_bond_mark', bond: '$1', mark: { kind: 'hash', narrow: 'end' } },
+    { op: 'set_bond_mark', bond: '$4', mark: { kind: 'hash', narrow: 'begin' } },
+  ]
+  const build = async (key, title, commands) => {
+    const created = await apiWrite('/api/v1/documents', { request_id: `v3k-${key}-create`, title })
+    const id = created.body.document.id
+    const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: `v3k-${key}-draw`, expected_revision: 0, commands })
+    assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+    return id
+  }
+  const openPanel = async (id) => {
+    await page.reload()
+    await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+    return page.getByRole('complementary', { name: 'MOL and SDF' })
+  }
+  const id = await build('source', 'V3000 source', stereoCommands)
+  const stored = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'v3k-source-derive', expected_revision: 1, commands: [
+    { op: 'set_configuration_from_drawing', atoms: ['a2', 'a4'] },
+  ] })
+  assert.equal(stored.status, 200, JSON.stringify(stored.body))
+  const grouped = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'v3k-source-group', expected_revision: 2, commands: [
+    { op: 'create_stereo_group', kind: 'or', atoms: ['a2'], number: 1 },
+  ] })
+  assert.equal(grouped.status, 200, JSON.stringify(grouped.body))
+  const heldGroups = (await api(`/api/v1/documents/${id}`)).document.stereo.groups
+  assert.equal(heldGroups.length, 1)
+  const panel = await openPanel(id)
+  const version = panel.getByLabel('MOL version to write')
+  assert.equal(await version.inputValue(), 'v2000', 'V2000 is the default')
+  assert.match(await panel.getByTestId('ctfile-note').textContent(), /enhanced stereo groups as COLLECTION entries/)
+
+  // V2000 cannot carry the group: nothing is offered for download until the loss is accepted.
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  const offer = panel.getByRole('group', { name: 'Losses to accept before writing' })
+  await offer.waitFor()
+  await offer.getByText('Enhanced stereo groups, which a V2000 file or SMILES cannot carry.').waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'no file before consent')
+
+  // Choosing V3000 voids that offer; the group is written, the center outside it needs consent.
+  await version.selectOption('v3000')
+  await offer.waitFor({ state: 'hidden' })
+  await panel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await offer.waitFor()
+  await offer.getByText('Stored stereo centers that are in no group: the file states nothing about them.').waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'no file before consent')
+  await offer.getByRole('button', { name: 'Accept these losses and preview MOL' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
+  assert.equal(await panel.getByTestId('ctfile-written').textContent(), 'Written as MOL V3000.')
+  const downloadPromise = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  const path = join(work, 'v3000-groups.mol')
+  await (await downloadPromise).saveAs(path)
+  const text = readFileSync(path, 'utf8')
+  assert.match(text.split('\n')[3], /V3000$/, 'the counts line names V3000')
+  assert.match(text, /M  V30 BEGIN COLLECTION\nM  V30 MDLV30\/STEREL1 ATOMS=\(1 2\)\nM  V30 END COLLECTION/)
+
+  // The written file reads back into the same group, partition and number.
+  const copyId = (await apiWrite('/api/v1/documents', { request_id: 'v3k-copy-create', title: 'V3000 copy' })).body.document.id
+  const importPanel = await openPanel(copyId)
+  await importPanel.getByLabel('Import file').setInputFiles({ name: 'v3000-groups.mol', mimeType: 'text/plain', buffer: Buffer.from(text) })
+  await importPanel.getByRole('button', { name: 'Preview import' }).click()
+  await importPanel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  await importPanel.getByRole('button', { name: 'Accept losses and import' }).click()
+  await importPanel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  let backGroups
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    backGroups = (await api(`/api/v1/documents/${copyId}`)).document.stereo.groups
+    if (backGroups.length > 0) break
+    await page.waitForTimeout(100)
+  }
+  assert.deepEqual(backGroups.map((group) => [group.kind, group.stored_number, group.members]),
+    heldGroups.map((group) => [group.kind, group.stored_number, group.members]), 'the group survives the round trip')
+
+  // A group member the depiction does not derive is refused with its sentence; nothing changes.
+  const refusedId = await build('refused', 'V3000 refused', [
+    ...stereoCommands.slice(0, 6),
+    { op: 'set_atom_configuration', atom: '$1', configuration: { kind: 'tetrahedral', neighbors: ['$0', '$2', '$3', 'implicit_hydrogen'], turn: 'clockwise' } },
+  ])
+  const refusedGroup = await apiWrite(`/api/v1/documents/${refusedId}/transactions`, { request_id: 'v3k-refused-group', expected_revision: 1, commands: [
+    { op: 'create_stereo_group', kind: 'absolute', atoms: ['a2'], number: null },
+  ] })
+  assert.equal(refusedGroup.status, 200, JSON.stringify(refusedGroup.body))
+  const before = (await api(`/api/v1/documents/${refusedId}`)).document
+  const refusedPanel = await openPanel(refusedId)
+  await refusedPanel.getByLabel('MOL version to write').selectOption('v3000')
+  await refusedPanel.getByRole('button', { name: 'Preview MOL export' }).click()
+  await refusedPanel.getByText(/^A stereo group holds atoms that the wedges or hashes would not derive/).waitFor()
+  assert.match(await refusedPanel.getByRole('alert').textContent(), /Nothing was changed\. Service message: /)
+  assert.equal(await refusedPanel.getByRole('button', { name: 'Download MOL' }).count(), 0)
+  assert.deepEqual((await api(`/api/v1/documents/${refusedId}`)).document, before, 'a refused export leaves the drawing unchanged')
+  results.ctfile_v3000_version_consent_roundtrip = true
+}
+
 // SMILES text keeps its line breaks, previews before anything changes, asks for consent only for
 // losses that need it, and never offers a result for a form or drawing it was not made for.
 {
@@ -4138,7 +4243,7 @@ step = 'after short_wide_bond_is_selectable'
       }
 
       // Honest text, ungrouped state, and every action disabled with its reason while nothing is selected.
-      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. The SMILES and MOL (V2000) exports of this page carry no groups and report a loss; V3000 export through the HTTP or CLI operations writes them, and this page does not offer it yet. They are not compared with the drawing, and do not change CIP labels or identity.')
+      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. The SMILES and MOL (V2000) exports of this page carry no groups and report a loss; MOL (V3000) export from this page writes them as COLLECTION entries when you choose V3000 or Auto, and reading a V3000 file with such collections creates groups. Query features, S-groups and R-groups are refused, not read. They are not compared with the drawing, and do not change CIP labels or identity.')
       assert.equal(await section.getByTestId('groups-not-examined').textContent(), 'Not examined or unsupported: double bonds cannot be grouped; centers stored unknown cannot be members; group meaning is ignored by CIP labels, identity and substructure search.')
       assert.equal(await section.getByTestId('groups-empty').count(), 1)
       assert.deepEqual(await groupsOf(), [])
