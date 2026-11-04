@@ -21,6 +21,7 @@ import {
   type TrashListResponse,
 } from '@/lib/document-contract'
 import { sendMark, type DeriveOutcome, type MarkGesture } from '@/editor/mark-gestures'
+import type { CtabChoice } from '@/lib/ct-conversion'
 import { resolutionCommands, resolutionStatus, type Resolution } from '@/editor/stereo-agreement'
 import { groupStatus, planGroupRequest, type GroupRequest } from '@/editor/stereo-groups'
 import { describeStereoChange } from '@/editor/stereo-status'
@@ -427,7 +428,8 @@ export function useDocumentEditor() {
     inspectCip: useCallback((id: string) => client.inspectCip(id, { scope: 'stored' }), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
-    exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),
+    exportCt: useCallback((id: string, format: CtImport['format'], ctab: CtabChoice, acceptedLosses?: string) =>
+      client.exportCt(id, format, ctab, acceptedLosses), []),
     importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
       importDocument(input, snapshot, generation, () => client.importCt(input)), [importDocument]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>
