@@ -299,7 +299,7 @@ fn general_diagnostics(document: &Document, inspection: &Inspection) -> Vec<Diag
     }
     diagnostics.push(info(
         "stereo_not_checked",
-        "Only the stored configurations are compared with the drawing. No CIP label is computed, no atom is judged stereogenic, ring and strain plausibility are not checked, and chem.identity and chem.substructure do not read stereo.".into(),
+        "Only the stored configurations are compared with the drawing. This operation computes no CIP label (chem.cip does) and judges no atom stereogenic, ring and strain plausibility are not checked, and chem.identity and chem.substructure do not read stereo.".into(),
         Map::new(),
     ));
     diagnostics

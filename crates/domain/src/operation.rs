@@ -25,6 +25,7 @@ pub enum OperationId {
     ChemIdentity,
     ChemSubstructure,
     ChemStereo,
+    ChemCip,
     ChemProperties,
     ChemNameToStructure,
     ChemStructureToName,
@@ -39,7 +40,7 @@ pub enum OperationId {
 
 impl OperationId {
     /// Every operation, in catalog order.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::CapabilitiesInspect,
         Self::DocumentCreate,
         Self::DocumentSnapshot,
@@ -56,6 +57,7 @@ impl OperationId {
         Self::ChemIdentity,
         Self::ChemSubstructure,
         Self::ChemStereo,
+        Self::ChemCip,
         Self::ChemProperties,
         Self::ChemNameToStructure,
         Self::ChemStructureToName,
@@ -86,6 +88,7 @@ impl OperationId {
             Self::ChemIdentity => "chem.identity",
             Self::ChemSubstructure => "chem.substructure",
             Self::ChemStereo => "chem.stereo",
+            Self::ChemCip => "chem.cip",
             Self::ChemProperties => "chem.properties",
             Self::ChemNameToStructure => "chem.name_to_structure",
             Self::ChemStructureToName => "chem.structure_to_name",

@@ -2,6 +2,7 @@
 
 mod active_data;
 mod active_registry;
+pub mod cip;
 mod contract;
 mod ct_projection;
 pub mod ctfile;
@@ -104,14 +105,16 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, AtomDrawnView, AtomInspection, AtomPair, BondDrawnView,
-    BondInspection, BondPair, ClosedResult, Diagnostic, DocumentResult, Envelope, FoldedHydrogen,
-    IdentityComparison, IdentityResult, IdentityStereo, IdentityView, InterchangeExportResult,
-    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
-    LossDisposition, MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow, OPERATION_CONTRACT,
-    OperationCatalog, OperationResponse, OperationResult, Outcome, ProfileSupport, SemanticImpact,
+    AromaticityResult, AromaticitySystem, AtomDrawnView, AtomInspection, AtomLabel, AtomPair,
+    BondDrawnView, BondInspection, BondLabel, BondPair, CIP_REASONS, CipResult, ClosedResult,
+    Diagnostic, DocumentResult, EndLabel, Envelope, FoldedHydrogen, IdentityComparison,
+    IdentityResult, IdentityStereo, IdentityView, InterchangeExportResult, InterchangeMapping,
+    InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,
+    MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow, OPERATION_CONTRACT, OperationCatalog,
+    OperationResponse, OperationResult, Outcome, Priority, ProfileSupport, SemanticImpact,
     Severity, SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult,
     SpanView, StereoResult, SubstructureLimits, SubstructureResult, SubstructureStereo, Support,
+    reason_sentence,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -151,6 +154,8 @@ pub struct Application<C, R> {
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
     smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
+    /// The labeler behind `chem.cip`; the built-in one unless replaced.
+    cip_labeler: Arc<dyn cip::CipLabeler>,
     /// A process-local binding for the previews of text imports (MOL/SDF and SMILES). If entropy
     /// is unavailable, previews are refused rather than accepting a token from an earlier
     /// service instance.
@@ -232,6 +237,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
             smiles_codec: None,
+            cip_labeler: Arc::new(cip::BuiltinCip),
             property_data_readiness: properties::DataReadiness::default(),
             compute_limits: ComputeLimits::default(),
         }
@@ -271,6 +277,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ..self
         }
         .with_format_text()
+    }
+
+    /// Replaces the labeler behind `chem.cip`. The operation always has one (the built-in
+    /// `chemifree-cip-1` unless replaced) and checks every answer before it enters a reply.
+    #[must_use]
+    pub fn with_cip_labeler(self, labeler: impl cip::CipLabeler + 'static) -> Self {
+        Self {
+            cip_labeler: Arc::new(labeler),
+            ..self
+        }
     }
 
     /// Connects the independently implemented SMILES provider for every entry adapter.
