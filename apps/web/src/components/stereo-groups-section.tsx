@@ -12,6 +12,7 @@ import {
   groupRows,
   parseGroupNumber,
   planGroupRequest,
+  reseedDraft,
   type GroupRequest,
   type GroupRow,
 } from '@/editor/stereo-groups'
@@ -89,7 +90,7 @@ export function StereoGroupsSection({ document, selected, onRequest, onSelectAto
       ) : (
         <ul className="flex flex-col gap-2" data-testid="group-list">
           {rows.map((row) => (
-            <GroupItem key={`${row.id}:${row.numberText}`} row={row} document={document} selected={selected} onRequest={onRequest} onSelectAtom={onSelectAtom} busy={busy} />
+            <GroupItem key={row.id} row={row} document={document} selected={selected} onRequest={onRequest} onSelectAtom={onSelectAtom} busy={busy} />
           ))}
         </ul>
       )}
@@ -102,6 +103,14 @@ function GroupItem({
 }: { row: GroupRow; document: DocumentView; selected: readonly string[]; onRequest: StereoGroupsSectionProps['onRequest']; onSelectAtom: (atom: string) => void; busy: boolean }) {
   const inputId = useId()
   const [text, setText] = useState(row.numberText)
+  // The stored number this field last followed. When it changes (undo, redo) the field follows it without a remount,
+  // unless the person is typing in it (see `reseedDraft`).
+  const [followed, setFollowed] = useState(row.numberText)
+  const [focused, setFocused] = useState(false)
+  if (followed !== row.numberText) {
+    setFollowed(row.numberText)
+    setText(reseedDraft(text, followed, row.numberText, focused))
+  }
   const set = planGroupRequest(document, selected, { action: 'set_number', group: row.id, numberText: text })
   return (
     <li className="flex flex-col gap-1 border-t pt-2" data-testid="stereo-group" data-group={row.id} data-kind={row.kind}>
@@ -124,7 +133,7 @@ function GroupItem({
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1">
             <Label htmlFor={inputId} className="text-xs">Number of {row.id}</Label>
-            <Input id={inputId} className="h-7 w-28 text-xs md:text-xs" inputMode="numeric" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} aria-invalid={parseGroupNumber(text).kind === 'invalid'} />
+            <Input id={inputId} className="h-7 w-28 text-xs md:text-xs" inputMode="numeric" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} aria-invalid={parseGroupNumber(text).kind === 'invalid'} />
           </div>
           <Button
             size="sm"

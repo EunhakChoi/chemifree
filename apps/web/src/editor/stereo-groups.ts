@@ -11,6 +11,7 @@
  * files, not compared with the drawing, and do not change CIP labels or identity.
  */
 import { labelAt } from '@/editor/cip-labels'
+import type { Box } from '@/editor/label'
 import type { Command, DocumentView, Position } from '@/lib/document-contract'
 import { stereoOf, type StereoGroup, type StereoGroupKind } from '@/lib/stereo-contract'
 
@@ -362,7 +363,7 @@ export interface GroupMark {
  */
 export function groupMarks(document: DocumentView): GroupMark[] {
   return (stereoOf(document).groups ?? []).flatMap((group) => {
-    const text = group.number === null ? 'abs' : `${KIND_WORDS[group.kind]} ${group.number}`
+    const text = group.kind === 'absolute' ? 'abs' : `${KIND_WORDS[group.kind]} ${group.number ?? group.stored_number ?? 0}`
     return group.members.map((atom) => ({ atom, text, name: `Center ${atom}: member of group ${group.id}, ${text}` }))
   })
 }
@@ -382,4 +383,42 @@ export const GROUP_LABEL_STEP = 12
 export function groupLabelAt(anchor: Position, around: readonly Position[]): Position {
   const base = labelAt('atom', anchor, around)
   return { x: base.x, y: base.y + (base.y < anchor.y - LEVEL_TOLERANCE ? -GROUP_LABEL_STEP : GROUP_LABEL_STEP) }
+}
+
+/** Estimated advance (pt) of one character of a group label (10 pt semibold) and the halo around the text. */
+const LABEL_CHAR_WIDTH = 6.5
+const LABEL_HEIGHT = 14
+const LABEL_HALO = 6
+
+/**
+ * The boxes the drawn group labels occupy in one placement, so the view box can include them:
+ * each is centered on the point `groupLabelAt` gives, with an estimated width for its text (the
+ * widest, `AND -2147483648`, is about 110 pt). Used only while the Group labels switch is on.
+ */
+export function groupLabelBoxes(
+  marks: readonly GroupMark[],
+  bonds: ReadonlyArray<{ begin: string; end: string }>,
+  positions: ReadonlyMap<string, Position>,
+): Box[] {
+  return marks.flatMap((mark) => {
+    const anchor = positions.get(mark.atom)
+    if (anchor === undefined) return []
+    const around = bonds
+      .flatMap((bond) => (bond.begin === mark.atom ? [bond.end] : bond.end === mark.atom ? [bond.begin] : []))
+      .flatMap((id) => positions.get(id) ?? [])
+    const at = groupLabelAt(anchor, around)
+    const width = mark.text.length * LABEL_CHAR_WIDTH + LABEL_HALO
+    return [{ x: at.x - width / 2, y: at.y - LABEL_HEIGHT / 2, width, height: LABEL_HEIGHT }]
+  })
+}
+
+/**
+ * The text a group's number field holds after the stored number may have changed (an undo, a
+ * redo, an edit elsewhere). A field that is not being edited follows the stored number; one the
+ * person is typing in, with text that differs from what it last followed, keeps that text, so a
+ * change that arrives mid-edit loses neither the text nor the focus.
+ */
+export function reseedDraft(draft: string, followed: string, stored: string, focused: boolean): string {
+  if (stored === followed) return draft
+  return focused && draft !== followed ? draft : stored
 }

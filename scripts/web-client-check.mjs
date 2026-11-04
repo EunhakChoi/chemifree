@@ -4837,3 +4837,40 @@ test('group labels read abs or the kind word and interpreted number, and stack w
     assert.deepEqual(groupLabelAt(center, around), b, 'deterministic')
   }
 })
+
+test('a non-absolute group with no stored number reads as its kind and 0, never abs; only an absolute group reads abs', () => {
+  const odd = groupedDocument([{ ...grp('e1', 'or', null, ['a2']), number: null }])
+  assert.equal(groupMarks(odd)[0].text, 'OR 0', 'interpreted number from the kind, as the snapshot would give it')
+  assert.notEqual(groupMarks(odd)[0].text, 'abs', 'a group is absolute by its kind, not by a missing number')
+  assert.equal(groupMarks(groupedDocument([grp('e1', 'absolute', null, ['a2'])]))[0].text, 'abs')
+})
+
+test('group labels widen the view box only when drawn, by their placed and estimated text extent', async () => {
+  const { viewBox } = await import('../apps/web/src/editor/geometry.ts')
+  const { groupLabelBoxes } = await import('../apps/web/src/editor/stereo-groups.ts')
+  const positions = new Map([['a1', { x: 500, y: 100 }], ['a2', { x: 470, y: 100 }]])
+  const bonds = [{ begin: 'a1', end: 'a2' }]
+  const mark = { atom: 'a1', text: 'AND -2147483648', name: 'n' }
+  assert.deepEqual(groupLabelBoxes([], bonds, positions), [], 'switch off: no boxes')
+  const [box] = groupLabelBoxes([mark], bonds, positions)
+  const at = groupLabelAt(positions.get('a1'), [positions.get('a2')])
+  assert.equal(box.x + box.width / 2, at.x)
+  assert.equal(box.y + box.height / 2, at.y)
+  assert.ok(box.width >= mark.text.length * 6, 'wide enough for the longest text')
+  assert.deepEqual(groupLabelBoxes([{ ...mark, atom: 'a9' }], bonds, positions), [], 'an atom the placement lacks has no box')
+  const atoms = [...positions.values()]
+  const without = viewBox(atoms, [])
+  const withLabel = viewBox(atoms, [box])
+  assert.ok(withLabel.x + withLabel.width >= box.x + box.width, 'the label is inside the view box')
+  assert.ok(withLabel.x + withLabel.width > without.x + without.width, 'and it needed more room than the atoms alone')
+})
+
+test('a group number field follows the stored number unless the person is typing in it', async () => {
+  const { reseedDraft } = await import('../apps/web/src/editor/stereo-groups.ts')
+  assert.equal(reseedDraft('5', '5', '5', false), '5', 'nothing changed')
+  assert.equal(reseedDraft('abc', '5', '5', true), 'abc', 'nothing changed: a draft is kept')
+  assert.equal(reseedDraft('9', '5', '5', false), '9', 'a draft not yet sent survives an unrelated render')
+  assert.equal(reseedDraft('5', '5', '7', false), '7', 'an idle field follows an undo')
+  assert.equal(reseedDraft('9', '5', '7', true), '9', 'typing is kept, with its focus')
+  assert.equal(reseedDraft('5', '5', '7', true), '7', 'focused but untouched follows')
+})

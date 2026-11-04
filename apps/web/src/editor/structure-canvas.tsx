@@ -8,7 +8,7 @@ import { AgreementRings } from '@/editor/agreement-rings'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
 import { CipLabelLayer } from '@/editor/cip-label-layer'
 import { GroupLabelLayer } from '@/editor/group-label-layer'
-import { groupLabelAt, type GroupMark } from '@/editor/stereo-groups'
+import { groupLabelAt, groupLabelBoxes, type GroupMark } from '@/editor/stereo-groups'
 import { labelAt, type CipMark } from '@/editor/cip-labels'
 import type { AgreementRing, ItemRef } from '@/editor/stereo-agreement'
 import { StrokeShapes } from '@/editor/stroke-shapes'
@@ -116,6 +116,9 @@ interface StructureCanvasProps {
   disabled: boolean
 }
 
+/** A stable empty list, so a canvas without group labels does not recompute its view box on every render. */
+const NO_GROUP_LABELS: readonly GroupMark[] = []
+
 /**
  * Renders a document as SVG, every scene instance at its own positions, and turns pointer
  * gestures into document commands. It holds only transient gesture state; the document itself
@@ -132,7 +135,7 @@ export function StructureCanvas({
   onMark,
   rings = [],
   cipLabels = [],
-  groupLabels = [],
+  groupLabels = NO_GROUP_LABELS,
   onDragging,
   disabled,
 }: StructureCanvasProps) {
@@ -199,10 +202,12 @@ export function StructureCanvas({
         drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
           ...(drawing.frame ? [drawing.frame.box] : []),
+          // Group labels are an overlay, but a clipped one is unreadable: they count only while drawn.
+          ...groupLabelBoxes(groupLabels, document.bonds, new Map(drawing.view.atoms.map((atom) => [atom.id, atom.position]))),
         ]),
         drawings[0]?.reach ?? 0,
       ),
-    [document.scene, drawings],
+    [document.scene, document.bonds, drawings, groupLabels],
   )
 
   function drawingOf(instance: string | null) {

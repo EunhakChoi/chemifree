@@ -4221,6 +4221,7 @@ step = 'after short_wide_bond_is_selectable'
       await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).click()
       await agreePage.getByText('Another group of this kind already has this number (a group with no number reads as 0). Choose a different number, or merge the two groups: select a member of each and press Merge groups. Nothing was changed.').waitFor()
       assert.deepEqual(await read(groupsId), held, 'a refused edit changes nothing')
+      assert.equal(await agreePage.getByTestId('state-reason').count(), 0, 'the plain sentence replaces the raw reason line')
       await eventually(async () => assert.equal(await numberField('e1').inputValue(), '-2'))
       await dismiss()
 

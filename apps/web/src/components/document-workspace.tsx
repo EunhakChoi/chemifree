@@ -300,7 +300,7 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
         {groupRefusalSentence(error.code, error.stateReason) ?? error.message}
-        {error.stateReason && (
+        {error.stateReason && groupRefusalSentence(error.code, error.stateReason) === null && (
           <span className="block font-mono text-xs" data-testid="state-reason">
             Reason: {error.stateReason}
           </span>
