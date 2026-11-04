@@ -15,6 +15,30 @@
 //! digraph before the next rule is consulted. Rules 4a to 5 are never applied: a tie that they
 //! might break is [`Reason::Rule4Or5Needed`], never `none`.
 //!
+//! # Rule 1b and the distance of a duplicate
+//!
+//! Rule 1b measures a duplicate to "the corresponding nonduplicated atom node". For a ring
+//! closure that is the atom on the path the ring closes on. For the duplicate that a multiple
+//! bond adds to the far atom of its parent, the model measures to the parent, one sphere
+//! nearer than the duplicate itself; the far end's duplicate lies in the sphere of the atom it
+//! stands for. RDKit (the version `tests/cip-fixtures.json` records) ranks both multiple-bond
+//! duplicates in their own sphere (and ranks the second and later duplicates of a multiple bond
+//! that also closes a ring below them), and so orders two ligands differently from the model
+//! when Rules 1a and 2 leave them to Rule 1b in a small strained ring: two fused four-membered
+//! rings with ring double bonds, such as `C12=CC[C@@]1(C)C(C=C)=C2` (a fixture there). The
+//! rule's text does not say which is meant, so a pair of duplicates the two readings order
+//! differently is [`Reason::Rule1bDuplicateDistance`], not a guess.
+//!
+//! The check is made on every pair of nodes a comparison evaluates, and the comparison is the
+//! same sequence of evaluations in both readings until the first pair they order differently,
+//! so a comparison that met no such pair would have given the same answer in either reading.
+//! The check is on the pairs, not on the final order, so it can refuse a center whose final
+//! order the other reading would also give. The one exception is a pair of duplicates that are
+//! siblings (a ligand is never a duplicate): they have no children, so which comes first only
+//! decides which of the other ligand's nodes each is placed against, and every such placement
+//! that is evaluated is checked on its own. Without the exception a terminal allene
+//! (`F[C@H](C=C=C)C=C=C`) would be refused instead of tied.
+//!
 //! # Rule 3
 //!
 //! A node reached from a real parent by a double bond carries the descriptor of that bond:
@@ -35,7 +59,7 @@
 //! says so, so it is not adopted.) Two unspecified ligand double bonds that are otherwise
 //! equal are ambiguous too, because they may differ.
 //!
-//! The intrinsic reading is the model's, and RDKit 2022.03.2's labeler reads the descriptor
+//! The intrinsic reading is the model's, and RDKit's labeler reads the descriptor
 //! of a ligand double bond in the digraph rooted at the unit being labeled instead; no public
 //! IUPAC statement this model rests on says which one the rule means, so where the two can
 //! differ the result is [`Reason::Rule3NestedDescriptor`], not a guess. They differ in two
@@ -120,13 +144,21 @@
 //! the work counted does not depend on which pair or item ran first. The questions of one tie
 //! classification (could two positions of an atom in a tied ligand differ?) are charged each
 //! descriptor's cost once for the whole classification, and every pair of positions of an atom
-//! is asked, so the charge does not depend on the order the neighbors are listed in. The cost
+//! is asked, so the charge does not depend on the order the neighbors are listed in. What an
+//! asker is charged for descriptors is the cost of everything it has asked for, found as one
+//! request would find it, not the sum of what each question would cost alone, so how the
+//! questions are split into calls and in what order does not change it. The cost
 //! of the descriptors an engine needed is counted once, after its comparison. A descriptor whose
 //! computation met a cycle (a bond asked for while it was being computed) is the exception: its
 //! result depends on which bond of the cycle was asked for first, so it is not kept for the
 //! request but reused only while the stack of bonds being computed is the same, and a bond
-//! asked for later is computed afresh. The label, reason and charge of a bond are therefore
-//! the same whatever the order in which the bonds of a request are listed.
+//! asked for later is computed afresh. A kept descriptor records how many descriptors deep its
+//! computation went and is used only where that fits [`MAX_RULE_3_NESTING`] from the position
+//! it is asked at (a bond asked for after the descriptors below it, which would otherwise be
+//! answered from the memo, is refused as the same bond asked for alone is), and a charge counts
+//! a descriptor that does not fit from where it is met as missing, level by level from the
+//! item. The label, reason and charge of a bond are therefore the same whatever the order in
+//! which the bonds of a request are listed.
 
 mod bond;
 mod context;
@@ -231,6 +263,12 @@ pub enum Reason {
     AromaticSystem,
     /// Rule 1b is needed on a digraph with a mancude duplicate.
     MancudeRule1b,
+    /// Rule 1b compares two duplicates that the two readings of "the corresponding nonduplicated
+    /// atom" order differently: the atom a duplicate stands for (which for the duplicate that a
+    /// multiple bond adds to its far atom is the parent, a sphere nearer) or the sphere the
+    /// duplicate itself lies in (RDKit). It happens in small strained rings, where a
+    /// ring closes a few spheres from the root and Rules 1a and 2 leave the order to Rule 1b.
+    Rule1bDuplicateDistance,
     /// Rule 2 compares an unlabeled atom with a labeled one and the answer depends on how an
     /// unlabeled atom is read: the label equals the element's built-in mass number, or the
     /// element has none.
@@ -270,6 +308,7 @@ impl Reason {
             Self::HydrogensUnknown => "cip_hydrogens_unknown",
             Self::AromaticSystem => "cip_aromatic_system",
             Self::MancudeRule1b => "cip_mancude_rule_1b",
+            Self::Rule1bDuplicateDistance => "cip_rule_1b_duplicate_distance",
             Self::MassNumber => "cip_mass_number",
             Self::Rule4Or5Needed => "cip_rule_4_or_5_needed",
             Self::StereoCycle => "cip_stereo_cycle",

@@ -1499,6 +1499,148 @@
      "label": "none"
     }
    ]
+  },
+  {
+   "name": "two fused four-membered rings with ring double bonds, center at the fusion (issue #123)",
+   "smiles": "C12=CC[C@@]1(C)C(C=C)=C2",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom S. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 3,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom S; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "two fused four-membered rings with ring double bonds, isopropenyl and vinyl",
+   "smiles": "C12=CC[C@@]1(C(C)=C)C(C=C)=C2",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom R. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 3,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom R; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "fused four-membered rings with ring double bonds, ethylidene on one",
+   "smiles": "C1(/C(C)=C/C)=C(C)C2=C(C)C(C)[C@H]12",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom R. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 12,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom R; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "cage of fused three- and four-membered rings, center at a ring fusion",
+   "smiles": "C12=CC3=C[C@H]([C@@]13C)C=C2",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom S. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 5,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom S; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "fused three- and four-membered rings, vinyl on a ring double bond",
+   "smiles": "C=CC1=C2C[C@@]13CC=C23",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom S. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 5,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom S; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "fused four-membered rings with ring double bonds, methyl on one",
+   "smiles": "C1(C)=C2[C@@H]3C1=C[C@@H]3C=C2",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom R. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 3,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom R; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "two four-membered rings with two double bonds each, around a CHCl",
+   "smiles": "C1([C@H](C2=CC=C2CCl)Cl)=C(CCl)C=C1",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). Rules 1a and 2 leave the order of two ligands to Rule 1b, which compares the duplicate that a double bond adds to the far atom (of its parent, nearer the root) with a duplicate of the far end in the same sphere. The rule's text measures a duplicate to 'the corresponding nonduplicated atom' and does not say which is meant; RDKit ranks both in their own sphere and labels the atom S. This model's literal reading and RDKit's order the ligands differently here, so the center is refused, not labeled",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ],
+   "rdkit_differs": "RDKit labels the atom S; the two readings of Rule 1b can order the ligands differently, which the model does not choose between"
+  },
+  {
+   "name": "Rule 1b decides between ring-closure duplicates, fused small rings (a)",
+   "smiles": "C1=CC2=C3C1[C@]23C",
+   "source": "Rule 1b decides the order of two ligands by comparing ring-closure duplicates (ranked by the sphere of the atom they close on) or the readings coincide, so the center is labeled, and RDKit 2022.03.2 gives R",
+   "expect": [
+    {
+     "atom": 5,
+     "label": "R"
+    }
+   ]
+  },
+  {
+   "name": "Rule 1b decides between ring-closure duplicates, fused small rings (b)",
+   "smiles": "C12[C@@]3(C)C(=C13)C=C2",
+   "source": "Rule 1b decides the order of two ligands by comparing ring-closure duplicates (ranked by the sphere of the atom they close on) or the readings coincide, so the center is labeled, and RDKit 2022.03.2 gives S",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "Rule 1b decides between ring-closure duplicates, fused small rings (c)",
+   "smiles": "C1=C(C=C(C)C)[C@H]2C[C@@H]2C1",
+   "source": "Rule 1b decides the order of two ligands by comparing ring-closure duplicates (ranked by the sphere of the atom they close on) or the readings coincide, so the center is labeled, and RDKit 2022.03.2 gives S",
+   "expect": [
+    {
+     "atom": 8,
+     "label": "S"
+    }
+   ]
+  },
+  {
+   "name": "ring double bond of fused three- and four-membered rings (a bond is refused too)",
+   "smiles": "C12(C=C)C3C(=C1)[C@@H]23",
+   "source": "found by comparing generated small-ring molecules with RDKit 2022.03.2 (issue #123). The ends of the ring double bond are ranked by the same digraphs as a center's ligands, and Rules 1a and 2 leave the order of the substituents at an end to Rule 1b, where the model's literal reading and RDKit's order the duplicates differently, so the bond is refused (RDKit finds a double bond in a ring smaller than eight atoms not stereogenic and gives none, which is the documented difference for such bonds)",
+   "expect": [
+    {
+     "bond": [
+      4,
+      5
+     ],
+     "label": "unsupported:cip_rule_1b_duplicate_distance"
+    }
+   ]
+  },
+  {
+   "name": "two terminal allenyl ligands: sibling duplicates are put in order without a refusal",
+   "smiles": "F[C@H](C=C=C)C=C=C",
+   "source": "the two ligands tie under every rule implemented (the middle carbon of each allene has a duplicate of its far end and a duplicate of its parent, siblings that the two readings of Rule 1b order differently but that have no children), and RDKit 2022.03.2 finds no label; a refusal for the siblings would turn this into cip_rule_1b_duplicate_distance",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
   }
  ]
 }

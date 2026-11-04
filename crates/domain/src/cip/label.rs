@@ -12,7 +12,7 @@ use crate::states::{Hydrogens, Radical};
 use crate::stereo::{CenterState, Slot, StereoKey, StereoState, Turn};
 use crate::stereo_drawing::fourth_position;
 
-use super::bond::Oracle;
+use super::bond::{Counted, Oracle};
 use super::context::Context;
 use super::digraph::{Arena, Kind};
 use super::rank::{Engine, Halt, dense_ranks};
@@ -162,28 +162,33 @@ fn has_cumulated_axis(arena: &Arena<'_, '_>) -> bool {
 
 /// The work counter of one tie classification and the limits that guard it.
 struct Budget<'a, 'g> {
-    /// What the classification is charged.
+    /// What the classification is charged: `own` and `descriptors`.
     nodes: usize,
     /// The part of it that is arenas, not Rule 3 descriptors.
     own: usize,
+    /// The part of it that is the Rule 3 descriptors every comparison so far needed, with what
+    /// they needed, each counted once.
+    descriptors: usize,
     cap: usize,
     spheres: usize,
     interrupt: &'a dyn Interrupt,
     oracle: &'a Oracle<'a, 'g>,
     requested: BTreeSet<BondId>,
-    /// The descriptors whose cost, with what they needed, is already in `nodes`: a descriptor
-    /// several inner-center checks ask for is paid for once.
-    charged: BTreeSet<BondId>,
+    /// The descriptors asked for so far: a descriptor several inner-center checks ask for is
+    /// paid for once.
+    charged: Counted,
 }
 
 impl Budget<'_, '_> {
-    /// Adds the work of one comparison. Every amount is at most `cap + 1`, so the total is
-    /// the same whichever order the comparisons ran in, and a total past the cap stops the
-    /// classification as a limit.
-    fn charge(&mut self, nodes: usize, own: usize) -> Result<(), Halt> {
+    /// Adds the arena of one comparison, and sets what the descriptors asked for so far cost
+    /// (everything asked, not the part one comparison added). Every amount is at most
+    /// `cap + 1`, so the total is the same whichever order the comparisons ran in, and a total
+    /// past the cap stops the classification as a limit.
+    fn charge(&mut self, own: usize, descriptors: usize) -> Result<(), Halt> {
         let over = self.cap.saturating_add(1);
-        self.nodes = self.nodes.saturating_add(nodes.min(over));
         self.own = self.own.saturating_add(own.min(over));
+        self.descriptors = descriptors.min(over);
+        self.nodes = self.own.saturating_add(self.descriptors);
         if self.nodes > self.cap {
             return Err(Reason::DigraphLimit.into());
         }
@@ -220,7 +225,7 @@ fn could_differ(
         // the comparison got depends on the order its neighbors were visited in.
         Err(Halt::Reason(_)) => {
             let over = budget.cap.saturating_add(1);
-            budget.charge(over, over)?;
+            budget.charge(over, budget.descriptors)?;
             return Ok(true);
         }
         Ok(_) => {
@@ -228,7 +233,7 @@ fn could_differ(
             let descriptors = budget
                 .oracle
                 .closure_cost_into(&mut budget.charged, engine.requested());
-            budget.charge(own.saturating_add(descriptors), own)?;
+            budget.charge(own, descriptors)?;
         }
     }
     // A tie with nothing refused or ambiguous is two positions no rule can tell apart.
@@ -456,12 +461,13 @@ pub(super) fn rank_slots(
                 let mut budget = Budget {
                     nodes: 0,
                     own: 0,
+                    descriptors: 0,
                     cap,
                     spheres,
                     interrupt,
                     oracle,
                     requested: BTreeSet::new(),
-                    charged: BTreeSet::new(),
+                    charged: Counted::default(),
                 };
                 let classified = classify_tie(&engine, &mut budget);
                 ranking.nodes = ranking.nodes.saturating_add(budget.nodes.min(over));
