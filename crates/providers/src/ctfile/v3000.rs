@@ -572,9 +572,12 @@ fn read_atoms(
             let number = |code| int(value, code, record, line);
             match key {
                 "CHG" => {
-                    atom.charge = i8::try_from(number("v3000_invalid_charge")?).map_err(|_| {
-                        refuse("v3000_invalid_charge", "CHG is outside -128..127.".into())
-                    })?;
+                    atom.charge = i8::try_from(number("v3000_invalid_charge")?)
+                        .ok()
+                        .filter(|charge| (-15..=15).contains(charge))
+                        .ok_or_else(|| {
+                            refuse("v3000_invalid_charge", "CHG is outside -15..15.".into())
+                        })?;
                 }
                 "RAD" => {
                     atom.radical = match number("v3000_invalid_radical")? {
@@ -862,6 +865,14 @@ pub(super) fn write_table(
                 record,
                 None,
                 format!("Invalid element {:?}.", atom.element),
+            ));
+        }
+        if !(-15..=15).contains(&atom.charge) {
+            return Err(error(
+                "invalid_charge",
+                record,
+                None,
+                "Charge exceeds the CTfile range -15..15.",
             ));
         }
         let mut text = format!("{} {}", i + 1, atom.element);

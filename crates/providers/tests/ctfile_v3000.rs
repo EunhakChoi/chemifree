@@ -274,6 +274,8 @@ fn refuses_each_unsupported_or_malformed_construct_with_its_reason_and_line() {
         ("hydrogen count query", "3 O 2 0 0 0", "3 O 2 0 0 0 HCOUNT=1", "v3000_unsupported_query", 10),
         ("attachment point", "3 O 2 0 0 0", "3 O 2 0 0 0 ATTCHPT=1", "v3000_unsupported_rgroup", 10),
         ("charge over i8", "3 O 2 0 0 0", "3 O 2 0 0 0 CHG=1000", "v3000_invalid_charge", 10),
+        ("charge 16", "3 O 2 0 0 0", "3 O 2 0 0 0 CHG=16", "v3000_invalid_charge", 10),
+        ("charge -16", "3 O 2 0 0 0", "3 O 2 0 0 0 CHG=-16", "v3000_invalid_charge", 10),
         ("radical 4", "3 O 2 0 0 0", "3 O 2 0 0 0 RAD=4", "v3000_invalid_radical", 10),
         ("mass zero", "3 O 2 0 0 0", "3 O 2 0 0 0 MASS=0", "v3000_invalid_isotope", 10),
         ("repeated property", "3 O 2 0 0 0", "3 O 2 0 0 0 CHG=1 CHG=2", "v3000_duplicate_property", 10),
@@ -544,6 +546,16 @@ fn writer_refusals_and_reports() {
     let mut unknown = two();
     unknown.atoms[0].element = "Xx".into();
     assert_eq!(write(&unknown), Err("unsupported_atom"));
+    for charge in [16, -16, 127, -128] {
+        let mut charged = two();
+        charged.atoms[0].charge = charge;
+        assert_eq!(write(&charged), Err("invalid_charge"), "charge {charge}");
+    }
+    for charge in [15, -15] {
+        let mut charged = two();
+        charged.atoms[0].charge = charge;
+        assert!(write(&charged).is_ok(), "charge {charge}");
+    }
     let mut nan = two();
     nan.atoms[0].x = f64::NAN;
     assert_eq!(write(&nan), Err("invalid_coordinate"));
@@ -717,4 +729,21 @@ fn every_v3000_reason_in_the_source_has_a_family_and_the_table_lists_no_other() 
         .filter(|code| code.starts_with("v3000_"))
         .collect();
     assert_eq!(used, listed, "the table and the V3000 source disagree");
+}
+
+#[test]
+fn reads_the_charge_boundaries_and_refuses_beyond_them() {
+    for charge in [15, -15] {
+        let text = CORE.replacen(" CHG=-1", &format!(" CHG={charge}"), 1);
+        assert!(
+            text.contains(&format!("CHG={charge}")),
+            "core.mol has a CHG=-1 atom to replace"
+        );
+        let records = read(&text).unwrap_or_else(|e| panic!("CHG={charge}: {e:?}"));
+        assert!(
+            records
+                .iter()
+                .any(|r| r.atoms.iter().any(|a| i32::from(a.charge) == charge))
+        );
+    }
 }
