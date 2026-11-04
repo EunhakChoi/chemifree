@@ -83,6 +83,7 @@ import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { StereoPanel } from '@/components/stereo-panel'
+import { groupMarks, groupRefusalSentence } from '@/editor/stereo-groups'
 import { IdentityPanel } from '@/components/identity-panel'
 import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
@@ -298,7 +299,7 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
       <TriangleAlertIcon aria-hidden="true" />
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>
-        {error.message}
+        {groupRefusalSentence(error.code, error.stateReason) ?? error.message}
         {error.stateReason && (
           <span className="block font-mono text-xs" data-testid="state-reason">
             Reason: {error.stateReason}
@@ -563,6 +564,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   // automatic check, not persisted. While both are off the page sends no chem.cip request.
   const [atomLabels, setAtomLabels] = useState(false)
   const [bondLabels, setBondLabels] = useState(false)
+  // The Group labels switch is the same kind of client policy: off by default, not persisted, never part of the document.
+  const [groupLabels, setGroupLabels] = useState(false)
   const { view: agreement, checkNow } = useStereoAgreement({
     document,
     serviceGeneration: editor.serviceGeneration,
@@ -580,6 +583,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   })
   // Labels are drawn only for a reply about exactly this drawing; a stale one draws none.
   const labels = useMemo(() => cipMarks(cip, atomLabels, bondLabels), [cip, atomLabels, bondLabels])
+  const groupMarkList = useMemo(() => (groupLabels ? groupMarks(document) : []), [groupLabels, document])
   // Rings are drawn only for a comparison of exactly this drawing; a stale one draws none.
   const rings = useMemo(() => (agreement.kind === 'ready' ? agreementRings(agreementRows(agreement.inspection)) : []), [agreement])
   const { selection, setSelection } = editor
@@ -777,6 +781,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             rings={rings}
             cipLabels={labels}
+            groupLabels={groupMarkList}
             onDragging={setDragging}
             disabled={editor.busy}
           />
@@ -796,6 +801,12 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onCipCheckNow={checkCipNow}
             onResolve={(resolution) => void editor.resolveStereo(resolution)}
             busy={editor.busy}
+            document={document}
+            selected={selectedIds}
+            onGroupRequest={(request) => editor.editGroups(request)}
+            onSelectAtom={(atom) => setSelection(new Set([atom]))}
+            groupLabels={groupLabels}
+            onGroupLabelsChange={setGroupLabels}
           />
           <ValenceInspector document={document} editor={editor} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />

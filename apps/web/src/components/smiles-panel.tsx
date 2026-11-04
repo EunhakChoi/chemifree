@@ -260,7 +260,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   return <aside aria-label="SMILES" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
     <h3 className="text-sm font-medium">SMILES</h3>
     <p className="leading-relaxed text-muted-foreground">
-      An OpenSMILES subset. Reading refuses stereo, query and reaction SMILES; writing a drawing that holds stereo marks or configurations asks you to accept that they are not written. Positions are generated, not read.
+      An OpenSMILES subset. Reading refuses stereo, query and reaction SMILES; writing a drawing that holds stereo marks, configurations or enhanced stereo groups asks you to accept that they are not written. Positions are generated, not read.
     </p>
     <Field>
       <FieldLabel htmlFor="smiles-source">SMILES text</FieldLabel>

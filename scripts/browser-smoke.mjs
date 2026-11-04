@@ -4078,6 +4078,225 @@ step = 'after short_wide_bond_is_selectable'
       step = 'after cip_labels_web'
     }
 
+    // Enhanced stereo groups (P27c): two centers are stored from the drawing in the panel, then grouped,
+    // numbered (a number, 0 and a negative one), refused on a taken number, split, merged, removed and
+    // deleted with one click each, undone and redone with the same group ids, and labeled on the canvas
+    // while the Group labels switch is on. The page shows what the document holds, read through the API.
+    {
+      const groupsId = await make('groups', 'Smoke groups', centers('clockwise').filter((command) => command.op !== 'set_atom_configuration'))
+      await open(groupsId)
+      await eventually(async () => assert.equal(await row('a2').getAttribute('data-agreement'), 'only_drawn'))
+      assert.equal(await panel.getByTestId('stereo-groups').count(), 0, 'no stored center, nothing to group')
+      await edit(groupsId, () => panel.getByRole('button', { name: 'Store a2 in s1 from the drawing', exact: true }).click())
+      await edit(groupsId, () => panel.getByRole('button', { name: 'Store a4 in s1 from the drawing', exact: true }).click())
+      assert.deepEqual((await read(groupsId)).document.stereo.atoms.map((record) => record.atom), ['a2', 'a4'])
+      const section = panel.getByTestId('stereo-groups')
+      await section.waitFor()
+      const groupsOf = async () => (await read(groupsId)).document.stereo.groups
+      const item = (id) => section.locator(`[data-testid="stereo-group"][data-group="${id}"]`)
+      const action = (name) => section.getByRole('button', { name, exact: true })
+      const why = (name) => section.locator(`[data-action="${action_ids[name]}"] [data-testid="group-why"]`)
+      const action_ids = { 'Make absolute': 'make_absolute', 'Group as AND': 'group_and', 'Group as OR': 'group_or', 'Add to group': 'add_to_group', 'Remove from group': 'remove_from_group', 'Merge groups': 'merge', 'Split selected out': 'split' }
+      const newNumber = section.getByLabel('Number for a new or split group (empty for none)')
+      const labels = agreePage.locator('svg[data-structure-canvas] [data-group-label]')
+      const groupSwitch = section.getByRole('switch', { name: 'Group labels', exact: true })
+      const dismiss = async () => { await agreePage.getByRole('button', { name: 'Dismiss', exact: true }).click() }
+      const select = async (...points) => {
+        await press('Select and move')
+        await agreePage.locator('svg[data-structure-canvas]').scrollIntoViewIfNeeded()
+        for (const [index, point] of points.entries()) {
+          const at = await place(point)
+          if (index > 0) await agreePage.keyboard.down('Shift')
+          await agreePage.mouse.click(at.x, at.y)
+          if (index > 0) await agreePage.keyboard.up('Shift')
+        }
+      }
+      const A2 = { x: 0, y: 0 }
+      const A4 = { x: 35, y: -18 }
+      // The page shows exactly what the document holds: each group's label, count, members and number.
+      const listed = async () => section.getByTestId('stereo-group').evaluateAll((all) => all.map((node) => ({
+        id: node.getAttribute('data-group'),
+        label: node.querySelector('[data-testid="group-label"]').textContent,
+        count: node.querySelector('[data-testid="group-count"]').textContent,
+        members: [...node.querySelectorAll('[data-testid="group-member"]')].map((chip) => chip.textContent),
+        number: node.querySelector('[data-testid="group-number"]').textContent,
+      })))
+      const same = async () => {
+        const held = await groupsOf()
+        await eventually(async () => assert.deepEqual(await listed(), held.map((group) => ({
+          id: group.id,
+          label: group.label,
+          count: `${group.members.length} ${group.members.length === 1 ? 'member' : 'members'}`,
+          members: group.members,
+          number: group.kind === 'absolute' ? 'no number (an absolute group takes none)' : group.stored_number === null ? 'number omitted (reads as 0)' : `number ${group.stored_number}`,
+        }))))
+        return held
+      }
+
+      // Honest text, ungrouped state, and every action disabled with its reason while nothing is selected.
+      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. They are not drawn into exported files yet (SMILES export reports a loss), not compared with the drawing, and do not change CIP labels or identity.')
+      assert.equal(await section.getByTestId('groups-not-examined').textContent(), 'Not examined or unsupported: double bonds cannot be grouped; centers stored unknown cannot be members; group meaning is ignored by CIP labels, identity and substructure search.')
+      assert.equal(await section.getByTestId('groups-empty').count(), 1)
+      assert.deepEqual(await groupsOf(), [])
+      assert.equal(await row('a2').getByTestId('group-cell').textContent(), 'Group: no group')
+      for (const name of Object.keys(action_ids)) {
+        assert.equal(await action(name).isDisabled(), true, `${name} needs a selection`)
+        assert.equal(await why(name).textContent(), 'Select atoms with a stored tetrahedral configuration. Bonds in the selection are ignored.')
+      }
+      assert.equal(await groupSwitch.getAttribute('aria-checked'), 'false', 'Group labels start off')
+
+      // Select both centers. Only the creating actions apply; the others say why not.
+      await select(A2, A4)
+      await eventually(async () => assert.equal(await action('Group as OR').isDisabled(), false))
+      assert.equal(await action('Group as AND').isDisabled(), false)
+      assert.equal(await action('Make absolute').isDisabled(), false)
+      assert.equal(await action('Remove from group').isDisabled(), true)
+      assert.equal(await why('Remove from group').textContent(), 'a2 is in no group; select only group members to remove.')
+      assert.equal(await why('Split selected out').textContent(), 'a2 is in no group; select only members of one group.')
+      // A number typed for an absolute group is refused in text, a bad number in text, and nothing is sent.
+      await newNumber.fill('3')
+      assert.equal(await why('Make absolute').textContent(), 'An absolute group takes no number. Clear the number field.')
+      await newNumber.fill('1.5')
+      assert.equal(await action('Group as OR').isDisabled(), true)
+      assert.match(await section.getByTestId('group-number-error').textContent(), /whole number from -2147483648 to 2147483647/)
+      await newNumber.fill('2147483648')
+      assert.equal(await action('Group as OR').isDisabled(), true)
+      await newNumber.fill('')
+
+      // Create an OR group with no number: one click, one transaction.
+      const revisionBefore = (await read(groupsId)).document.revision
+      await edit(groupsId, () => action('Group as OR').click())
+      assert.equal((await read(groupsId)).document.revision, revisionBefore + 1)
+      const created = await same()
+      assert.deepEqual(created, [{ id: 'e1', kind: 'or', stored_number: null, number: 0, label: 'or0', members: ['a2', 'a4'] }])
+      await eventually(async () => assert.equal(await status.textContent(), 'Created group e1 (or0) over a2, a4.'))
+      assert.equal(await row('a2').getByTestId('group-cell').textContent(), 'Group: e1: or0 (OR)')
+      assert.equal(await row('a4').getByTestId('group-cell').textContent(), 'Group: e1: or0 (OR)')
+      assert.match(await item('e1').textContent(), /OR: the members invert together or not at all\./)
+      assert.doesNotMatch(await section.textContent(), /ratio is \d|1:1/)
+      assert.equal(await why('Group as OR').textContent(), 'a2 is already in group e1 (or0); an atom belongs to at most one group. Remove it from that group first, or use Add to group to add the other atoms to it.')
+      assert.equal(await section.getByTestId('groups-empty').count(), 0)
+
+      // Numbers: a positive one, 0 and a negative one are accepted and kept as stated.
+      const setNumber = async (text) => {
+        const input = item('e1').getByLabel('Number of e1')
+        await input.fill(text)
+        await edit(groupsId, () => item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).click())
+      }
+      await setNumber('5')
+      assert.equal((await groupsOf())[0].stored_number, 5)
+      await setNumber('0')
+      assert.deepEqual((await same())[0], { id: 'e1', kind: 'or', stored_number: 0, number: 0, label: 'or0', members: ['a2', 'a4'] })
+      await setNumber('-2')
+      assert.deepEqual((await same())[0], { id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2', 'a4'] })
+      const numberInput = item('e1').getByLabel('Number of e1')
+      await numberInput.fill('2147483648')
+      assert.equal(await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).isDisabled(), true)
+      await numberInput.fill('abc')
+      assert.equal(await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).isDisabled(), true)
+      await numberInput.fill('-2')
+      assert.equal(await item('e1').getByTestId('group-number-why').textContent(), 'The number is already -2.')
+
+      // Split a4 out into a new group numbered 7: both groups, and the reply's note.
+      await select(A4)
+      await newNumber.fill('7')
+      await eventually(async () => assert.equal(await action('Split selected out').isDisabled(), false))
+      await edit(groupsId, () => action('Split selected out').click())
+      assert.deepEqual(await same(), [
+        { id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2'] },
+        { id: 'e2', kind: 'or', stored_number: 7, number: 7, label: 'or7', members: ['a4'] },
+      ])
+      const notes = agreePage.getByTestId('stereo-notes')
+      await notes.waitFor()
+      assert.ok((await notes.locator('li').count()) >= 1, 'the reply states that the members no longer belong together')
+      await newNumber.fill('')
+
+      // A taken number is refused with the sentence for it and the merge hint; nothing changes, and the field returns to the stored number.
+      const held = await read(groupsId)
+      await item('e1').getByLabel('Number of e1').fill('7')
+      await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).click()
+      await agreePage.getByText('Another group of this kind already has this number (a group with no number reads as 0). Choose a different number, or merge the two groups: select a member of each and press Merge groups. Nothing was changed.').waitFor()
+      assert.deepEqual(await read(groupsId), held, 'a refused edit changes nothing')
+      await eventually(async () => assert.equal(await item('e1').getByLabel('Number of e1').inputValue(), '-2'))
+      await dismiss()
+
+      // Merge: a member of each group; e1 keeps its kind and number.
+      await select(A2, A4)
+      await eventually(async () => assert.equal(await action('Merge groups').isDisabled(), false))
+      assert.equal(await action('Split selected out').isDisabled(), true)
+      assert.equal(await why('Split selected out').textContent(), 'Splitting takes members of exactly one group; the selection holds 2.')
+      await edit(groupsId, () => action('Merge groups').click())
+      const merged = await same()
+      assert.deepEqual(merged, [{ id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2', 'a4'] }])
+      assert.equal(await status.textContent(), 'Merged e2 into the other group, which keeps its kind and number; e2 is gone.')
+
+      // Remove a4 from the group; removing the last member is refused in text.
+      await select(A4)
+      await edit(groupsId, () => action('Remove from group').click())
+      const removed = await same()
+      assert.deepEqual(removed, [{ id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2'] }])
+      assert.equal(await row('a4').getByTestId('group-cell').textContent(), 'Group: no group')
+      await select(A2)
+      await eventually(async () => assert.equal(await action('Remove from group').isDisabled(), true))
+      assert.equal(await why('Remove from group').textContent(), 'Removing every member of e1 would leave it empty. Delete the group instead.')
+      // A member chip selects its atom; with a2 and the loose a4 the Add action applies.
+      await item('e1').getByRole('button', { name: 'Select a2', exact: true }).click()
+      await select(A2, A4)
+      await eventually(async () => assert.equal(await action('Add to group').isDisabled(), false))
+      await edit(groupsId, () => action('Add to group').click())
+      assert.deepEqual((await same())[0].members, ['a2', 'a4'])
+
+      // Group labels: off by default, drawn beside each member on the canvas while the switch is on,
+      // never part of the document, and stacked clear of a CIP label.
+      const beforeLabels = await read(groupsId)
+      assert.equal(await labels.count(), 0)
+      await groupSwitch.click()
+      await eventually(async () => assert.equal(await labels.count(), 2))
+      assert.deepEqual(await labels.evaluateAll((all) => all.map((node) => [node.getAttribute('data-group-atom'), node.textContent, node.getAttribute('aria-label')])), [
+        ['a2', 'OR -2', 'Center a2: member of group e1, OR -2'], ['a4', 'OR -2', 'Center a4: member of group e1, OR -2'],
+      ])
+      assert.equal(await labels.first().evaluate((node) => node.closest('[data-editor-overlay]') !== null && getComputedStyle(node).pointerEvents === 'none'), true)
+      await agreePage.screenshot({ path: join(outDir, 'editor-stereo-groups.png') })
+      assert.deepEqual(await read(groupsId), beforeLabels, 'a label never changes the document')
+      await groupSwitch.click()
+      await eventually(async () => assert.equal(await labels.count(), 0))
+
+      // Delete the group, then undo and redo: the same group ids and members come back.
+      await edit(groupsId, () => item('e1').getByRole('button', { name: 'Delete group e1', exact: true }).click())
+      assert.deepEqual(await same(), [])
+      assert.equal(await panel.getByTestId('groups-empty').count(), 1)
+      const orGroup = (members) => ({ id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members })
+      await edit(groupsId, () => press('Undo'))
+      assert.deepEqual(await same(), [orGroup(['a2', 'a4'])])
+      await edit(groupsId, () => press('Undo'))
+      assert.deepEqual(await same(), removed)
+      await edit(groupsId, () => press('Undo'))
+      assert.deepEqual(await same(), merged)
+      await edit(groupsId, () => press('Undo'))
+      assert.deepEqual((await same()).map((group) => [group.id, group.members]), [['e1', ['a2']], ['e2', ['a4']]], 'undoing the merge brings back both groups under their ids')
+      for (let times = 0; times < 4; times += 1) await edit(groupsId, () => press('Redo'))
+      assert.deepEqual(await same(), [], 'redo replays to the state after the delete')
+      await edit(groupsId, () => press('Undo'))
+      assert.deepEqual(await same(), [orGroup(['a2', 'a4'])], 'the same group id and members as before the delete')
+
+      // Absolute and AND: an absolute group takes no number; one absolute group at most.
+      await edit(groupsId, () => item('e1').getByRole('button', { name: 'Delete group e1', exact: true }).click())
+      await select(A2)
+      await edit(groupsId, () => action('Make absolute').click())
+      assert.deepEqual(await same(), [{ id: 'e3', kind: 'absolute', stored_number: null, number: null, label: 'abs', members: ['a2'] }], 'a deleted group id is not reused')
+      assert.equal(await item('e3').getByLabel('Number of e3').count(), 0, 'an absolute group has no number field')
+      await select(A4)
+      assert.equal(await action('Make absolute').isDisabled(), true)
+      assert.equal(await why('Make absolute').textContent(), 'The document already has an absolute group (e3); there is at most one.')
+      await edit(groupsId, () => action('Group as AND').click())
+      assert.deepEqual((await same())[1], { id: 'e4', kind: 'and', stored_number: null, number: 0, label: 'and0', members: ['a4'] })
+      assert.match(await item('e4').textContent(), /AND: the author means a mixture of the drawn set of members and its all-inverted counterpart\. No ratio is stated or implied\./)
+      assert.doesNotMatch(await section.textContent(), /1:1/)
+      assert.equal(await panel.getByTestId('cip-state').textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.', 'groups change no CIP state')
+      results.stereo_groups_web = true
+      step = 'after stereo_groups_web'
+    }
+
     results.stereo_agreement_indicator = true
     step = 'after stereo_agreement_indicator'
   } finally {
