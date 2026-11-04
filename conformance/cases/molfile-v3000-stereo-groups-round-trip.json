@@ -1,0 +1,563 @@
+{
+  "id": "molfile-v3000-stereo-groups-round-trip",
+  "title": "Absolute, and and or groups (numbers -128, omitted, 258) are written as V3000 STEABS, STERAC and STEREL collections with the chiral flag, imported into another document with the numbers as stated, survive reopening, and a V2000 export of them still needs consent",
+  "requirements": [
+    "CODEC-03",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-source",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Groups"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      },
+      "bind": "source",
+      "capture": {
+        "id": "/result/document/id"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 200,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 226,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 174,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 300,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 326,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 274,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 400,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 400,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 426,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 374,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$6",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$10",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$14",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "$0",
+            "$4",
+            "$8",
+            "$12"
+          ]
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "absolute",
+          "atoms": [
+            "a1"
+          ],
+          "number": null
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "and",
+          "atoms": [
+            "a5"
+          ],
+          "number": -128
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "and",
+          "atoms": [
+            "a9"
+          ],
+          "number": null
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "or",
+          "atoms": [
+            "a13"
+          ],
+          "number": 258
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "mol",
+          "ctab": "v3000",
+          "records": [
+            {
+              "document_id": null
+            }
+          ]
+        }
+      },
+      "substitute": {
+        "/parameters/records/0/document_id": "id"
+      },
+      "capture": {
+        "mol": "/result/content"
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "ctab": "v3000",
+          "content": "Groups\n\n\n  0  0  0     0  0            999 V3000\nM  V30 BEGIN CTAB\nM  V30 COUNTS 16 12 0 0 1\nM  V30 BEGIN ATOM\nM  V30 1 C 5.0000 -5.0000 0.0000 0\nM  V30 2 F 5.0000 -3.5000 0.0000 0\nM  V30 3 Cl 6.3000 -5.7500 0.0000 0\nM  V30 4 Br 3.7000 -5.7500 0.0000 0\nM  V30 5 C 10.0000 -5.0000 0.0000 0\nM  V30 6 F 10.0000 -3.5000 0.0000 0\nM  V30 7 Cl 11.3000 -5.7500 0.0000 0\nM  V30 8 Br 8.7000 -5.7500 0.0000 0\nM  V30 9 C 15.0000 -5.0000 0.0000 0\nM  V30 10 F 15.0000 -3.5000 0.0000 0\nM  V30 11 Cl 16.3000 -5.7500 0.0000 0\nM  V30 12 Br 13.7000 -5.7500 0.0000 0\nM  V30 13 C 20.0000 -5.0000 0.0000 0\nM  V30 14 F 20.0000 -3.5000 0.0000 0\nM  V30 15 Cl 21.3000 -5.7500 0.0000 0\nM  V30 16 Br 18.7000 -5.7500 0.0000 0\nM  V30 END ATOM\nM  V30 BEGIN BOND\nM  V30 1 1 1 2\nM  V30 2 1 1 3 CFG=1\nM  V30 3 1 1 4\nM  V30 4 1 5 6\nM  V30 5 1 5 7 CFG=1\nM  V30 6 1 5 8\nM  V30 7 1 9 10\nM  V30 8 1 9 11 CFG=1\nM  V30 9 1 9 12\nM  V30 10 1 13 14\nM  V30 11 1 13 15 CFG=1\nM  V30 12 1 13 16\nM  V30 END BOND\nM  V30 BEGIN COLLECTION\nM  V30 MDLV30/STEABS ATOMS=(1 1)\nM  V30 MDLV30/STERAC-128 ATOMS=(1 5)\nM  V30 MDLV30/STERAC0 ATOMS=(1 9)\nM  V30 MDLV30/STEREL258 ATOMS=(1 13)\nM  V30 END COLLECTION\nM  V30 END CTAB\nM  END\n"
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "native_ids"
+            },
+            {
+              "feature": "stereo_group_identity"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "create-target",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Target"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      },
+      "bind": "target",
+      "capture": {
+        "target_id": "/result/document/id"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "mol",
+          "source": null,
+          "record": 1,
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "document": "target",
+      "substitute": {
+        "/parameters/source": "mol"
+      },
+      "capture": {
+        "digest": "/result/preview_digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "result": {
+          "document": {
+            "revision": 1,
+            "stereo": {
+              "groups": [
+                {
+                  "kind": "absolute",
+                  "stored_number": null,
+                  "members": [
+                    "a1"
+                  ]
+                },
+                {
+                  "kind": "and",
+                  "stored_number": -128,
+                  "members": [
+                    "a5"
+                  ]
+                },
+                {
+                  "kind": "and",
+                  "stored_number": 0,
+                  "members": [
+                    "a9"
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "stored_number": 258,
+                  "members": [
+                    "a13"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "mol",
+          "source": null,
+          "record": 1,
+          "expected_revision": 0,
+          "preview_digest": null,
+          "accept_loss": true
+        }
+      },
+      "document": "target",
+      "substitute": {
+        "/parameters/source": "mol",
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "stereo": {
+              "groups": [
+                {
+                  "kind": "absolute",
+                  "stored_number": null,
+                  "members": [
+                    "a1"
+                  ]
+                },
+                {
+                  "kind": "and",
+                  "stored_number": -128,
+                  "members": [
+                    "a5"
+                  ]
+                },
+                {
+                  "kind": "and",
+                  "stored_number": 0,
+                  "members": [
+                    "a9"
+                  ]
+                },
+                {
+                  "kind": "or",
+                  "stored_number": 258,
+                  "members": [
+                    "a13"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "target",
+      "expected_revision": 1,
+      "expect": {
+        "session": {
+          "saved_revision": 1
+        }
+      }
+    },
+    {
+      "call": "restart"
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "groups": [
+              {
+                "kind": "absolute",
+                "stored_number": null,
+                "members": [
+                  "a1"
+                ]
+              },
+              {
+                "kind": "and",
+                "stored_number": -128,
+                "members": [
+                  "a5"
+                ]
+              },
+              {
+                "kind": "and",
+                "stored_number": 0,
+                "members": [
+                  "a9"
+                ]
+              },
+              {
+                "kind": "or",
+                "stored_number": 258,
+                "members": [
+                  "a13"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "export-v2000",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "mol",
+          "ctab": "v2000",
+          "records": [
+            {
+              "document_id": null
+            }
+          ]
+        }
+      },
+      "substitute": {
+        "/parameters/records/0/document_id": "target_id"
+      },
+      "expect": {
+        "outcome": "error",
+        "diagnostics": [
+          {
+            "code": "loss_consent_required"
+          }
+        ]
+      }
+    }
+  ]
+}

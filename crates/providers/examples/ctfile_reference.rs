@@ -192,6 +192,60 @@ fn main() -> Result<(), Box<dyn Error>> {
                 fs::write(Path::new(&path).join(format!("{name}-{ctab}.mol")), text)?;
             }
         }
+    } else if mode == "write-groups" {
+        // Four wedge centers (atoms 1, 5, 9 and 13) with one group each, exported as V3000
+        // through the operations: absolute, and -128, and (omitted number), or 258.
+        let directory = tempfile::tempdir()?;
+        let app = Application::new(
+            LocalCapabilities,
+            FileDocumentRepository::new(directory.path()),
+        )
+        .with_ctfile_codec(V2000Codec);
+        let run = |request: serde_json::Value| -> Result<serde_json::Value, Box<dyn Error>> {
+            Ok(serde_json::to_value(
+                app.execute(&serde_json::to_vec(&request)?),
+            )?)
+        };
+        let mut commands = Vec::new();
+        for block in 0..4_usize {
+            let x = 100.0 + 100.0 * block as f64;
+            commands.push(
+                serde_json::json!({"op":"add_atom","element":"C","position":{"x":x,"y":100.0}}),
+            );
+            for (dx, dy, element) in [(0.0, -30.0, "F"), (26.0, 15.0, "Cl"), (-26.0, 15.0, "Br")] {
+                commands.push(serde_json::json!({"op":"add_atom","element":element,
+                    "position":{"x":x + dx,"y":100.0 + dy},
+                    "bond_to":{"atom":format!("${}", 4 * block),"order":"single"}}));
+            }
+        }
+        for block in 0..4_usize {
+            commands.push(serde_json::json!({"op":"set_bond_mark","bond":format!("${}", 4 * block + 2),"mark":{"kind":"wedge","narrow":"begin"}}));
+        }
+        commands.push(serde_json::json!({"op":"set_configuration_from_drawing","atoms":["$0","$4","$8","$12"]}));
+        commands.push(serde_json::json!({"op":"create_stereo_group","kind":"absolute","atoms":["a1"],"number":null}));
+        commands.push(serde_json::json!({"op":"create_stereo_group","kind":"and","atoms":["a5"],"number":-128}));
+        commands.push(serde_json::json!({"op":"create_stereo_group","kind":"and","atoms":["a9"],"number":null}));
+        commands.push(serde_json::json!({"op":"create_stereo_group","kind":"or","atoms":["a13"],"number":258}));
+        let created = run(
+            serde_json::json!({"contract":1,"request_id":"c-groups","profile":"preserve-semantics","operation":"document.create","parameters":{"title":"groups"}}),
+        )?;
+        let id = created["result"]["document"]["id"]
+            .as_str()
+            .ok_or("no id")?
+            .to_owned();
+        let edit = run(
+            serde_json::json!({"contract":1,"request_id":"t-groups","profile":"preserve-semantics","operation":"document.transaction","parameters":{"document_id":id,"expected_revision":0,"commands":commands}}),
+        )?;
+        if edit["outcome"] != "ok" {
+            return Err(format!("edit failed: {edit}").into());
+        }
+        let written = run(
+            serde_json::json!({"contract":1,"request_id":"e-groups","profile":"preserve-semantics","operation":"document.export","parameters":{"format":"mol","ctab":"v3000","records":[{"document_id":id}]}}),
+        )?;
+        let text = written["result"]["content"]
+            .as_str()
+            .ok_or(format!("no content: {written}"))?;
+        fs::write(Path::new(&path).join("groups-v3000.mol"), text)?;
     } else if mode == "preview" {
         let source = fs::read_to_string(path)?;
         let directory = tempfile::tempdir()?;

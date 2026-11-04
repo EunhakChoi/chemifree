@@ -1171,6 +1171,25 @@ try {
       assert.equal(unreadGroup.outcome, 'error', 'a missing number key is a malformed command, not a clear')
       const groupConsent = await both((id) => request('op-group-smiles', 'document.export', { format: 'smiles', document_id: id, style: 'recorded' }))
       assert.deepEqual(groupConsent.diagnostics[0].details.features, ['stereo_marks', 'stereo_configuration', 'stereo_group'])
+      // V3000 writes the group as a COLLECTION block (the center is in a group, so no consent), the
+      // `mol-v3000` format id names the same dialect, V2000 still needs consent for the group, and
+      // an id that disagrees with `ctab` is refused.
+      const groupV3000 = await both((id) => request('op-group-v3000', 'document.export', {
+        format: 'mol', ctab: 'v3000', records: [{ document_id: id }] }))
+      assert.equal(groupV3000.outcome, 'partial')
+      assert.match(groupV3000.result.content, /M {2}V30 COUNTS 4 3 0 0 0\n/)
+      assert.match(groupV3000.result.content, /M {2}V30 BEGIN COLLECTION\nM {2}V30 MDLV30\/STEREL1 ATOMS=\(1 1\)\nM {2}V30 END COLLECTION\n/)
+      assert.ok(groupV3000.loss_report.some((loss) => loss.feature === 'stereo_group_identity'))
+      const aliasV3000 = await both((id) => request('op-group-alias', 'document.export', {
+        format: 'mol-v3000', records: [{ document_id: id }] }))
+      assert.equal(aliasV3000.result.content, groupV3000.result.content)
+      const aliasV2000 = await both((id) => request('op-group-alias-v2000', 'document.export', {
+        format: 'mol-v2000', records: [{ document_id: id }] }))
+      assert.deepEqual([aliasV2000.diagnostics[0].code, aliasV2000.diagnostics[0].details.features.includes('stereo_group')],
+        ['loss_consent_required', true])
+      const aliasConflict = await both((id) => request('op-group-alias-conflict', 'document.export', {
+        format: 'mol-v3000', ctab: 'v2000', records: [{ document_id: id }] }))
+      assert.equal(aliasConflict.diagnostics[0].code, 'format_ctab_conflict')
       const groupDeleted = await both(transact('op-group-delete', 6, [{ op: 'set_atom_configuration', atom: 'a1', configuration: null }]))
       assert.equal(groupDeleted.outcome, 'partial')
       assert.deepEqual(groupDeleted.result.notes.map((note) => [note.feature, note.source_path, note.disposition]),
