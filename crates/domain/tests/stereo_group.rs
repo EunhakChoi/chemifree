@@ -347,8 +347,14 @@ fn canonical_numbers_follow_membership_only_and_are_dense_per_kind() {
         ],
     );
     let numbers = document.stereo_groups().canonical_numbers();
-    let by_member =
-        |serial: u32| numbers.get(&document.stereo_groups().group_of(atom(serial)).unwrap());
+    let by_member = |serial: u32| {
+        let (id, _) = document
+            .stereo_groups()
+            .iter()
+            .find(|(_, group)| group.members().contains(&atom(serial)))
+            .unwrap();
+        numbers.get(&id)
+    };
     assert_eq!(
         by_member(1),
         Some(&1),
@@ -537,9 +543,10 @@ fn members_are_added_and_removed_and_the_atoms_keep_their_configurations() {
     assert_group(&document, 1, GroupKind::Or, Some(1), &[1, 2]);
     assert_eq!(
         applied.group_notes,
-        vec![GroupNote::MembersRemoved {
+        vec![GroupNote::RelationLost {
             group: group(1),
-            atoms: vec![atom(3)]
+            together: vec![vec![atom(1), atom(2)]],
+            ungrouped: vec![atom(3)],
         }],
         "the relation to the remaining members is no longer stated"
     );
@@ -550,7 +557,12 @@ fn members_are_added_and_removed_and_the_atoms_keep_their_configurations() {
             .is_some(),
         "the removed atom keeps its configuration"
     );
-    assert_eq!(document.stereo_groups().group_of(atom(3)), None);
+    assert!(
+        document
+            .stereo_groups()
+            .iter()
+            .all(|(_, group)| !group.members().contains(&atom(3)))
+    );
 }
 
 #[test]
@@ -568,12 +580,31 @@ fn removing_a_member_of_the_absolute_group_states_no_relation_and_reports_nothin
 }
 
 #[test]
-fn deleting_a_group_ungroups_its_members_and_is_not_a_loss() {
-    let mut document = fixture(2);
-    run(&mut document, &[create(GroupKind::Or, Some(1), &[1, 2])]);
+fn deleting_a_group_ungroups_its_members_and_reports_only_a_lost_relation() {
+    let mut document = fixture(3);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::Or, Some(1), &[1, 2]),
+            create(GroupKind::And, Some(1), &[3]),
+        ],
+    );
     let applied = run(
         &mut document,
         &[Command::DeleteStereoGroup { group: gref(1) }],
+    );
+    assert_eq!(
+        applied.group_notes,
+        vec![GroupNote::RelationLost {
+            group: group(1),
+            together: Vec::new(),
+            ungrouped: vec![atom(1), atom(2)],
+        }]
+    );
+    // One member states no relation to lose.
+    let applied = run(
+        &mut document,
+        &[Command::DeleteStereoGroup { group: gref(2) }],
     );
     assert!(applied.group_notes.is_empty());
     assert!(document.stereo_groups().is_empty());
@@ -602,7 +633,7 @@ fn renumbering_changes_only_the_label_and_is_not_a_loss() {
         );
         assert_group(&document, 1, GroupKind::Or, number, &[1, 2]);
     }
-    // A change of kind is the client's own statement, also not a loss.
+    // A change of kind between members that were together changes what is stated.
     let applied = run(
         &mut document,
         &[Command::SetStereoGroupKind {
@@ -610,7 +641,15 @@ fn renumbering_changes_only_the_label_and_is_not_a_loss() {
             kind: GroupKind::And,
         }],
     );
-    assert!(applied.group_notes.is_empty());
+    assert_eq!(
+        applied.group_notes,
+        vec![GroupNote::KindChanged {
+            group: group(1),
+            atoms: vec![atom(1), atom(2)],
+            from: GroupKind::Or,
+            to: GroupKind::And,
+        }]
+    );
     assert_group(&document, 1, GroupKind::And, None, &[1, 2]);
 }
 
@@ -647,10 +686,10 @@ fn merging_reports_the_new_relation_and_keeps_the_target_kind_and_number() {
     assert_eq!(
         applied.group_notes,
         vec![GroupNote::Merged {
-            into: group(1),
-            from: group(2),
-            into_number: Some(1),
-            from_number: Some(2),
+            group: group(1),
+            number: Some(1),
+            sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+            intact: true,
         }]
     );
 }
@@ -700,11 +739,10 @@ fn splitting_reports_the_lost_relation_and_creates_a_group_of_the_same_kind() {
     assert_group(&document, 3, GroupKind::Or, Some(2), &[3]);
     assert_eq!(
         applied.group_notes,
-        vec![GroupNote::Split {
+        vec![GroupNote::RelationLost {
             group: group(1),
-            new_group: group(3),
-            moved: vec![atom(3)],
-            kept: vec![atom(1), atom(2)],
+            together: vec![vec![atom(1), atom(2)], vec![atom(3)]],
+            ungrouped: Vec::new(),
         }]
     );
 }
@@ -1133,5 +1171,265 @@ fn restore_refuses_history_that_does_not_match_or_reuses_a_group_id() {
     assert_eq!(
         restore_message(reused),
         "history reuses a deleted identifier"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Review round 1: one rule for notes (a relation among at least two members of a group that
+// existed before the transaction no longer holds, or means something else, at its end) and one
+// pruning point (the end of the transaction)
+// ---------------------------------------------------------------------------------------------
+
+fn add_to(g: u32, serials: &[u32]) -> Command {
+    Command::AddStereoGroupMembers {
+        group: gref(g),
+        atoms: atom_refs(serials),
+    }
+}
+
+fn split_off(g: u32, serials: &[u32], number: Option<i32>) -> Command {
+    Command::SplitStereoGroup {
+        group: gref(g),
+        atoms: atom_refs(serials),
+        number,
+    }
+}
+
+#[test]
+fn y1_a_member_added_and_split_off_again_within_one_transaction_loses_no_relation() {
+    let mut document = fixture(3);
+    run(&mut document, &[create(GroupKind::Or, Some(1), &[1])]);
+    let applied = run(
+        &mut document,
+        &[add_to(1, &[2]), split_off(1, &[2], Some(2))],
+    );
+    assert_group(&document, 2, GroupKind::Or, Some(2), &[2]);
+    assert!(applied.group_notes.is_empty(), "{:?}", applied.group_notes);
+}
+
+#[test]
+fn z1_clearing_and_restating_a_center_in_one_transaction_keeps_its_group() {
+    let mut document = fixture(2);
+    run(&mut document, &[create(GroupKind::Or, Some(1), &[1, 2])]);
+    let applied = run(&mut document, &[clear_configuration(1), configure(2, 1)]);
+    assert_eq!(
+        applied.outcome,
+        Outcome::Unchanged,
+        "the table shows no net change"
+    );
+    assert_group(&document, 1, GroupKind::Or, Some(1), &[1, 2]);
+    assert!(applied.group_notes.is_empty());
+}
+
+#[test]
+fn z2_a_member_that_left_after_a_split_or_a_merge_is_still_reported_for_its_original_group() {
+    let mut document = fixture(4);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::Or, Some(1), &[1, 2, 3]),
+            create(GroupKind::Or, Some(2), &[4]),
+        ],
+    );
+    let left = |group_serial: u32, atom_serial: u32| GroupNote::MemberLeft {
+        group: group(group_serial),
+        atom: atom(atom_serial),
+        cause: LeaveCause::ConfigurationCleared,
+        relation_lost: true,
+    };
+    let mut after_split = document.clone();
+    let applied = run(
+        &mut after_split,
+        &[split_off(1, &[3], Some(3)), clear_configuration(3)],
+    );
+    assert!(
+        applied.group_notes.contains(&left(1, 3)),
+        "{:?}",
+        applied.group_notes
+    );
+
+    // e2 = {a4} merges into e1 = {a1, a2, a3}; then a3 is cleared.
+    let applied = run(
+        &mut document,
+        &[
+            Command::MergeStereoGroups {
+                into: gref(2),
+                from: gref(1),
+            },
+            clear_configuration(3),
+        ],
+    );
+    assert_eq!(
+        applied.group_notes,
+        vec![
+            left(1, 3),
+            GroupNote::Merged {
+                group: group(2),
+                number: Some(2),
+                sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+                intact: true,
+            },
+        ],
+        "the note lists the former groups and no atom that has since left"
+    );
+}
+
+#[test]
+fn a_merge_that_does_not_keep_every_member_together_says_so() {
+    let mut document = fixture(3);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::Or, Some(1), &[1, 2]),
+            create(GroupKind::Or, Some(2), &[3]),
+        ],
+    );
+    let applied = run(
+        &mut document,
+        &[
+            Command::MergeStereoGroups {
+                into: gref(1),
+                from: gref(2),
+            },
+            Command::RemoveStereoGroupMembers {
+                group: gref(1),
+                atoms: atom_refs(&[2]),
+            },
+        ],
+    );
+    assert!(applied.group_notes.contains(&GroupNote::Merged {
+        group: group(1),
+        number: Some(1),
+        sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+        intact: false,
+    }));
+    assert!(applied.group_notes.contains(&GroupNote::RelationLost {
+        group: group(1),
+        together: vec![vec![atom(1)]],
+        ungrouped: vec![atom(2)],
+    }));
+}
+
+#[test]
+fn members_moved_into_a_group_of_another_kind_are_a_kind_change_not_a_merge() {
+    let mut document = fixture(4);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::Or, Some(1), &[1, 2]),
+            create(GroupKind::And, Some(1), &[3, 4]),
+        ],
+    );
+    let applied = run(
+        &mut document,
+        &[
+            Command::DeleteStereoGroup { group: gref(2) },
+            add_to(1, &[3, 4]),
+        ],
+    );
+    assert_eq!(
+        applied.group_notes,
+        vec![GroupNote::KindChanged {
+            group: group(2),
+            atoms: vec![atom(3), atom(4)],
+            from: GroupKind::And,
+            to: GroupKind::Or,
+        }],
+        "only the former `and` group's relation changed meaning; no merge of unlike kinds"
+    );
+}
+
+#[test]
+fn leaving_an_and_or_group_for_absolute_loses_the_relation_but_the_reverse_states_a_new_one() {
+    let mut document = fixture(2);
+    run(&mut document, &[create(GroupKind::And, None, &[1, 2])]);
+    let kind = |kind| Command::SetStereoGroupKind {
+        group: gref(1),
+        kind,
+    };
+    let applied = run(&mut document, &[kind(GroupKind::Absolute)]);
+    assert_eq!(
+        applied.group_notes,
+        vec![GroupNote::KindChanged {
+            group: group(1),
+            atoms: vec![atom(1), atom(2)],
+            from: GroupKind::And,
+            to: GroupKind::Absolute,
+        }]
+    );
+    // Absolute members are independent, so stating a relation between them loses nothing.
+    assert!(
+        run(&mut document, &[kind(GroupKind::Or)])
+            .group_notes
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_group_command_sees_members_as_stated_until_the_transaction_ends() {
+    // The only member of the absolute group is cleared, but the group exists until the end of
+    // the transaction, so a second absolute group is still refused, and a member can be
+    // restated without losing its group.
+    let mut document = fixture(2);
+    run(&mut document, &[create(GroupKind::Absolute, None, &[1])]);
+    let (index, reason) = group_refusal(
+        &mut document,
+        &[
+            clear_configuration(1),
+            create(GroupKind::Absolute, None, &[2]),
+        ],
+    );
+    assert_eq!((index, reason), (Some(1), StereoGroupError::AbsoluteExists));
+    let applied = run(&mut document, &[clear_configuration(1), configure(2, 1)]);
+    assert_eq!(applied.outcome, Outcome::Unchanged);
+    assert_group(&document, 1, GroupKind::Absolute, None, &[1]);
+}
+
+#[test]
+fn z3_deleting_or_changing_a_group_is_a_note_and_stating_something_new_is_not() {
+    let base = || {
+        let mut document = fixture(3);
+        run(&mut document, &[create(GroupKind::Or, Some(1), &[1, 2])]);
+        document
+    };
+    let delete = Command::DeleteStereoGroup { group: gref(1) };
+    assert!(
+        !run(&mut base(), &[delete]).group_notes.is_empty(),
+        "deleting a pair"
+    );
+    let to_and = Command::SetStereoGroupKind {
+        group: gref(1),
+        kind: GroupKind::And,
+    };
+    assert!(
+        !run(&mut base(), &[to_and]).group_notes.is_empty(),
+        "or becomes and"
+    );
+    assert!(
+        run(&mut base(), &[add_to(1, &[3])]).group_notes.is_empty(),
+        "adding states more"
+    );
+    let create_delete = [
+        create(GroupKind::And, None, &[3]),
+        Command::DeleteStereoGroup {
+            group: GroupRef::Created(0),
+        },
+    ];
+    assert!(run(&mut base(), &create_delete).group_notes.is_empty());
+    let single = |kind| {
+        let mut document = fixture(2);
+        run(&mut document, &[create(GroupKind::Or, None, &[1])]);
+        run(
+            &mut document,
+            &[Command::SetStereoGroupKind {
+                group: gref(1),
+                kind,
+            }],
+        )
+        .group_notes
+    };
+    assert!(
+        single(GroupKind::And).is_empty(),
+        "no relation among one member"
     );
 }

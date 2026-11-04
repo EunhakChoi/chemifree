@@ -15,7 +15,7 @@ use chemifree_domain::scene::TransactionSelection;
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::stereo_drawing::DeriveError;
-use chemifree_domain::stereo_group::{GroupNote, LeaveCause};
+use chemifree_domain::stereo_group::{GroupKind, GroupNote, LeaveCause};
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -2508,10 +2508,11 @@ fn cleared_stereo_notes(document: &Document, cleared: &[StereoKey]) -> Vec<Loss>
 }
 
 /// One loss entry for each change of meaning a transaction made to a stereo group that existed
-/// before it, in the order they happened. The features are `stereo_group_member` (a member left
+/// before it (the rule is in the domain's `stereo_group` module). The features are `stereo_group_member` (a member left
 /// because it stopped being a stored tetrahedral center), `stereo_group` (a group disappeared)
 /// and `stereo_group_relation` (the statement about which centers belong together changed). A
-/// change of a group's number or kind alone is not reported: the client stated it.
+/// change of a group's number, adding members, and a group made and changed within the
+/// transaction are not reported.
 fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
     let atoms = |atoms: &[AtomId]| {
         atoms
@@ -2574,54 +2575,101 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
                      this edit, while it is still in the history, brings it back."
                 ),
             ),
-            GroupNote::MembersRemoved {
+            GroupNote::RelationLost {
                 group,
-                atoms: removed,
+                together,
+                ungrouped,
+            } => {
+                let all: Vec<AtomId> = together
+                    .iter()
+                    .flatten()
+                    .chain(ungrouped)
+                    .copied()
+                    .collect();
+                let mut now: Vec<String> = together
+                    .iter()
+                    .enumerate()
+                    .map(|(index, part)| {
+                        let place = if index == 0 {
+                            "one group"
+                        } else {
+                            "another group"
+                        };
+                        format!("{} in {place}", atoms(part))
+                    })
+                    .collect();
+                if !ungrouped.is_empty() {
+                    now.push(format!("{} in no group", atoms(ungrouped)));
+                }
+                note(
+                    "stereo_group_relation",
+                    format!("groups[{group}]"),
+                    LossDisposition::Dropped,
+                    format!(
+                        "Stereo group {group} no longer states that {} belong together: now {}.",
+                        atoms(&all),
+                        now.join("; ")
+                    ),
+                )
+            }
+            GroupNote::KindChanged {
+                group,
+                atoms: moved,
+                from,
+                to,
             } => note(
                 "stereo_group_relation",
                 format!("groups[{group}]"),
-                LossDisposition::Dropped,
+                if *to == GroupKind::Absolute {
+                    LossDisposition::Dropped
+                } else {
+                    LossDisposition::Normalized
+                },
                 format!(
-                    "Atoms {} were removed from stereo group {group}: the relation between them \
-                     and the remaining members, which were stated to belong together, is no \
-                     longer stated.",
-                    atoms(removed)
-                ),
-            ),
-            GroupNote::Split {
-                group,
-                new_group,
-                moved,
-                kept,
-            } => note(
-                "stereo_group_relation",
-                format!("groups[{group}]"),
-                LossDisposition::Dropped,
-                format!(
-                    "Stereo group {group} was split, moving atoms {} into group {new_group}: \
-                     the relation between them and atoms {}, which were stated to belong \
-                     together, is no longer stated.",
+                    "{} were stated {} together in stereo group {group} and are now in a group \
+                     of kind {}: what is stated about how they relate to each other changed.",
                     atoms(moved),
-                    atoms(kept)
+                    from.as_str(),
+                    to.as_str()
                 ),
             ),
             GroupNote::Merged {
-                into,
-                from,
-                from_number,
-                ..
+                group,
+                number,
+                sources,
+                intact,
             } => {
-                let number = from_number.map_or_else(String::new, |number| {
-                    format!(" The number {number} of group {from} is not kept.")
-                });
+                let former = sources
+                    .iter()
+                    .map(|(id, _)| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let dropped: String = sources
+                    .iter()
+                    .filter(|(_, former_number)| former_number != number)
+                    .filter_map(|(id, former_number)| {
+                        former_number.map(|n| format!(" The number {n} of group {id} is not kept."))
+                    })
+                    .collect();
+                let (disposition, together) = if *intact {
+                    (
+                        LossDisposition::Normalized,
+                        "all their members now belong together, a relation that was not stated \
+                         before.",
+                    )
+                } else {
+                    (
+                        LossDisposition::Dropped,
+                        "the members that remain in it now belong together, a relation that \
+                         was not stated before; not all members of the former groups stayed \
+                         together.",
+                    )
+                };
                 note(
                     "stereo_group_relation",
-                    format!("groups[{into}]"),
-                    LossDisposition::Normalized,
-                    format!(
-                        "Stereo group {from} was merged into group {into}: all members now \
-                         belong together, a relation that was not stated before.{number}"
-                    ),
+                    format!("groups[{group}]"),
+                    disposition,
+                    format!("Stereo groups {former} are now in group {group}: {together}{dropped}"),
                 )
             }
         })
@@ -2894,21 +2942,32 @@ mod tests {
                     relation_lost: true,
                 },
                 GroupNote::GroupRemoved { group: e2 },
-                GroupNote::MembersRemoved {
+                GroupNote::RelationLost {
+                    group: e1,
+                    together: vec![vec![a1]],
+                    ungrouped: vec![a2],
+                },
+                GroupNote::KindChanged {
                     group: e1,
                     atoms: vec![a1, a2],
+                    from: GroupKind::Or,
+                    to: GroupKind::And,
                 },
-                GroupNote::Split {
+                GroupNote::KindChanged {
                     group: e1,
-                    new_group: e2,
-                    moved: vec![a2],
-                    kept: vec![a1],
+                    atoms: vec![a1, a2],
+                    from: GroupKind::And,
+                    to: GroupKind::Absolute,
                 },
                 GroupNote::Merged {
-                    into: e1,
-                    from: e2,
-                    into_number: Some(1),
-                    from_number: Some(2),
+                    group: e1,
+                    number: Some(0),
+                    sources: vec![
+                        (e1, Some(0)),
+                        (e2, Some(0)),
+                        (GroupId::from_serial(3).unwrap(), Some(2)),
+                    ],
+                    intact: true,
                 },
             ],
         };
@@ -2931,6 +2990,11 @@ mod tests {
                     "stereo_group_relation",
                     "groups[e1]",
                     LossDisposition::Dropped
+                ),
+                (
+                    "stereo_group_relation",
+                    "groups[e1]",
+                    LossDisposition::Normalized
                 ),
                 (
                     "stereo_group_relation",
@@ -2961,12 +3025,53 @@ mod tests {
             notes[1].reason
         );
         assert!(
-            notes[5].reason.contains("number 2 of group e2 is not kept"),
+            notes[6].reason.contains("number 2 of group e3 is not kept"),
             "{}",
-            notes[5].reason
+            notes[6].reason
         );
         let text: String = notes.iter().map(|n| n.reason.as_str()).collect();
         assert!(!text.contains("1:1") && !text.contains(" ratio"), "{text}");
+    }
+
+    #[test]
+    fn a_merge_names_a_dropped_number_only_when_the_interpreted_number_differs() {
+        let document = drawing();
+        let (e1, e2) = (
+            GroupId::from_serial(1).unwrap(),
+            GroupId::from_serial(2).unwrap(),
+        );
+        let reason = |number: Option<i32>, former: Option<i32>, intact: bool| {
+            let merged = GroupNote::Merged {
+                group: e1,
+                number,
+                sources: vec![(e1, number), (e2, former)],
+                intact,
+            };
+            let notes = group_notes(&document, &[merged]);
+            (notes[0].disposition, notes[0].reason.clone())
+        };
+        // A group without a stored number reads as 0 (the same as a stored 0): nothing is lost.
+        let (_, same) = reason(Some(0), Some(0), true);
+        assert!(!same.contains("not kept"), "{same}");
+        // A different interpreted number is dropped, including the 0 of an unnumbered group.
+        let (_, other) = reason(Some(3), Some(0), true);
+        assert!(
+            other.contains("number 0 of group e2 is not kept"),
+            "{other}"
+        );
+        let (_, positive) = reason(Some(0), Some(4), true);
+        assert!(
+            positive.contains("number 4 of group e2 is not kept"),
+            "{positive}"
+        );
+        // The disposition says whether everything stayed together.
+        assert_eq!(
+            reason(Some(0), Some(4), true).0,
+            LossDisposition::Normalized
+        );
+        let (disposition, apart) = reason(Some(0), Some(4), false);
+        assert_eq!(disposition, LossDisposition::Dropped);
+        assert!(apart.contains("not all members"), "{apart}");
     }
 
     #[test]

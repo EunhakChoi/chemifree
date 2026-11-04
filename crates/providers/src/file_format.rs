@@ -4,8 +4,9 @@
 //!
 //! Version 7 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
 //! references, positions, stated stereo configurations (`stereo`), enhanced-stereo groups
-//! (`stereo_groups`), selection, and document settings. History records their changes together. An atom state records its kind (an element
-//! or a query), charge, isotope, hydrogen state, radical, and attachment points; a bond state its
+//! (`stereo_groups`), selection, and document settings. History records their changes together.
+//! An atom state records its kind (an element or a query), charge, isotope, hydrogen state,
+//! radical, and attachment points; a bond state its
 //! order, for a query bond its query, and, for a bond drawn with a stereo mark, the mark (with
 //! the narrow end of a wedge, so a bond's `begin` and `end` are never swapped). Files are
 //! compact JSON, so the largest document a save allows, full history included, stays within the
@@ -106,7 +107,8 @@ struct SceneDocument {
 }
 
 /// An enhanced-stereo group: `number` is the number as stated (`null` when none), members are
-/// atom identifiers in ascending order.
+/// atom identifiers, written in ascending order and read in any order like every list in the
+/// file (a member listed twice is refused).
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredGroup {

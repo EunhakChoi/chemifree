@@ -91,7 +91,7 @@ impl StereoGroup {
         &self.members
     }
 
-    /// The number the group has on the wire: `None` for an absolute group, otherwise the stored
+    /// The number the group has on the wire (read by the P27b snapshot and writers): `None` for an absolute group, otherwise the stored
     /// number, or `0` when none is stored.
     pub fn interpreted_number(&self) -> Option<i32> {
         match self.kind {
@@ -100,7 +100,8 @@ impl StereoGroup {
         }
     }
 
-    /// Display text such as `abs`, `and2` or `or0`: output only, never stored.
+    /// Display text such as `abs`, `and2` or `or0`: output only, never stored (the P27b snapshot
+    /// and the P27c group list show it).
     pub fn label(&self) -> String {
         match self.interpreted_number() {
             None => "abs".to_owned(),
@@ -216,39 +217,47 @@ pub enum LeaveCause {
     ConfigurationUnknown,
 }
 
-/// A change of a group's meaning that a transaction made, for the reply to report. Only groups
-/// that existed before the transaction are reported.
+/// A change of meaning that a transaction made to a group that existed before it, for the
+/// reply to report. Notes are computed from the table before and after the transaction, by
+/// atom (see [`meaning_changes`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GroupNote {
-    /// A member left because it stopped being a stored tetrahedral center. `relation_lost`: the
-    /// group is `and` or `or` and had other members, whose relation to this atom is no longer
-    /// stated.
+    /// A member stopped being a stored tetrahedral center and so left its group. `relation_lost`:
+    /// the group is `and` or `or` and had other members, whose relation to this atom is no
+    /// longer stated.
     MemberLeft {
         group: GroupId,
         atom: AtomId,
         cause: LeaveCause,
         relation_lost: bool,
     },
-    /// The group lost its last member and is gone.
+    /// Every member of the group stopped being a stored tetrahedral center.
     GroupRemoved { group: GroupId },
-    /// Members of an `and` or `or` group were removed on request, so that the relation between
-    /// them and the rest is no longer stated.
-    MembersRemoved { group: GroupId, atoms: Vec<AtomId> },
-    /// An `and` or `or` group was split: the relation between `moved` and `kept` is no longer
-    /// stated.
-    Split {
+    /// At least two surviving members of an `and` or `or` group are no longer all in one group
+    /// (members removed, the group split or deleted, or members moved elsewhere). `together`
+    /// holds the surviving members by the group they are in now, `ungrouped` those in none.
+    RelationLost {
         group: GroupId,
-        new_group: GroupId,
-        moved: Vec<AtomId>,
-        kept: Vec<AtomId>,
+        together: Vec<Vec<AtomId>>,
+        ungrouped: Vec<AtomId>,
     },
-    /// Two groups were merged: all members now stand in one relation that was not stated
-    /// before, and `from_number` is not kept when it differs from `into_number`.
+    /// The surviving members of an `and` or `or` group are together in a group of another
+    /// kind, or an `and` and an `or` group exchanged meaning: what the relation says changed.
+    KindChanged {
+        group: GroupId,
+        atoms: Vec<AtomId>,
+        from: GroupKind,
+        to: GroupKind,
+    },
+    /// Members of two or more groups of one kind that existed before are now in `group`, so
+    /// the members of different groups, which were independent, now belong together.
+    /// `sources` holds each former group and its interpreted number; `intact`: every former
+    /// group's surviving members are all in `group`.
     Merged {
-        into: GroupId,
-        from: GroupId,
-        into_number: Option<i32>,
-        from_number: Option<i32>,
+        group: GroupId,
+        number: Option<i32>,
+        sources: Vec<(GroupId, Option<i32>)>,
+        intact: bool,
     },
 }
 
@@ -275,16 +284,10 @@ impl StereoGroupTable {
         self.groups.is_empty()
     }
 
-    /// The group that holds `atom`.
-    pub fn group_of(&self, atom: AtomId) -> Option<GroupId> {
-        self.groups
-            .iter()
-            .find_map(|(id, group)| group.members.contains(&atom).then_some(*id))
-    }
-
     /// The meaning of the groups with every label removed: each group's kind and member set,
     /// whatever its identifier or number. Two tables with an equal partition say the same about
-    /// which centers belong together; numbers only tell groups of one kind apart.
+    /// which centers belong together; numbers only tell groups of one kind apart. The P27b
+    /// import and export checks compare documents through it.
     pub fn partition(&self) -> BTreeSet<(GroupKind, BTreeSet<AtomId>)> {
         self.groups
             .values()
@@ -295,7 +298,7 @@ impl StereoGroupTable {
     /// The numbers a writer gives the groups, from the membership alone: per kind (`and`,
     /// `or`) dense from 1 in the order of each group's lowest member, none for `absolute`.
     /// Neither stored numbers nor identifiers enter, so relabelling a document does not change
-    /// the result. A later writer uses these as the wire numbering.
+    /// the result. The P27b writers use these as the wire numbering.
     pub fn canonical_numbers(&self) -> BTreeMap<GroupId, u32> {
         let mut numbers = BTreeMap::new();
         for kind in [GroupKind::And, GroupKind::Or] {
@@ -444,12 +447,12 @@ impl StereoGroupTable {
         Ok(())
     }
 
-    /// Removes members; the note says what became unstated, if anything.
+    /// Removes members, which become ungrouped; it never empties the group.
     pub(crate) fn remove_members(
         &mut self,
         id: GroupId,
         atoms: &BTreeSet<AtomId>,
-    ) -> Result<Option<GroupNote>, StereoGroupError> {
+    ) -> Result<(), StereoGroupError> {
         let group = self.require(id)?;
         if !atoms.is_subset(&group.members) {
             return Err(StereoGroupError::MemberAbsent);
@@ -457,21 +460,13 @@ impl StereoGroupTable {
         if atoms.len() == group.members.len() {
             return Err(StereoGroupError::Empty);
         }
-        let relational = group.kind != GroupKind::Absolute && group.members.len() >= 2;
         self.group_mut(id)
             .members
             .retain(|atom| !atoms.contains(atom));
-        Ok(relational.then(|| GroupNote::MembersRemoved {
-            group: id,
-            atoms: atoms.iter().copied().collect(),
-        }))
+        Ok(())
     }
 
-    pub(crate) fn merge(
-        &mut self,
-        into: GroupId,
-        from: GroupId,
-    ) -> Result<GroupNote, StereoGroupError> {
+    pub(crate) fn merge(&mut self, into: GroupId, from: GroupId) -> Result<(), StereoGroupError> {
         if into == from {
             return Err(StereoGroupError::Same);
         }
@@ -479,17 +474,11 @@ impl StereoGroupTable {
         if target.kind != source.kind {
             return Err(StereoGroupError::KindMismatch);
         }
-        let note = GroupNote::Merged {
-            into,
-            from,
-            into_number: target.number,
-            from_number: source.number,
-        };
         let moved = self.groups.remove(&from).map(|group| group.members);
         self.group_mut(into)
             .members
             .extend(moved.into_iter().flatten());
-        Ok(note)
+        Ok(())
     }
 
     /// Moves `atoms` (some, not all, of the members) into the new group `new_group` of the same
@@ -500,7 +489,7 @@ impl StereoGroupTable {
         new_group: GroupId,
         atoms: &BTreeSet<AtomId>,
         number: Option<i32>,
-    ) -> Result<GroupNote, StereoGroupError> {
+    ) -> Result<(), StereoGroupError> {
         let group = self.require(id)?;
         if group.kind == GroupKind::Absolute {
             return Err(StereoGroupError::SplitAbsolute);
@@ -517,53 +506,23 @@ impl StereoGroupTable {
         self.group_mut(id).members = kept.clone();
         self.groups
             .insert(new_group, StereoGroup::new(kind, number, atoms.clone()));
-        Ok(GroupNote::Split {
-            group: id,
-            new_group,
-            moved: atoms.iter().copied().collect(),
-            kept: kept.into_iter().collect(),
-        })
+        Ok(())
     }
 
     /// Removes every member that is no longer a stored tetrahedral center, and every group left
-    /// without members, and describes what left.
-    pub(crate) fn prune(&mut self, stereo: &StereoTable) -> Vec<GroupNote> {
-        let mut notes = Vec::new();
-        let mut emptied = Vec::new();
-        for (id, group) in &mut self.groups {
-            let gone: Vec<(AtomId, LeaveCause)> = group
-                .members
-                .iter()
-                .filter_map(|atom| match center_state(stereo, *atom) {
-                    Some(CenterState::Tetrahedral { .. }) => None,
-                    Some(CenterState::Unknown { .. }) => {
-                        Some((*atom, LeaveCause::ConfigurationUnknown))
-                    }
-                    None => Some((*atom, LeaveCause::ConfigurationCleared)),
-                })
-                .collect();
-            if gone.is_empty() {
-                continue;
-            }
-            let relation_lost = group.kind != GroupKind::Absolute && group.members.len() >= 2;
-            for (atom, cause) in gone {
-                group.members.remove(&atom);
-                notes.push(GroupNote::MemberLeft {
-                    group: *id,
-                    atom,
-                    cause,
-                    relation_lost,
-                });
-            }
-            if group.members.is_empty() {
-                emptied.push(*id);
-            }
+    /// without members. Called once at the end of a transaction, so that a center cleared and
+    /// stated again within it keeps its group; until then a group command sees members as they
+    /// were stated.
+    pub(crate) fn prune(&mut self, stereo: &StereoTable) {
+        for group in self.groups.values_mut() {
+            group.members.retain(|atom| {
+                matches!(
+                    center_state(stereo, *atom),
+                    Some(CenterState::Tetrahedral { .. })
+                )
+            });
         }
-        for id in emptied {
-            self.groups.remove(&id);
-            notes.push(GroupNote::GroupRemoved { group: id });
-        }
-        notes
+        self.groups.retain(|_, group| !group.members.is_empty());
     }
 
     fn group_mut(&mut self, id: GroupId) -> &mut StereoGroup {
@@ -606,31 +565,109 @@ fn require_center(stereo: &StereoTable, atom: AtomId) -> Result<(), StereoGroupE
     }
 }
 
-/// Keeps the notes about groups and members that existed in `original`, the table before the
-/// transaction: what a transaction built and tore down itself is not reported.
-pub(crate) fn report_existing(
-    notes: Vec<GroupNote>,
-    original: &StereoGroupTable,
+/// What a transaction changed in the meaning of the groups that existed before it, from the
+/// table `before` and the table `after` (already pruned) and the stored configurations `after`.
+///
+/// One rule, applied by atom and not by group identifier: a note is produced when a relation
+/// among at least two members of one group of `before` no longer holds, or says something else,
+/// at the end of the transaction. A member that stopped being a stored tetrahedral center is a
+/// [`GroupNote::MemberLeft`] (also for a one-member group) and a group that lost all members a
+/// [`GroupNote::GroupRemoved`]. Of the members that survive as centers, those of an `and` or
+/// `or` group that are no longer all in one group are a [`GroupNote::RelationLost`]; those
+/// together in a group of another kind, a [`GroupNote::KindChanged`] (except that an `absolute`
+/// group stated no relation to lose or change); and members of two groups of one kind now in
+/// one group, a [`GroupNote::Merged`]. Adding members, renumbering, and a group made and
+/// changed within the transaction are not reported.
+pub(crate) fn meaning_changes(
+    before: &StereoGroupTable,
+    after: &StereoGroupTable,
+    stereo: &StereoTable,
 ) -> Vec<GroupNote> {
-    let had = |group: GroupId, atom: AtomId| {
-        original
-            .get(group)
-            .is_some_and(|group| group.members.contains(&atom))
-    };
+    let now: BTreeMap<AtomId, GroupId> = after
+        .groups
+        .iter()
+        .flat_map(|(id, group)| group.members.iter().map(move |atom| (*atom, *id)))
+        .collect();
+    let mut notes = Vec::new();
+    // Former groups by the group their surviving members are in now.
+    let mut merged: BTreeMap<GroupId, Vec<(GroupId, bool)>> = BTreeMap::new();
+    let mut relations = Vec::new();
+    for (id, group) in &before.groups {
+        let relational = group.kind != GroupKind::Absolute && group.members.len() >= 2;
+        let mut survivors = Vec::new();
+        for atom in &group.members {
+            match center_state(stereo, *atom) {
+                Some(CenterState::Tetrahedral { .. }) => survivors.push(*atom),
+                other => notes.push(GroupNote::MemberLeft {
+                    group: *id,
+                    atom: *atom,
+                    cause: match other {
+                        Some(_) => LeaveCause::ConfigurationUnknown,
+                        None => LeaveCause::ConfigurationCleared,
+                    },
+                    relation_lost: relational,
+                }),
+            }
+        }
+        if survivors.is_empty() {
+            notes.push(GroupNote::GroupRemoved { group: *id });
+            continue;
+        }
+        let mut together: BTreeMap<GroupId, Vec<AtomId>> = BTreeMap::new();
+        let mut ungrouped = Vec::new();
+        for atom in &survivors {
+            match now.get(atom) {
+                Some(home) => together.entry(*home).or_default().push(*atom),
+                None => ungrouped.push(*atom),
+            }
+        }
+        for home in together.keys() {
+            merged
+                .entry(*home)
+                .or_default()
+                .push((*id, together.len() == 1 && ungrouped.is_empty()));
+        }
+        if survivors.len() < 2 || group.kind == GroupKind::Absolute {
+            continue;
+        }
+        match (together.len(), ungrouped.is_empty()) {
+            (1, true) => {
+                let (home, atoms) = together.into_iter().next().expect("one group");
+                let to = after.groups[&home].kind;
+                if to != group.kind {
+                    relations.push(GroupNote::KindChanged {
+                        group: *id,
+                        atoms,
+                        from: group.kind,
+                        to,
+                    });
+                }
+            }
+            _ => relations.push(GroupNote::RelationLost {
+                group: *id,
+                together: together.into_values().collect(),
+                ungrouped,
+            }),
+        }
+    }
+    notes.extend(relations);
+    for (home, formers) in merged {
+        let kind = after.groups[&home].kind;
+        let sources: Vec<(GroupId, bool)> = formers
+            .into_iter()
+            .filter(|(id, _)| before.groups[id].kind == kind)
+            .collect();
+        if sources.len() >= 2 {
+            notes.push(GroupNote::Merged {
+                group: home,
+                number: after.groups[&home].interpreted_number(),
+                intact: sources.iter().all(|(_, intact)| *intact),
+                sources: sources
+                    .into_iter()
+                    .map(|(id, _)| (id, before.groups[&id].interpreted_number()))
+                    .collect(),
+            });
+        }
+    }
     notes
-        .into_iter()
-        .filter_map(|note| match note {
-            GroupNote::MemberLeft { group, atom, .. } => had(group, atom).then_some(note),
-            GroupNote::GroupRemoved { group } => original.get(group).is_some().then_some(note),
-            GroupNote::MembersRemoved { group, atoms } => {
-                let atoms: Vec<AtomId> =
-                    atoms.into_iter().filter(|atom| had(group, *atom)).collect();
-                (!atoms.is_empty()).then_some(GroupNote::MembersRemoved { group, atoms })
-            }
-            GroupNote::Split { group, .. } => original.get(group).is_some().then_some(note),
-            GroupNote::Merged { into, from, .. } => {
-                (original.get(into).is_some() && original.get(from).is_some()).then_some(note)
-            }
-        })
-        .collect()
 }

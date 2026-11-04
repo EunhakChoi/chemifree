@@ -6,8 +6,8 @@ use std::path::Path;
 
 use chemifree_application::{Application, DocumentRepository, Draft, StorageError};
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, GroupId, NewAtomPositions,
-    Point,
+    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, GroupId, GroupRef,
+    NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::stereo::{AtomConfiguration, SlotRef, Turn};
@@ -378,4 +378,46 @@ fn damaged_group_records_make_the_file_unreadable() {
     damage("a history entry that does not replay", &|file| {
         file["history"]["redo"][0]["stereo_groups"][0]["before"]["number"] = json!(7);
     });
+}
+
+#[test]
+fn lists_are_read_in_any_order_as_for_every_other_list_so_members_are_not_refused_unsorted() {
+    // The atom and stereo lists are written in identifier order, and a hand-edited file with
+    // them reversed loads to the same document, so a group's member list is no different.
+    let mut document = grouped_document();
+    document
+        .apply(&[
+            Command::DeleteStereoGroup {
+                group: GroupRef::Id(GroupId::from_serial(4).unwrap()),
+            },
+            Command::AddStereoGroupMembers {
+                group: GroupRef::Id(GroupId::from_serial(3).unwrap()),
+                atoms: vec![AtomRef::Id(atom(4))],
+            },
+        ])
+        .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    FileDocumentRepository::new(root.path())
+        .save(&document, None)
+        .unwrap();
+    let written = read_json(&root.path().join("documents").join(format!("{ID}.json")));
+    let members = &written["document"]["stereo_groups"][2]["state"]["members"];
+    assert_eq!(members, &json!(["a3", "a4"]), "written ascending");
+
+    let mut reversed = written.clone();
+    reversed["document"]["stereo_groups"][2]["state"]["members"] = json!(["a4", "a3"]);
+    reversed["document"]["molecule"]["atoms"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    reversed["document"]["stereo"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let (_root, repository, _path) = stored(&serde_json::to_vec(&reversed).unwrap());
+    assert_eq!(repository.load(&id()).unwrap(), Some(document));
+
+    let mut twice = written;
+    twice["document"]["stereo_groups"][2]["state"]["members"] = json!(["a3", "a3"]);
+    assert_unreadable(&twice, "a repeated member is still refused");
 }

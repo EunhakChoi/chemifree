@@ -34,7 +34,7 @@ use crate::stereo::{
 };
 use crate::stereo_drawing::{DeriveError, Drawing};
 use crate::stereo_group::{
-    GroupKind, GroupNote, StereoGroup, StereoGroupError, StereoGroupTable, report_existing,
+    GroupKind, GroupNote, StereoGroup, StereoGroupError, StereoGroupTable, meaning_changes,
 };
 
 pub const MAX_ATOMS: usize = 2_000;
@@ -1350,9 +1350,6 @@ struct Draft {
     /// bond, not because a `Set*` command cleared them; it may include records created within
     /// the transaction, which the reply filters out. See [`Draft::discard_stereo`].
     cascaded: BTreeSet<StereoKey>,
-    /// What group edits and the group cascade changed the meaning of, in order; unfiltered (see
-    /// [`report_existing`]).
-    group_notes: Vec<GroupNote>,
 }
 
 impl Draft {
@@ -1544,13 +1541,11 @@ impl Draft {
             Command::RemoveStereoGroupMembers { group, atoms } => {
                 let id = self.resolve_group(*group)?;
                 let members = self.resolve_group_atoms(atoms)?;
-                let note = self.content.stereo_groups.remove_members(id, &members)?;
-                self.group_notes.extend(note);
+                self.content.stereo_groups.remove_members(id, &members)?;
             }
             Command::MergeStereoGroups { into, from } => {
                 let (into, from) = (self.resolve_group(*into)?, self.resolve_group(*from)?);
-                let note = self.content.stereo_groups.merge(into, from)?;
-                self.group_notes.push(note);
+                self.content.stereo_groups.merge(into, from)?;
             }
             Command::SplitStereoGroup {
                 group,
@@ -1560,11 +1555,9 @@ impl Draft {
                 let id = self.resolve_group(*group)?;
                 let members = self.resolve_group_atoms(atoms)?;
                 let new_group = self.allocate_group()?;
-                let note = self
-                    .content
+                self.content
                     .stereo_groups
                     .split(id, new_group, &members, *number)?;
-                self.group_notes.push(note);
                 created = Created::Group(new_group);
             }
             _ => unreachable!("only stereo group commands are routed here"),
@@ -2042,11 +2035,6 @@ impl Draft {
             | Command::MergeStereoGroups { .. }
             | Command::SplitStereoGroup { .. } => created = self.apply_group_command(command)?,
         }
-        // The one place a group loses a member that stopped being a stored tetrahedral center,
-        // whichever command (a configuration set or cleared, a neighbor change, a deletion)
-        // caused it.
-        let left = self.content.stereo_groups.prune(&self.content.stereo);
-        self.group_notes.extend(left);
         self.created.push(created);
         Ok(())
     }
@@ -2640,7 +2628,6 @@ impl Document {
             next_group: self.next_group,
             created: Vec::with_capacity(commands.len()),
             cascaded: BTreeSet::new(),
-            group_notes: Vec::new(),
         };
         for (index, command) in commands.iter().enumerate() {
             draft.apply(command).map_err(|error| TransactionError {
@@ -2653,6 +2640,11 @@ impl Document {
             .stereo
             .validate(&draft.content.atoms, &draft.content.bonds)
             .map_err(whole)?;
+        // The one place a group loses a member that stopped being a stored tetrahedral center,
+        // whichever command (a configuration set or cleared, a neighbor change, a deletion)
+        // caused it. Doing it once, here, means a center cleared and stated again within the
+        // transaction keeps its group.
+        draft.content.stereo_groups.prune(&draft.content.stereo);
         draft
             .content
             .stereo_groups
@@ -2678,7 +2670,11 @@ impl Document {
                 self.content.stereo.get(*key).is_some() && draft.content.stereo.get(*key).is_none()
             })
             .collect();
-        let group_notes = report_existing(draft.group_notes, &self.content.stereo_groups);
+        let group_notes = meaning_changes(
+            &self.content.stereo_groups,
+            &draft.content.stereo_groups,
+            &draft.content.stereo,
+        );
         if self.revision >= MAX_EDIT_REVISION {
             return Err(whole(EditError::RevisionLimit));
         }
