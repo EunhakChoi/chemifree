@@ -88,6 +88,22 @@ fn export(app: &App, id: &str, extra: Value) -> Value {
     call(app, "export", "document.export", parameters)
 }
 
+/// A V3000 export that accepts the consent a stored center in no group needs (the drawing here
+/// is not under test for that loss); a refusal for any other feature stays a refusal.
+fn export_accepting_ungrouped(app: &App, id: &str) -> Value {
+    let refused = export(app, id, json!({"ctab": "v3000"}));
+    if refused["outcome"] != "error" {
+        return refused;
+    }
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["features"],
+        json!(["stereo_ungrouped_centers"]),
+        "{refused}"
+    );
+    let digest = refused["diagnostics"][0]["details"]["loss_digest"].clone();
+    export(app, id, json!({"ctab": "v3000", "accepted_losses": digest}))
+}
+
 /// The reference drawing of `WEDGE`, built by explicit commands: the same graph and marks with
 /// a configuration stated by hand.
 fn reference(app: &App) -> String {
@@ -231,26 +247,8 @@ fn a_narrow_end_at_the_bonds_end_is_written_with_the_endpoints_swapped() {
 }
 
 #[test]
-fn stereo_collections_and_the_chiral_flag_are_not_dropped_silently() {
+fn the_chiral_flag_is_dropped_loudly_unless_an_absolute_collection_backs_it() {
     let (app, _directory, id) = setup();
-    let collection = WEDGE.replace(
-        "M  V30 END CTAB",
-        "M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STEABS ATOMS=(1 1)\nM  V30 END COLLECTION\nM  V30 END CTAB",
-    );
-    let refused = call(
-        &app,
-        "preview",
-        "document.import",
-        json!({"document_id": id, "expected_revision": 0, "format": "mol",
-               "source": collection, "record": 1, "preview": true}),
-    );
-    assert_eq!(refused["outcome"], "error", "{refused}");
-    assert_eq!(
-        refused["diagnostics"][0]["code"],
-        "v3000_collection_not_supported_yet"
-    );
-    assert_eq!(snapshot(&app, &id)["revision"], 0);
-
     let chiral = WEDGE.replace("COUNTS 4 3 0 0 0", "COUNTS 4 3 0 0 1");
     let imported = import(&app, &id, 0, &chiral);
     let flag: Vec<&Value> = imported["loss_report"]
@@ -262,6 +260,21 @@ fn stereo_collections_and_the_chiral_flag_are_not_dropped_silently() {
     assert_eq!(flag.len(), 1, "{imported}");
     assert_eq!(flag[0]["disposition"], "dropped");
     assert_eq!(flag[0]["semantic_impact"], "stereo");
+    // With STEABS the file states the same thing as a group, which is imported.
+    let (app, _directory, id) = setup();
+    let backed = chiral.replace(
+        "M  V30 END CTAB",
+        "M  V30 BEGIN COLLECTION\nM  V30 MDLV30/STEABS ATOMS=(1 1)\nM  V30 END COLLECTION\nM  V30 END CTAB",
+    );
+    let imported = import(&app, &id, 0, &backed);
+    assert!(
+        !features(&imported).contains(&"chiral_flag".to_owned()),
+        "{imported}"
+    );
+    assert_eq!(
+        snapshot(&app, &id)["stereo"]["groups"][0]["kind"],
+        "absolute"
+    );
 }
 
 #[test]
@@ -390,10 +403,13 @@ fn a_configuration_the_marks_do_not_show_needs_consent_in_either_dialect() {
         assert_eq!(refused["outcome"], "error", "{refused}");
         let diagnostic = &refused["diagnostics"][0];
         assert_eq!(diagnostic["code"], "loss_consent_required");
-        assert_eq!(
-            diagnostic["details"]["features"],
+        // V3000 also reports the center, which is in no group.
+        let expected = if ctab == "v3000" {
+            json!(["stereo_configuration_not_drawn", "stereo_ungrouped_centers"])
+        } else {
             json!(["stereo_configuration_not_drawn"])
-        );
+        };
+        assert_eq!(diagnostic["details"]["features"], expected, "{ctab}");
         let loss = &diagnostic["details"]["losses"][0];
         assert_eq!(loss["source_path"], "records[1].atoms[a1]");
         assert_eq!(loss["disposition"], "dropped");
@@ -409,7 +425,12 @@ fn a_configuration_the_marks_do_not_show_needs_consent_in_either_dialect() {
         let digest = diagnostic["details"]["loss_digest"].clone();
         let accepted = export(&app, &id, json!({"ctab": ctab, "accepted_losses": digest}));
         assert_eq!(accepted["outcome"], "partial", "{accepted}");
-        assert!(features(&accepted).contains(&"chiral_flag".to_owned()));
+        // V2000 writes flag 0 and says so; V3000 writes the flag it states, no loss for it.
+        assert_eq!(
+            features(&accepted).contains(&"chiral_flag".to_owned()),
+            ctab == "v2000",
+            "{ctab}: {accepted}"
+        );
         // The digest of one dialect does not accept the other.
         let other = if ctab == "v2000" { "v3000" } else { "v2000" };
         let crossed = export(&app, &id, json!({"ctab": other, "accepted_losses": digest}));
@@ -426,7 +447,7 @@ fn a_configuration_the_marks_do_not_show_needs_consent_in_either_dialect() {
 fn a_v3000_export_imports_back_to_the_same_marks_and_configuration() {
     let (app, _directory, id) = setup();
     import(&app, &id, 0, WEDGE);
-    let written = export(&app, &id, json!({"ctab": "v3000"}));
+    let written = export_accepting_ungrouped(&app, &id);
     let text = written["result"]["content"].as_str().unwrap().to_owned();
     let (second, _other, target) = setup();
     import(&second, &target, 0, &text);
@@ -434,7 +455,7 @@ fn a_v3000_export_imports_back_to_the_same_marks_and_configuration() {
     assert_eq!(first["bonds"], again["bonds"]);
     assert_eq!(first["stereo"], again["stereo"]);
     // The writer is deterministic.
-    let twice = export(&app, &id, json!({"ctab": "v3000"}));
+    let twice = export_accepting_ungrouped(&app, &id);
     assert_eq!(twice["result"]["content"], written["result"]["content"]);
 }
 
@@ -455,7 +476,7 @@ fn the_hydrogen_uncertainty_names_the_dialect_it_is_about() {
     let reason = hydrogen_reason(&v3000);
     assert!(!reason.contains("V2000"), "{reason}");
     assert!(reason.contains("hydrogen count"), "{reason}");
-    assert!(hydrogen_reason(&export(&app, &id, json!({"ctab": "v3000"}))) == reason);
+    assert!(hydrogen_reason(&export_accepting_ungrouped(&app, &id)) == reason);
     let v2000 = hydrogen_reason(&export(&app, &id, json!({"ctab": "v2000"})));
     assert!(
         v2000.starts_with("Default V2000 hydrogen and valence fields"),
@@ -510,7 +531,7 @@ fn consent_for_a_configuration_follows_the_placement_that_is_written() {
     // configuration the first placement shows is the one compared.
     let (app, _directory, id) = setup();
     import(&app, &id, 0, WEDGE);
-    let before = export(&app, &id, json!({"ctab": "v3000"}));
+    let before = export_accepting_ungrouped(&app, &id);
     assert_eq!(before["outcome"], "partial", "{before}");
     let more = call(
         &app,
@@ -520,8 +541,11 @@ fn consent_for_a_configuration_follows_the_placement_that_is_written() {
             {"op": "add_instance", "offset": {"x": 200, "y": 0}}]}),
     );
     assert_eq!(more["outcome"], "ok", "{more}");
-    let after = export(&app, &id, json!({"ctab": "v3000"}));
-    assert_eq!(after["outcome"], "partial", "no consent needed: {after}");
+    let after = export_accepting_ungrouped(&app, &id);
+    assert_eq!(
+        after["outcome"], "partial",
+        "no further consent needed: {after}"
+    );
     assert_eq!(after["result"]["content"], before["result"]["content"]);
     assert!(features(&after).contains(&"extra_placement".to_owned()));
 }
@@ -635,9 +659,13 @@ fn a_configuration_that_only_the_unrounded_drawing_shows_needs_consent() {
     );
     for ctab in ["v2000", "v3000"] {
         let refused = export(&app, &id, json!({"ctab": ctab}));
+        let expected = if ctab == "v3000" {
+            json!(["stereo_configuration_not_drawn", "stereo_ungrouped_centers"])
+        } else {
+            json!(["stereo_configuration_not_drawn"])
+        };
         assert_eq!(
-            refused["diagnostics"][0]["details"]["features"],
-            json!(["stereo_configuration_not_drawn"]),
+            refused["diagnostics"][0]["details"]["features"], expected,
             "{ctab}: {refused}"
         );
     }

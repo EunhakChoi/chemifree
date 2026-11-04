@@ -619,7 +619,7 @@
         },
         {
           "id": "CODEC-03.v3000-wire",
-          "summary": "MOL/SDF import and export of the V3000 core subset through document.import and document.export: record dialect detection, aromatic bonds, bond marks (wedge, hash, wavy, crossed) both ways with the configurations they show derived on import, the ctab request key (v2000 default, v3000, auto), V2000 bond stereo column writing and reading (wedge, hash, either), and accepted_losses consent for stereo a file cannot carry. Query atoms and bonds, dative bonds, stereo collections, SGroups, R-groups, and the web choice remain outside this part.",
+          "summary": "MOL/SDF import and export of the V3000 core subset through document.import and document.export: record dialect detection, aromatic bonds, bond marks (wedge, hash, wavy, crossed) both ways with the configurations they show derived on import, the ctab request key (v2000 default, v3000, auto), V2000 bond stereo column writing and reading (wedge, hash, either), and accepted_losses consent for stereo a file cannot carry. Query atoms and bonds, dative bonds, SGroups, R-groups, and the web choice remain outside this part; the stereo collections are CODEC-03.v3000-groups.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/ct_projection.rs",
@@ -637,8 +637,29 @@
           "followups": []
         },
         {
+          "id": "CODEC-03.v3000-groups",
+          "summary": "V3000 COLLECTION blocks and the P27 enhanced stereo groups, both ways: STEABS, STERAC<n> and STEREL<n> written with the group's interpreted number as stated (omitted as 0, any 32-bit integer), the chiral flag written as 1 only when an absolute group exists (a product rule), the consent loss stereo_ungrouped_centers for stored centers in no group, the informational stereo_group_identity, import in the same transaction with closed refusals (empty, duplicate, shared atom, member that is not a stored tetrahedral center, out-of-range atom), renumbering of a colliding number and joining of the absolute group on append with reported losses, and the mol-v2000 and mol-v3000 format ids. V2000, CDX and CXSMILES still carry no groups; SGroups, query atoms and bonds, dative bonds and the web choice remain outside this part.",
+          "status": "implemented",
+          "implementation": [
+            "crates/application/src/ct_projection.rs",
+            "crates/application/src/operations.rs",
+            "crates/application/src/ctfile.rs",
+            "crates/providers/src/ctfile/v3000.rs",
+            "crates/providers/src/ctfile.rs"
+          ],
+          "evidence": [
+            "case:molfile-v3000-stereo-groups-round-trip",
+            "case:molfile-v3000-collection-refusals-leave-document-unchanged",
+            "case:molfile-v3000-group-append-renumbers-colliding-number",
+            "case:molfile-v3000-wedge-round-trip",
+            "check:check:rust",
+            "check:test:contracts"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-03.rest",
-          "summary": "V3000 query atoms and bonds, stereo collections and the chiral rule, SGroups, R-groups and advanced MOL/SDF features remain open.",
+          "summary": "V3000 query atoms and bonds, dative bonds, SGroups, R-groups and advanced MOL/SDF features remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1131,7 +1152,7 @@
       "parts": [
         {
           "id": "STEREO-01.1",
-          "summary": "Group labels, partitions and omissions, in the editor and for the two exports that exist: a group keeps its identifier and members apart from the stored number, the interpreted number and the display label (stored and shown in snapshots, 0, negative and omitted numbers as stated, Or 1 and And 1 distinct, one absolute group, singleton groups legal); renumbering and adding members are not losses, while splitting, merging, removing members and a member losing its configuration are reported; a SMILES export reports the consent loss stereo_group for all groups, a MOL export (either dialect) needs the same consent for groups, and CIP and identity ignore groups. No import reads groups and no export writes them, so nothing here claims a mapping to any file format.",
+          "summary": "Group labels, partitions and omissions, in the editor and for the two exports that exist: a group keeps its identifier and members apart from the stored number, the interpreted number and the display label (stored and shown in snapshots, 0, negative and omitted numbers as stated, Or 1 and And 1 distinct, one absolute group, singleton groups legal); renumbering and adding members are not losses, while splitting, merging, removing members and a member losing its configuration are reported; a SMILES export reports the consent loss stereo_group for all groups, a V2000 MOL export needs the same consent for groups (a V3000 export writes them, see CODEC-03.v3000-groups), and CIP and identity ignore groups. This part claims no mapping to any file format; the V3000 mapping is CODEC-03.v3000-groups.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_group.rs",
@@ -1162,7 +1183,7 @@
         },
         {
           "id": "STEREO-01.2",
-          "summary": "Stereo groups are shown and edited in the web editor: the Stereo panel's Group cell and group list read only from the snapshot (id, label, kind, the stored number as stated against the interpreted one, member count, member chips), one-click make absolute, group as AND or OR, add, remove, merge, split, set number and delete on the selected atoms in one transaction each (enabled only when the contract's preconditions hold, a disabled control saying why in text), a plain sentence for each of the twelve stereo_group refusal reasons, the reply's notes shown as for other stereo notes, and a Group labels canvas overlay that is off by default, not saved and never part of the document. The page states that groups are not drawn into exported files, not compared with the drawing and do not change CIP labels or identity, and claims no ratio for any kind. Nothing here maps groups to any file format.",
+          "summary": "Stereo groups are shown and edited in the web editor: the Stereo panel's Group cell and group list read only from the snapshot (id, label, kind, the stored number as stated against the interpreted one, member count, member chips), one-click make absolute, group as AND or OR, add, remove, merge, split, set number and delete on the selected atoms in one transaction each (enabled only when the contract's preconditions hold, a disabled control saying why in text), a plain sentence for each of the twelve stereo_group refusal reasons, the reply's notes shown as for other stereo notes, and a Group labels canvas overlay that is off by default, not saved and never part of the document. The page states that its own exports (SMILES, V2000) carry no groups, that V3000 export through the operations writes them, that groups are not compared with the drawing and do not change CIP labels or identity, and claims no ratio for any kind. Nothing here maps groups to any file format.",
           "status": "implemented",
           "implementation": [
             "apps/web/src/editor/stereo-groups.ts",
@@ -1178,7 +1199,7 @@
         },
         {
           "id": "STEREO-01.rest",
-          "summary": "Group import and export in the formats that can carry them (V3000 collections, CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses, and group normalization on import.",
+          "summary": "Group import and export in the formats that can still carry them (CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses there, and group normalization on import there. MOL V3000 collections are CODEC-03.v3000-groups.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

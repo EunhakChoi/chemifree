@@ -6,9 +6,14 @@ writes (read by RDKit) and of what RDKit writes (read by Chemifree), plus a cont
 Bond marks (P28b1): the service-written wedge, hash and either marks, in V2000 and V3000, are
 read by RDKit (the chirality the file gives, which shows the narrow end, and the crossed double bond);
 and RDKit-written V3000 wedge marks are read by Chemifree (bond kind and begin atom).
-Not compared: collection numbers (RDKit does not preserve zero or negative ones), query
-features, SGroups and stereo groups, which are refused or not mapped yet; the CIP label RDKit
-derives for the wedge fixture is checked against a hand derivation, not against Chemifree.
+Stereo groups (P28b2): the collections Chemifree writes are read by RDKit, and the group
+kinds with their member atoms (the partition) are compared; the collections RDKit writes for a
+CXSMILES with an absolute, an and and an or group are imported by Chemifree and compared the
+same way. Only the partition is compared: RDKit does not keep zero or negative STEREL/STERAC
+numbers, so it is not an oracle for the numbers.
+Not compared: query features and SGroups, which are refused or not mapped yet; the CIP label
+RDKit derives for the wedge fixture is checked against a hand derivation, not against
+Chemifree.
 """
 
 from __future__ import annotations
@@ -120,6 +125,65 @@ def _marks(binary: pathlib.Path, root: pathlib.Path) -> None:
     _require(parsed == expected, f"Chemifree read RDKit's V2000 marks as {parsed}")
 
 
+_KINDS = {
+    rdkit.Chem.StereoGroupType.STEREO_ABSOLUTE: "absolute",
+    rdkit.Chem.StereoGroupType.STEREO_AND: "and",
+    rdkit.Chem.StereoGroupType.STEREO_OR: "or",
+}
+
+
+def _rdkit_partition(mol: rdkit.Chem.Mol) -> set[tuple[str, tuple[int, ...]]]:
+    """The kind and the zero-based atom indices of each stereo group RDKit read."""
+    return {
+        (_KINDS[group.GetGroupType()], tuple(sorted(a.GetIdx() for a in group.GetAtoms())))
+        for group in mol.GetStereoGroups()
+    }
+
+
+def _groups(binary: pathlib.Path, root: pathlib.Path) -> None:
+    """Chemifree-written collections read by RDKit, and RDKit-written ones read by Chemifree."""
+    subprocess.run(  # noqa: S603
+        [str(binary), "write-groups", str(root)], check=True
+    )
+    written = rdkit.Chem.MolFromMolFile(
+        str(root / "groups-v3000.mol"), sanitize=False, removeHs=False
+    )
+    _require(written is not None, "RDKit refused the Chemifree collections")
+    # RDKit 2022.03.2 skips the collection numbered -128 ("unrecognized collection type"), so
+    # the partition it can read has the other three; the negative number is checked by the
+    # Rust tests, not here. STERAC0 and STEREL258 it keeps.
+    expected = {
+        ("absolute", (0,)),
+        ("and", (8,)),
+        ("or", (12,)),
+    }
+    found = _rdkit_partition(written)
+    _require(found == expected, f"RDKit read the groups as {found}")
+    # RDKit's own enhanced stereo (absolute, and, or) written as V3000 and imported.
+    mol = rdkit.Chem.MolFromSmiles("N[C@@H](C)C[C@H](F)C[C@@H](Cl)C[C@H](Br)I |a:1,&1:4,o1:7,o2:10|")
+    _require(mol is not None, "RDKit could not read the CXSMILES groups")
+    rdkit.Chem.rdDepictor.Compute2DCoords(mol)
+    rdkit.Chem.WedgeMolBonds(mol, mol.GetConformer())
+    reference = _rdkit_partition(mol)
+    _require(len(reference) == 4, f"RDKit built {reference}")
+    path = root / "rdkit-groups.mol"
+    path.write_text(rdkit.Chem.MolToV3KMolBlock(mol), encoding="utf-8")
+    output = subprocess.run(  # noqa: S603
+        [str(binary), "preview", str(path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    reply = json.loads(output.stdout)
+    document = reply["result"]["document"]
+    # The importing document numbers atoms a1.. in file order, which is RDKit's index order.
+    parsed = {
+        (g["kind"], tuple(sorted(int(m[1:]) - 1 for m in g["members"])))
+        for g in document["stereo"]["groups"]
+    }
+    _require(parsed == reference, f"Chemifree read RDKit's groups as {parsed}, not {reference}")
+
+
 def main() -> None:
     """Run the reciprocal checks."""
     logging.basicConfig(
@@ -165,6 +229,7 @@ def main() -> None:
                 f"RDKit did not read {name}",
             )
         _marks(binary, root)
+        _groups(binary, root)
         source = rdkit.Chem.MolFromSmiles("CCC(=O)O")
         _require(source is not None, "RDKit could not build the reference")
         source.GetAtomWithIdx(0).SetIsotope(13)

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 21,
+  "suite_version": 22,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -693,7 +693,7 @@
     },
     {
       "id": "molfile-v3000-wedge-round-trip",
-      "title": "A wedge drawing is written as V3000 with CFG=1, imported into another document with its mark and the configuration it shows, and survives reopening",
+      "title": "A wedge drawing with an absolute group is written as V3000 with CFG=1, a STEABS collection and the chiral flag, imported into another document with its mark, configuration and group, and survives reopening",
       "requirements": [
         "CODEC-03"
       ],
@@ -702,11 +702,11 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "774d4018d3181cad122746da92d32359de1875fff4b755b2b3a67d16826531a5"
+      "case_sha256": "749380dff6574287046135f80d4c004b629265366b97368e61f41ae0681e7479"
     },
     {
       "id": "molfile-v3000-refusals-leave-document-unchanged",
-      "title": "V3000 constructs this profile cannot hold (stereo collections, a bond mark on an aromatic bond, a dangling atom, a query bond type) are refused with their reason and the document keeps its revision",
+      "title": "V3000 constructs this profile cannot hold (a stereo collection that lists a plain atom, a bond mark on an aromatic bond, a dangling atom, a query bond type) are refused with their reason and the document keeps its revision",
       "requirements": [
         "CODEC-03"
       ],
@@ -715,7 +715,49 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "ed39344dac7a3f7760e65ef063a7f9b2c7f0f9b2930930d66f1e31dbf174aa7a"
+      "case_sha256": "7de8b25eb83930d4e56772b284aa2ba0caa83a24067e3d7bfcb78e51ec813879"
+    },
+    {
+      "id": "molfile-v3000-stereo-groups-round-trip",
+      "title": "Absolute, and and or groups (numbers -128, omitted, 258) are written as V3000 STEABS, STERAC and STEREL collections with the chiral flag, imported into another document with the numbers as stated, survive reopening, and a V2000 export of them still needs consent",
+      "requirements": [
+        "CODEC-03",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "9ad8e13c28ca75b6462eabfa7adb52cb4eb171322b19d5b997092e7c1f302054"
+    },
+    {
+      "id": "molfile-v3000-collection-refusals-leave-document-unchanged",
+      "title": "V3000 collections that repeat a type and index, share an atom, are empty, list an atom twice or a plain atom, point at a missing atom or overflow int32 are refused with their reason and the document keeps its revision, atoms and groups",
+      "requirements": [
+        "CODEC-03",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6799ed551d765ea0ef40980413a40fd52fbed7e34401723b68ebb8013665b3e4"
+    },
+    {
+      "id": "molfile-v3000-group-append-renumbers-colliding-number",
+      "title": "Importing a V3000 file whose or group number the document already uses keeps both as separate groups, gives the new one a free number and reports the change",
+      "requirements": [
+        "CODEC-03",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "96e9199f31053cbdee08c1e24bdd3fdbb614356c98555c4c96659ed833439800"
     },
     {
       "id": "stereo-identity-and-substructure-not-compared",
@@ -1194,17 +1236,17 @@
   ],
   "counts": {
     "accept": {
-      "passed": 68,
+      "passed": 70,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 21,
+      "passed": 22,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 89,
+      "passed": 92,
       "failed": 0,
       "not_run": 0
     }

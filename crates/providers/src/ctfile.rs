@@ -1074,22 +1074,22 @@ fn write_record(
     title_ok(&item.title, record, None)?;
     simple_line(&item.program, record, None, "Program")?;
     simple_line(&item.comment, record, None, "Comment")?;
-    if !item.collections.is_empty() {
+    if tab == CtTab::V2000 && !item.collections.is_empty() {
         return Err(error(
             "v3000_collection_not_supported_yet",
             record,
             None,
-            "Stereo collections are carried by the reader only; neither writer states them.",
+            "V2000 has no stereo collections; write V3000 to state them.",
         ));
     }
-    if item.chiral {
+    if tab == CtTab::V2000 && item.chiral {
         losses.push(loss(
             record,
             ".counts.chiral",
             "chiral_flag",
             LossDisposition::Dropped,
             SemanticImpact::Stereo,
-            "The chiral flag is read but not interpreted, and the writer states 0.",
+            "The chiral flag is read but not interpreted, and the V2000 writer states 0.",
         ));
     }
     if tab == CtTab::V2000 && (item.atoms.len() > MAX_ITEMS || item.bonds.len() > MAX_ITEMS) {

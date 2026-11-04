@@ -748,8 +748,8 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          each stored center, so no more than the 2,000-atom cap; at most one absolute group; a \
          stored number is any 32-bit signed integer. Nothing states a ratio, a chiral flag or \
          double-bond members. chem.cip, chem.identity, chem.substructure and chem.stereo \
-         ignore groups (chem.stereo says so); a SMILES, V2000 or V3000 MOL export needs consent to \
-         drop them and no format carries them yet.",
+         ignore groups (chem.stereo says so); a SMILES or V2000 MOL export needs consent to \
+         drop them, and a V3000 MOL export writes them as COLLECTION blocks.",
     )
     .carried_out_by(&[
         "create_stereo_group",
@@ -1123,9 +1123,52 @@ enum CtabChoice {
     #[default]
     V2000,
     V3000,
-    /// V3000 when a drawing needs it (more than 999 atoms or bonds, an aromatic bond),
+    /// V3000 when a drawing needs it (more than 999 atoms or bonds, an aromatic bond, an enhanced stereo group),
     /// otherwise V2000.
     Auto,
+}
+
+/// Resolves the `mol-v2000` and `mol-v3000` format ids to `mol`. For an export the id sets
+/// `ctab`; an explicit `ctab` that names another dialect (or `auto`) is `format_ctab_conflict`.
+/// For an import the dialect is returned, and the selected record must be in it. Any other
+/// `format` value is left alone.
+fn ct_format_alias(request: &mut Value, export: bool) -> Result<Option<CtTab>, Diagnostic> {
+    let Some(map) = request.as_object_mut() else {
+        return Ok(None);
+    };
+    let (tab, name) = match map.get("format").and_then(Value::as_str) {
+        Some("mol-v2000") => (CtTab::V2000, "v2000"),
+        Some("mol-v3000") => (CtTab::V3000, "v3000"),
+        _ => return Ok(None),
+    };
+    map.insert("format".into(), "mol".into());
+    if export {
+        // A `ctab` that is not one of the three values is a parameter error, as without an
+        // alias; only a valid, differing value is a conflict.
+        let chosen = match map.get("ctab") {
+            None => None,
+            Some(value) => Some(parameters::<CtabChoice>(value.clone())?),
+        };
+        match chosen {
+            None => {
+                map.insert("ctab".into(), name.into());
+            }
+            Some(choice)
+                if (choice == CtabChoice::V3000) == (tab == CtTab::V3000)
+                    && choice != CtabChoice::Auto => {}
+            Some(_) => {
+                return Err(ct_failure(CtError {
+                    code: "format_ctab_conflict",
+                    message: format!(
+                        "The format id names {name}; `ctab` must be {name} or left out."
+                    ),
+                    record: 1,
+                    line: None,
+                }));
+            }
+        }
+    }
+    Ok(Some(tab))
 }
 
 fn ct_failure(error: CtError) -> Diagnostic {
@@ -1516,6 +1559,9 @@ fn property_failure(error: PropertiesError) -> (bool, Diagnostic) {
 struct CtImportFormat<'a> {
     codec: &'a dyn CtCodec,
     p: &'a CtImportParameters,
+    /// The dialect a `mol-v2000` or `mol-v3000` format id asks for; the selected record must be
+    /// in it.
+    required: Option<CtTab>,
 }
 
 impl CtImportFormat<'_> {
@@ -1551,6 +1597,17 @@ impl ImportFormat for CtImportFormat<'_> {
                     line: None,
                 })
             })?;
+        if let Some(required) = self.required {
+            let found = input.value[selected].ctab;
+            if found != required {
+                return Err(self.refusal_at(
+                    "format_ctab_conflict",
+                    &format!(
+                        "The format id names {required:?} but the selected record is {found:?}; use format \"mol\" to read either."
+                    ),
+                ));
+            }
+        }
         Ok((input, selected))
     }
 
@@ -1635,7 +1692,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 "rich interchange",
                 self.interchange_codec.is_some(),
             ),
-            Some("mol" | "sdf") => (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some()),
+            Some("mol" | "sdf" | "mol-v2000" | "mol-v3000") => {
+                (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some())
+            }
             _ if self.ctfile_codec.is_none() && self.interchange_codec.is_some() => {
                 return Backend::Interchange;
             }
@@ -1674,7 +1733,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
-    fn ct_import(&self, known: &Known, p: CtImportParameters) -> OperationResponse {
+    fn ct_import(
+        &self,
+        known: &Known,
+        p: CtImportParameters,
+        required: Option<CtTab>,
+    ) -> OperationResponse {
         let Some(codec) = &self.ctfile_codec else {
             return known.not_running();
         };
@@ -1684,11 +1748,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preview: p.preview,
             preview_digest: p.preview_digest.as_deref(),
             accept_loss: p.accept_loss,
-            fingerprint: ct_projection::digest(&p),
+            // The format id's dialect is part of the request: `mol` and `mol-v3000` differ.
+            fingerprint: ct_projection::digest(&(&p, required.map(|tab| tab == CtTab::V3000))),
         };
         let format = CtImportFormat {
             codec: codec.as_ref(),
             p: &p,
+            required,
         };
         self.run_import(known, &format, request, self.preview_generation)
     }
@@ -1747,10 +1813,25 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(record) => record,
                 Err(error) => return known.invalid(ct_failure(error)),
             };
+            if target == ct_projection::Target::V3000 {
+                let undrawn = ct_projection::undrawn_group_members(&domain, &snapshot.document);
+                if !undrawn.is_empty() {
+                    return known.invalid(ct_failure(CtError {
+                        code: "v3000_group_member_not_drawn",
+                        message: format!(
+                            "Group members {} have no wedge or hash that derives their stored configuration, so the collection would name atoms this reader refuses; draw the marks or remove the members from the group. Nothing was written.",
+                            undrawn.join(", ")
+                        ),
+                        record: index,
+                        line: None,
+                    }));
+                }
+            }
             losses.extend(ct_projection::molfile_stereo_losses(
                 &domain,
                 &snapshot.document,
                 index,
+                target,
             ));
             mappings.push(CtExportMapping {
                 atoms: snapshot
@@ -2375,10 +2456,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Err(invalid) => known.invalid(invalid),
                 },
                 Backend::Interchange => self.dispatch_interchange_import(known, parameters_value),
-                Backend::Ct => match parameters::<CtImportParameters>(parameters_value) {
-                    Ok(p) => self.ct_import(known, p),
-                    Err(invalid) => known.invalid(invalid),
-                },
+                Backend::Ct => {
+                    let mut parameters_value = parameters_value;
+                    match ct_format_alias(&mut parameters_value, false) {
+                        Ok(required) => match parameters::<CtImportParameters>(parameters_value) {
+                            Ok(p) => self.ct_import(known, p, required),
+                            Err(invalid) => known.invalid(invalid),
+                        },
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::DocumentExport => match self.format_backend(&parameters_value) {
@@ -2387,10 +2474,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Err(invalid) => known.invalid(invalid),
                 },
                 Backend::Interchange => self.dispatch_interchange_export(known, parameters_value),
-                Backend::Ct => match parameters::<CtExportParameters>(parameters_value) {
-                    Ok(p) => self.ct_export(known, p),
-                    Err(invalid) => known.invalid(invalid),
-                },
+                Backend::Ct => {
+                    let mut parameters_value = parameters_value;
+                    match ct_format_alias(&mut parameters_value, true) {
+                        Ok(_) => match parameters::<CtExportParameters>(parameters_value) {
+                            Ok(p) => self.ct_export(known, p),
+                            Err(invalid) => known.invalid(invalid),
+                        },
+                        Err(invalid) => known.invalid(invalid),
+                    }
+                }
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {

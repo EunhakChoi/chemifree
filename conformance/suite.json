@@ -1,5 +1,5 @@
 {
-  "suite_version": 21,
+  "suite_version": 22,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -54,6 +54,9 @@
     "cases/stereo-molfile-export-consent.json",
     "cases/molfile-v3000-wedge-round-trip.json",
     "cases/molfile-v3000-refusals-leave-document-unchanged.json",
+    "cases/molfile-v3000-stereo-groups-round-trip.json",
+    "cases/molfile-v3000-collection-refusals-leave-document-unchanged.json",
+    "cases/molfile-v3000-group-append-renumbers-colliding-number.json",
     "cases/stereo-identity-and-substructure-not-compared.json",
     "cases/stereo-set-from-drawing.json",
     "cases/stereo-set-from-drawing-parity-pair.json",
