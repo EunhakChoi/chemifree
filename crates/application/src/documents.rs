@@ -1634,14 +1634,11 @@ impl<R: DocumentRepository> Documents<R> {
             }
         };
         let counters = stored.numbering();
-        if reached.next_atom > counters.next_atom
-            || reached.next_bond > counters.next_bond
-            || reached.next_object > counters.next_object
-        {
+        if has_issued_identifiers_beyond(reached, counters) {
             return Err(ApplicationError::new(
                 ErrorCode::DraftOutdated,
-                "this process already used atom, bond, or scene instance identifiers the draft \
-                 may reuse; recover the draft as a copy",
+                "this process already used atom, bond, scene instance, or stereo group identifiers \
+                 the draft may reuse; recover the draft as a copy",
             ));
         }
         Ok((reached, saved_revision))
@@ -2606,7 +2603,8 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
                     format!("groups[{group}]"),
                     LossDisposition::Dropped,
                     format!(
-                        "Stereo group {group} no longer states that {} belong together: now {}.",
+                        "Stereo group {group} no longer states that its remaining members {} belong \
+                         together: now {}.",
                         atoms(&all),
                         now.join("; ")
                     ),
@@ -2626,8 +2624,9 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
                     LossDisposition::Normalized
                 },
                 format!(
-                    "{} were stated {} together in stereo group {group} and are now in a group \
-                     of kind {}: what is stated about how they relate to each other changed.",
+                    "The remaining members {} of stereo group {group} were stated {} together and \
+                     are now in a group of kind {}: what is stated about how they relate to \
+                     each other changed.",
                     atoms(moved),
                     from.as_str(),
                     to.as_str()
@@ -2668,15 +2667,15 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
                 let (disposition, together) = if *intact {
                     (
                         LossDisposition::Normalized,
-                        "all their members now belong together, a relation that was not stated \
-                         before.",
+                        "all their surviving members now belong together, a relation that was not \
+                         stated before.",
                     )
                 } else {
                     (
                         LossDisposition::Dropped,
-                        "the members that remain in it now belong together, a relation that \
-                         was not stated before; not all members of the former groups stayed \
-                         together.",
+                        "the surviving members that are in it now belong together, a relation \
+                         that was not stated before; not all surviving members of the former \
+                         groups stayed together.",
                     )
                 };
                 note(
@@ -2690,6 +2689,15 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
             }
         })
         .collect()
+}
+
+/// Whether this process has handed out an atom, bond, scene instance or stereo group
+/// identifier that the stored commit's counters would issue again for different content.
+fn has_issued_identifiers_beyond(reached: Numbering, stored: Numbering) -> bool {
+    reached.next_atom > stored.next_atom
+        || reached.next_bond > stored.next_bond
+        || reached.next_object > stored.next_object
+        || reached.next_group > stored.next_group
 }
 
 /// The notes of an applied edit, or its refusal: what a transaction, a settings change and an
@@ -3051,6 +3059,112 @@ mod tests {
     }
 
     #[test]
+    fn a_group_identifier_issued_since_the_stored_commit_makes_a_draft_outdated() {
+        let stored = drawing().numbering();
+        let same = |reached: Numbering| has_issued_identifiers_beyond(reached, stored);
+        assert!(!same(stored));
+        for (name, reached) in [
+            (
+                "atom",
+                Numbering {
+                    next_atom: stored.next_atom + 1,
+                    ..stored
+                },
+            ),
+            (
+                "bond",
+                Numbering {
+                    next_bond: stored.next_bond + 1,
+                    ..stored
+                },
+            ),
+            (
+                "object",
+                Numbering {
+                    next_object: stored.next_object + 1,
+                    ..stored
+                },
+            ),
+            (
+                "group",
+                Numbering {
+                    next_group: stored.next_group + 1,
+                    ..stored
+                },
+            ),
+        ] {
+            assert!(same(reached), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_merge_with_a_member_that_left_speaks_of_the_surviving_members_only() {
+        let document = drawing();
+        let (a1, a2) = (
+            AtomId::from_serial(1).unwrap(),
+            AtomId::from_serial(2).unwrap(),
+        );
+        let (e1, e2) = (
+            GroupId::from_serial(1).unwrap(),
+            GroupId::from_serial(2).unwrap(),
+        );
+        let applied = Applied {
+            outcome: Outcome::Changed,
+            cleared: vec![StereoKey::Center(a2)],
+            group_notes: vec![
+                GroupNote::MemberLeft {
+                    group: e2,
+                    atom: a2,
+                    cause: LeaveCause::ConfigurationCleared,
+                    relation_lost: true,
+                },
+                GroupNote::Merged {
+                    group: e1,
+                    number: Some(1),
+                    kind: GroupKind::Or,
+                    sources: vec![(e1, GroupKind::Or, Some(1)), (e2, GroupKind::Or, Some(2))],
+                    intact: true,
+                },
+                GroupNote::RelationLost {
+                    group: e1,
+                    together: vec![vec![a1]],
+                    ungrouped: vec![],
+                },
+                GroupNote::KindChanged {
+                    group: e1,
+                    atoms: vec![a1],
+                    from: GroupKind::Or,
+                    to: GroupKind::And,
+                },
+            ],
+        };
+        let notes = edit_notes(&document, Ok(applied)).unwrap();
+        let merge = notes
+            .iter()
+            .find(|n| n.reason.contains("are now in group"))
+            .unwrap();
+        assert!(
+            merge.reason.contains("all their surviving members"),
+            "{}",
+            merge.reason
+        );
+        assert!(
+            !merge.reason.contains("all their members"),
+            "{}",
+            merge.reason
+        );
+        let text: Vec<&str> = notes.iter().map(|n| n.reason.as_str()).collect();
+        assert!(
+            text.iter().any(|t| t.contains("its remaining members")),
+            "{text:?}"
+        );
+        assert!(
+            text.iter().any(|t| t.contains("The remaining members")),
+            "{text:?}"
+        );
+    }
+
+    #[test]
     fn a_merge_that_also_changes_the_kind_says_so_in_the_same_note() {
         let document = drawing();
         let (e1, e2) = (
@@ -3118,7 +3232,7 @@ mod tests {
         );
         let (disposition, apart) = reason(Some(0), Some(4), false);
         assert_eq!(disposition, LossDisposition::Dropped);
-        assert!(apart.contains("not all members"), "{apart}");
+        assert!(apart.contains("not all surviving members"), "{apart}");
     }
 
     #[test]
