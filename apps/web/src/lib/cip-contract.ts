@@ -5,11 +5,12 @@
  * ligand or judges a stereocenter: the service does, and this module reads and checks what it
  * answers. A label describes the stored configuration of the graph, never the drawn marks.
  *
- * The validators are strict on purpose and fail closed: a field the reader does not know, a
+ * The validators fail closed on what they read: a missing or wrongly valued field, a
  * state without the descriptor or reason it needs, a ranking that is not the item's own, a
  * `stored` record the snapshot does not hold, or a warning, loss entry or diagnostic that does
  * not fit the items makes the whole reply unusable ("incompatible"), and the page shows no
- * label for it. Extend a list here in the same change that makes the service send the value.
+ * label for it. A field the reader does not know is ignored at every level, as docs/CONTRACT.md
+ * (Version transitions) allows within contract 1. Extend a list here in the same change that makes the service send the value.
  */
 import {
   ascending,
@@ -129,7 +130,6 @@ export interface CipGraph {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-const hasOnly = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every((key) => keys.includes(key))
 const hasAll = (value: Record<string, unknown>, keys: string[]) => keys.every((key) => key in value)
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0
 const RULES: readonly unknown[] = CIP_RULES
@@ -178,7 +178,7 @@ function priorityFits(value: unknown, bonded: ReadonlySet<string>, stored: AtomC
   const list: unknown[] = value
   const entries: CipPriority[] = []
   for (const [index, item] of list.entries()) {
-    if (!isRecord(item) || !hasOnly(item, ['neighbor', 'rank']) || !hasAll(item, ['neighbor', 'rank']) ||
+    if (!isRecord(item) || !hasAll(item, ['neighbor', 'rank']) ||
         typeof item.neighbor !== 'string' || item.rank !== index + 1) {
       return false
     }
@@ -196,7 +196,7 @@ function priorityFits(value: unknown, bonded: ReadonlySet<string>, stored: AtomC
 
 /** Where a double bond's end has an alternative to an atom: an end with fewer than two other atoms. */
 function endFits(value: unknown, atom: string, partner: string, bonded: ReadonlyMap<string, ReadonlySet<string>>): value is CipEnd {
-  if (!isRecord(value) || !hasOnly(value, ['atom', 'higher', 'decided_by']) || !hasAll(value, ['atom', 'higher', 'decided_by']) ||
+  if (!isRecord(value) || !hasAll(value, ['atom', 'higher', 'decided_by']) ||
       value.atom !== atom || typeof value.higher !== 'string' || !RULES.includes(value.decided_by)) {
     return false
   }
@@ -231,8 +231,7 @@ function readDiagnostics(value: unknown, atoms: readonly CipAtom[], bonds: reado
   let checked = false
   let last = -1
   for (const item of value as unknown[]) {
-    if (!isRecord(item) || !hasOnly(item, ['code', 'severity', 'message', 'path', 'details']) ||
-        typeof item.code !== 'string' || typeof item.message !== 'string' ||
+    if (!isRecord(item) || typeof item.code !== 'string' || typeof item.message !== 'string' ||
         (item.severity !== 'info' && item.severity !== 'warning' && item.severity !== 'error') ||
         !(item.path === undefined || item.path === null || typeof item.path === 'string') ||
         !(item.details === undefined || isRecord(item.details))) {
@@ -242,7 +241,7 @@ function readDiagnostics(value: unknown, atoms: readonly CipAtom[], bonds: reado
     switch (item.code) {
       case 'cip_stored_not_stereogenic':
       case 'cip_slot_unusual': {
-        if (item.severity !== 'warning' || !hasOnly(details, ITEM_KEYS) || !hasAll(details, ITEM_KEYS) || typeof details.id !== 'string') return null
+        if (item.severity !== 'warning' || !hasAll(details, ITEM_KEYS) || typeof details.id !== 'string') return null
         const listed = details.item === 'atom' ? atoms.some((atom) => atom.atom === details.id) : details.item === 'bond' && bonds.some((bond) => bond.bond === details.id)
         if (!listed) return null
         // The order the service produces: centers by ascending identifier, then bonds.
@@ -256,12 +255,12 @@ function readDiagnostics(value: unknown, atoms: readonly CipAtom[], bonds: reado
         break
       }
       case 'cip_scope':
-        if (scoped || item.severity !== 'info' || !hasOnly(details, ['scope']) || typeof details.scope !== 'string') return null
+        if (scoped || item.severity !== 'info' || typeof details.scope !== 'string') return null
         scoped = true
         findings.scope = details.scope
         break
       case 'cip_not_checked':
-        if (checked || item.severity !== 'info' || Object.keys(details).length !== 0) return null
+        if (checked || item.severity !== 'info') return null
         checked = true
         break
       case 'cip_labeler_invalid':
@@ -301,8 +300,7 @@ export function readCipReply(
   named: CipNamed = { atoms: [], bonds: [] },
 ): CipBody | null {
   const result = reply.result
-  if (!isRecord(result) || !hasOnly(result, ['snapshot', 'model', 'rules', 'scope', 'atoms', 'bonds']) ||
-      !hasAll(result, ['snapshot', 'model', 'rules', 'scope', 'atoms', 'bonds']) ||
+  if (!isRecord(result) || !hasAll(result, ['snapshot', 'model', 'rules', 'scope', 'atoms', 'bonds']) ||
       reply.model_id !== CIP_MODEL || result.model !== CIP_MODEL || !sameValue(result.rules, CIP_RULES) ||
       !SCOPES.includes(result.scope) || result.scope !== scope ||
       !Array.isArray(result.atoms) || !Array.isArray(result.bonds) ||
@@ -316,7 +314,7 @@ export function readCipReply(
   const atoms: CipAtom[] = []
   for (const entry of result.atoms as unknown[]) {
     const keys = ['atom', 'state', 'descriptor', 'reason', 'stored', 'priority', 'decided_by']
-    if (!isRecord(entry) || !hasOnly(entry, keys) || !hasAll(entry, keys) || typeof entry.atom !== 'string' || !atomIds.has(entry.atom) ||
+    if (!isRecord(entry) || !hasAll(entry, keys) || typeof entry.atom !== 'string' || !atomIds.has(entry.atom) ||
         !STATES.includes(entry.state)) {
       return null
     }
@@ -345,7 +343,7 @@ export function readCipReply(
   const bonds: CipBond[] = []
   for (const entry of result.bonds as unknown[]) {
     const keys = ['bond', 'state', 'descriptor', 'reason', 'stored', 'ends']
-    if (!isRecord(entry) || !hasOnly(entry, keys) || !hasAll(entry, keys) || typeof entry.bond !== 'string' || !STATES.includes(entry.state)) {
+    if (!isRecord(entry) || !hasAll(entry, keys) || typeof entry.bond !== 'string' || !STATES.includes(entry.state)) {
       return null
     }
     const bond = allBonds.get(entry.bond)
@@ -414,8 +412,7 @@ export function readCipReply(
   if ((reply.outcome === 'partial') !== (refused.length > 0) || losses.length !== refused.length) return null
   for (const [index, { path, item }] of refused.entries()) {
     const loss = losses[index]
-    if (!isRecord(loss) || !hasOnly(loss, ['feature', 'source_path', 'disposition', 'reason', 'semantic_impact']) ||
-        loss.feature !== 'cip_descriptor' || loss.source_path !== path || loss.disposition !== 'unknown' || loss.semantic_impact !== 'stereo') {
+    if (!isRecord(loss) || loss.feature !== 'cip_descriptor' || loss.source_path !== path || loss.disposition !== 'unknown' || loss.semantic_impact !== 'stereo') {
       return null
     }
     const sentence = sentenceOf(loss.reason, item.reason as string)
@@ -461,7 +458,7 @@ export function readCipFailure(reply: Record<string, unknown>): CipFailure | nul
   if (first.code === 'resource_limit') {
     const details = first.details
     const keys = ['stage', 'parameter', 'limit', 'request_limit', 'items', 'item_limit']
-    if (!isRecord(details) || !hasOnly(details, keys) || !hasAll(details, keys) ||
+    if (!isRecord(details) || !hasAll(details, keys) ||
         (details.stage !== 'scan' && details.stage !== 'centers' && details.stage !== 'bonds')) {
       return null
     }
@@ -481,7 +478,7 @@ export function readCipFailure(reply: Record<string, unknown>): CipFailure | nul
   }
   if (first.code === 'cip_labeler_invalid') {
     const details = first.details
-    if (!isRecord(details) || !hasOnly(details, ['unit', 'problem']) || typeof details.unit !== 'string' || typeof details.problem !== 'string') return null
+    if (!isRecord(details) || typeof details.unit !== 'string' || typeof details.problem !== 'string') return null
   }
   return { ...base, limit: null }
 }

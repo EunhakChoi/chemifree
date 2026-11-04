@@ -3893,10 +3893,7 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
   assert.notEqual(readCip(value, good()), null)
   assert.notEqual(readCip(bonded, goodBond()), null)
   const tampers = {
-    'an unknown field in the result': (r) => { r.result.extra = 1 },
-    'an unknown field in an atom entry': (r) => { r.result.atoms[0].extra = 1 },
     'a missing field in an atom entry': (r) => { delete r.result.atoms[0].decided_by },
-    'an unknown field in a priority entry': (r) => { r.result.atoms[0].priority[0].extra = 1 },
     'a model that is not chemifree-cip-1': (r) => { r.result.model = 'chemifree-cip-2' },
     'a model_id that is not chemifree-cip-1': (r) => { r.model_id = 'chemifree-cip-2' },
     'other rules': (r) => { r.result.rules = ['1a', '1b', '2', '3', '4a'] },
@@ -3941,7 +3938,6 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
     'no not-checked diagnostic': (r) => { r.diagnostics.pop() },
     'no scope diagnostic': (r) => { r.diagnostics.shift() },
     'a scope diagnostic that disagrees with the result': (r) => { r.diagnostics[0].details.scope = 'named' },
-    'a diagnostic with an unknown field': (r) => { r.diagnostics[0].extra = 1 },
     'a loss entry on an ok reply': (r) => { r.loss_report = [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')] },
     'a labeler-invalid diagnostic on a success': (r) => { r.diagnostics.unshift({ code: 'cip_labeler_invalid', severity: 'warning', message: 'm', path: null, details: { unit: 'a2', problem: 'nodes' } }) },
     'a missing result': (r) => { r.result = null },
@@ -3952,7 +3948,6 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
     assert.equal(readCip(value, reply), null, name)
   }
   const bondTampers = {
-    'an unknown field in a bond entry': (r) => { r.result.bonds[0].extra = 1 },
     'a center label on a bond': (r) => { r.result.bonds[0].descriptor = 'R' },
     'a bond that is not a bond of the snapshot': (r) => { r.result.bonds[0].bond = 'b9' },
     'an assigned bond that is not a double bond': (r) => { r.result.bonds[0].bond = 'b1' },
@@ -3961,7 +3956,6 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
     'one end': (r) => { r.result.bonds[0].ends.pop() },
     'a higher position that is not at the end': (r) => { r.result.bonds[0].ends[0].higher = 'a4' },
     'a higher position that is the double bond partner': (r) => { r.result.bonds[0].ends[0].higher = 'a3' },
-    'an end with an unknown field': (r) => { r.result.bonds[0].ends[0].extra = 1 },
     'no ends on an assigned bond': (r) => { r.result.bonds[0].ends = null },
     'ends on a bond that is not ranked': (r) => { Object.assign(r.result.bonds[0], { state: 'none', descriptor: null }); r.diagnostics.unshift({ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'bond', id: 'b2' } }) },
     'a stored record the snapshot does not hold': (r) => { r.result.bonds[0].stored = { kind: 'unknown' } },
@@ -3982,7 +3976,6 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
     'a loss entry with another reason code': (r) => { r.loss_report[0].reason = r.loss_report[0].reason.replace('cip_rule_4_or_5_needed', 'cip_mass_number') },
     'a loss entry without a sentence': (r) => { r.loss_report[0].reason = 'cip_rule_4_or_5_needed: ' },
     'a loss entry that is a dropped feature': (r) => { r.loss_report[0].disposition = 'dropped' },
-    'a loss entry with an unknown field': (r) => { r.loss_report[0].extra = 1 },
     'a second loss entry': (r) => { r.loss_report.push(lossOf('atoms[a4]', 'cip_rule_4_or_5_needed')) },
   }
   for (const [name, mutate] of Object.entries(lossTampers)) {
@@ -4024,7 +4017,6 @@ test('inspectCip refuses a reply for another snapshot or a reply that is not the
     'a stage that does not match its parameter': { ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { ...limit.diagnostics[0].details, stage: 'scan' } }] },
     'a path that does not match its parameter': { ...limit, diagnostics: [{ ...limit.diagnostics[0], path: 'parameters.bonds' }] },
     'a limit above the request budget': { ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { ...limit.diagnostics[0].details, limit: 2000001 } }] },
-    'a detail that is not known': { ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { ...limit.diagnostics[0].details, nodes: 5 } }] },
     'a labeler-invalid reply without its unit': { ...limit, diagnostics: [{ code: 'cip_labeler_invalid', severity: 'error', message: 'refused', path: null, details: {} }] },
     'no diagnostic': { ...limit, diagnostics: [] },
   }
@@ -4367,7 +4359,6 @@ test('the reader requires the reply to list exactly what the scope lists, and ke
   assert.notEqual(withExtra, null)
   assert.deepEqual(withExtra.diagnostics.map((item) => item.code), ['cip_some_future_advice', 'cip_scope', 'cip_not_checked', 'cip_another'])
   assert.equal(readCip(value, cipReplyOf(value, both(), [], { diagnostics: [{ code: 'cip_x', message: 'no severity' }, ...cipDiagnostics()] })), null)
-  assert.equal(readCip(value, cipReplyOf(value, both(), [], { diagnostics: [{ ...extra, extra: 1 }, ...cipDiagnostics()] })), null)
 })
 
 test('inspectCip sends the scope it expects, and an error the service words itself shows that wording', async () => {
@@ -4414,4 +4405,53 @@ test('the view says what is missing when a switch is on and nothing of its kind 
   const drawnOnly = { ...a2, key: 'atom:a9:s1', item: { kind: 'atom', id: 'a9' }, agreement: 'only_drawn', stored: null }
   for (const view of [ready, { kind: 'checking' }, { kind: 'failed', message: 'x' }]) assert.equal(cipCell(drawnOnly, view, true, true), null)
   assert.equal(cipCell({ ...drawnOnly, agreement: 'neither' }, ready, true, true), null)
+})
+
+test('a reply with fields the reader does not know, at every level, still shows its labels; a missing or wrong required value does not', async () => {
+  const value = agreementDocument()
+  const bonded = bondDocument()
+  const unsupported = cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') })
+  const decorate = (reply) => {
+    reply.result.future = { anything: true }
+    for (const item of [...reply.result.atoms, ...reply.result.bonds]) {
+      item.future = 1
+      for (const entry of item.priority ?? []) entry.future = 1
+      for (const end of item.ends ?? []) end.future = 1
+    }
+    for (const item of reply.diagnostics) { item.future = 1; item.details = { ...item.details, future: 1 } }
+    for (const loss of reply.loss_report) loss.future = 1
+    return reply
+  }
+  const atoms = readCip(value, decorate(cipReplyOf(value, [unsupported, assignedA4()], [], { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')], warnings: [] })))
+  assert.deepEqual(atoms.atoms.map((item) => [item.atom, item.state, item.descriptor]), [['a2', 'unsupported', null], ['a4', 'assigned', 'R']])
+  assert.equal(atoms.atoms[0].reasonSentence, REASON_TEXT.cip_rule_4_or_5_needed)
+  const warning = { code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }
+  assert.notEqual(readCip(value, decorate(cipReplyOf(value, [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), assignedA4()], [], { warnings: [warning] }))), null)
+  const bond = readCip(bonded, decorate(cipReplyOf(bonded, [], [assignedB2()])))
+  assert.equal(bond.bonds[0].descriptor, 'Z')
+  // Through the client, and in the stored record of the snapshot's own table.
+  const { inspection } = await cipInspected(value, decorate(cipReplyOf(value, [assignedA2(), assignedA4()])))
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection }, true, false).map((m) => m.text), ['(S)', '(R)'])
+  // An error reply with extra fields in its diagnostic and details keeps the service's message.
+  const limit = { outcome: 'error', model_id: 'chemifree-cip-1', result: null, future: 1, diagnostics: [{ code: 'resource_limit', severity: 'error', message: 'too much', path: 'parameters.atoms', future: 1,
+    details: { limit: 1, request_limit: 2, items: 3, item_limit: 4, stage: 'centers', parameter: 'atoms', nodes: 5 } }] }
+  assert.equal(readCipFailure(limit)?.limit.stage, 'centers')
+  assert.equal(readCipFailure({ ...limit, diagnostics: [{ code: 'cip_labeler_invalid', severity: 'error', message: 'm', details: { unit: 'a2', problem: 'nodes', future: 1 } }] })?.code, 'cip_labeler_invalid')
+  // What is read is still checked: a missing field and a wrong value are refused, extra fields or not.
+  for (const [name, mutate] of Object.entries({
+    'a missing result field': (r) => { delete r.result.rules },
+    'a missing atom field': (r) => { delete r.result.atoms[0].stored },
+    'a missing priority rank': (r) => { delete r.result.atoms[0].priority[0].rank },
+    'a wrong state': (r) => { r.result.atoms[0].state = 'maybe' },
+    'a wrong descriptor': (r) => { r.result.atoms[0].descriptor = 'E' },
+    'a missing scope diagnostic detail': (r) => { r.diagnostics[0].details = { future: 1 } },
+  })) {
+    const reply = decorate(cipReplyOf(value, [assignedA2(), assignedA4()]))
+    mutate(reply)
+    assert.equal(readCip(value, reply), null, name)
+  }
+  const noEnds = decorate(cipReplyOf(bonded, [], [assignedB2()]))
+  delete noEnds.result.bonds[0].ends[0].higher
+  assert.equal(readCip(bonded, noEnds), null, 'a missing end field')
+  assert.equal(readCipFailure({ ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { limit: 1, stage: 'centers', parameter: 'atoms', future: 1 } }] }), null, 'a missing limit detail')
 })
