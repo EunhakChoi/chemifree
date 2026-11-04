@@ -8,9 +8,10 @@
 use std::collections::BTreeSet;
 
 use chemifree_domain::budget::Interrupted;
-use chemifree_domain::cip::{BondReport, CenterReport, Limits, Reason, State, Stop, Warning};
+use chemifree_domain::cip::{
+    BondReport, Candidates, CenterReport, Limits, Reason, State, Stop, Warning,
+};
 use chemifree_domain::document::{AtomId, BondId};
-use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo::StereoRecord;
 
 use super::*;
@@ -273,9 +274,10 @@ fn parse_scope(value: Option<Value>) -> Result<Option<Scope>, Diagnostic> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) if text == "stored" => Ok(Some(Scope::Stored)),
         Some(Value::String(text)) if text == "stereogenic" => Ok(Some(Scope::Stereogenic)),
+        Some(Value::String(text)) if text == "named" => Ok(Some(Scope::Named)),
         Some(other) => Err(invalid(
             "parameters.scope".into(),
-            "scope must be \"stored\" or \"stereogenic\".".into(),
+            "scope must be \"stored\", \"stereogenic\" or \"named\".".into(),
             Some(other),
         )),
     }
@@ -328,14 +330,14 @@ fn resolve<T: Ord + Copy>(
     names: Option<Vec<String>>,
     parse: impl Fn(&str) -> Option<T>,
     wrong_kind: impl Fn(&str) -> bool,
-    exists: &BTreeSet<T>,
+    exists: impl Fn(T) -> bool,
 ) -> Result<BTreeSet<T>, Diagnostic> {
     let mut resolved = BTreeSet::new();
     for (index, text) in names.into_iter().flatten().enumerate() {
         let path = format!("parameters.{name}[{index}]");
         let value = Some(Value::String(text.clone()));
         match parse(&text) {
-            Some(id) if exists.contains(&id) => {
+            Some(id) if exists(id) => {
                 resolved.insert(id);
             }
             Some(_) => {
@@ -446,14 +448,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
             Ok(pair) => pair,
             Err(error) => {
-                return known.reply(
+                return with_model(known.reply(
                     Outcome::Error,
                     error.current_revision,
                     None,
                     vec![failure(&error)],
-                );
+                ));
             }
         };
+        let checker = cip::Checker::new(&graph);
         let revision = snapshot.document.revision;
         let named = atom_names.is_some() || bond_names.is_some();
         // Naming items without a scope lists only those: it narrows, it never adds the stored
@@ -463,15 +466,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             (None, false) => Scope::Stored,
             (None, true) => Scope::Named,
         };
-        let present_atoms: BTreeSet<AtomId> = graph.atoms().map(|(id, _)| id).collect();
-        let present_bonds: BTreeSet<BondId> = graph.bonds().map(|(id, _)| id).collect();
         let named_atoms = resolve(
             "atoms",
             "atom",
             atom_names,
             AtomId::parse,
             |text| BondId::parse(text).is_some(),
-            &present_atoms,
+            |atom| checker.has_atom(atom),
         );
         let named_bonds = resolve(
             "bonds",
@@ -479,12 +480,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             bond_names,
             BondId::parse,
             |text| AtomId::parse(text).is_some(),
-            &present_bonds,
+            |bond| checker.has_bond(bond),
         );
         let (named_atoms, named_bonds) = match (named_atoms, named_bonds) {
             (Ok(atoms), Ok(bonds)) => (atoms, bonds),
             (Err(invalid), _) | (_, Err(invalid)) => return with_model(known.invalid(invalid)),
         };
+        if scope == Scope::Named && !named {
+            return with_model(known.invalid(invalid(
+                "parameters.scope".into(),
+                "scope \"named\" lists only the named items; name `atoms` or `bonds`.".into(),
+                Some("named".into()),
+            )));
+        }
         let records = match graph.stereo().typed() {
             Ok(records) => records,
             Err(error) => {
@@ -519,26 +527,62 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             }
         }
+        // The scan labels every candidate it finds, so those reports are the answer for those
+        // units; only the stored and named units it did not cover are labeled afterwards, with
+        // what the scan left of the request budget.
+        let mut found = Candidates::default();
         if scope == Scope::Stereogenic {
-            match cip::scan_candidates(&graph, limits, cancel) {
-                Ok(found) => {
-                    units
-                        .atoms
-                        .extend(found.centers.iter().map(|report| report.atom));
-                    units
-                        .bonds
-                        .extend(found.double_bonds.iter().map(|report| report.bond));
-                }
+            found = match labeler.candidates(&graph, limits, cancel) {
+                Ok(found) => found,
                 Err(stop) => {
-                    return with_model(self.stopped(known, stop, revision, &units, limits));
+                    return with_model(self.stopped(
+                        known,
+                        Stage::Scan,
+                        stop,
+                        revision,
+                        checker.size(),
+                        limits,
+                    ));
                 }
+            };
+            if let Err(refusal) = checker.check_candidates(&found) {
+                return with_model(known.reply(
+                    Outcome::Error,
+                    Some(revision),
+                    None,
+                    vec![refusal_diagnostic(&refusal)],
+                ));
+            }
+            if found.nodes > limits.request_nodes {
+                return with_model(self.stopped(
+                    known,
+                    Stage::Scan,
+                    Stop::RequestLimit {
+                        limit: limits.request_nodes,
+                    },
+                    revision,
+                    checker.size(),
+                    limits,
+                ));
+            }
+            for report in &found.centers {
+                units.atoms.remove(&report.atom);
+            }
+            for report in &found.double_bonds {
+                units.bonds.remove(&report.bond);
             }
         }
-        let (centers, double_bonds) =
-            match self.label_units(&graph, &units, limits, labeler, cancel) {
+        let in_play =
+            units.atoms.len() + units.bonds.len() + found.centers.len() + found.double_bonds.len();
+        let left = Limits {
+            request_nodes: limits.request_nodes - found.nodes,
+            ..limits
+        };
+        let (mut centers, mut double_bonds) =
+            match self.label_units(&checker, &units, left, labeler, cancel) {
                 Ok(reports) => reports,
-                Err(Failure::Stop(stop)) => {
-                    return with_model(self.stopped(known, stop, revision, &units, limits));
+                Err(Failure::Stop(stage, stop)) => {
+                    return with_model(self.stopped(known, stage, stop, revision, in_play, limits));
                 }
                 Err(Failure::Refused(refusal)) => {
                     return with_model(known.reply(
@@ -549,6 +593,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     ));
                 }
             };
+        centers.extend(found.centers);
+        centers.sort_by_key(|report| report.atom);
+        double_bonds.extend(found.double_bonds);
+        double_bonds.sort_by_key(|report| report.bond);
         let stored_atoms: BTreeSet<AtomId> = records
             .iter()
             .filter_map(|record| match record {
@@ -632,22 +680,29 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         with_model(reply)
     }
 
-    /// Asks the labeler about the units and checks what it answers. The request limit is shared
-    /// by the centers and the double bonds: the bonds get what the centers left.
+    /// Asks the labeler about the units and checks what it answers; a stage with nothing to
+    /// label is not run. The request limit is shared by the centers and the double bonds: the
+    /// bonds get what the centers left.
     fn label_units(
         &self,
-        graph: &MoleculeGraph,
+        checker: &cip::Checker<'_>,
         units: &Units,
         limits: Limits,
         labeler: &dyn CipLabeler,
         cancel: &dyn Interrupt,
     ) -> Result<(Vec<CenterReport>, Vec<BondReport>), Failure> {
+        let graph = checker.graph();
         let atoms: Vec<AtomId> = units.atoms.iter().copied().collect();
         let bonds: Vec<BondId> = units.bonds.iter().copied().collect();
-        let centers = labeler
-            .label_centers(graph, &atoms, limits, cancel)
-            .map_err(Failure::Stop)?;
-        cip::check_centers(graph, &atoms, &centers).map_err(Failure::Refused)?;
+        let mut centers = Vec::new();
+        if !atoms.is_empty() {
+            centers = labeler
+                .label_centers(graph, &atoms, limits, cancel)
+                .map_err(|stop| Failure::Stop(Stage::Centers, stop))?;
+            checker
+                .check_centers(&atoms, &centers)
+                .map_err(Failure::Refused)?;
+        }
         let used = centers
             .iter()
             .fold(0_usize, |sum, report| sum.saturating_add(report.nodes));
@@ -655,35 +710,59 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             request_nodes: limits.request_nodes.saturating_sub(used),
             ..limits
         };
-        let double_bonds = labeler
-            .label_double_bonds(graph, &bonds, left, cancel)
-            .map_err(|stop| match stop {
-                Stop::RequestLimit { .. } => Failure::Stop(Stop::RequestLimit {
-                    limit: limits.request_nodes,
-                }),
-                other => Failure::Stop(other),
-            })?;
-        cip::check_double_bonds(graph, &bonds, &double_bonds).map_err(Failure::Refused)?;
+        let mut double_bonds = Vec::new();
+        if !bonds.is_empty() {
+            double_bonds = labeler
+                .label_double_bonds(graph, &bonds, left, cancel)
+                .map_err(|stop| Failure::Stop(Stage::Bonds, stop))?;
+            checker
+                .check_double_bonds(&bonds, &double_bonds)
+                .map_err(Failure::Refused)?;
+        }
         Ok((centers, double_bonds))
     }
 
     /// The reply to a request that produced no labels: over the request limit, or interrupted.
+    /// `items` is the number of units in play (the document's atoms and bonds for the scan).
     fn stopped(
         &self,
         known: &Known,
+        stage: Stage,
         stop: Stop,
         revision: u64,
-        units: &Units,
+        items: usize,
         limits: Limits,
     ) -> OperationResponse {
         match stop {
             Stop::RequestLimit { limit } => {
-                let items = units.atoms.len() + units.bonds.len();
+                let (parameter, message) = match stage {
+                    Stage::Scan => (
+                        "scope",
+                        format!(
+                            "The scan for stereogenic units needs more than {limit} digraph nodes; the document is too large for scope \"stereogenic\". Use scope \"stored\", or name `atoms` and `bonds` and leave `scope` out, which lists only the named items. Naming items does not shrink the scan."
+                        ),
+                    ),
+                    Stage::Centers => (
+                        "atoms",
+                        format!(
+                            "{items} items need more than {limit} digraph nodes together for the centers; name fewer `atoms` and `bonds` and leave `scope` out, which lists only the named items."
+                        ),
+                    ),
+                    Stage::Bonds => (
+                        "bonds",
+                        format!(
+                            "{items} items need more than {limit} digraph nodes together; that is what the centers left of the {} the request may use. Name fewer `atoms` and `bonds` and leave `scope` out, which lists only the named items.",
+                            limits.request_nodes
+                        ),
+                    ),
+                };
                 let mut details = Map::new();
                 details.insert("limit".into(), limit.into());
+                details.insert("request_limit".into(), limits.request_nodes.into());
                 details.insert("items".into(), items.into());
                 details.insert("item_limit".into(), limits.item_nodes.into());
-                details.insert("parameter".into(), "atoms".into());
+                details.insert("stage".into(), stage.as_str().into());
+                details.insert("parameter".into(), parameter.into());
                 known.reply(
                     Outcome::Error,
                     Some(revision),
@@ -691,10 +770,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     vec![Diagnostic {
                         code: ErrorCode::ResourceLimit.as_str(),
                         severity: Severity::Error,
-                        message: format!(
-                            "{items} items need more than {limit} digraph nodes together; name fewer `atoms` and `bonds` to label them in smaller requests."
-                        ),
-                        path: Some("parameters.atoms".into()),
+                        message,
+                        path: Some(format!("parameters.{parameter}")),
                         details,
                     }],
                 )
@@ -721,9 +798,27 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     }
 }
 
+/// The part of a request that stopped.
+#[derive(Clone, Copy)]
+enum Stage {
+    Scan,
+    Centers,
+    Bonds,
+}
+
+impl Stage {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Scan => "scan",
+            Self::Centers => "centers",
+            Self::Bonds => "bonds",
+        }
+    }
+}
+
 /// Why labeling the units produced no reports.
 enum Failure {
-    Stop(Stop),
+    Stop(Stage, Stop),
     Refused(Refusal),
 }
 

@@ -2069,3 +2069,417 @@ fn the_catalog_advertises_chem_cip_with_its_limits_and_its_missing_time_limit() 
         "{note}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Review round 1: slots checked against the unit, one request budget, honest limit replies,
+// the scan through the port, `named` in requests, no empty stages
+// ---------------------------------------------------------------------------------------------
+
+use chemifree_domain::cip::Candidates;
+use std::sync::{Arc, Mutex};
+
+type ScanFix = Box<dyn Fn(&mut Candidates) + Send + Sync>;
+
+/// What the labeler was asked: the stage, the request limit it was given, how many units it was
+/// asked about and the digraph nodes it answered with.
+#[derive(Clone, Debug, PartialEq)]
+struct Call {
+    stage: &'static str,
+    request_nodes: usize,
+    units: usize,
+    nodes: usize,
+}
+
+/// The built-in rules, then whatever a test does to their answers, and a log of the calls.
+struct Probe {
+    centers: CenterFix,
+    bonds: BondFix,
+    scan: ScanFix,
+    limits: Limits,
+    log: Arc<Mutex<Vec<Call>>>,
+}
+
+impl Probe {
+    fn new() -> (Self, Arc<Mutex<Vec<Call>>>) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                centers: Box::new(|_| {}),
+                bonds: Box::new(|_| {}),
+                scan: Box::new(|_| {}),
+                limits: Limits::default(),
+                log: log.clone(),
+            },
+            log,
+        )
+    }
+
+    fn record(&self, stage: &'static str, limits: Limits, units: usize, nodes: usize) {
+        self.log.lock().unwrap().push(Call {
+            stage,
+            request_nodes: limits.request_nodes,
+            units,
+            nodes,
+        });
+    }
+}
+
+impl CipLabeler for Probe {
+    fn model_id(&self) -> &'static str {
+        "tampered-test-1"
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &["1a", "1b", "2", "3"]
+    }
+
+    fn limits(&self) -> Limits {
+        self.limits
+    }
+
+    fn label_centers(
+        &self,
+        graph: &MoleculeGraph,
+        atoms: &[AtomId],
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<CenterReport>, Stop> {
+        let mut reports = BuiltinCip.label_centers(graph, atoms, limits, interrupt)?;
+        self.record(
+            "centers",
+            limits,
+            atoms.len(),
+            reports.iter().map(|r| r.nodes).sum(),
+        );
+        (self.centers)(&mut reports);
+        Ok(reports)
+    }
+
+    fn label_double_bonds(
+        &self,
+        graph: &MoleculeGraph,
+        bonds: &[BondId],
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<BondReport>, Stop> {
+        let mut reports = BuiltinCip.label_double_bonds(graph, bonds, limits, interrupt)?;
+        self.record(
+            "bonds",
+            limits,
+            bonds.len(),
+            reports.iter().map(|r| r.nodes).sum(),
+        );
+        (self.bonds)(&mut reports);
+        Ok(reports)
+    }
+
+    fn candidates(
+        &self,
+        graph: &MoleculeGraph,
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Candidates, Stop> {
+        let mut found = chemifree_domain::cip::candidates(graph, limits, interrupt)?;
+        self.record("scan", limits, 0, found.nodes);
+        (self.scan)(&mut found);
+        Ok(found)
+    }
+}
+
+fn id(text: &str) -> AtomId {
+    AtomId::parse(text).unwrap()
+}
+
+#[test]
+fn a_reported_slot_must_be_a_position_of_the_unit() {
+    // a4 is an unstored stereocenter; a9 is a methyl carbon two bonds away from it.
+    let far = id("a9");
+    let (mut probe, _) = Probe::new();
+    probe.centers = Box::new(move |reports| {
+        replace_center(reports, "a4", |report| {
+            report.priority.as_mut().unwrap()[0].0 = Slot::Atom(far)
+        });
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(&app, "far", &request(&built, &json!({"atoms": ["a4"]})));
+    assert_eq!(
+        refused(&reply),
+        ("ranking", "a4"),
+        "a non-neighbor in the ranking"
+    );
+
+    let (mut probe, _) = Probe::new();
+    probe.centers = Box::new(|reports| {
+        replace_center(reports, "a4", |report| {
+            // Three atoms and both non-atom slots: four slots, but a4 has four neighbors.
+            report.priority.as_mut().unwrap()[0].0 = Slot::LonePair;
+        });
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(&app, "lone", &request(&built, &json!({"atoms": ["a4"]})));
+    assert_eq!(
+        refused(&reply),
+        ("ranking", "a4"),
+        "a position a four-bonded atom lacks"
+    );
+
+    let (mut probe, _) = Probe::new();
+    probe.bonds = Box::new(move |reports| {
+        replace_bond(reports, "b7", |report| {
+            report.ends.as_mut().unwrap()[0].higher = Slot::Atom(far)
+        });
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(&app, "end", &request(&built, &json!({"bonds": ["b7"]})));
+    assert_eq!(
+        refused(&reply),
+        ("ranking", "b7"),
+        "a higher substituent the end lacks"
+    );
+
+    // A lone pair where the end has an implicit hydrogen and one other atom is fine to the
+    // check (the slot kind is the labeler's to name); a lone pair at an end with two other
+    // atoms is not a position at all.
+    let (mut probe, _) = Probe::new();
+    probe.bonds = Box::new(|reports| {
+        replace_bond(reports, "b3", |report| {
+            report.ends.as_mut().unwrap()[0].higher = Slot::LonePair
+        });
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, "CC(F)=CCl");
+    let reply = call(&app, "pair", &request(&built, &json!({"bonds": ["b3"]})));
+    assert_eq!(refused(&reply).0, "ranking", "{reply}");
+}
+
+/// Isopropanol (a stored `none` center, a11) next to the molecule of the scope tests.
+fn with_isopropanol() -> Molecule {
+    let mut molecule = parse(SELECTION);
+    molecule.append(&parse("C[C@H](C)O"));
+    molecule
+}
+
+fn nodes_of(log: &Arc<Mutex<Vec<Call>>>, stage: &str) -> usize {
+    log.lock()
+        .unwrap()
+        .iter()
+        .filter(|call| call.stage == stage)
+        .map(|call| call.nodes)
+        .sum()
+}
+
+#[test]
+fn the_scan_and_the_labeling_share_one_request_budget_and_nothing_is_labeled_twice() {
+    let molecule = with_isopropanol();
+    let ask = |limit: usize, parameters: Value| {
+        let (mut probe, log) = Probe::new();
+        probe.limits = Limits {
+            request_nodes: limit,
+            ..Limits::default()
+        };
+        let (app, directory) = application_with(probe);
+        let built = build(&app, &molecule);
+        let reply = call(&app, "shared", &request(&built, &parameters));
+        drop(directory);
+        (reply, log)
+    };
+    // What each part costs on its own.
+    let (_, log) = ask(2_000_000, json!({"atoms": ["a11"]}));
+    let isopropanol = nodes_of(&log, "centers");
+    let (_, log) = ask(2_000_000, json!({"atoms": ["a2", "a4"], "bonds": ["b7"]}));
+    let found = nodes_of(&log, "centers") + nodes_of(&log, "bonds");
+    assert!(isopropanol > 0 && found > 0);
+    // Exactly enough for the scan, which also examines (and discards) the stored `none`
+    // center, and then for labeling that center once more.
+    let budget = found + 2 * isopropanol;
+    let (reply, log) = ask(budget, json!({"scope": "stereogenic"}));
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    let calls = log.lock().unwrap().clone();
+    let scan = calls.iter().find(|call| call.stage == "scan").unwrap();
+    assert_eq!(scan.request_nodes, budget);
+    let labeled = calls.iter().find(|call| call.stage == "centers").unwrap();
+    assert!(
+        labeled.request_nodes + scan.nodes <= budget,
+        "labeling was given {} after a scan of {}, over the {budget} of the request",
+        labeled.request_nodes,
+        scan.nodes
+    );
+    assert_eq!(
+        labeled.units, 1,
+        "only the stored unit the scan did not cover is labeled again"
+    );
+    assert!(
+        calls.iter().all(|call| call.stage != "bonds"),
+        "the scan's double bond is not labeled a second time: {calls:?}"
+    );
+    assert_eq!(ids(&reply, "atoms"), ["a2", "a4", "a11"]);
+    // One node less and the request is refused, not run over the budget.
+    let (reply, _) = ask(budget - 1, json!({"scope": "stereogenic"}));
+    assert_eq!(reply["diagnostics"][0]["code"], "resource_limit", "{reply}");
+}
+
+#[test]
+fn a_limit_reply_names_the_stage_that_stopped() {
+    let molecule = parse(SELECTION);
+    let ask = |limit: usize, parameters: Value| {
+        let (mut probe, log) = Probe::new();
+        probe.limits = Limits {
+            request_nodes: limit,
+            ..Limits::default()
+        };
+        let (app, directory) = application_with(probe);
+        let built = build(&app, &molecule);
+        let reply = call(&app, "stage", &request(&built, &parameters));
+        drop(directory);
+        (reply, log)
+    };
+    let (_, log) = ask(2_000_000, json!({"atoms": ["a2", "a4"], "bonds": ["b7"]}));
+    let centers = nodes_of(&log, "centers");
+    let bonds = nodes_of(&log, "bonds");
+    // The scan stops: the advice is about the scope, and the units in play are the document's.
+    let (reply, _) = ask(1, json!({"scope": "stereogenic"}));
+    let stop = &reply["diagnostics"][0];
+    assert_eq!(stop["code"], "resource_limit", "{reply}");
+    assert_eq!(stop["path"], "parameters.scope");
+    assert_eq!(stop["details"]["parameter"], "scope");
+    assert_eq!(stop["details"]["stage"], "scan");
+    assert_eq!(
+        stop["details"]["items"], 17,
+        "9 atoms and 8 bonds are scanned"
+    );
+    assert!(
+        stop["message"].as_str().unwrap().contains("scope"),
+        "{stop}"
+    );
+    // The centers stop.
+    let (reply, _) = ask(centers - 1, json!({"atoms": ["a2", "a4"], "bonds": ["b7"]}));
+    let stop = &reply["diagnostics"][0];
+    assert_eq!(stop["path"], "parameters.atoms");
+    assert_eq!(stop["details"]["stage"], "centers");
+    assert_eq!(stop["details"]["items"], 3);
+    // The double bonds stop, on what the centers left, and say so without rewriting the number.
+    let (reply, _) = ask(
+        centers + bonds - 1,
+        json!({"atoms": ["a2", "a4"], "bonds": ["b7"]}),
+    );
+    let stop = &reply["diagnostics"][0];
+    assert_eq!(stop["path"], "parameters.bonds", "{reply}");
+    assert_eq!(stop["details"]["parameter"], "bonds");
+    assert_eq!(stop["details"]["stage"], "bonds");
+    assert_eq!(stop["details"]["limit"], bonds - 1, "what the centers left");
+    assert_eq!(stop["details"]["request_limit"], centers + bonds - 1);
+    assert_eq!(stop["details"]["items"], 3);
+}
+
+#[test]
+fn every_error_reply_names_the_model() {
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, SELECTION);
+    let missing = call(&app, "missing", &json!({"document_id": "no-such-document"}));
+    let bad = call(&app, "bad", &request(&built, &json!({"atoms": ["x"]})));
+    let scope = call(&app, "scope", &request(&built, &json!({"scope": "nope"})));
+    let flag = CancelFlag::new();
+    flag.cancel();
+    let body = json!({"contract": 1, "request_id": "stop", "profile": "preserve-semantics",
+                      "operation": "chem.cip", "parameters": request(&built, &json!({}))});
+    let cancelled =
+        serde_json::to_value(app.execute_with(body.to_string().as_bytes(), &flag)).unwrap();
+    for (name, reply) in [
+        ("document_not_found", missing),
+        ("invalid_request", bad),
+        ("invalid scope", scope),
+        ("cancelled", cancelled),
+    ] {
+        assert_eq!(reply["outcome"], "error", "{name}");
+        assert_eq!(reply["model_id"], "chemifree-cip-1", "{name}: {reply}");
+    }
+}
+
+#[test]
+fn the_scan_of_the_stereogenic_scope_is_the_labelers_and_its_answer_is_checked() {
+    let (mut probe, _) = Probe::new();
+    probe.scan = Box::new(|found| {
+        found.centers.clear();
+        found.double_bonds.clear();
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(
+        &app,
+        "none",
+        &request(&built, &json!({"scope": "stereogenic"})),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(
+        ids(&reply, "atoms"),
+        ["a2"],
+        "only the stored center: the labeler found no other"
+    );
+    assert_eq!(ids(&reply, "bonds"), Vec::<String>::new());
+
+    // A scan answer that is not a ranking of the unit's positions is refused like any other.
+    let (mut probe, _) = Probe::new();
+    probe.scan = Box::new(|found| {
+        found.centers[0].priority.as_mut().unwrap()[0].0 = Slot::Atom(id("a9"));
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(
+        &app,
+        "bad",
+        &request(&built, &json!({"scope": "stereogenic"})),
+    );
+    assert_eq!(refused(&reply).0, "ranking", "{reply}");
+
+    // Nor may it list a unit twice or out of order.
+    let (mut probe, _) = Probe::new();
+    probe.scan = Box::new(|found| {
+        let again = found.centers[0].clone();
+        found.centers.push(again);
+    });
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(
+        &app,
+        "twice",
+        &request(&built, &json!({"scope": "stereogenic"})),
+    );
+    assert_eq!(refused(&reply), ("units", ""), "{reply}");
+}
+
+#[test]
+fn named_is_a_scope_a_client_can_send_back() {
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, SELECTION);
+    let plain = call(&app, "plain", &request(&built, &json!({"atoms": ["a4"]})));
+    let said = call(
+        &app,
+        "said",
+        &request(&built, &json!({"scope": "named", "atoms": ["a4"]})),
+    );
+    assert_eq!(said["outcome"], "ok", "{said}");
+    assert_eq!(said["result"]["scope"], "named");
+    assert_eq!(said["result"]["atoms"], plain["result"]["atoms"]);
+    let empty = call(&app, "empty", &request(&built, &json!({"scope": "named"})));
+    assert_eq!(empty["outcome"], "error");
+    assert_eq!(empty["diagnostics"][0]["code"], "invalid_request");
+    assert_eq!(empty["diagnostics"][0]["path"], "parameters.scope");
+    assert_eq!(empty["diagnostics"][0]["details"]["value"], "named");
+}
+
+#[test]
+fn a_stage_with_nothing_to_label_is_not_run() {
+    let (probe, log) = Probe::new();
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    call(&app, "centers", &request(&built, &json!({})));
+    let stages: Vec<&str> = log.lock().unwrap().iter().map(|c| c.stage).collect();
+    assert_eq!(stages, ["centers"], "no double bond is stored");
+    log.lock().unwrap().clear();
+    call(&app, "bonds", &request(&built, &json!({"bonds": ["b7"]})));
+    let stages: Vec<&str> = log.lock().unwrap().iter().map(|c| c.stage).collect();
+    assert_eq!(stages, ["bonds"], "no center is named");
+}

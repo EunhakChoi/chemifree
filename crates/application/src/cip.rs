@@ -11,7 +11,7 @@
 //! state does not fit the unit's kind or its stored record, whose ranking is not a ranking, or
 //! whose reason does not fit its state, so a replacement cannot widen the wire contract.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use chemifree_domain::budget::Interrupt;
@@ -59,6 +59,22 @@ pub trait CipLabeler: Send + Sync {
         limits: Limits,
         interrupt: &dyn Interrupt,
     ) -> Result<Vec<BondReport>, Stop>;
+
+    /// The units that are, or may be, stereogenic under this labeler's rules, labeled, for
+    /// `scope: "stereogenic"`; a unit found not stereogenic is left out. The default is the
+    /// built-in scan.
+    ///
+    /// # Errors
+    ///
+    /// As [`CipLabeler::label_centers`].
+    fn candidates(
+        &self,
+        graph: &MoleculeGraph,
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Candidates, Stop> {
+        cip::candidates(graph, limits, interrupt)
+    }
 }
 
 /// The labeler built into Chemifree: [`chemifree_domain::cip`], `chemifree-cip-1`.
@@ -97,20 +113,6 @@ impl CipLabeler for BuiltinCip {
     ) -> Result<Vec<BondReport>, Stop> {
         cip::label_double_bonds(graph, bonds, limits, interrupt)
     }
-}
-
-/// The units the candidate scan of `scope: "stereogenic"` finds. The scan is core logic of the
-/// built-in rules, not part of the port: it only decides which units a labeler is asked about.
-///
-/// # Errors
-///
-/// As [`CipLabeler::label_centers`].
-pub fn scan_candidates(
-    graph: &MoleculeGraph,
-    limits: Limits,
-    interrupt: &dyn Interrupt,
-) -> Result<Candidates, Stop> {
-    cip::candidates(graph, limits, interrupt)
 }
 
 /// What is wrong with a labeler's answer. Each variant is one rule of the check.
@@ -284,134 +286,214 @@ fn warnings_fit(
         && (slot_unusual_allowed || !warnings.contains(&Warning::SlotUnusual))
 }
 
-fn slot_known(slot: Slot, atoms: &BTreeSet<AtomId>) -> bool {
-    match slot {
-        Slot::Atom(atom) => atoms.contains(&atom),
-        Slot::ImplicitHydrogen | Slot::LonePair => true,
-    }
+/// What a labeler's answer is checked against: the document's stored records, the neighbors of
+/// every atom and the ends of every bond, indexed once so that each check is a lookup.
+pub struct Checker<'graph> {
+    graph: &'graph MoleculeGraph,
+    neighbors: BTreeMap<AtomId, BTreeSet<AtomId>>,
+    ends: BTreeMap<BondId, (AtomId, AtomId)>,
 }
 
-/// Checks a labeler's answer for `requested` centers against the document it was asked about.
-///
-/// # Errors
-///
-/// The first [`Refusal`] found, in the order of `reports`.
-pub fn check_centers(
-    graph: &MoleculeGraph,
-    requested: &[AtomId],
-    reports: &[CenterReport],
-) -> Result<(), Refusal> {
-    if reports.len() != requested.len()
-        || reports
-            .iter()
-            .zip(requested)
-            .any(|(report, &asked)| report.atom != asked)
-    {
-        return Err(refused("", Problem::Units));
-    }
-    let atoms: BTreeSet<AtomId> = graph.atoms().map(|(id, _)| id).collect();
-    for report in reports {
-        let unit = report.atom.to_string();
-        let stored = stored_center(graph, report.atom);
-        if report.stored != stored {
-            return Err(refused(&unit, Problem::Stored));
+impl<'graph> Checker<'graph> {
+    pub fn new(graph: &'graph MoleculeGraph) -> Self {
+        let mut neighbors: BTreeMap<AtomId, BTreeSet<AtomId>> =
+            graph.atoms().map(|(id, _)| (id, BTreeSet::new())).collect();
+        let mut ends = BTreeMap::new();
+        for (id, bond) in graph.bonds() {
+            ends.insert(id, (bond.begin, bond.end));
+            if let Some(set) = neighbors.get_mut(&bond.begin) {
+                set.insert(bond.end);
+            }
+            if let Some(set) = neighbors.get_mut(&bond.end) {
+                set.insert(bond.begin);
+            }
         }
-        check_state(
-            &unit,
-            report.state,
-            center_kind(stored.as_ref()),
-            |descriptor| matches!(descriptor, Descriptor::R | Descriptor::S),
-        )?;
-        let ranking_fits = match (&report.priority, report.decided_by) {
-            (Some(priority), Some(_)) => {
-                is_ranked(report.state)
-                    && priority.len() == 4
-                    && priority
+        Self {
+            graph,
+            neighbors,
+            ends,
+        }
+    }
+
+    pub fn graph(&self) -> &'graph MoleculeGraph {
+        self.graph
+    }
+
+    pub fn has_atom(&self, atom: AtomId) -> bool {
+        self.neighbors.contains_key(&atom)
+    }
+
+    pub fn has_bond(&self, bond: BondId) -> bool {
+        self.ends.contains_key(&bond)
+    }
+
+    /// The atoms and bonds of the document.
+    pub fn size(&self) -> usize {
+        self.neighbors.len() + self.ends.len()
+    }
+
+    /// Whether `higher` is one of the positions of `end` other than the double bond to `other`:
+    /// an atom bonded to `end`, or (an end has two positions besides the bond) a non-atom slot
+    /// where fewer than two atoms are bonded.
+    fn is_position_of_end(&self, end: AtomId, other: AtomId, higher: Slot) -> bool {
+        let Some(bonded) = self.neighbors.get(&end) else {
+            return false;
+        };
+        match higher {
+            Slot::Atom(atom) => atom != other && bonded.contains(&atom),
+            Slot::ImplicitHydrogen | Slot::LonePair => bonded.len().saturating_sub(1) < 2,
+        }
+    }
+
+    /// Checks a labeler's answer for `requested` centers against the document it was asked about.
+    ///
+    /// # Errors
+    ///
+    /// The first [`Refusal`] found, in the order of `reports`.
+    pub fn check_centers(
+        &self,
+        requested: &[AtomId],
+        reports: &[CenterReport],
+    ) -> Result<(), Refusal> {
+        if reports.len() != requested.len()
+            || reports
+                .iter()
+                .zip(requested)
+                .any(|(report, &asked)| report.atom != asked)
+        {
+            return Err(refused("", Problem::Units));
+        }
+        for report in reports {
+            let unit = report.atom.to_string();
+            let Some(bonded) = self.neighbors.get(&report.atom) else {
+                return Err(refused(&unit, Problem::Units));
+            };
+            let stored = stored_center(self.graph, report.atom);
+            if report.stored != stored {
+                return Err(refused(&unit, Problem::Stored));
+            }
+            check_state(
+                &unit,
+                report.state,
+                center_kind(stored.as_ref()),
+                |descriptor| matches!(descriptor, Descriptor::R | Descriptor::S),
+            )?;
+            let ranking_fits = match (&report.priority, report.decided_by) {
+                (Some(priority), Some(_)) => {
+                    // The four positions of the center: its bonded atoms and, with three of
+                    // them, one non-atom slot; each exactly once, ranked 1 to 4 in order.
+                    let slots: BTreeSet<Slot> = priority.iter().map(|&(slot, _)| slot).collect();
+                    let atoms: BTreeSet<AtomId> = priority
                         .iter()
-                        .zip(1_u8..)
-                        .all(|(&(slot, rank), expected)| {
-                            rank == expected && slot_known(slot, &atoms)
+                        .filter_map(|&(slot, _)| match slot {
+                            Slot::Atom(atom) => Some(atom),
+                            Slot::ImplicitHydrogen | Slot::LonePair => None,
                         })
-                    && priority
-                        .iter()
-                        .map(|&(slot, _)| slot)
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == 4
-                    && stored.as_ref().is_none_or(|state| {
-                        let mut slots: Vec<Slot> = priority.iter().map(|&(slot, _)| slot).collect();
-                        slots.sort_unstable();
-                        slots == state.slots()
-                    })
+                        .collect();
+                    is_ranked(report.state)
+                        && priority.len() == 4
+                        && slots.len() == 4
+                        && priority
+                            .iter()
+                            .zip(1_u8..)
+                            .all(|(&(_, rank), expected)| rank == expected)
+                        && (3..=4).contains(&bonded.len())
+                        && atoms == *bonded
+                        && stored.as_ref().is_none_or(|state| {
+                            slots.iter().copied().collect::<Vec<_>>() == state.slots()
+                        })
+                }
+                (None, None) => !is_ranked(report.state),
+                _ => false,
+            };
+            if !ranking_fits {
+                return Err(refused(&unit, Problem::Ranking));
             }
-            (None, None) => !is_ranked(report.state),
-            _ => false,
-        };
-        if !ranking_fits {
-            return Err(refused(&unit, Problem::Ranking));
+            if !warnings_fit(
+                &report.warnings,
+                report.state,
+                stored.is_some(),
+                stored.is_some(),
+            ) {
+                return Err(refused(&unit, Problem::Warnings));
+            }
         }
-        if !warnings_fit(
-            &report.warnings,
-            report.state,
-            stored.is_some(),
-            stored.is_some(),
-        ) {
-            return Err(refused(&unit, Problem::Warnings));
-        }
+        Ok(())
     }
-    Ok(())
-}
 
-/// Checks a labeler's answer for `requested` double bonds, as [`check_centers`] does for centers.
-///
-/// # Errors
-///
-/// The first [`Refusal`] found, in the order of `reports`.
-pub fn check_double_bonds(
-    graph: &MoleculeGraph,
-    requested: &[BondId],
-    reports: &[BondReport],
-) -> Result<(), Refusal> {
-    if reports.len() != requested.len()
-        || reports
-            .iter()
-            .zip(requested)
-            .any(|(report, &asked)| report.bond != asked)
-    {
-        return Err(refused("", Problem::Units));
-    }
-    let atoms: BTreeSet<AtomId> = graph.atoms().map(|(id, _)| id).collect();
-    for report in reports {
-        let unit = report.bond.to_string();
-        let stored = stored_bond(graph, report.bond);
-        if report.stored != stored {
-            return Err(refused(&unit, Problem::Stored));
+    /// Checks a labeler's answer for `requested` double bonds, as
+    /// [`Checker::check_centers`] does for centers.
+    ///
+    /// # Errors
+    ///
+    /// The first [`Refusal`] found, in the order of `reports`.
+    pub fn check_double_bonds(
+        &self,
+        requested: &[BondId],
+        reports: &[BondReport],
+    ) -> Result<(), Refusal> {
+        if reports.len() != requested.len()
+            || reports
+                .iter()
+                .zip(requested)
+                .any(|(report, &asked)| report.bond != asked)
+        {
+            return Err(refused("", Problem::Units));
         }
-        check_state(
-            &unit,
-            report.state,
-            bond_kind(stored.as_ref()),
-            |descriptor| matches!(descriptor, Descriptor::E | Descriptor::Z),
-        )?;
-        let ends_fit = match &report.ends {
-            Some(ends) => {
-                let own = graph
-                    .bonds()
-                    .find(|&(id, _)| id == report.bond)
-                    .map(|(_, bond)| bond);
-                is_ranked(report.state)
-                    && own
-                        .is_some_and(|bond| ends[0].atom == bond.begin && ends[1].atom == bond.end)
-                    && ends.iter().all(|end| slot_known(end.higher, &atoms))
+        for report in reports {
+            let unit = report.bond.to_string();
+            let Some(&(begin, end)) = self.ends.get(&report.bond) else {
+                return Err(refused(&unit, Problem::Units));
+            };
+            let stored = stored_bond(self.graph, report.bond);
+            if report.stored != stored {
+                return Err(refused(&unit, Problem::Stored));
             }
-            None => !is_ranked(report.state),
-        };
-        if !ends_fit {
-            return Err(refused(&unit, Problem::Ranking));
+            check_state(
+                &unit,
+                report.state,
+                bond_kind(stored.as_ref()),
+                |descriptor| matches!(descriptor, Descriptor::E | Descriptor::Z),
+            )?;
+            let ends_fit = match &report.ends {
+                Some(ends) => {
+                    is_ranked(report.state)
+                        && ends[0].atom == begin
+                        && ends[1].atom == end
+                        && self.is_position_of_end(begin, end, ends[0].higher)
+                        && self.is_position_of_end(end, begin, ends[1].higher)
+                }
+                None => !is_ranked(report.state),
+            };
+            if !ends_fit {
+                return Err(refused(&unit, Problem::Ranking));
+            }
+            if !warnings_fit(&report.warnings, report.state, stored.is_some(), false) {
+                return Err(refused(&unit, Problem::Warnings));
+            }
         }
-        if !warnings_fit(&report.warnings, report.state, stored.is_some(), false) {
-            return Err(refused(&unit, Problem::Warnings));
-        }
+        Ok(())
     }
-    Ok(())
+
+    /// Checks a labeler's scan: each list ascending without repeats, and every report an answer
+    /// for its own unit as for a request.
+    ///
+    /// # Errors
+    ///
+    /// The first [`Refusal`] found.
+    pub fn check_candidates(&self, found: &Candidates) -> Result<(), Refusal> {
+        let atoms: Vec<AtomId> = found.centers.iter().map(|report| report.atom).collect();
+        let bonds: Vec<BondId> = found
+            .double_bonds
+            .iter()
+            .map(|report| report.bond)
+            .collect();
+        if atoms.windows(2).any(|pair| pair[0] >= pair[1])
+            || bonds.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(refused("", Problem::Units));
+        }
+        self.check_centers(&atoms, &found.centers)?;
+        self.check_double_bonds(&bonds, &found.double_bonds)
+    }
 }
