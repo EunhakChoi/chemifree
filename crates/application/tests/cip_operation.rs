@@ -2605,3 +2605,105 @@ fn a_labeler_that_reports_more_work_than_it_was_given_has_hit_the_limit() {
         assert_eq!(stop["details"]["stage"], reported, "{stage}");
     }
 }
+
+#[test]
+fn a_scan_that_charges_less_than_its_reports_cost_is_refused() {
+    let ask = |understate: usize| {
+        let (mut probe, _) = Probe::new();
+        probe.scan = Box::new(move |found| {
+            let spent: usize = found.centers.iter().map(|r| r.nodes).sum::<usize>()
+                + found.double_bonds.iter().map(|r| r.nodes).sum::<usize>();
+            assert!(spent > understate, "the scan must report some work");
+            found.nodes = spent - understate;
+        });
+        let (app, _directory) = application_with(probe);
+        let (built, _) = smiles(&app, SELECTION);
+        call(
+            &app,
+            "free",
+            &request(&built, &json!({"scope": "stereogenic"})),
+        )
+    };
+    // Honest: charged exactly what the reports cost.
+    assert_eq!(ask(0)["outcome"], "ok");
+    // One node short is enough, and charging nothing is the plain form of it.
+    assert_eq!(refused(&ask(1)), ("nodes", ""));
+    let reply = ask_all_free();
+    assert_eq!(refused(&reply), ("nodes", ""));
+}
+
+/// The scan reports its work as zero.
+fn ask_all_free() -> Value {
+    let (mut probe, _) = Probe::new();
+    probe.scan = Box::new(|found| found.nodes = 0);
+    let (app, _directory) = application_with(probe);
+    let (built, _) = smiles(&app, SELECTION);
+    call(
+        &app,
+        "free",
+        &request(&built, &json!({"scope": "stereogenic"})),
+    )
+}
+
+#[test]
+fn the_catalog_describes_the_active_labeler() {
+    let limits = Limits {
+        item_nodes: 777,
+        request_nodes: 8_888,
+    };
+    let (app, _directory) = application_with(Limited { limits });
+    let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
+    let entry = catalog["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "chem.cip")
+        .unwrap();
+    let note = entry["note"].as_str().unwrap();
+    for words in [
+        "limited-test-1",
+        "Rule 1a only",
+        "777",
+        "8888",
+        "no time limit",
+    ] {
+        assert!(note.contains(words), "{words:?} is not in: {note}");
+    }
+    for words in [
+        "chemifree-cip-1",
+        "20000",
+        "2000000",
+        "1b",
+        "256",
+        "Rules 4a to 5",
+    ] {
+        assert!(!note.contains(words), "{words:?} is in: {note}");
+    }
+    // No other row names the built-in rules as the rules in force.
+    let everything = catalog.to_string();
+    assert!(
+        !everything.contains("Rules 1a, 1b, 2 and 3"),
+        "{everything}"
+    );
+}
+
+#[test]
+fn the_not_checked_text_follows_the_rules_of_the_labeler() {
+    let (app, _directory) = application_with(Limited {
+        limits: Limits::default(),
+    });
+    let (built, _) = smiles(&app, "C[C@H](F)Cl");
+    let reply = call(&app, "rules", &request(&built, &json!({})));
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    let diagnostics = reply["diagnostics"].as_array().unwrap();
+    let text = diagnostics
+        .iter()
+        .find(|d| d["code"] == "cip_not_checked")
+        .unwrap()["message"]
+        .as_str()
+        .unwrap();
+    assert!(text.starts_with("Rule 1a only."), "{text}");
+    assert!(!text.contains("1b"), "{text}");
+    assert!(!text.contains("Rules 4a to 5"), "{text}");
+    assert!(text.contains("never none"), "{text}");
+}

@@ -252,7 +252,70 @@ impl Scope {
     }
 }
 
-const NOT_CHECKED: &str = "Rules 1a, 1b, 2 and 3 only. Rules 4a to 5, pseudoasymmetric r and s, axes and planes, and heteroaromatic rings are not applied: a tie they might break is unsupported, never none. A label describes the stored configuration of this graph, never the drawing, and is not stored.";
+const BUILTIN_RULES: [&str; 4] = ["1a", "1b", "2", "3"];
+
+/// The rules as a phrase: `Rule 1a`, `Rules 1a and 1b`, `Rules 1a, 1b, 2 and 3`.
+fn rules_phrase(rules: &[&str]) -> String {
+    match rules {
+        [] => "No rule".into(),
+        [one] => format!("Rule {one}"),
+        [init @ .., last] => format!("Rules {} and {last}", init.join(", ")),
+    }
+}
+
+/// Whether the labeler is the built-in one by name and rules, so that the fixed wording about
+/// what the built-in does not apply and the limits of its algorithm is true of it. The
+/// application takes any other labeler's word for what it applies and says no more than that.
+fn builtin_wording(labeler: &dyn CipLabeler) -> bool {
+    labeler.model_id() == chemifree_domain::cip::MODEL_ID && labeler.rules() == BUILTIN_RULES
+}
+
+const NOT_CHECKED_TAIL: &str = "A label describes the stored configuration of this graph, never the drawing, and is not stored.";
+
+/// What a reply says was not applied.
+fn not_checked(labeler: &dyn CipLabeler) -> String {
+    let phrase = rules_phrase(labeler.rules());
+    if builtin_wording(labeler) {
+        format!(
+            "{phrase} only. Rules 4a to 5, pseudoasymmetric r and s, axes and planes, and heteroaromatic rings are not applied: a tie they might break is unsupported, never none. {NOT_CHECKED_TAIL}"
+        )
+    } else {
+        format!(
+            "{phrase} only. Nothing else is applied: a tie another rule might break is unsupported, never none. {NOT_CHECKED_TAIL}"
+        )
+    }
+}
+
+/// The catalog note of `chem.cip`, from the labeler that answers it.
+pub(super) fn catalog_note(labeler: &dyn CipLabeler) -> String {
+    use chemifree_domain::cip::{MAX_NESTED_SPHERES, MAX_RULE_3_NESTING, MAX_SPHERES};
+    let limits = labeler.limits();
+    let phrase = rules_phrase(labeler.rules());
+    let rules = if builtin_wording(labeler) {
+        format!(
+            "{phrase} only: no Rules 4a to 5, no r or s, no heteroaromatic rings, no axes or planes, and a case those rules cannot settle is reported unsupported or ambiguous, never guessed."
+        )
+    } else {
+        format!(
+            "{phrase} only: nothing else is applied, and a case those rules cannot settle is reported unsupported or ambiguous, never guessed."
+        )
+    };
+    let work = if builtin_wording(labeler) {
+        format!(
+            "{} digraph nodes per item, {} per request, {MAX_SPHERES} spheres ({MAX_NESTED_SPHERES} around the ends of a double bond), {MAX_RULE_3_NESTING} nested ligand double-bond descriptors.",
+            limits.item_nodes, limits.request_nodes
+        )
+    } else {
+        format!(
+            "{} digraph nodes per item, {} per request.",
+            limits.item_nodes, limits.request_nodes
+        )
+    };
+    format!(
+        "Read-only CIP descriptors (R, S, E, Z) of the stored stereo configurations, model {}, per center and double bond; computed on demand, never stored. {rules} Work limits: {work} Documented gap: no time limit and no cancel parameter; only a cancel from the host stops it.",
+        labeler.model_id()
+    )
+}
 
 fn invalid(path: String, message: String, value: Option<Value>) -> Diagnostic {
     let mut details = Map::new();
@@ -658,7 +721,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let mut scope_details = Map::new();
         scope_details.insert("scope".into(), scope.as_str().into());
         diagnostics.push(info("cip_scope", scope.statement().into(), scope_details));
-        diagnostics.push(info("cip_not_checked", NOT_CHECKED.into(), Map::new()));
+        diagnostics.push(info("cip_not_checked", not_checked(labeler), Map::new()));
         let result = CipResult {
             snapshot: snapshot.into(),
             model,

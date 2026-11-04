@@ -687,7 +687,7 @@ const TRANSACTION_PARTS: [Entry; 34] = [
          derives one from the marks, on request, replacing the stored record of each item it \
          processes. chem.stereo compares a stored record with the drawing, read-only; it does not \
          compute labels or judge stereogenicity. chem.cip computes CIP labels from stored \
-         configurations, read-only (Rules 1a, 1b, 2 and 3). No groups, no comparison in \
+         configurations, read-only (its model and rules are named in the chem.cip entry). No groups, no comparison in \
          chem.identity or chem.substructure (they do not read stereo), no stereo check in \
          chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )
@@ -801,8 +801,7 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         ),
         Op::ChemCip => (
             runs(
-                id,
-                "Read-only CIP descriptors (R, S, E, Z) of the stored stereo configurations, model chemifree-cip-1, per center and double bond; computed on demand, never stored. Rules 1a, 1b, 2 and 3 only: no Rules 4a to 5, no r or s, no heteroaromatic rings, no axes or planes, and a case those rules cannot settle is reported unsupported or ambiguous, never guessed. Work limits: 20000 digraph nodes per item, 2000000 per request, 256 spheres (32 around the ends of a double bond), 4 nested ligand double-bond descriptors. Documented gap: no time limit and no cancel parameter; only a cancel from the host stops it.",
+                id, "", // the note is built from the active labeler: `cip::catalog_note`
             ),
             &[],
         ),
@@ -1683,7 +1682,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|operation| {
                     let row = self.row(operation);
-                    let mut support = row.entry.view(row.note, row.parts);
+                    let mut support = if operation == OperationId::ChemCip {
+                        let note = cip::catalog_note(self.cip_labeler.as_ref());
+                        row.entry.view(Some(&note), row.parts)
+                    } else {
+                        row.entry.view(row.note, row.parts)
+                    };
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {

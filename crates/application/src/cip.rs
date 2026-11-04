@@ -6,10 +6,15 @@
 //! (a local-only engine, later) can replace it without touching the operation. Nothing is
 //! loaded, discovered or selected per request, and `local_model_loading` stays unimplemented.
 //!
-//! The application never trusts the answer. [`check_centers`] and [`check_double_bonds`] refuse
-//! an answer that does not name each requested unit exactly once, in the order asked, whose
-//! state does not fit the unit's kind or its stored record, whose ranking is not a ranking, or
-//! whose reason does not fit its state, so a replacement cannot widen the wire contract.
+//! A replacement labeler is a trusted, locally installed component, not an untrusted input. The
+//! application checks an answer only against its own data (the document, the request and the
+//! limits it enforces) and trusts what it cannot check, such as the truth of the labeler's rule
+//! list and the correctness of its chemistry. [`Checker::check_centers`],
+//! [`Checker::check_double_bonds`] and [`Checker::check_candidates`] refuse an answer that does
+//! not name each requested unit exactly once, in the order asked, whose state does not fit the
+//! unit's kind or its stored record, whose ranking is not a ranking, whose reason does not fit
+//! its state, or whose scan charges less than its reports cost, so a replacement cannot widen
+//! the wire contract. `chem.cip` itself holds every stage to the node budget it was given.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -138,6 +143,8 @@ pub enum Problem {
     Ranking,
     /// A warning the state and record do not allow, or one repeated.
     Warnings,
+    /// A scan that charges less work than its own reports cost.
+    Nodes,
 }
 
 impl Problem {
@@ -150,6 +157,7 @@ impl Problem {
             Self::Stored => "stored",
             Self::Ranking => "ranking",
             Self::Warnings => "warnings",
+            Self::Nodes => "nodes",
         }
     }
 }
@@ -566,6 +574,18 @@ impl<'graph> Checker<'graph> {
             return Err(refused("", Problem::Units));
         }
         self.check_centers(&atoms, &found.centers)?;
-        self.check_double_bonds(&bonds, &found.double_bonds)
+        self.check_double_bonds(&bonds, &found.double_bonds)?;
+        // The charge is what the request budget loses to the scan, so it cannot be less than
+        // what the reports it returns cost.
+        let cost = found
+            .centers
+            .iter()
+            .map(|report| report.nodes)
+            .chain(found.double_bonds.iter().map(|report| report.nodes))
+            .fold(0_usize, usize::saturating_add);
+        if cost > found.nodes {
+            return Err(refused("", Problem::Nodes));
+        }
+        Ok(())
     }
 }
