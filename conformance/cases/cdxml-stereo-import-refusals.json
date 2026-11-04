@@ -1,0 +1,276 @@
+{
+  "id": "cdxml-stereo-import-refusals",
+  "title": "A bond Display outside the public list, a Geometry other than Tetrahedral, a malformed BondOrdering or group number, and a group member that is not a derived tetrahedral center are refused with their reason on preview and on create, and an attribute without a public spelling stays refused",
+  "requirements": [
+    "CODEC-01",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "display-unknown",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_bond"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "display-unknown-create",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2,
+          "preview_digest": "unavailable",
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_bond"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "display2-unknown",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display2=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_bond"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "double-position",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" DoublePosition=\"Right\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_bond"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "geometry-planar",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" Geometry=\"Planar\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ordering-malformed",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" BondOrdering=\"1 x\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_stereo_attribute"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "number-overflow",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"2147483648\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"WedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_stereo_attribute"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "group-member-no-mark",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" EnhancedStereoType=\"Absolute\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" /><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_group_member_not_stereocenter"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "group-member-wavy",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" EnhancedStereoType=\"Absolute\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Wavy\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_group_member_not_stereocenter"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "group-member-create",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "create",
+          "format": "cdxml",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" EnhancedStereoType=\"Or\"/><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" /><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "title": "R",
+          "page_id": 1,
+          "fragment_id": 2,
+          "preview_digest": "unavailable",
+          "accept_loss": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_group_member_not_stereocenter"
+          }
+        ]
+      }
+    }
+  ]
+}

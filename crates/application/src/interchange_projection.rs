@@ -4,17 +4,28 @@
 //! top-level fragment; it never reuses their IDs as native IDs or treats unknown node types
 //! as ordinary atoms. Source paths remain stable within the validated source tree.
 
-use std::collections::HashMap;
+mod stereo;
 
-use chemifree_domain::document::{Atom, AtomRef, BondOrder, Command, NewAtomPositions, Point};
+pub(crate) use stereo::reason_family;
+
+use std::collections::{BTreeMap, HashMap};
+
+use chemifree_domain::document::{
+    Atom, AtomRef, BondOrder, BondRef, Command, Document as Drawing, DocumentId, NewAtomPositions,
+    Point,
+};
 use chemifree_domain::element::Element;
 use chemifree_domain::interchange::{
     Content, Document, Object, ObjectKind, PropertyKind, PropertyValue,
 };
 use chemifree_domain::states::{AtomKind, Radical};
+use chemifree_domain::stereo::StereoMark;
+use chemifree_domain::stereo_group::GroupKind;
 use serde::Serialize;
 
+use crate::contract::{DocumentResponse, DocumentView};
 use crate::interchange_codec::InterchangeError;
+use crate::stereo_projection::{self, GroupFault, GroupInput};
 use crate::{Loss, LossConsent, LossDisposition, SemanticImpact};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -50,6 +61,10 @@ pub(crate) struct Projection {
     pub atoms: Vec<ProjectedAtom>,
     pub bonds: Vec<ProjectedBond>,
     pub losses: Vec<Loss>,
+    /// The exact transaction a preview or creation validates. Not serialized: the source it
+    /// derives from is bound into the preview digest.
+    #[serde(skip)]
+    commands: Vec<Command>,
 }
 
 /// A selectable top-level fragment. Paths distinguish the source locations in a loss report.
@@ -235,7 +250,7 @@ fn at<'a>(root: &'a Object, indices: &[usize]) -> &'a Object {
 }
 
 fn atom(object: &Object, indices: &[usize]) -> Result<ProjectedAtom, InterchangeError> {
-    if has_opaque_property(object) {
+    if stereo::has_unread_property(object) {
         return Err(fail(
             "unsupported_node",
             format!(
@@ -333,8 +348,9 @@ fn bond(
     object: &Object,
     indices: &[usize],
     ids: &HashMap<u32, usize>,
-) -> Result<ProjectedBond, InterchangeError> {
-    if has_opaque_property(object) {
+    losses: &mut Vec<Loss>,
+) -> Result<(ProjectedBond, Option<StereoMark>), InterchangeError> {
+    if stereo::has_unread_property(object) {
         return Err(fail(
             "unsupported_bond",
             format!(
@@ -389,12 +405,14 @@ fn bond(
             ),
         ));
     }
-    Ok(ProjectedBond {
+    let mark = stereo::read_bond(object, &path(indices), order, losses)?;
+    let projected = ProjectedBond {
         source: source(object, indices),
         begin,
         end,
         order: u16::try_from(order).expect("checked order"),
-    })
+    };
+    Ok((projected, mark))
 }
 
 /// A subtree-level rendering or document loss must not hide chemistry, references, or opaque
@@ -519,22 +537,23 @@ fn losses_for_tree(
         ));
     }
     for (index, item) in object.properties.iter().enumerate() {
-        let consumed = match &object.kind {
-            ObjectKind::Node if selected_graph_item => matches!(
-                item.kind,
-                PropertyKind::Position
-                    | PropertyKind::NodeType
-                    | PropertyKind::AtomicNumber
-                    | PropertyKind::Charge
-                    | PropertyKind::Isotope
-                    | PropertyKind::Radical
-            ),
-            ObjectKind::Bond if selected_graph_item => matches!(
-                item.kind,
-                PropertyKind::BondBegin | PropertyKind::BondEnd | PropertyKind::BondOrder
-            ),
-            _ => false,
-        };
+        let consumed = selected_graph_item && stereo::is_carrier(&object.kind, &item.kind)
+            || match &object.kind {
+                ObjectKind::Node if selected_graph_item => matches!(
+                    item.kind,
+                    PropertyKind::Position
+                        | PropertyKind::NodeType
+                        | PropertyKind::AtomicNumber
+                        | PropertyKind::Charge
+                        | PropertyKind::Isotope
+                        | PropertyKind::Radical
+                ),
+                ObjectKind::Bond if selected_graph_item => matches!(
+                    item.kind,
+                    PropertyKind::BondBegin | PropertyKind::BondEnd | PropertyKind::BondOrder
+                ),
+                _ => false,
+            };
         if !consumed {
             let impact = if matches!(
                 item.kind,
@@ -597,6 +616,7 @@ pub(crate) fn project(
     let mut losses = Vec::new();
     let mut atoms = Vec::new();
     let mut ids = HashMap::new();
+    let mut memberships = Vec::new();
     for (index, child) in selected.children.iter().enumerate() {
         let Content::Object(node) = child else {
             continue;
@@ -607,12 +627,16 @@ pub(crate) fn project(
         let mut indices = fragment_path.clone();
         indices.push(index);
         let item = atom(node, &indices)?;
+        if let Some(membership) = stereo::read_node(node, &path(&indices), &mut losses)? {
+            memberships.push((atoms.len(), membership));
+        }
         if let Some(id) = node.id {
             ids.insert(id, atoms.len());
         }
         atoms.push(item);
     }
     let mut bonds = Vec::new();
+    let mut marks = Vec::new();
     for (index, child) in selected.children.iter().enumerate() {
         let Content::Object(item) = child else {
             continue;
@@ -622,7 +646,10 @@ pub(crate) fn project(
         }
         let mut indices = fragment_path.clone();
         indices.push(index);
-        let projected = bond(item, &indices, &ids)?;
+        let (projected, mark) = bond(item, &indices, &ids, &mut losses)?;
+        if let Some(mark) = mark {
+            marks.push((bonds.len(), mark));
+        }
         if projected.order == 2 {
             losses.push(Loss {
                 consent: LossConsent::NotRequired,
@@ -652,6 +679,14 @@ pub(crate) fn project(
             semantic_impact: SemanticImpact::Chemistry,
         });
     }
+    let commands = import_commands(
+        &atoms,
+        &bonds,
+        &marks,
+        &memberships,
+        &path(&fragment_path),
+        &mut losses,
+    )?;
     Ok(Projection {
         document: source(root, &[]),
         page: source(at(root, &page_path), &page_path),
@@ -659,53 +694,153 @@ pub(crate) fn project(
         atoms,
         bonds,
         losses,
+        commands,
     })
 }
 
+/// The transaction that creates the drawing: the atoms and bonds, the marks the file states,
+/// the configurations those marks and positions derive (the same derivation as a MOL import)
+/// and the file's enhanced stereo groups. A group member that is not a derived tetrahedral
+/// center refuses the whole fragment, because dropping it would change which centers the file
+/// says belong together.
+fn import_commands(
+    atoms: &[ProjectedAtom],
+    bonds: &[ProjectedBond],
+    marks: &[(usize, StereoMark)],
+    memberships: &[(usize, stereo::Membership)],
+    fragment_path: &str,
+    losses: &mut Vec<Loss>,
+) -> Result<Vec<Command>, InterchangeError> {
+    let mut commands = graph_commands(atoms, bonds)?;
+    for (bond, mark) in marks {
+        commands.push(Command::SetBondMark {
+            bond: BondRef::Created(atoms.len() + bond),
+            mark: Some(*mark),
+        });
+    }
+    let site = |site: Option<usize>| match site {
+        Some(position) => atoms[position].source.path.clone(),
+        None => fragment_path.to_owned(),
+    };
+    let tetrahedral = if marks.is_empty() {
+        Some(std::collections::HashSet::new())
+    } else {
+        let (command, centers) =
+            stereo_projection::derived_configurations_at(&commands, site, losses);
+        commands.extend(command);
+        centers
+    };
+    // Ordered by kind (absolute, and, or), then by number.
+    let mut grouped: BTreeMap<(GroupKind, i32), Vec<usize>> = BTreeMap::new();
+    for (atom, membership) in memberships {
+        grouped
+            .entry((membership.kind, membership.number))
+            .or_default()
+            .push(*atom);
+    }
+    let groups: Vec<GroupInput> = grouped
+        .into_iter()
+        .map(|((kind, number), atoms)| GroupInput {
+            kind,
+            number: match kind {
+                GroupKind::Absolute => None,
+                GroupKind::And | GroupKind::Or => Some(number),
+            },
+            atoms,
+        })
+        .collect();
+    let group_commands = stereo_projection::group_commands(
+        &groups,
+        &empty_view()?,
+        tetrahedral.as_ref(),
+        |k| atoms[groups[k].atoms[0]].source.path.clone(),
+        losses,
+    )
+    .map_err(|fault| match fault {
+        GroupFault::DrawingUnreadable => fail(
+            "stereo_group_drawing_unreadable",
+            "The drawn marks of this fragment could not be read into configurations, so its stereo groups cannot be mapped; nothing was imported.",
+        ),
+        GroupFault::MemberNotStereocenter { atom, .. } if marks.is_empty() => fail(
+            "stereo_group_member_not_stereocenter",
+            format!(
+                "{} states an enhanced stereo group but the fragment draws no stereo marks, so no configuration can be derived for it; nothing was imported.",
+                atoms[atom].source.path
+            ),
+        ),
+        GroupFault::MemberNotStereocenter { atom, .. } => fail(
+            "stereo_group_member_not_stereocenter",
+            format!(
+                "{} states an enhanced stereo group but its drawn marks give it no stored tetrahedral configuration; nothing was imported.",
+                atoms[atom].source.path
+            ),
+        ),
+        GroupFault::NoFreeNumber => fail("resource_limit", "No free group number is left."),
+    })?;
+    commands.extend(group_commands);
+    Ok(commands)
+}
+
+/// The view of a drawing with nothing in it: an interchange import always creates a new
+/// drawing, so no group number or absolute group can collide.
+fn empty_view() -> Result<DocumentView, InterchangeError> {
+    let id = DocumentId::parse("interchange").expect("fixed identifier is valid");
+    let drawing = Drawing::new(id, "interchange")
+        .map_err(|cause| fail("invalid_document", cause.to_string()))?;
+    Ok(DocumentResponse::new(&drawing, 0, None).document)
+}
+
+fn graph_commands(
+    atoms: &[ProjectedAtom],
+    bonds: &[ProjectedBond],
+) -> Result<Vec<Command>, InterchangeError> {
+    let mut commands = Vec::with_capacity(atoms.len() + bonds.len());
+    for item in atoms {
+        let element = Element::from_atomic_number(item.atomic_number)
+            .ok_or_else(|| fail("unsupported_element", "Element is invalid."))?;
+        let mut atom = Atom::new(AtomKind::Element(element));
+        atom.charge = item.charge;
+        atom.isotope = item.isotope;
+        atom.radical = match item.radical {
+            0 => Radical::None,
+            1 => Radical::Singlet,
+            2 => Radical::Doublet,
+            3 => Radical::Triplet,
+            _ => return Err(fail("unsupported_radical", "Radical is invalid.")),
+        };
+        let point = Point::new(item.position[0], item.position[1]).map_err(|_| {
+            fail(
+                "coordinate_out_of_range",
+                "Position is outside the editor range.",
+            )
+        })?;
+        commands.push(Command::AddAtom {
+            atom,
+            positions: NewAtomPositions::Single(point),
+            bond_to: None,
+        });
+    }
+    for item in bonds {
+        let order = match item.order {
+            1 => BondOrder::Single,
+            2 => BondOrder::Double,
+            4 => BondOrder::Triple,
+            128 => BondOrder::Aromatic,
+            _ => return Err(fail("unsupported_bond", "Bond order is invalid.")),
+        };
+        commands.push(Command::AddBond {
+            begin: AtomRef::Created(item.begin),
+            end: AtomRef::Created(item.end),
+            order,
+        });
+    }
+    Ok(commands)
+}
+
 impl Projection {
-    /// Construct the exact transaction that a preview or creation validates.
-    pub(crate) fn commands(&self) -> Result<Vec<Command>, InterchangeError> {
-        let mut commands = Vec::with_capacity(self.atoms.len() + self.bonds.len());
-        for item in &self.atoms {
-            let element = Element::from_atomic_number(item.atomic_number)
-                .ok_or_else(|| fail("unsupported_element", "Element is invalid."))?;
-            let mut atom = Atom::new(AtomKind::Element(element));
-            atom.charge = item.charge;
-            atom.isotope = item.isotope;
-            atom.radical = match item.radical {
-                0 => Radical::None,
-                1 => Radical::Singlet,
-                2 => Radical::Doublet,
-                3 => Radical::Triplet,
-                _ => return Err(fail("unsupported_radical", "Radical is invalid.")),
-            };
-            let point = Point::new(item.position[0], item.position[1]).map_err(|_| {
-                fail(
-                    "coordinate_out_of_range",
-                    "Position is outside the editor range.",
-                )
-            })?;
-            commands.push(Command::AddAtom {
-                atom,
-                positions: NewAtomPositions::Single(point),
-                bond_to: None,
-            });
-        }
-        for item in &self.bonds {
-            let order = match item.order {
-                1 => BondOrder::Single,
-                2 => BondOrder::Double,
-                4 => BondOrder::Triple,
-                128 => BondOrder::Aromatic,
-                _ => return Err(fail("unsupported_bond", "Bond order is invalid.")),
-            };
-            commands.push(Command::AddBond {
-                begin: AtomRef::Created(item.begin),
-                end: AtomRef::Created(item.end),
-                order,
-            });
-        }
-        Ok(commands)
+    /// The exact transaction that a preview or creation validates.
+    pub(crate) fn commands(&self) -> &[Command] {
+        &self.commands
     }
 }
 
@@ -861,7 +996,7 @@ mod tests {
                 "implicit_hydrogen_interpretation"
             ]
         );
-        assert_eq!(projection.commands().unwrap().len(), 3);
+        assert_eq!(projection.commands().len(), 3);
     }
 
     #[test]
@@ -922,5 +1057,142 @@ mod tests {
         assert!(projection.losses.iter().any(|loss| {
             loss.feature == "opaque_object" && loss.semantic_impact == SemanticImpact::Unknown
         }));
+    }
+
+    /// Three wedge fans (a carbon with F, Cl and Br, a wedge on the Cl bond from the carbon)
+    /// whose carbons carry `extra[i]`, as a rich tree. The bond display is a text property, as
+    /// CDXML gives it; the group tags are the binary ones.
+    fn fans(extra: Vec<Vec<Property>>) -> Document {
+        let xml = |name: &str, value: &str| {
+            item(
+                PropertyKind::UnknownXml(XmlName {
+                    namespace: None,
+                    local: name.into(),
+                }),
+                PropertyValue::Text(value.into()),
+            )
+        };
+        let mut children = Vec::new();
+        for (fan, carbon_extra) in extra.into_iter().enumerate() {
+            let id = 10 * (fan as u32 + 1);
+            let x = 200.0 * fan as f64;
+            let at = |x, y| item(PropertyKind::Position, PropertyValue::Point { x, y });
+            let mut carbon = vec![at(x + 100., 100.)];
+            carbon.extend(carbon_extra);
+            for (offset, props) in [
+                (0, carbon),
+                (
+                    1,
+                    vec![
+                        at(x + 100., 70.),
+                        item(PropertyKind::AtomicNumber, PropertyValue::Integer(9)),
+                    ],
+                ),
+                (
+                    2,
+                    vec![
+                        at(x + 126., 115.),
+                        item(PropertyKind::AtomicNumber, PropertyValue::Integer(17)),
+                    ],
+                ),
+                (
+                    3,
+                    vec![
+                        at(x + 74., 115.),
+                        item(PropertyKind::AtomicNumber, PropertyValue::Integer(35)),
+                    ],
+                ),
+            ] {
+                children.push(object(ObjectKind::Node, Some(id + offset), props, vec![]));
+            }
+            for (offset, display) in [(1, None), (2, Some("WedgeBegin")), (3, None)] {
+                let mut props = vec![
+                    item(PropertyKind::BondBegin, PropertyValue::ObjectReference(id)),
+                    item(
+                        PropertyKind::BondEnd,
+                        PropertyValue::ObjectReference(id + offset),
+                    ),
+                ];
+                props.extend(display.map(|value| xml("Display", value)));
+                children.push(object(
+                    ObjectKind::Bond,
+                    Some(id + 100 + offset),
+                    props,
+                    vec![],
+                ));
+            }
+        }
+        let root = Object {
+            kind: ObjectKind::Document,
+            id: None,
+            properties: vec![],
+            children: vec![object(
+                ObjectKind::Page,
+                Some(1),
+                vec![],
+                vec![object(ObjectKind::Fragment, Some(2), vec![], children)],
+            )],
+        };
+        Document::new(root).unwrap()
+    }
+
+    fn binary_group(kind: u8, number: [u8; 2]) -> Vec<Property> {
+        vec![
+            item(
+                PropertyKind::UnknownBinary(0x0446),
+                PropertyValue::Bytes(vec![kind]),
+            ),
+            item(
+                PropertyKind::UnknownBinary(0x0447),
+                PropertyValue::Bytes(number.to_vec()),
+            ),
+        ]
+    }
+
+    #[test]
+    fn binary_group_numbers_reach_the_groups_unsigned_and_distinct() {
+        // Or 2, Or 258 and Or 128: another reader folds 258 into 2 and reads 128 as -128.
+        let document = fans(vec![
+            binary_group(3, [0x02, 0x00]),
+            binary_group(3, [0x02, 0x01]),
+            binary_group(3, [0x80, 0x00]),
+        ]);
+        let projection = project(&document, 1, 2).unwrap();
+        let commands = projection.commands();
+        let mut numbers: Vec<_> = commands
+            .iter()
+            .filter_map(|command| match command {
+                Command::CreateStereoGroup {
+                    kind,
+                    number,
+                    atoms,
+                } => Some((*kind, *number, atoms.len())),
+                _ => None,
+            })
+            .collect();
+        numbers.sort_by_key(|(_, number, _)| *number);
+        assert_eq!(
+            numbers,
+            [
+                (GroupKind::Or, Some(2), 1),
+                (GroupKind::Or, Some(128), 1),
+                (GroupKind::Or, Some(258), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn marks_and_configurations_come_before_the_groups_in_one_transaction() {
+        let document = fans(vec![binary_group(2, [0, 0])]);
+        let projection = project(&document, 1, 2).unwrap();
+        let commands = projection.commands();
+        let position = |wanted: fn(&Command) -> bool| commands.iter().position(wanted).unwrap();
+        let mark = position(|c| matches!(c, Command::SetBondMark { .. }));
+        let configuration = position(|c| matches!(c, Command::SetConfigurationFromDrawing { .. }));
+        let group = position(|c| matches!(c, Command::CreateStereoGroup { .. }));
+        assert!(
+            mark < configuration && configuration < group,
+            "{commands:?}"
+        );
     }
 }

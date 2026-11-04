@@ -19,9 +19,9 @@ P27b는 향상된 입체 그룹(absolute·and·or)의 와이어 노출을 연결
 
 P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 연결한다(MODEL-02.7). 고리·차수·수소 개수 조건, 입체와 질의 SMILES는 기록할 수 없으므로 후속 범위다. 입체가 있는 도면은 일치 대응을 입체 없이 계산하므로 응답이 `partial`과 `stereo` 손실을 함께 보고한다(`chem.identity`도 같다). RDKit 비교(`scripts/verify-query-rdkit.py`)는 수동 실행이며 `npm run check` 밖이고 fixture 범위를 넘는 동등성을 주장하지 않는다.
 
-P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
+P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다(P29b는 그 투영에 공개 근거가 확인하는 입체 읽기를 더했다: CODEC-01.cdxml-stereo-read, CODEC-02.cdx-stereo-atoms(원자 태그와 결합 Display, partial), STEREO-01.cdxml-groups-read; 바이너리 결합 Display(0x0601)는 읽고 Display2·DoublePosition과 내보내기는 아직 없다). P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 90개(implemented 44, partial 11, unverified 2, not_implemented 33) · conformance 사례 92개(passed 92: accept 70·reject 22, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 93개(implemented 46, partial 12, unverified 2, not_implemented 33) · conformance 사례 94개(passed 94: accept 71·reject 23, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 22,
+  "suite_version": 23,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -491,6 +491,34 @@
       "pending": null,
       "failure": null,
       "case_sha256": "f3f9b36d4621a27d092cf6407767bbd9e6980b8e24ab7f8ca9be27d895dbe18d"
+    },
+    {
+      "id": "cdxml-stereo-import-marks",
+      "title": "A CDXML fragment with WedgeBegin marks, an Or 2, an Or 258, an And 2 and an Or with no number imports the marks, one derived configuration per center and four separate groups (258 stays 258 and Or 2 stays apart from And 2), survives reopening, and reports the hints it does not store",
+      "requirements": [
+        "CODEC-01",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "c0f68eadb7729a9ef1edb923798551cffc20a96e8b7e395d3604e32d7f3e3251"
+    },
+    {
+      "id": "cdxml-stereo-import-refusals",
+      "title": "A bond Display outside the public list, a Geometry other than Tetrahedral, a malformed BondOrdering or group number, and a group member that is not a derived tetrahedral center are refused with their reason on preview and on create, and an attribute without a public spelling stays refused",
+      "requirements": [
+        "CODEC-01",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "4d5d9a7529102ac7e98850d8218c3e8e1e766daf30ce699ae99d85365a697671"
     },
     {
       "id": "cdx-binary-interchange",
@@ -1236,17 +1264,17 @@
   ],
   "counts": {
     "accept": {
-      "passed": 70,
+      "passed": 71,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 22,
+      "passed": 23,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 92,
+      "passed": 94,
       "failed": 0,
       "not_run": 0
     }

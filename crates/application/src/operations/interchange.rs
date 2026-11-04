@@ -232,6 +232,9 @@ fn issue(error: InterchangeError) -> Diagnostic {
     if let Some(offset) = error.offset {
         details.insert("offset".into(), offset.into());
     }
+    if let Some(family) = interchange_projection::reason_family(error.code) {
+        details.insert("family".into(), family.into());
+    }
     Diagnostic {
         code: error.code,
         message: error.message,
@@ -488,10 +491,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         if input.opaque_outside_root {
             projection.losses.push(outside_root_loss());
         }
-        let commands = match projection.commands() {
-            Ok(commands) => commands,
-            Err(error) => return known.invalid(issue(error)),
-        };
+        let commands = projection.commands();
         let settings = match self
             .preferences
             .current()
@@ -508,7 +508,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             }
         };
         let preview = match crate::documents::Documents::<R>::preview_interchange_create(
-            title, settings, &commands,
+            title, settings, commands,
         ) {
             Ok(preview) => preview,
             Err(error) => {
@@ -574,7 +574,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Some(&known.request_id),
             fingerprint,
             title,
-            &commands,
+            commands,
             || self.preferences.current()?.new_document_settings(),
             |document| {
                 // Validate the source-to-target mapping while the candidate is still staged.
