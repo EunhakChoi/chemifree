@@ -1021,6 +1021,7 @@ try {
     assert.deepEqual(identity.result.stereo, { compared: false, source_present: false, other_present: false })
     assert.equal(catalog.result.operations.find((operation) => operation.id === 'chem.substructure').execution, 'executable')
     assert.equal(catalog.result.operations.find((operation) => operation.id === 'chem.stereo').execution, 'executable')
+    assert.equal(catalog.result.operations.find((operation) => operation.id === 'chem.cip').execution, 'executable')
     const matched = await both((id) => request('op-substructure', 'chem.substructure', { query_document_id: id, target_document_id: id }))
     assert.equal(matched.model_id, 'chemifree-substructure-1')
     assert.equal(matched.outcome, 'ok')
@@ -1124,6 +1125,20 @@ try {
       assert.deepEqual(inspected.diagnostics.map((diagnostic) => diagnostic.code), ['stereo_not_checked'])
       const badInstance = await both((id) => request('op-stereo-instance', 'chem.stereo', { document_id: id, instance: 's99' }))
       assert.deepEqual([badInstance.outcome, badInstance.diagnostics[0].code, badInstance.diagnostics[0].path], ['error', 'invalid_request', 'parameters.instance'])
+      // The CIP descriptor of the same stored configuration, over HTTP and the CLI alike: Br > Cl > F > H
+      // with the stored turn gives S by Rule 1a, nothing is stored or changed, and a unit that is not a
+      // candidate is listed with its reason (a partial reply), never refused.
+      const labeled = await both((id) => request('op-cip', 'chem.cip', { document_id: id }))
+      assert.deepEqual([labeled.outcome, labeled.model_id, labeled.document_revision], ['ok', 'chemifree-cip-1', 5])
+      assert.deepEqual(labeled.result.atoms.map((entry) => [entry.atom, entry.state, entry.descriptor, entry.decided_by]), [['a1', 'assigned', 'S', '1a']])
+      assert.deepEqual(labeled.result.atoms[0].priority.map((entry) => entry.neighbor), ['a4', 'a3', 'a2', 'implicit_hydrogen'])
+      assert.deepEqual(labeled.diagnostics.map((diagnostic) => diagnostic.code), ['cip_scope', 'cip_not_checked'])
+      const notCandidate = await both((id) => request('op-cip-named', 'chem.cip', { document_id: id, atoms: ['a2'] }))
+      assert.deepEqual(
+        [notCandidate.outcome, notCandidate.result.atoms[0].state, notCandidate.result.atoms[0].reason, notCandidate.loss_report[0].source_path],
+        ['partial', 'unsupported', 'cip_not_a_candidate', 'atoms[a2]'])
+      const cipBad = await both((id) => request('op-cip-bad', 'chem.cip', { document_id: id, atoms: ['a1', 'b1'] }))
+      assert.deepEqual([cipBad.outcome, cipBad.diagnostics[0].code, cipBad.diagnostics[0].path], ['error', 'invalid_request', 'parameters.atoms[1]'])
       const underivable = await both(transact('op-stereo-underivable', 5, [
         { op: 'set_bond_mark', bond: 'b2', mark: null }, derive,
       ]))

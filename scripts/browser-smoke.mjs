@@ -1687,7 +1687,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '17 of 26 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '18 of 27 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -1702,6 +1702,7 @@ assert.equal(await operationRow('chem.aromaticity_convert').locator('[data-execu
 assert.equal(await operationRow('chem.identity').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.substructure').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 assert.equal(await operationRow('chem.stereo').locator('[data-execution]').getAttribute('data-execution'), 'executable')
+assert.equal(await operationRow('chem.cip').locator('[data-execution]').getAttribute('data-execution'), 'executable')
 const valenceCapability = operations.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'Valence inspection' }) })
 await valenceCapability.getByText('Available', { exact: true }).waitFor()
 for (const id of [
