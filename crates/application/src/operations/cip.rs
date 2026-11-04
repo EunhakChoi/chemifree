@@ -706,6 +706,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         let used = centers
             .iter()
             .fold(0_usize, |sum, report| sum.saturating_add(report.nodes));
+        // A labeler that reports more work than it was allowed has hit the limit, whatever it
+        // answered.
+        if used > limits.request_nodes {
+            return Err(Failure::Stop(
+                Stage::Centers,
+                Stop::RequestLimit {
+                    limit: limits.request_nodes,
+                },
+            ));
+        }
         let left = Limits {
             request_nodes: limits.request_nodes.saturating_sub(used),
             ..limits
@@ -718,6 +728,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             checker
                 .check_double_bonds(&bonds, &double_bonds)
                 .map_err(Failure::Refused)?;
+            let spent = double_bonds
+                .iter()
+                .fold(0_usize, |sum, report| sum.saturating_add(report.nodes));
+            if spent > left.request_nodes {
+                return Err(Failure::Stop(
+                    Stage::Bonds,
+                    Stop::RequestLimit {
+                        limit: left.request_nodes,
+                    },
+                ));
+            }
         }
         Ok((centers, double_bonds))
     }

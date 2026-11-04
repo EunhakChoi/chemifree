@@ -2555,3 +2555,53 @@ fn a_slot_unusual_warning_is_backed_by_the_document_in_both_directions() {
         "the built-in always raises it here"
     );
 }
+
+#[test]
+fn a_labeler_that_reports_more_work_than_it_was_given_has_hit_the_limit() {
+    let over = |stage: &'static str| {
+        let (mut probe, _) = Probe::new();
+        probe.limits = Limits {
+            request_nodes: 1_000,
+            ..Limits::default()
+        };
+        probe.centers = Box::new(move |reports| {
+            if stage == "centers" || stage == "mixed" {
+                reports[0].nodes = 1_001;
+            }
+        });
+        probe.bonds = Box::new(move |reports| {
+            if stage == "bonds" || stage == "mixed-bonds" {
+                reports[0].nodes = 1_001;
+            }
+        });
+        probe.scan = Box::new(move |found| {
+            if stage == "scan" {
+                found.nodes = 1_001;
+            }
+        });
+        let (app, _directory) = application_with(probe);
+        let (built, _) = smiles(&app, SELECTION);
+        let parameters = match stage {
+            "centers" => json!({"atoms": ["a2"]}),
+            "bonds" => json!({"bonds": ["b7"]}),
+            "mixed" => json!({"atoms": ["a2"], "bonds": ["b7"]}),
+            "mixed-bonds" => json!({"atoms": ["a2"], "bonds": ["b7"]}),
+            _ => json!({"scope": "stereogenic"}),
+        };
+        call(&app, "over", &request(&built, &parameters))
+    };
+    for (stage, reported) in [
+        ("centers", "centers"),
+        ("mixed", "centers"),
+        ("bonds", "bonds"),
+        ("mixed-bonds", "bonds"),
+        ("scan", "scan"),
+    ] {
+        let reply = over(stage);
+        assert_eq!(reply["outcome"], "error", "{stage}: {reply}");
+        assert_eq!(reply["result"], Value::Null, "{stage}");
+        let stop = &reply["diagnostics"][0];
+        assert_eq!(stop["code"], "resource_limit", "{stage}: {reply}");
+        assert_eq!(stop["details"]["stage"], reported, "{stage}");
+    }
+}
