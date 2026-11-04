@@ -928,9 +928,12 @@ impl Reader<'_> {
                 .collect();
             let centers = self.neighborhoods.centers(&finished, &bonds)?;
             let groups = match block {
-                Some((open, close)) => cx::parse(self.source, open, close, atoms.len(), |index| {
-                    centers.iter().any(|center| center.atom == index)
-                })?,
+                Some((open, close)) => {
+                    let marked: HashSet<usize> = centers.iter().map(|center| center.atom).collect();
+                    cx::parse(self.source, open, close, atoms.len(), |index| {
+                        marked.contains(&index)
+                    })?
+                }
                 None => Vec::new(),
             };
             // One command per atom, bond, configuration and group in one transaction.

@@ -216,6 +216,13 @@ fn marks_the_drawing_cannot_hold_are_refused_with_their_span() {
             2,
             1,
         ),
+        // A double bond on the center: the valence model reads its real order.
+        (
+            "[C@H](=C)(F)Cl",
+            SmilesCode::StereoCenterUnsupportedHere,
+            2,
+            1,
+        ),
         // The valence model names no fourth position for a carbocation.
         ("C[C@+](F)Cl", SmilesCode::StereoCenterUnsupportedHere, 3, 1),
         // The other classes, whole with their digits.
@@ -420,5 +427,27 @@ fn an_aromatic_atom_is_refused_for_what_it_is_not_for_a_lone_pair() {
     assert_eq!(
         error.reason.as_deref(),
         Some("an aromatic atom is not a tetrahedral center")
+    );
+}
+
+#[test]
+fn only_the_five_named_classes_are_refused_whole_and_other_letters_are_not_a_class() {
+    // The named classes are `stereo_class_unsupported` with their digits, also after `@@`.
+    assert_eq!(
+        refused("F[C@@TH2H](Cl)Br"),
+        (SmilesCode::StereoClassUnsupported, 3, 5)
+    );
+    assert_eq!(
+        refused("F[C@TH3H](Cl)Br"),
+        (SmilesCode::StereoClassUnsupported, 3, 4)
+    );
+    // Letters that name no class are not part of the grammar: the bracket is malformed.
+    assert_eq!(
+        refused("F[C@XXH](Cl)Br"),
+        (SmilesCode::InvalidBracketContent, 4, 1)
+    );
+    assert_eq!(
+        refused("F[C@Z](Cl)Br"),
+        (SmilesCode::InvalidBracketContent, 4, 1)
     );
 }

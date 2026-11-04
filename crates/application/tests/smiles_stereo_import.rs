@@ -151,3 +151,71 @@ fn a_refused_text_leaves_the_document_unchanged() {
         assert_eq!(document(&app, &id), before, "{source}");
     }
 }
+
+#[test]
+fn a_replayed_import_reports_the_group_losses_of_the_original() {
+    let (app, _dir, id) = setup();
+    let source = "F[C@H](Cl)[C@H](Br)I |o1:1,a:3|";
+    import(&app, &id, 0, source);
+    // The document now has or 1 and an absolute group: the same text collides with both.
+    let base = json!({"document_id":id,"expected_revision":1,"format":"smiles","source":source});
+    let mut preview = base.clone();
+    preview["preview"] = json!(true);
+    let preview = call(&app, "again-p", "document.import", preview);
+    let digest = preview["result"]["preview_digest"].clone();
+    let mut commit = base;
+    commit["preview_digest"] = digest;
+    commit["accept_loss"] = json!(true);
+    let first = call(&app, "again", "document.import", commit.clone());
+    assert_eq!(first["document_revision"], 2, "{first}");
+    let features = |reply: &Value| -> Vec<String> {
+        reply["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|loss| loss["feature"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let original = features(&first);
+    assert!(
+        original.contains(&"stereo_group_number".to_owned())
+            && original.contains(&"stereo_group_merged".to_owned()),
+        "{original:?}"
+    );
+    // Same request id and parameters: the committed reply is replayed, not applied again.
+    let replay = call(&app, "again", "document.import", commit);
+    assert_eq!(replay["document_revision"], 2, "{replay}");
+    assert_eq!(replay["loss_report"], first["loss_report"], "{replay}");
+}
+
+#[test]
+fn a_text_of_exactly_the_command_bound_commits_with_its_groups_and_one_more_is_refused() {
+    // 70 units of `C[C@H](F)` and `C[C@H](F)Cl` are 214 atoms, 213 bonds and 71 configurations,
+    // 498 commands; each group is one more. Two groups make 500, the bound of one transaction.
+    let text = |groups: &str| format!("{}C[C@H](F)Cl |{groups}|", "C[C@H](F)".repeat(70));
+    let (app, _dir, id) = setup();
+    let done = import(&app, &id, 0, &text("o1:1,o2:4"));
+    assert_eq!(done["document_revision"], 1, "{done}");
+    assert_eq!(
+        document(&app, &id)["stereo"]["groups"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    // A third group is the 501st command: refused by the reader, nothing imported.
+    let (app, _dir, id) = setup();
+    let refused = import(&app, &id, 0, &text("o1:1,o2:4,a:7"));
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(refused["diagnostics"][0]["code"], "command_limit");
+    assert_eq!(document(&app, &id)["revision"], 0);
+}
+
+#[test]
+fn an_import_next_to_an_existing_absolute_group_still_fits_the_bound_it_was_counted_against() {
+    // Joining the document's absolute group is one command, as creating one is.
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "F[C@H](Cl)Br |a:1|");
+    let text = format!("{}C[C@H](F)Cl |a:1,o1:4|", "C[C@H](F)".repeat(70));
+    let done = import(&app, &id, 1, &text);
+    assert_eq!(done["document_revision"], 2, "{done}");
+}

@@ -13,6 +13,8 @@
 //! specification text consulted does not define that position), and the `@TH`, `@AL`, `@SP`,
 //! `@TB` and `@OH` classes.
 
+use std::collections::HashMap;
+
 use chemifree_application::smiles::{SmilesCenter, SmilesCode, SmilesError, SmilesSlot, Span};
 use chemifree_domain::chemistry;
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
@@ -64,6 +66,13 @@ impl Neighborhoods {
         bonds: &[(usize, usize, &BondOrder)],
     ) -> Result<Vec<SmilesCenter>, SmilesError> {
         let mut centers = Vec::new();
+        // Each bond by its two atoms, once, so a marked atom finds a neighbour's bond directly.
+        let by_pair: HashMap<(usize, usize), &BondOrder> = bonds
+            .iter()
+            .map(|&(begin, end, order)| ((begin.min(end), begin.max(end)), order))
+            .collect();
+        let order_between =
+            |one: usize, other: usize| by_pair.get(&(one.min(other), one.max(other))).copied();
         for (index, mark) in self.marks.iter().enumerate() {
             let Some((turn, span)) = *mark else { continue };
             let refuse = |code| SmilesError::at(code, span);
@@ -74,9 +83,10 @@ impl Neighborhoods {
                 Hydrogens::Specified(count) => count,
                 _ => 0,
             };
-            if bonds.iter().any(|&(begin, end, order)| {
-                (begin == index || end == index) && *order == BondOrder::Aromatic
-            }) {
+            if neighbors
+                .iter()
+                .any(|&other| order_between(index, other) == Some(&BondOrder::Aromatic))
+            {
                 return Err(refuse(SmilesCode::StereoCenterUnsupportedHere)
                     .because("an aromatic atom is not a tetrahedral center"));
             }
@@ -94,17 +104,13 @@ impl Neighborhoods {
             }
             let orders: Vec<Option<u16>> = neighbors
                 .iter()
-                .map(|&other| {
-                    bonds
-                        .iter()
-                        .find(|&&(begin, end, _)| {
-                            (begin == index && end == other) || (begin == other && end == index)
-                        })
-                        .and_then(|&(_, _, order)| chemistry::bond_order_value(order))
-                })
+                .map(|&other| order_between(index, other).and_then(chemistry::bond_order_value))
                 .collect();
-            let id = AtomId::from_serial(u32::try_from(index + 1).unwrap_or(u32::MAX))
-                .ok_or_else(|| refuse(SmilesCode::StereoCenterUnsupportedHere))?;
+            // The id only labels the valence assessment; an index too large for one is a bound.
+            let id = u32::try_from(index + 1)
+                .ok()
+                .and_then(AtomId::from_serial)
+                .ok_or_else(|| refuse(SmilesCode::CommandLimit))?;
             // With the counts above settled, the valence model either names the one fourth
             // position (the hydrogen) or finds no tetrahedral neighbour set at all.
             if fourth_position(id, atom, &orders).is_err() {
