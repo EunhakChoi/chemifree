@@ -437,3 +437,156 @@ fn a_v3000_export_imports_back_to_the_same_marks_and_configuration() {
     let twice = export(&app, &id, json!({"ctab": "v3000"}));
     assert_eq!(twice["result"]["content"], written["result"]["content"]);
 }
+
+fn hydrogen_reason(reply: &Value) -> String {
+    reply["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|loss| loss["feature"] == "default_hydrogen_interpretation")
+        .map(|loss| loss["reason"].as_str().unwrap().to_owned())
+        .unwrap_or_else(|| panic!("no hydrogen loss: {reply}"))
+}
+
+#[test]
+fn the_hydrogen_uncertainty_names_the_dialect_it_is_about() {
+    let (app, _directory, id) = setup();
+    let v3000 = import(&app, &id, 0, WEDGE);
+    let reason = hydrogen_reason(&v3000);
+    assert!(!reason.contains("V2000"), "{reason}");
+    assert!(reason.contains("hydrogen count"), "{reason}");
+    assert!(hydrogen_reason(&export(&app, &id, json!({"ctab": "v3000"}))) == reason);
+    let v2000 = hydrogen_reason(&export(&app, &id, json!({"ctab": "v2000"})));
+    assert!(
+        v2000.starts_with("Default V2000 hydrogen and valence fields"),
+        "{v2000}"
+    );
+}
+
+#[test]
+fn a_nonzero_z_is_reported_on_a_v3000_import() {
+    let (app, _directory, id) = setup();
+    let source = WEDGE.replace("3 Cl 1.3000 -0.7500 0.0000", "3 Cl 1.3000 -0.7500 0.5000");
+    let imported = import(&app, &id, 0, &source);
+    let z: Vec<&Value> = imported["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|loss| loss["feature"] == "z_coordinate")
+        .collect();
+    assert_eq!(z.len(), 1, "{imported}");
+    assert_eq!(z[0]["source_path"], "records[1].atoms[3].z");
+}
+
+#[test]
+fn a_document_with_a_second_placement_refuses_an_import_and_stays_unchanged() {
+    let (app, _directory, id) = setup();
+    import(&app, &id, 0, WEDGE);
+    let more = call(
+        &app,
+        "instance",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 1,
+               "commands": [{"op": "add_instance", "offset": {"x": 200, "y": 0}}]}),
+    );
+    assert_eq!(more["outcome"], "ok", "{more}");
+    let refused = call(
+        &app,
+        "second",
+        "document.import",
+        json!({"document_id": id, "expected_revision": 2, "format": "mol",
+               "source": WEDGE, "record": 1, "preview": true}),
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "unsupported_scene",
+        "{refused}"
+    );
+    assert_eq!(snapshot(&app, &id)["revision"], 2);
+}
+
+#[test]
+fn consent_for_a_configuration_follows_the_placement_that_is_written() {
+    // The second placement is a mirror image of the first; the file carries the first, so the
+    // configuration the first placement shows is the one compared.
+    let (app, _directory, id) = setup();
+    import(&app, &id, 0, WEDGE);
+    let before = export(&app, &id, json!({"ctab": "v3000"}));
+    assert_eq!(before["outcome"], "partial", "{before}");
+    let more = call(
+        &app,
+        "instance",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 1, "commands": [
+            {"op": "add_instance", "offset": {"x": 200, "y": 0}}]}),
+    );
+    assert_eq!(more["outcome"], "ok", "{more}");
+    let after = export(&app, &id, json!({"ctab": "v3000"}));
+    assert_eq!(after["outcome"], "partial", "no consent needed: {after}");
+    assert_eq!(after["result"]["content"], before["result"]["content"]);
+    assert!(features(&after).contains(&"extra_placement".to_owned()));
+}
+
+#[test]
+fn the_model_allows_a_wavy_mark_on_single_bonds_and_a_crossed_mark_on_double_bonds_only() {
+    // The CtBondStereo::Either mapping is by bond order, so it is lossless only because these
+    // two combinations cannot exist in a document.
+    let (app, _directory, id) = setup();
+    let edit = call(
+        &app,
+        "edit",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 0, "commands": [
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+            {"op": "add_atom", "element": "C", "position": {"x": 30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "double"}},
+            {"op": "set_bond_mark", "bond": "$1", "mark": {"kind": "wavy"}}]}),
+    );
+    assert_eq!(edit["outcome"], "error", "{edit}");
+    let edit = call(
+        &app,
+        "edit2",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 0, "commands": [
+            {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+            {"op": "add_atom", "element": "C", "position": {"x": 30, "y": 0},
+             "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "set_bond_mark", "bond": "$1", "mark": {"kind": "crossed"}}]}),
+    );
+    assert_eq!(edit["outcome"], "error", "{edit}");
+}
+
+#[test]
+fn a_v2000_export_with_marks_reads_back_to_the_same_marks_and_configuration() {
+    let (app, _directory, id) = setup();
+    import(&app, &id, 0, WEDGE);
+    let written = export(&app, &id, json!({"ctab": "v2000"}));
+    assert_eq!(written["result"]["ctab"], "v2000");
+    let text = written["result"]["content"].as_str().unwrap().to_owned();
+    assert!(text.contains("V2000"), "{text}");
+    let (second, _other, target) = setup();
+    import(&second, &target, 0, &text);
+    let (first, again) = (snapshot(&app, &id), snapshot(&second, &target));
+    assert_eq!(first["bonds"], again["bonds"]);
+    assert_eq!(first["stereo"], again["stereo"]);
+    assert_eq!(
+        again["bonds"][1]["mark"],
+        json!({"kind": "wedge", "narrow": "begin"})
+    );
+}
+
+#[test]
+fn hash_either_and_crossed_marks_survive_a_v2000_round_trip() {
+    let source = "Marks\n\n\n  0  0  0     0  0            999 V3000\nM  V30 BEGIN CTAB\nM  V30 COUNTS 5 4 0 0 0\nM  V30 BEGIN ATOM\nM  V30 1 C 0.0000 0.0000 0.0000 0\nM  V30 2 C 1.5000 0.0000 0.0000 0\nM  V30 3 C 3.0000 0.0000 0.0000 0\nM  V30 4 C 3.0000 1.5000 0.0000 0\nM  V30 5 C 4.5000 0.0000 0.0000 0\nM  V30 END ATOM\nM  V30 BEGIN BOND\nM  V30 1 1 1 2 CFG=3\nM  V30 2 1 3 2 CFG=2\nM  V30 3 2 3 4 CFG=2\nM  V30 4 1 3 5\nM  V30 END BOND\nM  V30 END CTAB\nM  END\n";
+    let (app, _directory, id) = setup();
+    import(&app, &id, 0, source);
+    let text = export(&app, &id, json!({"ctab": "v2000"}))["result"]["content"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (second, _other, target) = setup();
+    import(&second, &target, 0, &text);
+    let (first, again) = (snapshot(&app, &id), snapshot(&second, &target));
+    assert_eq!(first["bonds"][0]["mark"], again["bonds"][0]["mark"]);
+    assert_eq!(first["bonds"][1]["mark"], again["bonds"][1]["mark"]);
+    assert_eq!(again["bonds"][2]["mark"], json!({"kind": "crossed"}));
+}

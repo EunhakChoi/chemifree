@@ -102,6 +102,22 @@ def _marks(binary: pathlib.Path, root: pathlib.Path) -> None:
         if b["stereo"] in kinds
     )
     _require(parsed == expected, f"Chemifree read RDKit's marks as {parsed}")
+    # The V2000 direction: RDKit writes the bond stereo column, Chemifree's V2000 reader reads it.
+    path = root / "rdkit-wedge-v2000.mol"
+    path.write_text(rdkit.Chem.MolToMolBlock(reverse), encoding="utf-8")
+    output = subprocess.run(  # noqa: S603
+        [str(binary), "read", str(path)],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    record = json.loads(output.stdout)["records"][0]
+    parsed = sorted(
+        (b["begin"], b["end"], kinds[b["stereo"]])
+        for b in record["bonds"]
+        if b["stereo"] in kinds
+    )
+    _require(parsed == expected, f"Chemifree read RDKit's V2000 marks as {parsed}")
 
 
 def main() -> None:

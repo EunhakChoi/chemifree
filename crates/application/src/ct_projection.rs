@@ -42,13 +42,21 @@ fn loss(record: usize, path: &str, feature: &str, impact: SemanticImpact, reason
     }
 }
 
-fn implicit_hydrogen_uncertainty(record: usize) -> Loss {
+fn implicit_hydrogen_uncertainty(record: usize, tab: CtTab) -> Loss {
+    let reason = match tab {
+        CtTab::V2000 => {
+            "Default V2000 hydrogen and valence fields do not establish the same implicit hydrogen count in every reader. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader."
+        }
+        CtTab::V3000 => {
+            "The V3000 file states no hydrogen count for its atoms. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader."
+        }
+    };
     Loss {
         consent: LossConsent::NotRequired,
         feature: "default_hydrogen_interpretation".into(),
         source_path: format!("records[{record}].atoms"),
         disposition: LossDisposition::Unknown,
-        reason: "Default V2000 hydrogen and valence fields do not establish the same implicit hydrogen count in every reader. Chemifree records an inferred state, and its separate bounded valence inspection may differ from the source or destination reader.".into(),
+        reason: reason.into(),
         semantic_impact: SemanticImpact::Chemistry,
     }
 }
@@ -111,7 +119,7 @@ pub(crate) fn import_commands(
         ));
     }
     if !record.atoms.is_empty() {
-        losses.push(implicit_hydrogen_uncertainty(index));
+        losses.push(implicit_hydrogen_uncertainty(index, record.ctab));
     }
     let mut commands = Vec::with_capacity(record.atoms.len() + record.bonds.len());
     for (i, source) in record.atoms.iter().enumerate() {
@@ -213,6 +221,19 @@ pub(crate) fn import_commands(
     Ok(commands)
 }
 
+/// No configuration could be derived for the record at all (the scratch drawing was refused):
+/// the marks stay and one loss says why, so the import never silently stores less.
+fn unreadable_record(index: usize, cause: &str, losses: &mut Vec<Loss>) -> Option<Command> {
+    losses.push(loss(
+        index,
+        ".atoms",
+        "stereo_unreadable",
+        SemanticImpact::Stereo,
+        &format!("The drawn marks could not be read into configurations ({cause}); the marks are kept and no configuration is stored."),
+    ));
+    None
+}
+
 /// The command that stores the configuration each marked center's drawing shows, and a loss
 /// for each center the drawing does not determine. The derivation is the domain's own, run on
 /// a scratch document of the record alone (an import adds a separate component, so a center's
@@ -224,8 +245,13 @@ fn derived_configurations(
     losses: &mut Vec<Loss>,
 ) -> Option<Command> {
     let id = DocumentId::parse("scratch").expect("scratch identifier is valid");
-    let mut scratch = Document::new(id, "scratch").ok()?;
-    scratch.apply(commands).ok()?;
+    let mut scratch = match Document::new(id, "scratch") {
+        Ok(scratch) => scratch,
+        Err(cause) => return unreadable_record(index, &cause.to_string(), losses),
+    };
+    if let Err(cause) = scratch.apply(commands) {
+        return unreadable_record(index, &cause.to_string(), losses);
+    }
     let instance = scratch.first_instance();
     let drawing = Drawing::of_document(&scratch, instance);
     let centers: std::collections::HashSet<_> = drawing.marked_centers().into_iter().collect();
@@ -581,7 +607,7 @@ pub(crate) fn export_record(
     };
     let dialect = target.dialect().unwrap_or("V2000");
     if !doc.atoms.is_empty() {
-        losses.push(implicit_hydrogen_uncertainty(index));
+        losses.push(implicit_hydrogen_uncertainty(index, tab));
     }
     let mut atoms = Vec::with_capacity(doc.atoms.len());
     let mut ids = HashMap::new();
@@ -719,4 +745,23 @@ pub(crate) fn digest<T: Serialize>(value: &T) -> String {
     serde_json::to_writer(&mut writer, value)
         .expect("validated projection contains serializable finite values");
     format!("{:x}", writer.0.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scratch_drawing_that_cannot_be_built_costs_a_loss_not_silence() {
+        // Commands that cannot apply: a mark on a bond no command created.
+        let commands = [Command::SetBondMark {
+            bond: BondRef::Created(5),
+            mark: Some(StereoMark::Wavy),
+        }];
+        let mut losses = Vec::new();
+        assert!(derived_configurations(&commands, 3, &mut losses).is_none());
+        assert_eq!(losses.len(), 1, "{losses:?}");
+        assert_eq!(losses[0].feature, "stereo_unreadable");
+        assert_eq!(losses[0].source_path, "records[3].atoms");
+    }
 }

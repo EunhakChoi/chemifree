@@ -733,7 +733,7 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          comparison in chem.identity or chem.substructure (they do not read stereo or groups), \
          no stereo check in chem.validate, no stereo in SMILES, CDXML or CDX, and a MOL or SDF \
          file carries only the bond marks (V2000 bond stereo column, V3000 CFG) and the \
-         configurations they show, and only V3000 is read back.",
+         configurations they show; both dialects are read back.",
     )
     .carried_out_by(&[
         "set_atom_configuration",

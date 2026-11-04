@@ -356,14 +356,32 @@ fn parse_bond(
             "Only single, double and triple bonds are supported.",
         ));
     }
-    for start in (9..21).step_by(3) {
+    // Columns 10-12 are the bond stereo: 1 wedge, 6 hash and 4 either on a single bond, 3 either
+    // on a double bond. Any other value, and every other field of the line, is refused.
+    let stereo = match (number(line, 9, 12, record, line_no)?, order) {
+        (0, _) => CtBondStereo::None,
+        (1, 1) => CtBondStereo::Wedge,
+        (6, 1) => CtBondStereo::Hash,
+        (4, 1) | (3, 2) => CtBondStereo::Either,
+        (value, _) => {
+            return Err(error(
+                "unsupported_bond_field",
+                record,
+                line_no,
+                format!(
+                    "Bond stereo {value} is not a wedge (1) or hash (6) on a single bond, or either (4 single, 3 double)."
+                ),
+            ));
+        }
+    };
+    for start in (12..21).step_by(3) {
         if number(line, start, start + 3, record, line_no)? != 0 {
             return Err(error(
                 "unsupported_bond_field",
                 record,
                 line_no,
                 format!(
-                    "Bond stereo, topology and reaction fields are unsupported (column {}).",
+                    "Bond topology and reaction fields are unsupported (column {}).",
                     start + 1
                 ),
             ));
@@ -384,7 +402,7 @@ fn parse_bond(
         begin: begin - 1,
         end: end - 1,
         order: u8::try_from(order).expect("checked order"),
-        stereo: CtBondStereo::None,
+        stereo,
     })
 }
 

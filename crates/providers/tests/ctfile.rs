@@ -319,13 +319,14 @@ fn aromatic_type_four_is_refused_as_a_query_family_bond() {
 }
 
 #[test]
-fn a_bond_stereo_topology_or_reaction_column_is_refused_not_ignored() {
+fn a_bond_topology_reaction_unused_or_unknown_stereo_column_is_refused_not_ignored() {
     // Bond block columns 10-12 (stereo), 13-15 (unused), 16-18 (topology), 19-21 (reaction
-    // center). A wedge drawn in the file must never be read as a plain bond.
+    // center). Stereo 1, 6 and 4 on a single bond are read as marks (see the next test); every
+    // other nonzero value, and the other three columns, are refused, never read as a plain bond.
     for (column, replacement) in [
-        ("stereo", "  1  2  1  1  0  0  0"),
-        ("hashed stereo", "  1  2  1  6  0  0  0"),
-        ("either stereo", "  1  2  1  4  0  0  0"),
+        ("stereo 2", "  1  2  1  2  0  0  0"),
+        ("stereo 5", "  1  2  1  5  0  0  0"),
+        ("stereo 3 on a single bond", "  1  2  1  3  0  0  0"),
         ("unused", "  1  2  1  0  1  0  0"),
         ("topology", "  1  2  1  0  0  1  0"),
         ("reaction center", "  1  2  1  0  0  0  1"),
@@ -338,6 +339,54 @@ fn a_bond_stereo_topology_or_reaction_column_is_refused_not_ignored() {
             (error.code, error.record),
             ("unsupported_bond_field", 1),
             "{column}"
+        );
+    }
+    // A wedge or hash needs a single bond; either 4 is for single bonds, 3 for double bonds.
+    for (column, input) in [
+        (
+            "wedge on a double bond",
+            MOL.replace("  1  2  1  0  0  0  0", "  1  2  2  1  0  0  0"),
+        ),
+        (
+            "hash on a triple bond",
+            MOL.replace("  1  2  1  0  0  0  0", "  1  2  3  6  0  0  0"),
+        ),
+        (
+            "either 4 on a double bond",
+            MOL.replace("  1  2  1  0  0  0  0", "  1  2  2  4  0  0  0"),
+        ),
+        (
+            "either 3 on a triple bond",
+            MOL.replace("  1  2  1  0  0  0  0", "  1  2  3  3  0  0  0"),
+        ),
+    ] {
+        let error = V2000Codec
+            .read(CtFormat::Mol, input.as_bytes())
+            .expect_err(column);
+        assert_eq!(error.code, "unsupported_bond_field", "{column}");
+    }
+}
+
+#[test]
+fn bond_stereo_columns_one_six_four_and_three_are_read_as_marks() {
+    for (order, column, stereo) in [
+        (1, 1, CtBondStereo::Wedge),
+        (1, 6, CtBondStereo::Hash),
+        (1, 4, CtBondStereo::Either),
+        (2, 3, CtBondStereo::Either),
+        (1, 0, CtBondStereo::None),
+    ] {
+        let input = MOL.replace(
+            "  1  2  1  0  0  0  0",
+            &format!("  1  2{order:>3}{column:>3}  0  0  0"),
+        );
+        let record = &V2000Codec
+            .read(CtFormat::Mol, input.as_bytes())
+            .unwrap()
+            .value[0];
+        assert_eq!(
+            record.bonds[0].stereo, stereo,
+            "order {order} column {column}"
         );
     }
 }
