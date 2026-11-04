@@ -1,10 +1,10 @@
-//! Chemifree document file format, version 6 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 7 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 6 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
-//! references, positions, stated stereo configurations (`stereo`), selection, and document
-//! settings. History records their changes together. An atom state records its kind (an element
+//! Version 7 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
+//! references, positions, stated stereo configurations (`stereo`), enhanced-stereo groups
+//! (`stereo_groups`), selection, and document settings. History records their changes together. An atom state records its kind (an element
 //! or a query), charge, isotope, hydrogen state, radical, and attachment points; a bond state its
 //! order, for a query bond its query, and, for a bond drawn with a stereo mark, the mark (with
 //! the narrow end of a wedge, so a bond's `begin` and `end` are never swapped). Files are
@@ -16,15 +16,16 @@
 //! points), and version 1 files, which kept one position on each atom, also move those
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
-//! Versions 1–5 have no stereo marks or configurations, so they read with none. Reading never
-//! writes; the next write is version 6. Other versions are refused.
+//! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
+//! so they read with none. Reading never writes; the next write is version 7. Other versions
+//! are refused.
 
 use std::collections::BTreeSet;
 
 use chemifree_application::{Draft, DraftInfo};
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, Change, ChangeSet, Document, DocumentId, DocumentParts,
-    MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
+    GroupId, MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -37,13 +38,14 @@ use chemifree_domain::states::{
 use chemifree_domain::stereo::{
     BondEnd, CenterState, DoubleBondState, Relation, Slot, StereoKey, StereoMark, StereoState, Turn,
 };
+use chemifree_domain::stereo_group::{GroupKind, StereoGroup};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 7;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 6;
+const DRAFT_FORMAT_VERSION: u32 = 7;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -53,11 +55,12 @@ const VERSION_3: u32 = 3;
 const VERSION_4: u32 = 4;
 /// The version before stereo marks and configurations; read and migrated, never written.
 const VERSION_5: u32 = 5;
+/// The version before stereo groups; read and migrated, never written.
+const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Version 6 adds stereo marks on bonds and stated stereo configurations to the version 5
-/// scene and history.
+/// Version 7 adds enhanced-stereo groups to the version 6 scene and history.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -93,10 +96,32 @@ struct SceneDocument {
     positions: Vec<ScenePosition>,
     /// Stated configurations; the id is an atom's (a center) or a bond's (a double bond).
     stereo: Vec<Stored<StoredStereoState>>,
+    /// Enhanced-stereo groups in identifier order; the id is `e<serial>`.
+    stereo_groups: Vec<Stored<StoredGroup>>,
     selection: StoredSelection,
     next_atom: u32,
     next_bond: u32,
     next_object: u32,
+    next_group: u32,
+}
+
+/// An enhanced-stereo group: `number` is the number as stated (`null` when none), members are
+/// atom identifiers in ascending order.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredGroup {
+    kind: StoredGroupKind,
+    #[serde(deserialize_with = "required_option")]
+    number: Option<i32>,
+    members: Vec<String>,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredGroupKind {
+    Absolute,
+    And,
+    Or,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -219,7 +244,139 @@ struct SceneChangeSet {
     references: Vec<StoredReferenceChange>,
     positions: Vec<PositionChange>,
     stereo: Vec<Keyed<StoredStereoState>>,
+    stereo_groups: Vec<Keyed<StoredGroup>>,
     selection: StoredChange<StoredSelection>,
+}
+
+/// Version 6 is the scene format with stereo, before stereo groups. Its exact shape is kept
+/// separately so a version 6 file cannot silently contain groups, and a version 7 file cannot
+/// omit `stereo_groups` or `next_group`.
+mod v6 {
+    use serde::Deserialize;
+
+    use super::{
+        AtomState, BondState, Keyed, PositionChange, ScenePosition, SceneState, Stored,
+        StoredChange, StoredMolecule, StoredPage, StoredReference, StoredReferenceChange,
+        StoredSelection, StoredSettings, StoredStereoState, required_option,
+    };
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct File {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Draft {
+        #[serde(rename = "format")]
+        pub _format: String,
+        #[serde(rename = "format_version")]
+        pub _format_version: u32,
+        pub base_revision: u64,
+        pub saved_at_ms: u64,
+        pub document: Document,
+        pub history: History,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct Document {
+        pub id: String,
+        pub revision: u64,
+        pub title: String,
+        pub settings: StoredSettings,
+        pub molecule: StoredMolecule<AtomState, BondState>,
+        pub pages: Vec<StoredPage>,
+        pub roots: Vec<String>,
+        pub objects: Vec<Stored<SceneState>>,
+        pub references: Vec<StoredReference>,
+        pub positions: Vec<ScenePosition>,
+        pub stereo: Vec<Stored<StoredStereoState>>,
+        pub selection: StoredSelection,
+        pub next_atom: u32,
+        pub next_bond: u32,
+        pub next_object: u32,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct History {
+        pub undo: Vec<ChangeSet>,
+        pub redo: Vec<ChangeSet>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct ChangeSet {
+        pub title: Option<StoredChange<String>>,
+        #[serde(deserialize_with = "required_option")]
+        pub settings: Option<StoredChange<StoredSettings>>,
+        pub atoms: Vec<Keyed<AtomState>>,
+        pub bonds: Vec<Keyed<BondState>>,
+        pub roots: Option<StoredChange<Vec<String>>>,
+        pub objects: Vec<Keyed<SceneState>>,
+        pub references: Vec<StoredReferenceChange>,
+        pub positions: Vec<PositionChange>,
+        pub stereo: Vec<Keyed<StoredStereoState>>,
+        pub selection: StoredChange<StoredSelection>,
+    }
+}
+
+impl From<v6::Document> for SceneDocument {
+    fn from(value: v6::Document) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            title: value.title,
+            settings: value.settings,
+            molecule: value.molecule,
+            pages: value.pages,
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            stereo: value.stereo,
+            stereo_groups: Vec::new(),
+            selection: value.selection,
+            next_atom: value.next_atom,
+            next_bond: value.next_bond,
+            next_object: value.next_object,
+            next_group: 1,
+        }
+    }
+}
+
+impl From<v6::History> for SceneHistory {
+    fn from(value: v6::History) -> Self {
+        Self {
+            undo: value.undo.into_iter().map(Into::into).collect(),
+            redo: value.redo.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<v6::ChangeSet> for SceneChangeSet {
+    fn from(value: v6::ChangeSet) -> Self {
+        Self {
+            title: value.title,
+            settings: value.settings,
+            atoms: value.atoms,
+            bonds: value.bonds,
+            roots: value.roots,
+            objects: value.objects,
+            references: value.references,
+            positions: value.positions,
+            stereo: value.stereo,
+            stereo_groups: Vec::new(),
+            selection: value.selection,
+        }
+    }
 }
 
 /// Version 5 is the scene format with document settings, before stereo marks and
@@ -456,10 +613,12 @@ impl From<v5::Document> for SceneDocument {
             references: value.references,
             positions: value.positions,
             stereo: Vec::new(),
+            stereo_groups: Vec::new(),
             selection: value.selection,
             next_atom: value.next_atom,
             next_bond: value.next_bond,
             next_object: value.next_object,
+            next_group: 1,
         }
     }
 }
@@ -493,6 +652,7 @@ impl From<v5::ChangeSet> for SceneChangeSet {
             references: value.references,
             positions: value.positions,
             stereo: Vec::new(),
+            stereo_groups: Vec::new(),
             selection: value.selection,
         }
     }
@@ -941,6 +1101,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Six,
     Five,
     Four,
     Three,
@@ -958,6 +1119,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        VERSION_6 => Ok(Version::Six),
         VERSION_5 => Ok(Version::Five),
         VERSION_4 => Ok(Version::Four),
         VERSION_3 => Ok(Version::Three),
@@ -965,7 +1127,8 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, and {current}"
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, and \
+             {current}"
         )),
     }
 }
@@ -1063,10 +1226,19 @@ fn stored(document: &Document) -> Current {
                 state: stored_stereo_state(state),
             })
             .collect(),
+        stereo_groups: parts
+            .stereo_groups
+            .iter()
+            .map(|(id, group)| Stored {
+                id: id.to_string(),
+                state: stored_group(group),
+            })
+            .collect(),
         selection: stored_selection(&parts.selection),
         next_atom: parts.next_atom,
         next_bond: parts.next_bond,
         next_object: parts.next_object,
+        next_group: parts.next_group,
     };
     let history = SceneHistory {
         undo: parts.undo.iter().map(stored_scene_change_set).collect(),
@@ -1091,7 +1263,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 5), which a save
+/// The earlier version of a document file this build reads (1 to 6), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1109,17 +1281,22 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Three) => Some(VERSION_3),
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
+        Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Current) | Err(_) => None,
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 5 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 6 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let parts = match version(bytes, FORMAT, FORMAT_VERSION, "document")? {
         Version::Current => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
+        }
+        Version::Six => {
+            let file: v6::File = parse(bytes, "document")?;
+            scene_parts(file.document.into(), file.history.into())?
         }
         Version::Five => {
             let file: v5::File = parse(bytes, "document")?;
@@ -1147,13 +1324,18 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 5 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 6 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let (parts, base_revision, saved_at_ms) =
         match version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")? {
             Version::Current => {
                 let file: SceneDraftFile = parse(bytes, "draft")?;
                 let parts = scene_parts(file.document, file.history)?;
+                (parts, file.base_revision, file.saved_at_ms)
+            }
+            Version::Six => {
+                let file: v6::Draft = parse(bytes, "draft")?;
+                let parts = scene_parts(file.document.into(), file.history.into())?;
                 (parts, file.base_revision, file.saved_at_ms)
             }
             Version::Five => {
@@ -1265,10 +1447,16 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
             .into_iter()
             .map(|record| Ok((stereo_key(&record.id)?, read_stereo_state(record.state)?)))
             .collect::<Result<_, String>>()?,
+        stereo_groups: stored
+            .stereo_groups
+            .into_iter()
+            .map(|record| Ok((group_id(&record.id)?, read_group(record.state)?)))
+            .collect::<Result<_, String>>()?,
         selection: read_selection(stored.selection)?,
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
         next_object: stored.next_object,
+        next_group: stored.next_group,
         undo: history
             .undo
             .into_iter()
@@ -1447,6 +1635,19 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
             ))
         })
         .collect::<Result<_, String>>()?;
+    set.stereo_groups = stored
+        .stereo_groups
+        .into_iter()
+        .map(|keyed| {
+            Ok((
+                group_id(&keyed.id)?,
+                Change {
+                    before: keyed.before.map(read_group).transpose()?,
+                    after: keyed.after.map(read_group).transpose()?,
+                },
+            ))
+        })
+        .collect::<Result<_, String>>()?;
     set.selection = Change {
         before: read_selection(stored.selection.before)?,
         after: read_selection(stored.selection.after)?,
@@ -1557,10 +1758,12 @@ fn parts<A: AtomRecord, B: BondRecord>(
         references: Vec::new(),
         positions,
         stereo: Vec::new(),
+        stereo_groups: Vec::new(),
         selection: Selection::default(),
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
         next_object: stored.next_instance,
+        next_group: 1,
         undo,
         redo,
     })
@@ -1601,10 +1804,12 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
         references: Vec::new(),
         positions,
         stereo: Vec::new(),
+        stereo_groups: Vec::new(),
         selection: Selection::default(),
         next_atom: stored.next_atom,
         next_bond: stored.next_bond,
         next_object: MIGRATED_INSTANCE + 1,
+        next_group: 1,
         undo: change_sets(history.undo)?,
         redo: change_sets(history.redo)?,
     })
@@ -1653,6 +1858,7 @@ fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSe
         references: Vec::new(),
         positions,
         stereo: Vec::new(),
+        stereo_groups: Vec::new(),
         selection: Change::default(),
     })
 }
@@ -2164,6 +2370,15 @@ fn stored_scene_change_set(set: &ChangeSet) -> SceneChangeSet {
                 after: change.after.as_ref().map(stored_stereo_state),
             })
             .collect(),
+        stereo_groups: set
+            .stereo_groups
+            .iter()
+            .map(|(id, change)| Keyed {
+                id: id.to_string(),
+                before: change.before.as_ref().map(stored_group),
+                after: change.after.as_ref().map(stored_group),
+            })
+            .collect(),
         selection: StoredChange {
             before: stored_selection(&set.selection.before),
             after: stored_selection(&set.selection.after),
@@ -2236,6 +2451,7 @@ fn to_change_set<A: AtomRecord, B: BondRecord>(
             .collect::<Result<_, String>>()?,
         references: Vec::new(),
         stereo: Vec::new(),
+        stereo_groups: Vec::new(),
         selection: Change::default(),
         positions: stored
             .positions
@@ -2287,6 +2503,39 @@ fn atom_id(value: &str) -> Result<AtomId, String> {
 
 fn bond_id(value: &str) -> Result<BondId, String> {
     BondId::parse(value).ok_or_else(|| format!("invalid bond identifier {value:?}"))
+}
+
+fn group_id(value: &str) -> Result<GroupId, String> {
+    GroupId::parse(value).ok_or_else(|| format!("invalid stereo group identifier {value:?}"))
+}
+
+fn stored_group(group: &StereoGroup) -> StoredGroup {
+    StoredGroup {
+        kind: match group.kind() {
+            GroupKind::Absolute => StoredGroupKind::Absolute,
+            GroupKind::And => StoredGroupKind::And,
+            GroupKind::Or => StoredGroupKind::Or,
+        },
+        number: group.stored_number(),
+        members: group.members().iter().map(ToString::to_string).collect(),
+    }
+}
+
+/// A group as stated. A member listed twice is refused rather than merged; whether the group
+/// is valid (centers, numbers) is `Document::restore`'s check.
+fn read_group(stored: StoredGroup) -> Result<StereoGroup, String> {
+    let mut members = BTreeSet::new();
+    for member in &stored.members {
+        if !members.insert(atom_id(member)?) {
+            return Err(format!("a stereo group lists atom {member:?} twice"));
+        }
+    }
+    let kind = match stored.kind {
+        StoredGroupKind::Absolute => GroupKind::Absolute,
+        StoredGroupKind::And => GroupKind::And,
+        StoredGroupKind::Or => GroupKind::Or,
+    };
+    Ok(StereoGroup::new(kind, stored.number, members))
 }
 
 fn instance_id(value: &str) -> Result<ObjectId, String> {
