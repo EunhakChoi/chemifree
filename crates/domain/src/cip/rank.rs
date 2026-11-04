@@ -6,9 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::budget::{Interrupt, Interrupted};
 use crate::document::{AtomId, BondId};
 
-use super::bond::{Geometry, Oracle};
+use super::bond::{Counted, Geometry, Oracle};
 use super::context::{Context, Mass};
-use super::digraph::{Arena, Kind, NodeIx};
+use super::digraph::{Arena, Distance, Kind, NodeIx};
 use super::{Reason, Rule};
 
 /// Why a comparison did not finish.
@@ -38,8 +38,8 @@ const RULES: [Rule; 4] = [Rule::R1a, Rule::R1b, Rule::R2, Rule::R3];
 struct Distances {
     /// The sphere of the atom the duplicate stands for.
     atom: u16,
-    /// [`Origin::sphere_distance`].
-    sphere: u16,
+    /// [`Origin::distance`].
+    sphere: Distance,
 }
 
 /// What one rule reads of a node; a missing node reads as a phantom.
@@ -143,7 +143,7 @@ fn compare_views(rule: Rule, a: View, b: View) -> Verdict {
                 // other; a duplicate and an ordinary atom tie. The rule measures a duplicate
                 // to "the corresponding nonduplicated atom", which for the duplicate that a
                 // multiple bond adds to the far atom (of its parent) is the parent, a sphere
-                // nearer, while RDKit 2022.03.2 ranks it as lying in its own sphere. The text
+                // nearer, while RDKit ranks it as lying in its own sphere. The text
                 // does not settle which is meant, so a pair that the two readings order
                 // differently is refused, not decided.
                 (Some(a), Some(b)) => {
@@ -229,7 +229,7 @@ pub(super) struct Engine<'c, 'g> {
     /// The double bonds whose descriptors Rule 3 asked for, and the part of their cost already
     /// counted against the cap.
     requested: BTreeSet<BondId>,
-    charged: BTreeSet<BondId>,
+    charged: Counted,
     rule_3_nodes: usize,
     geometry: BTreeMap<NodeIx, Option<Geometry>>,
     compared: BTreeMap<(NodeIx, NodeIx, Rule), (Ordering, Option<Rule>)>,
@@ -253,7 +253,7 @@ impl<'c, 'g> Engine<'c, 'g> {
             refusal: None,
             ambiguous: false,
             requested: BTreeSet::new(),
-            charged: BTreeSet::new(),
+            charged: Counted::default(),
             rule_3_nodes: 0,
             geometry: BTreeMap::new(),
             compared: BTreeMap::new(),
@@ -307,7 +307,7 @@ impl<'c, 'g> Engine<'c, 'g> {
                     of_depth, origin, ..
                 } => Some(Distances {
                     atom: of_depth,
-                    sphere: origin.sphere_distance(node.depth, of_depth),
+                    sphere: origin.distance(node.depth, of_depth),
                 }),
                 _ => None,
             },
@@ -374,9 +374,7 @@ impl<'c, 'g> Engine<'c, 'g> {
         };
         self.requested.insert(bond);
         let analysis = self.oracle.analysis(bond)?;
-        self.rule_3_nodes = self
-            .rule_3_nodes
-            .saturating_add(self.oracle.charge(bond, &mut self.charged));
+        self.rule_3_nodes = self.oracle.charge(bond, &mut self.charged);
         if self.arena.len().saturating_add(self.rule_3_nodes) > self.cap {
             return Err(Reason::DigraphLimit.into());
         }
@@ -424,8 +422,11 @@ impl<'c, 'g> Engine<'c, 'g> {
     fn compare_by(&mut self, a: NodeIx, b: NodeIx, rule: Rule) -> Result<Ordering, Halt> {
         // Two duplicates compared with each other are two siblings being put in order (a ligand
         // is never a duplicate). They have no children, so which comes first only decides which
-        // of the other ligand's nodes each is placed against, and a reading in which they tie
-        // places the same distances against them either way: a difference between the readings
+        // of the other ligand's nodes each is placed against, and each of those placements is
+        // compared on its own, and refused if the readings disagree about it. The order the
+        // readings give the siblings can differ, but an answer no placement refuses is the same
+        // in both (the test `two_readings_of_rule_1b_agree_on_every_pair_of_sibling_groups_that_no_pair_refuses`
+        // checks every group of up to three duplicates), so a difference between the readings
         // of Rule 1b there refuses nothing.
         let siblings = [a, b]
             .iter()
@@ -515,10 +516,15 @@ impl<'c, 'g> Engine<'c, 'g> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::digraph::Origin;
     use super::*;
 
     /// A carbon duplicate whose atom is in sphere `atom` and that Rule 1b measures to `sphere`.
     fn duplicate(atom: u16, sphere: u16) -> View {
+        measured(atom, Distance::Sphere(sphere))
+    }
+
+    fn measured(atom: u16, sphere: Distance) -> View {
         View {
             z: 6,
             mass: Mass::Table(12),
@@ -575,9 +581,95 @@ mod tests {
         // The second duplicate of a double bond that closes a ring has no distance in the
         // sphere reading and ranks below a duplicate of the far end.
         assert_eq!(
-            rule_1b(duplicate(1, u16::MAX), duplicate(4, 4)),
+            rule_1b(measured(1, Distance::Unmeasured), duplicate(4, 4)),
             (Ordering::Greater, refused)
         );
+    }
+
+    /// The duplicates a node can have in sphere `depth`, as Rule 1b reads them: a ring closure
+    /// on an atom of each earlier sphere, the far end of a multiple bond, the parent a multiple
+    /// bond leads back to, and the closing duplicate of a multiple bond that also closes a ring.
+    fn duplicates_in(depth: u16) -> Vec<View> {
+        let mut found = Vec::new();
+        for atom in 0..depth.saturating_sub(2) {
+            found.push(measured(atom, Origin::RingClosure.distance(depth, atom)));
+            found.push(measured(
+                atom,
+                Origin::ClosingMultipleBond.distance(depth, atom),
+            ));
+        }
+        found.push(measured(depth, Origin::MultipleBond.distance(depth, depth)));
+        found.push(measured(
+            depth - 2,
+            Origin::MultipleBond.distance(depth, depth - 2),
+        ));
+        found
+    }
+
+    /// How two sibling groups compare position by position, each put in order by `order`
+    /// (a stable sort, as the engine's is), and whether a pair compared on the way is one the
+    /// two readings order differently.
+    fn compare_groups(
+        left: &[View],
+        right: &[View],
+        order: fn(&Distances, &Distances) -> Ordering,
+    ) -> (Ordering, bool) {
+        let sorted = |group: &[View]| {
+            let mut group = group.to_vec();
+            group.sort_by(|a, b| order(&b.duplicate.unwrap(), &a.duplicate.unwrap()));
+            group
+        };
+        let (left, right) = (sorted(left), sorted(right));
+        let mut refused = false;
+        for (a, b) in left.iter().zip(&right) {
+            let verdict = compare_views(Rule::R1b, *a, *b);
+            refused |= verdict.refusal.is_some();
+            let ordering = order(&a.duplicate.unwrap(), &b.duplicate.unwrap());
+            if ordering != Ordering::Equal {
+                return (ordering, refused);
+            }
+        }
+        (Ordering::Equal, refused)
+    }
+
+    /// Two duplicates that are siblings are put in order without refusing when the readings
+    /// disagree (see `compare_by`). That is only sound if the order they get cannot change what
+    /// the nodes placed against them find, unless a pair compared there is refused. Every pair of
+    /// equally large groups of up to three duplicates in one sphere is compared in the literal
+    /// reading and in the sphere reading, and the two readings give one answer wherever no pair
+    /// compared in the literal reading is refused.
+    #[test]
+    fn two_readings_of_rule_1b_agree_on_every_pair_of_sibling_groups_that_no_pair_refuses() {
+        let literal = |a: &Distances, b: &Distances| b.atom.cmp(&a.atom);
+        let sphere = |a: &Distances, b: &Distances| b.sphere.cmp(&a.sphere);
+        let mut agreed = 0;
+        let mut refused_groups = 0;
+        for depth in 4..=7 {
+            let kinds = duplicates_in(depth);
+            let mut groups: Vec<Vec<View>> = Vec::new();
+            for first in 0..kinds.len() {
+                groups.push(vec![kinds[first]]);
+                for second in first..kinds.len() {
+                    groups.push(vec![kinds[first], kinds[second]]);
+                    for third in second..kinds.len() {
+                        groups.push(vec![kinds[first], kinds[second], kinds[third]]);
+                    }
+                }
+            }
+            for left in &groups {
+                for right in groups.iter().filter(|g| g.len() == left.len()) {
+                    let (by_atom, refused) = compare_groups(left, right, literal);
+                    let (by_sphere, _) = compare_groups(left, right, sphere);
+                    if refused {
+                        refused_groups += 1;
+                    } else {
+                        assert_eq!(by_atom, by_sphere, "depth {depth}");
+                        agreed += 1;
+                    }
+                }
+            }
+        }
+        assert!(agreed > 10_000 && refused_groups > 10_000);
     }
 
     #[test]

@@ -1630,6 +1630,17 @@
      "label": "unsupported:cip_rule_1b_duplicate_distance"
     }
    ]
+  },
+  {
+   "name": "two terminal allenyl ligands: sibling duplicates are put in order without a refusal",
+   "smiles": "F[C@H](C=C=C)C=C=C",
+   "source": "the two ligands tie under every rule implemented (the middle carbon of each allene has a duplicate of its far end and a duplicate of its parent, siblings that the two readings of Rule 1b order differently but that have no children), and RDKit 2022.03.2 finds no label; a refusal for the siblings would turn this into cip_rule_1b_duplicate_distance",
+   "expect": [
+    {
+     "atom": 1,
+     "label": "none"
+    }
+   ]
   }
  ]
 }

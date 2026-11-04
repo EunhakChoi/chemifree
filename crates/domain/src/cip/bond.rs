@@ -393,6 +393,28 @@ struct Memory {
     deepest: usize,
 }
 
+/// The descriptors one asker has asked for so far, across the calls that charge it. What it is
+/// charged is the cost of everything asked (see [`Oracle::closure`]), not the sum of what each
+/// call would cost alone, so a descriptor several requests need is counted once whatever
+/// order the requests are made in and however they are split into calls.
+#[derive(Default)]
+pub(super) struct Counted {
+    /// Bonds whose cost the caller counts itself.
+    left_out: BTreeSet<BondId>,
+    /// Everything asked for directly.
+    asked: BTreeSet<BondId>,
+}
+
+impl Counted {
+    /// A count that leaves out `bond`, the one being labeled, whose own cost the caller counts.
+    fn leaving_out(bond: BondId) -> Self {
+        Self {
+            left_out: BTreeSet::from([bond]),
+            asked: BTreeSet::new(),
+        }
+    }
+}
+
 /// The descriptors of double bonds, computed on demand, once per request.
 ///
 /// The descriptor of a bond is intrinsic: it is the ranking of the two substituents at each end
@@ -434,6 +456,10 @@ impl<'c, 'g> Oracle<'c, 'g> {
         let (hits, outer_cycle_at, outer_deepest, position) = {
             let mut memory = self.memory.borrow_mut();
             let position = memory.stack.len();
+            // A kept analysis that does not fit from here is computed again, and the computation
+            // meets the bound, so its result is not kept (nor is a refusal stored for the
+            // position): every asker past the bound pays for one computation, at most one per
+            // asker, bounded by the nesting and the cap.
             if let Some(found) = memory.memo.get(&bond).cloned()
                 && position + found.height <= MAX_RULE_3_NESTING
             {
@@ -452,6 +478,10 @@ impl<'c, 'g> Oracle<'c, 'g> {
             if let Some((found, cycle_at)) = memory.provisional.get(&key).cloned() {
                 memory.cycle_at = memory.cycle_at.min(cycle_at);
                 memory.deepest = memory.deepest.max(position + found.height);
+                // The key holds the whole stack, so the entry was computed from this very
+                // position, and a computation that met a nesting refusal is not kept: its
+                // height fits as it did then, with no check here.
+                debug_assert!(position + found.height <= MAX_RULE_3_NESTING);
                 return Ok(found);
             }
             memory.stack.push(bond);
@@ -508,22 +538,23 @@ impl<'c, 'g> Oracle<'c, 'g> {
         }
     }
 
-    /// Adds the cost of `requested` and of the descriptors they need, each at most once per
-    /// `visited`, and returns it. The requests are made from stack position `depth`, and the
-    /// descriptors they need one position further down, level by level, so that a descriptor is
-    /// met at the shallowest position any asker reaches it from. `missing` is what a bond with
-    /// no analysis kept, or whose kept analysis needed more levels than the bound allows from
-    /// where it is met, counts: 0 while it may still be being computed, `cap + 1` for a final
-    /// charge. That is the cost a request from `depth` with nothing kept would have found, so it
-    /// does not depend on which bonds the request asked for before.
+    /// The cost of `requested` and of the descriptors they need, not counting `left_out`. The
+    /// requests are made from stack position `depth`, and the descriptors they need one position
+    /// further down, level by level, so that a descriptor is met at the shallowest position any
+    /// asker reaches it from. `missing` is what a bond with no analysis kept, or whose kept
+    /// analysis needed more levels than the bound allows from where it is met, counts: 0 while
+    /// it may still be being computed, `cap + 1` for a final charge. That is the cost a request
+    /// from `depth` with nothing kept would have found, so it does not depend on which bonds the
+    /// request asked for before.
     fn closure(
         &self,
         requested: &BTreeSet<BondId>,
         depth: usize,
-        visited: &mut BTreeSet<BondId>,
+        left_out: &BTreeSet<BondId>,
         missing: usize,
     ) -> usize {
         let memory = self.memory.borrow();
+        let mut visited = left_out.clone();
         let mut total = 0_usize;
         let mut level: BTreeSet<BondId> = requested.clone();
         let mut depth = depth;
@@ -557,11 +588,12 @@ impl<'c, 'g> Oracle<'c, 'g> {
         total
     }
 
-    /// The running cost of asking for `bond` from the computation now running, for one that
-    /// has not finished: what has not been charged to `visited` yet.
-    pub(super) fn charge(&self, bond: BondId, visited: &mut BTreeSet<BondId>) -> usize {
+    /// The cost of everything `counted` has asked for, with `bond` added, for a computation that
+    /// has not finished.
+    pub(super) fn charge(&self, bond: BondId, counted: &mut Counted) -> usize {
         let depth = self.memory.borrow().stack.len();
-        self.closure(&BTreeSet::from([bond]), depth, visited, 0)
+        counted.asked.insert(bond);
+        self.closure(&counted.asked, depth, &counted.left_out, 0)
     }
 
     /// The analysis of `bond` with the bond between `ends` left out of the digraphs, not kept.
@@ -669,30 +701,38 @@ impl<'c, 'g> Oracle<'c, 'g> {
     /// for directly. It is the same whichever asker ran first, because each descriptor's own
     /// cost, its direct needs and its height are fixed by the bond.
     pub(super) fn closure_cost(&self, requested: &BTreeSet<BondId>) -> usize {
-        self.closure_cost_into(&mut BTreeSet::new(), requested)
+        self.closure_cost_into(&mut Counted::default(), requested)
     }
 
-    /// The cost of `requested` and what they need, asked by the computation now running (or by
-    /// a center, when none is), not counting the bonds in `visited`, which gains them.
+    /// The cost of everything `counted` has asked for, with `requested` added, asked by the
+    /// computation now running (or by a center, when none is).
     pub(super) fn closure_cost_into(
         &self,
-        visited: &mut BTreeSet<BondId>,
+        counted: &mut Counted,
         requested: &BTreeSet<BondId>,
     ) -> usize {
         let depth = self.memory.borrow().stack.len();
-        self.closure(requested, depth, visited, self.cap.saturating_add(1))
+        counted.asked.extend(requested.iter().copied());
+        self.closure(
+            &counted.asked,
+            depth,
+            &counted.left_out,
+            self.cap.saturating_add(1),
+        )
     }
 
     /// [`Oracle::closure_cost_into`] for what the double bond being labeled asked for, whose
     /// own cost the caller counts: it is asked from the top, so what it asked for sits one
     /// level below it.
-    fn closure_cost_below(
-        &self,
-        visited: &mut BTreeSet<BondId>,
-        requested: &BTreeSet<BondId>,
-    ) -> usize {
+    fn closure_cost_below(&self, counted: &mut Counted, requested: &BTreeSet<BondId>) -> usize {
         let depth = self.memory.borrow().stack.len() + 1;
-        self.closure(requested, depth, visited, self.cap.saturating_add(1))
+        counted.asked.extend(requested.iter().copied());
+        self.closure(
+            &counted.asked,
+            depth,
+            &counted.left_out,
+            self.cap.saturating_add(1),
+        )
     }
 }
 
@@ -757,10 +797,11 @@ pub(super) fn double_bond(
     };
     report.stored = record;
     let analysis = oracle.analysis(id).map_err(Stop::Interrupted)?;
-    let mut visited = BTreeSet::from([id]);
+    let mut counted = Counted::leaving_out(id);
     let mut total = analysis
         .own
-        .saturating_add(oracle.closure_cost_below(&mut visited, &analysis.deps));
+        .saturating_add(oracle.closure_cost_below(&mut counted, &analysis.deps));
+    let unit_cost = analysis.own;
     let mut reads_own_atoms = false;
     if total <= item_cap
         && !analysis.read.is_empty()
@@ -777,9 +818,11 @@ pub(super) fn double_bond(
         total = if seen.over {
             item_cap.saturating_add(1)
         } else {
-            total
+            // What the descriptors cost is that of everything asked for, the unit's and the
+            // rankings redone.
+            unit_cost
                 .saturating_add(seen.nodes)
-                .saturating_add(oracle.closure_cost_below(&mut visited, &seen.deps))
+                .saturating_add(oracle.closure_cost_below(&mut counted, &seen.deps))
         };
     }
     report.nodes = total;
@@ -828,6 +871,10 @@ pub(super) fn double_bond(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::budget::NEVER;
+    use crate::document::{Atom, AtomRef, Command, Document, DocumentId, NewAtomPositions, Point};
+    use crate::element::Element;
+    use crate::graph::MoleculeGraph;
 
     const POSITIONS: [[Slot; 2]; 2] = [[Slot::ImplicitHydrogen, Slot::LonePair]; 2];
     const FIRST: Slot = Slot::ImplicitHydrogen;
@@ -882,5 +929,97 @@ mod tests {
                 Err(Reason::DoubleBondStructure)
             );
         }
+    }
+
+    /// A chain of single bonds, as a document graph, and the identifiers of its bonds.
+    fn chain(bonds: usize) -> (MoleculeGraph, Vec<BondId>) {
+        let mut document = Document::new(DocumentId::parse("bond-test").unwrap(), "t").unwrap();
+        let adds: Vec<Command> = (0..=bonds)
+            .map(|i| Command::AddAtom {
+                atom: Atom::from(Element::from_symbol("C").unwrap()),
+                positions: NewAtomPositions::Single(Point::new(i as f64, 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        document.apply(&adds).unwrap();
+        let ids: Vec<AtomId> = document.atoms().map(|(id, _)| id).collect();
+        let joins: Vec<Command> = ids
+            .windows(2)
+            .map(|pair| Command::AddBond {
+                begin: AtomRef::Id(pair[0]),
+                end: AtomRef::Id(pair[1]),
+                order: BondOrder::Single,
+            })
+            .collect();
+        document.apply(&joins).unwrap();
+        let bond_ids = document.bonds().map(|(id, _)| id).collect();
+        (MoleculeGraph::from_document(&document), bond_ids)
+    }
+
+    /// An analysis as the oracle keeps it, for a descriptor of the given cost, direct needs
+    /// and height.
+    fn analysis_of(own: usize, deps: &[BondId], height: usize) -> Rc<Analysis> {
+        Rc::new(Analysis {
+            outcome: Outcome::Tie,
+            own,
+            deps: deps.iter().copied().collect(),
+            read: BTreeSet::new(),
+            regions: Vec::new(),
+            height,
+        })
+    }
+
+    /// What a request is charged for the descriptors it asked for must not depend on whether the
+    /// asking was split into calls or in what order they were made. `reaches` (not kept, because
+    /// it met a cycle) needs `deep`, a kept descriptor four positions deep that does not fit one
+    /// position down, and `deep` is also asked for directly, where it fits.
+    #[test]
+    fn what_is_charged_for_descriptors_does_not_depend_on_how_the_asking_is_split() {
+        const CAP: usize = 100;
+        let (graph, bonds) = chain(2);
+        let context = Context::new(&graph);
+        let (reaches, deep) = (bonds[0], bonds[1]);
+        let counts = |calls: &[&[BondId]]| {
+            let oracle = Oracle::new(&context, CAP, &NEVER);
+            {
+                let mut memory = oracle.memory.borrow_mut();
+                memory.latest.insert(reaches, analysis_of(3, &[deep], 0));
+                memory
+                    .memo
+                    .insert(deep, analysis_of(10, &[], MAX_RULE_3_NESTING));
+            }
+            let mut counted = Counted::default();
+            let mut charged = 0;
+            for requested in calls {
+                let requested: BTreeSet<BondId> = requested.iter().copied().collect();
+                charged = oracle.closure_cost_into(&mut counted, &requested);
+            }
+            charged
+        };
+        let together = counts(&[&[reaches, deep]]);
+        // `deep` fits from the item, so it is counted for what it costs, and `reaches` too.
+        assert_eq!(together, 3 + 10);
+        assert_eq!(counts(&[&[reaches], &[deep]]), together);
+        assert_eq!(counts(&[&[deep], &[reaches]]), together);
+    }
+
+    /// The bond being labeled is counted by the caller, even when a descriptor it needs needs it
+    /// in turn (a cycle): it is not counted again by what it asked for.
+    #[test]
+    fn the_bond_being_labeled_is_not_counted_again_by_a_descriptor_that_needs_it() {
+        let (graph, bonds) = chain(2);
+        let context = Context::new(&graph);
+        let (unit, needed) = (bonds[0], bonds[1]);
+        let oracle = Oracle::new(&context, 100, &NEVER);
+        {
+            let mut memory = oracle.memory.borrow_mut();
+            memory.latest.insert(unit, analysis_of(7, &[needed], 0));
+            memory.latest.insert(needed, analysis_of(5, &[unit], 0));
+        }
+        let mut counted = Counted::leaving_out(unit);
+        assert_eq!(
+            oracle.closure_cost_below(&mut counted, &BTreeSet::from([needed])),
+            5
+        );
     }
 }

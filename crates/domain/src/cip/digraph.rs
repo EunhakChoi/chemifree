@@ -30,7 +30,7 @@ pub(super) enum Kind {
 /// Why a duplicate atom is in the digraph. Rule 1b reads the distance of the atom it stands
 /// for from the root, and the literal reading (`of_depth`) and the one that treats the
 /// duplicates of multiple bonds as lying in their own sphere differ for some of them: see
-/// [`Origin::sphere_distance`].
+/// [`Origin::distance`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Origin {
     /// The neighbor is on the path from the root: a ring closes.
@@ -42,16 +42,26 @@ pub(super) enum Origin {
     ClosingMultipleBond,
 }
 
+/// How far from the root Rule 1b measures a duplicate, in the reading of [`Origin::distance`].
+/// A nearer duplicate ranks higher, so the order is that of the distance: `Unmeasured` is above
+/// every sphere, hence ranks below every duplicate that has one. The type has no arithmetic.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum Distance {
+    Sphere(u16),
+    /// The second and later duplicates of a multiple bond that also closes a ring.
+    Unmeasured,
+}
+
 impl Origin {
     /// The distance Rule 1b reads for a duplicate in sphere `depth` that stands for an atom in
     /// sphere `of_depth`, in the reading where only a ring closure is measured to the atom it
     /// stands for, a multiple-bond duplicate lies in its own sphere, and the second duplicate
     /// of a ring-closing multiple bond has no distance (it ranks below the other kinds).
-    pub(super) const fn sphere_distance(self, depth: u16, of_depth: u16) -> u16 {
+    pub(super) const fn distance(self, depth: u16, of_depth: u16) -> Distance {
         match self {
-            Self::RingClosure => of_depth,
-            Self::MultipleBond => depth,
-            Self::ClosingMultipleBond => u16::MAX,
+            Self::RingClosure => Distance::Sphere(of_depth),
+            Self::MultipleBond => Distance::Sphere(depth),
+            Self::ClosingMultipleBond => Distance::Unmeasured,
         }
     }
 }
@@ -410,9 +420,12 @@ mod tests {
     #[test]
     fn the_sphere_reading_measures_only_a_ring_closure_to_the_atom_it_stands_for() {
         // A duplicate in sphere 5 that stands for an atom in sphere 2.
-        assert_eq!(Origin::RingClosure.sphere_distance(5, 2), 2);
-        assert_eq!(Origin::MultipleBond.sphere_distance(5, 4), 5);
-        assert_eq!(Origin::ClosingMultipleBond.sphere_distance(5, 2), u16::MAX);
+        assert_eq!(Origin::RingClosure.distance(5, 2), Distance::Sphere(2));
+        assert_eq!(Origin::MultipleBond.distance(5, 4), Distance::Sphere(5));
+        assert_eq!(
+            Origin::ClosingMultipleBond.distance(5, 2),
+            Distance::Unmeasured
+        );
     }
 
     /// The ring closure of cyclobutene `Y=X, Y-A, A-B, B-X` entered from a center `K` at `Y`
@@ -483,6 +496,73 @@ mod tests {
             ]
         );
         assert!(arena.closes_ring());
+    }
+
+    /// The duplicates in the children of the last atom of a ring closed by the multiple bond
+    /// from it to the center, as (atom they stand for, origin), whatever order the atoms were
+    /// created in: a ring closure and, for each bond beyond the first, a closing duplicate. The
+    /// ring is the center `0`, `1`, `2`, `3` and the multiple bond `3 - 0`; `order` is the
+    /// indices the four atoms are created as.
+    fn closing_duplicates(order: [usize; 4], bond: BondOrder) -> Vec<(usize, Origin)> {
+        let at = |atom: usize| order.iter().position(|&placed| placed == atom).unwrap();
+        let joints = [
+            (at(0), at(1), BondOrder::Single),
+            (at(1), at(2), BondOrder::Single),
+            (at(2), at(3), BondOrder::Single),
+            (at(3), at(0), bond),
+        ];
+        let (graph, ids) = graph_of(4, &joints);
+        let context = Context::new(&graph);
+        let mut arena = Arena::new(&context, ids[at(0)], crate::cip::MAX_SPHERES);
+        let (mut node, _) = arena
+            .roots(Slot::Atom(ids[at(1)]), Slot::ImplicitHydrogen)
+            .unwrap();
+        for next in [2, 3] {
+            node = arena
+                .children(node)
+                .unwrap()
+                .into_iter()
+                .find(|&child| arena.node(child).kind == Kind::Real(ids[at(next)]))
+                .expect("the ring is walked in order");
+        }
+        let mut found: Vec<(usize, Origin)> = arena
+            .children(node)
+            .unwrap()
+            .into_iter()
+            .filter_map(|child| match arena.node(child).kind {
+                Kind::Duplicate { of, origin, .. } => {
+                    Some((ids.iter().position(|&id| id == of).unwrap(), origin))
+                }
+                _ => None,
+            })
+            .collect();
+        // Where each atom was created is not part of the answer: report the atom by its place in
+        // the ring.
+        for entry in &mut found {
+            entry.0 = order[entry.0];
+        }
+        found
+    }
+
+    /// A multiple bond that closes a ring gives its far atom one ring closure and one closing
+    /// duplicate for each bond beyond the first, so a triple bond gives two, whatever order
+    /// the atoms of the ring were created in (which is the order their neighbors are listed in).
+    #[test]
+    fn a_ring_closing_multiple_bond_gives_one_ring_closure_and_the_rest_closing_duplicates() {
+        use Origin::{ClosingMultipleBond as Closing, RingClosure};
+        let orders = [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1], [1, 3, 0, 2]];
+        for order in orders {
+            assert_eq!(
+                closing_duplicates(order, BondOrder::Double),
+                vec![(0, RingClosure), (0, Closing)],
+                "double {order:?}"
+            );
+            assert_eq!(
+                closing_duplicates(order, BondOrder::Triple),
+                vec![(0, RingClosure), (0, Closing), (0, Closing)],
+                "triple {order:?}"
+            );
+        }
     }
 
     /// A bond given by the indices of its atoms and its order.
