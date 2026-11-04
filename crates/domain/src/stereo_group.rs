@@ -251,12 +251,15 @@ pub enum GroupNote {
     },
     /// Members of two or more groups of one kind that existed before are now in `group`, so
     /// the members of different groups, which were independent, now belong together.
-    /// `sources` holds each former group and its interpreted number; `intact`: every former
+    /// `kind` is the kind of `group` now; `sources` holds each former group with the kind and
+    /// interpreted number it had, which may differ from the new ones (then this note is also the
+    /// report of that change, and no separate [`GroupNote::KindChanged`] is made for them); `intact`: every former
     /// group's surviving members are all in `group`.
     Merged {
         group: GroupId,
         number: Option<i32>,
-        sources: Vec<(GroupId, Option<i32>)>,
+        kind: GroupKind,
+        sources: Vec<(GroupId, GroupKind, Option<i32>)>,
         intact: bool,
     },
 }
@@ -575,9 +578,13 @@ fn require_center(stereo: &StereoTable, atom: AtomId) -> Result<(), StereoGroupE
 /// [`GroupNote::GroupRemoved`]. Of the members that survive as centers, those of an `and` or
 /// `or` group that are no longer all in one group are a [`GroupNote::RelationLost`]; those
 /// together in a group of another kind, a [`GroupNote::KindChanged`] (except that an `absolute`
-/// group stated no relation to lose or change); and members of two groups of one kind now in
-/// one group, a [`GroupNote::Merged`]. Adding members, renumbering, and a group made and
-/// changed within the transaction are not reported.
+/// group stated no relation to lose or change); and members of two or more groups of `before`,
+/// of whatever kinds they had, now in one `and` or `or` group, a [`GroupNote::Merged`], which
+/// also states the kind change when the kinds differ and then replaces their `KindChanged`
+/// notes. A group of `absolute` kind states no relation, so members that end up in it are
+/// never a merge (the kind change of the groups that had a relation is still reported).
+/// Adding members, renumbering, and a group made and changed within the transaction are not
+/// reported.
 pub(crate) fn meaning_changes(
     before: &StereoGroupTable,
     after: &StereoGroupTable,
@@ -591,6 +598,7 @@ pub(crate) fn meaning_changes(
     let mut notes = Vec::new();
     // Former groups by the group their surviving members are in now.
     let mut merged: BTreeMap<GroupId, Vec<(GroupId, bool)>> = BTreeMap::new();
+    let mut kind_changes = Vec::new();
     let mut relations = Vec::new();
     for (id, group) in &before.groups {
         let relational = group.kind != GroupKind::Absolute && group.members.len() >= 2;
@@ -635,12 +643,7 @@ pub(crate) fn meaning_changes(
                 let (home, atoms) = together.into_iter().next().expect("one group");
                 let to = after.groups[&home].kind;
                 if to != group.kind {
-                    relations.push(GroupNote::KindChanged {
-                        group: *id,
-                        atoms,
-                        from: group.kind,
-                        to,
-                    });
+                    kind_changes.push((home, id, atoms, group.kind, to));
                 }
             }
             _ => relations.push(GroupNote::RelationLost {
@@ -650,24 +653,38 @@ pub(crate) fn meaning_changes(
             }),
         }
     }
-    notes.extend(relations);
+    let mut merges = Vec::new();
+    let mut merged_homes = BTreeSet::new();
     for (home, formers) in merged {
-        let kind = after.groups[&home].kind;
-        let sources: Vec<(GroupId, bool)> = formers
-            .into_iter()
-            .filter(|(id, _)| before.groups[id].kind == kind)
-            .collect();
-        if sources.len() >= 2 {
-            notes.push(GroupNote::Merged {
+        let target = &after.groups[&home];
+        if formers.len() >= 2 && target.kind != GroupKind::Absolute {
+            merged_homes.insert(home);
+            merges.push(GroupNote::Merged {
                 group: home,
-                number: after.groups[&home].interpreted_number(),
-                intact: sources.iter().all(|(_, intact)| *intact),
-                sources: sources
+                number: target.interpreted_number(),
+                kind: target.kind,
+                intact: formers.iter().all(|(_, intact)| *intact),
+                sources: formers
                     .into_iter()
-                    .map(|(id, _)| (id, before.groups[&id].interpreted_number()))
+                    .map(|(id, _)| {
+                        let former = &before.groups[&id];
+                        (id, former.kind, former.interpreted_number())
+                    })
                     .collect(),
             });
         }
     }
+    for (home, id, atoms, from, to) in kind_changes {
+        if !merged_homes.contains(&home) {
+            relations.push(GroupNote::KindChanged {
+                group: *id,
+                atoms,
+                from,
+                to,
+            });
+        }
+    }
+    notes.extend(relations);
+    notes.extend(merges);
     notes
 }

@@ -2636,19 +2636,33 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
             GroupNote::Merged {
                 group,
                 number,
+                kind,
                 sources,
                 intact,
             } => {
                 let former = sources
                     .iter()
-                    .map(|(id, _)| id.to_string())
+                    .map(|(id, _, _)| id.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 let dropped: String = sources
                     .iter()
-                    .filter(|(_, former_number)| former_number != number)
-                    .filter_map(|(id, former_number)| {
+                    .filter(|(_, former_kind, former_number)| {
+                        former_number != number || former_kind != kind
+                    })
+                    .filter_map(|(id, _, former_number)| {
                         former_number.map(|n| format!(" The number {n} of group {id} is not kept."))
+                    })
+                    .collect();
+                let changed: String = sources
+                    .iter()
+                    .filter(|(_, former_kind, _)| former_kind != kind)
+                    .map(|(id, former_kind, _)| {
+                        format!(
+                            " Group {id} was of kind {} and is now of kind {}.",
+                            former_kind.as_str(),
+                            kind.as_str()
+                        )
                     })
                     .collect();
                 let (disposition, together) = if *intact {
@@ -2669,7 +2683,9 @@ fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
                     "stereo_group_relation",
                     format!("groups[{group}]"),
                     disposition,
-                    format!("Stereo groups {former} are now in group {group}: {together}{dropped}"),
+                    format!(
+                        "Stereo groups {former} are now in group {group}: {together}{changed}{dropped}"
+                    ),
                 )
             }
         })
@@ -2962,10 +2978,11 @@ mod tests {
                 GroupNote::Merged {
                     group: e1,
                     number: Some(0),
+                    kind: GroupKind::Or,
                     sources: vec![
-                        (e1, Some(0)),
-                        (e2, Some(0)),
-                        (GroupId::from_serial(3).unwrap(), Some(2)),
+                        (e1, GroupKind::Or, Some(0)),
+                        (e2, GroupKind::Or, Some(0)),
+                        (GroupId::from_serial(3).unwrap(), GroupKind::Or, Some(2)),
                     ],
                     intact: true,
                 },
@@ -3034,6 +3051,35 @@ mod tests {
     }
 
     #[test]
+    fn a_merge_that_also_changes_the_kind_says_so_in_the_same_note() {
+        let document = drawing();
+        let (e1, e2) = (
+            GroupId::from_serial(1).unwrap(),
+            GroupId::from_serial(2).unwrap(),
+        );
+        let merged = GroupNote::Merged {
+            group: e1,
+            number: Some(1),
+            kind: GroupKind::And,
+            sources: vec![(e1, GroupKind::Or, Some(1)), (e2, GroupKind::And, Some(1))],
+            intact: true,
+        };
+        let notes = group_notes(&document, &[merged]);
+        assert_eq!(notes.len(), 1);
+        let reason = &notes[0].reason;
+        assert!(
+            reason.contains("Group e1 was of kind or and is now of kind and"),
+            "{reason}"
+        );
+        assert!(!reason.contains("Group e2 was of kind"), "{reason}");
+        assert!(
+            reason.contains("number 1 of group e1 is not kept"),
+            "{reason}"
+        );
+        assert!(!reason.contains("of group e2"), "{reason}");
+    }
+
+    #[test]
     fn a_merge_names_a_dropped_number_only_when_the_interpreted_number_differs() {
         let document = drawing();
         let (e1, e2) = (
@@ -3044,7 +3090,8 @@ mod tests {
             let merged = GroupNote::Merged {
                 group: e1,
                 number,
-                sources: vec![(e1, number), (e2, former)],
+                kind: GroupKind::Or,
+                sources: vec![(e1, GroupKind::Or, number), (e2, GroupKind::Or, former)],
                 intact,
             };
             let notes = group_notes(&document, &[merged]);

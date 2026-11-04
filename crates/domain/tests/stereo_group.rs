@@ -688,7 +688,11 @@ fn merging_reports_the_new_relation_and_keeps_the_target_kind_and_number() {
         vec![GroupNote::Merged {
             group: group(1),
             number: Some(1),
-            sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+            kind: GroupKind::Or,
+            sources: vec![
+                (group(1), GroupKind::Or, Some(1)),
+                (group(2), GroupKind::Or, Some(2)),
+            ],
             intact: true,
         }]
     );
@@ -1266,7 +1270,11 @@ fn z2_a_member_that_left_after_a_split_or_a_merge_is_still_reported_for_its_orig
             GroupNote::Merged {
                 group: group(2),
                 number: Some(2),
-                sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+                kind: GroupKind::Or,
+                sources: vec![
+                    (group(1), GroupKind::Or, Some(1)),
+                    (group(2), GroupKind::Or, Some(2)),
+                ],
                 intact: true,
             },
         ],
@@ -1300,7 +1308,11 @@ fn a_merge_that_does_not_keep_every_member_together_says_so() {
     assert!(applied.group_notes.contains(&GroupNote::Merged {
         group: group(1),
         number: Some(1),
-        sources: vec![(group(1), Some(1)), (group(2), Some(2))],
+        kind: GroupKind::Or,
+        sources: vec![
+            (group(1), GroupKind::Or, Some(1)),
+            (group(2), GroupKind::Or, Some(2)),
+        ],
         intact: false,
     }));
     assert!(applied.group_notes.contains(&GroupNote::RelationLost {
@@ -1310,8 +1322,65 @@ fn a_merge_that_does_not_keep_every_member_together_says_so() {
     }));
 }
 
+fn merge(into: u32, from: u32) -> Command {
+    Command::MergeStereoGroups {
+        into: gref(into),
+        from: gref(from),
+    }
+}
+
+fn set_kind(g: u32, kind: GroupKind) -> Command {
+    Command::SetStereoGroupKind {
+        group: gref(g),
+        kind,
+    }
+}
+
+fn merged(
+    group_serial: u32,
+    kind: GroupKind,
+    sources: &[(u32, GroupKind, i32)],
+    intact: bool,
+) -> GroupNote {
+    GroupNote::Merged {
+        group: group(group_serial),
+        number: (kind != GroupKind::Absolute).then_some(1),
+        kind,
+        sources: sources
+            .iter()
+            .map(|(id, kind, number)| (group(*id), *kind, Some(*number)))
+            .collect(),
+        intact,
+    }
+}
+
 #[test]
-fn members_moved_into_a_group_of_another_kind_are_a_kind_change_not_a_merge() {
+fn two_single_groups_merged_and_made_another_kind_in_one_transaction_are_one_merge_note() {
+    // The sources are found by the groups the atoms were in before the transaction, whatever
+    // kind the result has, and the kind change is part of that note.
+    let mut document = fixture(2);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::Or, Some(1), &[1]),
+            create(GroupKind::Or, Some(2), &[2]),
+        ],
+    );
+    let applied = run(&mut document, &[merge(1, 2), set_kind(1, GroupKind::And)]);
+    assert_group(&document, 1, GroupKind::And, Some(1), &[1, 2]);
+    assert_eq!(
+        applied.group_notes,
+        vec![merged(
+            1,
+            GroupKind::And,
+            &[(1, GroupKind::Or, 1), (2, GroupKind::Or, 2)],
+            true
+        )]
+    );
+}
+
+#[test]
+fn an_or_group_and_an_and_group_made_one_or_group_are_a_merge_not_a_separate_kind_change() {
     let mut document = fixture(4);
     run(
         &mut document,
@@ -1329,13 +1398,136 @@ fn members_moved_into_a_group_of_another_kind_are_a_kind_change_not_a_merge() {
     );
     assert_eq!(
         applied.group_notes,
-        vec![GroupNote::KindChanged {
-            group: group(2),
-            atoms: vec![atom(3), atom(4)],
-            from: GroupKind::And,
-            to: GroupKind::Or,
-        }],
-        "only the former `and` group's relation changed meaning; no merge of unlike kinds"
+        vec![merged(
+            1,
+            GroupKind::Or,
+            &[(1, GroupKind::Or, 1), (2, GroupKind::And, 1)],
+            true
+        )]
+    );
+}
+
+#[test]
+fn and_groups_merged_into_an_absolute_group_state_no_new_relation_and_lose_the_old_ones() {
+    let mut document = fixture(4);
+    run(
+        &mut document,
+        &[
+            create(GroupKind::And, None, &[1, 2]),
+            create(GroupKind::And, Some(1), &[3, 4]),
+        ],
+    );
+    let applied = run(
+        &mut document,
+        &[merge(1, 2), set_kind(1, GroupKind::Absolute)],
+    );
+    let kind_change = |g, atoms: &[u32]| GroupNote::KindChanged {
+        group: group(g),
+        atoms: members(atoms).into_iter().collect(),
+        from: GroupKind::And,
+        to: GroupKind::Absolute,
+    };
+    assert_eq!(
+        applied.group_notes,
+        vec![kind_change(1, &[1, 2]), kind_change(2, &[3, 4])]
+    );
+}
+
+#[test]
+fn a_merge_followed_by_a_split_reports_what_the_final_grouping_says() {
+    let base = || {
+        let mut document = fixture(4);
+        run(
+            &mut document,
+            &[
+                create(GroupKind::Or, Some(1), &[1, 2]),
+                create(GroupKind::Or, Some(2), &[3, 4]),
+            ],
+        );
+        document
+    };
+    // Split along the old lines: nothing was related that was not before.
+    let applied = run(&mut base(), &[merge(1, 2), split_off(1, &[3, 4], Some(2))]);
+    assert_eq!(applied.group_notes, vec![]);
+    // Split across them: the final groups mix the old ones, and the old relations are gone.
+    let applied = run(&mut base(), &[merge(1, 2), split_off(1, &[2, 3], Some(2))]);
+    let homes: Vec<_> = applied
+        .group_notes
+        .iter()
+        .filter_map(|note| match note {
+            GroupNote::Merged { group, intact, .. } => Some((*group, *intact)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(homes, vec![(group(1), false), (group(3), false)]);
+    assert_eq!(
+        applied
+            .group_notes
+            .iter()
+            .filter(|note| matches!(note, GroupNote::RelationLost { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_merge_then_a_kind_change_then_a_cleared_member_keeps_one_note_for_what_remains() {
+    let base = |second: &[u32]| {
+        let mut document = fixture(4);
+        run(
+            &mut document,
+            &[
+                create(GroupKind::Or, Some(1), &[1, 2]),
+                create(GroupKind::Or, Some(2), second),
+            ],
+        );
+        document
+    };
+    let steps = |clear: u32| {
+        [
+            merge(1, 2),
+            set_kind(1, GroupKind::And),
+            clear_configuration(clear),
+        ]
+    };
+    let applied = run(&mut base(&[3, 4]), &steps(4));
+    assert_eq!(
+        applied.group_notes,
+        vec![
+            GroupNote::MemberLeft {
+                group: group(2),
+                atom: atom(4),
+                cause: LeaveCause::ConfigurationCleared,
+                relation_lost: true,
+            },
+            merged(
+                1,
+                GroupKind::And,
+                &[(1, GroupKind::Or, 1), (2, GroupKind::Or, 2)],
+                true
+            ),
+        ]
+    );
+    // When the second group's only member is the one cleared, no merge is left to report: the
+    // first group simply changed kind.
+    let applied = run(&mut base(&[3]), &steps(3));
+    assert_eq!(
+        applied.group_notes,
+        vec![
+            GroupNote::MemberLeft {
+                group: group(2),
+                atom: atom(3),
+                cause: LeaveCause::ConfigurationCleared,
+                relation_lost: false,
+            },
+            GroupNote::GroupRemoved { group: group(2) },
+            GroupNote::KindChanged {
+                group: group(1),
+                atoms: vec![atom(1), atom(2)],
+                from: GroupKind::Or,
+                to: GroupKind::And,
+            },
+        ]
     );
 }
 
