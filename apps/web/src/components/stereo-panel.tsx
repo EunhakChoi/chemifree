@@ -5,6 +5,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { cipCell, CIP_OFF, unavailableSentence, type CipView } from '@/editor/cip-labels'
 import {
   ACTION_LABELS,
   AGREEMENT_LABELS,
@@ -29,6 +30,13 @@ interface StereoPanelProps {
   automatic: boolean
   onAutomaticChange: (automatic: boolean) => void
   onCheckNow: () => void
+  /** CIP labels of the stored configurations: what the service said, and the two switches that ask for and draw them. */
+  cip: CipView
+  atomLabels: boolean
+  bondLabels: boolean
+  onAtomLabelsChange: (on: boolean) => void
+  onBondLabelsChange: (on: boolean) => void
+  onCipCheckNow: () => void
   /** Sends the one-click edit for a row (or all the disagreements). */
   onResolve: (resolution: Resolution) => void
   busy: boolean
@@ -39,9 +47,13 @@ interface StereoPanelProps {
  * reports it for exactly the drawing on screen, and the one-click edits that resolve a row. It
  * never stores anything by itself, and it judges nothing stereogenic.
  */
-export function StereoPanel({ view, automatic, onAutomaticChange, onCheckNow, onResolve, busy }: StereoPanelProps) {
+export function StereoPanel({
+  view, automatic, onAutomaticChange, onCheckNow, cip, atomLabels, bondLabels, onAtomLabelsChange, onBondLabelsChange, onCipCheckNow, onResolve, busy,
+}: StereoPanelProps) {
   const heading = useRef<HTMLHeadingElement>(null)
   const switchId = useId()
+  const atomSwitchId = useId()
+  const bondSwitchId = useId()
   const inspection = view.kind === 'ready' ? view.inspection : null
   const rows = useMemo(() => (inspection ? agreementRows(inspection) : []), [inspection])
   const all = inspection ? updatableRows(inspection, rows) : []
@@ -74,6 +86,25 @@ export function StereoPanel({ view, automatic, onAutomaticChange, onCheckNow, on
           </div>
           <p className="text-xs" data-testid="stereo-panel-state">{viewSentence(view)}</p>
           {view.kind === 'failed' && <p role="alert" className="text-xs">{view.message}</p>}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2" role="group" aria-label="CIP labels">
+            <div className="flex items-center gap-2">
+              <Switch id={atomSwitchId} size="sm" checked={atomLabels} onCheckedChange={onAtomLabelsChange} />
+              <Label htmlFor={atomSwitchId} className="text-xs">Atom stereo labels</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch id={bondSwitchId} size="sm" checked={bondLabels} onCheckedChange={onBondLabelsChange} />
+              <Label htmlFor={bondSwitchId} className="text-xs">Bond stereo labels</Label>
+            </div>
+          </div>
+          {cip.kind === 'off' && <p className="text-xs text-muted-foreground" data-testid="cip-state">{CIP_OFF}</p>}
+          {cip.kind === 'nothing' && <p className="text-xs text-muted-foreground" data-testid="cip-state">{cip.message}</p>}
+          {cip.kind === 'checking' && <p className="text-xs" data-testid="cip-state" aria-busy="true">Computing CIP labels…</p>}
+          {cip.kind === 'failed' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p role="alert" className="text-xs" data-testid="cip-state">{unavailableSentence(cip.message)}</p>
+              <Button size="sm" variant="outline" onClick={onCipCheckNow}>Try CIP labels again</Button>
+            </div>
+          )}
         </>
       )}
       {inspection && (
@@ -110,6 +141,15 @@ export function StereoPanel({ view, automatic, onAutomaticChange, onCheckNow, on
                     </Badge>
                   </div>
                   <p>{rowSentence(row)}</p>
+                  {(() => {
+                    const cell = cipCell(row, cip, atomLabels, bondLabels)
+                    return cell && (
+                      <p data-testid="cip-cell">
+                        <span className="font-medium">{cell.text}</span>
+                        {cell.relation && <span className="text-muted-foreground"> ({cell.relation})</span>}
+                      </p>
+                    )
+                  })()}
                   {action && (
                     <Button
                       size="sm"

@@ -3483,7 +3483,8 @@ test('the advisory findings may carry codes the client does not know, but must b
     { code: 'drawing_disagrees', severity: 'warning', message: 'd' },
   ]
   assert.deepEqual(listedDiagnostics(found).map((f) => f.code), ['drawing_disagrees', 'drawing_weak_evidence', 'novel'], 'known first in the documented order, the fixed sentence left to the panel')
-  assert.match(NOT_JUDGED, /No CIP label is computed and no atom is judged stereogenic\.$/)
+  assert.equal(NOT_JUDGED, 'Only stored configurations are compared with the drawing. CIP labels describe the stored configuration, not the drawing.')
+  assert.doesNotMatch(NOT_JUDGED, /No CIP label is computed/)
 })
 
 test('inspectStereo asks for every placement of the drawing and refuses what is not the service reply for it', async () => {
@@ -3770,4 +3771,687 @@ test('a check that rejects anyway does not stop the scheduler or leave an unhand
   } finally {
     process.off('unhandledRejection', record)
   }
+})
+
+// ---------------------------------------------------------------------------------------------
+// CIP labels in the web editor: the `chem.cip` reply reader, when a reply may be shown, the
+// overlay text, the panel cell, and when the service is asked (never while both switches are off).
+// ---------------------------------------------------------------------------------------------
+const { readCipReply, readCipFailure, CIP_REASONS } = await import('../apps/web/src/lib/cip-contract.ts')
+const { cipCell, cipMarks, cipView, labelAt, unavailableSentence, wantsCip, CIP_OFF } = await import('../apps/web/src/editor/cip-labels.ts')
+const { askDecision, InspectionRunner } = await import('../apps/web/src/editor/scheduled-inspection.ts')
+
+const REASON_TEXT = {
+  cip_rule_4_or_5_needed: 'The ligands tie under the rules applied (see `rules`); Rules 4 and 5, not among them, might separate them.',
+  cip_ligand_stereo_unspecified: 'Rule 3 has to place a ligand double bond whose geometry the document does not state, so the answer depends on information it does not have.',
+  cip_not_a_candidate: 'The named atom is not a stereocenter candidate (it needs three or four bonded neighbors) or the named bond is not a double bond.',
+}
+const slot = (neighbor, rank) => ({ neighbor, rank })
+const PRIORITY_A2 = [slot('a3', 1), slot('a1', 2), slot('a4', 3), slot('implicit_hydrogen', 4)]
+const PRIORITY_A4 = [slot('a6', 1), slot('a5', 2), slot('a2', 3), slot('implicit_hydrogen', 4)]
+const cipAtom = (atom, state, extra = {}) => structuredClone({ atom, state, descriptor: null, reason: null, stored: null, priority: null, decided_by: null, ...extra })
+const cipBond = (bond, state, extra = {}) => structuredClone({ bond, state, descriptor: null, reason: null, stored: null, ends: null, ...extra })
+const assignedA2 = () => cipAtom('a2', 'assigned', { descriptor: 'S', stored: tetra(A2, 'clockwise'), priority: PRIORITY_A2, decided_by: '1a' })
+const assignedA4 = () => cipAtom('a4', 'assigned', { descriptor: 'R', stored: tetra(A4, 'anticlockwise'), priority: PRIORITY_A4, decided_by: '1a' })
+const cipDiagnostics = (scope = 'stored', warnings = []) => [
+  ...warnings,
+  { code: 'cip_scope', severity: 'info', message: 'Listed: every stored configuration.', path: null, details: { scope } },
+  { code: 'cip_not_checked', severity: 'info', message: 'Rules 1a, 1b, 2 and 3 only.', path: null, details: {} },
+]
+const lossOf = (source_path, code) => ({
+  feature: 'cip_descriptor', source_path, disposition: 'unknown', reason: `${code}: ${REASON_TEXT[code] ?? 'A sentence.'}`, semantic_impact: 'stereo',
+})
+const cipReplyOf = (value, atoms, bonds = [], { scope = 'stored', warnings = [], losses = [], diagnostics, outcome } = {}) => ({
+  envelope: 'operation_result', contract: 1, request_id: 'r', operation: 'chem.cip', profile: 'preserve-semantics',
+  outcome: outcome ?? (losses.length > 0 ? 'partial' : 'ok'), document_revision: value.revision, model_id: 'chemifree-cip-1',
+  diagnostics: diagnostics ?? cipDiagnostics(scope, warnings), loss_report: losses,
+  result: {
+    snapshot: { document: value, session: document('x').session, recovery: null, notes: [] },
+    model: 'chemifree-cip-1', rules: ['1a', '1b', '2', '3'], scope, atoms, bonds,
+  },
+})
+const cipGraphOf = (value) => ({ atoms: value.atoms, bonds: value.bonds, stereo: value.stereo })
+const readCip = (value, reply, scope = 'stored') => readCipReply(reply, cipGraphOf(value), scope)
+const cipInspected = async (value, reply, params = { scope: 'stored' }) => {
+  const scripted = service({ '/api/v1/operations': [() => json(200, reply)] })
+  const inspection = await new DocumentClient().inspectCip(value.id, params)
+  return { inspection, scripted }
+}
+
+/** F-C(a2)=C(a3)-Br with the Z configuration stored on the double bond b2. */
+function bondDocument(relation = 'same_side') {
+  const value = scened(document('doc-bond', 1).document, 's1')
+  value.atoms = [atomWith('a1', 'F', 0, 0), atomWith('a2', 'C', 20, 0), atomWith('a3', 'C', 40, 0), atomWith('a4', 'Br', 60, 0)]
+  value.bonds = [bondWith('b1', 'a1', 'a2'), bondWith('b2', 'a2', 'a3', 'double'), bondWith('b3', 'a3', 'a4')]
+  value.stereo = { atoms: [], bonds: [{ bond: 'b2', configuration: { kind: 'relative', begin_neighbor: 'a1', end_neighbor: 'a4', relation } }] }
+  value.scene.instances[0].positions = value.atoms.map((atom) => ({ atom: atom.id, x: atom.position.x, y: atom.position.y }))
+  return value
+}
+const assignedB2 = (descriptor = 'Z') => cipBond('b2', 'assigned', {
+  descriptor, stored: { kind: 'relative', begin_neighbor: 'a1', end_neighbor: 'a4', relation: 'same_side' },
+  ends: [{ atom: 'a2', higher: 'a1', decided_by: '1a' }, { atom: 'a3', higher: 'a4', decided_by: '1a' }],
+})
+
+test('chem.cip asks for the stored scope only and accepts the golden replies: an assigned center, an assigned bond', async () => {
+  const value = agreementDocument()
+  const { inspection, scripted } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [{ document_id: value.id, scope: 'stored' }])
+  assert.deepEqual(inspection.atoms.map((item) => [item.atom, item.state, item.descriptor]), [['a2', 'assigned', 'S'], ['a4', 'assigned', 'R']])
+  assert.equal(inspection.model, 'chemifree-cip-1')
+  assert.deepEqual(inspection.rules, ['1a', '1b', '2', '3'])
+  const bonded = bondDocument()
+  const z = await cipInspected(bonded, cipReplyOf(bonded, [], [assignedB2()]))
+  assert.deepEqual(z.inspection.bonds.map((item) => [item.bond, item.state, item.descriptor]), [['b2', 'assigned', 'Z']])
+  const e = bondDocument('opposite_sides')
+  const flipped = cipBond('b2', 'assigned', { ...assignedB2('E'), stored: e.stereo.bonds[0].configuration })
+  assert.equal((await cipInspected(e, cipReplyOf(e, [], [flipped]))).inspection.bonds[0].descriptor, 'E')
+})
+
+test('chem.cip golden replies: none with the stored-not-stereogenic warning, unknown, unspecified, ambiguous, unsupported, partial with loss entries', async () => {
+  const value = agreementDocument()
+  const none = cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') })
+  const warning = { code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'Atom a2: stored but not stereogenic.', path: null, details: { item: 'atom', id: 'a2' } }
+  const withWarning = readCip(value, cipReplyOf(value, [none, assignedA4()], [], { warnings: [warning] }))
+  assert.equal(withWarning.atoms[0].storedNotStereogenic, true)
+  assert.equal(withWarning.atoms[1].storedNotStereogenic, false)
+  assert.equal(withWarning.diagnostics.at(-1).code, 'cip_not_checked')
+
+  const unknownDoc = agreementDocument()
+  unknownDoc.stereo.atoms[0].configuration = { kind: 'unknown', neighbors: A2 }
+  const unknown = cipAtom('a2', 'unknown', { stored: { kind: 'unknown', neighbors: A2 }, priority: PRIORITY_A2, decided_by: '1a' })
+  assert.equal(readCip(unknownDoc, cipReplyOf(unknownDoc, [unknown, assignedA4()])).atoms[0].state, 'unknown')
+
+  // Named: a center with nothing stored is `unspecified`, and an atom that is no candidate is unsupported.
+  const open = agreementDocument()
+  open.stereo.atoms = [open.stereo.atoms[1]]
+  const unspecified = cipAtom('a2', 'unspecified', { priority: PRIORITY_A2, decided_by: '1a' })
+  const notCandidate = cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })
+  const named = readCipReply(cipReplyOf(open, [notCandidate, unspecified, assignedA4()], [], { scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate')] }), cipGraphOf(open), 'named', { atoms: ['a1', 'a2', 'a4'], bonds: [] })
+  assert.deepEqual(named.atoms.map((item) => item.state), ['unsupported', 'unspecified', 'assigned'])
+  assert.equal(named.atoms[0].reasonSentence, REASON_TEXT.cip_not_a_candidate)
+
+  const unsupported = cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') })
+  const ambiguous = cipAtom('a4', 'ambiguous', { reason: 'cip_ligand_stereo_unspecified', stored: tetra(A4, 'anticlockwise') })
+  const partial = readCip(value, cipReplyOf(value, [unsupported, ambiguous], [], { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed'), lossOf('atoms[a4]', 'cip_ligand_stereo_unspecified')] }))
+  assert.deepEqual(partial.atoms.map((item) => [item.state, item.reasonSentence]), [
+    ['unsupported', REASON_TEXT.cip_rule_4_or_5_needed], ['ambiguous', REASON_TEXT.cip_ligand_stereo_unspecified],
+  ])
+  // A named bond that is no double bond is listed unsupported, and bond losses follow atom losses.
+  const bonded = bondDocument()
+  const single = cipBond('b1', 'unsupported', { reason: 'cip_not_a_candidate' })
+  const mixed = readCipReply(cipReplyOf(bonded, [cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })], [single, assignedB2()], {
+    scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate'), lossOf('bonds[b1]', 'cip_not_a_candidate')],
+  }), cipGraphOf(bonded), 'named', { atoms: ['a1'], bonds: ['b1', 'b2'] })
+  assert.deepEqual(mixed.bonds.map((item) => item.state), ['unsupported', 'assigned'])
+})
+
+test('chem.cip reader refuses each way a reply can be made untrue, and no refusal shows a label', () => {
+  const value = agreementDocument()
+  const bonded = bondDocument()
+  const good = () => cipReplyOf(value, [assignedA2(), assignedA4()])
+  const goodBond = () => cipReplyOf(bonded, [], [assignedB2()])
+  assert.notEqual(readCip(value, good()), null)
+  assert.notEqual(readCip(bonded, goodBond()), null)
+  const tampers = {
+    'a missing field in an atom entry': (r) => { delete r.result.atoms[0].decided_by },
+    'a model that is not chemifree-cip-1': (r) => { r.result.model = 'chemifree-cip-2' },
+    'a model_id that is not chemifree-cip-1': (r) => { r.model_id = 'chemifree-cip-2' },
+    'other rules': (r) => { r.result.rules = ['1a', '1b', '2', '3', '4a'] },
+    'rules in another order': (r) => { r.result.rules = ['1b', '1a', '2', '3'] },
+    'a scope the reader does not know': (r) => { r.result.scope = 'everything' },
+    'a scope other than the one asked for': (r) => { r.result.scope = 'named'; r.diagnostics[0].details.scope = 'named' },
+    'an outcome other than ok or partial': (r) => { r.outcome = 'error' },
+    'an unknown state': (r) => { r.result.atoms[0].state = 'maybe' },
+    'an assigned center without a descriptor': (r) => { r.result.atoms[0].descriptor = null },
+    'a descriptor on a state that is not assigned': (r) => { r.result.atoms[0].state = 'unknown'; r.result.atoms[0].stored = { kind: 'unknown', neighbors: A2 } },
+    'an E or Z label on a center': (r) => { r.result.atoms[0].descriptor = 'E' },
+    'a lower-case descriptor': (r) => { r.result.atoms[0].descriptor = 's' },
+    'a reason on an assigned center': (r) => { r.result.atoms[0].reason = 'cip_rule_4_or_5_needed' },
+    'an unsupported center without a reason': (r) => { Object.assign(r.result.atoms[0], { state: 'unsupported', descriptor: null, priority: null, decided_by: null }) },
+    'a reason outside the closed list': (r) => { Object.assign(r.result.atoms[0], { state: 'unsupported', descriptor: null, priority: null, decided_by: null, reason: 'cip_made_up' }) },
+    'an ambiguous center with another reason': (r) => { Object.assign(r.result.atoms[0], { state: 'ambiguous', descriptor: null, priority: null, decided_by: null, reason: 'cip_rule_4_or_5_needed' }) },
+    'an unsupported center with the ambiguity reason': (r) => { Object.assign(r.result.atoms[0], { state: 'unsupported', descriptor: null, priority: null, decided_by: null, reason: 'cip_ligand_stereo_unspecified' }) },
+    'a ranking on an unsupported center': (r) => { Object.assign(r.result.atoms[0], { state: 'unsupported', descriptor: null, reason: 'cip_rule_4_or_5_needed' }) },
+    'a ranking of three positions': (r) => { r.result.atoms[0].priority.pop() },
+    'ranks that do not run 1 to 4': (r) => { r.result.atoms[0].priority[3].rank = 5 },
+    'ranks out of order': (r) => { r.result.atoms[0].priority.reverse() },
+    'a position repeated': (r) => { r.result.atoms[0].priority[1].neighbor = 'a3' },
+    'a ranked atom that is not bonded to the center': (r) => { r.result.atoms[0].priority[0].neighbor = 'a6' },
+    'a ranking that does not name the stored positions': (r) => { r.result.atoms[0].priority[3].neighbor = 'lone_pair' },
+    'a ranking without the rule that decided it': (r) => { r.result.atoms[0].decided_by = null },
+    'a deciding rule that is not one of the four': (r) => { r.result.atoms[0].decided_by = '4a' },
+    'a stored record the snapshot does not hold': (r) => { r.result.atoms[0].stored = tetra(A2, 'anticlockwise') },
+    'a stored record where the snapshot holds none': (r) => { r.result.atoms.unshift(cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate', stored: tetra(A2, 'clockwise') })); r.outcome = 'partial'; r.loss_report = [lossOf('atoms[a1]', 'cip_not_a_candidate')] },
+    'a null stored record where the snapshot holds one': (r) => { r.result.atoms[0].stored = null },
+    'an assigned center whose stored record is unknown': (r) => { r.result.snapshot.document = { ...value, stereo: { atoms: [{ atom: 'a2', configuration: { kind: 'unknown', neighbors: A2 } }, value.stereo.atoms[1]], bonds: [] } }; r.result.atoms[0].stored = { kind: 'unknown', neighbors: A2 } },
+    'an unspecified center that has a stored record': (r) => { Object.assign(r.result.atoms[0], { state: 'unspecified', descriptor: null }) },
+    'an unknown center whose record is tetrahedral': (r) => { Object.assign(r.result.atoms[0], { state: 'unknown', descriptor: null }) },
+    'a center that is not in the snapshot': (r) => { r.result.atoms[0].atom = 'a9' },
+    'centers that do not ascend': (r) => { r.result.atoms.reverse() },
+    'a center listed twice': (r) => { r.result.atoms[1] = structuredClone(r.result.atoms[0]) },
+    'a bond list that holds an atom': (r) => { r.result.bonds = [assignedA2()] },
+    'a descriptor that is not for this item': (r) => { r.result.atoms[1].descriptor = 'Z' },
+    'a warning that names an unlisted center': (r) => { r.diagnostics.unshift({ code: 'cip_slot_unusual', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a1' } }) },
+    'a stored-not-stereogenic warning on an assigned center': (r) => { r.diagnostics.unshift({ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }) },
+    'a malformed diagnostic of an unknown code': (r) => { r.diagnostics.unshift({ code: 'cip_whatever', severity: 'info', details: {} }) },
+    'a second scope diagnostic': (r) => { r.diagnostics.unshift(structuredClone(r.diagnostics[0])) },
+    'no not-checked diagnostic': (r) => { r.diagnostics.pop() },
+    'no scope diagnostic': (r) => { r.diagnostics.shift() },
+    'a scope diagnostic that disagrees with the result': (r) => { r.diagnostics[0].details.scope = 'named' },
+    'a loss entry on an ok reply': (r) => { r.loss_report = [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')] },
+    'a labeler-invalid diagnostic on a success': (r) => { r.diagnostics.unshift({ code: 'cip_labeler_invalid', severity: 'warning', message: 'm', path: null, details: { unit: 'a2', problem: 'nodes' } }) },
+    'a missing result': (r) => { r.result = null },
+  }
+  for (const [name, mutate] of Object.entries(tampers)) {
+    const reply = good()
+    mutate(reply)
+    assert.equal(readCip(value, reply), null, name)
+  }
+  const bondTampers = {
+    'a center label on a bond': (r) => { r.result.bonds[0].descriptor = 'R' },
+    'a bond that is not a bond of the snapshot': (r) => { r.result.bonds[0].bond = 'b9' },
+    'an assigned bond that is not a double bond': (r) => { r.result.bonds[0].bond = 'b1' },
+    'ends that name other atoms': (r) => { r.result.bonds[0].ends[0].atom = 'a1' },
+    'ends in the wrong order': (r) => { r.result.bonds[0].ends.reverse() },
+    'one end': (r) => { r.result.bonds[0].ends.pop() },
+    'a higher position that is not at the end': (r) => { r.result.bonds[0].ends[0].higher = 'a4' },
+    'a higher position that is the double bond partner': (r) => { r.result.bonds[0].ends[0].higher = 'a3' },
+    'no ends on an assigned bond': (r) => { r.result.bonds[0].ends = null },
+    'ends on a bond that is not ranked': (r) => { Object.assign(r.result.bonds[0], { state: 'none', descriptor: null }); r.diagnostics.unshift({ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'bond', id: 'b2' } }) },
+    'a stored record the snapshot does not hold': (r) => { r.result.bonds[0].stored = { kind: 'unknown' } },
+    'a bond with an unknown stored record labeled': (r) => { r.result.snapshot.document = { ...bonded, stereo: { atoms: [], bonds: [{ bond: 'b2', configuration: { kind: 'unknown' } }] } }; r.result.bonds[0].stored = { kind: 'unknown' } },
+  }
+  for (const [name, mutate] of Object.entries(bondTampers)) {
+    const reply = goodBond()
+    mutate(reply)
+    assert.equal(readCip(bonded, reply), null, name)
+  }
+  // Losses must be one per ambiguous or unsupported item, in order, with the code and a sentence.
+  const unsupported = () => cipReplyOf(value, [cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') }), assignedA4()], [], { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')] })
+  assert.notEqual(readCip(value, unsupported()), null)
+  const lossTampers = {
+    'a partial reply without its loss entry': (r) => { r.loss_report = [] },
+    'an ok outcome with an unsupported item': (r) => { r.outcome = 'ok' },
+    'a loss entry for another item': (r) => { r.loss_report[0].source_path = 'atoms[a4]' },
+    'a loss entry with another reason code': (r) => { r.loss_report[0].reason = r.loss_report[0].reason.replace('cip_rule_4_or_5_needed', 'cip_mass_number') },
+    'a loss entry without a sentence': (r) => { r.loss_report[0].reason = 'cip_rule_4_or_5_needed: ' },
+    'a loss entry that is a dropped feature': (r) => { r.loss_report[0].disposition = 'dropped' },
+    'a second loss entry': (r) => { r.loss_report.push(lossOf('atoms[a4]', 'cip_rule_4_or_5_needed')) },
+  }
+  for (const [name, mutate] of Object.entries(lossTampers)) {
+    const reply = unsupported()
+    mutate(reply)
+    assert.equal(readCip(value, reply), null, name)
+  }
+  // All seventeen reasons are the closed list.
+  assert.equal(CIP_REASONS.length, 17)
+})
+
+test('inspectCip refuses a reply for another snapshot or a reply that is not the service reply, and says what an error says', async () => {
+  const value = agreementDocument()
+  const good = cipReplyOf(value, [assignedA2(), assignedA4()])
+  const incompatible = async (reply) => {
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectCip(value.id, { scope: 'stored' }), { code: 'incompatible_response' })
+  }
+  await incompatible({ ...good, document_revision: value.revision + 1 })
+  await incompatible({ ...good, result: { ...good.result, snapshot: { ...good.result.snapshot, document: { ...value, id: 'other' } } } })
+  await incompatible({ ...good, result: { ...good.result, snapshot: null } })
+  await incompatible({ ...good, model_id: 'chemifree-cip-9' })
+  await incompatible(null)
+  // The scope asked for is the scope that must come back.
+  service({ '/api/v1/operations': [() => json(200, good)] })
+  await assert.rejects(new DocumentClient().inspectCip(value.id, { atoms: ['a2'] }), { code: 'incompatible_response' })
+  // A limit: the reader keeps its numbers, the client keeps the service's message.
+  const limit = {
+    envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-cip-1', document_revision: 1, loss_report: [], result: null,
+    diagnostics: [{ code: 'resource_limit', severity: 'error', message: '9 items need more than 1000 digraph nodes together for the centers.', path: 'parameters.atoms',
+      details: { limit: 1000, request_limit: 2000000, items: 9, item_limit: 20000, stage: 'centers', parameter: 'atoms' } }],
+  }
+  assert.deepEqual(readCipFailure(limit), { code: 'resource_limit', message: limit.diagnostics[0].message, limit: { stage: 'centers', parameter: 'atoms', limit: 1000, request_limit: 2000000, items: 9, item_limit: 20000 } })
+  service({ '/api/v1/operations': [() => json(200, limit)] })
+  await assert.rejects(new DocumentClient().inspectCip(value.id, { scope: 'stored' }), { code: 'cip_unavailable', message: limit.diagnostics[0].message })
+  const failures = {
+    'a model that is not the labeler': { ...limit, model_id: 'chemifree-cip-2' },
+    'a result on an error': { ...limit, result: {} },
+    'a stage that does not match its parameter': { ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { ...limit.diagnostics[0].details, stage: 'scan' } }] },
+    'a path that does not match its parameter': { ...limit, diagnostics: [{ ...limit.diagnostics[0], path: 'parameters.bonds' }] },
+    'a limit above the request budget': { ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { ...limit.diagnostics[0].details, limit: 2000001 } }] },
+    'a labeler-invalid reply without its unit': { ...limit, diagnostics: [{ code: 'cip_labeler_invalid', severity: 'error', message: 'refused', path: null, details: {} }] },
+    'no diagnostic': { ...limit, diagnostics: [] },
+  }
+  for (const [name, reply] of Object.entries(failures)) {
+    assert.equal(readCipFailure(reply), null, name)
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectCip(value.id, { scope: 'stored' }), { code: 'incompatible_response' }, name)
+  }
+  const invalid = { ...limit, diagnostics: [{ code: 'cip_labeler_invalid', severity: 'error', message: 'The CIP labeler\'s answer was refused.', path: null, details: { unit: 'a2', problem: 'nodes' } }] }
+  assert.equal(readCipFailure(invalid)?.code, 'cip_labeler_invalid')
+  const missing = { ...limit, document_revision: null, diagnostics: [{ code: 'document_not_found', severity: 'error', message: 'document nope does not exist', path: null, details: {} }] }
+  service({ '/api/v1/operations': [() => json(200, missing)] })
+  await assert.rejects(new DocumentClient().inspectCip('nope', { scope: 'stored' }), { code: 'cip_unavailable', message: 'document nope does not exist' })
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'unsupported', diagnostics: [{ code: 'unknown_operation', message: 'No operation chem.cip.' }] })] })
+  await assert.rejects(new DocumentClient().inspectCip(value.id, { scope: 'stored' }), { code: 'cip_unavailable', message: 'No operation chem.cip.' })
+})
+
+test('a CIP reply is shown only while labels are wanted, for the drawing on screen and the service process that answered', async () => {
+  const value = agreementDocument()
+  const { inspection } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
+  const ok = { kind: 'ok', generation: 0, inspection }
+  assert.equal(cipView(value, ok, 0, false, true, true).kind, 'ready')
+  assert.equal(cipView(structuredClone(value), ok, 0, false, true, true).kind, 'ready')
+  assert.deepEqual(cipView(value, ok, 0, false, false, false), { kind: 'off' }, 'switching the labels off removes them at once')
+  assert.deepEqual(cipView(value, null, 0, false, false, false), { kind: 'off' })
+  assert.equal(cipView(value, null, 0, false, true, true).kind, 'checking')
+  const moved = structuredClone(value)
+  moved.scene.instances[0].positions[0].x += 1
+  assert.equal(cipView(moved, ok, 0, false, true, true).kind, 'checking', 'a reply for another snapshot is dropped')
+  assert.equal(cipView({ ...value, revision: value.revision + 1 }, ok, 0, false, true, true).kind, 'checking')
+  const edited = structuredClone(value)
+  edited.stereo.atoms[0] = { atom: 'a2', configuration: tetra(A2, 'anticlockwise') }
+  assert.equal(cipView(edited, ok, 0, false, true, true).kind, 'checking', 'a stored configuration that changed makes the label stale')
+  assert.equal(cipView(value, ok, 1, false, true, true).kind, 'checking', 'another service process')
+  assert.equal(cipView(value, ok, 0, true, true, true).kind, 'ready', 'labels stay while the same drawing is asked about again')
+  const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'too big' }
+  assert.deepEqual(cipView(value, failed, 0, false, true, true), { kind: 'failed', message: 'too big' })
+  assert.equal(cipView(moved, failed, 0, false, true, true).kind, 'checking', 'a failure belongs to the drawing it was asked about')
+  assert.equal(cipView(value, failed, 0, true, true, true).kind, 'checking', 'a retry is running')
+  assert.equal(unavailableSentence('too big'), 'CIP labels unavailable: too big')
+  assert.deepEqual(cipMarks(cipView(value, failed, 0, false, true, true), true, true), [], 'no label after a failure')
+})
+
+test('only an assigned item gets overlay text, atoms for the atom switch and bonds for the bond switch', async () => {
+  const value = agreementDocument()
+  const { inspection } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
+  const ready = { kind: 'ready', inspection }
+  assert.deepEqual(cipMarks(ready, true, false).map((m) => [m.item.id, m.text]), [['a2', '(S)'], ['a4', '(R)']])
+  assert.equal(cipMarks(ready, true, false)[0].name, 'Center a2: CIP label S, of the stored configuration')
+  assert.deepEqual(cipMarks(ready, false, true), [], 'the bond switch draws no atom label')
+  assert.deepEqual(cipMarks(ready, false, false), [])
+  assert.deepEqual(cipMarks({ kind: 'checking' }, true, true), [])
+  assert.deepEqual(cipMarks({ kind: 'off' }, true, true), [])
+  const bonded = bondDocument()
+  const z = await cipInspected(bonded, cipReplyOf(bonded, [], [assignedB2()]))
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection: z.inspection }, false, true).map((m) => [m.item.kind, m.item.id, m.text]), [['bond', 'b2', '(Z)']])
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection: z.inspection }, true, false), [])
+  // Every other state draws nothing.
+  const open = agreementDocument()
+  open.stereo.atoms = [open.stereo.atoms[0]]
+  const others = {
+    none: [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), { warnings: [{ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }] }],
+    unsupported: [cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') }), { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')] }],
+    ambiguous: [cipAtom('a2', 'ambiguous', { reason: 'cip_ligand_stereo_unspecified', stored: tetra(A2, 'clockwise') }), { losses: [lossOf('atoms[a2]', 'cip_ligand_stereo_unspecified')] }],
+  }
+  for (const [state, [item, options]] of Object.entries(others)) {
+    const reply = await cipInspected(open, cipReplyOf(open, [item], [], options))
+    assert.deepEqual(cipMarks({ kind: 'ready', inspection: reply.inspection }, true, true), [], state)
+  }
+  const unknownDoc = agreementDocument()
+  unknownDoc.stereo.atoms = [{ atom: 'a2', configuration: { kind: 'unknown', neighbors: A2 } }]
+  const unknown = await cipInspected(unknownDoc, cipReplyOf(unknownDoc, [cipAtom('a2', 'unknown', { stored: { kind: 'unknown', neighbors: A2 }, priority: PRIORITY_A2, decided_by: '1a' })]))
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection: unknown.inspection }, true, true), [], 'unknown')
+  const named = agreementDocument()
+  named.stereo.atoms = []
+  const unspecified = await cipInspected(named, cipReplyOf(named, [cipAtom('a2', 'unspecified', { priority: PRIORITY_A2, decided_by: '1a' })], [], { scope: 'named' }), { atoms: ['a2'] })
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection: unspecified.inspection }, true, true), [], 'unspecified')
+})
+
+test('the panel cell says the label with the agreement next to it, why nothing is labeled, and what was not examined', async () => {
+  const value = agreementDocument()
+  const reading = await inspected(value, replyOf(value, resultOf(value, publicItems())))
+  const rows = agreementRows(reading)
+  const [a2, a4] = rows
+  const { inspection } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
+  const view = { kind: 'ready', inspection }
+  assert.deepEqual(cipCell(a2, view, true, true), { text: 'CIP: S', relation: 'of the stored configuration, which disagrees with the drawing in s1 (disagrees)' }, 'the label is the stored configuration; the drawing disagrees')
+  assert.deepEqual(cipCell(a4, view, true, true), { text: 'CIP: R', relation: 'of the stored configuration, which agrees with the drawing in s1 (agrees)' })
+  assert.equal(cipCell(a2, { kind: 'off' }, true, true), null)
+  assert.equal(cipCell(a2, { kind: 'checking' }, true, true).text, 'CIP: checking…')
+  assert.equal(cipCell(a2, { kind: 'failed', message: 'x' }, true, true).text, 'CIP: unavailable')
+  // Not listed by the reply: not examined, never "no label" or "none".
+  const onlyA4 = { ...inspection, atoms: inspection.atoms.filter((item) => item.atom === 'a4') }
+  assert.deepEqual(cipCell(a2, { kind: 'ready', inspection: onlyA4 }, true, true), { text: 'CIP: not examined', relation: null })
+
+  const open = agreementDocument()
+  open.stereo.atoms = [open.stereo.atoms[0]]
+  const textFor = async (item, options = {}, doc = open) => {
+    const labeled = (await cipInspected(doc, cipReplyOf(doc, [item], [], options))).inspection
+    return cipCell(a2, { kind: 'ready', inspection: labeled }, true, true).text
+  }
+  assert.equal(await textFor(cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), {
+    warnings: [{ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }],
+  }), 'CIP: none, the ligands are equivalent. A configuration is stored here but makes no difference: the unit is not stereogenic under the rules applied.')
+  assert.equal(await textFor(cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') }), { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')] }),
+    `CIP: not supported - ${REASON_TEXT.cip_rule_4_or_5_needed}`)
+  assert.equal(await textFor(cipAtom('a2', 'ambiguous', { reason: 'cip_ligand_stereo_unspecified', stored: tetra(A2, 'clockwise') }), { losses: [lossOf('atoms[a2]', 'cip_ligand_stereo_unspecified')] }),
+    `CIP: ambiguous - ${REASON_TEXT.cip_ligand_stereo_unspecified}`)
+  const unknownDoc = agreementDocument()
+  unknownDoc.stereo.atoms = [{ atom: 'a2', configuration: { kind: 'unknown', neighbors: A2 } }]
+  assert.equal(await textFor(cipAtom('a2', 'unknown', { stored: { kind: 'unknown', neighbors: A2 }, priority: PRIORITY_A2, decided_by: '1a' }), {}, unknownDoc), 'CIP: unknown (stored as either)')
+  // Wording that implies more than the label is never used.
+  for (const text of [NOT_JUDGED, CIP_OFF]) assert.doesNotMatch(text, /pseudo|enhanced|AS|BS|group/i)
+})
+
+test('wantsCip asks for nothing while both label switches are off, and for no more than a switch covers', () => {
+  const both = agreementDocument()
+  const bonded = bondDocument()
+  const marksOnly = scened(publicFixture(true), 's1')
+  assert.equal(wantsCip(both, false, false), false, 'default: no switch, no request')
+  assert.equal(wantsCip(bonded, false, false), false)
+  assert.equal(wantsCip(both, true, false), true)
+  assert.equal(wantsCip(both, false, true), false, 'the bond switch alone needs a stored double bond')
+  assert.equal(wantsCip(bonded, false, true), true)
+  assert.equal(wantsCip(bonded, true, false), false, 'the atom switch alone needs a stored center')
+  assert.equal(wantsCip(marksOnly, true, true), false, 'marks without a stored configuration have nothing to label')
+  assert.equal(wantsCip(scened(publicFixture(false), 's1'), true, true), false)
+})
+
+/** An `InspectionRunner` on a fake clock; each request is a promise the test settles. */
+function runnerFixture(dropOnStop, drawing = agreementDocument()) {
+  let now = 0
+  let next = 1
+  const tasks = new Map()
+  const timers = { set: (task, ms) => { tasks.set(next, { at: now + ms, task }); return next++ }, clear: (handle) => { tasks.delete(handle) } }
+  const asks = []
+  const inspect = (id) => new Promise((resolve, reject) => { asks.push({ id, resolve, reject }) })
+  const source = (document, over = {}) => ({ document, generation: 0, dragging: false, active: true, allowed: true, inspect, ...over })
+  const runner = new InspectionRunner(source(drawing), timers, dropOnStop)
+  const settled = () => new Promise((resolve) => setImmediate(resolve))
+  return {
+    runner, asks, source, drawing,
+    off: (document = drawing) => runner.update(source(document, { active: false, allowed: false })),
+    on: (document = drawing, over = {}) => runner.update(source(document, over)),
+    advance: (ms) => {
+      const end = now + ms
+      for (;;) {
+        const due = [...tasks].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        tasks.delete(due[0])
+        now = due[1].at
+        due[1].task()
+      }
+      now = end
+    },
+    settle: async (index, how, value) => { asks[index][how](value); await settled(); await settled() },
+  }
+}
+const edited = (value, n) => ({ ...structuredClone(value), revision: value.revision + n })
+
+test('the page asks chem.cip only while labels are wanted: one request in flight, changes coalesced, nothing after switching off', async () => {
+  const f = runnerFixture(true)
+  f.runner.attach()
+  const { drawing } = f
+  // Not wanted (the default): edits of every kind ask nothing, however long the page waits.
+  f.off(drawing)
+  f.off(edited(drawing, 1))
+  f.advance(10_000)
+  assert.equal(f.asks.length, 0, 'no request while labels are not wanted')
+  f.on(drawing)
+  f.advance(299)
+  assert.equal(f.asks.length, 0)
+  f.advance(1)
+  assert.equal(f.asks.length, 1)
+  f.on(structuredClone(drawing))
+  f.on(edited(drawing, 1))
+  f.on(edited(drawing, 2))
+  f.advance(1000)
+  assert.equal(f.asks.length, 1, 'one in flight')
+  await f.settle(0, 'resolve', {})
+  f.advance(300)
+  assert.equal(f.asks.length, 2, 'one more for the changes made meanwhile')
+  await f.settle(1, 'resolve', {})
+  // Switching off before the wait ends cancels the request that had not started.
+  f.on(edited(drawing, 3))
+  f.advance(100)
+  f.off(edited(drawing, 3))
+  f.advance(10_000)
+  assert.equal(f.asks.length, 2, 'switched off, the waiting request is dropped')
+  // Switching on again asks again, even for the drawing already asked about.
+  f.on(edited(drawing, 3))
+  f.advance(300)
+  assert.equal(f.asks.length, 3)
+  await f.settle(2, 'resolve', {})
+  // Another service process asks again.
+  f.on(edited(drawing, 3), { generation: 1 })
+  f.advance(300)
+  assert.equal(f.asks.length, 4)
+  // A drag holds the request until it ends.
+  await f.settle(3, 'resolve', {})
+  f.on(edited(drawing, 4), { dragging: true })
+  f.advance(1000)
+  assert.equal(f.asks.length, 4)
+  f.on(edited(drawing, 4), { dragging: false })
+  f.advance(300)
+  assert.equal(f.asks.length, 5)
+  f.runner.detach()
+})
+
+test('askDecision stops without asking, keeps a repeat and asks for anything else', () => {
+  const value = agreementDocument()
+  const asked = { document: value, generation: 0, active: true }
+  assert.equal(askDecision(null, { ...asked, active: false }), 'stop')
+  assert.equal(askDecision(asked, { ...asked, document: structuredClone(value) }), 'keep')
+  assert.equal(askDecision(asked, { ...asked, document: edited(value, 1) }), 'ask')
+  assert.equal(askDecision({ ...asked, active: false }, asked), 'ask')
+  assert.equal(askDecision(asked, { ...asked, generation: 1 }), 'ask')
+})
+
+test('turning labels off and on again shows neither an earlier failure nor an answer that arrives after switch-off', async () => {
+  const f = runnerFixture(true)
+  f.runner.attach()
+  f.on()
+  f.advance(300)
+  await f.settle(0, 'reject', new Error('too big'))
+  assert.equal(f.runner.getState().outcome.kind, 'failed')
+  f.off()
+  assert.equal(f.runner.getState().outcome, null, 'switching off clears what was shown')
+  f.on()
+  assert.equal(f.runner.getState().outcome, null, 'switched on again, the earlier failure is not shown while the debounce runs')
+  f.advance(300)
+  assert.equal(f.asks.length, 2)
+  // A request in flight when the switch goes off neither reports nor leaves the page busy.
+  f.off()
+  assert.equal(f.runner.getState().running, false)
+  await f.settle(1, 'resolve', { fresh: true })
+  assert.equal(f.runner.getState().outcome, null, 'an answer nobody wants any more is discarded')
+  assert.equal(f.runner.getState().running, false)
+  // The agreement check keeps its outcome when it stops: its manual check is still there.
+  const keeping = runnerFixture(false)
+  keeping.runner.attach()
+  keeping.on()
+  keeping.advance(300)
+  await keeping.settle(0, 'reject', new Error('boom'))
+  keeping.off()
+  assert.equal(keeping.runner.getState().outcome.kind, 'failed')
+  f.runner.detach()
+  keeping.runner.detach()
+})
+
+test('a remount retires a request in flight, leaves nothing running and asks again', async () => {
+  for (const dropOnStop of [true, false]) {
+    const f = runnerFixture(dropOnStop)
+    f.runner.attach()
+    f.on()
+    f.advance(300)
+    assert.equal(f.runner.getState().running, true)
+    f.runner.detach()
+    assert.equal(f.runner.getState().running, false, 'the request in flight at cleanup does not leave the runner busy')
+    f.runner.attach()
+    f.on()
+    f.advance(300)
+    assert.equal(f.asks.length, 2, 'the remounted runner asks again')
+    await f.settle(0, 'resolve', { old: true })
+    assert.equal(f.runner.getState().outcome, null, 'the answer of the retired request is not used')
+    assert.equal(f.runner.getState().running, true, 'and does not clear the busy state of the request that is running')
+    await f.settle(1, 'resolve', { fresh: true })
+    assert.deepEqual(f.runner.getState().outcome.inspection, { fresh: true })
+    f.runner.detach()
+  }
+})
+
+test('a label is placed in the widest gap between the bonds of its atom and beside the middle of its double bond', () => {
+  const distanceToSegment = (p, a, b) => {
+    const [dx, dy] = [b.x - a.x, b.y - a.y]
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)))
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+  }
+  const center = { x: 0, y: 0 }
+  const around = [{ x: 0, y: 40 }, { x: -35, y: -18 }, { x: 35, y: -18 }]
+  // The old fixed offset (12, -12) ran along the bond to the upper right in the smoke drawing.
+  assert.ok(Math.min(...around.map((p) => distanceToSegment({ x: 12, y: -12 }, center, p))) < 6)
+  const at = labelAt('atom', center, around)
+  for (const p of around) assert.ok(distanceToSegment(at, center, p) > 12, `clear of the bond to ${p.x},${p.y}`)
+  assert.ok(at.y < 0 && Math.abs(at.x) < 1, 'in the gap above the center, between the two upper bonds')
+  // A terminal atom puts it opposite its one bond; an atom with no bond uses the fixed offset.
+  const opposite = labelAt('atom', center, [{ x: 30, y: 0 }])
+  assert.ok(opposite.x < 0 && Math.abs(opposite.y) < 1e-9)
+  assert.deepEqual(labelAt('atom', center, []), { x: 12, y: -12 })
+  // A double bond: beside the middle on the upper side, whichever way the bond runs.
+  const mid = { x: 100, y: 100 }
+  const above = labelAt('bond', mid, [{ x: 80, y: 100 }, { x: 120, y: 100 }])
+  assert.ok(above.y < 100 && Math.abs(above.x - 100) < 1e-9)
+  const reversed = labelAt('bond', mid, [{ x: 120, y: 100 }, { x: 80, y: 100 }])
+  assert.deepEqual(reversed, above, 'the side does not depend on the direction the bond is written')
+  const slanted = labelAt('bond', mid, [{ x: 80, y: 120 }, { x: 120, y: 80 }])
+  assert.ok(distanceToSegment(slanted, { x: 80, y: 120 }, { x: 120, y: 80 }) > 10)
+  assert.ok(slanted.y < 100)
+})
+
+test('the reader requires the reply to list exactly what the scope lists, and keeps a diagnostic code it does not know', async () => {
+  const value = agreementDocument()
+  const both = () => [assignedA2(), assignedA4()]
+  const bonded = bondDocument()
+  const stored = (v, atoms, bonds = [], options = {}, named = { atoms: [], bonds: [] }) => readCipReply(cipReplyOf(v, atoms, bonds, options), cipGraphOf(v), options.scope ?? 'stored', named)
+  assert.notEqual(stored(value, both()), null)
+  assert.equal(stored(value, [assignedA4()]), null, 'a stored center left out of a stored-scope reply')
+  assert.equal(stored(value, []), null, 'an empty reply for stored configurations')
+  assert.equal(stored(bonded, []), null, 'a stored double bond left out')
+  assert.notEqual(stored(bonded, [], [assignedB2()]), null)
+  // Naming adds to the stored scope; a named scope lists exactly the named items.
+  const notCandidate = cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })
+  const loss = [lossOf('atoms[a1]', 'cip_not_a_candidate')]
+  assert.notEqual(stored(value, [notCandidate, ...both()], [], { losses: loss }, { atoms: ['a1'], bonds: [] }), null)
+  assert.equal(stored(value, both(), [], {}, { atoms: ['a1'], bonds: [] }), null, 'a named item that is not listed')
+  const named = (atoms, extra) => stored(value, atoms, [], { scope: 'named', losses: extra }, { atoms: ['a1'], bonds: [] })
+  assert.notEqual(named([notCandidate], loss), null)
+  assert.equal(named([notCandidate, assignedA2()], loss), null, 'a named scope lists nothing but the named items')
+  assert.equal(named([], []), null)
+  // The scan may list more than was stored or named.
+  const open = agreementDocument()
+  open.stereo.atoms = [open.stereo.atoms[0]]
+  assert.notEqual(stored(open, [assignedA2(), cipAtom('a4', 'unspecified', { priority: PRIORITY_A4, decided_by: '1a' })], [], { scope: 'stereogenic' }), null)
+  assert.equal(stored(open, [cipAtom('a4', 'unspecified', { priority: PRIORITY_A4, decided_by: '1a' })], [], { scope: 'stereogenic' }), null, 'the scan still lists what is stored')
+  // Warnings come in the order the service produces them: centers ascending, then bonds ascending.
+  const warn = (item, id, code = 'cip_stored_not_stereogenic') => ({ code, severity: 'warning', message: 'm', path: null, details: { item, id } })
+  const nones = [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), cipAtom('a4', 'none', { stored: tetra(A4, 'anticlockwise') })]
+  assert.notEqual(stored(value, nones, [], { warnings: [warn('atom', 'a2'), warn('atom', 'a4')] }), null)
+  assert.equal(stored(value, nones, [], { warnings: [warn('atom', 'a4'), warn('atom', 'a2')] }), null, 'centers out of order')
+  assert.notEqual(stored(value, [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise'), priority: null }), assignedA4()], [], { warnings: [warn('atom', 'a2'), warn('atom', 'a2', 'cip_slot_unusual')] }), null, 'one item may have both warnings')
+  const noneBond = cipBond('b2', 'none', { stored: bonded.stereo.bonds[0].configuration })
+  const noneAtom = cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') })
+  const mixed = structuredClone(bonded)
+  mixed.stereo.atoms = [{ atom: 'a2', configuration: tetra(A2, 'clockwise') }]
+  assert.equal(stored(mixed, [noneAtom], [noneBond], { warnings: [warn('bond', 'b2'), warn('atom', 'a2')] }), null, 'a bond warning before a center warning')
+  assert.notEqual(stored(mixed, [noneAtom], [noneBond], { warnings: [warn('atom', 'a2'), warn('bond', 'b2')] }), null)
+  // A diagnostic code added within contract 1 is shown, never relied on; a malformed one is refused.
+  const extra = { code: 'cip_some_future_advice', severity: 'info', message: 'Something new.', path: null, details: { anything: 1 } }
+  const withExtra = readCip(value, cipReplyOf(value, both(), [], { diagnostics: [extra, ...cipDiagnostics(), { ...extra, code: 'cip_another' }] }))
+  assert.notEqual(withExtra, null)
+  assert.deepEqual(withExtra.diagnostics.map((item) => item.code), ['cip_some_future_advice', 'cip_scope', 'cip_not_checked', 'cip_another'])
+  assert.equal(readCip(value, cipReplyOf(value, both(), [], { diagnostics: [{ code: 'cip_x', message: 'no severity' }, ...cipDiagnostics()] })), null)
+})
+
+test('inspectCip sends the scope it expects, and an error the service words itself shows that wording', async () => {
+  const value = agreementDocument()
+  const named = cipReplyOf(value, [cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })], [], { scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate')] })
+  const scripted = service({ '/api/v1/operations': [() => json(200, named)] })
+  await new DocumentClient().inspectCip(value.id, { atoms: ['a1'] })
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [{ document_id: value.id, atoms: ['a1'], scope: 'named' }], 'a named request says so')
+  const bare = service({ '/api/v1/operations': [() => json(200, cipReplyOf(value, [assignedA2(), assignedA4()]))] })
+  await new DocumentClient().inspectCip(value.id)
+  assert.deepEqual(bare.writes.map((write) => write.parameters), [{ document_id: value.id, scope: 'stored' }])
+  // The replies the service really sends for a request it cannot read (driven through the CLI): the model is named and the message is its own.
+  for (const [code, message, path, details] of [
+    ['invalid_request', 'Invalid parameters: unknown field `nope`, expected one of `document_id`, `scope`, `atoms`, `bonds`', 'parameters', {}],
+    ['invalid_request', 'scope must be "stored", "stereogenic" or "named".', 'parameters.scope', { value: 'bad' }],
+    ['document_not_found', 'document nope does not exist', null, {}],
+  ]) {
+    const reply = { envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-cip-1', document_revision: null, result: null, loss_report: [], diagnostics: [{ code, severity: 'error', message, path, details }] }
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectCip('nope'), { code: 'cip_unavailable', message })
+  }
+})
+
+test('the view says what is missing when a switch is on and nothing of its kind is stored, and the cell follows its own switch', async () => {
+  const atomsOnly = agreementDocument()
+  const bondsOnly = bondDocument()
+  assert.deepEqual(cipView(atomsOnly, null, 0, false, false, false), { kind: 'off' })
+  assert.deepEqual(cipView(bondsOnly, null, 0, false, true, false), { kind: 'nothing', message: 'No stored atom configurations to label.' })
+  assert.deepEqual(cipView(atomsOnly, null, 0, false, false, true), { kind: 'nothing', message: 'No stored bond configurations to label.' })
+  assert.deepEqual(cipView(scened(publicFixture(true), 's1'), null, 0, false, true, true), { kind: 'nothing', message: 'No stored atom or bond configurations to label.' })
+  assert.equal(cipView(bondsOnly, null, 0, false, true, true).kind, 'checking', 'one covered kind is enough to ask')
+  assert.notEqual(cipView(bondsOnly, null, 0, false, true, false).message, CIP_OFF, 'a switch that is on is never told to switch on')
+  const reading = await inspected(atomsOnly, replyOf(atomsOnly, resultOf(atomsOnly, publicItems())))
+  const [a2] = agreementRows(reading)
+  const { inspection } = await cipInspected(atomsOnly, cipReplyOf(atomsOnly, [assignedA2(), assignedA4()]))
+  const ready = { kind: 'ready', inspection }
+  assert.equal(cipCell(a2, ready, true, false).text, `CIP: S`)
+  assert.equal(cipCell(a2, ready, false, true), null, 'an atom row shows its label under the atom switch only')
+  const bondRow = { ...a2, key: 'bond:b2:s1', item: { kind: 'bond', id: 'b2' } }
+  assert.equal(cipCell(bondRow, ready, true, false), null, 'a bond row shows its label under the bond switch only')
+  assert.equal(cipCell(bondRow, ready, false, true).text, 'CIP: not examined')
+  assert.equal(cipCell(a2, { kind: 'nothing', message: 'x' }, true, true), null)
+  // A row with nothing stored has no stored configuration to label: no cell, not "not examined".
+  const drawnOnly = { ...a2, key: 'atom:a9:s1', item: { kind: 'atom', id: 'a9' }, agreement: 'only_drawn', stored: null }
+  for (const view of [ready, { kind: 'checking' }, { kind: 'failed', message: 'x' }]) assert.equal(cipCell(drawnOnly, view, true, true), null)
+  assert.equal(cipCell({ ...drawnOnly, agreement: 'neither' }, ready, true, true), null)
+})
+
+test('a reply with fields the reader does not know, at every level, still shows its labels; a missing or wrong required value does not', async () => {
+  const value = agreementDocument()
+  const bonded = bondDocument()
+  const unsupported = cipAtom('a2', 'unsupported', { reason: 'cip_rule_4_or_5_needed', stored: tetra(A2, 'clockwise') })
+  const decorate = (reply) => {
+    reply.result.future = { anything: true }
+    for (const item of [...reply.result.atoms, ...reply.result.bonds]) {
+      item.future = 1
+      for (const entry of item.priority ?? []) entry.future = 1
+      for (const end of item.ends ?? []) end.future = 1
+    }
+    for (const item of reply.diagnostics) { item.future = 1; item.details = { ...item.details, future: 1 } }
+    for (const loss of reply.loss_report) loss.future = 1
+    return reply
+  }
+  const atoms = readCip(value, decorate(cipReplyOf(value, [unsupported, assignedA4()], [], { losses: [lossOf('atoms[a2]', 'cip_rule_4_or_5_needed')], warnings: [] })))
+  assert.deepEqual(atoms.atoms.map((item) => [item.atom, item.state, item.descriptor]), [['a2', 'unsupported', null], ['a4', 'assigned', 'R']])
+  assert.equal(atoms.atoms[0].reasonSentence, REASON_TEXT.cip_rule_4_or_5_needed)
+  const warning = { code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }
+  assert.notEqual(readCip(value, decorate(cipReplyOf(value, [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), assignedA4()], [], { warnings: [warning] }))), null)
+  const bond = readCip(bonded, decorate(cipReplyOf(bonded, [], [assignedB2()])))
+  assert.equal(bond.bonds[0].descriptor, 'Z')
+  // Through the client, and in the stored record of the snapshot's own table.
+  const { inspection } = await cipInspected(value, decorate(cipReplyOf(value, [assignedA2(), assignedA4()])))
+  assert.deepEqual(cipMarks({ kind: 'ready', inspection }, true, false).map((m) => m.text), ['(S)', '(R)'])
+  // An error reply with extra fields in its diagnostic and details keeps the service's message.
+  const limit = { outcome: 'error', model_id: 'chemifree-cip-1', result: null, future: 1, diagnostics: [{ code: 'resource_limit', severity: 'error', message: 'too much', path: 'parameters.atoms', future: 1,
+    details: { limit: 1, request_limit: 2, items: 3, item_limit: 4, stage: 'centers', parameter: 'atoms', nodes: 5 } }] }
+  assert.equal(readCipFailure(limit)?.limit.stage, 'centers')
+  assert.equal(readCipFailure({ ...limit, diagnostics: [{ code: 'cip_labeler_invalid', severity: 'error', message: 'm', details: { unit: 'a2', problem: 'nodes', future: 1 } }] })?.code, 'cip_labeler_invalid')
+  // What is read is still checked: a missing field and a wrong value are refused, extra fields or not.
+  for (const [name, mutate] of Object.entries({
+    'a missing result field': (r) => { delete r.result.rules },
+    'a missing atom field': (r) => { delete r.result.atoms[0].stored },
+    'a missing priority rank': (r) => { delete r.result.atoms[0].priority[0].rank },
+    'a wrong state': (r) => { r.result.atoms[0].state = 'maybe' },
+    'a wrong descriptor': (r) => { r.result.atoms[0].descriptor = 'E' },
+    'a missing scope diagnostic detail': (r) => { r.diagnostics[0].details = { future: 1 } },
+  })) {
+    const reply = decorate(cipReplyOf(value, [assignedA2(), assignedA4()]))
+    mutate(reply)
+    assert.equal(readCip(value, reply), null, name)
+  }
+  const noEnds = decorate(cipReplyOf(bonded, [], [assignedB2()]))
+  delete noEnds.result.bonds[0].ends[0].higher
+  assert.equal(readCip(bonded, noEnds), null, 'a missing end field')
+  assert.equal(readCipFailure({ ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { limit: 1, stage: 'centers', parameter: 'atoms', future: 1 } }] }), null, 'a missing limit detail')
 })

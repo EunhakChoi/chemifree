@@ -345,7 +345,7 @@
         },
         {
           "id": "MODEL-03.5",
-          "summary": "Agreement indicator in the web editor: for a drawing that holds a mark or a stored configuration the page calls chem.stereo on its own (300 ms after the last change, one request in flight and one more for changes made meanwhile, none while dragging, none for a drawing without stereo) and uses a reply only when it is for exactly the drawing on screen, positions included (otherwise Checking the drawing... with aria-busy and no ring). The reply is validated strictly against its snapshot and refused as a whole on any mismatch; the outcome must be ok with chemifree-stereo-1. The result is a summary line, a Stereo panel row per item and placement, and a ring on the canvas for each item that does not agree (solid for a disagreement, dashed for a state with nothing to compare, named, no pointer events), with a switch that turns the automatic check off (Check now asks once) and one-click edits built from the latest document: Update from drawing and Store from drawing (set_configuration_from_drawing), Remove stored (null) and Update all from drawing, each one undo step with a status line naming the replaced or removed value. Only stored configurations are compared with the drawing: no atom is judged stereogenic and no CIP label is computed (not assessed, never worded as no stereo). A stored configuration is never changed except by the user's click, and moving atoms still does not update one. The browser smoke exercises the indicator, the ring and the one-click edits in a real browser but is not an evidence check of this record.",
+          "summary": "Agreement indicator in the web editor: for a drawing that holds a mark or a stored configuration the page calls chem.stereo on its own (300 ms after the last change, one request in flight and one more for changes made meanwhile, none while dragging, none for a drawing without stereo) and uses a reply only when it is for exactly the drawing on screen, positions included (otherwise Checking the drawing... with aria-busy and no ring). The reply is validated strictly against its snapshot and refused as a whole on any mismatch; the outcome must be ok with chemifree-stereo-1. The result is a summary line, a Stereo panel row per item and placement, and a ring on the canvas for each item that does not agree (solid for a disagreement, dashed for a state with nothing to compare, named, no pointer events), with a switch that turns the automatic check off (Check now asks once) and one-click edits built from the latest document: Update from drawing and Store from drawing (set_configuration_from_drawing), Remove stored (null) and Update all from drawing, each one undo step with a status line naming the replaced or removed value. Only stored configurations are compared with the drawing: the comparison itself judges no atom stereogenic and computes no CIP label (not assessed, never worded as no stereo; CIP labels are MODEL-03.7). A stored configuration is never changed except by the user's click, and moving atoms still does not update one. The browser smoke exercises the indicator, the ring and the one-click edits in a real browser but is not an evidence check of this record.",
           "status": "implemented",
           "implementation": [
             "apps/web/src/lib/stereo-contract.ts",
@@ -366,7 +366,7 @@
         },
         {
           "id": "MODEL-03.6",
-          "summary": "CIP labels: the read-only operation chem.cip (chemifree-cip-1) computes R or S for stored tetrahedral centers and E or Z for stored double bonds from the current graph, on demand and never stored, by Rules 1a, 1b, 2 and 3 only (duplicate and phantom atoms, implicit hydrogens, mancude all-carbon aromatic rings). Every item has an explicit state: assigned, none, unspecified, unknown, ambiguous or unsupported with a reason from a closed list, and the outcome is partial with a loss entry for each ambiguous or unsupported item. A CipLabeler port with a built-in labeler whose answers the application validates; scope stored, stereogenic or named items; bounded by 20,000 digraph nodes per item and 2,000,000 per request (resource_limit), with no time limit (a documented gap). Rules 4a to 5, pseudoasymmetric r and s, heteroaromatic rings and axes or planes are not applied and a tie they might break is unsupported, never none; no claim of equivalence with any other program, and a manual one-version RDKit comparison is evidence only. The web editor does not request or show labels (P26c).",
+          "summary": "CIP labels: the read-only operation chem.cip (chemifree-cip-1) computes R or S for stored tetrahedral centers and E or Z for stored double bonds from the current graph, on demand and never stored, by Rules 1a, 1b, 2 and 3 only (duplicate and phantom atoms, implicit hydrogens, mancude all-carbon aromatic rings). Every item has an explicit state: assigned, none, unspecified, unknown, ambiguous or unsupported with a reason from a closed list, and the outcome is partial with a loss entry for each ambiguous or unsupported item. A CipLabeler port with a built-in labeler whose answers the application validates; scope stored, stereogenic or named items; bounded by 20,000 digraph nodes per item and 2,000,000 per request (resource_limit), with no time limit (a documented gap). Rules 4a to 5, pseudoasymmetric r and s, heteroaromatic rings and axes or planes are not applied and a tie they might break is unsupported, never none; no claim of equivalence with any other program, and a manual one-version RDKit comparison is evidence only. The web editor shows them only behind two switches that are off by default (MODEL-03.7).",
           "status": "partial",
           "implementation": [
             "crates/domain/src/cip.rs",
@@ -398,8 +398,28 @@
           ]
         },
         {
+          "id": "MODEL-03.7",
+          "summary": "CIP labels in the web editor: two Stereo panel switches, Atom stereo labels and Bond stereo labels (off by default, not saved), are the only thing that makes the page ask chem.cip, and only with scope stored (never stereogenic, because the operation has no time limit), scheduled like the agreement check (300 ms after the last committed change, one request in flight, none while dragging). A reply is read by a validator that checks every required field and value and ignores fields it does not know (state, descriptor and reason pairing; four ranked positions that are the item's own; E or Z only on bonds and R or S only on atoms; the stored record, snapshot, model, rules, scope, diagnostics and loss entries must fit) and is shown only for exactly the drawing on screen; any mismatch (an unlisted stored item included; a well-formed diagnostic code it does not know is only kept), a limit or another error shows CIP labels unavailable with the service's message and no label. Only an assigned item gets overlay text on the canvas ((S) near a center, (E) near a double bond; text form and placement are Chemifree choices, not legacy behavior), as an overlay that is not part of the document or an export; each Stereo row with a stored configuration gets a CIP cell under the switch of its kind (label, none, unknown, ambiguous or not supported with the reason sentence, or not examined) next to the agreement with the drawing. A label describes the stored configuration, never the drawing, is never written to the document and touches no mark; no enhanced-group meaning is implied. The client check runs the validator, the view and scheduler rules and mutation checks of them; the browser smoke exercises the switches, the overlay, the panel cell, the refusal state and an unchanged document in a real browser but is not an evidence check of this record.",
+          "status": "implemented",
+          "implementation": [
+            "apps/web/src/lib/cip-contract.ts",
+            "apps/web/src/lib/document-contract.ts",
+            "apps/web/src/editor/cip-labels.ts",
+            "apps/web/src/editor/cip-label-layer.tsx",
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/hooks/use-cip-labels.ts",
+            "apps/web/src/hooks/use-document-editor.ts",
+            "apps/web/src/components/stereo-panel.tsx",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, a web display of CIP labels, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
+          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

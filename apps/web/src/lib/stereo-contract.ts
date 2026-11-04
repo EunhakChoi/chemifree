@@ -2,7 +2,8 @@
  * Hand-maintained mirror of the stereo parts of the v1 document contract in
  * crates/application/src/contract.rs and of the `chem.stereo` reply: bond marks, stated
  * configurations, and the service's comparison of the two. Representation only. Nothing here
- * derives a configuration from a mark, computes a CIP label, or compares two drawings: the
+ * derives a configuration from a mark, computes a CIP label (that is `chem.cip`, read by
+ * lib/cip-contract.ts), or compares two drawings: the
  * service does (it derives from the marks and one instance's positions, for
  * `set_configuration_from_drawing` and for `chem.stereo`), and this module reads and checks what
  * it answers. The editor draws marks (editor/geometry.ts), sends marks and the configuration
@@ -98,7 +99,7 @@ export function isStereoMark(value: unknown, order: string): value is StereoMark
   }
 }
 
-interface GraphBond {
+export interface GraphBond {
   id: string
   begin: string
   end: string
@@ -139,7 +140,7 @@ export function isStereoView(value: unknown, atoms: ReadonlyArray<{ id: string }
 }
 
 /** The atoms each atom is bonded to. */
-function bondedAtoms(bonds: readonly GraphBond[]): Map<string, Set<string>> {
+export function bondedAtoms(bonds: readonly GraphBond[]): Map<string, Set<string>> {
   const neighbors = new Map<string, Set<string>>()
   for (const bond of bonds) {
     for (const [from, to] of [[bond.begin, bond.end], [bond.end, bond.begin]] as const) {
@@ -327,7 +328,7 @@ export interface InspectedGraph {
 }
 
 /** Same value whatever the order of an object's keys; an absent value equals nothing. */
-function sameValue(a: unknown, b: unknown): boolean {
+export function sameValue(a: unknown, b: unknown): boolean {
   const canonical = (value: unknown) =>
     JSON.stringify(value, (_key, item: unknown) =>
       isRecord(item) ? Object.fromEntries(Object.entries(item).sort(([x], [y]) => (x < y ? -1 : 1))) : item)
@@ -335,12 +336,12 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /** Identifiers are a letter prefix and a serial; the service orders them by serial. */
-function serial(id: string): number {
+export function serial(id: string): number {
   const digits = /^[a-z]+(\d+)$/.exec(id)?.[1]
   return digits === undefined ? Number.NaN : Number(digits)
 }
 
-const ascending = (ids: readonly string[]) => ids.every((id, i) => Number.isFinite(serial(id)) && (i === 0 || serial(ids[i - 1]) < serial(id)))
+export const ascending = (ids: readonly string[]) => ids.every((id, i) => Number.isFinite(serial(id)) && (i === 0 || serial(ids[i - 1]) < serial(id)))
 
 function judge<T>(stored: T | null, drawn: T | null, agree: (a: T, b: T) => boolean): Agreement {
   if (stored !== null) return drawn === null ? 'only_stored' : agree(stored, drawn) ? 'agrees' : 'disagrees'

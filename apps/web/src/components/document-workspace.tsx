@@ -88,7 +88,9 @@ import { SubstructurePanel } from '@/components/substructure-panel'
 import type { AutosaveState } from '@/hooks/use-autosave'
 import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEditor, type StereoStatus } from '@/hooks/use-document-editor'
 import { usePreferences } from '@/hooks/use-preferences'
+import { useCipLabels } from '@/hooks/use-cip-labels'
 import { useStereoAgreement } from '@/hooks/use-stereo-agreement'
+import { cipMarks } from '@/editor/cip-labels'
 import { agreementRings, agreementRows, viewSentence, type AgreementView } from '@/editor/stereo-agreement'
 import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
 import {
@@ -249,7 +251,7 @@ export function DocumentWorkspace() {
       </CardContent>
       <CardFooter className="gap-2">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks are drawn and a mark gesture stores the configuration it shows; the Stereo panel compares each stored configuration with the drawing and updates or removes it on request. No CIP label is computed, no atom is judged stereogenic, and naming remains unimplemented.
+          Atoms and bonds remain as drawn until edited. Valence and aromaticity use bounded models. Stereo marks are drawn and a mark gesture stores the configuration it shows; the Stereo panel compares each stored configuration with the drawing and updates or removes it on request. The Stereo panel can show the CIP label of a stored configuration (off by default); a label describes the stored configuration, is never stored, and a case the model cannot decide is shown as not supported. Naming remains unimplemented.
         </p>
       </CardFooter>
     </Card>
@@ -557,6 +559,10 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const [dragging, setDragging] = useState(false)
   const [automatic, setAutomatic] = useState(true)
+  // Label switches mirror the public ShowAtomStereo / ShowBondStereo settings: off by default and, like the
+  // automatic check, not persisted. While both are off the page sends no chem.cip request.
+  const [atomLabels, setAtomLabels] = useState(false)
+  const [bondLabels, setBondLabels] = useState(false)
   const { view: agreement, checkNow } = useStereoAgreement({
     document,
     serviceGeneration: editor.serviceGeneration,
@@ -564,6 +570,16 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
     automatic,
     inspect: editor.inspectStereo,
   })
+  const { view: cip, checkNow: checkCipNow } = useCipLabels({
+    document,
+    serviceGeneration: editor.serviceGeneration,
+    dragging,
+    atomLabels,
+    bondLabels,
+    inspect: editor.inspectCip,
+  })
+  // Labels are drawn only for a reply about exactly this drawing; a stale one draws none.
+  const labels = useMemo(() => cipMarks(cip, atomLabels, bondLabels), [cip, atomLabels, bondLabels])
   // Rings are drawn only for a comparison of exactly this drawing; a stale one draws none.
   const rings = useMemo(() => (agreement.kind === 'ready' ? agreementRings(agreementRows(agreement.inspection)) : []), [agreement])
   const { selection, setSelection } = editor
@@ -760,6 +776,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             rings={rings}
+            cipLabels={labels}
             onDragging={setDragging}
             disabled={editor.busy}
           />
@@ -771,6 +788,12 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             automatic={automatic}
             onAutomaticChange={setAutomatic}
             onCheckNow={checkNow}
+            cip={cip}
+            atomLabels={atomLabels}
+            bondLabels={bondLabels}
+            onAtomLabelsChange={setAtomLabels}
+            onBondLabelsChange={setBondLabels}
+            onCipCheckNow={checkCipNow}
             onResolve={(resolution) => void editor.resolveStereo(resolution)}
             busy={editor.busy}
           />
