@@ -2256,7 +2256,7 @@ test('a reply holding marks and stated configurations is accepted as sent', () =
   assert.equal(isDocumentResponse(unknown), true, 'unknown is an explicit record, with a lone pair as a slot')
 })
 
-const { sameContent, adoptedView } = await import('../apps/web/src/hooks/use-document-editor.ts')
+const { sameContent, adoptedView, viewAfterRead } = await import('../apps/web/src/hooks/use-document-editor.ts')
 
 test('an autosave reply for the shown revision keeps the notes of the edit and takes the new session state', () => {
   const note = { feature: 'group_membership', source_path: 'groups[e1]', disposition: 'normalized', reason: 'The members no longer belong together.', semantic_impact: 'stereo' }
@@ -2266,6 +2266,19 @@ test('an autosave reply for the shown revision keeps the notes of the edit and t
   assert.deepEqual(adopted.notes, [note], 'the draft written a second later does not clear the note the user is reading')
   assert.equal(adopted.session.draft_revision, 3, 'the reply still supplies the session state')
   assert.deepEqual(adoptedView({ ...shown, notes: undefined }, reply).notes, [])
+  const stated = { ...reply, notes: [{ ...note, reason: 'Stated by the reply.' }] }
+  assert.deepEqual(adoptedView(shown, stated).notes, stated.notes, 'notes a reply states win over the shown ones')
+})
+
+test('a read of the shown revision keeps the notes; another revision or content replaces the view', () => {
+  const note = { feature: 'stereo_group', source_path: 'groups[e1]', disposition: 'normalized', reason: 'Split.', semantic_impact: 'stereo' }
+  const shown = { ...document('doc-1', 3), notes: [note] }
+  assert.deepEqual(viewAfterRead(shown, { ...document('doc-1', 3), notes: [] }).notes, [note], 'a reread for the same revision (autosave refresh)')
+  assert.deepEqual(viewAfterRead(shown, { ...document('doc-1', 4), notes: [] }).notes, [], 'a later revision drops the old notes')
+  const other = { ...document('doc-1', 3), notes: [] }
+  other.document = { ...other.document, title: 'Renamed' }
+  assert.deepEqual(viewAfterRead(shown, other).notes, [], 'other content at the same revision replaces the view')
+  assert.deepEqual(viewAfterRead(null, { ...document('doc-1', 3), notes: [] }).notes, [])
 })
 
 test('a reopened copy counts as the same content only when its stereo configurations match', () => {

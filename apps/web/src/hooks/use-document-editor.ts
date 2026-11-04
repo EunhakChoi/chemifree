@@ -94,7 +94,17 @@ const client = new DocumentClient()
  * edit that produced this revision stay until another reply replaces them.
  */
 export function adoptedView(shown: DocumentResponse, reply: DocumentResponse): DocumentResponse {
-  return { ...reply, notes: shown.notes ?? [] }
+  return { ...reply, notes: reply.notes?.length ? reply.notes : (shown.notes ?? []) }
+}
+
+/** Whether `reply` describes the revision and content already shown. */
+export function describesShown(shown: DocumentResponse | null, reply: DocumentResponse) {
+  return shown !== null && shown.document.revision === reply.document.revision && sameContent(shown.document, reply.document)
+}
+
+/** The view after a read or draft reply: the shown one's notes survive a reply for the same revision and content; anything else replaces the view. */
+export function viewAfterRead(shown: DocumentResponse | null, reply: DocumentResponse): DocumentResponse {
+  return shown !== null && describesShown(shown, reply) ? adoptedView(shown, reply) : reply
 }
 
 /**
@@ -265,8 +275,8 @@ export function useDocumentEditor() {
     adopt: useCallback(
       (response: DocumentResponse) => {
         const shown = currentRef.current
-        const same = shown?.document.revision === response.document.revision && sameContent(shown.document, response.document)
-        if (same) setCurrent(adoptedView(shown, response))
+        const same = describesShown(shown, response)
+        if (same) setCurrent(viewAfterRead(shown, response))
         return same
       },
       [setCurrent],
@@ -279,7 +289,7 @@ export function useDocumentEditor() {
           void run(async () => {
             try {
               const fresh = await client.reread(documentId)
-              if (currentRef.current?.document.id === documentId) setCurrent(fresh)
+              if (currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
               resolve()
             } catch (failure) {
               reject(failure)
