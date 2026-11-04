@@ -437,14 +437,14 @@
             "source_path": "atoms[a11]",
             "disposition": "unknown",
             "semantic_impact": "stereo",
-            "reason": "cip_rule_4_or_5_needed: The ligands tie under Rules 1a to 3 and Rules 4 and 5, which this build does not apply, might separate them."
+            "reason": "cip_rule_4_or_5_needed: The ligands tie under the rules applied (see `rules`); Rules 4 and 5, not among them, might separate them."
           },
           {
             "feature": "cip_descriptor",
             "source_path": "atoms[a14]",
             "disposition": "unknown",
             "semantic_impact": "stereo",
-            "reason": "cip_rule_4_or_5_needed: The ligands tie under Rules 1a to 3 and Rules 4 and 5, which this build does not apply, might separate them."
+            "reason": "cip_rule_4_or_5_needed: The ligands tie under the rules applied (see `rules`); Rules 4 and 5, not among them, might separate them."
           }
         ],
         "diagnostics": [

@@ -2707,3 +2707,47 @@ fn the_not_checked_text_follows_the_rules_of_the_labeler() {
     assert!(!text.contains("Rules 4a to 5"), "{text}");
     assert!(text.contains("never none"), "{text}");
 }
+
+/// Every sentence a reply carries, so that no fixed rule list can hide in one of them.
+fn every_sentence(reply: &Value) -> String {
+    let mut all = String::new();
+    for diagnostic in reply["diagnostics"].as_array().unwrap() {
+        all.push_str(diagnostic["message"].as_str().unwrap());
+        all.push('\n');
+    }
+    for loss in reply["loss_report"].as_array().unwrap() {
+        all.push_str(&loss.to_string());
+        all.push('\n');
+    }
+    all
+}
+
+#[test]
+fn no_sentence_of_a_reply_names_rules_the_labeler_did_not_list() {
+    let (app, _directory) = application_with(Limited {
+        limits: Limits::default(),
+    });
+    // A configuration stored on a unit that is not stereogenic (two methyls), and a tie that
+    // only Rules 4 and 5 could break: the two warnings and reasons whose wording was fixed.
+    for text_ in ["C[C@H](C)O", "C[C@H]1CC[C@@H](C)CC1"] {
+        let (built, _) = smiles(&app, text_);
+        let reply = call(&app, "words", &request(&built, &json!({})));
+        let all = every_sentence(&reply);
+        assert!(all.contains("Rule 1a only"), "{all}");
+        let reached = if text_.contains("1CC") {
+            "cip_rule_4_or_5_needed"
+        } else {
+            "a configuration is stored"
+        };
+        assert!(all.contains(reached), "{reached:?} not reached: {all}");
+        for fixed in ["1a to 3", "Rules 1a, 1b", "this build"] {
+            assert!(!all.contains(fixed), "{fixed:?} in {text_}: {all}");
+        }
+    }
+    let (built, _) = smiles(&app, "C[C@H](C)O");
+    let reply = call(&app, "words", &request(&built, &json!({})));
+    assert!(
+        codes(&reply).contains(&"cip_stored_not_stereogenic"),
+        "the warning is the point of this case: {reply}"
+    );
+}

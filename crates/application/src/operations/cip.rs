@@ -76,7 +76,7 @@ pub fn reason_sentence(reason: Reason) -> &'static str {
             "Rule 2 compares an unlabeled atom with a labeled one and the answer depends on how an unlabeled atom is read."
         }
         Reason::Rule4Or5Needed => {
-            "The ligands tie under Rules 1a to 3 and Rules 4 and 5, which this build does not apply, might separate them."
+            "The ligands tie under the rules applied (see `rules`); Rules 4 and 5, not among them, might separate them."
         }
         Reason::StereoCycle => "The descriptor of a ligand double bond depends on itself.",
         Reason::Rule3NestedDescriptor => {
@@ -442,7 +442,7 @@ fn item_details(kind: &str, id: &str) -> Map<String, Value> {
 fn warning_diagnostic(kind: &str, id: &str, warning: Warning) -> Diagnostic {
     let message = match warning {
         Warning::StoredNotStereogenic => format!(
-            "{kind} {id}: a configuration is stored on a unit that is not stereogenic under Rules 1a to 3, so it makes no difference."
+            "{kind} {id}: a configuration is stored on a unit that is not stereogenic under the rules applied (see `rules`), so it makes no difference."
         ),
         Warning::SlotUnusual => format!(
             "{kind} {id}: the stored non-atom position differs from the one the valence model names; the stored one was used."
