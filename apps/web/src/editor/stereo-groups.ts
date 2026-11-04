@@ -422,3 +422,13 @@ export function reseedDraft(draft: string, followed: string, stored: string, foc
   if (stored === followed) return draft
   return focused && draft !== followed ? draft : stored
 }
+
+/**
+ * The text a group's number field holds when its Set number request has been answered: the
+ * stored number if the field still holds what was sent (a refusal leaves no edit the service
+ * did not take; after an accepted one the stored number is that text), otherwise what the person
+ * typed meanwhile.
+ */
+export function settledDraft(current: string, submitted: string, stored: string): string {
+  return current === submitted ? stored : current
+}

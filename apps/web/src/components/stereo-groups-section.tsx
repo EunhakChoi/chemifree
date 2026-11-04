@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import {
   parseGroupNumber,
   planGroupRequest,
   reseedDraft,
+  settledDraft,
   type GroupRequest,
   type GroupRow,
 } from '@/editor/stereo-groups'
@@ -107,6 +108,11 @@ function GroupItem({
   // unless the person is typing in it (see `reseedDraft`).
   const [followed, setFollowed] = useState(row.numberText)
   const [focused, setFocused] = useState(false)
+  // The stored number as of the latest render, for a request that settles later.
+  const stored = useRef(row.numberText)
+  useEffect(() => {
+    stored.current = row.numberText
+  }, [row.numberText])
   if (followed !== row.numberText) {
     setFollowed(row.numberText)
     setText(reseedDraft(text, followed, row.numberText, focused))
@@ -142,7 +148,9 @@ function GroupItem({
             aria-label={`Set the number of ${row.id}`}
             onClick={() => {
               // After a refusal the field returns to the stored number: the page keeps no edit the service did not take.
-              void onRequest({ action: 'set_number', group: row.id, numberText: text }).then(() => setText(row.numberText))
+              // Text typed while the request ran is the person's next edit and is kept (see `settledDraft`).
+              const submitted = text
+              void onRequest({ action: 'set_number', group: row.id, numberText: submitted }).then(() => setText((current) => settledDraft(current, submitted, stored.current)))
             }}
           >
             Set number

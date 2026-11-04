@@ -419,7 +419,7 @@
         },
         {
           "id": "MODEL-03.8",
-          "summary": "Enhanced stereo groups in the document: absolute, and and or groups over stored tetrahedral centers, with the number kept as stated (0, negative and omitted included; an omitted number reads as 0), the interpreted number and a display label computed and never stored, one absolute group per document, created and changed by eight commands in document.transaction (required keys, group and atom references, 12 stereo_group_* reasons with the command index, a 32-bit number range), listed in every snapshot as stereo.groups, left by a member whose configuration goes, followed by undo and redo with stable ids, saved and reopened, and reported in notes (partial) when an edit changes which centers are stated to belong together. Statements only: no ratio is stated for and, nothing judges that members are related or stereogenic, chem.cip, chem.identity, chem.substructure and chem.validate ignore groups, and chem.stereo says it does not examine them. The web editor only reads the snapshot's groups (it shows and edits none).",
+          "summary": "Enhanced stereo groups in the document: absolute, and and or groups over stored tetrahedral centers, with the number kept as stated (0, negative and omitted included; an omitted number reads as 0), the interpreted number and a display label computed and never stored, one absolute group per document, created and changed by eight commands in document.transaction (required keys, group and atom references, 12 stereo_group_* reasons with the command index, a 32-bit number range), listed in every snapshot as stereo.groups, left by a member whose configuration goes, followed by undo and redo with stable ids, saved and reopened, and reported in notes (partial) when an edit changes which centers are stated to belong together. Statements only: no ratio is stated for and, nothing judges that members are related or stereogenic, chem.cip, chem.identity, chem.substructure and chem.validate ignore groups, and chem.stereo says it does not examine them. The web editor's display and editing of groups is STEREO-01.2.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_group.rs",
@@ -444,7 +444,7 @@
         },
         {
           "id": "MODEL-03.rest",
-          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, isotope-aware and symmetry-aware stereo, a web display and editing of enhanced stereo groups, mirror and flip commands, and a crossed-mark canvas tool.",
+          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, isotope-aware and symmetry-aware stereo, mirror and flip commands, and a crossed-mark canvas tool.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

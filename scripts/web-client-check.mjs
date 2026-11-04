@@ -4874,3 +4874,11 @@ test('a group number field follows the stored number unless the person is typing
   assert.equal(reseedDraft('9', '5', '7', true), '9', 'typing is kept, with its focus')
   assert.equal(reseedDraft('5', '5', '7', true), '7', 'focused but untouched follows')
 })
+
+test('a settled Set number request resets the field only when it still holds what was sent', async () => {
+  const { settledDraft } = await import('../apps/web/src/editor/stereo-groups.ts')
+  assert.equal(settledDraft('7', '7', '-2'), '-2', 'refused: back to the stored number')
+  assert.equal(settledDraft('7', '7', '7'), '7', 'accepted: the stored number is what was typed')
+  assert.equal(settledDraft('71', '7', '-2'), '71', 'text typed while the request ran is kept')
+  assert.equal(settledDraft('', '7', '-2'), '', 'so is a field the person cleared')
+})

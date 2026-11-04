@@ -865,7 +865,7 @@ The reply's `result.document.stereo.groups` and `result.notes` are:
   "notes": [] }
 ```
 
-**Not claimed.** A ratio for `and`; a chiral flag; double-bond members; a numbered or repeatable absolute group; that members are related or stereogenic; CIP or relative (`rel`, `rac`) descriptors for groups; an import or export of groups in any format (V3000 collections, CDXML or CDX group numbers beyond 258, V2000 and CXSMILES have no mapping yet: P28, P29); the web editor shows and edits no groups yet (P27c).
+**Not claimed.** A ratio for `and`; a chiral flag; double-bond members; a numbered or repeatable absolute group; that members are related or stereogenic; CIP or relative (`rel`, `rac`) descriptors for groups; an import or export of groups in any format (V3000 collections, CDXML or CDX group numbers beyond 258, V2000 and CXSMILES have no mapping yet: P28, P29); the web editor shows and edits groups only as described in "Web editor, stereo groups" above (no import or export, no change of kind).
 
 ## Document settings and preferences
 
