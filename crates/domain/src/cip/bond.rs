@@ -3,13 +3,14 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use crate::budget::{Interrupt, Interrupted};
 use crate::document::{AtomId, BondId, BondOrder};
 use crate::stereo::{DoubleBondState, Relation, Slot, StereoKey, StereoState};
 
 use super::context::{Context, Step};
-use super::label::rank_slots;
+use super::label::{Scope, rank_slots};
 use super::{
     BondReport, Descriptor, EndReport, MAX_NESTED_SPHERES, MAX_RULE_3_NESTING, Reason, Rule, State,
     Stop, Warning,
@@ -77,14 +78,81 @@ pub(super) struct Analysis {
     pub(super) own: usize,
     /// The descriptors the two ends asked for directly.
     pub(super) deps: BTreeSet<BondId>,
+    /// The descriptors the comparisons of the two ends' substituents read, which is `deps`
+    /// without the ones only a tie classification asked for.
+    pub(super) read: BTreeSet<BondId>,
+    /// What the ranking of each end looked at, for the ends that were ranked.
+    pub(super) regions: Vec<Region>,
+}
+
+impl Region {
+    /// Whether the ranking expanded an atom of `ends`.
+    fn touches(&self, ends: Option<[AtomId; 2]>) -> bool {
+        ends.is_some_and(|ends| ends.iter().any(|atom| self.expanded.contains(atom)))
+    }
+}
+
+/// What the ranking of one end of a double bond looked at.
+#[derive(Clone, Debug)]
+pub(super) struct Region {
+    /// The two substituents at this end tie.
+    pub(super) tie: bool,
+    /// The atoms the comparisons expanded: the ranking looked at these atoms and their
+    /// neighbors.
+    pub(super) expanded: BTreeSet<AtomId>,
+    /// A digraph of the comparisons closes a ring.
+    pub(super) closes_ring: bool,
+    /// The descriptors the comparisons read.
+    pub(super) read: BTreeSet<BondId>,
 }
 
 impl Analysis {
     fn refused(reason: Reason) -> Self {
+        Self::without_ranking(Outcome::Unsupported(reason))
+    }
+
+    /// The ends whose tie holds seen from any digraph: the ranking that found it saw no ring
+    /// closed and no atom of `ends`, the bond being labeled. A bond with such an end is not
+    /// stereogenic whatever the other end is, so nothing the other end read matters.
+    fn steady_ties(&self, ends: Option<[AtomId; 2]>) -> Vec<&Region> {
+        self.regions
+            .iter()
+            .filter(|region| region.tie && !region.closes_ring && !region.touches(ends))
+            .collect()
+    }
+
+    /// The descriptors whose being read the same from any digraph decides whether this
+    /// analysis is: none when a steady tie read none (that tie alone makes the bond not
+    /// stereogenic in every reading, the two hydrogens of a `=CH2` for one, so what another end
+    /// read does not matter), otherwise those the steady ties read, or all of them when there
+    /// is no steady tie.
+    ///
+    /// A steady tie that read something is not preferred over another that read something else:
+    /// which of two is "the smaller" would follow the bond identifiers, and so the answer would
+    /// follow the numbering. They are taken together, which can refuse a bond that either end
+    /// alone would have settled, never label one.
+    pub(super) fn reads_that_matter(&self, ends: Option<[AtomId; 2]>) -> BTreeSet<BondId> {
+        let steady = self.steady_ties(ends);
+        if steady.is_empty() {
+            return self.read.clone();
+        }
+        if steady.iter().any(|region| region.read.is_empty()) {
+            return BTreeSet::new();
+        }
+        steady
+            .into_iter()
+            .flat_map(|region| region.read.iter().copied())
+            .collect()
+    }
+
+    /// An outcome that needed no ranking.
+    fn without_ranking(outcome: Outcome) -> Self {
         Self {
-            outcome: Outcome::Unsupported(reason),
+            outcome,
             own: 0,
             deps: BTreeSet::new(),
+            read: BTreeSet::new(),
+            regions: Vec::new(),
         }
     }
 }
@@ -155,21 +223,20 @@ fn analyze(
     oracle: &Oracle<'_, '_>,
     id: BondId,
     cap: usize,
+    without_bond: Option<[AtomId; 2]>,
     interrupt: &dyn Interrupt,
 ) -> Result<Analysis, Interrupted> {
     let ends = match ends(context, id) {
         Ok(ends) => ends,
         Err(Refusal::Cumulated) => {
-            return Ok(Analysis {
-                outcome: Outcome::Cumulated,
-                own: 0,
-                deps: BTreeSet::new(),
-            });
+            return Ok(Analysis::without_ranking(Outcome::Cumulated));
         }
         Err(Refusal::Reason(reason)) => return Ok(Analysis::refused(reason)),
     };
     let mut own = 0_usize;
     let mut deps = BTreeSet::new();
+    let mut read = BTreeSet::new();
+    let mut regions = Vec::new();
     let mut found = Vec::new();
     for end in &ends {
         let ranking = rank_slots(
@@ -177,12 +244,16 @@ fn analyze(
             oracle,
             end.atom,
             &end.positions,
-            cap,
-            MAX_NESTED_SPHERES,
+            Scope {
+                cap,
+                spheres: MAX_NESTED_SPHERES,
+                without_bond,
+            },
             interrupt,
         )?;
         own = own.saturating_add(ranking.own_nodes);
         deps.extend(ranking.requested.iter().copied());
+        read.extend(ranking.read.iter().copied());
         found.push(if let Some(&reason) = ranking.unsupported.iter().min() {
             End3::Unsupported(reason)
         } else if ranking.ambiguous {
@@ -193,6 +264,12 @@ fn analyze(
                 (std::cmp::Ordering::Less, Some(rule)) => End3::Distinct(1, rule),
                 _ => End3::Tie,
             }
+        });
+        regions.push(Region {
+            tie: found.last() == Some(&End3::Tie),
+            expanded: ranking.expanded,
+            closes_ring: ranking.closes_ring,
+            read: ranking.read,
         });
     }
     // The precedence is deliberate: a bond with two tied substituents at one end is not
@@ -217,7 +294,13 @@ fn analyze(
             decided_by: [rule_a, rule_b],
         }
     };
-    Ok(Analysis { outcome, own, deps })
+    Ok(Analysis {
+        outcome,
+        own,
+        deps,
+        read,
+        regions,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -283,11 +366,11 @@ fn orient(
 /// on the order bonds were asked in, and a bond asked for later is computed afresh.
 #[derive(Default)]
 struct Memory {
-    memo: BTreeMap<BondId, Analysis>,
-    provisional: BTreeMap<(BondId, Vec<BondId>), (Analysis, usize)>,
+    memo: BTreeMap<BondId, Rc<Analysis>>,
+    provisional: BTreeMap<(BondId, Vec<BondId>), (Rc<Analysis>, usize)>,
     /// The latest analysis of every bond, kept or not; only the cost of a descriptor is read
     /// from it (see [`Oracle::closure`]).
-    latest: BTreeMap<BondId, Analysis>,
+    latest: BTreeMap<BondId, Rc<Analysis>>,
     stack: Vec<BondId>,
     /// The lowest stack position a cycle refusal pointed at during the computation now running,
     /// or `usize::MAX`.
@@ -329,7 +412,7 @@ impl<'c, 'g> Oracle<'c, 'g> {
     /// # Errors
     ///
     /// An interrupt.
-    pub(super) fn analysis(&self, bond: BondId) -> Result<Analysis, Interrupted> {
+    pub(super) fn analysis(&self, bond: BondId) -> Result<Rc<Analysis>, Interrupted> {
         let (hits, outer_cycle_at) = {
             let mut memory = self.memory.borrow_mut();
             if let Some(found) = memory.memo.get(&bond) {
@@ -337,11 +420,11 @@ impl<'c, 'g> Oracle<'c, 'g> {
             }
             if let Some(position) = memory.stack.iter().position(|&asked| asked == bond) {
                 memory.cycle_at = memory.cycle_at.min(position);
-                return Ok(Analysis::refused(Reason::StereoCycle));
+                return Ok(Rc::new(Analysis::refused(Reason::StereoCycle)));
             }
             if memory.stack.len() >= MAX_RULE_3_NESTING {
                 memory.nesting_hits += 1;
-                return Ok(Analysis::refused(Reason::DigraphLimit));
+                return Ok(Rc::new(Analysis::refused(Reason::DigraphLimit)));
             }
             let key = (bond, memory.stack.clone());
             if let Some((found, cycle_at)) = memory.provisional.get(&key).cloned() {
@@ -352,12 +435,12 @@ impl<'c, 'g> Oracle<'c, 'g> {
             let outer = std::mem::replace(&mut memory.cycle_at, usize::MAX);
             (memory.nesting_hits, outer)
         };
-        let result = analyze(self.context, self, bond, self.cap, self.interrupt);
+        let result = analyze(self.context, self, bond, self.cap, None, self.interrupt);
         let mut memory = self.memory.borrow_mut();
         memory.stack.pop();
         let cycle_at = memory.cycle_at;
         memory.cycle_at = outer_cycle_at.min(cycle_at);
-        let analysis = result?;
+        let analysis = Rc::new(result?);
         if memory.nesting_hits == hits {
             memory.latest.insert(bond, analysis.clone());
             if cycle_at == usize::MAX {
@@ -404,17 +487,10 @@ impl<'c, 'g> Oracle<'c, 'g> {
         if !visited.insert(bond) {
             return 0;
         }
-        let kept = {
-            let memory = self.memory.borrow();
-            memory
-                .memo
-                .get(&bond)
-                .or_else(|| memory.latest.get(&bond))
-                .cloned()
-        };
-        let Some(found) = kept else {
+        let memory = self.memory.borrow();
+        let Some(found) = memory.memo.get(&bond).or_else(|| memory.latest.get(&bond)) else {
             // A bond whose computation is on the stack is being paid for by its own asker.
-            return if self.memory.borrow().stack.contains(&bond) {
+            return if memory.stack.contains(&bond) {
                 0
             } else {
                 missing
@@ -429,6 +505,107 @@ impl<'c, 'g> Oracle<'c, 'g> {
     /// not been charged to `visited` yet.
     pub(super) fn charge(&self, bond: BondId, visited: &mut BTreeSet<BondId>) -> usize {
         self.closure(bond, visited, 0)
+    }
+
+    /// The analysis of `bond` with the bond between `ends` left out of the digraphs, not kept.
+    ///
+    /// Only [`Oracle::seen_from_inside`] asks, and it is asked by a double bond being labeled
+    /// ([`double_bond`], after its own analysis has finished; a center passes no ends and never
+    /// gets here). No descriptor is being computed then, so the stack is empty and this is the
+    /// computation a request for `bond` from the top would make: the same nesting bound, and no
+    /// outer computation whose `cycle_at` would have to be kept.
+    fn analysis_without(&self, bond: BondId, ends: [AtomId; 2]) -> Result<Analysis, Interrupted> {
+        debug_assert!(
+            self.memory.borrow().stack.is_empty(),
+            "a descriptor is being computed while a unit asks how it reads from inside"
+        );
+        self.memory.borrow_mut().stack.push(bond);
+        let result = analyze(
+            self.context,
+            self,
+            bond,
+            self.cap,
+            Some(ends),
+            self.interrupt,
+        );
+        let mut memory = self.memory.borrow_mut();
+        memory.stack.pop();
+        memory.cycle_at = usize::MAX;
+        result
+    }
+
+    /// Whether the descriptors in `read`, and those they read in turn, are the same seen from
+    /// inside the digraph of a double bond with ends `ends`.
+    ///
+    /// For a center (`ends` is `None`) nothing is ranked again: only a ring closure can differ,
+    /// and the walk follows analyses already computed, over bonds that are all in the closure of
+    /// the descriptors the center was charged for (a bond's reads are among its direct needs), so
+    /// it adds no work to count and `nodes`, `deps` and `over` stay empty.
+    ///
+    /// A bond that has no analysis kept (it was computed under a nesting limit) cannot be
+    /// reached with the item inside its cap: its cost counts as `cap + 1` wherever the item is
+    /// charged for it, and the item is a limit before `differs` is read.
+    pub(super) fn seen_from_inside(
+        &self,
+        read: BTreeSet<BondId>,
+        ends: Option<[AtomId; 2]>,
+        room: usize,
+    ) -> Result<Seen, Interrupted> {
+        let mut seen = Seen {
+            differs: false,
+            over: false,
+            nodes: 0,
+            deps: BTreeSet::new(),
+        };
+        let mut visited = BTreeSet::new();
+        let mut pending: Vec<BondId> = read.into_iter().collect();
+        while let Some(bond) = pending.pop() {
+            if !visited.insert(bond) {
+                continue;
+            }
+            let kept = {
+                let memory = self.memory.borrow();
+                memory
+                    .memo
+                    .get(&bond)
+                    .or_else(|| memory.latest.get(&bond))
+                    .cloned()
+            };
+            let Some(found) = kept else {
+                // See above: the item is a limit whatever `differs` says.
+                seen.differs = true;
+                continue;
+            };
+            if !found.steady_ties(ends).is_empty() {
+                pending.extend(found.reads_that_matter(ends));
+                continue;
+            }
+            pending.extend(found.read.iter().copied());
+            if found.regions.iter().any(|region| region.closes_ring) {
+                seen.differs = true;
+                continue;
+            }
+            let Some(ends) = ends else { continue };
+            if !found
+                .regions
+                .iter()
+                .any(|region| region.touches(Some(ends)))
+            {
+                continue;
+            }
+            let inside = self.analysis_without(bond, ends)?;
+            seen.nodes = seen.nodes.saturating_add(inside.own);
+            if seen.nodes > room {
+                seen.over = true;
+                return Ok(seen);
+            }
+            seen.deps.extend(inside.deps.iter().copied());
+            pending.extend(inside.read.iter().copied());
+            if !same_reading(&found.outcome, &inside.outcome) {
+                seen.differs = true;
+            }
+        }
+        Ok(seen)
     }
 
     /// The cost of everything a finished computation asked for, `requested` being what it asked
@@ -446,9 +623,52 @@ impl<'c, 'g> Oracle<'c, 'g> {
         requested: &BTreeSet<BondId>,
     ) -> usize {
         let mut visited: BTreeSet<BondId> = root.into_iter().collect();
+        self.closure_cost_into(&mut visited, requested)
+    }
+
+    /// The cost of `requested` and what they need, not counting the bonds in `visited`, which
+    /// gains them.
+    pub(super) fn closure_cost_into(
+        &self,
+        visited: &mut BTreeSet<BondId>,
+        requested: &BTreeSet<BondId>,
+    ) -> usize {
         requested.iter().fold(0_usize, |total, &bond| {
-            total.saturating_add(self.closure(bond, &mut visited, self.cap.saturating_add(1)))
+            total.saturating_add(self.closure(bond, visited, self.cap.saturating_add(1)))
         })
+    }
+}
+
+/// What reading the descriptors a double bond's ends asked for from inside its own digraph found.
+pub(super) struct Seen {
+    /// Some descriptor is not the same.
+    pub(super) differs: bool,
+    /// The rankings redone cost more than the room left.
+    pub(super) over: bool,
+    /// The nodes of the rankings that were redone.
+    pub(super) nodes: usize,
+    /// The descriptors those asked for directly.
+    pub(super) deps: BTreeSet<BondId>,
+}
+
+/// Whether two outcomes read the same for Rule 3: the same refusal or tie, or the same higher
+/// substituent at each end.
+fn same_reading(a: &Outcome, b: &Outcome) -> bool {
+    match (a, b) {
+        (
+            Outcome::Distinct {
+                atoms: atoms_a,
+                higher: higher_a,
+                ..
+            },
+            Outcome::Distinct {
+                atoms: atoms_b,
+                higher: higher_b,
+                ..
+            },
+        ) => atoms_a == atoms_b && higher_a == higher_b,
+        (Outcome::Distinct { .. }, _) | (_, Outcome::Distinct { .. }) => false,
+        (a, b) => a == b,
     }
 }
 
@@ -480,15 +700,39 @@ pub(super) fn double_bond(
     };
     report.stored = record;
     let analysis = oracle.analysis(id).map_err(Stop::Interrupted)?;
-    let requested = analysis.deps.clone();
-    let total = analysis
+    let mut visited = BTreeSet::from([id]);
+    let mut total = analysis
         .own
-        .saturating_add(oracle.closure_cost_from(Some(id), &requested));
+        .saturating_add(oracle.closure_cost_into(&mut visited, &analysis.deps));
+    let mut reads_own_atoms = false;
+    if total <= item_cap
+        && !analysis.read.is_empty()
+        && let Some(own) = context.bond(id)
+    {
+        let seen = oracle
+            .seen_from_inside(
+                analysis.reads_that_matter(Some([own.begin, own.end])),
+                Some([own.begin, own.end]),
+                item_cap - total,
+            )
+            .map_err(Stop::Interrupted)?;
+        reads_own_atoms = seen.differs;
+        total = if seen.over {
+            item_cap.saturating_add(1)
+        } else {
+            total
+                .saturating_add(seen.nodes)
+                .saturating_add(oracle.closure_cost_into(&mut visited, &seen.deps))
+        };
+    }
     report.nodes = total;
     report.state = match &analysis.outcome {
         _ if total > item_cap => State::Unsupported(Reason::DigraphLimit),
         Outcome::Unsupported(reason) => State::Unsupported(*reason),
         Outcome::Cumulated => State::Unsupported(Reason::DoubleBondStructure),
+        // Whatever the ends came to, a descriptor they read was ranked through this bond's own
+        // atoms: see [`Reason::Rule3NestedDescriptor`].
+        _ if reads_own_atoms => State::Unsupported(Reason::Rule3NestedDescriptor),
         Outcome::Ambiguous => State::Ambiguous(Reason::LigandStereoUnspecified),
         Outcome::Tie => {
             if record.is_some() {

@@ -35,6 +35,25 @@
 //! says so, so it is not adopted.) Two unspecified ligand double bonds that are otherwise
 //! equal are ambiguous too, because they may differ.
 //!
+//! The intrinsic reading is the model's, and RDKit 2022.03.2's labeler reads the descriptor
+//! of a ligand double bond in the digraph rooted at the unit being labeled instead; no public
+//! IUPAC statement this model rests on says which one the rule means, so where the two can
+//! differ the result is [`Reason::Rule3NestedDescriptor`], not a guess. They differ in two
+//! ways. The cut: the digraph of a double bond `X=Y` has `X` as root and no real child `Y`
+//! (only the duplicate), so a ligand double bond whose end ranking reaches `X` sees `X`
+//! without `Y` there and with it in the whole molecule. The ring: a ring closes at a different
+//! atom in the digraph than in the whole molecule, so a ranking that goes round a ring can
+//! order its neighbors differently. A descriptor read by a comparison is refused when the
+//! ranking of its ends closes a ring anywhere in what it reads in turn, or, for a unit that
+//! is a double bond, reaches an atom of that bond and reads differently once the bond is left
+//! out of the digraphs. A tie at one end of the ligand bond that is the same either way (no
+//! ring closes in it and it reaches no atom of the unit) makes the bond not stereogenic in
+//! every reading: it is not refused when the tie read no descriptor (the two hydrogens of a
+//! `=CH2`), and when it did the descriptors it read are checked in the same way. The check is made on the result of a unit, not inside the
+//! descriptors kept for the request, so it does not change them. The refusal is narrow but not
+//! exact: some refused bonds agree with RDKit (`tests/cip-fixtures.json` and
+//! `scripts/verify-cip-rdkit.py` keep cases of both kinds).
+//!
 //! # Digraph
 //!
 //! The digraph of a ligand is built lazily, one sphere at a time, from the center as root.
@@ -98,7 +117,11 @@
 //! root it is asked from. This is a documented limit: the refusal is `unsupported`, never a
 //! wrong label. Each descriptor is computed once per request, and every pair that
 //! needs it is charged what it cost again (the descriptor and the descriptors it needs), so
-//! the work counted does not depend on which pair or item ran first. A descriptor whose
+//! the work counted does not depend on which pair or item ran first. The questions of one tie
+//! classification (could two positions of an atom in a tied ligand differ?) are charged each
+//! descriptor's cost once for the whole classification, and every pair of positions of an atom
+//! is asked, so the charge does not depend on the order the neighbors are listed in. The cost
+//! of the descriptors an engine needed is counted once, after its comparison. A descriptor whose
 //! computation met a cycle (a bond asked for while it was being computed) is the exception: its
 //! result depends on which bond of the cycle was asked for first, so it is not kept for the
 //! request but reused only while the stack of bonds being computed is the same, and a bond
@@ -216,6 +239,16 @@ pub enum Reason {
     Rule4Or5Needed,
     /// The descriptor of a ligand double bond depends on itself.
     StereoCycle,
+    /// Rule 3 needs the descriptor of a ligand double bond that can be read two ways, which
+    /// can differ: ranked in the whole molecule, where the labeled unit's own atoms and rings
+    /// are part of what the ends of the ligand bond look at, or ranked inside the digraph
+    /// rooted at the labeled unit, where they are not. It is refused when the ligand bond's
+    /// ranking reaches an atom of the labeled double bond and the same ranking without that
+    /// bond reads differently, or when it passes through a ring that closes on itself (the
+    /// digraph closes a ring where the unit enters it), unless a tie at one end of the ligand
+    /// bond makes it not stereogenic whichever way it is read (a tie that read no descriptor,
+    /// or whose descriptors read the same either way). See the module documentation.
+    Rule3NestedDescriptor,
     /// Only with [`State::Ambiguous`]: Rule 3 has to place a stereogenic ligand double bond
     /// whose geometry the document does not state (no record, or stored unknown).
     LigandStereoUnspecified,
@@ -240,6 +273,7 @@ impl Reason {
             Self::MassNumber => "cip_mass_number",
             Self::Rule4Or5Needed => "cip_rule_4_or_5_needed",
             Self::StereoCycle => "cip_stereo_cycle",
+            Self::Rule3NestedDescriptor => "cip_rule3_nested_descriptor",
             Self::LigandStereoUnspecified => "cip_ligand_stereo_unspecified",
             Self::RankingInconsistent => "cip_ranking_inconsistent",
             Self::DigraphLimit => "cip_digraph_limit",

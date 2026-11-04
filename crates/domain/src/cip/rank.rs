@@ -240,6 +240,12 @@ impl<'c, 'g> Engine<'c, 'g> {
         }
     }
 
+    /// Leaves the bond between `ends` out of the digraphs: see [`Arena::without_bond`].
+    pub(super) fn without_bond(mut self, ends: Option<[AtomId; 2]>) -> Self {
+        self.arena = self.arena.without_bond(ends);
+        self
+    }
+
     /// The smallest reason a comparison of this engine met that the model cannot decide.
     pub(super) const fn refusal(&self) -> Option<Reason> {
         self.refusal
@@ -256,6 +262,9 @@ impl<'c, 'g> Engine<'c, 'g> {
     }
 
     /// Nodes materialized: the arena, and every descriptor Rule 3 needed with what it needed.
+    /// Walking the descriptors is not free, and what it finds can change whenever the oracle
+    /// computes another descriptor, so this is computed afresh at each call: ask once, after
+    /// the comparison, and keep the answer.
     pub(super) fn nodes(&self) -> usize {
         self.arena
             .len()

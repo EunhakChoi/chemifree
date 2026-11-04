@@ -775,6 +775,7 @@ fn double_bond_labels_agree_with_a_naive_side_assignment_on_generated_molecules(
                         shown == "none"
                             || shown == "unsupported:cip_rule_4_or_5_needed"
                             || shown == "unsupported:cip_digraph_limit"
+                            || shown == "unsupported:cip_rule3_nested_descriptor"
                             || shown == "unsupported:cip_stereo_cycle",
                         "{shown} for a tie in {:?}",
                         molecule.bonds
@@ -1014,6 +1015,25 @@ fn a_tied_end_makes_a_bond_not_stereogenic_whatever_the_other_end_cannot_say() {
     }
 }
 
+#[test]
+fn a_tie_that_reads_nothing_makes_the_bond_not_stereogenic_whatever_the_other_end_reads() {
+    // Each arm is CH2-C(isobutyl)=CH-CH3 with an E bond. The two arms tie at their carbon by
+    // Rule 3, which reads the descriptors of those inner bonds, and an inner bond separates its
+    // two substituents (the CH2 back toward the carbon, the isobutyl) only at the carbon's own
+    // substituents: the whole molecule has the other end of the labeled bond there and the
+    // digraph of the labeled bond has not, so the inner descriptors read differently from the
+    // bond. With =CH2 at the other end the bond is not stereogenic whatever they say, because
+    // its two hydrogens tie without reading any descriptor. RDKit 2022.03.2 gives `none`.
+    let arms = "(/C/C(CC(C)C)=C/C)\\C/C(CC(C)C)=C/C";
+    assert_eq!(bond_label(&format!("C=C{arms}"), 0, 1), "none");
+    // Beside an end that does not tie (CH3 and H) the tie of the arms is all that would make
+    // the bond not stereogenic, and it rests on those descriptors: refused (RDKit: `none`).
+    assert_eq!(
+        bond_label(&format!("C/C=C{arms}"), 1, 2),
+        "unsupported:cip_rule3_nested_descriptor"
+    );
+}
+
 /// The nodes a center is charged when its two ligands are the same cage or fused polycycle: the
 /// worst case for a tie, since both digraphs are read to their last sphere and classified. A
 /// deterministic count of the accounting in the module comment of `cip.rs`; a change to the
@@ -1022,16 +1042,16 @@ fn a_tied_end_makes_a_bond_not_stereogenic_whatever_the_other_end_cannot_say() {
 #[test]
 fn the_default_caps_hold_for_cage_and_fused_polycyclic_ligands_except_the_cubyl_pair() {
     let measured = [
-        ("adamantyl", "C12CC3CC(CC(C3)C1)C2", 6488),
+        ("adamantyl", "C12CC3CC(CC(C3)C1)C2", 6696),
         ("twistyl", "C1C2CC3CC1CC23", 1674),
         ("norbornyl", "C1CC2CCC1C2", 654),
-        ("bicyclo[2.2.2]octyl", "C1CC2CCC1CC2", 1438),
+        ("bicyclo[2.2.2]octyl", "C1CC2CCC1CC2", 1446),
         ("bispidyl", "C1C2CNCC1CN2", 494),
         ("decalyl", "C1CCC2CCCCC2C1", 726),
         ("gonyl", "C1CCC2C(C1)CCC1C2CCC2CCCC12", 3258),
         ("perhydrotriphenylyl", "C1CCC2C(C1)C1CCCCC1C1CCCCC21", 3384),
         ("perhydropyrenyl", "C1CC2CCC3CCC4CCC1C2C34", 5100),
-        ("cubyl", "C12C3C4C1C5C2C3C45", 119_162),
+        ("cubyl", "C12C3C4C1C5C2C3C45", 119_646),
     ];
     let unlimited = Limits {
         item_nodes: 50_000_000,
