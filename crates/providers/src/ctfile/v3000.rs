@@ -689,7 +689,9 @@ fn read_collections(
         let unsupported = |m: &str| refuse("v3000_collection_not_supported_yet", m.to_owned());
         let invalid = |m: &str| refuse("v3000_invalid_collection", m.to_owned());
         let words = tokens(item, record)?;
-        let name = words[0]
+        let name = words
+            .first()
+            .ok_or_else(|| invalid("A collection line is empty."))?
             .strip_prefix("MDLV30/")
             .ok_or_else(|| unsupported("Only MDLV30/STEABS, STERAC and STEREL are carried."))?;
         let number = |digits: &str| {

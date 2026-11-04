@@ -1142,7 +1142,7 @@
    "acceptance": "독립 파서로 query·그룹·동위원소·라디칼·stereo를 대조하고 필드별 손실과 실패 후 상태 불변을 검사한다.",
    "kind": "core",
    "id": "P28",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1151,7 +1151,8 @@
    "depends_on": [
     "P20",
     "P27"
-   ]
+   ],
+   "note": "첫 납품 P28a는 제공자 계층의 MOL V3000 코덱 핵심뿐이다(와이어·연산·요청·응답·HTTP·CLI·웹·연산 수 27 변경 없음, `document.import`·`document.export`는 여전히 V3000을 거절한다): `crates/providers/src/ctfile/v3000.rs`가 `M  V30 ` 접두·`-` 이어쓰기·CRLF를 읽는 논리 줄 읽기와 블록 파서, 핵심 부분집합(원소 원자와 좌표, 차수 1~4 결합, 전하·동위원소·라디칼)의 쓰기, COUNTS chiral 플래그 읽기(해석하지 않음, 쓰기는 0), STEABS·STERAC·STEREL collection을 매핑 없이 레코드에 싣는 읽기를 담고, 포트에는 `ctab` 선택자(`read_ctab`·`write_ctab`)만 더했다. SGroup·R-group·query·원자 parity·3D·반응은 닫힌 `v3000_*` 이유로 거절하며 이유는 진단 가족에 대응한다. 남은 범위(P28b 이후): 레코드↔도면 투영과 결합 표시·배치·그룹 매핑, 동의 손실과 `ctab` 요청 필드, V2000으로 내릴 때의 한계, 웹, query·SGroup 모델."
   },
   {
    "phase": "stereo",

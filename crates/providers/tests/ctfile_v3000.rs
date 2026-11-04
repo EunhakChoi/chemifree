@@ -335,6 +335,7 @@ fn refuses_each_unsupported_collection_with_its_reason() {
         )
     };
     let cases = [
+        ("blank collection line", "", "v3000_invalid_collection"),
         ("highlight collection", "MDLV30/HILITE ATOMS=(1 1)", "v3000_collection_not_supported_yet"),
         ("bond members", "MDLV30/STEREL1 ATOMS=(1 1) BONDS=(1 1)", "v3000_collection_not_supported_yet"),
         ("no atoms key", "MDLV30/STEABS", "v3000_invalid_collection"),
@@ -607,4 +608,10 @@ fn the_v2000_writer_is_unchanged_by_the_selector() {
     assert_eq!(direct.value, selected.value);
     assert!(direct.value.contains(" V2000\n"));
     assert_eq!(write(&item).unwrap().matches("V3000").count(), 1);
+}
+
+#[test]
+fn text_after_m_end_of_a_mol_file_is_refused() {
+    let text = format!("{}junk\n", base());
+    assert_eq!(read(&text).map(|_| ()), Err(("trailing_content", Some(18))));
 }
