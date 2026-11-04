@@ -730,35 +730,23 @@ fn import_commands(
         commands.extend(command);
         centers
     };
-    let mut grouped: BTreeMap<(u8, i32), Vec<usize>> = BTreeMap::new();
+    // Ordered by kind (absolute, and, or), then by number.
+    let mut grouped: BTreeMap<(GroupKind, i32), Vec<usize>> = BTreeMap::new();
     for (atom, membership) in memberships {
-        let rank = match membership.kind {
-            GroupKind::Absolute => 0,
-            GroupKind::And => 1,
-            GroupKind::Or => 2,
-        };
         grouped
-            .entry((rank, membership.number))
+            .entry((membership.kind, membership.number))
             .or_default()
             .push(*atom);
     }
     let groups: Vec<GroupInput> = grouped
-        .iter()
-        .map(|(&(rank, number), members)| match rank {
-            0 => GroupInput {
-                kind: GroupKind::Absolute,
-                number: None,
-                atoms: members.clone(),
+        .into_iter()
+        .map(|((kind, number), atoms)| GroupInput {
+            kind,
+            number: match kind {
+                GroupKind::Absolute => None,
+                GroupKind::And | GroupKind::Or => Some(number),
             },
-            _ => GroupInput {
-                kind: if rank == 1 {
-                    GroupKind::And
-                } else {
-                    GroupKind::Or
-                },
-                number: Some(number),
-                atoms: members.clone(),
-            },
+            atoms,
         })
         .collect();
     let group_commands = stereo_projection::group_commands(
@@ -772,6 +760,13 @@ fn import_commands(
         GroupFault::DrawingUnreadable => fail(
             "stereo_group_drawing_unreadable",
             "The drawn marks of this fragment could not be read into configurations, so its stereo groups cannot be mapped; nothing was imported.",
+        ),
+        GroupFault::MemberNotStereocenter { atom, .. } if marks.is_empty() => fail(
+            "stereo_group_member_not_stereocenter",
+            format!(
+                "{} states an enhanced stereo group but the fragment draws no stereo marks, so no configuration can be derived for it; nothing was imported.",
+                atoms[atom].source.path
+            ),
         ),
         GroupFault::MemberNotStereocenter { atom, .. } => fail(
             "stereo_group_member_not_stereocenter",
@@ -844,8 +839,8 @@ fn graph_commands(
 
 impl Projection {
     /// The exact transaction that a preview or creation validates.
-    pub(crate) fn commands(&self) -> Result<Vec<Command>, InterchangeError> {
-        Ok(self.commands.clone())
+    pub(crate) fn commands(&self) -> &[Command] {
+        &self.commands
     }
 }
 
@@ -1001,7 +996,7 @@ mod tests {
                 "implicit_hydrogen_interpretation"
             ]
         );
-        assert_eq!(projection.commands().unwrap().len(), 3);
+        assert_eq!(projection.commands().len(), 3);
     }
 
     #[test]
@@ -1162,7 +1157,8 @@ mod tests {
             binary_group(3, [0x02, 0x01]),
             binary_group(3, [0x80, 0x00]),
         ]);
-        let commands = project(&document, 1, 2).unwrap().commands().unwrap();
+        let projection = project(&document, 1, 2).unwrap();
+        let commands = projection.commands();
         let mut numbers: Vec<_> = commands
             .iter()
             .filter_map(|command| match command {
@@ -1188,7 +1184,8 @@ mod tests {
     #[test]
     fn marks_and_configurations_come_before_the_groups_in_one_transaction() {
         let document = fans(vec![binary_group(2, [0, 0])]);
-        let commands = project(&document, 1, 2).unwrap().commands().unwrap();
+        let projection = project(&document, 1, 2).unwrap();
+        let commands = projection.commands();
         let position = |wanted: fn(&Command) -> bool| commands.iter().position(wanted).unwrap();
         let mark = position(|c| matches!(c, Command::SetBondMark { .. }));
         let configuration = position(|c| matches!(c, Command::SetConfigurationFromDrawing { .. }));

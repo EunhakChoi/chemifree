@@ -388,13 +388,13 @@ fn dative_direction_is_retained_in_rich_xml_but_cannot_create_an_editor_graph() 
 }
 
 #[test]
-fn a_bond_display_value_outside_the_public_list_is_not_read_as_a_plain_bond() {
+fn a_bond_display_value_outside_the_public_enumeration_is_not_read_as_a_plain_bond() {
     // The rich tree keeps the attribute; the editor projection reads the listed values (P29b:
     // `tests/cdxml_stereo_import.rs`) and refuses any other instead of creating an unmarked
     // bond. `DoublePosition` has no public spelling and stays refused too.
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
-    for display in ["Dot", "DashDot", "WavyWedgeBegin"] {
+    for display in ["wedgebegin", "Future", "Solid "] {
         let source = format!(
             "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"3\" p=\"0 0\"/><n id=\"4\" p=\"1 0\"/><b id=\"5\" B=\"3\" E=\"4\" Display=\"{display}\"/></fragment></page></CDXML>"
         );

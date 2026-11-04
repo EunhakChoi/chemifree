@@ -63,7 +63,9 @@ def _cdxml(fixture: dict[str, Any], reverse: bool) -> str | None:
     for index, (first, second, kind, mark) in enumerate(fixture["bonds"]):
         if mark == "x":
             return None
-        order = {"-": 1, "=": 2}[kind]
+        order = {"-": 1, "=": 2}.get(kind)
+        if order is None:
+            return None
         narrow_second = mark.endswith("<")
         base = mark.rstrip("<")
         begin, end, display = first, second, _DISPLAY.get(base, "")
@@ -117,6 +119,7 @@ def main() -> int:
     corpus = json.loads(sibling._FIXTURES.read_text(encoding="utf-8"))
     problems = 0
     checked = 0
+    skipped = 0
     for fixture in corpus["fixtures"]:
         name = fixture["name"]
         if "refused" in fixture:
@@ -127,6 +130,8 @@ def main() -> int:
         for reverse in (False, True):
             text = _cdxml(fixture, reverse)
             if text is None:
+                sys.stdout.write(f"{name}: skipped, a mark or bond kind with no CDXML form here\n")
+                skipped += 1
                 break
             seen = sibling._canonical(
                 rdkit.Chem.MolFromMolBlock(_molblock(text)), f"{name} (cdxml)"
@@ -141,7 +146,7 @@ def main() -> int:
                 f"{'agrees' if agrees else 'DIFFERS'}; stated {expected}; RDKit {seen}"
                 f"{'' if ok else '  <-- PROBLEM'}\n"
             )
-    sys.stdout.write(f"RDKit {rdkit.__version__}: {checked} readings, {problems} problems\n")
+    sys.stdout.write(f"RDKit {rdkit.__version__}: {checked} readings, {skipped} skipped, {problems} problems\n")
     return 1 if problems else 0
 
 

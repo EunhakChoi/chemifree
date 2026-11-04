@@ -64,6 +64,7 @@ fn carrier(owner: &ObjectKind, kind: &PropertyKind) -> Option<Carrier> {
             "Display2" => Some(Carrier::Display2),
             _ => None,
         },
+        (ObjectKind::Bond, PropertyKind::UnknownBinary(0x0601)) => Some(Carrier::Display),
         _ => None,
     }
 }
@@ -108,7 +109,7 @@ fn note(
     }
 }
 
-/// The first `limit` characters of a source value, for a message.
+/// The first 32 characters of a source value, for a message.
 fn shown(text: &str) -> String {
     text.chars().take(32).collect()
 }
@@ -201,9 +202,9 @@ fn check_geometry(value: &PropertyValue, path: &str) -> Result<(), InterchangeEr
         Ok(())
     } else {
         Err(fail(
-            "unsupported_node",
+            "unsupported_geometry",
             format!(
-                "{path} has a Geometry other than Tetrahedral, whose meaning is not established; nothing was imported."
+                "{path} is a Geometry other than Tetrahedral, whose meaning is not established; nothing was imported."
             ),
         ))
     }
@@ -260,7 +261,7 @@ pub(super) fn read_node(
         seen.push(found);
         match found {
             Carrier::Geometry => {
-                check_geometry(&property.value, path)?;
+                check_geometry(&property.value, &at)?;
                 losses.push(note(
                     at,
                     "stereo_geometry",
@@ -270,7 +271,7 @@ pub(super) fn read_node(
                 ));
             }
             Carrier::BondOrdering => {
-                check_ordering(&property.value, path)?;
+                check_ordering(&property.value, &at)?;
                 losses.push(note(
                     at,
                     "bond_ordering",
@@ -372,65 +373,98 @@ fn note_unused_number(stated: Option<(i32, String)>, losses: &mut Vec<Loss>) {
     }
 }
 
-/// A bond display value the public sources list.
+/// A bond display value of the public `kCDXProp_Bond_Display` enumeration (IUPAC FAIRSpec CDX
+/// SDK page `properties/Bond_Display.htm`), in the page's numbering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Look {
     Solid,
     Dash,
-    Bold,
     Hash,
-    WedgeBegin,
-    WedgeEnd,
     HashWedgeBegin,
     HashWedgeEnd,
+    Bold,
+    WedgeBegin,
+    WedgeEnd,
     Wavy,
     HollowBegin,
     HollowEnd,
+    WavyWedgeBegin,
+    WavyWedgeEnd,
+    Dot,
+    DashDot,
 }
 
-fn look(text: &str) -> Option<Look> {
-    Some(match text {
-        "Solid" => Look::Solid,
-        "Dash" => Look::Dash,
-        "Bold" => Look::Bold,
-        "Hash" => Look::Hash,
-        "WedgeBegin" => Look::WedgeBegin,
-        "WedgeEnd" => Look::WedgeEnd,
-        "WedgedHashBegin" => Look::HashWedgeBegin,
-        "WedgedHashEnd" => Look::HashWedgeEnd,
-        "Wavy" => Look::Wavy,
-        "HollowWedgeBegin" => Look::HollowBegin,
-        "HollowWedgeEnd" => Look::HollowEnd,
-        _ => return None,
-    })
+/// The one table of display values: the position is the CDX `INT16` value, the text is the
+/// CDXML spelling. Both formats read through it, so they classify identically.
+const LOOKS: [(Look, &str); 15] = [
+    (Look::Solid, "Solid"),
+    (Look::Dash, "Dash"),
+    (Look::Hash, "Hash"),
+    (Look::HashWedgeBegin, "WedgedHashBegin"),
+    (Look::HashWedgeEnd, "WedgedHashEnd"),
+    (Look::Bold, "Bold"),
+    (Look::WedgeBegin, "WedgeBegin"),
+    (Look::WedgeEnd, "WedgeEnd"),
+    (Look::Wavy, "Wavy"),
+    (Look::HollowBegin, "HollowWedgeBegin"),
+    (Look::HollowEnd, "HollowWedgeEnd"),
+    (Look::WavyWedgeBegin, "WavyWedgeBegin"),
+    (Look::WavyWedgeEnd, "WavyWedgeEnd"),
+    (Look::Dot, "Dot"),
+    (Look::DashDot, "DashDot"),
+];
+
+/// The value a display property states, as the table's entry, or `None` for a value outside it.
+fn read_look(
+    value: &PropertyValue,
+    at: &str,
+) -> Result<Option<(Look, &'static str)>, InterchangeError> {
+    match value {
+        PropertyValue::Text(text) => Ok(LOOKS.iter().find(|(_, name)| name == text).copied()),
+        PropertyValue::Bytes(bytes) => {
+            let Ok(pair) = <[u8; 2]>::try_from(bytes.as_slice()) else {
+                return Err(invalid(at, "a display value that is not two bytes"));
+            };
+            let number = i16::from_le_bytes(pair);
+            Ok(usize::try_from(number)
+                .ok()
+                .and_then(|index| LOOKS.get(index))
+                .copied())
+        }
+        _ => Err(invalid(at, "a display value of an unexpected kind")),
+    }
 }
 
-/// The mark a display value states on a single bond: the narrow end is the begin atom (`B`)
-/// for `...Begin` and the end atom (`E`) for `...End`.
-fn mark_of(look: Look) -> Option<StereoMark> {
+/// The mark a display value states on a bond of `order` (the source's order bits): the narrow
+/// end is the begin atom (`B`) for `...Begin` and the end atom (`E`) for `...End`, on a single
+/// bond; `Wavy` on a double bond is the double-either (crossed) bond, as the public page says.
+fn mark_of(look: Look, order: i64) -> Option<StereoMark> {
+    let narrow = |end| (order == 1).then_some(end);
     match look {
-        Look::WedgeBegin => Some(StereoMark::Wedge {
-            narrow: BondEnd::Begin,
-        }),
-        Look::WedgeEnd => Some(StereoMark::Wedge {
-            narrow: BondEnd::End,
-        }),
-        Look::HashWedgeBegin => Some(StereoMark::Hash {
-            narrow: BondEnd::Begin,
-        }),
-        Look::HashWedgeEnd => Some(StereoMark::Hash {
-            narrow: BondEnd::End,
-        }),
-        Look::Wavy => Some(StereoMark::Wavy),
+        Look::WedgeBegin => narrow(BondEnd::Begin).map(|narrow| StereoMark::Wedge { narrow }),
+        Look::WedgeEnd => narrow(BondEnd::End).map(|narrow| StereoMark::Wedge { narrow }),
+        Look::HashWedgeBegin => narrow(BondEnd::Begin).map(|narrow| StereoMark::Hash { narrow }),
+        Look::HashWedgeEnd => narrow(BondEnd::End).map(|narrow| StereoMark::Hash { narrow }),
+        Look::Wavy => match order {
+            1 => Some(StereoMark::Wavy),
+            2 => Some(StereoMark::Crossed),
+            _ => None,
+        },
         _ => None,
     }
 }
 
-/// Reads a bond's display values for a bond of `order` (the source's order bits). Returns the
-/// mark the bond holds. A shape that may state stereo but cannot be held (a uniform hash, a
-/// hollow wedge, any mark on a bond that is not single, any mark in `Display2`) imports a plain
-/// bond and reports the consent-required loss `stereo_mark_unplaceable`; a harmless style
-/// (`Bold`, `Dash`) is a no-consent note; a value the sources do not list refuses the bond.
+/// Whether the value is a drawing style the public enumeration gives no stereo meaning
+/// (`Dash`, `Bold`, `Dot`, `DashDot`).
+fn is_style(look: Look) -> bool {
+    matches!(look, Look::Dash | Look::Bold | Look::Dot | Look::DashDot)
+}
+
+/// Reads a bond's display values for a bond of `order`. Returns the mark the bond holds. A
+/// shape that may state stereo but cannot be held (a uniform hash, a hollow or wavy wedge, a
+/// wedge or hash on a bond that is not single, any mark in `Display2`) imports a plain bond and
+/// reports the consent-required loss `stereo_mark_unplaceable`; a drawing style is a no-consent
+/// note; a value outside the enumeration refuses the bond.
 pub(super) fn read_bond(
     object: &Object,
     path: &str,
@@ -448,48 +482,52 @@ pub(super) fn read_bond(
             return Err(invalid(&at, "a display value stated twice"));
         }
         seen.push(found);
-        let PropertyValue::Text(text) = &property.value else {
-            return Err(invalid(&at, "a display value of an unexpected kind"));
-        };
-        let Some(value) = look(text) else {
+        let Some((value, name)) = read_look(&property.value, &at)? else {
+            let stated = match &property.value {
+                PropertyValue::Text(text) => format!("{:?}", shown(text)),
+                PropertyValue::Bytes(bytes) => format!("{bytes:?}"),
+                _ => String::new(),
+            };
             return Err(fail(
                 "unsupported_bond",
                 format!(
-                    "{path} has the display value {:?}, which is not one the public sources list; nothing was imported.",
-                    shown(text)
+                    "{path} has the display value {stated}, which is not in the public enumeration; nothing was imported."
                 ),
             ));
         };
         let second_line = found == Carrier::Display2;
-        match value {
-            Look::Solid => {}
-            Look::Dash | Look::Bold => losses.push(note(
+        if value == Look::Solid {
+            continue;
+        }
+        if is_style(value) {
+            losses.push(note(
                 at,
                 "bond_display",
                 LossDisposition::Dropped,
                 SemanticImpact::Rendering,
-                format!("The bond style {text} is a drawing style; the bond is imported as a plain bond of its order."),
-            )),
-            _ => match mark_of(value).filter(|_| !second_line && order == 1) {
-                Some(held) => mark = Some(held),
-                None => {
-                    let why = if mark_of(value).is_none() {
-                        "has no equivalent mark in the editor"
-                    } else if second_line {
-                        "is a second-line display, which a bond cannot hold"
-                    } else {
-                        "is on a bond whose order cannot carry a mark"
-                    };
-                    losses.push(Loss {
-                        consent: LossConsent::Required,
-                        feature: "stereo_mark_unplaceable".into(),
-                        source_path: at,
-                        disposition: LossDisposition::Dropped,
-                        reason: format!("The display value {text} may state stereochemistry and {why}; the bond is imported as a plain bond."),
-                        semantic_impact: SemanticImpact::Stereo,
-                    });
-                }
-            },
+                format!("The bond style {name} is a drawing style; the bond is imported as a plain bond of its order."),
+            ));
+            continue;
+        }
+        match mark_of(value, order).filter(|_| !second_line) {
+            Some(held) => mark = Some(held),
+            None => {
+                let why = if second_line {
+                    "is a second-line display, which a bond cannot hold"
+                } else if mark_of(value, 1).is_none() && mark_of(value, 2).is_none() {
+                    "has no equivalent mark in the editor"
+                } else {
+                    "is on a bond whose order cannot carry it"
+                };
+                losses.push(Loss {
+                    consent: LossConsent::Required,
+                    feature: "stereo_mark_unplaceable".into(),
+                    source_path: at,
+                    disposition: LossDisposition::Dropped,
+                    reason: format!("The display value {name} may state stereochemistry and {why}; the bond is imported as a plain bond."),
+                    semantic_impact: SemanticImpact::Stereo,
+                });
+            }
         }
     }
     Ok(mark)
@@ -505,7 +543,7 @@ pub(crate) fn reason_family(reason: &str) -> Option<&'static str> {
         "invalid_stereo_attribute" | "stereo_group_member_not_stereocenter" => {
             Some("malformed_input")
         }
-        "stereo_group_drawing_unreadable" => Some("unsupported_feature"),
+        "stereo_group_drawing_unreadable" | "unsupported_geometry" => Some("unsupported_feature"),
         _ => None,
     }
 }
@@ -776,7 +814,10 @@ mod tests {
             binary(0x0430, &[6]),
             binary(0x0430, &[7, 0]),
         ] {
-            assert_eq!(member(vec![refused]).unwrap_err().code, "unsupported_node");
+            assert_eq!(
+                member(vec![refused]).unwrap_err().code,
+                "unsupported_geometry"
+            );
         }
     }
 
@@ -855,7 +896,7 @@ mod tests {
     fn plain_styles_import_plain_and_only_the_decorated_ones_are_noted() {
         let (read, losses) = display(1, vec![text("Display", "Solid")]);
         assert_eq!((read, losses.len()), (Ok(None), 0));
-        for value in ["Bold", "Dash"] {
+        for value in ["Bold", "Dash", "Dot", "DashDot"] {
             let (read, losses) = display(2, vec![text("Display", value)]);
             assert_eq!(read, Ok(None), "{value}");
             assert_eq!(losses.len(), 1, "{value}");
@@ -871,10 +912,12 @@ mod tests {
             (1, "Display", "Hash"),
             (1, "Display", "HollowWedgeBegin"),
             (1, "Display", "HollowWedgeEnd"),
+            (1, "Display", "WavyWedgeBegin"),
+            (1, "Display", "WavyWedgeEnd"),
             (2, "Display", "WedgeBegin"),
-            (2, "Display", "Wavy"),
             (4, "Display", "WedgedHashEnd"),
             (128, "Display", "WedgeEnd"),
+            (4, "Display", "Wavy"),
             (1, "Display2", "WedgeBegin"),
             (1, "Display2", "Wavy"),
         ];
@@ -886,6 +929,89 @@ mod tests {
             assert_eq!(losses[0].consent, LossConsent::Required);
             assert_eq!(losses[0].semantic_impact, SemanticImpact::Stereo);
             assert_eq!(losses[0].source_path, "b.properties[0]");
+        }
+    }
+
+    #[test]
+    fn wavy_on_a_double_bond_is_the_crossed_mark() {
+        // Public page: "Wavy is treated as a double-either (crossed) bond".
+        let (read, losses) = display(2, vec![text("Display", "Wavy")]);
+        assert_eq!(read, Ok(Some(StereoMark::Crossed)));
+        assert!(losses.is_empty(), "{losses:?}");
+        // On a triple bond a wavy line has no mark to become: plain, with the consent loss.
+        let (read, losses) = display(3, vec![text("Display", "Wavy")]);
+        assert_eq!(read, Ok(None));
+        assert_eq!(losses.len(), 1, "{losses:?}");
+        assert_eq!(losses[0].feature, "stereo_mark_unplaceable");
+    }
+
+    fn wire(value: i16) -> Property {
+        binary(0x0601, &value.to_le_bytes())
+    }
+
+    #[test]
+    fn the_binary_display_numbers_read_exactly_as_their_cdxml_names() {
+        // The page's numbering; one table serves both spellings.
+        let names = [
+            "Solid",
+            "Dash",
+            "Hash",
+            "WedgedHashBegin",
+            "WedgedHashEnd",
+            "Bold",
+            "WedgeBegin",
+            "WedgeEnd",
+            "Wavy",
+            "HollowWedgeBegin",
+            "HollowWedgeEnd",
+            "WavyWedgeBegin",
+            "WavyWedgeEnd",
+            "Dot",
+            "DashDot",
+        ];
+        for (number, name) in names.iter().enumerate() {
+            for order in [1, 2, 4] {
+                let by_name = display(order, vec![text("Display", name)]);
+                let by_number = display(order, vec![wire(number as i16)]);
+                assert_eq!(by_name.0, by_number.0, "{name} on order {order}");
+                let features = |l: &[Loss]| -> Vec<(String, String)> {
+                    l.iter()
+                        .map(|l| (l.feature.clone(), l.reason.clone()))
+                        .collect()
+                };
+                assert_eq!(features(&by_name.1), features(&by_number.1), "{name}");
+            }
+        }
+        // Spot checks against the page, not against the table under test.
+        assert_eq!(
+            display(1, vec![wire(6)]).0,
+            Ok(Some(StereoMark::Wedge {
+                narrow: BondEnd::Begin
+            }))
+        );
+        assert_eq!(
+            display(1, vec![wire(4)]).0,
+            Ok(Some(StereoMark::Hash {
+                narrow: BondEnd::End
+            }))
+        );
+        assert_eq!(display(1, vec![wire(8)]).0, Ok(Some(StereoMark::Wavy)));
+        assert_eq!(display(1, vec![wire(0)]).0, Ok(None));
+    }
+
+    #[test]
+    fn a_binary_display_outside_the_enumeration_or_of_another_width_is_refused() {
+        for number in [15_i16, 100, -1, i16::MIN, i16::MAX] {
+            let (read, _) = display(1, vec![wire(number)]);
+            assert_eq!(read.unwrap_err().code, "unsupported_bond", "{number}");
+        }
+        for bytes in [&[][..], &[6], &[6, 0, 0]] {
+            let (read, _) = display(1, vec![binary(0x0601, bytes)]);
+            assert_eq!(
+                read.unwrap_err().code,
+                "invalid_stereo_attribute",
+                "{bytes:?}"
+            );
         }
     }
 
@@ -907,15 +1033,7 @@ mod tests {
 
     #[test]
     fn a_display_value_the_public_list_lacks_is_refused() {
-        for value in [
-            "Dot",
-            "DashDot",
-            "WavyWedgeBegin",
-            "WavyWedgeEnd",
-            "wedgebegin",
-            "",
-            "Solid ",
-        ] {
+        for value in ["wedgebegin", "", "Solid ", "Future"] {
             let (read, _) = display(1, vec![text("Display", value)]);
             assert_eq!(read.unwrap_err().code, "unsupported_bond", "{value:?}");
         }
@@ -928,10 +1046,16 @@ mod tests {
         assert!(is_carrier(&ObjectKind::Bond, &xml("Display")));
         assert!(!is_carrier(&ObjectKind::Bond, &xml("DoublePosition")));
         assert!(!is_carrier(&ObjectKind::Bond, &xml("CIP")));
-        assert!(!is_carrier(
+        assert!(is_carrier(
             &ObjectKind::Bond,
             &PropertyKind::UnknownBinary(0x0601)
         ));
+        for tag in [0x0602, 0x0603] {
+            assert!(!is_carrier(
+                &ObjectKind::Bond,
+                &PropertyKind::UnknownBinary(tag)
+            ));
+        }
         assert!(!is_carrier(&ObjectKind::Node, &xml("Display")));
         assert!(!is_carrier(
             &ObjectKind::Node,
@@ -962,6 +1086,7 @@ mod tests {
             "invalid_stereo_attribute",
             "stereo_group_member_not_stereocenter",
             "stereo_group_drawing_unreadable",
+            "unsupported_geometry",
         ] {
             assert!(reason_family(reason).is_some(), "{reason}");
         }

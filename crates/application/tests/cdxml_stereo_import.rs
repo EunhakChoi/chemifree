@@ -378,7 +378,7 @@ fn harmless_styles_import_plain_and_only_the_decorated_ones_are_noted() {
     assert!(!features(&solid).contains(&"bond_display".to_owned()));
     assert!(!features(&solid).contains(&"stereo_mark_unplaceable".to_owned()));
     assert!(stereo_atoms(&solid).is_empty());
-    for style in ["Bold", "Dash"] {
+    for style in ["Bold", "Dash", "Dot", "DashDot"] {
         let (_, created) = import(
             &application,
             "cdxml",
@@ -399,7 +399,13 @@ fn harmless_styles_import_plain_and_only_the_decorated_ones_are_noted() {
 fn shapes_a_bond_cannot_hold_need_consent_and_make_a_plain_bond() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
-    for display in ["Hash", "HollowWedgeBegin", "HollowWedgeEnd"] {
+    for display in [
+        "Hash",
+        "HollowWedgeBegin",
+        "HollowWedgeEnd",
+        "WavyWedgeBegin",
+        "WavyWedgeEnd",
+    ] {
         let (_, created) = import(
             &application,
             "cdxml",
@@ -421,7 +427,7 @@ fn shapes_a_bond_cannot_hold_need_consent_and_make_a_plain_bond() {
     // A mark on a double bond, on either line.
     for extra in [
         "Display=\"WedgeBegin\"",
-        "Display=\"Wavy\"",
+        "Display=\"WedgedHashEnd\"",
         "Display2=\"WedgedHashEnd\"",
     ] {
         let source = cdxml(
@@ -435,6 +441,23 @@ fn shapes_a_bond_cannot_hold_need_consent_and_make_a_plain_bond() {
             Value::Null
         );
     }
+}
+
+#[test]
+fn wavy_on_a_double_bond_is_the_crossed_mark() {
+    // The public Bond_Display page: Wavy "is treated as a double-either (crossed) bond".
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let source = cdxml(
+        &[("C", 0.0, 0.0, ""), ("O", 30.0, 0.0, "")],
+        &[(0, 1, 2, "Display=\"Wavy\"")],
+    );
+    let (_, created) = import(&application, "cdxml", &source);
+    assert_eq!(
+        created["result"]["document"]["bonds"][0]["mark"],
+        json!({"kind":"crossed"})
+    );
+    assert!(!features(&created).contains(&"stereo_mark_unplaceable".to_owned()));
 }
 
 #[test]
@@ -457,14 +480,7 @@ fn a_wavy_single_bond_is_held_and_derives_an_unknown_center() {
 fn a_display_value_the_public_list_lacks_refuses_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
-    for display in [
-        "Dot",
-        "DashDot",
-        "WavyWedgeBegin",
-        "WavyWedgeEnd",
-        "wedgebegin",
-        "Future",
-    ] {
+    for display in ["wedgebegin", "Future"] {
         for attribute in ["Display", "Display2"] {
             let source = fan("", &format!("{attribute}=\"{display}\""));
             let (preview, created) = import(&application, "cdxml", &source);
@@ -557,7 +573,18 @@ fn a_geometry_or_ordering_that_cannot_be_read_refuses_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
     let (preview, _) = import(&application, "cdxml", &fan("Geometry=\"Planar\"", ""));
-    assert_eq!(preview["diagnostics"][0]["code"], "unsupported_node");
+    assert_eq!(preview["diagnostics"][0]["code"], "unsupported_geometry");
+    assert_eq!(
+        preview["diagnostics"][0]["details"]["family"],
+        "unsupported_feature"
+    );
+    assert!(
+        preview["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains(".properties[2]"),
+        "the property path is named: {preview}"
+    );
     for ordering in ["a b", "1 -1", ""] {
         let (preview, _) = import(
             &application,
@@ -886,8 +913,8 @@ fn cdx(center: &[Vec<u8>], bond: &[Vec<u8>]) -> String {
             node(4, 100.0, 70.0, 9, &[]),
             node(5, 126.0, 115.0, 17, &[]),
             node(6, 74.0, 115.0, 35, &[]),
-            edge(7, 4, bond),
-            edge(8, 5, &[]),
+            edge(7, 4, &[]),
+            edge(8, 5, bond),
             edge(9, 6, &[]),
         ],
     );
@@ -911,13 +938,20 @@ fn cdx_atom_hints_are_noted_and_a_group_member_without_a_readable_mark_is_refuse
     assert!(found.contains(&"stereo_geometry".to_owned()), "{found:?}");
     assert!(found.contains(&"bond_ordering".to_owned()), "{found:?}");
     assert!(stereo_atoms(&created).is_empty());
-    // An enhanced stereo type on an atom: the binary bond marks are not read, so no
-    // configuration exists for the member and the file is refused, not guessed.
+    // An enhanced stereo type on an atom of a fragment with no mark: nothing derives a
+    // configuration for the member, so the file is refused, not guessed, and says why.
     let member = [prop(0x0446, &[3]), prop(0x0447, &[0x02, 0x01])];
     let (preview, created) = import(&application, "cdx", &cdx(&member, &[]));
     assert_eq!(
         preview["diagnostics"][0]["code"],
         "stereo_group_member_not_stereocenter"
+    );
+    assert!(
+        preview["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("draws no stereo marks"),
+        "{preview}"
     );
     assert!(created.is_null());
     assert_eq!(
@@ -928,20 +962,243 @@ fn cdx_atom_hints_are_noted_and_a_group_member_without_a_readable_mark_is_refuse
 }
 
 #[test]
-fn a_binary_bond_display_tag_is_not_guessed_and_stays_refused() {
+fn only_the_published_binary_display_tag_is_read() {
+    // 0x0601 (Bond_Display, INT16) is read; 0x0602 and 0x0603 have no tag page among the
+    // sources used, so a bond that carries them is refused as before.
     use common::prop;
     let dir = tempfile::tempdir().unwrap();
     let application = app(dir.path());
-    // 0601, 0602 and 0603 are the tags of other tools' notes; the public sources used here do
-    // not give them, so the property is unread and the bond refused as before.
-    for tag in [0x0601_u16, 0x0602, 0x0603] {
-        let (preview, _) = import(&application, "cdx", &cdx(&[], &[prop(tag, &[6])]));
+    for tag in [0x0602_u16, 0x0603] {
+        let (preview, _) = import(&application, "cdx", &cdx(&[], &[prop(tag, &[6, 0])]));
         assert_eq!(
             preview["diagnostics"][0]["code"], "unsupported_bond",
             "{tag:#06x}: {preview}"
         );
     }
+    for value in [15_i16, -1, 100] {
+        let (preview, _) = import(
+            &application,
+            "cdx",
+            &cdx(&[], &[prop(0x0601, &value.to_le_bytes())]),
+        );
+        assert_eq!(
+            preview["diagnostics"][0]["code"], "unsupported_bond",
+            "{value}: {preview}"
+        );
+    }
+    let (preview, _) = import(&application, "cdx", &cdx(&[], &[prop(0x0601, &[6])]));
+    assert_eq!(
+        preview["diagnostics"][0]["code"],
+        "invalid_stereo_attribute"
+    );
     assert_eq!(count(&application), 0);
+}
+
+#[test]
+fn binary_bond_displays_give_the_marks_of_their_published_numbers() {
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    for (number, mark) in [
+        (0_i16, Value::Null),
+        (3, json!({"kind":"hash","narrow":"begin"})),
+        (4, json!({"kind":"hash","narrow":"end"})),
+        (6, json!({"kind":"wedge","narrow":"begin"})),
+        (7, json!({"kind":"wedge","narrow":"end"})),
+        (8, json!({"kind":"wavy"})),
+        (2, Value::Null),
+        (9, Value::Null),
+        (14, Value::Null),
+    ] {
+        let (_, created) = import(
+            &application,
+            "cdx",
+            &cdx(&[], &[prop(0x0601, &number.to_le_bytes())]),
+        );
+        assert_eq!(
+            created["result"]["document"]["bonds"][1]["mark"], mark,
+            "number {number}"
+        );
+    }
+}
+
+#[test]
+fn a_binary_wedge_derives_the_configuration_its_cdxml_twin_does() {
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let (_, binary) = import(
+        &application,
+        "cdx",
+        &cdx(&[], &[prop(0x0601, &6_i16.to_le_bytes())]),
+    );
+    let (_, text) = import(&application, "cdxml", &fan("", "Display=\"WedgeBegin\""));
+    assert_eq!(stereo_atoms(&binary).len(), 1);
+    assert_eq!(stereo_atoms(&binary), stereo_atoms(&text));
+}
+
+fn cip_label(application: &App, created: &Value, atom: &str) -> String {
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    let reply = call(application, "chem.cip", json!({"document_id": id}));
+    reply["result"]["atoms"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"))
+        .iter()
+        .find(|entry| entry["atom"] == atom)
+        .unwrap_or_else(|| panic!("{atom} in {reply}"))["descriptor"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no descriptor in {reply}"))
+        .to_owned()
+}
+
+#[test]
+fn the_picture_is_read_the_right_way_up_and_round() {
+    // Hand derivation. Center C with F straight up, Cl lower right drawn as a wedge (toward the
+    // viewer, narrow end at C) and Br lower left; the hydrogen is behind. Priorities Br > Cl >
+    // F > H, and H points away, so read the picture as it is: Br (lower left), Cl (lower right),
+    // F (top) go counterclockwise on the page: (S). A transposed or mirrored decode gives (R).
+    // CDXML text is `x y`; the CDX binary point is vertical first (`y` then `x`), which the
+    // helper `point` writes and the provider reads.
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let (_, text) = import(&application, "cdxml", &fan("", "Display=\"WedgeBegin\""));
+    assert_eq!(cip_label(&application, &text, "a1"), "S");
+    let (_, binary) = import(
+        &application,
+        "cdx",
+        &cdx(&[], &[prop(0x0601, &6_i16.to_le_bytes())]),
+    );
+    assert_eq!(cip_label(&application, &binary, "a1"), "S");
+    // The mirror drawing (Br and Cl swapped sides) is (R) in both.
+    let mirror = cdxml(
+        &[
+            ("C", 100.0, 100.0, ""),
+            ("F", 100.0, 70.0, ""),
+            ("Cl", 74.0, 115.0, ""),
+            ("Br", 126.0, 115.0, ""),
+        ],
+        &[
+            (0, 1, 1, ""),
+            (0, 2, 1, "Display=\"WedgeBegin\""),
+            (0, 3, 1, ""),
+        ],
+    );
+    let (_, mirrored) = import(&application, "cdxml", &mirror);
+    assert_eq!(cip_label(&application, &mirrored, "a1"), "R");
+}
+
+/// `count` wedge fans as binary CDX: a carbon at (200 i + 100, 100) with F above, Cl lower
+/// right (bond display 6, `WedgeBegin`) and Br lower left; `extra[i]` are the carbon's node
+/// properties.
+fn cdx_fans(extra: &[Vec<Vec<u8>>]) -> String {
+    use common::{i16le, obj, point, prop, u16le, u32le};
+    let mut parts = Vec::new();
+    for (i, carbon_extra) in extra.iter().enumerate() {
+        let id = 10 * (i as u32 + 1);
+        let x = 200.0 * i as f64;
+        let node = |offset: u32, dx: f64, y: f64, element: i16, props: &[Vec<u8>]| {
+            let mut all = vec![
+                prop(0x0200, &point(x + dx, y)),
+                prop(0x0402, &i16le(element)),
+            ];
+            all.extend(props.iter().cloned());
+            obj(0x8004, id + offset, &all)
+        };
+        let edge = |offset: u32, props: &[Vec<u8>]| {
+            let mut all = vec![
+                prop(0x0604, &u32le(id)),
+                prop(0x0605, &u32le(id + offset)),
+                prop(0x0600, &u16le(1)),
+            ];
+            all.extend(props.iter().cloned());
+            obj(0x8005, id + 100 + offset, &all)
+        };
+        parts.push(node(0, 100.0, 100.0, 6, carbon_extra));
+        parts.push(node(1, 100.0, 70.0, 9, &[]));
+        parts.push(node(2, 126.0, 115.0, 17, &[]));
+        parts.push(node(3, 74.0, 115.0, 35, &[]));
+        parts.push(edge(1, &[]));
+        parts.push(edge(2, &[prop(0x0601, &6_i16.to_le_bytes())]));
+        parts.push(edge(3, &[]));
+    }
+    let fragment = obj(0x8003, 2, &parts);
+    transport_base64::encode(&common::file(0, &[obj(0x8001, 1, &[fragment])]))
+}
+
+#[test]
+fn binary_groups_match_their_cdxml_twins_and_258_stays_258() {
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let group = |kind: u8, number: Option<u16>| {
+        let mut props = vec![prop(0x0446, &[kind])];
+        if let Some(number) = number {
+            props.push(prop(0x0447, &number.to_le_bytes()));
+        }
+        props
+    };
+    let binary = cdx_fans(&[
+        group(3, Some(2)),
+        group(3, Some(258)),
+        group(3, Some(128)),
+        group(4, Some(2)),
+        group(2, None),
+        group(3, None),
+    ]);
+    let text = fans(&[
+        &typed("Or", Some(2)),
+        &typed("Or", Some(258)),
+        &typed("Or", Some(128)),
+        &typed("And", Some(2)),
+        &typed("Absolute", None),
+        &typed("Or", None),
+    ]);
+    let (_, from_binary) = import(&application, "cdx", &binary);
+    let (_, from_text) = import(&application, "cdxml", &text);
+    assert!(!from_binary.is_null());
+    let found = groups(&from_binary);
+    assert_eq!(found.len(), 6, "{found:?}");
+    assert_eq!(found, groups(&from_text));
+    assert!(found.contains(&("or".into(), json!(258), json!(258), vec!["a5".into()])));
+    assert!(found.contains(&("or".into(), json!(128), json!(128), vec!["a9".into()])));
+    assert_eq!(stereo_atoms(&from_binary), stereo_atoms(&from_text));
+}
+
+#[test]
+fn a_binary_group_member_without_a_wedge_is_refused_with_the_drawn_reason() {
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    // The second fan's carbon states a group, but its Cl bond has no display of its own: build
+    // the first fan marked and the member as a plain atom (the Br of fan one).
+    let mut fragment_extra = vec![vec![prop(0x0446, &[2])]];
+    fragment_extra.push(Vec::new());
+    let source = cdx_fans(&fragment_extra);
+    // Fan one's carbon is a derived center, so this imports.
+    let (_, created) = import(&application, "cdx", &source);
+    assert_eq!(groups(&created).len(), 1);
+    // A member that is a plain atom of a fragment that does have marks.
+    let plain = cdxml(
+        &[
+            ("C", 100.0, 100.0, ""),
+            ("F", 100.0, 70.0, "EnhancedStereoType=\"Absolute\""),
+            ("Cl", 126.0, 115.0, ""),
+            ("Br", 74.0, 115.0, ""),
+        ],
+        &[
+            (0, 1, 1, ""),
+            (0, 2, 1, "Display=\"WedgeBegin\""),
+            (0, 3, 1, ""),
+        ],
+    );
+    let (preview, _) = import(&application, "cdxml", &plain);
+    let message = preview["diagnostics"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("drawn marks give it no stored"),
+        "{message}"
+    );
+    assert!(!message.contains("draws no stereo marks"), "{message}");
 }
 
 #[test]
@@ -957,7 +1214,7 @@ fn cdx_carriers_of_the_wrong_shape_are_refused() {
     ] {
         let (preview, _) = import(&application, "cdx", &cdx(&[property], &[]));
         assert!(
-            ["unsupported_node", "invalid_stereo_attribute"]
+            ["unsupported_geometry", "invalid_stereo_attribute"]
                 .contains(&preview["diagnostics"][0]["code"].as_str().unwrap()),
             "{preview}"
         );

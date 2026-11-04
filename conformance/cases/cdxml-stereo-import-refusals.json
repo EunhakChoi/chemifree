@@ -12,13 +12,13 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "display-dot",
+        "request_id": "display-unknown",
         "profile": "preserve-semantics",
         "operation": "document.import",
         "parameters": {
           "mode": "preview",
           "format": "cdxml",
-          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Dot\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
           "title": "R",
           "page_id": 1,
           "fragment_id": 2
@@ -38,13 +38,13 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "display-dot-create",
+        "request_id": "display-unknown-create",
         "profile": "preserve-semantics",
         "operation": "document.import",
         "parameters": {
           "mode": "create",
           "format": "cdxml",
-          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Dot\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
           "title": "R",
           "page_id": 1,
           "fragment_id": 2,
@@ -66,13 +66,13 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "display2-wavy-wedge",
+        "request_id": "display2-unknown",
         "profile": "preserve-semantics",
         "operation": "document.import",
         "parameters": {
           "mode": "preview",
           "format": "cdxml",
-          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display2=\"WavyWedgeBegin\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
+          "source": "<CDXML><page id=\"1\"><fragment id=\"2\"><n id=\"10\" p=\"100 100\" Element=\"6\" /><n id=\"11\" p=\"100 70\" Element=\"9\"/><n id=\"12\" p=\"126 115\" Element=\"17\"/><n id=\"13\" p=\"74 115\" Element=\"35\"/><b id=\"100\" B=\"10\" E=\"11\" Order=\"1\"/><b id=\"101\" B=\"10\" E=\"12\" Order=\"1\" Display2=\"Future\"/><b id=\"102\" B=\"10\" E=\"13\" Order=\"1\"/></fragment></page></CDXML>",
           "title": "R",
           "page_id": 1,
           "fragment_id": 2
@@ -135,7 +135,7 @@
         "result": null,
         "diagnostics": [
           {
-            "code": "unsupported_node"
+            "code": "unsupported_geometry"
           }
         ]
       }

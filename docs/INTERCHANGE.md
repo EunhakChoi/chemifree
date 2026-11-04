@@ -71,7 +71,7 @@ permits a label to carry the chemical description. Rich read and unchanged expor
 remain available. In particular, dative bonds remain in the rich tree but
 are refused by editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
 describes the first endpoint as positive, while the editor's first endpoint is a
-donor. The projection does not infer that these conventions coincide. A bond whose `Display` or `Display2` is outside the public list is refused by the projection as `unsupported_bond` rather than created as a plain bond, and the listed wedge, hashed wedge and wavy values are read as bond marks (see the contract's "CDXML and CDX stereo import"); no operation converts a Chemifree drawing's bond marks to CDXML. Default
+donor. The projection does not infer that these conventions coincide. A bond whose `Display` is outside the public list (or whose `Display2` is not a listed name) is refused by the projection as `unsupported_bond` rather than created as a plain bond, and the listed wedge, hashed wedge and wavy values are read as bond marks (see the contract's "CDXML and CDX stereo import"); no operation converts a Chemifree drawing's bond marks to CDXML. Default
 implicit-hydrogen interpretation is reported as
 uncertain because the editor's bounded inference need not agree with another
 reader. Double bonds also report uncertainty about stereo another reader may
