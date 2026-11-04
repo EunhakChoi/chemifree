@@ -1,0 +1,501 @@
+{
+  "id": "stereo-cip-unsupported",
+  "title": "Centers the model cannot decide are unsupported with their reason, never none or a guess, and the other items of the same reply are still labeled",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 40.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 50.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 60.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 70.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "N",
+          "op": "add_atom",
+          "position": {
+            "x": 80.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 90.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 100.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 110.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 120.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 130.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 140.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 150.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 160.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "N",
+          "op": "add_atom",
+          "position": {
+            "x": 170.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 180.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 190.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 200.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 210.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 220.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a4",
+          "end": "a5",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a5",
+          "end": "a6",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a6",
+          "end": "a7",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a7",
+          "end": "a8",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a8",
+          "end": "a9",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a4",
+          "end": "a9",
+          "op": "add_bond",
+          "order": "aromatic"
+        },
+        {
+          "begin": "a10",
+          "end": "a11",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a11",
+          "end": "a12",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a12",
+          "end": "a13",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a13",
+          "end": "a14",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a14",
+          "end": "a15",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a14",
+          "end": "a16",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a16",
+          "end": "a17",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a11",
+          "end": "a17",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a18",
+          "end": "a19",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a19",
+          "end": "a20",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a19",
+          "end": "a21",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a21",
+          "end": "a22",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a21",
+          "end": "a23",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "atom": "a2",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a1",
+              "implicit_hydrogen",
+              "a3",
+              "a4"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        },
+        {
+          "atom": "a11",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a10",
+              "implicit_hydrogen",
+              "a17",
+              "a12"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        },
+        {
+          "atom": "a14",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a13",
+              "implicit_hydrogen",
+              "a15",
+              "a16"
+            ],
+            "turn": "clockwise"
+          },
+          "op": "set_atom_configuration"
+        },
+        {
+          "atom": "a19",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a18",
+              "implicit_hydrogen",
+              "a20",
+              "a21"
+            ],
+            "turn": "clockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "unsupported",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [
+          {
+            "feature": "cip_descriptor",
+            "source_path": "atoms[a2]",
+            "disposition": "unknown",
+            "semantic_impact": "stereo",
+            "reason": "cip_aromatic_system: An aromatic system other than a neutral all-carbon one must be looked into."
+          },
+          {
+            "feature": "cip_descriptor",
+            "source_path": "atoms[a11]",
+            "disposition": "unknown",
+            "semantic_impact": "stereo",
+            "reason": "cip_rule_4_or_5_needed: The ligands tie under Rules 1a to 3 and Rules 4 and 5, which this build does not apply, might separate them."
+          },
+          {
+            "feature": "cip_descriptor",
+            "source_path": "atoms[a14]",
+            "disposition": "unknown",
+            "semantic_impact": "stereo",
+            "reason": "cip_rule_4_or_5_needed: The ligands tie under Rules 1a to 3 and Rules 4 and 5, which this build does not apply, might separate them."
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "unsupported",
+              "descriptor": null,
+              "reason": "cip_aromatic_system",
+              "priority": null,
+              "decided_by": null
+            },
+            {
+              "atom": "a11",
+              "state": "unsupported",
+              "descriptor": null,
+              "reason": "cip_rule_4_or_5_needed"
+            },
+            {
+              "atom": "a14",
+              "state": "unsupported",
+              "descriptor": null,
+              "reason": "cip_rule_4_or_5_needed"
+            },
+            {
+              "atom": "a19",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    }
+  ]
+}

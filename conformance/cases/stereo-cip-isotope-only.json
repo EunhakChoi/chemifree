@@ -1,0 +1,563 @@
+{
+  "id": "stereo-cip-isotope-only",
+  "title": "A center whose ligands differ only by mass number is labeled by Rule 2 and is not stereogenic once the isotope is removed",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "deuterium"
+    },
+    {
+      "call": "transact",
+      "document": "deuterium",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "H",
+          "hydrogens": {
+            "count": 0,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "F",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "atom": "a2",
+          "isotope": 2,
+          "op": "update_atom"
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a1",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a1",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "implicit_hydrogen",
+              "a2",
+              "a3",
+              "a4"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "deuterium",
+      "request": {
+        "contract": 1,
+        "request_id": "deuterium-labeled",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "2",
+              "priority": [
+                {
+                  "neighbor": "a4",
+                  "rank": 1
+                },
+                {
+                  "neighbor": "a3",
+                  "rank": 2
+                },
+                {
+                  "neighbor": "a2",
+                  "rank": 3
+                },
+                {
+                  "neighbor": "implicit_hydrogen",
+                  "rank": 4
+                }
+              ]
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "deuterium",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a2",
+          "isotope": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "deuterium",
+      "request": {
+        "contract": 1,
+        "request_id": "deuterium-natural",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_stored_not_stereogenic"
+          },
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "none",
+              "descriptor": null,
+              "reason": null,
+              "decided_by": null,
+              "priority": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 2
+      }
+    },
+    {
+      "call": "undo",
+      "document": "deuterium",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "deuterium",
+      "request": {
+        "contract": 1,
+        "request_id": "deuterium-restored",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 3
+      }
+    },
+    {
+      "call": "create",
+      "bind": "carbon13"
+    },
+    {
+      "call": "transact",
+      "document": "carbon13",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 3,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "atom": "a3",
+          "isotope": 13,
+          "op": "update_atom"
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "atom": "a2",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a1",
+              "implicit_hydrogen",
+              "a3",
+              "a4"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "carbon13",
+      "request": {
+        "contract": 1,
+        "request_id": "carbon13-labeled",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "2",
+              "priority": [
+                {
+                  "neighbor": "a1",
+                  "rank": 1
+                },
+                {
+                  "neighbor": "a3",
+                  "rank": 2
+                },
+                {
+                  "neighbor": "a4",
+                  "rank": 3
+                },
+                {
+                  "neighbor": "implicit_hydrogen",
+                  "rank": 4
+                }
+              ]
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "carbon13",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a3",
+          "isotope": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "carbon13",
+      "request": {
+        "contract": 1,
+        "request_id": "carbon13-natural",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_stored_not_stereogenic"
+          },
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "none",
+              "descriptor": null,
+              "reason": null,
+              "decided_by": null,
+              "priority": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 2
+      }
+    },
+    {
+      "call": "undo",
+      "document": "carbon13",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "carbon13",
+      "request": {
+        "contract": 1,
+        "request_id": "carbon13-restored",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 3
+      }
+    }
+  ]
+}

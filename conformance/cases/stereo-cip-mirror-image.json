@@ -1,0 +1,354 @@
+{
+  "id": "stereo-cip-mirror-image",
+  "title": "The same four neighbors stored with the turn reversed give the other descriptor, and the drawn wedge never moves a label",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "nothing-stored",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "clockwise",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              }
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 2
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_atom_configuration",
+          "atom": "a1",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a2",
+              "a3",
+              "a4",
+              "implicit_hydrogen"
+            ],
+            "turn": "anticlockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "anticlockwise",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "R",
+              "reason": null,
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "anticlockwise"
+              },
+              "priority": [
+                {
+                  "neighbor": "a4",
+                  "rank": 1
+                },
+                {
+                  "neighbor": "a3",
+                  "rank": 2
+                },
+                {
+                  "neighbor": "a2",
+                  "rank": 3
+                },
+                {
+                  "neighbor": "implicit_hydrogen",
+                  "rank": 4
+                }
+              ]
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 3
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

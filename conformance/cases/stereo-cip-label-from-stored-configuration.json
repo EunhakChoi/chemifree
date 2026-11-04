@@ -6,8 +6,371 @@
   ],
   "axis": "stereo",
   "kind": "accept",
-  "pending": {
-    "followup": "P26",
-    "reason": "CIP labels are not implemented; the representation (P25) stores no label and derives none."
-  }
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "$2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "$0"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "label",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "stored": {
+                "kind": "tetrahedral",
+                "neighbors": [
+                  "a2",
+                  "a3",
+                  "a4",
+                  "implicit_hydrogen"
+                ],
+                "turn": "clockwise"
+              },
+              "decided_by": "1a",
+              "priority": [
+                {
+                  "neighbor": "a4",
+                  "rank": 1
+                },
+                {
+                  "neighbor": "a3",
+                  "rank": 2
+                },
+                {
+                  "neighbor": "a2",
+                  "rank": 3
+                },
+                {
+                  "neighbor": "implicit_hydrogen",
+                  "rank": 4
+                }
+              ]
+            }
+          ],
+          "bonds": [],
+          "snapshot": {
+            "document": {
+              "revision": 1,
+              "bonds": [
+                {
+                  "id": "b1",
+                  "mark": null
+                },
+                {
+                  "id": "b2",
+                  "mark": {
+                    "kind": "wedge",
+                    "narrow": "begin"
+                  }
+                },
+                {
+                  "id": "b3",
+                  "mark": null
+                }
+              ],
+              "stereo": {
+                "atoms": [
+                  {
+                    "atom": "a1",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a2",
+                        "a3",
+                        "a4",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  }
+                ],
+                "bonds": []
+              }
+            }
+          }
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "label",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a1",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              }
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": []
+          }
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
 }

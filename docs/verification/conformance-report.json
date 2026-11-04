@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 18,
+  "suite_version": 19,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -816,13 +816,179 @@
       ],
       "axis": "stereo",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P26",
-        "reason": "CIP labels are not implemented; the representation (P25) stores no label and derives none."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "980b7934257a6f01a0c1481ead853b85edabe67b31437cdae5aaa344cb2e52fc"
+      "case_sha256": "b16af60d5f7c7953c97ea26b745d60c0bfb0f1a7cc145ee8e3b261f7b499458a"
+    },
+    {
+      "id": "stereo-cip-mirror-image",
+      "title": "The same four neighbors stored with the turn reversed give the other descriptor, and the drawn wedge never moves a label",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e35e5c4a888a5f49d8f3204469ade887a83c5882c710862ea5451fcca259cac5"
+    },
+    {
+      "id": "stereo-cip-double-bond-e-z",
+      "title": "A double bond stored relatively is E or Z by the higher substituent at each end, and a bond with two equal substituents at an end is not stereogenic",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6eac5f9621c96aa2cec2dec23d97f13597575df0cee2f91aabf898ee924cf575"
+    },
+    {
+      "id": "stereo-cip-isotope-only",
+      "title": "A center whose ligands differ only by mass number is labeled by Rule 2 and is not stereogenic once the isotope is removed",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "7d0742d78b5c2ddca75280576ba61ce8910ba8b88d62bb87fd44503a9793dd40"
+    },
+    {
+      "id": "stereo-cip-renumbering",
+      "title": "The same molecule inserted in another atom order, or stored with the neighbors listed in another order, gives the same descriptor for the same atom",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "53a94ba80048647647b6fa8e477f8a7fb50761fc2128bf415588d03d7b829e0b"
+    },
+    {
+      "id": "stereo-cip-symmetric-and-meso",
+      "title": "Meso-tartaric acid has one R and one S center, the natural acid two R, and a stored center with two equal ligands is not stereogenic",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f1d6de6fae6491a8b027f4acb56a1f7ea0c9fcf3d966c40ddcb3df16c90f5818"
+    },
+    {
+      "id": "stereo-cip-ring-ligands",
+      "title": "Ring ligands are ranked through ring-closure duplicates: the cis-1,2-dimethylcyclohexane is the meso form with one R and one S center, the trans one is chiral with two equal descriptors, and cyclohexanol C1 has two tied arms",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "1279f1f9668bdf216ff5a5e24effc615ea0a0a7e4268412d465a2df4b4f168a0"
+    },
+    {
+      "id": "stereo-cip-unknown-and-unspecified",
+      "title": "A stored unknown is unknown, a stereogenic unit with nothing stored is listed as unspecified only on request, and a named unit is always evaluated",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "dac2e60aadd1cfa7875dd068fc7a4badee91280b9839286011766cbb36dbac8a"
+    },
+    {
+      "id": "stereo-cip-ambiguous",
+      "title": "A ligand double bond whose geometry is not stated makes Rule 3 ambiguous: the item has no descriptor, the outcome is partial and the other items are still labeled",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "e29c1d11f47c5fa1214053e8d667c6b1e3d5fcb20a6b42ec7a28739cd8222b7a"
+    },
+    {
+      "id": "stereo-cip-unsupported",
+      "title": "Centers the model cannot decide are unsupported with their reason, never none or a guess, and the other items of the same reply are still labeled",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "2bdf00c4a2e06f9fae7fb7e1da57b2a74387e36cbd844b114cadd3e9a599aec9"
+    },
+    {
+      "id": "stereo-cip-every-reason",
+      "title": "Each reason the operation can give for an item it will not label is reached by a molecule of its own, with the item unsupported or ambiguous and a loss entry naming the reason",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "06f8466decadad872ab702d29390b105438d839b030eae6175144d1e841610c3"
+    },
+    {
+      "id": "stereo-cip-limits-and-errors",
+      "title": "Bad identifiers, scopes and lists are refused with the path of the first fault, a request over the node limit is refused whole with the numbers, and one atom over the item limit is unsupported, not none",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "452bc00a8a87b95a029b8b491b4bf99d60ee20260ebe5dc5151a08e4058d92d9"
+    },
+    {
+      "id": "stereo-cip-is-read-only",
+      "title": "Asking for labels changes nothing a document holds: not the revision, the undo and redo depth or the unsaved state, whatever edits come before and after, and a repeated request id is computed again",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "67752a1f08d46aa09c92a255e2789263cbe56cd35807ede14c01cbee63b5a4fd"
+    },
+    {
+      "id": "stereo-cip-public-references",
+      "title": "Centers whose descriptor is stated by their public name or by a published SMILES fixture are labeled as stated",
+      "requirements": [
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f77f85924d1adbb463cf6101a3f2f124fab38e943489f9d78ca7be9efbbfbfe3"
     },
     {
       "id": "stereo-enhanced-group-membership",
@@ -859,9 +1025,9 @@
   ],
   "counts": {
     "accept": {
-      "passed": 40,
+      "passed": 54,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     },
     "reject": {
       "passed": 20,
@@ -869,9 +1035,9 @@
       "not_run": 0
     },
     "total": {
-      "passed": 60,
+      "passed": 74,
       "failed": 0,
-      "not_run": 3
+      "not_run": 2
     }
   }
 }
