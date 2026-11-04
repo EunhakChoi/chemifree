@@ -1,5 +1,6 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
+import { readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
 import {
   holdsStereo,
   isStereoMark,
@@ -247,6 +248,21 @@ export interface StereoInspection {
   atoms: CenterInspection[]
   bonds: DoubleInspection[]
   diagnostics: StereoDiagnostic[]
+}
+
+/**
+ * What `chem.cip` labeled: the CIP descriptor of each stored configuration in the exact snapshot
+ * named. A label describes the stored configuration, not the drawing, and is never stored.
+ */
+export interface CipInspection extends CipBody {
+  snapshot: DocumentView
+}
+
+/** The parameters of `chem.cip` the web may send; the editor sends only `scope: 'stored'`. */
+export interface CipParameters {
+  scope?: CipScope
+  atoms?: string[]
+  bonds?: string[]
 }
 
 export type IdentityMode = 'recorded' | 'chemical'
@@ -2050,6 +2066,37 @@ export class DocumentClient {
       : null
     if (body === null || diagnostics === null) throw incompatible()
     return { model: 'chemifree-stereo-1', snapshot, ...body, diagnostics }
+  }
+
+  /**
+   * Asks for the CIP labels of the stored configurations (`chem.cip`). The reply is used only if
+   * it is exactly what the service sends for the snapshot it names and the scope asked for; an
+   * error reply (a limit included) is an `ApiError` carrying the service's message, and a reply
+   * that is neither is `incompatible_response`. The labels are read-only: nothing is stored.
+   */
+  async inspectCip(id: string, params: CipParameters = {}): Promise<CipInspection> {
+    const scope: CipScope = params.scope ?? (params.atoms !== undefined || params.bonds !== undefined ? 'named' : 'stored')
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics',
+      operation: 'chem.cip', parameters: { document_id: id, ...params },
+    }, 'reload')
+    const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible CIP reply.', 200)
+    if (!isRecord(value)) throw incompatible()
+    if (value.outcome === 'unsupported') {
+      throw new ApiError('cip_unavailable', firstDiagnostic(value).message ?? 'The local service does not offer CIP labels.', 200)
+    }
+    if (value.outcome === 'error') {
+      const failure = readCipFailure(value)
+      if (failure === null) throw incompatible()
+      throw new ApiError('cip_unavailable', failure.message, 200)
+    }
+    if (!isRecord(value.result) || !isRecord(value.result.snapshot)) throw incompatible()
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
+    const body = snapshot.id === id && snapshot.revision === value.document_revision
+      ? readCipReply(value, { atoms: snapshot.atoms, bonds: snapshot.bonds, stereo: stereoOf(snapshot) }, scope)
+      : null
+    if (body === null) throw incompatible()
+    return { ...body, snapshot }
   }
 
   /** Canonical identity and optional comparison are bound to the returned graph snapshots. */

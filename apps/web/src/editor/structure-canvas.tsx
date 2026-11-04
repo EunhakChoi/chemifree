@@ -6,7 +6,9 @@ import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import { AgreementRings } from '@/editor/agreement-rings'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
-import type { AgreementRing } from '@/editor/stereo-agreement'
+import { CipLabelLayer } from '@/editor/cip-label-layer'
+import type { CipMark } from '@/editor/cip-labels'
+import type { AgreementRing, ItemRef } from '@/editor/stereo-agreement'
 import { StrokeShapes } from '@/editor/stroke-shapes'
 import {
   atomIndex,
@@ -103,6 +105,8 @@ interface StructureCanvasProps {
   onMark: (intent: MarkIntent) => void
   /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
   rings?: readonly AgreementRing[]
+  /** CIP labels to draw over the atoms and double bonds they are about; an overlay, never part of the document. */
+  cipLabels?: readonly CipMark[]
   /** Called when a pointer gesture starts (true) and ends (false). */
   onDragging?: (dragging: boolean) => void
   disabled: boolean
@@ -123,6 +127,7 @@ export function StructureCanvas({
   onCommands,
   onMark,
   rings = [],
+  cipLabels = [],
   onDragging,
   disabled,
 }: StructureCanvasProps) {
@@ -426,15 +431,26 @@ export function StructureCanvas({
   const hovered = (drawing: Drawing, kind: 'atom' | 'bond', id: string) =>
     hover?.instance === drawing.id && hover.hit?.kind === kind && hover.hit.id === id
 
-  /** The rings of one placement, each at its atom or the middle of its double bond, as moved by a drag in progress. */
+  /** Where an atom or the middle of a double bond is in one placement, as moved by a drag in progress; null where the placement lacks it. */
+  const itemAt = (drawing: Drawing, item: ItemRef): Position | null => {
+    if (item.kind === 'atom') return drawing.atoms.has(item.id) ? position(drawing, item.id) : null
+    const bond = document.bonds.find((candidate) => candidate.id === item.id)
+    if (!bond || !drawing.atoms.has(bond.begin) || !drawing.atoms.has(bond.end)) return null
+    const [a, b] = [position(drawing, bond.begin), position(drawing, bond.end)]
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  }
+  /** The rings of one placement, each at its atom or the middle of its double bond. */
   const ringsAt = (drawing: Drawing) =>
     rings.flatMap((ring) => {
       if (ring.instance !== drawing.id) return []
-      if (ring.item.kind === 'atom') return drawing.atoms.has(ring.item.id) ? [{ ring, at: position(drawing, ring.item.id) }] : []
-      const bond = document.bonds.find((candidate) => candidate.id === ring.item.id)
-      if (!bond || !drawing.atoms.has(bond.begin) || !drawing.atoms.has(bond.end)) return []
-      const [a, b] = [position(drawing, bond.begin), position(drawing, bond.end)]
-      return [{ ring, at: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }]
+      const at = itemAt(drawing, ring.item)
+      return at ? [{ ring, at }] : []
+    })
+  /** The CIP labels of one placement: a label belongs to the atom or bond, so every placement that draws it shows it. */
+  const cipAt = (drawing: Drawing) =>
+    cipLabels.flatMap((label) => {
+      const at = itemAt(drawing, label.item)
+      return at ? [{ label, at }] : []
     })
 
   const sceneObjects = document.scene?.objects
@@ -476,6 +492,7 @@ export function StructureCanvas({
         moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
       />
       <AgreementRings rings={ringsAt(drawing)} />
+      <CipLabelLayer labels={cipAt(drawing)} />
     </g>
   )
 

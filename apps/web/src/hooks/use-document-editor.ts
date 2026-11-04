@@ -403,6 +403,8 @@ export function useDocumentEditor() {
       sameConversionSnapshot(currentRef.current.document, snapshot), []),
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     inspectStereo: useCallback((id: string) => client.inspectStereo(id), []),
+    // The editor asks for the stored configurations only: `stereogenic` would scan every candidate, and chem.cip has no time limit.
+    inspectCip: useCallback((id: string) => client.inspectCip(id, { scope: 'stored' }), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format']) => client.exportCt(id, format), []),

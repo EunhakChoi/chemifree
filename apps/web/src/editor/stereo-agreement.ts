@@ -21,9 +21,9 @@ import {
   type StereoDiagnostic,
 } from '@/lib/stereo-contract'
 
-/** Said wherever the check's reach is stated. A stored record is compared; nothing is judged. */
+/** Said wherever the check's reach is stated. A stored record is compared; nothing is judged. The CIP sentence is true whether or not labels are switched on (editor/cip-labels.ts). */
 export const NOT_JUDGED =
-  'Only stored configurations are compared with the drawing. No CIP label is computed and no atom is judged stereogenic.'
+  'Only stored configurations are compared with the drawing. CIP labels describe the stored configuration, not the drawing.'
 
 /** Said where a drawing holds nothing to compare: not "no stereo", for nothing is assessed. */
 export const NOTHING_TO_COMPARE =
