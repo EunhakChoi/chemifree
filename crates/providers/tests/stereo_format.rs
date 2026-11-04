@@ -186,7 +186,7 @@ fn marks_and_configurations_round_trip_with_their_history_in_version_6() {
     assert!(walked.stereo().get(StereoKey::Center(atom(7))).is_none());
 
     let file = read_json(&root.path().join("documents").join(format!("{ID}.json")));
-    assert_eq!(file["format_version"], 6);
+    assert_eq!(file["format_version"], 7);
     let stereo = &file["document"]["stereo"];
     assert!(
         stereo.as_array().is_some_and(|records| records.len() == 2),
@@ -257,7 +257,7 @@ fn a_recovery_draft_carries_marks_configurations_and_history() {
     let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
     let file = read_json(&draft_path);
     assert_eq!(file["format"], "chemifree.draft");
-    assert_eq!(file["format_version"], 6);
+    assert_eq!(file["format_version"], 7);
     assert_eq!(file["document"]["stereo"].as_array().unwrap().len(), 2);
     repository.release_draft(&id());
     assert_eq!(repository.claim_draft(&id()), Ok(Some(Ok(draft))));
@@ -341,7 +341,7 @@ fn a_version_5_file_reads_with_no_stereo_and_its_first_save_keeps_the_original_b
             .unwrap(),
         format!("{ID}.v5.json")
     );
-    assert_eq!(read_json(&path)["format_version"], 6);
+    assert_eq!(read_json(&path)["format_version"], 7);
     assert_eq!(repository.load(&id()).unwrap(), Some(document));
     assert!(root.path().join("migrated").is_dir());
 }
@@ -384,19 +384,22 @@ fn a_version_5_draft_is_recovered_and_its_bytes_are_kept() {
     let redone = app.redo(ID, None, 4).unwrap();
     assert_eq!(redone.document.revision, 5);
     app.autosave(ID, None).unwrap();
-    assert_eq!(read_json(&draft_path)["format_version"], 6);
+    assert_eq!(read_json(&draft_path)["format_version"], 7);
     assert_eq!(fs::read(archive).unwrap(), original, "never overwritten");
 }
 
-/// The version 5 file a stereo-free document would have been: version 6 without `stereo`,
-/// marks, or the version number.
+/// The version 5 file a stereo-free document would have been: the current version without
+/// `stereo`, groups, marks, or the version number.
 fn as_version_5(bytes: &[u8]) -> Vec<u8> {
     let mut file: Value = serde_json::from_slice(bytes).unwrap();
     file["format_version"] = json!(5);
-    file["document"].as_object_mut().unwrap().remove("stereo");
+    for field in ["stereo", "stereo_groups", "next_group"] {
+        file["document"].as_object_mut().unwrap().remove(field);
+    }
     for side in ["undo", "redo"] {
         for set in file["history"][side].as_array_mut().unwrap() {
             set.as_object_mut().unwrap().remove("stereo");
+            set.as_object_mut().unwrap().remove("stereo_groups");
         }
     }
     serde_json::to_vec(&file).unwrap()

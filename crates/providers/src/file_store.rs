@@ -1415,7 +1415,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":6", "\"format_version\":99"),
+            valid.replace("\"format_version\":7", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {
