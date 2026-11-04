@@ -1237,6 +1237,7 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
     let (mut assigned, mut tied_none, mut refused, mut ambiguous, mut centers, mut cycles) =
         (0, 0, 0, 0, 0, 0);
     let mut nested = 0;
+    let mut duplicates = 0;
     for index in 0..4500 {
         let molecule = generated(&mut rng, index);
         let built = molecule.build();
@@ -1281,6 +1282,22 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
                     "{shown}"
                 );
                 nested += 1;
+                continue;
+            }
+            if text(&report) == "unsupported:cip_rule_1b_duplicate_distance" {
+                // Two duplicates whose order depends on the reading of Rule 1b (see
+                // `Reason::Rule1bDuplicateDistance`); the naive reference uses the literal
+                // reading and does not refuse. Only a molecule with a multiple bond and a
+                // ring can reach this.
+                assert!(
+                    !acyclic
+                        && molecule
+                            .bonds
+                            .iter()
+                            .any(|bond| bond.2 == BondOrder::Double),
+                    "{shown}"
+                );
+                duplicates += 1;
                 continue;
             }
             let found = reference.ranks(center.neighbors);
@@ -1335,6 +1352,10 @@ fn the_implementation_agrees_with_a_naive_reference_on_generated_molecules() {
     );
     assert!(nested < centers / 20, "{nested} of {centers} refused");
     assert!(
+        duplicates < centers / 20,
+        "{duplicates} of {centers} refused for the reading of Rule 1b"
+    );
+    assert!(
         cycles * 20 < centers,
         "{cycles} of {centers} not comparable"
     );
@@ -1369,15 +1390,20 @@ fn descriptors_have_four_values_and_reasons_distinct_codes() {
         Reason::DoubleBondStructure,
         Reason::StereoCycle,
         Reason::Rule3NestedDescriptor,
+        Reason::Rule1bDuplicateDistance,
         Reason::LigandStereoUnspecified,
         Reason::DigraphLimit,
     ]
     .iter()
     .map(|r| (r.code(), ()))
     .collect();
-    assert_eq!(codes.len(), 5);
+    assert_eq!(codes.len(), 6);
     assert_eq!(
         Reason::Rule3NestedDescriptor.code(),
         "cip_rule3_nested_descriptor"
+    );
+    assert_eq!(
+        Reason::Rule1bDuplicateDistance.code(),
+        "cip_rule_1b_duplicate_distance"
     );
 }

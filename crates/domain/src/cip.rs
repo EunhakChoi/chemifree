@@ -15,6 +15,24 @@
 //! digraph before the next rule is consulted. Rules 4a to 5 are never applied: a tie that they
 //! might break is [`Reason::Rule4Or5Needed`], never `none`.
 //!
+//! # Rule 1b and the distance of a duplicate
+//!
+//! Rule 1b measures a duplicate to "the corresponding nonduplicated atom node". For a ring
+//! closure that is the atom on the path the ring closes on. For the duplicate that a multiple
+//! bond adds to the far atom of its parent, the model measures to the parent, one sphere
+//! nearer than the duplicate itself; the far end's duplicate lies in the sphere of the atom it
+//! stands for. RDKit 2022.03.2 ranks both multiple-bond duplicates in their own sphere (and
+//! ranks the second duplicate of a multiple bond that also closes a ring below them), and
+//! orders two ligands differently from the model when Rules 1a and 2 leave them to Rule 1b in
+//! a small strained ring (two fused four-membered rings with ring double bonds, such as
+//! `C12=CC[C@@]1(C)C(C=C)=C2`; 5 of 31 such centers in a generated set). The rule's text does
+//! not say which is meant, so a pair of duplicates the two readings order differently is
+//! [`Reason::Rule1bDuplicateDistance`], not a guess. The check is on the pair of nodes
+//! compared, so it can refuse a center whose final order the other reading would also give
+//! (about three in four of the refused centers of the generated sets); it never labels a
+//! center the readings could order differently. Two duplicates that are siblings (a ligand is
+//! never a duplicate) are exempt: they have no children, so which comes first changes nothing.
+//!
 //! # Rule 3
 //!
 //! A node reached from a real parent by a double bond carries the descriptor of that bond:
@@ -236,6 +254,12 @@ pub enum Reason {
     AromaticSystem,
     /// Rule 1b is needed on a digraph with a mancude duplicate.
     MancudeRule1b,
+    /// Rule 1b compares two duplicates that the two readings of "the corresponding nonduplicated
+    /// atom" order differently: the atom a duplicate stands for (which for the duplicate that a
+    /// multiple bond adds to its far atom is the parent, a sphere nearer) or the sphere the
+    /// duplicate itself lies in (RDKit 2022.03.2). It happens in small strained rings, where a
+    /// ring closes a few spheres from the root and Rules 1a and 2 leave the order to Rule 1b.
+    Rule1bDuplicateDistance,
     /// Rule 2 compares an unlabeled atom with a labeled one and the answer depends on how an
     /// unlabeled atom is read: the label equals the element's built-in mass number, or the
     /// element has none.
@@ -275,6 +299,7 @@ impl Reason {
             Self::HydrogensUnknown => "cip_hydrogens_unknown",
             Self::AromaticSystem => "cip_aromatic_system",
             Self::MancudeRule1b => "cip_mancude_rule_1b",
+            Self::Rule1bDuplicateDistance => "cip_rule_1b_duplicate_distance",
             Self::MassNumber => "cip_mass_number",
             Self::Rule4Or5Needed => "cip_rule_4_or_5_needed",
             Self::StereoCycle => "cip_stereo_cycle",

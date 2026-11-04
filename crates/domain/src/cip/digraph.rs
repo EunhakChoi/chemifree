@@ -14,13 +14,46 @@ pub(super) enum Kind {
     Real(AtomId),
     /// A duplicate of `of`: the far end of a multiple bond or the atom a ring closes on.
     /// `of_depth` is the sphere of the corresponding real atom (the root is sphere 0).
-    Duplicate { of: AtomId, of_depth: u16 },
+    Duplicate {
+        of: AtomId,
+        of_depth: u16,
+        origin: Origin,
+    },
     /// The duplicate carbon of a mancude ring atom.
     Mancude,
     /// A hydrogen that is not an atom of the graph.
     Hydrogen,
     /// A lone pair, atomic number 0.
     Phantom,
+}
+
+/// Why a duplicate atom is in the digraph. Rule 1b reads the distance of the atom it stands
+/// for from the root, and the literal reading (`of_depth`) and the one that treats the
+/// duplicates of multiple bonds as lying in their own sphere differ for some of them: see
+/// [`Origin::sphere_distance`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Origin {
+    /// The neighbor is on the path from the root: a ring closes.
+    RingClosure,
+    /// The far end of a multiple bond, or the parent that a multiple bond leads back to.
+    MultipleBond,
+    /// The duplicate a multiple bond adds beyond the first when the same bond also closes a
+    /// ring (the first duplicate, for the neighbor on the path, is a [`Origin::RingClosure`]).
+    ClosingMultipleBond,
+}
+
+impl Origin {
+    /// The distance Rule 1b reads for a duplicate in sphere `depth` that stands for an atom in
+    /// sphere `of_depth`, in the reading where only a ring closure is measured to the atom it
+    /// stands for, a multiple-bond duplicate lies in its own sphere, and the second duplicate
+    /// of a ring-closing multiple bond has no distance (it ranks below the other kinds).
+    pub(super) const fn sphere_distance(self, depth: u16, of_depth: u16) -> u16 {
+        match self {
+            Self::RingClosure => of_depth,
+            Self::MultipleBond => depth,
+            Self::ClosingMultipleBond => u16::MAX,
+        }
+    }
 }
 
 pub(super) struct Node {
@@ -317,6 +350,7 @@ impl<'c, 'g> Arena<'c, 'g> {
                 Some(of_depth) => Kind::Duplicate {
                     of: neighbor,
                     of_depth,
+                    origin: Origin::RingClosure,
                 },
                 None => Kind::Real(neighbor),
             };
@@ -330,6 +364,11 @@ impl<'c, 'g> Arena<'c, 'g> {
                 let duplicate = Kind::Duplicate {
                     of: neighbor,
                     of_depth: corresponding,
+                    origin: if on_path.is_some() {
+                        Origin::ClosingMultipleBond
+                    } else {
+                        Origin::MultipleBond
+                    },
                 };
                 found.push((duplicate, z, mass, 1));
             }
@@ -341,6 +380,7 @@ impl<'c, 'g> Arena<'c, 'g> {
                         let duplicate = Kind::Duplicate {
                             of: parent_atom,
                             of_depth: depth - 1,
+                            origin: Origin::MultipleBond,
                         };
                         found.push((duplicate, element.atomic_number(), mass, 1));
                     }
@@ -366,6 +406,14 @@ mod tests {
     };
     use crate::element::Element;
     use crate::graph::MoleculeGraph;
+
+    #[test]
+    fn the_sphere_reading_measures_only_a_ring_closure_to_the_atom_it_stands_for() {
+        // A duplicate in sphere 5 that stands for an atom in sphere 2.
+        assert_eq!(Origin::RingClosure.sphere_distance(5, 2), 2);
+        assert_eq!(Origin::MultipleBond.sphere_distance(5, 4), 5);
+        assert_eq!(Origin::ClosingMultipleBond.sphere_distance(5, 2), u16::MAX);
+    }
 
     /// The ring closure of cyclobutene `Y=X, Y-A, A-B, B-X` entered from a center `K` at `Y`
     /// reaches `Y` again from `X` through the double bond: both duplicates of `Y` stand for
@@ -422,8 +470,18 @@ mod tests {
             .map(|child| arena.node(child).kind)
             .filter(|kind| matches!(kind, Kind::Duplicate { .. }))
             .collect();
-        let expected = Kind::Duplicate { of: y, of_depth: 1 };
-        assert_eq!(closure, vec![expected, expected]);
+        let expected = |origin| Kind::Duplicate {
+            of: y,
+            of_depth: 1,
+            origin,
+        };
+        assert_eq!(
+            closure,
+            vec![
+                expected(Origin::RingClosure),
+                expected(Origin::ClosingMultipleBond)
+            ]
+        );
         assert!(arena.closes_ring());
     }
 
