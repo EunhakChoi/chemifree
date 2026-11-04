@@ -1,7 +1,7 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
 import { readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
-import { ctabParameters, ctRefusalSentence, DEFAULT_CTAB, writtenDialectMatches, type CtabChoice } from '@/lib/ct-conversion'
+import { ctabParameters, ctRefusalSentence, DEFAULT_CTAB, writtenDialectMatches, type CtabChoice, type CtDirection } from '@/lib/ct-conversion'
 import {
   holdsStereo,
   isStereoMark,
@@ -1470,7 +1470,7 @@ function isCtSourceRecord(item: unknown): item is CtSourceRecord {
       isRecord(field) && typeof field.name === 'string' && typeof field.value === 'string')
 }
 
-function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtLoss[] } {
+function ctReply(value: unknown, direction: CtDirection): { result: Record<string, unknown>; losses: CtLoss[] } {
   if (!isRecord(value) || !Array.isArray(value.diagnostics)) {
     throw new ApiError('incompatible_response', 'The service returned an incompatible conversion response.', 200)
   }
@@ -1488,7 +1488,7 @@ function ctReply(value: unknown): { result: Record<string, unknown>; losses: CtL
       }
       const record = isCount(details.record) ? ` Record ${details.record}.` : ''
       const line = isCount(details.line) ? ` Line ${details.line}.` : ''
-      const sentence = ctRefusalSentence(diagnostic.code)
+      const sentence = ctRefusalSentence(diagnostic.code, direction)
       const said = `${diagnostic.message}${record}${line}`
       throw new ApiError(diagnostic.code, sentence === null ? said : `${sentence} Service message: ${said}`, 200, {
         currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
@@ -1827,7 +1827,7 @@ export class DocumentClient {
     const reply = ctReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',
       parameters: { document_id: documentId, expected_revision: revision, format, source, record, preview: true },
-    }, 'reload'))
+    }, 'reload'), 'import')
     const { result } = reply
     if (typeof result.preview_digest !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_digest) ||
         result.selected_record !== record || !Array.isArray(result.records) ||
@@ -1887,7 +1887,7 @@ export class DocumentClient {
     return this.commitImport(input, {
       document_id: input.documentId, expected_revision: input.revision, format: input.format,
       source: input.source, record: input.record, preview_digest: input.digest, accept_loss: true,
-    }, ctReply)
+    }, (value) => ctReply(value, 'import'))
   }
 
   async previewSmiles(documentId: string, revision: number, source: string): Promise<SmilesPreview> {
@@ -1948,7 +1948,7 @@ export class DocumentClient {
     const reply = ctReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
       parameters: { format, records: [{ document_id: documentId }], ...ctabParameters(ctab, acceptedLosses) },
-    }, 'reload'))
+    }, 'reload'), 'export')
     if (typeof reply.result.content !== 'string' || !Array.isArray(reply.result.records) ||
         reply.result.records.length !== 1 || !isRecord(reply.result.records[0]) || !isRecord(reply.result.records[0].snapshot) ||
         !writtenDialectMatches(ctab, reply.result.ctab)) {

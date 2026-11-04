@@ -5,7 +5,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { LossList } from '@/components/loss-list'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { afterExportFailure, CTAB_OPTIONS, DEFAULT_CTAB, parseCtabChoice, type CtabChoice } from '@/lib/ct-conversion'
+import { afterDownloadFailure, afterExportFailure, CTAB_OPTIONS, DEFAULT_CTAB, MAX_CONSENT_RESTARTS, parseCtabChoice, type CtabChoice } from '@/lib/ct-conversion'
 import { ApiError, ConsentRequired, sameConversionSnapshot, type CtFormat, type CtImport, type CtLoss, type CtPreview, type DocumentView } from '@/lib/document-contract'
 
 interface SourceFile {
@@ -31,10 +31,14 @@ interface PreparedExport {
   written: 'v2000' | 'v3000'
   accepted?: string
 }
+/** Losses the service says need consent, for a request this page has no way to accept. */
+interface Unacceptable {
+  features: string[]
+  losses: CtLoss[]
+}
 /** Losses the person must accept before this export is written, for the drawing and choice asked about. */
 interface ExportOffer {
   format: CtFormat
-  choice: CtabChoice
   choiceVersion: number
   digest: string
   features: string[]
@@ -54,6 +58,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
   const [choice, setChoice] = useState<CtabChoice>(DEFAULT_CTAB)
   const [choiceVersion, setChoiceVersion] = useState(0)
   const [offer, setOffer] = useState<ExportOffer | null>(null)
+  const [unacceptable, setUnacceptable] = useState<Unacceptable | null>(null)
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const alive = useRef(true)
@@ -77,13 +82,18 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
   const currentOffer = offer && offer.choiceVersion === choiceVersion && offer.generation === editor.serviceGeneration &&
     sameConversionSnapshot(document, offer.drawing) ? offer : null
 
+  function clearMessages() {
+    setError(null)
+    setUnacceptable(null)
+  }
+
   function changeChoice(next: CtabChoice) {
     exportRequest.current += 1
     setChoice(next)
     setChoiceVersion((version) => version + 1)
     setExported(null)
     setOffer(null)
-    setError(null)
+    clearMessages()
   }
 
   async function readFile(selected: File | undefined) {
@@ -91,7 +101,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     previewRequest.current += 1
     setFile(null)
     setPrepared(null)
-    setError(null)
+    clearMessages()
     if (!selected) return
     const extension = selected.name.toLowerCase().split('.').pop()
     if (extension !== 'mol' && extension !== 'sdf') {
@@ -123,7 +133,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     const generation = editor.serviceGeneration
     const sequence = ++previewRequest.current
     setPending((count) => count + 1)
-    setError(null)
+    clearMessages()
     setPrepared(null)
     try {
       const preview = await editor.previewCt(snapshot.id, snapshot.revision, file.format, file.text, number)
@@ -133,7 +143,10 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
         source: file.text, record: number, digest: preview.digest,
       } })
     } catch (cause) {
-      if (alive.current && previewRequest.current === sequence) setError(cause instanceof Error ? cause.message : 'Import preview failed.')
+      if (alive.current && previewRequest.current === sequence) {
+        if (cause instanceof ConsentRequired) setUnacceptable({ features: cause.features, losses: cause.losses })
+        setError(cause instanceof Error ? cause.message : 'Import preview failed.')
+      }
     } finally {
       if (alive.current) setPending((count) => count - 1)
     }
@@ -149,37 +162,50 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
-  async function previewExport(format: CtFormat, accepted?: string, changed = false) {
+  async function previewExport(format: CtFormat, acceptedStart?: string, changedStart = false) {
     const snapshot = document
     const generation = editor.serviceGeneration
     const asked = choice
     const askedVersion = choiceVersion
     const sequence = ++exportRequest.current
     setPending((count) => count + 1)
-    setError(null)
+    clearMessages()
     setExported(null)
     setOffer(null)
     try {
-      const result = await editor.exportCt(snapshot.id, format, asked, accepted)
-      if (alive.current && exportRequest.current === sequence) {
-        const url = URL.createObjectURL(new Blob([result.content], { type: 'chemical/x-mdl-molfile;charset=utf-8' }))
-        setExported({ format, snapshot: result.snapshot, url, content: result.content, losses: result.losses, generation,
-          choice: asked, written: result.ctab, accepted })
-      }
-    } catch (cause) {
-      if (alive.current && exportRequest.current === sequence) {
-        const step = cause instanceof ApiError
-          ? afterExportFailure(cause.code, cause instanceof ConsentRequired ? cause.digest : undefined, accepted)
-          : { kind: 'error' as const }
-        if (step.kind === 'offer' && cause instanceof ConsentRequired) {
-          setOffer({ format, choice: asked, choiceVersion: askedVersion, digest: step.digest, features: cause.features,
-            losses: cause.losses, changed: changed || step.changed, drawing: snapshot, generation })
-        } else if (step.kind === 'ask-again') {
-          // The accepted digest is void: ask once more without it and show what is now needed.
-          void previewExport(format, undefined, true)
+      let accepted = acceptedStart
+      let changed = changedStart
+      // An accepted digest that went stale is dropped and the export asked again, a few times at most.
+      for (let restarts = 0; ; restarts += 1) {
+        try {
+          const result = await editor.exportCt(snapshot.id, format, asked, accepted)
+          if (alive.current && exportRequest.current === sequence) {
+            const url = URL.createObjectURL(new Blob([result.content], { type: 'chemical/x-mdl-molfile;charset=utf-8' }))
+            setExported({ format, snapshot: result.snapshot, url, content: result.content, losses: result.losses, generation,
+              choice: asked, written: result.ctab, accepted })
+          }
           return
-        } else {
-          setError(cause instanceof Error ? cause.message : 'Export failed.')
+        } catch (cause) {
+          // Another request, a change of version or an unmount replaced this one: say nothing.
+          if (!alive.current || exportRequest.current !== sequence) return
+          const step = cause instanceof ApiError
+            ? afterExportFailure(cause.code, cause instanceof ConsentRequired ? cause.digest : undefined, accepted)
+            : { kind: 'error' as const }
+          if (step.kind === 'offer' && cause instanceof ConsentRequired) {
+            setOffer({ format, choiceVersion: askedVersion, digest: step.digest, features: cause.features,
+              losses: cause.losses, changed: changed || step.changed, drawing: snapshot, generation })
+            return
+          }
+          if (step.kind === 'ask-again' && restarts < MAX_CONSENT_RESTARTS) {
+            accepted = undefined
+            changed = true
+            continue
+          }
+          if (step.kind === 'no-accept' && cause instanceof ConsentRequired) setUnacceptable({ features: cause.features, losses: cause.losses })
+          setError(step.kind === 'ask-again'
+            ? 'The losses of this export kept changing. Preview the export again.'
+            : cause instanceof Error ? cause.message : 'Export failed.')
+          return
         }
       }
     } finally {
@@ -189,7 +215,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
 
   async function downloadExport(item: PreparedExport) {
     setPending((count) => count + 1)
-    setError(null)
+    clearMessages()
     try {
       // Recheck at the click: a service restart may have occurred while the page was idle.
       const fresh = await editor.exportCt(item.snapshot.id, item.format, item.choice, item.accepted)
@@ -203,7 +229,14 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
       anchor.download = `chemifree.${item.format}`
       anchor.click()
     } catch (cause) {
-      if (alive.current) setError(cause instanceof Error ? cause.message : 'Export verification failed.')
+      if (!alive.current) return
+      if (cause instanceof ApiError && afterDownloadFailure(cause.code, item.accepted) === 'restart') {
+        // The consent no longer fits what would be written: drop the stale preview and show the new losses.
+        setExported(null)
+        void previewExport(item.format, undefined, item.accepted !== undefined)
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Export verification failed.')
+      }
     } finally {
       if (alive.current) setPending((count) => count - 1)
     }
@@ -227,6 +260,10 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
       Preview import
     </Button>
     {error && <p role="alert">{error}</p>}
+    {unacceptable && <div role="group" aria-label="Losses that need consent" className="flex max-h-64 flex-col gap-2 overflow-auto" data-testid="ctfile-unacceptable">
+      <p>These losses ({unacceptable.features.join(', ')}) need consent, but this page cannot accept them for this request. Nothing was changed.</p>
+      <LossList losses={unacceptable.losses} />
+    </div>}
     {prepared && !currentImport && <p>The drawing changed. Preview the import again.</p>}
     {currentImport && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
       <p>{currentImport.preview.records.length} record(s); importing record {currentImport.input.record}.</p>

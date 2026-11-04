@@ -36,25 +36,45 @@ export function writtenDialectMatches(choice: CtabChoice, written: unknown): wri
 export type ExportStep =
   | { kind: 'offer'; digest: string; changed: boolean }
   | { kind: 'ask-again' }
+  /** Consent is required but the reply carries no digest, so the page has nothing to accept with. */
+  | { kind: 'no-accept' }
   | { kind: 'error' }
 
 /**
- * `loss_consent_required` with a digest shows the losses to accept. `loss_consent_changed`
- * means the digest sent no longer matches what would be written: the old consent is void, so
- * the page asks again without it and shows the new losses marked as changed. Anything else is
- * an error to show.
+ * `loss_consent_required` with a digest shows the losses to accept. Without a digest (an import
+ * refusal, SMILES-style consent) the losses are shown but cannot be accepted from here.
+ * `loss_consent_changed` means the digest sent no longer matches what would be written: the old
+ * consent is void, so the page asks again without it and shows the new losses marked as changed.
+ * Anything else is an error to show.
  */
 export function afterExportFailure(code: string, digest: string | undefined, sentDigest: string | undefined): ExportStep {
-  if (code === 'loss_consent_required' && digest !== undefined) return { kind: 'offer', digest, changed: sentDigest !== undefined }
+  if (code === 'loss_consent_required') {
+    return digest === undefined ? { kind: 'no-accept' } : { kind: 'offer', digest, changed: sentDigest !== undefined }
+  }
   if (code === 'loss_consent_changed' && sentDigest !== undefined) return { kind: 'ask-again' }
   return { kind: 'error' }
 }
 
-/** One plain sentence per loss id the page explains. An id not listed is shown as it is, never hidden. */
+/** How many times one export may ask again after its accepted digest went stale, before it gives up. */
+export const MAX_CONSENT_RESTARTS = 2
+
+/**
+ * What the page does when the re-check made at the Download click fails: a void digest, or new
+ * losses that need consent, discard the preview and start the export over; anything else is an error.
+ */
+export function afterDownloadFailure(code: string, sentDigest: string | undefined): 'restart' | 'error' {
+  return code === 'loss_consent_required' || (code === 'loss_consent_changed' && sentDigest !== undefined) ? 'restart' : 'error'
+}
+
+/**
+ * One plain sentence per loss id the page explains, worded to be true for every format that can
+ * raise the id (`stereo_group` comes from SMILES and V2000 exports; the others only from MOL and
+ * SDF). An id not listed is shown as it is, never hidden.
+ */
 export const LOSS_SENTENCES: Readonly<Record<string, string>> = {
   stereo_configuration_not_drawn: 'A stored atom configuration that the wedges, hashes and positions do not show; a reader of the file gets another configuration or none.',
   stereo_bond_configuration: 'A stored double-bond configuration that neither a crossed mark nor the positions show.',
-  stereo_group: 'Enhanced stereo groups, which a V2000 file or SMILES cannot carry.',
+  stereo_group: 'Enhanced stereo groups, which this output cannot carry.',
   stereo_ungrouped_centers: 'Stored stereo centers that are in no group: the file states nothing about them.',
   stereo_group_identity: 'The group names (e1, e2, ...) are not written; the groups themselves are.',
   chiral_flag: 'The chiral flag: whether the file states absolute stereochemistry.',
@@ -75,11 +95,17 @@ export function lossHeading(feature: string): string {
 
 const NOTHING = ' Nothing was changed.'
 
+/** Whether a refusal answered a file being read into the drawing or the drawing being written out. */
+export type CtDirection = 'import' | 'export'
+
+/** A sentence, or one per direction where the wording differs. Each ends with NOTHING. */
+type Sentence = string | { import: string; export: string }
+
 /** Sentences for the refusals a person can reach from this page. */
-export const CT_REFUSAL_SENTENCES: Readonly<Record<string, string>> = {
+export const CT_REFUSAL_SENTENCES: Readonly<Record<string, Sentence>> = {
   v3000_collection_member_not_stereocenter: `A stereo group in the file lists an atom whose wedges or hashes do not give it a stored tetrahedral configuration. Dropping it would change which centers belong together, so the record was refused.${NOTHING}`,
   v3000_collection_drawing_unreadable: `The file holds stereo groups, but its wedges and hashes could not all be read into configurations, so the groups cannot be checked.${NOTHING}`,
-  v3000_group_member_not_drawn: `A stereo group holds atoms that the wedges or hashes would not derive a configuration for as the file would be written; draw the marks or remove those atoms from the group. Nothing was written.${NOTHING}`,
+  v3000_group_member_not_drawn: `A stereo group holds atoms that the wedges or hashes would not derive a configuration for as the file would be written; draw the marks or remove those atoms from the group.${NOTHING}`,
   v3000_empty_collection: `A stereo group in the file has no atoms.${NOTHING}`,
   v3000_duplicate_collection: `The file states the same stereo group twice.${NOTHING}`,
   v3000_collection_atom_shared: `An atom is in two stereo groups of the file.${NOTHING}`,
@@ -98,10 +124,17 @@ export const CT_REFUSAL_SENTENCES: Readonly<Record<string, string>> = {
   v3000_unsupported_reaction: `Reaction blocks are not read.${NOTHING}`,
   v3000_unsupported_block: `The file holds a block this page does not read.${NOTHING}`,
   v3000_multiple_structures: `The record holds more than one connection table.${NOTHING}`,
-  unsupported_atom: `The drawing or file holds an atom the MOL format here cannot carry.${NOTHING}`,
-  unsupported_bond: `The drawing or file holds a bond the chosen MOL version cannot carry; an aromatic bond needs V3000.${NOTHING}`,
+  unsupported_atom: {
+    import: `The file holds an atom this page does not read (a query or pseudo atom).${NOTHING}`,
+    export: `The drawing holds an atom the MOL format cannot carry.${NOTHING}`,
+  },
+  unsupported_bond: {
+    import: `The file holds a bond this page does not read.${NOTHING}`,
+    export: `The drawing holds a bond the chosen MOL version cannot carry; an aromatic bond needs V3000.${NOTHING}`,
+  },
   unsupported_version: `This MOL version is not supported.${NOTHING}`,
-  resource_limit: `The drawing or file exceeds a size limit (V2000 holds 999 atoms or bonds, V3000 2000 atoms and 4000 bonds).${NOTHING}`,
+  // Generic: the service message carries the actual limit (size, count or line length), so no number is repeated here.
+  resource_limit: `A limit of the service was exceeded; the service message names it.${NOTHING}`,
   format_ctab_conflict: `The format id and the MOL version disagree.${NOTHING}`,
 }
 
@@ -121,10 +154,16 @@ export const CT_FALLBACK_REASONS: readonly string[] = [
   'invalid_bond', 'duplicate_bond', 'invalid_charge', 'invalid_isotope', 'invalid_count',
 ]
 
-const GENERIC_MALFORMED = `The MOL text is not valid, or the drawing holds a value the file cannot carry; the service message names where.${NOTHING}`
+const GENERIC_MALFORMED: Record<CtDirection, string> = {
+  import: `The MOL text is not valid; the service message names where.${NOTHING}`,
+  export: `The drawing holds a value the file cannot carry; the service message names it.${NOTHING}`,
+}
 
 /** The plain sentence for a refusal code, or null for a code the page does not know (show the service's message). */
-export function ctRefusalSentence(code: string): string | null {
-  if (Object.hasOwn(CT_REFUSAL_SENTENCES, code)) return CT_REFUSAL_SENTENCES[code]
-  return CT_FALLBACK_REASONS.includes(code) ? GENERIC_MALFORMED : null
+export function ctRefusalSentence(code: string, direction: CtDirection): string | null {
+  if (Object.hasOwn(CT_REFUSAL_SENTENCES, code)) {
+    const sentence = CT_REFUSAL_SENTENCES[code]
+    return typeof sentence === 'string' ? sentence : sentence[direction]
+  }
+  return CT_FALLBACK_REASONS.includes(code) ? GENERIC_MALFORMED[direction] : null
 }

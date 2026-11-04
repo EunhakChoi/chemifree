@@ -2936,7 +2936,7 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
   const offer = panel.getByRole('group', { name: 'Losses to accept before writing' })
   await offer.waitFor()
-  await offer.getByText('Enhanced stereo groups, which a V2000 file or SMILES cannot carry.').waitFor()
+  await offer.getByText('Enhanced stereo groups, which this output cannot carry.').waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'no file before consent')
 
   // Choosing V3000 voids that offer; the group is written, the center outside it needs consent.
@@ -2949,6 +2949,24 @@ step = 'after short_wide_bond_is_selectable'
   await offer.getByRole('button', { name: 'Accept these losses and preview MOL' }).click()
   await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
   assert.equal(await panel.getByTestId('ctfile-written').textContent(), 'Written as MOL V3000.')
+  // The consent goes stale between the accept and the download (the Download click rechecks with a
+  // digest the service no longer knows): the preview is dropped and the losses are offered again.
+  let staled = false
+  const staleDigest = async (route) => {
+    const request = route.request().postDataJSON()
+    if (staled || request?.operation !== 'document.export' || request.parameters.accepted_losses === undefined) return route.continue()
+    staled = true
+    const parameters = { ...request.parameters, accepted_losses: '0'.repeat(64) }
+    await route.continue({ postData: JSON.stringify({ ...request, parameters }) })
+  }
+  await page.route('**/api/v1/operations', staleDigest)
+  await panel.getByRole('button', { name: 'Download MOL' }).click()
+  await offer.waitFor()
+  await offer.getByText('The losses changed since you accepted them. Review them again.').waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'the stale preview is gone')
+  await page.unroute('**/api/v1/operations', staleDigest)
+  await offer.getByRole('button', { name: 'Accept these losses and preview MOL' }).click()
+  await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
   const downloadPromise = page.waitForEvent('download')
   await panel.getByRole('button', { name: 'Download MOL' }).click()
   const path = join(work, 'v3000-groups.mol')
