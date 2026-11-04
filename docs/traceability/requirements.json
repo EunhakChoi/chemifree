@@ -642,6 +642,7 @@
           "status": "implemented",
           "implementation": [
             "crates/application/src/ct_projection.rs",
+            "crates/application/src/stereo_projection.rs",
             "crates/application/src/operations.rs",
             "crates/application/src/ctfile.rs",
             "crates/providers/src/ctfile/v3000.rs",
@@ -1175,6 +1176,7 @@
             "crates/application/src/contract.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/ct_projection.rs",
+            "crates/application/src/stereo_projection.rs",
             "crates/application/src/operations/stereo.rs",
             "apps/web/src/lib/stereo-contract.ts"
           ],
