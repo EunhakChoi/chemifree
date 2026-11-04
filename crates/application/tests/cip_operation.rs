@@ -1328,10 +1328,8 @@ fn the_limits_are_those_of_the_labeler_and_a_reached_item_cap_is_unsupported_nev
         );
         assert_eq!(first["priority"], Value::Null);
     }
-    // The request limit is shared by centers and double bonds: each alone fits, together they do not.
+    // A request limit below the work of the first center refuses the request whole, naming it.
     let molecule = parse("F[C@H](/C=C\\C)/C=C/C");
-    let (_, ids_only) = (0, build(&application().0, &molecule).ids);
-    let _ = ids_only;
     let per_item = Limits {
         item_nodes: 20_000,
         request_nodes: 1,
@@ -1341,6 +1339,69 @@ fn the_limits_are_those_of_the_labeler_and_a_reached_item_cap_is_unsupported_nev
     let reply = call(&app, "request", &request(&built, &json!({})));
     assert_eq!(reply["diagnostics"][0]["code"], "resource_limit");
     assert_eq!(reply["diagnostics"][0]["details"]["limit"], 1);
+}
+
+/// The built-in rules, noting what the centers cost and what is left for the double bonds.
+struct Spy {
+    centers_cost: std::sync::Arc<std::sync::Mutex<usize>>,
+    bonds_budget: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
+}
+
+impl CipLabeler for Spy {
+    fn model_id(&self) -> &'static str {
+        BuiltinCip.model_id()
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        BuiltinCip.rules()
+    }
+
+    fn limits(&self) -> Limits {
+        BuiltinCip.limits()
+    }
+
+    fn label_centers(
+        &self,
+        graph: &MoleculeGraph,
+        atoms: &[AtomId],
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<CenterReport>, Stop> {
+        let reports = BuiltinCip.label_centers(graph, atoms, limits, interrupt)?;
+        *self.centers_cost.lock().unwrap() = reports.iter().map(|report| report.nodes).sum();
+        Ok(reports)
+    }
+
+    fn label_double_bonds(
+        &self,
+        graph: &MoleculeGraph,
+        bonds: &[BondId],
+        limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<BondReport>, Stop> {
+        *self.bonds_budget.lock().unwrap() = Some(limits.request_nodes);
+        BuiltinCip.label_double_bonds(graph, bonds, limits, interrupt)
+    }
+}
+
+#[test]
+fn the_request_limit_is_shared_by_the_centers_and_the_double_bonds() {
+    let centers_cost = std::sync::Arc::new(std::sync::Mutex::new(0));
+    let bonds_budget = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let (app, _directory) = application_with(Spy {
+        centers_cost: centers_cost.clone(),
+        bonds_budget: bonds_budget.clone(),
+    });
+    let (built, _) = smiles(&app, "F[C@H](/C=C\\C)/C=C/C");
+    let reply = call(&app, "shared", &request(&built, &json!({})));
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    let spent = *centers_cost.lock().unwrap();
+    assert!(spent > 0, "the center did work: {spent}");
+    assert_eq!(
+        *bonds_budget.lock().unwrap(),
+        Some(Limits::default().request_nodes - spent),
+        "the double bonds are given what the centers left"
+    );
 }
 
 #[test]
