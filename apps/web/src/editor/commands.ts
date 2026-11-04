@@ -57,6 +57,17 @@ function referencedIds(command: Command): string[] {
         : [command.bond, ...namedAtoms([command.configuration.begin_neighbor, command.configuration.end_neighbor])]
     case 'set_configuration_from_drawing':
       return [...(command.atoms ?? []), ...(command.bonds ?? []), ...(command.instance === undefined ? [] : [command.instance])]
+    // Group commands name atoms of the document and group ids; this lists the ids of atoms, bonds and scene objects only.
+    case 'create_stereo_group':
+    case 'split_stereo_group':
+    case 'add_stereo_group_members':
+    case 'remove_stereo_group_members':
+      return command.atoms
+    case 'delete_stereo_group':
+    case 'set_stereo_group_kind':
+    case 'set_stereo_group_number':
+    case 'merge_stereo_groups':
+      return []
     default: {
       const unknown: never = command
       return unknown

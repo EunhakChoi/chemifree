@@ -22,6 +22,7 @@ import {
 } from '@/lib/document-contract'
 import { sendMark, type DeriveOutcome, type MarkGesture } from '@/editor/mark-gestures'
 import { resolutionCommands, resolutionStatus, type Resolution } from '@/editor/stereo-agreement'
+import { groupStatus, planGroupRequest, type GroupRequest } from '@/editor/stereo-groups'
 import { describeStereoChange } from '@/editor/stereo-status'
 import { holdsStereo, stereoOf } from '@/lib/stereo-contract'
 
@@ -617,6 +618,30 @@ export function useDocumentEditor() {
         adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
         const text = before && resolutionStatus(before, response.document, resolution)
         if (text) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text })
+      })
+    }, [mutate, adoptSelection]),
+    /**
+     * Edits enhanced stereo groups for one click, built from the latest document and the atoms
+     * selected at the press (`planGroupRequest` decides, so a click that no longer applies sends
+     * nothing and says why). One transaction, so one undo step; the page's status names the result
+     * and a refusal reaches the error notice with nothing changed.
+     */
+    editGroups: useCallback((request: GroupRequest) => {
+      const pressed = new Set(selectionRef.current)
+      let before: DocumentView | null = null
+      return mutate((document) => {
+        before = null
+        const shown = document.document
+        const plan = planGroupRequest(shown, [...pressed], request)
+        if (!plan.ok) {
+          setStereoStatus({ documentId: shown.id, revision: shown.revision, text: `Nothing was changed: ${plan.why}` })
+          return null
+        }
+        before = shown
+        return client.transact(shown.id, shown.revision, plan.commands, { before: selectionSnapshot(pressed, shown) })
+      }, (response) => {
+        adoptSelection(selectionIds(selectionSnapshot(selectionRef.current, response.document)))
+        if (before) setStereoStatus({ documentId: response.document.id, revision: response.document.revision, text: groupStatus(before, response.document, request) })
       })
     }, [mutate, adoptSelection]),
     // Undo and redo are not retried after a restart: the restarted service's history can

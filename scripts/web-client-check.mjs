@@ -4614,3 +4614,271 @@ test('a reply with fields the reader does not know, at every level, still shows 
   assert.equal(readCip(bonded, noEnds), null, 'a missing end field')
   assert.equal(readCipFailure({ ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { limit: 1, stage: 'centers', parameter: 'atoms', future: 1 } }] }), null, 'a missing limit detail')
 })
+
+// ---------------------------------------------------------------------------------------------
+// Enhanced stereo groups in the web editor (P27c): the table cell and list, which actions the
+// selection allows and why not, the commands each sends, the sentence for every refusal the
+// contract lists, the number field, and where a group label is drawn.
+// ---------------------------------------------------------------------------------------------
+const {
+  GROUP_ACTIONS, KIND_MEANINGS, REFUSAL_SENTENCES, groupCell, groupLabelAt, groupMarks, groupRefusalSentence, groupRows,
+  groupStatus, numberSentence, parseGroupNumber, planGroupRequest, selectedAtoms,
+} = await import('../apps/web/src/editor/stereo-groups.ts')
+const { readFileSync } = await import('node:fs')
+
+const grp = (id, kind, stored, members) => ({
+  id, kind, stored_number: stored, members,
+  number: kind === 'absolute' ? null : (stored ?? 0),
+  label: kind === 'absolute' ? 'abs' : `${kind}${stored ?? 0}`,
+})
+/** The public drawing with three stored centers (a2, a4, a5) and these groups. */
+function groupedDocument(groups = [], extra = []) {
+  const value = agreementDocument()
+  value.stereo.atoms.push({ atom: 'a5', configuration: tetra(['a4', 'a6', 'implicit_hydrogen', 'lone_pair'], 'clockwise') })
+  value.stereo.atoms.push(...extra)
+  value.stereo.groups = groups
+  return value
+}
+const planOf = (value, selection, action, numberText = '') => planGroupRequest(value, selection, { action, numberText })
+const commandsOf = (plan) => {
+  assert.equal(plan.ok, true, plan.ok ? '' : plan.why)
+  return plan.commands
+}
+
+test('the Group cell and list are built from the snapshot alone, with the label, kind words and the number as stated', () => {
+  const value = groupedDocument([grp('e1', 'or', 2, ['a2', 'a4']), grp('e2', 'and', null, ['a5'])])
+  assert.equal(groupCell(value.stereo.groups, 'a2'), 'e1: or2 (OR)')
+  assert.equal(groupCell(value.stereo.groups, 'a5'), 'e2: and0 (AND)')
+  assert.equal(groupCell(value.stereo.groups, 'a1'), 'no group')
+  assert.equal(groupCell([grp('e3', 'absolute', null, ['a2'])], 'a2'), 'e3: abs (absolute)')
+  assert.equal(numberSentence(value.stereo.groups[1]), 'number omitted (reads as 0)')
+  assert.equal(numberSentence(grp('e4', 'or', 0, ['a2'])), 'number 0')
+  assert.equal(numberSentence(grp('e4', 'or', -3, ['a2'])), 'number -3')
+  assert.equal(numberSentence(grp('e3', 'absolute', null, ['a2'])), 'no number (an absolute group takes none)')
+  const rows = groupRows(value)
+  assert.deepEqual(rows.map((r) => [r.id, r.label, r.kindWord, r.count, r.members, r.numberText]), [
+    ['e1', 'or2', 'OR', 2, ['a2', 'a4'], '2'], ['e2', 'and0', 'AND', 1, ['a5'], ''],
+  ])
+  // An omitted list reads as no groups, and no kind states a ratio.
+  const bare = agreementDocument()
+  assert.deepEqual(groupRows(bare), [])
+  assert.deepEqual(groupMarks(bare), [])
+  assert.match(KIND_MEANINGS.and, /mixture of the drawn set of members and its all-inverted counterpart\. No ratio is stated or implied\.$/)
+  assert.equal(KIND_MEANINGS.or, 'the members invert together or not at all.')
+  assert.equal(KIND_MEANINGS.absolute, 'the members are as drawn.')
+  for (const text of Object.values(KIND_MEANINGS)) assert.doesNotMatch(text, /1:1|equal|ratio is \d|50/)
+})
+
+test('a group number is empty, or an integer in the 32-bit range with 0 and negatives kept', () => {
+  assert.deepEqual(parseGroupNumber(''), { kind: 'none' })
+  assert.deepEqual(parseGroupNumber('  '), { kind: 'none' })
+  assert.deepEqual(parseGroupNumber('0'), { kind: 'integer', value: 0 })
+  assert.deepEqual(parseGroupNumber('-0'), { kind: 'integer', value: 0 })
+  assert.equal(Object.is(parseGroupNumber('-0').value, 0), true, 'never a negative zero')
+  assert.deepEqual(parseGroupNumber('-3'), { kind: 'integer', value: -3 })
+  assert.deepEqual(parseGroupNumber(' 007 '), { kind: 'integer', value: 7 })
+  assert.deepEqual(parseGroupNumber('2147483647'), { kind: 'integer', value: 2147483647 })
+  assert.deepEqual(parseGroupNumber('-2147483648'), { kind: 'integer', value: -2147483648 })
+  for (const bad of ['2147483648', '-2147483649', '99999999999999999999999', '1.5', '1e3', 'abc', '+1', '--1', '1 2', '0x10', '٣']) {
+    assert.equal(parseGroupNumber(bad).kind, 'invalid', bad)
+    assert.match(parseGroupNumber(bad).why, /whole number/, bad)
+  }
+  assert.match(parseGroupNumber('2147483648').why, /-2147483648 to 2147483647/)
+})
+
+test('creating a group needs stored tetrahedral centers in no group, and each refusal says why in text', () => {
+  const value = groupedDocument([], [])
+  value.stereo.atoms.push({ atom: 'a3', configuration: { kind: 'unknown', neighbors: ['a1', 'a2', 'a4', 'implicit_hydrogen'] } })
+  // Nothing selected, or only bonds: nothing to group.
+  assert.match(planOf(value, [], 'group_or').why, /^Select atoms with a stored tetrahedral configuration/)
+  assert.match(planOf(value, ['b1', 's1'], 'group_or').why, /^Select atoms/)
+  assert.deepEqual(selectedAtoms(value, ['b1', 'a2', 'a99', 'a4']), ['a2', 'a4'], 'bonds and unknown ids are ignored')
+  // The commands, with bonds in the selection ignored; the number is sent as an integer or null.
+  assert.deepEqual(commandsOf(planOf(value, ['a2', 'b1', 'a4'], 'group_or')), [{ op: 'create_stereo_group', kind: 'or', atoms: ['a2', 'a4'], number: null }])
+  assert.deepEqual(commandsOf(planOf(value, ['a2'], 'group_and', '-2')), [{ op: 'create_stereo_group', kind: 'and', atoms: ['a2'], number: -2 }])
+  assert.deepEqual(commandsOf(planOf(value, ['a2'], 'group_or', '0')), [{ op: 'create_stereo_group', kind: 'or', atoms: ['a2'], number: 0 }])
+  assert.deepEqual(commandsOf(planOf(value, ['a2', 'a4'], 'make_absolute')), [{ op: 'create_stereo_group', kind: 'absolute', atoms: ['a2', 'a4'], number: null }])
+  // Not a stored tetrahedral center: no configuration, or stored unknown.
+  assert.equal(planOf(value, ['a2', 'a1'], 'group_or').why, 'Every selected atom must have a stored tetrahedral configuration: a1 has none.')
+  assert.equal(planOf(value, ['a3'], 'group_or').why, 'Every selected atom must have a stored tetrahedral configuration: a3 is stored unknown, which cannot be a member.')
+  // An absolute group takes no number; a bad number is refused before anything is sent.
+  assert.equal(planOf(value, ['a2'], 'make_absolute', '1').why, 'An absolute group takes no number. Clear the number field.')
+  assert.equal(planOf(value, ['a2'], 'group_or', '1.5').ok, false)
+  assert.equal(planOf(value, ['a2'], 'group_or', '2147483648').ok, false)
+  // Already grouped, an absolute group already there, a number already taken.
+  const grouped = groupedDocument([grp('e1', 'or', null, ['a2']), grp('e2', 'absolute', null, ['a5'])])
+  assert.match(planOf(grouped, ['a2', 'a4'], 'group_and').why, /^a2 is already in group e1 \(or0\); an atom belongs to at most one group\./)
+  assert.equal(planOf(grouped, ['a4'], 'make_absolute').why, 'The document already has an absolute group (e2); there is at most one.')
+  assert.match(planOf(grouped, ['a4'], 'group_or').why, /^OR group e1 already has the number 0 \(a group with no number reads as 0\)\./)
+  assert.match(planOf(grouped, ['a4'], 'group_or', '0').why, /^OR group e1 already has number 0\./)
+  assert.equal(planOf(grouped, ['a4'], 'group_or', '1').ok, true)
+  assert.equal(planOf(grouped, ['a4'], 'group_and').ok, true, 'a number is told apart within a kind only')
+})
+
+test('add, remove, merge and split are offered only when their preconditions hold, with the reason in text', () => {
+  const value = groupedDocument([grp('e1', 'or', 1, ['a2', 'a4']), grp('e2', 'or', 2, ['a5']), grp('e3', 'and', 1, [])].slice(0, 2))
+  value.stereo.atoms.push({ atom: 'a6', configuration: tetra(['a3', 'a5', 'implicit_hydrogen', 'lone_pair'], 'clockwise') })
+  // Add: members of exactly one group together with ungrouped centers.
+  assert.deepEqual(commandsOf(planOf(value, ['a2', 'a6'], 'add_to_group')), [{ op: 'add_stereo_group_members', group: 'e1', atoms: ['a6'] }])
+  assert.match(planOf(value, ['a6'], 'add_to_group').why, /^Select a member of the group to add to/)
+  assert.match(planOf(value, ['a2', 'a5', 'a6'], 'add_to_group').why, /^The selection holds members of 2 groups \(e1, e2\)/)
+  assert.match(planOf(value, ['a2', 'a4'], 'add_to_group').why, /^Every selected atom is already in e1; there is nothing to add\./)
+  assert.match(planOf(value, ['a1', 'a6'], 'add_to_group').why, /^Every selected atom must have a stored tetrahedral configuration: a1 has none/)
+  // Remove: members only, and never every member of a group.
+  assert.deepEqual(commandsOf(planOf(value, ['a4'], 'remove_from_group')), [{ op: 'remove_stereo_group_members', group: 'e1', atoms: ['a4'] }])
+  assert.match(planOf(value, ['a2', 'a4'], 'remove_from_group').why, /^Removing every member of e1 would leave it empty\. Delete the group instead\./)
+  assert.match(planOf(value, ['a5'], 'remove_from_group').why, /^Removing every member of e2/)
+  assert.match(planOf(value, ['a4', 'a6'], 'remove_from_group').why, /^a6 is in no group; select only group members to remove\./)
+  // Remove across two groups: one command each, in group order.
+  const wide = groupedDocument([grp('e1', 'or', 1, ['a2', 'a4']), grp('e2', 'or', 2, ['a5', 'a6'])])
+  wide.stereo.atoms.push({ atom: 'a6', configuration: tetra(['a3', 'a5', 'implicit_hydrogen', 'lone_pair'], 'clockwise') })
+  assert.deepEqual(commandsOf(planOf(wide, ['a6', 'a2'], 'remove_from_group')), [
+    { op: 'remove_stereo_group_members', group: 'e1', atoms: ['a2'] }, { op: 'remove_stereo_group_members', group: 'e2', atoms: ['a6'] },
+  ])
+  // Merge: members of exactly two groups of one kind; the lower id keeps its kind and number.
+  assert.deepEqual(commandsOf(planOf(value, ['a5', 'a2'], 'merge')), [{ op: 'merge_stereo_groups', into: 'e1', from: 'e2' }])
+  assert.equal(planOf(value, ['a2'], 'merge').why, 'Merging takes members of exactly two groups; the selection holds one.')
+  assert.equal(planOf(value, ['a2', 'a6'], 'merge').why, 'a6 is in no group; select only members of the two groups.')
+  const mixed = groupedDocument([grp('e1', 'or', 1, ['a2']), grp('e2', 'and', 1, ['a4'])])
+  assert.equal(planOf(mixed, ['a2', 'a4'], 'merge').why, 'Only groups of the same kind can be merged: e1 is OR and e2 is AND.')
+  // Split: some but not all members of one non-absolute group, into a new group with a free number.
+  assert.deepEqual(commandsOf(planOf(value, ['a4'], 'split', '3')), [{ op: 'split_stereo_group', group: 'e1', atoms: ['a4'], number: 3 }])
+  assert.match(planOf(value, ['a4'], 'split', '2').why, /^OR group e2 already has number 2\./)
+  assert.match(planOf(value, ['a4'], 'split', '1').why, /^OR group e1 already has number 1\./)
+  assert.match(planOf(value, ['a2', 'a4'], 'split', '3').why, /^Every member of e1 is selected; a split moves some but not all members\./)
+  assert.match(planOf(value, ['a2', 'a5'], 'split', '3').why, /^Splitting takes members of exactly one group; the selection holds 2\./)
+  const absolute = groupedDocument([grp('e1', 'absolute', null, ['a2', 'a4'])])
+  assert.match(planOf(absolute, ['a4'], 'split').why, /^e1 is the absolute group, which cannot be split; remove members instead\./)
+  // A new number of 0 or none is the same number, so it is taken when the kind has it.
+  assert.match(planOf(groupedDocument([grp('e1', 'or', null, ['a2', 'a4'])]), ['a4'], 'split').why, /^OR group e1 already has the number 0/)
+})
+
+test('deleting a group and setting its number are per group; a taken number is left to the service, which refuses it', () => {
+  const value = groupedDocument([grp('e1', 'or', 1, ['a2']), grp('e2', 'or', 2, ['a4']), grp('e3', 'absolute', null, ['a5'])])
+  assert.deepEqual(commandsOf(planGroupRequest(value, [], { action: 'delete_group', group: 'e2' })), [{ op: 'delete_stereo_group', group: 'e2' }])
+  assert.equal(planGroupRequest(value, [], { action: 'delete_group', group: 'e9' }).ok, false)
+  const set = (group, numberText) => planGroupRequest(value, [], { action: 'set_number', group, numberText })
+  assert.deepEqual(commandsOf(set('e1', '0')), [{ op: 'set_stereo_group_number', group: 'e1', number: 0 }])
+  assert.deepEqual(commandsOf(set('e1', '-4')), [{ op: 'set_stereo_group_number', group: 'e1', number: -4 }])
+  assert.deepEqual(commandsOf(set('e1', '')), [{ op: 'set_stereo_group_number', group: 'e1', number: null }])
+  assert.deepEqual(commandsOf(set('e1', '2')), [{ op: 'set_stereo_group_number', group: 'e1', number: 2 }], 'taken by e2, which only the service decides')
+  assert.equal(set('e1', '1').why, 'The number is already 1.')
+  assert.equal(set('e3', '1').why, 'An absolute group takes no number.')
+  assert.equal(set('e1', '2147483648').ok, false)
+  assert.equal(set('e1', 'x').ok, false)
+  assert.equal(set('e9', '1').ok, false)
+  assert.equal(GROUP_ACTIONS.length, 7)
+})
+
+test('every refusal reason in the contract has a sentence, and a sentence only for a group reason of invalid_command', () => {
+  const contract = readFileSync(new URL('../docs/CONTRACT.md', import.meta.url), 'utf8')
+  const table = contract.slice(contract.indexOf('| `stereo_group_unknown` |'))
+  const reasons = [...table.slice(0, table.indexOf('\n\n')).matchAll(/^\| `(stereo_group_[a-z_]+)` \|/gm)].map((m) => m[1])
+  assert.equal(reasons.length, 12, 'the contract lists twelve reasons')
+  assert.deepEqual(Object.keys(REFUSAL_SENTENCES).sort(), [...reasons].sort(), 'the page words exactly the reasons the contract lists')
+  for (const reason of reasons) {
+    const sentence = groupRefusalSentence('invalid_command', reason)
+    assert.ok(sentence?.endsWith(' Nothing was changed.'), reason)
+    assert.doesNotMatch(sentence, /stereo_group_/, `${reason} is worded in plain language`)
+  }
+  assert.match(groupRefusalSentence('invalid_command', 'stereo_group_number_taken'), /merge the two groups: select a member of each and press Merge groups/)
+  assert.match(groupRefusalSentence('invalid_command', 'stereo_group_number_range'), /-2147483648 to 2147483647/)
+  assert.equal(groupRefusalSentence('invalid_command', 'stereo_group_future'), null)
+  assert.equal(groupRefusalSentence('invalid_command', undefined), null)
+  assert.equal(groupRefusalSentence('invalid_command', 'toString'), null, 'only own entries count')
+  assert.equal(groupRefusalSentence('revision_conflict', 'stereo_group_same'), null)
+})
+
+test('a service refusal of a group command reaches the page with its reason, and nothing is applied', async () => {
+  const scripted = service({
+    '/transactions': [() => json(422, { api_version: 'v1', code: 'invalid_command', message: 'command 0: number taken', command_index: 0, reason: 'stereo_group_number_taken' })],
+  })
+  const failure = await new DocumentClient().transact('doc-1', 3, [{ op: 'set_stereo_group_number', group: 'e1', number: 2 }]).then(() => null, (e) => e)
+  assert.equal(failure.code, 'invalid_command')
+  assert.equal(failure.stateReason, 'stereo_group_number_taken')
+  assert.equal(failure.commandIndex, 0)
+  assert.equal(groupRefusalSentence(failure.code, failure.stateReason), REFUSAL_SENTENCES.stereo_group_number_taken + ' Nothing was changed.')
+  assert.equal(scripted.writes.length, 1)
+})
+
+test('the status names the result of each request from the snapshots before and after', () => {
+  const before = groupedDocument([])
+  const created = groupedDocument([grp('e1', 'or', 2, ['a2', 'a4'])])
+  assert.equal(groupStatus(before, created, { action: 'group_or', numberText: '2' }), 'Created group e1 (or2) over a2, a4.')
+  assert.equal(groupStatus(created, before, { action: 'delete_group', group: 'e1' }), 'Deleted group e1; its members keep their stored configurations.')
+  assert.equal(groupStatus(before, created, { action: 'set_number', group: 'e1', numberText: '2' }), 'Group e1 is now or2 (number 2).')
+  const two = groupedDocument([grp('e1', 'or', 1, ['a2']), grp('e2', 'or', 2, ['a4'])])
+  assert.match(groupStatus(two, groupedDocument([grp('e1', 'or', 1, ['a2', 'a4'])]), { action: 'merge', numberText: '' }), /^Merged e2 into the other group, which keeps its kind and number; e2 is gone\.$/)
+  for (const text of [groupStatus(before, created, { action: 'group_and', numberText: '' })]) assert.doesNotMatch(text, /ratio|1:1/)
+})
+
+test('group labels read abs or the kind word and interpreted number, and stack with the CIP label without touching it', () => {
+  const value = groupedDocument([grp('e1', 'or', 2, ['a2', 'a4']), grp('e2', 'and', null, ['a5']), grp('e3', 'or', -3, [])].slice(0, 2))
+  assert.deepEqual(groupMarks(value).map((m) => [m.atom, m.text]), [['a2', 'OR 2'], ['a4', 'OR 2'], ['a5', 'AND 0']])
+  assert.equal(groupMarks(value)[0].name, 'Center a2: member of group e1, OR 2')
+  assert.deepEqual(groupMarks(groupedDocument([grp('e1', 'absolute', null, ['a2']), grp('e2', 'or', -3, ['a4'])])).map((m) => m.text), ['abs', 'OR -3'])
+  // Placement: the CIP label's point (the widest gap), moved 12 pt further from the atom's level.
+  const center = { x: 0, y: 0 }
+  const down = [{ x: 0, y: 40 }, { x: -35, y: -18 }, { x: 35, y: -18 }]
+  const cip = labelAt('atom', center, down)
+  assert.ok(cip.y < 0)
+  assert.deepEqual(groupLabelAt(center, down), { x: cip.x, y: cip.y - 12 }, 'above the atom the group label sits above the CIP label')
+  const below = labelAt('atom', center, [{ x: 0, y: -30 }])
+  assert.ok(below.y > 0)
+  assert.deepEqual(groupLabelAt(center, [{ x: 0, y: -30 }]), { x: below.x, y: below.y + 12 }, 'below the atom it sits below')
+  const level = labelAt('atom', center, [{ x: -30, y: 0 }])
+  assert.ok(Math.abs(level.y) < 1e-9 && level.x > 0)
+  assert.ok(Math.abs(groupLabelAt(center, [{ x: -30, y: 0 }]).y - 12) < 1e-6, 'level with the atom it goes down')
+  assert.deepEqual(groupLabelAt(center, []), { x: 12, y: -24 }, 'an atom with no bond: above the fixed offset')
+  for (const around of [down, [{ x: 0, y: -30 }], [{ x: -30, y: 0 }], []]) {
+    const [a, b] = [labelAt('atom', center, around), groupLabelAt(center, around)]
+    assert.equal(a.x, b.x)
+    assert.ok(Math.abs(a.y - b.y) >= 12, 'the labels are a line apart, so they cannot overlap')
+    assert.deepEqual(groupLabelAt(center, around), b, 'deterministic')
+  }
+})
+
+test('a non-absolute group with no stored number reads as its kind and 0, never abs; only an absolute group reads abs', () => {
+  const odd = groupedDocument([{ ...grp('e1', 'or', null, ['a2']), number: null }])
+  assert.equal(groupMarks(odd)[0].text, 'OR 0', 'interpreted number from the kind, as the snapshot would give it')
+  assert.notEqual(groupMarks(odd)[0].text, 'abs', 'a group is absolute by its kind, not by a missing number')
+  assert.equal(groupMarks(groupedDocument([grp('e1', 'absolute', null, ['a2'])]))[0].text, 'abs')
+})
+
+test('group labels widen the view box only when drawn, by their placed and estimated text extent', async () => {
+  const { viewBox } = await import('../apps/web/src/editor/geometry.ts')
+  const { groupLabelBoxes } = await import('../apps/web/src/editor/stereo-groups.ts')
+  const positions = new Map([['a1', { x: 500, y: 100 }], ['a2', { x: 470, y: 100 }]])
+  const bonds = [{ begin: 'a1', end: 'a2' }]
+  const mark = { atom: 'a1', text: 'AND -2147483648', name: 'n' }
+  assert.deepEqual(groupLabelBoxes([], bonds, positions), [], 'switch off: no boxes')
+  const [box] = groupLabelBoxes([mark], bonds, positions)
+  const at = groupLabelAt(positions.get('a1'), [positions.get('a2')])
+  assert.equal(box.x + box.width / 2, at.x)
+  assert.equal(box.y + box.height / 2, at.y)
+  assert.ok(box.width >= mark.text.length * 6, 'wide enough for the longest text')
+  assert.deepEqual(groupLabelBoxes([{ ...mark, atom: 'a9' }], bonds, positions), [], 'an atom the placement lacks has no box')
+  const atoms = [...positions.values()]
+  const without = viewBox(atoms, [])
+  const withLabel = viewBox(atoms, [box])
+  assert.ok(withLabel.x + withLabel.width >= box.x + box.width, 'the label is inside the view box')
+  assert.ok(withLabel.x + withLabel.width > without.x + without.width, 'and it needed more room than the atoms alone')
+})
+
+test('a group number field follows the stored number unless the person is typing in it', async () => {
+  const { reseedDraft } = await import('../apps/web/src/editor/stereo-groups.ts')
+  assert.equal(reseedDraft('5', '5', '5', false), '5', 'nothing changed')
+  assert.equal(reseedDraft('abc', '5', '5', true), 'abc', 'nothing changed: a draft is kept')
+  assert.equal(reseedDraft('9', '5', '5', false), '9', 'a draft not yet sent survives an unrelated render')
+  assert.equal(reseedDraft('5', '5', '7', false), '7', 'an idle field follows an undo')
+  assert.equal(reseedDraft('9', '5', '7', true), '9', 'typing is kept, with its focus')
+  assert.equal(reseedDraft('5', '5', '7', true), '7', 'focused but untouched follows')
+})
+
+test('a settled Set number request resets the field only when it still holds what was sent', async () => {
+  const { settledDraft } = await import('../apps/web/src/editor/stereo-groups.ts')
+  assert.equal(settledDraft('7', '7', '-2'), '-2', 'refused: back to the stored number')
+  assert.equal(settledDraft('7', '7', '7'), '7', 'accepted: the stored number is what was typed')
+  assert.equal(settledDraft('71', '7', '-2'), '71', 'text typed while the request ran is kept')
+  assert.equal(settledDraft('', '7', '-2'), '', 'so is a field the person cleared')
+})

@@ -7,6 +7,8 @@ import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bon
 import { AgreementRings } from '@/editor/agreement-rings'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
 import { CipLabelLayer } from '@/editor/cip-label-layer'
+import { GroupLabelLayer } from '@/editor/group-label-layer'
+import { groupLabelAt, groupLabelBoxes, type GroupMark } from '@/editor/stereo-groups'
 import { labelAt, type CipMark } from '@/editor/cip-labels'
 import type { AgreementRing, ItemRef } from '@/editor/stereo-agreement'
 import { StrokeShapes } from '@/editor/stroke-shapes'
@@ -107,10 +109,15 @@ interface StructureCanvasProps {
   rings?: readonly AgreementRing[]
   /** CIP labels to draw over the atoms and double bonds they are about; an overlay, never part of the document. */
   cipLabels?: readonly CipMark[]
+  /** Group labels to draw beside the members of enhanced stereo groups; an overlay, never part of the document. */
+  groupLabels?: readonly GroupMark[]
   /** Called when a pointer gesture starts (true) and ends (false). */
   onDragging?: (dragging: boolean) => void
   disabled: boolean
 }
+
+/** A stable empty list, so a canvas without group labels does not recompute its view box on every render. */
+const NO_GROUP_LABELS: readonly GroupMark[] = []
 
 /**
  * Renders a document as SVG, every scene instance at its own positions, and turns pointer
@@ -128,6 +135,7 @@ export function StructureCanvas({
   onMark,
   rings = [],
   cipLabels = [],
+  groupLabels = NO_GROUP_LABELS,
   onDragging,
   disabled,
 }: StructureCanvasProps) {
@@ -194,10 +202,12 @@ export function StructureCanvas({
         drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
           ...(drawing.frame ? [drawing.frame.box] : []),
+          // Group labels are an overlay, but a clipped one is unreadable: they count only while drawn.
+          ...groupLabelBoxes(groupLabels, document.bonds, new Map(drawing.view.atoms.map((atom) => [atom.id, atom.position]))),
         ]),
         drawings[0]?.reach ?? 0,
       ),
-    [document.scene, drawings],
+    [document.scene, document.bonds, drawings, groupLabels],
   )
 
   function drawingOf(instance: string | null) {
@@ -463,6 +473,17 @@ export function StructureCanvas({
       return [{ label, at: labelAt(label.item.kind, anchor, around) }]
     })
 
+  /** The group labels of one placement: beside each member, stacked with its CIP label (see `groupLabelAt`). */
+  const groupAt = (drawing: Drawing) =>
+    groupLabels.flatMap((label) => {
+      if (!drawing.atoms.has(label.atom)) return []
+      const around = document.bonds
+        .flatMap((bond) => (bond.begin === label.atom ? [bond.end] : bond.end === label.atom ? [bond.begin] : []))
+        .filter((id) => drawing.atoms.has(id))
+        .map((id) => position(drawing, id))
+      return [{ label, at: groupLabelAt(position(drawing, label.atom), around) }]
+    })
+
   const sceneObjects = document.scene?.objects
   const byId = new Map(sceneObjects?.map((object) => [object.id, object]) ?? [])
   const sceneSelected = (object: SceneObject) => {
@@ -503,6 +524,7 @@ export function StructureCanvas({
       />
       <AgreementRings rings={ringsAt(drawing)} />
       <CipLabelLayer labels={cipAt(drawing)} />
+      <GroupLabelLayer labels={groupAt(drawing)} />
     </g>
   )
 

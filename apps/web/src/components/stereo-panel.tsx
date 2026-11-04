@@ -5,6 +5,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { StereoGroupsSection } from '@/components/stereo-groups-section'
 import { cipCell, CIP_OFF, unavailableSentence, type CipView } from '@/editor/cip-labels'
 import {
   ACTION_LABELS,
@@ -22,6 +23,9 @@ import {
   type AgreementView,
   type Resolution,
 } from '@/editor/stereo-agreement'
+import { groupCell, type GroupRequest } from '@/editor/stereo-groups'
+import type { DocumentView } from '@/lib/document-contract'
+import { stereoOf } from '@/lib/stereo-contract'
 import { cn } from '@/lib/utils'
 
 interface StereoPanelProps {
@@ -40,6 +44,15 @@ interface StereoPanelProps {
   /** Sends the one-click edit for a row (or all the disagreements). */
   onResolve: (resolution: Resolution) => void
   busy: boolean
+  /** The drawing on screen and the ids selected on it: what the enhanced stereo groups are read from and edited against. */
+  document: DocumentView
+  selected: readonly string[]
+  /** Sends a group edit; resolves when answered, whether or not the service refused it. */
+  onGroupRequest: (request: GroupRequest) => Promise<void>
+  onSelectAtom: (atom: string) => void
+  /** The Group labels switch: client policy, off by default, not saved. */
+  groupLabels: boolean
+  onGroupLabelsChange: (on: boolean) => void
 }
 
 /**
@@ -49,6 +62,7 @@ interface StereoPanelProps {
  */
 export function StereoPanel({
   view, automatic, onAutomaticChange, onCheckNow, cip, atomLabels, bondLabels, onAtomLabelsChange, onBondLabelsChange, onCipCheckNow, onResolve, busy,
+  document, selected, onGroupRequest, onSelectAtom, groupLabels, onGroupLabelsChange,
 }: StereoPanelProps) {
   const heading = useRef<HTMLHeadingElement>(null)
   const switchId = useId()
@@ -150,6 +164,9 @@ export function StereoPanel({
                       </p>
                     )
                   })()}
+                  {row.item.kind === 'atom' && row.stored !== null && (
+                    <p data-testid="group-cell">Group: {groupCell(stereoOf(document).groups ?? [], row.item.id)}</p>
+                  )}
                   {action && (
                     <Button
                       size="sm"
@@ -186,6 +203,17 @@ export function StereoPanel({
             </Collapsible>
           )}
         </>
+      )}
+      {stereoOf(document).atoms.length > 0 && (
+        <StereoGroupsSection
+          document={document}
+          selected={selected}
+          onRequest={onGroupRequest}
+          onSelectAtom={onSelectAtom}
+          groupLabels={groupLabels}
+          onGroupLabelsChange={onGroupLabelsChange}
+          busy={busy}
+        />
       )}
     </section>
   )

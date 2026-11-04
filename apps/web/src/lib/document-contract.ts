@@ -14,6 +14,7 @@ import {
   type CenterInspection,
   type DoubleInspection,
   type StereoDiagnostic,
+  type StereoGroupKind,
   type StereoMark,
   type StereoNote,
   type StereoView,
@@ -575,6 +576,18 @@ export type Command =
    * determine with a `stereo_not_derivable_*` reason.
    */
   | { op: 'set_configuration_from_drawing'; atoms?: string[]; bonds?: string[]; instance?: string }
+  /**
+   * Enhanced-stereo group commands. `group`, `into` and `from` are `eN` or `$N` (the group an earlier
+   * command made). Every `number` is an integer in the 32-bit signed range or `null` for none, and is
+   * always sent. Atoms are ids or `$N` of stored tetrahedral centers (docs/CONTRACT.md, Stereo groups).
+   */
+  | { op: 'create_stereo_group'; kind: StereoGroupKind; atoms: string[]; number: number | null }
+  | { op: 'delete_stereo_group'; group: string }
+  | { op: 'set_stereo_group_kind'; group: string; kind: StereoGroupKind }
+  | { op: 'set_stereo_group_number'; group: string; number: number | null }
+  | { op: 'add_stereo_group_members' | 'remove_stereo_group_members'; group: string; atoms: string[] }
+  | { op: 'merge_stereo_groups'; into: string; from: string }
+  | { op: 'split_stereo_group'; group: string; atoms: string[]; number: number | null }
 
 /**
  * One drawing of the document's atoms: a scene instance, or, for a service from before scene
