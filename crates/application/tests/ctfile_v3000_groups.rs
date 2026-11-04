@@ -918,6 +918,16 @@ fn an_unreadable_drawing_is_named_as_the_cause_not_the_member_atoms() {
 /// A document whose center states a configuration by hand (no mark) and is in a group; with
 /// `mark` the wedge that shows it is drawn too.
 fn stated_center(app: &App, mark: bool) -> String {
+    stated_center_marked(
+        app,
+        mark.then(|| json!({"kind": "wedge", "narrow": "begin"})),
+        mark,
+    )
+}
+
+/// As `stated_center`, with the mark on the second bond given (`derive` also derives the
+/// configuration from the drawing; otherwise it is stated by hand).
+fn stated_center_marked(app: &App, mark: Option<Value>, derive: bool) -> String {
     let id = new_document(app, "Stated");
     let at = |x: f64, y: f64, element: &str, to: Option<&str>| {
         let mut c = json!({"op": "add_atom", "element": element, "position": {"x": x, "y": y}});
@@ -932,8 +942,8 @@ fn stated_center(app: &App, mark: bool) -> String {
         at(126.0, 115.0, "Cl", Some("$0")),
         at(74.0, 115.0, "Br", Some("$0")),
     ];
-    if mark {
-        commands.push(json!({"op": "set_bond_mark", "bond": "$2", "mark": {"kind": "wedge", "narrow": "begin"}}));
+    if let Some(mark) = mark.clone().filter(|_| derive) {
+        commands.push(json!({"op": "set_bond_mark", "bond": "$2", "mark": mark}));
         commands.push(json!({"op": "set_configuration_from_drawing", "atoms": ["$0"]}));
     } else {
         commands.push(
@@ -941,6 +951,9 @@ fn stated_center(app: &App, mark: bool) -> String {
             "kind": "tetrahedral",
             "neighbors": ["$3", "$1", "$2", "implicit_hydrogen"], "turn": "clockwise"}}),
         );
+        if let Some(mark) = mark {
+            commands.push(json!({"op": "set_bond_mark", "bond": "$2", "mark": mark}));
+        }
     }
     commands.push(json!({"op": "create_stereo_group", "kind": "or", "atoms": ["$0"], "number": 1}));
     transact(app, &id, 0, json!(commands));
@@ -995,4 +1008,33 @@ fn a_group_member_the_written_marks_do_not_show_is_not_written_into_an_unreadabl
         partition(&document(&app, &target)),
         partition(&document(&app, &drawn))
     );
+}
+
+#[test]
+fn a_group_member_with_a_wavy_mark_is_refused_but_a_wedged_one_in_the_same_group_exports() {
+    let (app, _directory, _unused) = setup();
+    // A wavy bond derives `unknown` (the derivation succeeds), which no group can hold.
+    let wavy = stated_center_marked(&app, Some(json!({"kind": "wavy"})), false);
+    let before = document(&app, &wavy);
+    let refused = export(&app, &wavy, json!({"ctab": "v3000"}));
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "v3000_group_member_not_drawn",
+        "{refused}"
+    );
+    assert!(
+        refused["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("a1"),
+        "{refused}"
+    );
+    assert_eq!(document(&app, &wavy), before, "export is a read");
+    // The wedged center alone derives tetrahedral and still exports and reads back.
+    let wedged = stated_center_marked(
+        &app,
+        Some(json!({"kind": "wedge", "narrow": "begin"})),
+        true,
+    );
+    let written = export(&app, &wedged, json!({"ctab": "v3000"}));
+    assert_eq!(written["outcome"], "partial", "{written}");
 }
