@@ -194,7 +194,7 @@ pub(crate) fn import_commands(
     }
     let first_bond = record.atoms.len();
     let mut marked = false;
-    let mut tetrahedral = HashSet::new();
+    let mut tetrahedral = Some(HashSet::new());
     for (j, bond) in record.bonds.iter().enumerate() {
         let mark = match (bond.stereo, bond.order) {
             (CtBondStereo::None, _) => continue,
@@ -225,7 +225,13 @@ pub(crate) fn import_commands(
         commands.extend(command);
         tetrahedral = centers;
     }
-    commands.extend(group_commands(record, index, doc, &tetrahedral, losses)?);
+    commands.extend(group_commands(
+        record,
+        index,
+        doc,
+        tetrahedral.as_ref(),
+        losses,
+    )?);
     Ok(commands)
 }
 
@@ -241,12 +247,10 @@ fn dto_kind(kind: StereoGroupKindDto) -> GroupKind {
     kind.into()
 }
 
-/// The smallest number above every number in `used`, or when none is above (the top of the
-/// range is taken) the first free one counting up from the bottom. `None` only when `used`
-/// holds every 32-bit integer, which it cannot.
+/// The smallest number from 1 up that `used` does not hold; `None` only if every positive
+/// 32-bit integer is in use. Deterministic, and never a number already in use.
 fn free_number(used: &BTreeSet<i32>) -> Option<i32> {
-    let above = used.last().map_or(Some(1), |top| top.checked_add(1));
-    above.or_else(|| (i32::MIN..=i32::MAX).find(|candidate| !used.contains(candidate)))
+    (1..=i32::MAX).find(|candidate| !used.contains(candidate))
 }
 
 /// The commands that turn the record's collections into stereo groups, after the configurations
@@ -260,18 +264,29 @@ fn group_commands(
     record: &CtRecord,
     index: usize,
     doc: &DocumentView,
-    tetrahedral: &HashSet<usize>,
+    tetrahedral: Option<&HashSet<usize>>,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, CtError> {
     let mut commands = Vec::with_capacity(record.collections.len());
+    let Some(tetrahedral) = tetrahedral else {
+        // The marks could not be read into configurations at all (a `stereo_unreadable` loss
+        // says why); the members are not at fault, so the cause is named, not the atoms.
+        return if record.collections.is_empty() {
+            Ok(commands)
+        } else {
+            Err(projection_error(
+                index,
+                "v3000_collection_drawing_unreadable",
+                "The drawn marks of this record could not be read into configurations, so its stereo collections cannot be mapped to groups; nothing was imported.",
+            ))
+        };
+    };
     let existing_absolute = doc
         .stereo
         .groups
         .iter()
         .find(|group| dto_kind(group.kind) == GroupKind::Absolute)
         .and_then(|group| GroupId::parse(&group.id));
-    // The interpreted numbers the document already uses, per kind; a collection that stated
-    // one of them is renumbered.
     let in_document = |kind: GroupKind| -> BTreeSet<i32> {
         doc.stereo
             .groups
@@ -280,19 +295,23 @@ fn group_commands(
             .filter_map(|group| group.number)
             .collect()
     };
-    // Those and every number the file states or has been given so far, so a free number never
-    // meets another group of the file.
+    // Computed once per kind: the numbers the document uses (a collection that stated one of
+    // them is renumbered), and those plus every number the file states or has been given so far,
+    // so a free number never meets another group of the file.
+    let mut used: HashMap<GroupKind, BTreeSet<i32>> = HashMap::new();
     let mut reserved: HashMap<GroupKind, BTreeSet<i32>> = HashMap::new();
     for kind in [GroupKind::And, GroupKind::Or] {
-        let mut numbers = in_document(kind);
-        numbers.extend(
+        let numbers = in_document(kind);
+        let mut all = numbers.clone();
+        all.extend(
             record
                 .collections
                 .iter()
                 .filter(|collection| kind_of(collection.kind) == kind)
                 .map(|collection| collection.number.unwrap_or(0)),
         );
-        reserved.insert(kind, numbers);
+        used.insert(kind, numbers);
+        reserved.insert(kind, all);
     }
     for (k, collection) in record.collections.iter().enumerate() {
         let path = format!(".collections[{}]", k + 1);
@@ -334,7 +353,10 @@ fn group_commands(
             continue;
         }
         let stated = collection.number.unwrap_or(0);
-        let number = if in_document(kind).contains(&stated) {
+        let number = if used
+            .get(&kind)
+            .is_some_and(|numbers| numbers.contains(&stated))
+        {
             let numbers = reserved.entry(kind).or_default();
             let free = free_number(numbers).ok_or_else(|| {
                 projection_error(index, "resource_limit", "No free group number is left.")
@@ -379,7 +401,7 @@ fn unreadable_record(
     index: usize,
     cause: &str,
     losses: &mut Vec<Loss>,
-) -> (Option<Command>, HashSet<usize>) {
+) -> (Option<Command>, Option<HashSet<usize>>) {
     losses.push(loss(
         index,
         ".atoms",
@@ -387,7 +409,7 @@ fn unreadable_record(
         SemanticImpact::Stereo,
         &format!("The drawn marks could not be read into configurations ({cause}); the marks are kept and no configuration is stored."),
     ));
-    (None, HashSet::new())
+    (None, None)
 }
 
 /// The command that stores the configuration each marked center's drawing shows, and a loss
@@ -401,7 +423,7 @@ fn derived_configurations(
     commands: &[Command],
     index: usize,
     losses: &mut Vec<Loss>,
-) -> (Option<Command>, HashSet<usize>) {
+) -> (Option<Command>, Option<HashSet<usize>>) {
     let id = DocumentId::parse("scratch").expect("scratch identifier is valid");
     let mut scratch = match Document::new(id, "scratch") {
         Ok(scratch) => scratch,
@@ -440,7 +462,7 @@ fn derived_configurations(
         bonds: None,
         instance: None,
     });
-    (command, tetrahedral)
+    (command, Some(tetrahedral))
 }
 
 pub(crate) fn unselected_losses(records: &[CtRecord], selected: usize, losses: &mut Vec<Loss>) {
@@ -679,10 +701,12 @@ fn written_point(point: Point) -> Point {
     }
 }
 
-/// Whether the drawing needs V3000 to be written at all: more than 999 atoms or bonds, or an
-/// aromatic bond, which V2000 has no type for. What `ctab: "auto"` decides on.
+/// Whether the drawing needs V3000 to be written at all: more than 999 atoms or bonds, an
+/// aromatic bond (V2000 has no type for it), or an enhanced stereo group (only V3000 can carry
+/// one). What `ctab: "auto"` decides on.
 pub(crate) fn needs_v3000(doc: &DocumentView) -> bool {
-    doc.atoms.len() > MAX_V2000_ITEMS
+    !doc.stereo.groups.is_empty()
+        || doc.atoms.len() > MAX_V2000_ITEMS
         || doc.bonds.len() > MAX_V2000_ITEMS
         || doc
             .bonds
@@ -696,7 +720,9 @@ const MAX_V2000_ITEMS: usize = 999;
 /// drawing holds it, in ID order. Wedge, hash, wavy and crossed marks are written. A stored
 /// configuration is carried only through the marks and the coordinates, so one the drawing does
 /// not show (a derivation of the drawn marks that differs from it or that fails) needs consent,
-/// as does every enhanced stereo group, singletons included: neither dialect carries them yet.
+/// as does every enhanced stereo group of a V2000 file, singletons included (V2000 has no
+/// collections). For V3000 the groups are written, and the consent is for a stored center in no
+/// group (see `v3000_group_losses`).
 pub(crate) fn molfile_stereo_losses(
     document: &Document,
     view: &DocumentView,
@@ -1072,13 +1098,11 @@ mod tests {
     }
 
     #[test]
-    fn a_free_number_is_above_the_used_ones_and_wraps_at_the_top() {
+    fn a_free_number_is_the_smallest_unused_positive_one() {
         assert_eq!(free_number(&BTreeSet::new()), Some(1));
-        assert_eq!(free_number(&BTreeSet::from([-5, 0, 3])), Some(4));
-        assert_eq!(free_number(&BTreeSet::from([i32::MAX])), Some(i32::MIN));
-        assert_eq!(
-            free_number(&BTreeSet::from([i32::MIN, i32::MAX])),
-            Some(i32::MIN + 1)
-        );
+        assert_eq!(free_number(&BTreeSet::from([-5, 0, 3])), Some(1));
+        assert_eq!(free_number(&BTreeSet::from([1, 2, 4])), Some(3));
+        assert_eq!(free_number(&BTreeSet::from([i32::MAX])), Some(1));
+        assert_eq!(free_number(&BTreeSet::from([i32::MIN, 1])), Some(2));
     }
 }

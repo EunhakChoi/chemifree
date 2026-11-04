@@ -1123,7 +1123,7 @@ enum CtabChoice {
     #[default]
     V2000,
     V3000,
-    /// V3000 when a drawing needs it (more than 999 atoms or bonds, an aromatic bond),
+    /// V3000 when a drawing needs it (more than 999 atoms or bonds, an aromatic bond, an enhanced stereo group),
     /// otherwise V2000.
     Auto,
 }
@@ -1132,8 +1132,8 @@ enum CtabChoice {
 /// `ctab`; an explicit `ctab` that names another dialect (or `auto`) is `format_ctab_conflict`.
 /// For an import the dialect is returned, and the selected record must be in it. Any other
 /// `format` value is left alone.
-fn ct_format_alias(parameters: &mut Value, export: bool) -> Result<Option<CtTab>, Diagnostic> {
-    let Some(map) = parameters.as_object_mut() else {
+fn ct_format_alias(request: &mut Value, export: bool) -> Result<Option<CtTab>, Diagnostic> {
+    let Some(map) = request.as_object_mut() else {
         return Ok(None);
     };
     let (tab, name) = match map.get("format").and_then(Value::as_str) {
@@ -1143,11 +1143,19 @@ fn ct_format_alias(parameters: &mut Value, export: bool) -> Result<Option<CtTab>
     };
     map.insert("format".into(), "mol".into());
     if export {
-        match map.get("ctab") {
+        // A `ctab` that is not one of the three values is a parameter error, as without an
+        // alias; only a valid, differing value is a conflict.
+        let chosen = match map.get("ctab") {
+            None => None,
+            Some(value) => Some(parameters::<CtabChoice>(value.clone())?),
+        };
+        match chosen {
             None => {
                 map.insert("ctab".into(), name.into());
             }
-            Some(Value::String(chosen)) if chosen == name => {}
+            Some(choice)
+                if (choice == CtabChoice::V3000) == (tab == CtTab::V3000)
+                    && choice != CtabChoice::Auto => {}
             Some(_) => {
                 return Err(ct_failure(CtError {
                     code: "format_ctab_conflict",
@@ -1740,7 +1748,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             preview: p.preview,
             preview_digest: p.preview_digest.as_deref(),
             accept_loss: p.accept_loss,
-            fingerprint: ct_projection::digest(&p),
+            // The format id's dialect is part of the request: `mol` and `mol-v3000` differ.
+            fingerprint: ct_projection::digest(&(&p, required.map(|tab| tab == CtTab::V3000))),
         };
         let format = CtImportFormat {
             codec: codec.as_ref(),

@@ -638,7 +638,7 @@ fn two_collisions_in_one_file_get_two_different_free_numbers() {
 }
 
 #[test]
-fn the_free_number_wraps_when_the_top_of_the_range_is_taken() {
+fn a_renumbered_group_gets_the_smallest_unused_positive_number_never_a_wrapped_one() {
     let (app, _directory, id) = setup();
     import(
         &app,
@@ -652,11 +652,107 @@ fn the_free_number_wraps_when_the_top_of_the_range_is_taken() {
         1,
         &file(1, 0, &["MDLV30/STEREL2147483647 ATOMS=(1 1)"]),
     );
+    // 2, then a gap-filling 1 is not taken from below zero.
+    import(
+        &app,
+        &id,
+        2,
+        &file(1, 0, &["MDLV30/STEREL2147483647 ATOMS=(1 1)"]),
+    );
     let numbers: Vec<Value> = groups(&document(&app, &id))
         .into_iter()
         .map(|(_, number, _)| number)
         .collect();
-    assert_eq!(numbers, [json!(i32::MAX), json!(i32::MIN)]);
+    assert_eq!(numbers, [json!(i32::MAX), json!(1), json!(2)]);
+}
+
+#[test]
+fn a_gap_below_a_used_number_is_filled_first() {
+    let (app, _directory, id) = setup();
+    import(
+        &app,
+        &id,
+        0,
+        &file(
+            2,
+            0,
+            &["MDLV30/STEREL5 ATOMS=(1 1)", "MDLV30/STEREL-3 ATOMS=(1 5)"],
+        ),
+    );
+    import(&app, &id, 1, &file(1, 0, &["MDLV30/STEREL5 ATOMS=(1 1)"]));
+    let numbers: Vec<Value> = groups(&document(&app, &id))
+        .into_iter()
+        .map(|(_, number, _)| number)
+        .collect();
+    assert_eq!(numbers, [json!(5), json!(-3), json!(1)]);
+}
+
+/// Sends a request under the given id (the other helpers make their ids unique).
+fn call_with_id(app: &App, request: &str, operation: &str, parameters: Value) -> Value {
+    let body = json!({"contract": 1, "request_id": request, "profile": "preserve-semantics",
+                      "operation": operation, "parameters": parameters});
+    serde_json::to_value(app.execute(body.to_string().as_bytes())).unwrap()
+}
+
+#[test]
+fn a_completed_import_is_not_replayed_for_another_format_id() {
+    let (app, _directory, id) = setup();
+    let source = file(1, 0, &[]);
+    let preview = preview(&app, &id, 0, &source);
+    let digest = preview["result"]["preview_digest"].clone();
+    let commit = |format: &str| {
+        call_with_id(
+            &app,
+            "same-id",
+            "document.import",
+            json!({"document_id": id, "expected_revision": 0, "format": format,
+                   "source": source, "record": 1, "preview_digest": digest, "accept_loss": true}),
+        )
+    };
+    let first = commit("mol");
+    assert_eq!(first["outcome"], "partial", "{first}");
+    let replay = commit("mol");
+    assert_eq!(replay["outcome"], "partial", "an identical request replays");
+    for format in ["mol-v3000", "mol-v2000"] {
+        let other = commit(format);
+        assert_eq!(
+            other["diagnostics"][0]["code"], "request_id_reused",
+            "{format}: {other}"
+        );
+    }
+}
+
+#[test]
+fn auto_picks_v3000_for_a_drawing_with_groups() {
+    let (app, _directory, id) = setup();
+    import(&app, &id, 0, &file(1, 0, &["MDLV30/STEREL1 ATOMS=(1 1)"]));
+    let written = export(&app, &id, json!({"ctab": "auto"}));
+    assert_eq!(written["result"]["ctab"], "v3000", "{written}");
+    assert!(
+        written["result"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("MDLV30/STEREL1 ATOMS=(1 1)"),
+        "{written}"
+    );
+}
+
+#[test]
+fn a_malformed_ctab_is_a_parameter_error_not_a_format_conflict() {
+    let (app, _directory, id) = setup();
+    for bad in [json!(5), json!("V3000"), json!(null), json!("v4000")] {
+        let reply = export(&app, &id, json!({"format": "mol-v3000", "ctab": bad}));
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "invalid_request",
+            "{bad}: {reply}"
+        );
+    }
+    // The plain format reports the same for the same value.
+    let plain = export(&app, &id, json!({"ctab": "V3000"}));
+    assert_eq!(plain["diagnostics"][0]["code"], "invalid_request");
+    // A valid differing value is still the conflict.
+    let conflict = export(&app, &id, json!({"format": "mol-v2000", "ctab": "v3000"}));
+    assert_eq!(conflict["diagnostics"][0]["code"], "format_ctab_conflict");
 }
 
 #[test]
@@ -775,4 +871,46 @@ fn the_format_ids_mol_v2000_and_mol_v3000_name_the_dialect() {
         preview(&other, &target, 0, v2000_file)["outcome"],
         "partial"
     );
+}
+
+/// A wedge center (atoms 1-4) plus a chain of `extra` carbons, so the import has many commands.
+fn big_file(extra: usize, lines: &[&str]) -> String {
+    let base = file(1, 0, lines);
+    let mut atoms = String::new();
+    let mut bonds = String::new();
+    for k in 0..extra {
+        atoms += &format!("M  V30 {} C {:.4} 10.0000 0.0000 0\n", 5 + k, k as f64);
+        bonds += &format!(
+            "M  V30 {} 1 {} {}\n",
+            4 + k,
+            if k == 0 { 4 } else { 4 + k },
+            5 + k
+        );
+    }
+    base.replace(
+        "COUNTS 4 3 0 0 0",
+        &format!("COUNTS {} {} 0 0 0", 4 + extra, 3 + extra),
+    )
+    .replace("M  V30 END ATOM\n", &format!("{atoms}M  V30 END ATOM\n"))
+    .replace("M  V30 END BOND\n", &format!("{bonds}M  V30 END BOND\n"))
+}
+
+#[test]
+fn an_unreadable_drawing_is_named_as_the_cause_not_the_member_atoms() {
+    let (app, _directory, id) = setup();
+    let source = big_file(300, &["MDLV30/STEABS ATOMS=(1 1)"]);
+    let refused = preview(&app, &id, 0, &source);
+    assert_eq!(
+        refused["outcome"],
+        "error",
+        "{}",
+        &refused.to_string()[..300]
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["code"],
+        "v3000_collection_drawing_unreadable",
+        "{}",
+        &refused.to_string()[..400]
+    );
+    assert_eq!(document(&app, &id)["revision"], 0);
 }
