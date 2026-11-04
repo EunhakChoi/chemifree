@@ -526,7 +526,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 34] = [
+const TRANSACTION_PARTS: [Entry; 43] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -618,6 +618,46 @@ const TRANSACTION_PARTS: [Entry; 34] = [
          that an atom is stereogenic.",
     ),
     runs(
+        "create_stereo_group",
+        "Creates an absolute, and or or enhanced-stereo group of stored tetrahedral centers that \
+         are in no group, with a stored number (any 32-bit integer, 0 and negatives kept as \
+         stated, or none; an absolute group takes none). A statement of which centers belong \
+         together, not a ratio.",
+    ),
+    runs(
+        "delete_stereo_group",
+        "Deletes a group; its members keep their stored configurations and become ungrouped.",
+    ),
+    runs(
+        "set_stereo_group_kind",
+        "Changes a group's kind among absolute, and and or. A document has at most one absolute \
+         group, and one of the kind with no number or the same number is refused.",
+    ),
+    runs(
+        "set_stereo_group_number",
+        "Sets or clears a group's stored number; a number another group of the kind has (none \
+         counts as 0) is refused, merge the groups instead.",
+    ),
+    runs(
+        "add_stereo_group_members",
+        "Adds stored tetrahedral centers that are in no group.",
+    ),
+    runs(
+        "remove_stereo_group_members",
+        "Removes members, which become ungrouped; it never empties the group (delete it \
+         instead). Reports the relation that is no longer stated.",
+    ),
+    runs(
+        "merge_stereo_groups",
+        "Moves every member of one group into another of the same kind and deletes the first. \
+         Reports that members now belong together.",
+    ),
+    runs(
+        "split_stereo_group",
+        "Moves some, not all, members of an and or or group into a new group of the same kind \
+         with a given number. Reports the relation that is no longer stated.",
+    ),
+    runs(
         "hydrogen_state",
         "Records a stated non-vertex hydrogen count (0–16), unknown hydrogens, or inferred (the \
          default). Representation only: no hydrogen count is computed from valence.",
@@ -687,14 +727,35 @@ const TRANSACTION_PARTS: [Entry; 34] = [
          derives one from the marks, on request, replacing the stored record of each item it \
          processes. chem.stereo compares a stored record with the drawing, read-only; it does not \
          compute labels or judge stereogenicity. chem.cip computes CIP labels from stored \
-         configurations, read-only (its model and rules are named in the chem.cip entry). No groups, no comparison in \
-         chem.identity or chem.substructure (they do not read stereo), no stereo check in \
-         chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
+         configurations, read-only (its model and rules are named in the chem.cip entry). No \
+         comparison in chem.identity or chem.substructure (they do not read stereo or groups), \
+         no stereo check in chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )
     .carried_out_by(&[
         "set_atom_configuration",
         "set_bond_configuration",
         "set_configuration_from_drawing",
+    ]),
+    runs(
+        "stereo_group",
+        "Records absolute, and and or enhanced-stereo groups: sets of stored tetrahedral \
+         centers, each center in at most one group, shown in the snapshot's stereo.groups with \
+         the stored number, the interpreted number and a label. Limits: at most one group for \
+         each stored center, so no more than the 2,000-atom cap; at most one absolute group; a \
+         stored number is any 32-bit signed integer. Nothing states a ratio, a chiral flag or \
+         double-bond members. chem.cip, chem.identity, chem.substructure and chem.stereo \
+         ignore groups (chem.stereo says so); a SMILES export needs consent to drop them and a \
+         V2000 export refuses them with the configurations; no other format carries them yet.",
+    )
+    .carried_out_by(&[
+        "create_stereo_group",
+        "delete_stereo_group",
+        "set_stereo_group_kind",
+        "set_stereo_group_number",
+        "add_stereo_group_members",
+        "remove_stereo_group_members",
+        "merge_stereo_groups",
+        "split_stereo_group",
     ]),
 ];
 

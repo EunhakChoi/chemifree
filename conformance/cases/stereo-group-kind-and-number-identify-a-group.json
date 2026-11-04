@@ -1,0 +1,440 @@
+{
+  "id": "stereo-group-kind-and-number-identify-a-group",
+  "title": "Or 1 and And 1 are two groups; the same kind with the same number is refused and points to merging; a kind change onto a taken number is refused",
+  "requirements": [
+    "STEREO-01"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 0,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": -26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 200,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 226,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 174,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 300,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 326,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 274,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$12",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$0",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$1",
+              "$2",
+              "$3",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$4",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$5",
+              "$6",
+              "$7",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$8",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$9",
+              "$10",
+              "$11",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$12",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$13",
+              "$14",
+              "$15",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "groups": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "create_stereo_group",
+          "kind": "or",
+          "atoms": [
+            "a1"
+          ],
+          "number": 1
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "and",
+          "atoms": [
+            "a5"
+          ],
+          "number": 1
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "or",
+          "atoms": [
+            "a9"
+          ],
+          "number": 2
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "groups": [
+              {
+                "id": "e1",
+                "kind": "or",
+                "stored_number": 1,
+                "number": 1,
+                "label": "or1",
+                "members": [
+                  "a1"
+                ]
+              },
+              {
+                "id": "e2",
+                "kind": "and",
+                "stored_number": 1,
+                "number": 1,
+                "label": "and1",
+                "members": [
+                  "a5"
+                ]
+              },
+              {
+                "id": "e3",
+                "kind": "or",
+                "stored_number": 2,
+                "number": 2,
+                "label": "or2",
+                "members": [
+                  "a9"
+                ]
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "create_stereo_group",
+          "kind": "and",
+          "atoms": [
+            "a13"
+          ],
+          "number": 1
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_group_number_taken"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_stereo_group_number",
+          "group": "e3",
+          "number": 1
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_group_number_taken"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_stereo_group_kind",
+          "group": "e2",
+          "kind": "or"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 0,
+        "reason": "stereo_group_number_taken"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "set_stereo_group_number",
+          "group": "e3",
+          "number": 7
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "groups": [
+              {
+                "id": "e1",
+                "kind": "or",
+                "stored_number": 1,
+                "number": 1,
+                "label": "or1",
+                "members": [
+                  "a1"
+                ]
+              },
+              {
+                "id": "e2",
+                "kind": "and",
+                "stored_number": 1,
+                "number": 1,
+                "label": "and1",
+                "members": [
+                  "a5"
+                ]
+              },
+              {
+                "id": "e3",
+                "kind": "or",
+                "stored_number": 7,
+                "number": 7,
+                "label": "or7",
+                "members": [
+                  "a9"
+                ]
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    }
+  ]
+}

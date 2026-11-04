@@ -2289,7 +2289,7 @@ test('an older reply with no marks and no stereo table is accepted and filled in
   service({ '/transactions': [() => json(200, older)] })
   const reply = await new DocumentClient().transact('doc-stereo', 0, [])
   assert.deepEqual(reply.document.bonds.map((bond) => bond.mark), [null, null, null, null, null, null])
-  assert.deepEqual(reply.document.stereo, { atoms: [], bonds: [] })
+  assert.deepEqual(reply.document.stereo, { atoms: [], bonds: [], groups: [] })
   assert.deepEqual(reply.notes, [], 'an older service reports no notes')
 })
 
@@ -2322,6 +2322,165 @@ test('the notes a transaction reply carries are read, and a malformed note is re
   const notAList = stereoDrawing()
   notAList.notes = clearedNote()
   assert.equal(isDocumentResponse(notAList), false, 'notes is a list')
+})
+
+const groupRow = (id, kind, stored, members) => {
+  const number = kind === 'absolute' ? null : (stored ?? 0)
+  return { id, kind, stored_number: stored, number, label: number === null ? 'abs' : `${kind}${number}`, members }
+}
+
+// A drawing with two stored tetrahedral centers, a1 and a5, and a snapshot's group list.
+function groupedDrawing(groups) {
+  const value = stereoDrawing()
+  value.document.bonds = [
+    ...value.document.bonds.slice(0, 3),
+    bondWith('b4', 'a5', 'a6'), bondWith('b5', 'a5', 'a7'), bondWith('b6', 'a5', 'a8'),
+  ].map((bond) => ({ ...bond, mark: null }))
+  value.document.stereo = {
+    atoms: [
+      { atom: 'a1', configuration: { kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'anticlockwise' } },
+      { atom: 'a5', configuration: { kind: 'tetrahedral', neighbors: ['a6', 'a7', 'a8', 'implicit_hydrogen'], turn: 'clockwise' } },
+    ],
+    bonds: [],
+    groups,
+  }
+  return value
+}
+
+test('a snapshot with enhanced stereo groups is accepted and carried as sent', async () => {
+  assert.equal(isDocumentResponse(groupedDrawing([])), true, 'an empty list is the always-present form')
+  const reply = groupedDrawing([groupRow('e1', 'or', 2, ['a1']), groupRow('e3', 'and', null, ['a5'])])
+  assert.equal(isDocumentResponse(reply), true, 'a missing number reads as 0, label and0')
+  const odd = groupedDrawing([groupRow('e1', 'or', -3, ['a1']), groupRow('e2', 'or', 0, ['a5'])])
+  assert.equal(isDocumentResponse(odd), true, 'negative and zero numbers are kept as stated')
+  const bounds = groupedDrawing([groupRow('e1', 'or', 2147483647, ['a1']), groupRow('e2', 'or', -2147483648, ['a5'])])
+  assert.equal(isDocumentResponse(bounds), true, 'the 32-bit bounds')
+  assert.equal(isDocumentResponse(groupedDrawing([groupRow('e1', 'absolute', null, ['a1', 'a5'])])), true)
+  service({ '/transactions': [() => json(200, reply)] })
+  const read = await new DocumentClient().transact('doc-stereo', 0, [])
+  assert.deepEqual(read.document.stereo.groups, reply.document.stereo.groups, 'the list is carried to the page')
+})
+
+test('a snapshot whose enhanced stereo groups are inconsistent is refused as a whole', () => {
+  const refused = (why, groups) => assert.equal(isDocumentResponse(groupedDrawing(groups)), false, why)
+  const good = () => [groupRow('e1', 'or', 2, ['a1']), groupRow('e2', 'and', null, ['a5'])]
+  assert.equal(isDocumentResponse(groupedDrawing(good())), true)
+  const mutate = (change) => { const groups = good(); change(groups); return groups }
+  refused('not a list', 'e1')
+  refused('ids not ascending', [groupRow('e2', 'or', 1, ['a1']), groupRow('e1', 'or', 2, ['a5'])])
+  refused('a repeated id', [groupRow('e1', 'or', 1, ['a1']), groupRow('e1', 'and', 1, ['a5'])])
+  refused('not a group id', mutate((g) => { g[0].id = 'a1' }))
+  refused('a leading zero in the id', mutate((g) => { g[0].id = 'e01' }))
+  refused('the short label is not a kind', mutate((g) => { g[0].kind = 'abs' }))
+  refused('an unknown kind', mutate((g) => { g[0].kind = 'racemic' }))
+  refused('a fractional number', mutate((g) => { g[0].stored_number = 1.5; g[0].number = 1.5; g[0].label = 'or1.5' }))
+  refused('a number beyond 32 bits', mutate((g) => { g[0].stored_number = 2147483648; g[0].number = 2147483648; g[0].label = 'or2147483648' }))
+  refused('a numeric string', mutate((g) => { g[0].stored_number = '2' }))
+  refused('an interpreted number that is not the stored one', mutate((g) => { g[0].number = 3 }))
+  refused('an omitted number that does not read as 0', mutate((g) => { g[1].number = null }))
+  refused('an absolute group with a stored number', [groupRow('e1', 'absolute', 1, ['a1'])])
+  refused('an absolute group that still has a number', mutate((g) => { g[0].kind = 'absolute'; g[0].stored_number = null }))
+  refused('a label that is not the derived one', mutate((g) => { g[0].label = 'OR 2' }))
+  refused('a missing field', mutate((g) => { delete g[0].label }))
+  refused('a field the contract does not have', mutate((g) => { g[0].ratio = '1:1' }))
+  refused('no members', mutate((g) => { g[0].members = [] }))
+  refused('members not ascending', [groupRow('e1', 'or', 1, ['a5', 'a1'])])
+  refused('a repeated member', [groupRow('e1', 'or', 1, ['a1', 'a1'])])
+  refused('a member in two groups', [groupRow('e1', 'or', 1, ['a1', 'a5']), groupRow('e2', 'and', null, ['a5'])])
+  refused('a member that is not an atom', mutate((g) => { g[0].members = ['a99'] }))
+  refused('a member without a stored configuration', mutate((g) => { g[0].members = ['a2'] }))
+  const unknownCenter = groupedDrawing(good())
+  unknownCenter.document.stereo.atoms[1].configuration = { kind: 'unknown', neighbors: ['a6', 'a7', 'a8', 'implicit_hydrogen'] }
+  assert.equal(isDocumentResponse(unknownCenter), false, 'a member whose configuration is unknown')
+  refused('a bond as a member', mutate((g) => { g[0].members = ['b1'] }))
+  refused('two absolute groups', [groupRow('e1', 'absolute', null, ['a1']), groupRow('e2', 'absolute', null, ['a5'])])
+  refused('one kind and number twice', [groupRow('e1', 'or', 1, ['a1']), groupRow('e2', 'or', 1, ['a5'])])
+  refused('an omitted number and a 0 of one kind', [groupRow('e1', 'or', null, ['a1']), groupRow('e2', 'or', 0, ['a5'])])
+  // Other validators keep their strictness: an unknown key beside the lists is still refused.
+  const extra = groupedDrawing(good())
+  extra.document.stereo.ratio = 1
+  assert.equal(isDocumentResponse(extra), false)
+  const omitted = groupedDrawing(good())
+  delete omitted.document.stereo.groups
+  assert.equal(isDocumentResponse(omitted), true, 'an older service sends no list')
+})
+
+test('a snapshot from an older service, with no group list, is the same table as one with an empty list', async () => {
+  const current = groupedDrawing([]).document
+  const older = structuredClone(current)
+  delete older.stereo.groups
+  assert.equal(sameContent(older, current), true, 'queued edits are retried across an upgrade')
+  assert.equal(sameInspectionSnapshot(older, current), true, 'an inspection of the older snapshot is not stale')
+  assert.equal(sameInspectionSnapshot(current, older), true)
+  const bare = { ...structuredClone(current), stereo: { atoms: [], bonds: [], groups: [] } }
+  const none = structuredClone(bare)
+  delete none.stereo
+  assert.equal(sameContent(none, bare), true, 'no table and an empty one with an empty list')
+  const grouped = groupedDrawing([groupRow('e1', 'or', 1, ['a1'])]).document
+  assert.equal(sameContent(older, grouped), false, 'a real group is still a difference')
+  const reply = groupedDrawing([])
+  delete reply.document.stereo.groups
+  service({ '/transactions': [() => json(200, reply)] })
+  const read = await new DocumentClient().transact('doc-stereo', 0, [])
+  assert.deepEqual(read.document.stereo.groups, [], 'an omitted list is read as no groups')
+})
+
+test('every group set the domain accepts is accepted', () => {
+  // Derived from the domain rules (crates/domain/src/stereo_group.rs, `validate`, which also
+  // runs when a document is restored): non-empty groups, members stored tetrahedral centers in
+  // one group each, at most one absolute group, and one group for each kind and interpreted
+  // number among `and` and `or`. Nothing else is required of a group set.
+  const accepted = {
+    'no groups': [],
+    'a singleton group': [groupRow('e1', 'or', 1, ['a1'])],
+    'one group of all the centers': [groupRow('e1', 'and', 1, ['a1', 'a5'])],
+    'absolute with and and or of the same number': [groupRow('e1', 'absolute', null, ['a1']), groupRow('e2', 'and', null, ['a5'])],
+    'and and or both reading 0': [groupRow('e1', 'and', null, ['a1']), groupRow('e2', 'or', 0, ['a5'])],
+    'the same number of different kinds': [groupRow('e1', 'and', 3, ['a1']), groupRow('e2', 'or', 3, ['a5'])],
+    'negative and zero numbers of one kind': [groupRow('e1', 'or', -1, ['a1']), groupRow('e2', 'or', 0, ['a5'])],
+    'ids that skip, later than the first': [groupRow('e4', 'or', 1, ['a1']), groupRow('e17', 'or', 2, ['a5'])],
+  }
+  for (const [why, groups] of Object.entries(accepted)) assert.equal(isDocumentResponse(groupedDrawing(groups)), true, why)
+  // Members order numerically (a10 after a2), as the service lists atoms.
+  const wide = groupedDrawing([groupRow('e1', 'or', 1, ['a2', 'a10'])])
+  const stereo = wide.document.stereo
+  stereo.atoms = [
+    { atom: 'a2', configuration: { kind: 'tetrahedral', neighbors: ['a3', 'a4', 'a5', 'implicit_hydrogen'], turn: 'clockwise' } },
+    { atom: 'a10', configuration: { kind: 'tetrahedral', neighbors: ['a11', 'a12', 'a13', 'implicit_hydrogen'], turn: 'clockwise' } },
+  ]
+  wide.document.atoms = Array.from({ length: 13 }, (_, i) => ({ ...wide.document.atoms[0], id: `a${i + 1}` }))
+  wide.document.bonds = [['b1', 'a2', 'a3'], ['b2', 'a2', 'a4'], ['b3', 'a2', 'a5'], ['b4', 'a10', 'a11'], ['b5', 'a10', 'a12'], ['b6', 'a10', 'a13']]
+    .map(([id, begin, end]) => ({ ...bondWith(id, begin, end), mark: null }))
+  assert.equal(isDocumentResponse(wide), true, 'a10 follows a2')
+})
+
+test('notes about enhanced stereo groups are read: members that left, groups that went, relations that changed', () => {
+  const note = (feature, source_path, disposition) => ({ feature, source_path, disposition, semantic_impact: 'stereo', reason: 'Stereo group e1 changed.' })
+  const withNotes = (notes) => ({ ...stereoDrawing(), notes })
+  const good = [
+    note('stereo_configuration', 'atoms[a1]', 'dropped'),
+    note('stereo_group_member', 'atoms[a1]', 'dropped'),
+    note('stereo_group', 'groups[e2]', 'dropped'),
+    note('stereo_group_relation', 'groups[e1]', 'dropped'),
+    note('stereo_group_relation', 'groups[e1]', 'normalized'),
+  ]
+  assert.equal(isDocumentResponse(withNotes(good)), true)
+  assert.equal(isDocumentResponse(withNotes([note('stereo_group_member', 'atoms[a1]', 'normalized')])), false, 'only a relation can be normalized')
+  assert.equal(isDocumentResponse(withNotes([note('stereo_configuration', 'atoms[a1]', 'normalized')])), false)
+  assert.equal(isDocumentResponse(withNotes([note('stereo_group_ratio', 'groups[e1]', 'dropped')])), false, 'an unknown feature')
+  const refused = (feature, path, disposition) => assert.equal(isDocumentResponse(withNotes([note(feature, path, disposition)])), false, `${feature} ${path} ${disposition}`)
+  assert.equal(isDocumentResponse(withNotes([note('stereo_configuration', 'bonds[b4]', 'dropped')])), true)
+  refused('stereo_configuration', 'groups[e1]', 'dropped')
+  refused('stereo_group_member', 'groups[e1]', 'dropped')
+  refused('stereo_group_member', 'bonds[b4]', 'dropped')
+  refused('stereo_group', 'atoms[a1]', 'dropped')
+  refused('stereo_group', 'groups[e2]', 'normalized')
+  refused('stereo_group_relation', 'atoms[a1]', 'dropped')
+  refused('stereo_group_relation', 'groups[a1]', 'normalized')
+  refused('stereo_group_relation', 'groups[e1', 'dropped')
+  refused('stereo_group_relation', 'groups[e1] ', 'dropped')
+  refused('stereo_group_relation', '', 'dropped')
+  refused('stereo_group_relation', 'groups[e1]', 'preserved')
 })
 
 test('the stereo commands lapse with the bond or atom they name, and words and $N are not ids', () => {

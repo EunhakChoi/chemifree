@@ -297,6 +297,15 @@ fn general_diagnostics(document: &Document, inspection: &Inspection) -> Vec<Diag
             details,
         ));
     }
+    if !document.stereo_groups().is_empty() {
+        let mut details = Map::new();
+        details.insert("groups".into(), document.stereo_groups().len().into());
+        diagnostics.push(info(
+            "stereo_groups_not_examined",
+            "Enhanced stereo groups (absolute, and, or) are stored but not compared with the drawing and not judged.".into(),
+            details,
+        ));
+    }
     diagnostics.push(info(
         "stereo_not_checked",
         "Only the stored configurations are compared with the drawing. This operation computes no CIP label (chem.cip does) and judges no atom stereogenic, ring and strain plausibility are not checked, and chem.identity and chem.substructure do not read stereo.".into(),

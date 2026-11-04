@@ -1,0 +1,250 @@
+{
+  "id": "stereo-group-smiles-export-needs-consent",
+  "title": "SMILES has no enhanced stereo groups, so a drawing that holds any group, a one-member group included, is exported only after consent to the dropped groups, listed with the stereo configurations",
+  "requirements": [
+    "STEREO-01",
+    "MODEL-03",
+    "CODEC-05"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 0,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": -26,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$0",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$1",
+              "$2",
+              "$3",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        },
+        {
+          "op": "set_atom_configuration",
+          "atom": "$4",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "$5",
+              "$6",
+              "$7",
+              "implicit_hydrogen"
+            ],
+            "turn": "clockwise"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "stereo": {
+            "groups": []
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "create_stereo_group",
+          "kind": "absolute",
+          "atoms": [
+            "a1"
+          ],
+          "number": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "groups": [
+              {
+                "id": "e1",
+                "kind": "absolute",
+                "stored_number": null,
+                "number": null,
+                "label": "abs",
+                "members": [
+                  "a1"
+                ]
+              }
+            ]
+          }
+        },
+        "notes": []
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "refused",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ]
+            }
+          }
+        ]
+      },
+      "document": "d",
+      "capture": {
+        "digest": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "accepted",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "style": "recorded"
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_group",
+              "source_path": "groups[e1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/accepted_losses": "digest"
+      }
+    }
+  ]
+}

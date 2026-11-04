@@ -867,8 +867,9 @@ function StereoNotes({ notes }: { notes: readonly StereoNote[] }) {
   if (notes.length === 0) return null
   return (
     <ul role="note" data-testid="stereo-notes" className="list-disc pl-5 text-xs leading-relaxed text-muted-foreground">
-      {notes.map((note) => (
-        <li key={note.source_path}>{note.reason}</li>
+      {/* One reply's list, shown whole and never reordered. Two notes can share a feature and a path (a merge and then a split of one group make two identical entries), so the index keeps the key unique. */}
+      {notes.map((note, index) => (
+        <li key={`${note.feature}:${note.source_path}:${index}`}>{note.reason}</li>
       ))}
     </ul>
   )

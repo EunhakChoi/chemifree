@@ -82,9 +82,9 @@ pub use contract::{
     QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView,
     ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest, ResetSettingsRequest,
     RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SceneObjectView, SceneView,
-    SelectionDto, SessionView, SettingsDto, SettingsEditDto, SettingsSource, StereoView,
-    TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary, TurnDto,
-    UnreadableDocument, query_label,
+    SelectionDto, SessionView, SettingsDto, SettingsEditDto, SettingsSource, StereoGroupKindDto,
+    StereoGroupView, StereoView, TransactionRequest, TransactionSelections, TrashListResponse,
+    TrashedSummary, TurnDto, UnreadableDocument, query_label,
 };
 pub use data::{
     BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,

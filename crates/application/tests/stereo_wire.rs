@@ -138,7 +138,7 @@ fn a_mark_and_a_center_are_set_read_back_in_canonical_form_and_kept_by_history_a
         json!({"atoms": [{"atom": "a1", "configuration": {
             "kind": "tetrahedral",
             "neighbors": ["a2", "a3", "a4", "implicit_hydrogen"], "turn": "clockwise"}}],
-            "bonds": []})
+            "bonds": [], "groups": []})
     );
     assert_eq!(notes(&reply), &Vec::<Value>::new());
 
@@ -167,7 +167,7 @@ fn a_mark_and_a_center_are_set_read_back_in_canonical_form_and_kept_by_history_a
     let undone = serde_json::to_value(app.undo(&id, Some("u2"), 3).unwrap()).unwrap();
     assert_eq!(
         undone["document"]["stereo"],
-        json!({"atoms": [], "bonds": []})
+        json!({"atoms": [], "bonds": [], "groups": []})
     );
     assert_eq!(undone["document"]["bonds"][1]["mark"], Value::Null);
     app.redo(&id, Some("re"), 4).unwrap();
@@ -295,7 +295,7 @@ fn null_clears_and_a_missing_key_is_a_malformed_command() {
     assert_eq!(cleared["document"]["bonds"][1]["mark"], Value::Null);
     assert_eq!(
         cleared["document"]["stereo"],
-        json!({"atoms": [], "bonds": []})
+        json!({"atoms": [], "bonds": [], "groups": []})
     );
     assert_eq!(
         notes(&cleared),
@@ -664,7 +664,7 @@ fn clearing_stereo_with_a_neighbor_change_is_reported_once_and_undo_restores_it(
     ));
     assert_eq!(
         deleted["document"]["stereo"],
-        json!({"atoms": [], "bonds": []})
+        json!({"atoms": [], "bonds": [], "groups": []})
     );
     assert_eq!(notes(&deleted), &vec![note("atoms[a1]", NEIGHBORS_CHANGED)]);
     // The same request again returns the stored reply, notes included.

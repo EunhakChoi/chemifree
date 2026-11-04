@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 19,
+  "suite_version": 20,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -992,19 +992,17 @@
     },
     {
       "id": "stereo-enhanced-group-membership",
-      "title": "Enhanced stereo group membership is recorded and read back",
+      "title": "Absolute, and and or groups are created over stored centers and read back with their stored number, interpreted number and label; renumbering and deleting a group change only that, and undo brings the group back under its identifier",
       "requirements": [
-        "STEREO-01"
+        "STEREO-01",
+        "MODEL-03"
       ],
       "axis": "stereo",
       "kind": "accept",
-      "outcome": "not_run",
-      "pending": {
-        "followup": "P27",
-        "reason": "Enhanced stereo groups are not implemented; no command creates or reads a group."
-      },
+      "outcome": "passed",
+      "pending": null,
       "failure": null,
-      "case_sha256": "bbd24b2e4dbd149b59a17610ec8727f5129ef364785cc33ae7bfdfd695113ffa"
+      "case_sha256": "c25ac6267c0d5a1232d5d646a68232715a260f25def5b4d4526c3bc2b95a2260"
     },
     {
       "id": "stereo-molfile-stereo-round-trip",
@@ -1021,13 +1019,161 @@
       },
       "failure": null,
       "case_sha256": "9edeef1109679fd0ec4fa9b38a3a526e51c54d5f0b95a92dbc83f526052b64ff"
+    },
+    {
+      "id": "stereo-group-number-0-negative-omitted",
+      "title": "A group number is stored exactly as stated (0, negative, omitted, the 32-bit bounds); an omitted number reads as 0 and so collides with an explicit 0 of the same kind, in either order, and a number outside 32 bits is refused",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "408348b47524bbe03dce63b16e00419040b639ce9664f18862ad1e3771aa0612"
+    },
+    {
+      "id": "stereo-group-kind-and-number-identify-a-group",
+      "title": "Or 1 and And 1 are two groups; the same kind with the same number is refused and points to merging; a kind change onto a taken number is refused",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "d5269ec771b0265a904266a8ab9b36c3c1aed91761b278bdb7a443e71f592486"
+    },
+    {
+      "id": "stereo-group-absolute-and-and-coexist",
+      "title": "An absolute group and an and group coexist and a one-member group is legal; a second absolute group, an absolute group with a number and a member that is not a stored center are refused",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "8006de50495eebff926d293076fc178d6a2809eee5aae37ddd0f3d535d873f10"
+    },
+    {
+      "id": "stereo-group-meaning-changes-are-reported",
+      "title": "Splitting, merging, removing members from and deleting a group, and changing an and or or group to another kind, report what is no longer stated or was not stated before; renumbering and adding members report nothing; the reply is partial exactly when it carries a note",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "ea128605b5999a65288df94bf026c22c66d7f138112e1c5472d186cf8eb6216b"
+    },
+    {
+      "id": "stereo-group-member-cleared-with-configuration",
+      "title": "A member that is no longer a stored center leaves its group with a note, whether its configuration is cleared by the client, marked unknown, lost with a neighbor change or lost with the atom, and a group left without members disappears; undo brings the members back",
+      "requirements": [
+        "STEREO-01",
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "7fc5134b8d566c0995b323b754c1fea2a551bc78e42f5a32c268415c9df17763"
+    },
+    {
+      "id": "stereo-group-undo-redo-stable-ids",
+      "title": "Groups follow undo and redo with their identifiers, a group created by a split keeps its identifier through undo and redo, and an identifier that was issued is not issued again",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "history",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "49df3a3fc464841cb9db25410f1caeaaf5128c2969ab4f3f7f91bee58aeec131"
+    },
+    {
+      "id": "stereo-group-persists-across-reopen",
+      "title": "Groups, their stored numbers and their identifiers are saved and read back after a restart, and undo after the restart still removes them",
+      "requirements": [
+        "STEREO-01",
+        "MODEL-03"
+      ],
+      "axis": "persistence",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "89f99a3cf42b636e682116d489e919127ece1439449790e766e406d617aed580"
+    },
+    {
+      "id": "stereo-group-refusals",
+      "title": "Every group refusal names its reason and the failing command and changes nothing, and a command with a missing or unknown key or a wrong value does not read",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "protocol",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "5fa43de00c4302ae8652e85e48d5910bb2477d56271d406efbcc712931c42098"
+    },
+    {
+      "id": "stereo-group-cip-and-identity-ignore-groups",
+      "title": "Groups are not read by chem.cip, chem.identity or chem.substructure: the same descriptors, the same equivalence and the same mappings with and without groups, and chem.stereo says that groups are not examined only when there are groups",
+      "requirements": [
+        "STEREO-01",
+        "MODEL-03"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "52a59309f6dbf2b9abdad3caf4b698274ba31708ae08c60b36799efcf9fa4714"
+    },
+    {
+      "id": "stereo-group-smiles-export-needs-consent",
+      "title": "SMILES has no enhanced stereo groups, so a drawing that holds any group, a one-member group included, is exported only after consent to the dropped groups, listed with the stereo configurations",
+      "requirements": [
+        "STEREO-01",
+        "MODEL-03",
+        "CODEC-05"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f1b474516daa80a32d779c43ac6efdcc65cf4bd45c37436ad235f99ebf9e4994"
+    },
+    {
+      "id": "stereo-group-unrelated-edits-keep-groups",
+      "title": "A title change, a move and a new atom leave the groups as they were and report nothing",
+      "requirements": [
+        "STEREO-01"
+      ],
+      "axis": "stereo",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "1ab5f7e3ba16ebeecddaa5f165b0a9826ad711ea83165193edf3b3be446deecb"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 54,
+      "passed": 66,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     },
     "reject": {
       "passed": 20,
@@ -1035,9 +1181,9 @@
       "not_run": 0
     },
     "total": {
-      "passed": 74,
+      "passed": 86,
       "failed": 0,
-      "not_run": 2
+      "not_run": 1
     }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "suite_version": 19,
+  "suite_version": 20,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -76,6 +76,17 @@
     "cases/stereo-cip-is-read-only.json",
     "cases/stereo-cip-public-references.json",
     "cases/stereo-enhanced-group-membership.json",
-    "cases/stereo-molfile-stereo-round-trip.json"
+    "cases/stereo-molfile-stereo-round-trip.json",
+    "cases/stereo-group-number-0-negative-omitted.json",
+    "cases/stereo-group-kind-and-number-identify-a-group.json",
+    "cases/stereo-group-absolute-and-and-coexist.json",
+    "cases/stereo-group-meaning-changes-are-reported.json",
+    "cases/stereo-group-member-cleared-with-configuration.json",
+    "cases/stereo-group-undo-redo-stable-ids.json",
+    "cases/stereo-group-persists-across-reopen.json",
+    "cases/stereo-group-refusals.json",
+    "cases/stereo-group-cip-and-identity-ignore-groups.json",
+    "cases/stereo-group-smiles-export-needs-consent.json",
+    "cases/stereo-group-unrelated-edits-keep-groups.json"
   ]
 }

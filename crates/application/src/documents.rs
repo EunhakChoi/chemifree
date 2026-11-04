@@ -2765,6 +2765,10 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
         invalid_settings,
         invalid_stereo,
         invalid_derivation,
+        invalid_stereo_group: match error.error {
+            EditError::StereoGroup(group) => Some(group.code()),
+            _ => None,
+        },
         invalid_scene: error.error.scene_error(),
         ..ApplicationError::new(code, error.to_string())
     }

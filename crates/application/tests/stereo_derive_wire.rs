@@ -115,7 +115,7 @@ fn a_mark_and_the_derivation_in_one_request_store_the_e1_configuration_and_a_rep
     assert_eq!(reply["document"]["revision"], 1);
     assert_eq!(
         reply["document"]["stereo"],
-        json!({"atoms": [e1_clockwise()], "bonds": []})
+        json!({"atoms": [e1_clockwise()], "bonds": [], "groups": []})
     );
     assert_eq!(reply["notes"], json!([]));
 
@@ -138,7 +138,7 @@ fn a_mark_and_the_derivation_in_one_request_store_the_e1_configuration_and_a_rep
     let undone = serde_json::to_value(app.undo(&id, Some("u"), 1).unwrap()).unwrap();
     assert_eq!(
         undone["document"]["stereo"],
-        json!({"atoms": [], "bonds": []})
+        json!({"atoms": [], "bonds": [], "groups": []})
     );
     assert_eq!(undone["document"]["bonds"][1]["mark"], Value::Null);
     let redone = serde_json::to_value(app.redo(&id, Some("re"), 2).unwrap()).unwrap();
@@ -176,7 +176,8 @@ fn a_wavy_bond_gives_unknown_and_a_crossed_double_bond_gives_unknown_by_name_or_
         json!({
             "atoms": [{"atom": "a1", "configuration": {
                 "kind": "unknown", "neighbors": ["a2", "a3", "a4", "implicit_hydrogen"]}}],
-            "bonds": [{"bond": "b4", "configuration": {"kind": "unknown"}}]
+            "bonds": [{"bond": "b4", "configuration": {"kind": "unknown"}}],
+            "groups": []
         })
     );
 }
@@ -533,7 +534,8 @@ fn contract_examples() -> Vec<Value> {
         .find("### Deriving a configuration from a drawing")
         .expect("the section exists");
     let section = &contract[start..];
-    let end = section.find("\n## ").unwrap_or(section.len());
+    // Up to the next heading of any level: a later subsection has examples of its own.
+    let end = section.find("\n#").unwrap_or(section.len());
     section[..end]
         .split("```json\n")
         .skip(1)

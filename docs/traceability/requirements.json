@@ -418,8 +418,33 @@
           "followups": []
         },
         {
+          "id": "MODEL-03.8",
+          "summary": "Enhanced stereo groups in the document: absolute, and and or groups over stored tetrahedral centers, with the number kept as stated (0, negative and omitted included; an omitted number reads as 0), the interpreted number and a display label computed and never stored, one absolute group per document, created and changed by eight commands in document.transaction (required keys, group and atom references, 12 stereo_group_* reasons with the command index, a 32-bit number range), listed in every snapshot as stereo.groups, left by a member whose configuration goes, followed by undo and redo with stable ids, saved and reopened, and reported in notes (partial) when an edit changes which centers are stated to belong together. Statements only: no ratio is stated for and, nothing judges that members are related or stereogenic, chem.cip, chem.identity, chem.substructure and chem.validate ignore groups, and chem.stereo says it does not examine them. The web editor only reads the snapshot's groups (it shows and edits none).",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/stereo_group.rs",
+            "crates/domain/src/document.rs",
+            "crates/providers/src/file_format.rs",
+            "crates/application/src/contract.rs",
+            "crates/application/src/documents.rs",
+            "crates/application/src/operations.rs",
+            "apps/web/src/lib/stereo-contract.ts"
+          ],
+          "evidence": [
+            "case:stereo-enhanced-group-membership",
+            "case:stereo-group-member-cleared-with-configuration",
+            "case:stereo-group-persists-across-reopen",
+            "case:stereo-group-cip-and-identity-ignore-groups",
+            "case:stereo-group-smiles-export-needs-consent",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "MODEL-03.rest",
-          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, isotope-aware and symmetry-aware stereo, enhanced stereo groups and partitions, mirror and flip commands, and a crossed-mark canvas tool.",
+          "summary": "CIP Rules 4a to 5 with pseudoasymmetric r and s, heteroaromatic rings and axes or planes, isotope-aware and symmetry-aware stereo, a web display and editing of enhanced stereo groups, mirror and flip commands, and a crossed-mark canvas tool.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1066,13 +1091,46 @@
       "summary": "Stereo group labels, partitions and omissions are handled per format.",
       "operations": [
         "chem.validate",
+        "chem.stereo",
+        "document.transaction",
         "document.export"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "STEREO-01.1",
+          "summary": "Group labels, partitions and omissions, in the editor and for the two exports that exist: a group keeps its identifier and members apart from the stored number, the interpreted number and the display label (stored and shown in snapshots, 0, negative and omitted numbers as stated, Or 1 and And 1 distinct, one absolute group, singleton groups legal); renumbering and adding members are not losses, while splitting, merging, removing members and a member losing its configuration are reported; a SMILES export reports the consent loss stereo_group for all groups, a V2000 export refuses stereo and so groups, and CIP and identity ignore groups. No import reads groups and no export writes them, so nothing here claims a mapping to any file format.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/stereo_group.rs",
+            "crates/application/src/contract.rs",
+            "crates/application/src/documents.rs",
+            "crates/application/src/ct_projection.rs",
+            "crates/application/src/operations/stereo.rs",
+            "apps/web/src/lib/stereo-contract.ts"
+          ],
+          "evidence": [
+            "case:stereo-enhanced-group-membership",
+            "case:stereo-group-number-0-negative-omitted",
+            "case:stereo-group-kind-and-number-identify-a-group",
+            "case:stereo-group-absolute-and-and-coexist",
+            "case:stereo-group-meaning-changes-are-reported",
+            "case:stereo-group-member-cleared-with-configuration",
+            "case:stereo-group-undo-redo-stable-ids",
+            "case:stereo-group-persists-across-reopen",
+            "case:stereo-group-refusals",
+            "case:stereo-group-cip-and-identity-ignore-groups",
+            "case:stereo-group-smiles-export-needs-consent",
+            "case:stereo-group-unrelated-edits-keep-groups",
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "STEREO-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Group import and export in the formats that can carry them (V3000 collections, CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses, group normalization on import, and the web display and editing of groups.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

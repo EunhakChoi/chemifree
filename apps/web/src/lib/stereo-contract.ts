@@ -57,23 +57,57 @@ export type BondConfiguration =
 export interface StereoView {
   atoms: Array<{ atom: string; configuration: AtomConfiguration }>
   bonds: Array<{ bond: string; configuration: BondConfiguration }>
+  /**
+   * Enhanced-stereo groups in identifier order, added within v1. Omitted by an older service, and
+   * read as no groups. A group states which stored centers belong together; it is no ratio.
+   */
+  groups?: StereoGroup[]
 }
+
+/** What an enhanced-stereo group states. `absolute` has no number. */
+export type StereoGroupKind = 'absolute' | 'and' | 'or'
+
+/**
+ * One enhanced-stereo group as a snapshot shows it. `stored_number` is the number as stated
+ * (`null` when none; 0 and negatives are kept), `number` the interpreted one (`null` for
+ * `absolute`, otherwise the stored number or 0) and `label` the display text the service built
+ * from them (`abs`, `and2`, `or0`). `members` are atom ids, ascending, each a stored tetrahedral
+ * center of the same snapshot.
+ */
+export interface StereoGroup {
+  id: string
+  kind: StereoGroupKind
+  stored_number: number | null
+  number: number | null
+  label: string
+  members: string[]
+}
+
+/** The note features the service sends; the one source of the type and of the validator. */
+export const NOTE_FEATURES = ['stereo_configuration', 'stereo_group_member', 'stereo_group', 'stereo_group_relation'] as const
 
 /**
  * What a transaction cleared of stereo because it changed what the record was about: one entry
  * per record, shaped like the contract's loss entries. Describes that request only.
  */
 export interface StereoNote {
-  feature: 'stereo_configuration'
-  /** `atoms[a1]` for a center, `bonds[b5]` for a double bond. */
+  feature: StereoNoteFeature
+  /** `atoms[a1]` for a center or a group member, `bonds[b5]` for a double bond, `groups[e1]` for a group. */
   source_path: string
-  disposition: 'dropped'
+  disposition: 'dropped' | 'normalized'
   reason: string
   semantic_impact: 'stereo'
 }
 
+/**
+ * `stereo_configuration`: a stated configuration was cleared. The group features report a
+ * change of what a group states: `stereo_group_member` (a member left), `stereo_group` (a group
+ * disappeared) and `stereo_group_relation` (which centers belong together changed).
+ */
+export type StereoNoteFeature = (typeof NOTE_FEATURES)[number]
+
 /** A document with no stated configuration, and what an older service's reply is read as. */
-export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds: [] })
+export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds: [], groups: [] })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -113,7 +147,7 @@ export interface GraphBond {
  * bond's references atoms bonded to the right end.
  */
 export function isStereoView(value: unknown, atoms: ReadonlyArray<{ id: string }>, bonds: readonly GraphBond[]): value is StereoView {
-  if (!isRecord(value) || !hasOnly(value, ['atoms', 'bonds']) || !Array.isArray(value.atoms) || !Array.isArray(value.bonds)) {
+  if (!isRecord(value) || !hasOnly(value, ['atoms', 'bonds', 'groups']) || !Array.isArray(value.atoms) || !Array.isArray(value.bonds)) {
     return false
   }
   const atomIds = new Set(atoms.map((atom) => atom.id))
@@ -135,6 +169,52 @@ export function isStereoView(value: unknown, atoms: ReadonlyArray<{ id: string }
     const bond = doubles.get(record.bond)
     if (bond === undefined || !isBondConfiguration(record.configuration, bond, neighbors)) return false
     configured.add(record.bond)
+  }
+  return value.groups === undefined || isStereoGroups(value.groups, value.atoms as StereoView['atoms'])
+}
+
+const GROUP_KINDS: readonly unknown[] = ['absolute', 'and', 'or']
+const INT32_MIN = -(2 ** 31)
+const INT32_MAX = 2 ** 31 - 1
+const isInt32 = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= INT32_MIN && (value as number) <= INT32_MAX
+
+/**
+ * Whether `value` is the group list of a snapshot whose stated centers are `records`: ids
+ * ascending, a known kind, a stored number that is `null` or a 32-bit integer (none on
+ * `absolute`), the interpreted number and label exactly what the service derives from kind and
+ * stored number, members ascending, each a stored tetrahedral center in no other group, at most
+ * one absolute group, and one number for each `and` and `or` group. It checks no chemistry.
+ */
+function isStereoGroups(value: unknown, records: StereoView['atoms']): value is StereoGroup[] {
+  if (!Array.isArray(value)) return false
+  const tetrahedral = new Set(records.filter((record) => record.configuration.kind === 'tetrahedral').map((record) => record.atom))
+  const grouped = new Set<string>()
+  const numbered = new Set<string>()
+  let absolute = false
+  let previous = 0
+  for (const group of value as unknown[]) {
+    if (!isRecord(group) || !hasOnly(group, ['id', 'kind', 'stored_number', 'number', 'label', 'members']) ||
+        typeof group.id !== 'string' || !/^e[1-9]\d*$/.test(group.id) || !GROUP_KINDS.includes(group.kind) ||
+        !(group.stored_number === null || isInt32(group.stored_number)) || !Array.isArray(group.members) ||
+        group.members.length === 0 || !ascending(group.members as string[])) {
+      return false
+    }
+    if (serial(group.id) <= previous) return false
+    previous = serial(group.id)
+    const interpreted = group.kind === 'absolute' ? null : (group.stored_number ?? 0)
+    if (group.number !== interpreted || group.label !== (interpreted === null ? 'abs' : `${group.kind as string}${interpreted}`)) return false
+    if (group.kind === 'absolute') {
+      if (group.stored_number !== null || absolute) return false
+      absolute = true
+    } else {
+      const key = `${group.kind as string}:${interpreted}`
+      if (numbered.has(key)) return false
+      numbered.add(key)
+    }
+    for (const member of group.members as unknown[]) {
+      if (typeof member !== 'string' || !tetrahedral.has(member) || grouped.has(member)) return false
+      grouped.add(member)
+    }
   }
   return true
 }
@@ -179,9 +259,15 @@ function isBondConfiguration(value: unknown, bond: GraphBond, neighbors: Readonl
   )
 }
 
-/** A document's stereo table, empty for an older service that has none. */
+/**
+ * A document's stereo table, empty for an older service that has none. An omitted group list
+ * reads as no groups (`groups` is additive within contract 1), so a snapshot from an older
+ * service and one from a current service with `groups: []` are the same table.
+ */
 export function stereoOf(document: { stereo?: StereoView }): Readonly<StereoView> {
-  return document.stereo ?? NO_STEREO
+  const { stereo } = document
+  if (stereo === undefined) return NO_STEREO
+  return stereo.groups === undefined ? { ...stereo, groups: [] } : stereo
 }
 
 /** The marks on a document's bonds and the configurations it states; nothing is derived. */
@@ -226,6 +312,19 @@ export function markName(mark: StereoMark, bond: { begin: string; end: string })
   }
 }
 
+/**
+ * What each note feature may carry, as the service emits it: the dispositions and the shape of
+ * `source_path`. A feature this build does not know is refused, as every other unknown value.
+ */
+const NOTE_SHAPES: Record<StereoNoteFeature, { dispositions: readonly unknown[]; path: RegExp }> = {
+  stereo_configuration: { dispositions: ['dropped'], path: /^(atoms\[a[1-9]\d*\]|bonds\[b[1-9]\d*\])$/ },
+  stereo_group_member: { dispositions: ['dropped'], path: /^atoms\[a[1-9]\d*\]$/ },
+  stereo_group: { dispositions: ['dropped'], path: /^groups\[e[1-9]\d*\]$/ },
+  stereo_group_relation: { dispositions: ['dropped', 'normalized'], path: /^groups\[e[1-9]\d*\]$/ },
+}
+
+const isNoteFeature = (value: unknown): value is StereoNoteFeature => NOTE_FEATURES.some((feature) => feature === value)
+
 /** Whether `value` is the `notes` list of a document reply, which holds only stereo notes. */
 export function isStereoNotes(value: unknown): value is StereoNote[] {
   return (
@@ -234,9 +333,10 @@ export function isStereoNotes(value: unknown): value is StereoNote[] {
       (note) =>
         isRecord(note) &&
         hasOnly(note, ['feature', 'source_path', 'disposition', 'reason', 'semantic_impact']) &&
-        note.feature === 'stereo_configuration' &&
+        isNoteFeature(note.feature) &&
         typeof note.source_path === 'string' &&
-        note.disposition === 'dropped' &&
+        NOTE_SHAPES[note.feature].path.test(note.source_path) &&
+        NOTE_SHAPES[note.feature].dispositions.includes(note.disposition) &&
         typeof note.reason === 'string' &&
         note.semantic_impact === 'stereo',
     )

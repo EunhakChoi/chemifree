@@ -285,7 +285,8 @@ fn a_snapshot_shows_every_mark_and_every_stated_configuration() {
                     "end_neighbor": "a9",
                     "relation": "opposite_sides"}},
                 {"bond": "b11", "configuration": {"kind": "unknown"}}
-            ]
+            ],
+            "groups": []
         }),
         "[a3,a2,a4,a5] is one swap from sorted, so the turn flips; the hydrogen at a7 is a9 \
          with the relation flipped"
@@ -304,7 +305,10 @@ fn a_drawing_without_stereo_says_nothing_about_it() {
             .all(|bond| bond.get("mark") == Some(&Value::Null)),
         "a plain bond has an explicit null mark"
     );
-    assert_eq!(document["stereo"], json!({"atoms": [], "bonds": []}));
+    assert_eq!(
+        document["stereo"],
+        json!({"atoms": [], "bonds": [], "groups": []})
+    );
 }
 
 #[test]

@@ -6,7 +6,8 @@ use std::fmt;
 
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command, Document,
-    MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID, Point, Vector,
+    GroupId, GroupRef, MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID,
+    Point, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -22,6 +23,7 @@ use chemifree_domain::stereo::{
     AtomConfiguration, BondConfiguration, BondEnd, CenterState, DoubleBondState, Relation, Slot,
     SlotRef, StereoError, StereoMark, StereoRecord, Turn,
 };
+use chemifree_domain::stereo_group::GroupKind;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -549,6 +551,89 @@ pub enum CommandDto {
         #[serde(default)]
         instance: Option<String>,
     },
+    /// Creates an enhanced-stereo group of stored tetrahedral centers that are in no group
+    /// (`atoms`: atom IDs or `"$N"`, non-empty). `number` is required, an integer within the
+    /// 32-bit signed range or `null`; an `absolute` group takes none. The new group is `"$N"`
+    /// for later commands. Added within v1.
+    CreateStereoGroup {
+        kind: StereoGroupKindDto,
+        atoms: Vec<String>,
+        #[serde(deserialize_with = "nullable")]
+        number: Option<i64>,
+    },
+    /// Deletes a group (`group`: a group ID or `"$N"`); its members stay configured and become
+    /// ungrouped. Added within v1.
+    DeleteStereoGroup {
+        group: String,
+    },
+    /// Changes a group's kind. Added within v1.
+    SetStereoGroupKind {
+        group: String,
+        kind: StereoGroupKindDto,
+    },
+    /// Sets the stored number, or with `"number": null` clears it. `number` is required. A
+    /// number another group of the kind has is refused (merge the groups instead). Added
+    /// within v1.
+    SetStereoGroupNumber {
+        group: String,
+        #[serde(deserialize_with = "nullable")]
+        number: Option<i64>,
+    },
+    /// Adds stored tetrahedral centers that are in no group; members already in it are left as
+    /// they are. Added within v1.
+    AddStereoGroupMembers {
+        group: String,
+        atoms: Vec<String>,
+    },
+    /// Removes members, which become ungrouped; it never empties the group. Added within v1.
+    RemoveStereoGroupMembers {
+        group: String,
+        atoms: Vec<String>,
+    },
+    /// Moves every member of `from` into `into` and deletes `from`; `into` keeps its kind and
+    /// number. Added within v1.
+    MergeStereoGroups {
+        into: String,
+        from: String,
+    },
+    /// Moves some, not all, members of an `and` or `or` group into a new group of the same
+    /// kind with `number` (required, an integer or `null`). The new group is `"$N"` for later
+    /// commands. Added within v1.
+    SplitStereoGroup {
+        group: String,
+        atoms: Vec<String>,
+        #[serde(deserialize_with = "nullable")]
+        number: Option<i64>,
+    },
+}
+
+/// What an enhanced-stereo group states. `absolute` has no number.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StereoGroupKindDto {
+    Absolute,
+    And,
+    Or,
+}
+
+impl From<StereoGroupKindDto> for GroupKind {
+    fn from(kind: StereoGroupKindDto) -> Self {
+        match kind {
+            StereoGroupKindDto::Absolute => Self::Absolute,
+            StereoGroupKindDto::And => Self::And,
+            StereoGroupKindDto::Or => Self::Or,
+        }
+    }
+}
+
+impl From<GroupKind> for StereoGroupKindDto {
+    fn from(kind: GroupKind) -> Self {
+        match kind {
+            GroupKind::Absolute => Self::Absolute,
+            GroupKind::And => Self::And,
+            GroupKind::Or => Self::Or,
+        }
+    }
 }
 
 /// Reads an object into a map, refusing a repeated key instead of keeping the last value.
@@ -715,6 +800,8 @@ struct Refusal {
     message: String,
     state: Option<StateError>,
     scene: Option<SceneError>,
+    /// The code of a stereo group value the wire refuses (`stereo_group_number_range`).
+    group: Option<&'static str>,
 }
 
 impl From<String> for Refusal {
@@ -723,6 +810,7 @@ impl From<String> for Refusal {
             message,
             state: None,
             scene: None,
+            group: None,
         }
     }
 }
@@ -733,6 +821,7 @@ impl From<StateError> for Refusal {
             message: state.to_string(),
             state: Some(state),
             scene: None,
+            group: None,
         }
     }
 }
@@ -747,6 +836,7 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
                 command_index: Some(index),
                 invalid_state: refusal.state,
                 invalid_scene: refusal.scene,
+                invalid_stereo_group: refusal.group,
                 ..ApplicationError::new(
                     ErrorCode::InvalidCommand,
                     format!("command {index}: {}", refusal.message),
@@ -935,6 +1025,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                 message: "delete_objects requires a mode".to_owned(),
                 state: None,
                 scene: Some(SceneError::DeleteModeMissing),
+                group: None,
             })? {
                 DeleteModeDto::Subtree => DeleteMode::Subtree,
                 DeleteModeDto::ObjectOnly => DeleteMode::ObjectOnly,
@@ -1001,7 +1092,91 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                 .transpose()?,
             instance: instance.as_deref().map(instance_id).transpose()?,
         },
+        CommandDto::CreateStereoGroup {
+            kind,
+            atoms,
+            number,
+        } => Command::CreateStereoGroup {
+            kind: (*kind).into(),
+            number: group_number(*number)?,
+            atoms: atom_refs(atoms)?,
+        },
+        CommandDto::DeleteStereoGroup { group } => Command::DeleteStereoGroup {
+            group: group_ref(group)?,
+        },
+        CommandDto::SetStereoGroupKind { group, kind } => Command::SetStereoGroupKind {
+            group: group_ref(group)?,
+            kind: (*kind).into(),
+        },
+        CommandDto::SetStereoGroupNumber { group, number } => Command::SetStereoGroupNumber {
+            group: group_ref(group)?,
+            number: group_number(*number)?,
+        },
+        CommandDto::AddStereoGroupMembers { group, atoms } => Command::AddStereoGroupMembers {
+            group: group_ref(group)?,
+            atoms: atom_refs(atoms)?,
+        },
+        CommandDto::RemoveStereoGroupMembers { group, atoms } => {
+            Command::RemoveStereoGroupMembers {
+                group: group_ref(group)?,
+                atoms: atom_refs(atoms)?,
+            }
+        }
+        CommandDto::MergeStereoGroups { into, from } => Command::MergeStereoGroups {
+            into: group_ref(into)?,
+            from: group_ref(from)?,
+        },
+        CommandDto::SplitStereoGroup {
+            group,
+            atoms,
+            number,
+        } => Command::SplitStereoGroup {
+            group: group_ref(group)?,
+            atoms: atom_refs(atoms)?,
+            number: group_number(*number)?,
+        },
     })
+}
+
+/// The stored number of a group: any integer of the 32-bit signed range, `0` and negatives
+/// included, or none.
+fn group_number(number: Option<i64>) -> Result<Option<i32>, Refusal> {
+    number
+        .map(|value| {
+            i32::try_from(value).map_err(|_| Refusal {
+                message: format!(
+                    "{value} is outside the stereo group number range {} to {}",
+                    i32::MIN,
+                    i32::MAX
+                ),
+                state: None,
+                scene: None,
+                group: Some(GROUP_NUMBER_RANGE),
+            })
+        })
+        .transpose()
+}
+
+/// The `reason` of a stereo group number outside the 32-bit signed range. The domain never
+/// sees such a number, so this is the wire's own code, listed beside the domain's.
+pub const GROUP_NUMBER_RANGE: &str = "stereo_group_number_range";
+
+fn atom_refs(values: &[String]) -> Result<Vec<AtomRef>, String> {
+    values.iter().map(|id| atom_ref(id)).collect()
+}
+
+/// A group ID (`e1`), or `$N` for the group created by command N.
+fn group_ref(value: &str) -> Result<GroupRef, String> {
+    match value.strip_prefix('$') {
+        Some(index) if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) => index
+            .parse()
+            .map(GroupRef::Created)
+            .map_err(|_| format!("{value:?} is not a command reference")),
+        Some(_) => Err(format!("{value:?} is not a command reference")),
+        None => GroupId::parse(value)
+            .map(GroupRef::Id)
+            .ok_or_else(|| format!("{value:?} is not a stereo group identifier")),
+    }
 }
 
 fn atom_configuration(dto: &AtomConfigurationDto) -> Result<AtomConfiguration, String> {
@@ -1534,6 +1709,23 @@ pub enum BondEndDto {
 pub struct StereoView {
     pub atoms: Vec<AtomStereoView>,
     pub bonds: Vec<BondStereoView>,
+    /// Enhanced-stereo groups in identifier order. Added within v1; always present, empty when
+    /// the document has none.
+    pub groups: Vec<StereoGroupView>,
+}
+
+/// One enhanced-stereo group. `stored_number` is the number as it was stated (`null` when none;
+/// `0` and negatives are kept), `number` the interpreted one (`null` for `absolute`, otherwise
+/// the stored number or `0`), `label` the display text built from kind and interpreted number
+/// (`abs`, `and2`, `or0`). `members` are atom IDs, ascending, each a stored tetrahedral center.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StereoGroupView {
+    pub id: String,
+    pub kind: StereoGroupKindDto,
+    pub stored_number: Option<i32>,
+    pub number: Option<i32>,
+    pub label: String,
+    pub members: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1730,6 +1922,18 @@ impl StereoView {
                 }),
             }
         }
+        view.groups = document
+            .stereo_groups()
+            .iter()
+            .map(|(id, group)| StereoGroupView {
+                id: id.to_string(),
+                kind: group.kind().into(),
+                stored_number: group.stored_number(),
+                number: group.interpreted_number(),
+                label: group.label(),
+                members: group.members().iter().map(ToString::to_string).collect(),
+            })
+            .collect();
         Ok(view)
     }
 }
