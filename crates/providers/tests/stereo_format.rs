@@ -388,15 +388,18 @@ fn a_version_5_draft_is_recovered_and_its_bytes_are_kept() {
     assert_eq!(fs::read(archive).unwrap(), original, "never overwritten");
 }
 
-/// The version 5 file a stereo-free document would have been: version 6 without `stereo`,
-/// marks, or the version number.
+/// The version 5 file a stereo-free document would have been: the current version without
+/// `stereo`, groups, marks, or the version number.
 fn as_version_5(bytes: &[u8]) -> Vec<u8> {
     let mut file: Value = serde_json::from_slice(bytes).unwrap();
     file["format_version"] = json!(5);
-    file["document"].as_object_mut().unwrap().remove("stereo");
+    for field in ["stereo", "stereo_groups", "next_group"] {
+        file["document"].as_object_mut().unwrap().remove(field);
+    }
     for side in ["undo", "redo"] {
         for set in file["history"][side].as_array_mut().unwrap() {
             set.as_object_mut().unwrap().remove("stereo");
+            set.as_object_mut().unwrap().remove("stereo_groups");
         }
     }
     serde_json::to_vec(&file).unwrap()
