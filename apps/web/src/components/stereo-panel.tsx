@@ -97,6 +97,7 @@ export function StereoPanel({
             </div>
           </div>
           {cip.kind === 'off' && <p className="text-xs text-muted-foreground" data-testid="cip-state">{CIP_OFF}</p>}
+          {cip.kind === 'nothing' && <p className="text-xs text-muted-foreground" data-testid="cip-state">{cip.message}</p>}
           {cip.kind === 'checking' && <p className="text-xs" data-testid="cip-state" aria-busy="true">Computing CIP labels…</p>}
           {cip.kind === 'failed' && (
             <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +142,7 @@ export function StereoPanel({
                   </div>
                   <p>{rowSentence(row)}</p>
                   {(() => {
-                    const cell = cipCell(row, cip)
+                    const cell = cipCell(row, cip, atomLabels, bondLabels)
                     return cell && (
                       <p data-testid="cip-cell">
                         <span className="font-medium">{cell.text}</span>

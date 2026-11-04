@@ -90,7 +90,7 @@ import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEdito
 import { usePreferences } from '@/hooks/use-preferences'
 import { useCipLabels } from '@/hooks/use-cip-labels'
 import { useStereoAgreement } from '@/hooks/use-stereo-agreement'
-import { cipMarks, wantsCip } from '@/editor/cip-labels'
+import { cipMarks } from '@/editor/cip-labels'
 import { agreementRings, agreementRows, viewSentence, type AgreementView } from '@/editor/stereo-agreement'
 import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
 import {
@@ -574,7 +574,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
     document,
     serviceGeneration: editor.serviceGeneration,
     dragging,
-    wanted: wantsCip(document, atomLabels, bondLabels),
+    atomLabels,
+    bondLabels,
     inspect: editor.inspectCip,
   })
   // Labels are drawn only for a reply about exactly this drawing; a stale one draws none.

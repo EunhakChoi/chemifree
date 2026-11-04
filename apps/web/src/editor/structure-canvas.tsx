@@ -7,7 +7,7 @@ import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bon
 import { AgreementRings } from '@/editor/agreement-rings'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
 import { CipLabelLayer } from '@/editor/cip-label-layer'
-import type { CipMark } from '@/editor/cip-labels'
+import { labelAt, type CipMark } from '@/editor/cip-labels'
 import type { AgreementRing, ItemRef } from '@/editor/stereo-agreement'
 import { StrokeShapes } from '@/editor/stroke-shapes'
 import {
@@ -446,11 +446,21 @@ export function StructureCanvas({
       const at = itemAt(drawing, ring.item)
       return at ? [{ ring, at }] : []
     })
-  /** The CIP labels of one placement: a label belongs to the atom or bond, so every placement that draws it shows it. */
+  /**
+   * The CIP labels of one placement: a label belongs to the atom or bond, so every placement that
+   * draws it shows it, beside the item and clear of its bonds (see `labelAt`).
+   */
   const cipAt = (drawing: Drawing) =>
     cipLabels.flatMap((label) => {
-      const at = itemAt(drawing, label.item)
-      return at ? [{ label, at }] : []
+      const anchor = itemAt(drawing, label.item)
+      if (!anchor) return []
+      const bonded = document.bonds.flatMap((bond) => {
+        if (label.item.kind === 'bond') return bond.id === label.item.id ? [bond.begin, bond.end] : []
+        if (bond.begin === label.item.id) return [bond.end]
+        return bond.end === label.item.id ? [bond.begin] : []
+      })
+      const around = bonded.filter((id) => drawing.atoms.has(id)).map((id) => position(drawing, id))
+      return [{ label, at: labelAt(label.item.kind, anchor, around) }]
     })
 
   const sceneObjects = document.scene?.objects

@@ -3778,7 +3778,8 @@ test('a check that rejects anyway does not stop the scheduler or leave an unhand
 // overlay text, the panel cell, and when the service is asked (never while both switches are off).
 // ---------------------------------------------------------------------------------------------
 const { readCipReply, readCipFailure, CIP_REASONS } = await import('../apps/web/src/lib/cip-contract.ts')
-const { cipAsk, cipCell, cipMarks, cipView, unavailableSentence, wantsCip, CIP_OFF } = await import('../apps/web/src/editor/cip-labels.ts')
+const { cipCell, cipMarks, cipView, labelAt, unavailableSentence, wantsCip, CIP_OFF } = await import('../apps/web/src/editor/cip-labels.ts')
+const { askDecision, InspectionRunner } = await import('../apps/web/src/editor/scheduled-inspection.ts')
 
 const REASON_TEXT = {
   cip_rule_4_or_5_needed: 'The ligands tie under the rules applied (see `rules`); Rules 4 and 5, not among them, might separate them.',
@@ -3865,7 +3866,7 @@ test('chem.cip golden replies: none with the stored-not-stereogenic warning, unk
   open.stereo.atoms = [open.stereo.atoms[1]]
   const unspecified = cipAtom('a2', 'unspecified', { priority: PRIORITY_A2, decided_by: '1a' })
   const notCandidate = cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })
-  const named = readCip(open, cipReplyOf(open, [notCandidate, unspecified, assignedA4()], [], { scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate')] }), 'named')
+  const named = readCipReply(cipReplyOf(open, [notCandidate, unspecified, assignedA4()], [], { scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate')] }), cipGraphOf(open), 'named', { atoms: ['a1', 'a2', 'a4'], bonds: [] })
   assert.deepEqual(named.atoms.map((item) => item.state), ['unsupported', 'unspecified', 'assigned'])
   assert.equal(named.atoms[0].reasonSentence, REASON_TEXT.cip_not_a_candidate)
 
@@ -3878,9 +3879,9 @@ test('chem.cip golden replies: none with the stored-not-stereogenic warning, unk
   // A named bond that is no double bond is listed unsupported, and bond losses follow atom losses.
   const bonded = bondDocument()
   const single = cipBond('b1', 'unsupported', { reason: 'cip_not_a_candidate' })
-  const mixed = readCip(bonded, cipReplyOf(bonded, [cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })], [single, assignedB2()], {
+  const mixed = readCipReply(cipReplyOf(bonded, [cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })], [single, assignedB2()], {
     scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate'), lossOf('bonds[b1]', 'cip_not_a_candidate')],
-  }), 'named')
+  }), cipGraphOf(bonded), 'named', { atoms: ['a1'], bonds: ['b1', 'b2'] })
   assert.deepEqual(mixed.bonds.map((item) => item.state), ['unsupported', 'assigned'])
 })
 
@@ -3935,7 +3936,9 @@ test('chem.cip reader refuses each way a reply can be made untrue, and no refusa
     'a descriptor that is not for this item': (r) => { r.result.atoms[1].descriptor = 'Z' },
     'a warning that names an unlisted center': (r) => { r.diagnostics.unshift({ code: 'cip_slot_unusual', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a1' } }) },
     'a stored-not-stereogenic warning on an assigned center': (r) => { r.diagnostics.unshift({ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }) },
-    'a diagnostic code outside the closed list': (r) => { r.diagnostics.unshift({ code: 'cip_whatever', severity: 'info', message: 'm', path: null, details: {} }) },
+    'a malformed diagnostic of an unknown code': (r) => { r.diagnostics.unshift({ code: 'cip_whatever', severity: 'info', details: {} }) },
+    'a second scope diagnostic': (r) => { r.diagnostics.unshift(structuredClone(r.diagnostics[0])) },
+    'no not-checked diagnostic': (r) => { r.diagnostics.pop() },
     'no scope diagnostic': (r) => { r.diagnostics.shift() },
     'a scope diagnostic that disagrees with the result': (r) => { r.diagnostics[0].details.scope = 'named' },
     'a diagnostic with an unknown field': (r) => { r.diagnostics[0].extra = 1 },
@@ -4043,26 +4046,26 @@ test('a CIP reply is shown only while labels are wanted, for the drawing on scre
   const value = agreementDocument()
   const { inspection } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
   const ok = { kind: 'ok', generation: 0, inspection }
-  assert.equal(cipView(value, ok, 0, false, true).kind, 'ready')
-  assert.equal(cipView(structuredClone(value), ok, 0, false, true).kind, 'ready')
-  assert.deepEqual(cipView(value, ok, 0, false, false), { kind: 'off' }, 'switching the labels off removes them at once')
-  assert.deepEqual(cipView(value, null, 0, false, false), { kind: 'off' })
-  assert.equal(cipView(value, null, 0, false, true).kind, 'checking')
+  assert.equal(cipView(value, ok, 0, false, true, true).kind, 'ready')
+  assert.equal(cipView(structuredClone(value), ok, 0, false, true, true).kind, 'ready')
+  assert.deepEqual(cipView(value, ok, 0, false, false, false), { kind: 'off' }, 'switching the labels off removes them at once')
+  assert.deepEqual(cipView(value, null, 0, false, false, false), { kind: 'off' })
+  assert.equal(cipView(value, null, 0, false, true, true).kind, 'checking')
   const moved = structuredClone(value)
   moved.scene.instances[0].positions[0].x += 1
-  assert.equal(cipView(moved, ok, 0, false, true).kind, 'checking', 'a reply for another snapshot is dropped')
-  assert.equal(cipView({ ...value, revision: value.revision + 1 }, ok, 0, false, true).kind, 'checking')
+  assert.equal(cipView(moved, ok, 0, false, true, true).kind, 'checking', 'a reply for another snapshot is dropped')
+  assert.equal(cipView({ ...value, revision: value.revision + 1 }, ok, 0, false, true, true).kind, 'checking')
   const edited = structuredClone(value)
   edited.stereo.atoms[0] = { atom: 'a2', configuration: tetra(A2, 'anticlockwise') }
-  assert.equal(cipView(edited, ok, 0, false, true).kind, 'checking', 'a stored configuration that changed makes the label stale')
-  assert.equal(cipView(value, ok, 1, false, true).kind, 'checking', 'another service process')
-  assert.equal(cipView(value, ok, 0, true, true).kind, 'ready', 'labels stay while the same drawing is asked about again')
+  assert.equal(cipView(edited, ok, 0, false, true, true).kind, 'checking', 'a stored configuration that changed makes the label stale')
+  assert.equal(cipView(value, ok, 1, false, true, true).kind, 'checking', 'another service process')
+  assert.equal(cipView(value, ok, 0, true, true, true).kind, 'ready', 'labels stay while the same drawing is asked about again')
   const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'too big' }
-  assert.deepEqual(cipView(value, failed, 0, false, true), { kind: 'failed', message: 'too big' })
-  assert.equal(cipView(moved, failed, 0, false, true).kind, 'checking', 'a failure belongs to the drawing it was asked about')
-  assert.equal(cipView(value, failed, 0, true, true).kind, 'checking', 'a retry is running')
+  assert.deepEqual(cipView(value, failed, 0, false, true, true), { kind: 'failed', message: 'too big' })
+  assert.equal(cipView(moved, failed, 0, false, true, true).kind, 'checking', 'a failure belongs to the drawing it was asked about')
+  assert.equal(cipView(value, failed, 0, true, true, true).kind, 'checking', 'a retry is running')
   assert.equal(unavailableSentence('too big'), 'CIP labels unavailable: too big')
-  assert.deepEqual(cipMarks(cipView(value, failed, 0, false, true), true, true), [], 'no label after a failure')
+  assert.deepEqual(cipMarks(cipView(value, failed, 0, false, true, true), true, true), [], 'no label after a failure')
 })
 
 test('only an assigned item gets overlay text, atoms for the atom switch and bonds for the bond switch', async () => {
@@ -4108,20 +4111,20 @@ test('the panel cell says the label with the agreement next to it, why nothing i
   const [a2, a4] = rows
   const { inspection } = await cipInspected(value, cipReplyOf(value, [assignedA2(), assignedA4()]))
   const view = { kind: 'ready', inspection }
-  assert.deepEqual(cipCell(a2, view), { text: 'CIP: S', relation: 'of the stored configuration, which disagrees with the drawing in s1 (disagrees)' }, 'the label is the stored configuration; the drawing disagrees')
-  assert.deepEqual(cipCell(a4, view), { text: 'CIP: R', relation: 'of the stored configuration, which agrees with the drawing in s1 (agrees)' })
-  assert.equal(cipCell(a2, { kind: 'off' }), null)
-  assert.equal(cipCell(a2, { kind: 'checking' }).text, 'CIP: checking…')
-  assert.equal(cipCell(a2, { kind: 'failed', message: 'x' }).text, 'CIP: unavailable')
+  assert.deepEqual(cipCell(a2, view, true, true), { text: 'CIP: S', relation: 'of the stored configuration, which disagrees with the drawing in s1 (disagrees)' }, 'the label is the stored configuration; the drawing disagrees')
+  assert.deepEqual(cipCell(a4, view, true, true), { text: 'CIP: R', relation: 'of the stored configuration, which agrees with the drawing in s1 (agrees)' })
+  assert.equal(cipCell(a2, { kind: 'off' }, true, true), null)
+  assert.equal(cipCell(a2, { kind: 'checking' }, true, true).text, 'CIP: checking…')
+  assert.equal(cipCell(a2, { kind: 'failed', message: 'x' }, true, true).text, 'CIP: unavailable')
   // Not listed by the reply: not examined, never "no label" or "none".
-  const onlyA4 = (await cipInspected(value, cipReplyOf(value, [assignedA4()]))).inspection
-  assert.deepEqual(cipCell(a2, { kind: 'ready', inspection: onlyA4 }), { text: 'CIP: not examined', relation: null })
+  const onlyA4 = { ...inspection, atoms: inspection.atoms.filter((item) => item.atom === 'a4') }
+  assert.deepEqual(cipCell(a2, { kind: 'ready', inspection: onlyA4 }, true, true), { text: 'CIP: not examined', relation: null })
 
   const open = agreementDocument()
   open.stereo.atoms = [open.stereo.atoms[0]]
   const textFor = async (item, options = {}, doc = open) => {
     const labeled = (await cipInspected(doc, cipReplyOf(doc, [item], [], options))).inspection
-    return cipCell(a2, { kind: 'ready', inspection: labeled }).text
+    return cipCell(a2, { kind: 'ready', inspection: labeled }, true, true).text
   }
   assert.equal(await textFor(cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), {
     warnings: [{ code: 'cip_stored_not_stereogenic', severity: 'warning', message: 'm', path: null, details: { item: 'atom', id: 'a2' } }],
@@ -4151,51 +4154,264 @@ test('wantsCip asks for nothing while both label switches are off, and for no mo
   assert.equal(wantsCip(scened(publicFixture(false), 's1'), true, true), false)
 })
 
-test('the page asks chem.cip only while a label switch is on: one request in flight, changes coalesced, nothing after switching off', async () => {
-  const value = agreementDocument()
-  const fixture = schedulerFixture()
-  let asked = null
-  const apply = (document, wanted, generation = 0) => {
-    const next = { document, generation, wanted }
-    const decision = cipAsk(asked, next)
-    asked = next
-    if (decision === 'stop') fixture.scheduler.stop()
-    else if (decision === 'ask') fixture.scheduler.changed()
-    return decision
+/** An `InspectionRunner` on a fake clock; each request is a promise the test settles. */
+function runnerFixture(dropOnStop, drawing = agreementDocument()) {
+  let now = 0
+  let next = 1
+  const tasks = new Map()
+  const timers = { set: (task, ms) => { tasks.set(next, { at: now + ms, task }); return next++ }, clear: (handle) => { tasks.delete(handle) } }
+  const asks = []
+  const inspect = (id) => new Promise((resolve, reject) => { asks.push({ id, resolve, reject }) })
+  const source = (document, over = {}) => ({ document, generation: 0, dragging: false, active: true, allowed: true, inspect, ...over })
+  const runner = new InspectionRunner(source(drawing), timers, dropOnStop)
+  const settled = () => new Promise((resolve) => setImmediate(resolve))
+  return {
+    runner, asks, source, drawing,
+    off: (document = drawing) => runner.update(source(document, { active: false, allowed: false })),
+    on: (document = drawing, over = {}) => runner.update(source(document, over)),
+    advance: (ms) => {
+      const end = now + ms
+      for (;;) {
+        const due = [...tasks].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!due) break
+        tasks.delete(due[0])
+        now = due[1].at
+        due[1].task()
+      }
+      now = end
+    },
+    settle: async (index, how, value) => { asks[index][how](value); await settled(); await settled() },
   }
-  const edited = (n) => ({ ...structuredClone(value), revision: value.revision + n })
-  // Both switches off (the default): edits of every kind ask nothing, however long the page waits.
-  assert.equal(apply(value, wantsCip(value, false, false)), 'stop')
-  assert.equal(apply(edited(1), wantsCip(value, false, false)), 'stop')
-  fixture.advance(10_000)
-  assert.equal(fixture.requests.length, 0, 'no request while both switches are off')
-  // Switching on asks once, after the wait.
-  assert.equal(apply(value, true), 'ask')
-  fixture.advance(299)
-  assert.equal(fixture.requests.length, 0)
-  fixture.advance(1)
-  assert.equal(fixture.requests.length, 1)
-  // A repeat of what was asked about is not asked again; a change meanwhile makes exactly one more.
-  assert.equal(apply(structuredClone(value), true), 'keep')
-  assert.equal(apply(edited(1), true), 'ask')
-  assert.equal(apply(edited(2), true), 'ask')
-  fixture.advance(1000)
-  assert.equal(fixture.requests.length, 1, 'one in flight')
-  await fixture.finish()
-  fixture.advance(300)
-  assert.equal(fixture.requests.length, 1, 'one more for the changes made meanwhile')
-  await fixture.finish()
+}
+const edited = (value, n) => ({ ...structuredClone(value), revision: value.revision + n })
+
+test('the page asks chem.cip only while labels are wanted: one request in flight, changes coalesced, nothing after switching off', async () => {
+  const f = runnerFixture(true)
+  f.runner.attach()
+  const { drawing } = f
+  // Not wanted (the default): edits of every kind ask nothing, however long the page waits.
+  f.off(drawing)
+  f.off(edited(drawing, 1))
+  f.advance(10_000)
+  assert.equal(f.asks.length, 0, 'no request while labels are not wanted')
+  f.on(drawing)
+  f.advance(299)
+  assert.equal(f.asks.length, 0)
+  f.advance(1)
+  assert.equal(f.asks.length, 1)
+  f.on(structuredClone(drawing))
+  f.on(edited(drawing, 1))
+  f.on(edited(drawing, 2))
+  f.advance(1000)
+  assert.equal(f.asks.length, 1, 'one in flight')
+  await f.settle(0, 'resolve', {})
+  f.advance(300)
+  assert.equal(f.asks.length, 2, 'one more for the changes made meanwhile')
+  await f.settle(1, 'resolve', {})
   // Switching off before the wait ends cancels the request that had not started.
-  assert.equal(apply(edited(3), true), 'ask')
-  fixture.advance(100)
-  assert.equal(apply(edited(3), false), 'stop')
-  fixture.advance(10_000)
-  assert.equal(fixture.requests.length, 0, 'switched off, the waiting request is dropped')
-  // Switching on again asks again, even for the drawing already asked about (it was not kept while off).
-  assert.equal(apply(edited(3), true), 'ask')
-  fixture.advance(300)
-  assert.equal(fixture.requests.length, 1)
+  f.on(edited(drawing, 3))
+  f.advance(100)
+  f.off(edited(drawing, 3))
+  f.advance(10_000)
+  assert.equal(f.asks.length, 2, 'switched off, the waiting request is dropped')
+  // Switching on again asks again, even for the drawing already asked about.
+  f.on(edited(drawing, 3))
+  f.advance(300)
+  assert.equal(f.asks.length, 3)
+  await f.settle(2, 'resolve', {})
   // Another service process asks again.
-  await fixture.finish()
-  assert.equal(apply(edited(3), true, 1), 'ask')
+  f.on(edited(drawing, 3), { generation: 1 })
+  f.advance(300)
+  assert.equal(f.asks.length, 4)
+  // A drag holds the request until it ends.
+  await f.settle(3, 'resolve', {})
+  f.on(edited(drawing, 4), { dragging: true })
+  f.advance(1000)
+  assert.equal(f.asks.length, 4)
+  f.on(edited(drawing, 4), { dragging: false })
+  f.advance(300)
+  assert.equal(f.asks.length, 5)
+  f.runner.detach()
+})
+
+test('askDecision stops without asking, keeps a repeat and asks for anything else', () => {
+  const value = agreementDocument()
+  const asked = { document: value, generation: 0, active: true }
+  assert.equal(askDecision(null, { ...asked, active: false }), 'stop')
+  assert.equal(askDecision(asked, { ...asked, document: structuredClone(value) }), 'keep')
+  assert.equal(askDecision(asked, { ...asked, document: edited(value, 1) }), 'ask')
+  assert.equal(askDecision({ ...asked, active: false }, asked), 'ask')
+  assert.equal(askDecision(asked, { ...asked, generation: 1 }), 'ask')
+})
+
+test('turning labels off and on again shows neither an earlier failure nor an answer that arrives after switch-off', async () => {
+  const f = runnerFixture(true)
+  f.runner.attach()
+  f.on()
+  f.advance(300)
+  await f.settle(0, 'reject', new Error('too big'))
+  assert.equal(f.runner.getState().outcome.kind, 'failed')
+  f.off()
+  assert.equal(f.runner.getState().outcome, null, 'switching off clears what was shown')
+  f.on()
+  assert.equal(f.runner.getState().outcome, null, 'switched on again, the earlier failure is not shown while the debounce runs')
+  f.advance(300)
+  assert.equal(f.asks.length, 2)
+  // A request in flight when the switch goes off neither reports nor leaves the page busy.
+  f.off()
+  assert.equal(f.runner.getState().running, false)
+  await f.settle(1, 'resolve', { fresh: true })
+  assert.equal(f.runner.getState().outcome, null, 'an answer nobody wants any more is discarded')
+  assert.equal(f.runner.getState().running, false)
+  // The agreement check keeps its outcome when it stops: its manual check is still there.
+  const keeping = runnerFixture(false)
+  keeping.runner.attach()
+  keeping.on()
+  keeping.advance(300)
+  await keeping.settle(0, 'reject', new Error('boom'))
+  keeping.off()
+  assert.equal(keeping.runner.getState().outcome.kind, 'failed')
+  f.runner.detach()
+  keeping.runner.detach()
+})
+
+test('a remount retires a request in flight, leaves nothing running and asks again', async () => {
+  for (const dropOnStop of [true, false]) {
+    const f = runnerFixture(dropOnStop)
+    f.runner.attach()
+    f.on()
+    f.advance(300)
+    assert.equal(f.runner.getState().running, true)
+    f.runner.detach()
+    assert.equal(f.runner.getState().running, false, 'the request in flight at cleanup does not leave the runner busy')
+    f.runner.attach()
+    f.on()
+    f.advance(300)
+    assert.equal(f.asks.length, 2, 'the remounted runner asks again')
+    await f.settle(0, 'resolve', { old: true })
+    assert.equal(f.runner.getState().outcome, null, 'the answer of the retired request is not used')
+    assert.equal(f.runner.getState().running, true, 'and does not clear the busy state of the request that is running')
+    await f.settle(1, 'resolve', { fresh: true })
+    assert.deepEqual(f.runner.getState().outcome.inspection, { fresh: true })
+    f.runner.detach()
+  }
+})
+
+test('a label is placed in the widest gap between the bonds of its atom and beside the middle of its double bond', () => {
+  const distanceToSegment = (p, a, b) => {
+    const [dx, dy] = [b.x - a.x, b.y - a.y]
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)))
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+  }
+  const center = { x: 0, y: 0 }
+  const around = [{ x: 0, y: 40 }, { x: -35, y: -18 }, { x: 35, y: -18 }]
+  // The old fixed offset (12, -12) ran along the bond to the upper right in the smoke drawing.
+  assert.ok(Math.min(...around.map((p) => distanceToSegment({ x: 12, y: -12 }, center, p))) < 6)
+  const at = labelAt('atom', center, around)
+  for (const p of around) assert.ok(distanceToSegment(at, center, p) > 12, `clear of the bond to ${p.x},${p.y}`)
+  assert.ok(at.y < 0 && Math.abs(at.x) < 1, 'in the gap above the center, between the two upper bonds')
+  // A terminal atom puts it opposite its one bond; an atom with no bond uses the fixed offset.
+  const opposite = labelAt('atom', center, [{ x: 30, y: 0 }])
+  assert.ok(opposite.x < 0 && Math.abs(opposite.y) < 1e-9)
+  assert.deepEqual(labelAt('atom', center, []), { x: 12, y: -12 })
+  // A double bond: beside the middle on the upper side, whichever way the bond runs.
+  const mid = { x: 100, y: 100 }
+  const above = labelAt('bond', mid, [{ x: 80, y: 100 }, { x: 120, y: 100 }])
+  assert.ok(above.y < 100 && Math.abs(above.x - 100) < 1e-9)
+  const reversed = labelAt('bond', mid, [{ x: 120, y: 100 }, { x: 80, y: 100 }])
+  assert.deepEqual(reversed, above, 'the side does not depend on the direction the bond is written')
+  const slanted = labelAt('bond', mid, [{ x: 80, y: 120 }, { x: 120, y: 80 }])
+  assert.ok(distanceToSegment(slanted, { x: 80, y: 120 }, { x: 120, y: 80 }) > 10)
+  assert.ok(slanted.y < 100)
+})
+
+test('the reader requires the reply to list exactly what the scope lists, and keeps a diagnostic code it does not know', async () => {
+  const value = agreementDocument()
+  const both = () => [assignedA2(), assignedA4()]
+  const bonded = bondDocument()
+  const stored = (v, atoms, bonds = [], options = {}, named = { atoms: [], bonds: [] }) => readCipReply(cipReplyOf(v, atoms, bonds, options), cipGraphOf(v), options.scope ?? 'stored', named)
+  assert.notEqual(stored(value, both()), null)
+  assert.equal(stored(value, [assignedA4()]), null, 'a stored center left out of a stored-scope reply')
+  assert.equal(stored(value, []), null, 'an empty reply for stored configurations')
+  assert.equal(stored(bonded, []), null, 'a stored double bond left out')
+  assert.notEqual(stored(bonded, [], [assignedB2()]), null)
+  // Naming adds to the stored scope; a named scope lists exactly the named items.
+  const notCandidate = cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })
+  const loss = [lossOf('atoms[a1]', 'cip_not_a_candidate')]
+  assert.notEqual(stored(value, [notCandidate, ...both()], [], { losses: loss }, { atoms: ['a1'], bonds: [] }), null)
+  assert.equal(stored(value, both(), [], {}, { atoms: ['a1'], bonds: [] }), null, 'a named item that is not listed')
+  const named = (atoms, extra) => stored(value, atoms, [], { scope: 'named', losses: extra }, { atoms: ['a1'], bonds: [] })
+  assert.notEqual(named([notCandidate], loss), null)
+  assert.equal(named([notCandidate, assignedA2()], loss), null, 'a named scope lists nothing but the named items')
+  assert.equal(named([], []), null)
+  // The scan may list more than was stored or named.
+  const open = agreementDocument()
+  open.stereo.atoms = [open.stereo.atoms[0]]
+  assert.notEqual(stored(open, [assignedA2(), cipAtom('a4', 'unspecified', { priority: PRIORITY_A4, decided_by: '1a' })], [], { scope: 'stereogenic' }), null)
+  assert.equal(stored(open, [cipAtom('a4', 'unspecified', { priority: PRIORITY_A4, decided_by: '1a' })], [], { scope: 'stereogenic' }), null, 'the scan still lists what is stored')
+  // Warnings come in the order the service produces them: centers ascending, then bonds ascending.
+  const warn = (item, id, code = 'cip_stored_not_stereogenic') => ({ code, severity: 'warning', message: 'm', path: null, details: { item, id } })
+  const nones = [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') }), cipAtom('a4', 'none', { stored: tetra(A4, 'anticlockwise') })]
+  assert.notEqual(stored(value, nones, [], { warnings: [warn('atom', 'a2'), warn('atom', 'a4')] }), null)
+  assert.equal(stored(value, nones, [], { warnings: [warn('atom', 'a4'), warn('atom', 'a2')] }), null, 'centers out of order')
+  assert.notEqual(stored(value, [cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise'), priority: null }), assignedA4()], [], { warnings: [warn('atom', 'a2'), warn('atom', 'a2', 'cip_slot_unusual')] }), null, 'one item may have both warnings')
+  const noneBond = cipBond('b2', 'none', { stored: bonded.stereo.bonds[0].configuration })
+  const noneAtom = cipAtom('a2', 'none', { stored: tetra(A2, 'clockwise') })
+  const mixed = structuredClone(bonded)
+  mixed.stereo.atoms = [{ atom: 'a2', configuration: tetra(A2, 'clockwise') }]
+  assert.equal(stored(mixed, [noneAtom], [noneBond], { warnings: [warn('bond', 'b2'), warn('atom', 'a2')] }), null, 'a bond warning before a center warning')
+  assert.notEqual(stored(mixed, [noneAtom], [noneBond], { warnings: [warn('atom', 'a2'), warn('bond', 'b2')] }), null)
+  // A diagnostic code added within contract 1 is shown, never relied on; a malformed one is refused.
+  const extra = { code: 'cip_some_future_advice', severity: 'info', message: 'Something new.', path: null, details: { anything: 1 } }
+  const withExtra = readCip(value, cipReplyOf(value, both(), [], { diagnostics: [extra, ...cipDiagnostics(), { ...extra, code: 'cip_another' }] }))
+  assert.notEqual(withExtra, null)
+  assert.deepEqual(withExtra.diagnostics.map((item) => item.code), ['cip_some_future_advice', 'cip_scope', 'cip_not_checked', 'cip_another'])
+  assert.equal(readCip(value, cipReplyOf(value, both(), [], { diagnostics: [{ code: 'cip_x', message: 'no severity' }, ...cipDiagnostics()] })), null)
+  assert.equal(readCip(value, cipReplyOf(value, both(), [], { diagnostics: [{ ...extra, extra: 1 }, ...cipDiagnostics()] })), null)
+})
+
+test('inspectCip sends the scope it expects, and an error the service words itself shows that wording', async () => {
+  const value = agreementDocument()
+  const named = cipReplyOf(value, [cipAtom('a1', 'unsupported', { reason: 'cip_not_a_candidate' })], [], { scope: 'named', losses: [lossOf('atoms[a1]', 'cip_not_a_candidate')] })
+  const scripted = service({ '/api/v1/operations': [() => json(200, named)] })
+  await new DocumentClient().inspectCip(value.id, { atoms: ['a1'] })
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [{ document_id: value.id, atoms: ['a1'], scope: 'named' }], 'a named request says so')
+  const bare = service({ '/api/v1/operations': [() => json(200, cipReplyOf(value, [assignedA2(), assignedA4()]))] })
+  await new DocumentClient().inspectCip(value.id)
+  assert.deepEqual(bare.writes.map((write) => write.parameters), [{ document_id: value.id, scope: 'stored' }])
+  // The replies the service really sends for a request it cannot read (driven through the CLI): the model is named and the message is its own.
+  for (const [code, message, path, details] of [
+    ['invalid_request', 'Invalid parameters: unknown field `nope`, expected one of `document_id`, `scope`, `atoms`, `bonds`', 'parameters', {}],
+    ['invalid_request', 'scope must be "stored", "stereogenic" or "named".', 'parameters.scope', { value: 'bad' }],
+    ['document_not_found', 'document nope does not exist', null, {}],
+  ]) {
+    const reply = { envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-cip-1', document_revision: null, result: null, loss_report: [], diagnostics: [{ code, severity: 'error', message, path, details }] }
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectCip('nope'), { code: 'cip_unavailable', message })
+  }
+})
+
+test('the view says what is missing when a switch is on and nothing of its kind is stored, and the cell follows its own switch', async () => {
+  const atomsOnly = agreementDocument()
+  const bondsOnly = bondDocument()
+  assert.deepEqual(cipView(atomsOnly, null, 0, false, false, false), { kind: 'off' })
+  assert.deepEqual(cipView(bondsOnly, null, 0, false, true, false), { kind: 'nothing', message: 'No stored atom configurations to label.' })
+  assert.deepEqual(cipView(atomsOnly, null, 0, false, false, true), { kind: 'nothing', message: 'No stored bond configurations to label.' })
+  assert.deepEqual(cipView(scened(publicFixture(true), 's1'), null, 0, false, true, true), { kind: 'nothing', message: 'No stored atom or bond configurations to label.' })
+  assert.equal(cipView(bondsOnly, null, 0, false, true, true).kind, 'checking', 'one covered kind is enough to ask')
+  assert.notEqual(cipView(bondsOnly, null, 0, false, true, false).message, CIP_OFF, 'a switch that is on is never told to switch on')
+  const reading = await inspected(atomsOnly, replyOf(atomsOnly, resultOf(atomsOnly, publicItems())))
+  const [a2] = agreementRows(reading)
+  const { inspection } = await cipInspected(atomsOnly, cipReplyOf(atomsOnly, [assignedA2(), assignedA4()]))
+  const ready = { kind: 'ready', inspection }
+  assert.equal(cipCell(a2, ready, true, false).text, `CIP: S`)
+  assert.equal(cipCell(a2, ready, false, true), null, 'an atom row shows its label under the atom switch only')
+  const bondRow = { ...a2, key: 'bond:b2:s1', item: { kind: 'bond', id: 'b2' } }
+  assert.equal(cipCell(bondRow, ready, true, false), null, 'a bond row shows its label under the bond switch only')
+  assert.equal(cipCell(bondRow, ready, false, true).text, 'CIP: not examined')
+  assert.equal(cipCell(a2, { kind: 'nothing', message: 'x' }, true, true), null)
+  // A row with nothing stored has no stored configuration to label: no cell, not "not examined".
+  const drawnOnly = { ...a2, key: 'atom:a9:s1', item: { kind: 'atom', id: 'a9' }, agreement: 'only_drawn', stored: null }
+  for (const view of [ready, { kind: 'checking' }, { kind: 'failed', message: 'x' }]) assert.equal(cipCell(drawnOnly, view, true, true), null)
+  assert.equal(cipCell({ ...drawnOnly, agreement: 'neither' }, ready, true, true), null)
 })

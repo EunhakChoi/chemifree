@@ -2075,10 +2075,11 @@ export class DocumentClient {
    * that is neither is `incompatible_response`. The labels are read-only: nothing is stored.
    */
   async inspectCip(id: string, params: CipParameters = {}): Promise<CipInspection> {
+    // The scope the reply must say is sent explicitly, so what is expected never depends on a default.
     const scope: CipScope = params.scope ?? (params.atoms !== undefined || params.bonds !== undefined ? 'named' : 'stored')
     const value = await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics',
-      operation: 'chem.cip', parameters: { document_id: id, ...params },
+      operation: 'chem.cip', parameters: { document_id: id, ...params, scope },
     }, 'reload')
     const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible CIP reply.', 200)
     if (!isRecord(value)) throw incompatible()
@@ -2093,7 +2094,7 @@ export class DocumentClient {
     if (!isRecord(value.result) || !isRecord(value.result.snapshot)) throw incompatible()
     const snapshot = DocumentClient.document({ api_version: API_VERSION, ...value.result.snapshot }).document
     const body = snapshot.id === id && snapshot.revision === value.document_revision
-      ? readCipReply(value, { atoms: snapshot.atoms, bonds: snapshot.bonds, stereo: stereoOf(snapshot) }, scope)
+      ? readCipReply(value, { atoms: snapshot.atoms, bonds: snapshot.bonds, stereo: stereoOf(snapshot) }, scope, { atoms: params.atoms ?? [], bonds: params.bonds ?? [] })
       : null
     if (body === null) throw incompatible()
     return { ...body, snapshot }

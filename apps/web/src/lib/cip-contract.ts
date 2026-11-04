@@ -13,6 +13,7 @@
  */
 import {
   ascending,
+  serial,
   bondedAtoms,
   IMPLICIT_HYDROGEN,
   LONE_PAIR,
@@ -113,6 +114,12 @@ export interface CipBody {
   diagnostics: CipDiagnostic[]
 }
 
+/** The identifiers a request named (`atoms` and `bonds`); a named item is always listed, whatever the scope. */
+export interface CipNamed {
+  atoms: readonly string[]
+  bonds: readonly string[]
+}
+
 /** The snapshot graph a `chem.cip` reply is about. */
 export interface CipGraph {
   atoms: ReadonlyArray<{ id: string }>
@@ -207,31 +214,41 @@ interface Findings {
 const ITEM_KEYS = ['item', 'id']
 
 /**
- * The diagnostics of a successful reply: a closed list in the service's order. Warnings come
- * first (centers, then bonds, each ascending), then `cip_scope` and `cip_not_checked` last.
- * Each warning names a listed item, and a stored configuration on a unit found `none` is
- * warned about exactly once.
+ * The diagnostics of a successful reply. The codes this reader knows are checked: warnings
+ * (`cip_stored_not_stereogenic`, `cip_slot_unusual`) name a listed item and come in the order
+ * the service produces them (centers, then bonds, each ascending; one item may have both), and
+ * `cip_scope` and `cip_not_checked` each appear once. A stored configuration on a unit found
+ * `none` is warned about exactly once. A code this reader does not know is kept when it is a
+ * well-formed diagnostic and refused when it is not: docs/CONTRACT.md allows new diagnostic codes
+ * within contract 1 ("clients ... treat an unknown diagnostic code by its outcome"), and the
+ * outcome of the reply is checked separately.
  */
 function readDiagnostics(value: unknown, atoms: readonly CipAtom[], bonds: readonly CipBond[]): { list: CipDiagnostic[]; findings: Findings } | null {
-  if (!Array.isArray(value) || value.length < 2) return null
+  if (!Array.isArray(value)) return null
   const list: CipDiagnostic[] = []
   const findings: Findings = { notStereogenic: new Set(), slotUnusual: new Set(), scope: '' }
-  const items = (value as unknown[]).length
-  for (const [index, item] of (value as unknown[]).entries()) {
+  let scoped = false
+  let checked = false
+  let last = -1
+  for (const item of value as unknown[]) {
     if (!isRecord(item) || !hasOnly(item, ['code', 'severity', 'message', 'path', 'details']) ||
         typeof item.code !== 'string' || typeof item.message !== 'string' ||
-        (item.severity !== 'info' && item.severity !== 'warning') ||
-        !(item.path === undefined || item.path === null) || !isRecord(item.details)) {
+        (item.severity !== 'info' && item.severity !== 'warning' && item.severity !== 'error') ||
+        !(item.path === undefined || item.path === null || typeof item.path === 'string') ||
+        !(item.details === undefined || isRecord(item.details))) {
       return null
     }
-    const details = item.details
-    const last = index >= items - 2
+    const details = item.details ?? {}
     switch (item.code) {
       case 'cip_stored_not_stereogenic':
       case 'cip_slot_unusual': {
-        if (last || item.severity !== 'warning' || !hasOnly(details, ITEM_KEYS) || !hasAll(details, ITEM_KEYS) || typeof details.id !== 'string') return null
+        if (item.severity !== 'warning' || !hasOnly(details, ITEM_KEYS) || !hasAll(details, ITEM_KEYS) || typeof details.id !== 'string') return null
         const listed = details.item === 'atom' ? atoms.some((atom) => atom.atom === details.id) : details.item === 'bond' && bonds.some((bond) => bond.bond === details.id)
         if (!listed) return null
+        // The order the service produces: centers by ascending identifier, then bonds.
+        const position = (details.item === 'bond' ? 1_000_000_000 : 0) + serial(details.id)
+        if (!Number.isFinite(position) || position < last) return null
+        last = position
         const key = `${details.item as string}:${details.id}`
         const into = item.code === 'cip_slot_unusual' ? findings.slotUnusual : findings.notStereogenic
         if (into.has(key) || (item.code === 'cip_slot_unusual' && details.item !== 'atom')) return null
@@ -239,18 +256,24 @@ function readDiagnostics(value: unknown, atoms: readonly CipAtom[], bonds: reado
         break
       }
       case 'cip_scope':
-        if (index !== items - 2 || item.severity !== 'info' || !hasOnly(details, ['scope']) || typeof details.scope !== 'string') return null
+        if (scoped || item.severity !== 'info' || !hasOnly(details, ['scope']) || typeof details.scope !== 'string') return null
+        scoped = true
         findings.scope = details.scope
         break
       case 'cip_not_checked':
-        if (index !== items - 1 || item.severity !== 'info' || Object.keys(details).length !== 0) return null
+        if (checked || item.severity !== 'info' || Object.keys(details).length !== 0) return null
+        checked = true
         break
-      default:
+      case 'cip_labeler_invalid':
+        // Said only of an error reply (outcome `error`, no result), never beside labels.
         return null
+      default:
+        // An advisory code added within contract 1: shown, never relied on.
+        break
     }
     list.push({ code: item.code, severity: item.severity, message: item.message })
   }
-  return { list, findings }
+  return scoped && checked ? { list, findings } : null
 }
 
 /** The sentence after `code: ` of a loss entry, or null when the entry is not that. */
@@ -271,7 +294,12 @@ function sentenceOf(reason: unknown, code: string): string | null {
  * and then each such item has one loss entry, and the diagnostics are the closed list. Any other
  * reply is refused whole.
  */
-export function readCipReply(reply: Record<string, unknown>, graph: CipGraph, scope: CipScope): CipBody | null {
+export function readCipReply(
+  reply: Record<string, unknown>,
+  graph: CipGraph,
+  scope: CipScope,
+  named: CipNamed = { atoms: [], bonds: [] },
+): CipBody | null {
   const result = reply.result
   if (!isRecord(result) || !hasOnly(result, ['snapshot', 'model', 'rules', 'scope', 'atoms', 'bonds']) ||
       !hasAll(result, ['snapshot', 'model', 'rules', 'scope', 'atoms', 'bonds']) ||
@@ -349,6 +377,19 @@ export function readCipReply(reply: Record<string, unknown>, graph: CipGraph, sc
     })
   }
   if (!ascending(atoms.map((item) => item.atom)) || !ascending(bonds.map((item) => item.bond))) return null
+  // Which items are listed is decided by the scope: `stored` lists every stored record and the named items,
+  // `named` exactly the named items, and `stereogenic` those and more (what the scan finds). A dropped item
+  // would show "not examined" for a configuration that was asked about, so a shortfall is refused.
+  const expectedAtoms = new Set([...(scope === 'named' ? [] : graph.stereo.atoms.map((record) => record.atom)), ...named.atoms])
+  const expectedBonds = new Set([...(scope === 'named' ? [] : graph.stereo.bonds.map((record) => record.bond)), ...named.bonds])
+  const listedAtoms = new Set(atoms.map((item) => item.atom))
+  const listedBonds = new Set(bonds.map((item) => item.bond))
+  const covers = (listed: ReadonlySet<string>, expected: ReadonlySet<string>) => [...expected].every((id) => listed.has(id))
+  const exact = scope !== 'stereogenic'
+  if (!covers(listedAtoms, expectedAtoms) || !covers(listedBonds, expectedBonds) ||
+      (exact && (listedAtoms.size !== expectedAtoms.size || listedBonds.size !== expectedBonds.size))) {
+    return null
+  }
 
   const found = readDiagnostics(reply.diagnostics, atoms, bonds)
   if (found === null || found.findings.scope !== result.scope) return null
