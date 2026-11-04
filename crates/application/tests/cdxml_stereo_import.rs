@@ -266,6 +266,18 @@ fn the_shared_corpus_drawn_as_cdxml_imports_the_hand_stated_configurations() {
                 reported, marked,
                 "{name}: a refused center is reported exactly when it is marked ({refused})"
             );
+            if marked {
+                // The loss names the source node, not a position among created atoms.
+                let entry = loss(&created, "stereo_unreadable");
+                assert_eq!(
+                    entry["source_path"],
+                    format!(
+                        "root.children[0].children[0].children[{}]",
+                        refused["atom"].as_u64().unwrap()
+                    ),
+                    "{name}"
+                );
+            }
         }
         assert!(
             created["result"]["document"]["stereo"]["bonds"]
@@ -512,6 +524,13 @@ fn geometry_bond_ordering_and_the_cip_label_are_noted_and_never_stored() {
         );
     }
     assert!(!features(&without).contains(&"cip_label_not_stored".to_owned()));
+    // Read properties are accounted by their own entries, not also as unprojected.
+    for reply in [&with, &without] {
+        assert!(
+            !features(reply).contains(&"unprojected_property".to_owned()),
+            "{reply}"
+        );
+    }
 }
 
 #[test]
