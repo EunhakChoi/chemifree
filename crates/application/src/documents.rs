@@ -8,13 +8,14 @@ use std::{panic, thread};
 
 use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{
-    Applied, Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS, MAX_TITLE_CHARS,
-    Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
+    Applied, AtomId, Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS,
+    MAX_TITLE_CHARS, Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
 };
 use chemifree_domain::scene::TransactionSelection;
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::stereo_drawing::DeriveError;
+use chemifree_domain::stereo_group::{GroupNote, LeaveCause};
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -2506,6 +2507,127 @@ fn cleared_stereo_notes(document: &Document, cleared: &[StereoKey]) -> Vec<Loss>
         .collect()
 }
 
+/// One loss entry for each change of meaning a transaction made to a stereo group that existed
+/// before it, in the order they happened. The features are `stereo_group_member` (a member left
+/// because it stopped being a stored tetrahedral center), `stereo_group` (a group disappeared)
+/// and `stereo_group_relation` (the statement about which centers belong together changed). A
+/// change of a group's number or kind alone is not reported: the client stated it.
+fn group_notes(document: &Document, notes: &[GroupNote]) -> Vec<Loss> {
+    let atoms = |atoms: &[AtomId]| {
+        atoms
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let note =
+        |feature: &str, source_path: String, disposition: LossDisposition, reason: String| Loss {
+            consent: LossConsent::NotRequired,
+            feature: feature.into(),
+            source_path,
+            disposition,
+            reason,
+            semantic_impact: SemanticImpact::Stereo,
+        };
+    notes
+        .iter()
+        .map(|change| match change {
+            GroupNote::MemberLeft {
+                group,
+                atom,
+                cause,
+                relation_lost,
+            } => {
+                let why = match cause {
+                    LeaveCause::ConfigurationUnknown => "its stereo configuration is now unknown",
+                    LeaveCause::ConfigurationCleared
+                        if document
+                            .position(document.first_instance(), *atom)
+                            .is_none() =>
+                    {
+                        "the atom was deleted"
+                    }
+                    LeaveCause::ConfigurationCleared => "its stereo configuration was cleared",
+                };
+                let relation = if *relation_lost {
+                    " The relation between it and the other members of the group, which were \
+                     stated to belong together, is no longer stated."
+                } else {
+                    ""
+                };
+                note(
+                    "stereo_group_member",
+                    format!("atoms[{atom}]"),
+                    LossDisposition::Dropped,
+                    format!(
+                        "Atom {atom} left stereo group {group} because {why}.{relation} Undoing \
+                         this edit, while it is still in the history, brings it back."
+                    ),
+                )
+            }
+            GroupNote::GroupRemoved { group } => note(
+                "stereo_group",
+                format!("groups[{group}]"),
+                LossDisposition::Dropped,
+                format!(
+                    "Stereo group {group} was removed because it has no members left. Undoing \
+                     this edit, while it is still in the history, brings it back."
+                ),
+            ),
+            GroupNote::MembersRemoved {
+                group,
+                atoms: removed,
+            } => note(
+                "stereo_group_relation",
+                format!("groups[{group}]"),
+                LossDisposition::Dropped,
+                format!(
+                    "Atoms {} were removed from stereo group {group}: the relation between them \
+                     and the remaining members, which were stated to belong together, is no \
+                     longer stated.",
+                    atoms(removed)
+                ),
+            ),
+            GroupNote::Split {
+                group,
+                new_group,
+                moved,
+                kept,
+            } => note(
+                "stereo_group_relation",
+                format!("groups[{group}]"),
+                LossDisposition::Dropped,
+                format!(
+                    "Stereo group {group} was split, moving atoms {} into group {new_group}: \
+                     the relation between them and atoms {}, which were stated to belong \
+                     together, is no longer stated.",
+                    atoms(moved),
+                    atoms(kept)
+                ),
+            ),
+            GroupNote::Merged {
+                into,
+                from,
+                from_number,
+                ..
+            } => {
+                let number = from_number.map_or_else(String::new, |number| {
+                    format!(" The number {number} of group {from} is not kept.")
+                });
+                note(
+                    "stereo_group_relation",
+                    format!("groups[{into}]"),
+                    LossDisposition::Normalized,
+                    format!(
+                        "Stereo group {from} was merged into group {into}: all members now \
+                         belong together, a relation that was not stated before.{number}"
+                    ),
+                )
+            }
+        })
+        .collect()
+}
+
 /// The notes of an applied edit, or its refusal: what a transaction, a settings change and an
 /// import all answer, so that no path can clear a stated record and still be `ok`.
 fn edit_notes(
@@ -2513,7 +2635,11 @@ fn edit_notes(
     result: Result<Applied, TransactionError>,
 ) -> Result<Vec<Loss>, ApplicationError> {
     result
-        .map(|applied| cleared_stereo_notes(document, &applied.cleared))
+        .map(|applied| {
+            let mut notes = cleared_stereo_notes(document, &applied.cleared);
+            notes.extend(group_notes(document, &applied.group_notes));
+            notes
+        })
         .map_err(rejected_edit)
 }
 
@@ -2682,7 +2808,7 @@ fn refused(refusal: Refusal) -> ApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chemifree_domain::document::{AtomId, BondId, Point};
+    use chemifree_domain::document::{BondId, GroupId, Point};
     use chemifree_domain::states::StateError;
     use chemifree_domain::stereo::StereoError;
 
@@ -2709,6 +2835,7 @@ mod tests {
         Ok(Applied {
             outcome: Outcome::Changed,
             cleared,
+            group_notes: Vec::new(),
         })
     }
 
@@ -2743,6 +2870,103 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn group_changes_of_meaning_are_notes_after_the_cleared_records() {
+        let document = drawing();
+        let (a1, a2) = (
+            AtomId::from_serial(1).unwrap(),
+            AtomId::from_serial(2).unwrap(),
+        );
+        let (e1, e2) = (
+            GroupId::from_serial(1).unwrap(),
+            GroupId::from_serial(2).unwrap(),
+        );
+        let applied = Applied {
+            outcome: Outcome::Changed,
+            cleared: vec![StereoKey::Center(a1)],
+            group_notes: vec![
+                GroupNote::MemberLeft {
+                    group: e1,
+                    atom: a1,
+                    cause: LeaveCause::ConfigurationUnknown,
+                    relation_lost: true,
+                },
+                GroupNote::GroupRemoved { group: e2 },
+                GroupNote::MembersRemoved {
+                    group: e1,
+                    atoms: vec![a1, a2],
+                },
+                GroupNote::Split {
+                    group: e1,
+                    new_group: e2,
+                    moved: vec![a2],
+                    kept: vec![a1],
+                },
+                GroupNote::Merged {
+                    into: e1,
+                    from: e2,
+                    into_number: Some(1),
+                    from_number: Some(2),
+                },
+            ],
+        };
+        let notes = edit_notes(&document, Ok(applied)).unwrap();
+        let summary: Vec<(&str, &str, LossDisposition)> = notes
+            .iter()
+            .map(|n| (n.feature.as_str(), n.source_path.as_str(), n.disposition))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "stereo_configuration",
+                    "atoms[a1]",
+                    LossDisposition::Dropped
+                ),
+                ("stereo_group_member", "atoms[a1]", LossDisposition::Dropped),
+                ("stereo_group", "groups[e2]", LossDisposition::Dropped),
+                (
+                    "stereo_group_relation",
+                    "groups[e1]",
+                    LossDisposition::Dropped
+                ),
+                (
+                    "stereo_group_relation",
+                    "groups[e1]",
+                    LossDisposition::Dropped
+                ),
+                (
+                    "stereo_group_relation",
+                    "groups[e1]",
+                    LossDisposition::Normalized
+                ),
+            ]
+        );
+        assert!(
+            notes
+                .iter()
+                .all(|n| n.semantic_impact == SemanticImpact::Stereo
+                    && n.consent == LossConsent::NotRequired)
+        );
+        assert!(
+            notes[1].reason.contains("now unknown"),
+            "{}",
+            notes[1].reason
+        );
+        assert!(
+            notes[1].reason.contains("no longer stated"),
+            "{}",
+            notes[1].reason
+        );
+        assert!(
+            notes[5].reason.contains("number 2 of group e2 is not kept"),
+            "{}",
+            notes[5].reason
+        );
+        let text: String = notes.iter().map(|n| n.reason.as_str()).collect();
+        assert!(!text.contains("1:1") && !text.contains(" ratio"), "{text}");
     }
 
     #[test]

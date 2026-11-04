@@ -33,6 +33,9 @@ use crate::stereo::{
     read_legacy_reference, relative_double_bond,
 };
 use crate::stereo_drawing::{DeriveError, Drawing};
+use crate::stereo_group::{
+    GroupKind, GroupNote, StereoGroup, StereoGroupError, StereoGroupTable, report_existing,
+};
 
 pub const MAX_ATOMS: usize = 2_000;
 pub const MAX_BONDS: usize = 4_000;
@@ -133,6 +136,11 @@ serial_id!(
     /// A scene object of any kind: a molecule scene instance, a group, or a graphic.
     ObjectId,
     "s"
+);
+serial_id!(
+    /// An enhanced-stereo group (see [`crate::stereo_group`]).
+    GroupId,
+    "e"
 );
 
 /// A finite scene position in points, within ±[`MAX_COORDINATE`].
@@ -308,6 +316,15 @@ impl Bond {
 pub enum AtomRef {
     Id(AtomId),
     /// The atom added by the `AddAtom` command at this index in the transaction.
+    Created(usize),
+}
+
+/// A stereo group named in a command: an existing group, or one created earlier in the same
+/// transaction by a `CreateStereoGroup` or `SplitStereoGroup` command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupRef {
+    Id(GroupId),
+    /// The group created by the command at this index in the transaction.
     Created(usize),
 }
 
@@ -489,6 +506,51 @@ pub enum Command {
         bonds: Option<Vec<BondRef>>,
         instance: Option<ObjectId>,
     },
+    /// Creates an enhanced-stereo group (see [`crate::stereo_group`]) of stored tetrahedral
+    /// centers that are in no group. `number` is stored as stated (`0` and negatives too); an
+    /// absolute group takes none.
+    CreateStereoGroup {
+        kind: GroupKind,
+        number: Option<i32>,
+        atoms: Vec<AtomRef>,
+    },
+    /// Deletes a group; its members stay configured and become ungrouped.
+    DeleteStereoGroup {
+        group: GroupRef,
+    },
+    SetStereoGroupKind {
+        group: GroupRef,
+        kind: GroupKind,
+    },
+    /// Sets or, with `None`, clears the stored number. A number another group of the kind
+    /// already has is refused: merge the groups instead.
+    SetStereoGroupNumber {
+        group: GroupRef,
+        number: Option<i32>,
+    },
+    /// Adds centers that are in no group; centers already in this group are left as they are.
+    AddStereoGroupMembers {
+        group: GroupRef,
+        atoms: Vec<AtomRef>,
+    },
+    /// Removes members, which become ungrouped; it never empties the group (delete it instead).
+    RemoveStereoGroupMembers {
+        group: GroupRef,
+        atoms: Vec<AtomRef>,
+    },
+    /// Moves every member of `from` into `into` and deletes `from`; `into` keeps its kind and
+    /// number. The groups must be of one kind.
+    MergeStereoGroups {
+        into: GroupRef,
+        from: GroupRef,
+    },
+    /// Moves some, not all, members of an `and` or `or` group into a new group of the same
+    /// kind with `number`. The new group is `$N` for later commands.
+    SplitStereoGroup {
+        group: GroupRef,
+        atoms: Vec<AtomRef>,
+        number: Option<i32>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -559,6 +621,9 @@ pub enum EditError {
     /// `BondRef::Created` must name an earlier command of the same transaction that added a
     /// bond: an `AddBond`, or an `AddAtom` with `bond_to`.
     UnresolvedBondReference(usize),
+    /// `GroupRef::Created` must name an earlier command of the same transaction that created a
+    /// stereo group.
+    UnresolvedGroupReference(usize),
     /// A refused stereo mark or configuration, with its stable code.
     Stereo(StereoError),
     /// A configuration that could not be read off the drawing for this atom (a center) or bond
@@ -567,6 +632,8 @@ pub enum EditError {
         item: StereoKey,
         cause: DeriveError,
     },
+    /// A refused stereo group edit or stored group, with its stable code.
+    StereoGroup(StereoGroupError),
 }
 
 impl EditError {
@@ -594,6 +661,7 @@ impl EditError {
             Self::InvalidState(state) => Some(state.code()),
             Self::Settings(error) => Some(error.code()),
             Self::Stereo(error) => Some(error.code()),
+            Self::StereoGroup(error) => Some(error.code()),
             Self::FromDrawing { cause, .. } => cause.code(),
             _ => self.scene_error().map(SceneError::code),
         }
@@ -715,7 +783,13 @@ impl fmt::Display for EditError {
                 formatter,
                 "${index} does not name an earlier add_bond command in this transaction"
             ),
+            Self::UnresolvedGroupReference(index) => write!(
+                formatter,
+                "${index} does not name an earlier command in this transaction that creates a \
+                 stereo group"
+            ),
             Self::Stereo(error) => error.fmt(formatter),
+            Self::StereoGroup(error) => error.fmt(formatter),
             Self::FromDrawing { item, cause } => match item {
                 StereoKey::Center(atom) => write!(formatter, "atom {atom}: {cause}"),
                 StereoKey::DoubleBond(bond) => write!(formatter, "bond {bond}: {cause}"),
@@ -755,11 +829,14 @@ pub enum Outcome {
 /// existed before it and are gone after it because a change invalidated them or deleted what
 /// they belong to (the record of a deleted atom or bond is listed), in key order. Records a
 /// `Set*` command cleared explicitly are not listed, nor are records created and removed within
-/// the transaction, nor a record that was removed and set again.
+/// the transaction, nor a record that was removed and set again. `group_notes` lists, in the
+/// order they happened, the changes of meaning the transaction made to groups that existed
+/// before it (see [`GroupNote`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Applied {
     pub outcome: Outcome,
     pub cleared: Vec<StereoKey>,
+    pub group_notes: Vec<GroupNote>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -819,6 +896,8 @@ pub struct ChangeSet {
     pub positions: Vec<(PositionKey, Change<Option<Point>>)>,
     /// Stated stereo configurations. Marks are part of the bond states.
     pub stereo: Vec<(StereoKey, Change<Option<StereoState>>)>,
+    /// Enhanced-stereo groups, whole before and after.
+    pub stereo_groups: Vec<(GroupId, Change<Option<StereoGroup>>)>,
     /// The selection before and after the change. It is recorded with every entry and never
     /// makes one: a change set whose content is unchanged is empty.
     pub selection: Change<Selection>,
@@ -845,6 +924,7 @@ impl ChangeSet {
             references: diff_sets(&before.references, &after.references),
             positions: diff_maps(&before.positions, &after.positions),
             stereo: diff_maps(before.stereo.records(), after.stereo.records()),
+            stereo_groups: diff_maps(before.stereo_groups.groups(), after.stereo_groups.groups()),
             selection,
         }
     }
@@ -860,6 +940,7 @@ impl ChangeSet {
             && self.references.is_empty()
             && self.positions.is_empty()
             && self.stereo.is_empty()
+            && self.stereo_groups.is_empty()
     }
 
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
@@ -873,6 +954,7 @@ impl ChangeSet {
             + self.references.len()
             + self.positions.len()
             + self.stereo.len()
+            + self.stereo_groups.len()
     }
 
     /// The shape `between` produces: non-empty, each entity at most once, every entry an
@@ -916,6 +998,7 @@ impl ChangeSet {
             && references_valid
             && entries_valid(&self.positions)
             && entries_valid(&self.stereo)
+            && entries_valid(&self.stereo_groups)
             && kinds_kept
     }
 }
@@ -1000,6 +1083,7 @@ struct Content {
     references: BTreeSet<SceneReference>,
     positions: BTreeMap<PositionKey, Point>,
     stereo: StereoTable,
+    stereo_groups: StereoGroupTable,
 }
 
 impl Content {
@@ -1160,6 +1244,7 @@ impl Content {
             }
         }
         self.stereo.validate(&self.atoms, &self.bonds)?;
+        self.stereo_groups.validate(&self.stereo)?;
         self.scene.validate()?;
         if self.references.len() > MAX_REFERENCES {
             return Err(EditError::ReferenceLimit);
@@ -1249,6 +1334,7 @@ enum Created {
     AtomAndBond(AtomId, BondId),
     Bond(BondId),
     Object(ObjectId),
+    Group(GroupId),
 }
 
 /// Mutable working state for one transaction; discarded unless every command succeeds.
@@ -1257,12 +1343,16 @@ struct Draft {
     next_atom: u32,
     next_bond: u32,
     next_object: u32,
+    next_group: u32,
     /// What each earlier command created, by command index.
     created: Vec<Created>,
     /// Stereo records removed because a change made them meaningless or deleted their atom or
     /// bond, not because a `Set*` command cleared them; it may include records created within
     /// the transaction, which the reply filters out. See [`Draft::discard_stereo`].
     cascaded: BTreeSet<StereoKey>,
+    /// What group edits and the group cascade changed the meaning of, in order; unfiltered (see
+    /// [`report_existing`]).
+    group_notes: Vec<GroupNote>,
 }
 
 impl Draft {
@@ -1385,6 +1475,101 @@ impl Draft {
                 _ => Err(EditError::UnresolvedReference(index)),
             },
         }
+    }
+
+    fn resolve_group(&self, group: GroupRef) -> Result<GroupId, EditError> {
+        match group {
+            GroupRef::Id(id) => Ok(id),
+            GroupRef::Created(index) => match self.created.get(index) {
+                Some(Created::Group(id)) => Ok(*id),
+                _ => Err(EditError::UnresolvedGroupReference(index)),
+            },
+        }
+    }
+
+    /// The atoms a group command names, as a set; at least one.
+    fn resolve_group_atoms(&self, atoms: &[AtomRef]) -> Result<BTreeSet<AtomId>, EditError> {
+        if atoms.is_empty() {
+            return Err(StereoGroupError::Empty.into());
+        }
+        atoms.iter().map(|atom| self.resolve(*atom)).collect()
+    }
+
+    fn allocate_group(&mut self) -> Result<GroupId, EditError> {
+        let id = GroupId(self.next_group);
+        self.next_group = self
+            .next_group
+            .checked_add(1)
+            .ok_or(EditError::IdentifierSpaceExhausted)?;
+        Ok(id)
+    }
+
+    /// Applies one stereo group command. Members are checked against the stored configurations
+    /// as they are at this point of the transaction.
+    fn apply_group_command(&mut self, command: &Command) -> Result<Created, EditError> {
+        let mut created = Created::Nothing;
+        match command {
+            Command::CreateStereoGroup {
+                kind,
+                number,
+                atoms,
+            } => {
+                let members = self.resolve_group_atoms(atoms)?;
+                let id = self.allocate_group()?;
+                let group = StereoGroup::new(*kind, *number, members);
+                self.content
+                    .stereo_groups
+                    .create(id, group, &self.content.stereo)?;
+                created = Created::Group(id);
+            }
+            Command::DeleteStereoGroup { group } => {
+                let id = self.resolve_group(*group)?;
+                self.content.stereo_groups.delete(id)?;
+            }
+            Command::SetStereoGroupKind { group, kind } => {
+                let id = self.resolve_group(*group)?;
+                self.content.stereo_groups.set_kind(id, *kind)?;
+            }
+            Command::SetStereoGroupNumber { group, number } => {
+                let id = self.resolve_group(*group)?;
+                self.content.stereo_groups.set_number(id, *number)?;
+            }
+            Command::AddStereoGroupMembers { group, atoms } => {
+                let id = self.resolve_group(*group)?;
+                let members = self.resolve_group_atoms(atoms)?;
+                self.content
+                    .stereo_groups
+                    .add_members(id, &members, &self.content.stereo)?;
+            }
+            Command::RemoveStereoGroupMembers { group, atoms } => {
+                let id = self.resolve_group(*group)?;
+                let members = self.resolve_group_atoms(atoms)?;
+                let note = self.content.stereo_groups.remove_members(id, &members)?;
+                self.group_notes.extend(note);
+            }
+            Command::MergeStereoGroups { into, from } => {
+                let (into, from) = (self.resolve_group(*into)?, self.resolve_group(*from)?);
+                let note = self.content.stereo_groups.merge(into, from)?;
+                self.group_notes.push(note);
+            }
+            Command::SplitStereoGroup {
+                group,
+                atoms,
+                number,
+            } => {
+                let id = self.resolve_group(*group)?;
+                let members = self.resolve_group_atoms(atoms)?;
+                let new_group = self.allocate_group()?;
+                let note = self
+                    .content
+                    .stereo_groups
+                    .split(id, new_group, &members, *number)?;
+                self.group_notes.push(note);
+                created = Created::Group(new_group);
+            }
+            _ => unreachable!("only stereo group commands are routed here"),
+        }
+        Ok(created)
     }
 
     fn resolve_bond(&self, bond: BondRef) -> Result<BondId, EditError> {
@@ -1848,7 +2033,20 @@ impl Draft {
                 bonds,
                 instance,
             } => self.derive_from_drawing(atoms.as_deref(), bonds.as_deref(), *instance)?,
+            Command::CreateStereoGroup { .. }
+            | Command::DeleteStereoGroup { .. }
+            | Command::SetStereoGroupKind { .. }
+            | Command::SetStereoGroupNumber { .. }
+            | Command::AddStereoGroupMembers { .. }
+            | Command::RemoveStereoGroupMembers { .. }
+            | Command::MergeStereoGroups { .. }
+            | Command::SplitStereoGroup { .. } => created = self.apply_group_command(command)?,
         }
+        // The one place a group loses a member that stopped being a stored tetrahedral center,
+        // whichever command (a configuration set or cleared, a neighbor change, a deletion)
+        // caused it.
+        let left = self.content.stereo_groups.prune(&self.content.stereo);
+        self.group_notes.extend(left);
         self.created.push(created);
         Ok(())
     }
@@ -1885,6 +2083,7 @@ pub struct Numbering {
     pub next_atom: u32,
     pub next_bond: u32,
     pub next_object: u32,
+    pub next_group: u32,
 }
 
 impl Numbering {
@@ -1896,6 +2095,7 @@ impl Numbering {
             next_atom: self.next_atom.max(other.next_atom),
             next_bond: self.next_bond.max(other.next_bond),
             next_object: self.next_object.max(other.next_object),
+            next_group: self.next_group.max(other.next_group),
         }
     }
 }
@@ -1918,11 +2118,14 @@ pub struct DocumentParts {
     pub positions: Vec<(PositionKey, Point)>,
     /// Stated stereo configurations; marks are part of `bonds`.
     pub stereo: Vec<(StereoKey, StereoState)>,
+    /// Enhanced-stereo groups.
+    pub stereo_groups: Vec<(GroupId, StereoGroup)>,
     /// The current selection: where the history ends (see [`Document::restore`]).
     pub selection: Selection,
     pub next_atom: u32,
     pub next_bond: u32,
     pub next_object: u32,
+    pub next_group: u32,
     pub undo: Vec<ChangeSet>,
     pub redo: Vec<ChangeSet>,
 }
@@ -1947,6 +2150,7 @@ pub struct Document {
     next_atom: u32,
     next_bond: u32,
     next_object: u32,
+    next_group: u32,
     undo: VecDeque<ChangeSet>,
     redo: Vec<ChangeSet>,
 }
@@ -1978,11 +2182,13 @@ impl Document {
                 references: BTreeSet::new(),
                 positions: BTreeMap::new(),
                 stereo: StereoTable::default(),
+                stereo_groups: StereoGroupTable::default(),
             },
             selection: Selection::default(),
             next_atom: 1,
             next_bond: 1,
             next_object: 2,
+            next_group: 1,
             undo: VecDeque::new(),
             redo: Vec::new(),
         })
@@ -2005,6 +2211,7 @@ impl Document {
             next_atom: self.next_atom,
             next_bond: self.next_bond,
             next_object: self.next_object,
+            next_group: self.next_group,
             undo: VecDeque::new(),
             redo: Vec::new(),
         })
@@ -2028,6 +2235,7 @@ impl Document {
             parts.references.len(),
             parts.positions.len(),
             parts.stereo.len(),
+            parts.stereo_groups.len(),
         );
         let content = Content {
             title: parts.title,
@@ -2041,6 +2249,7 @@ impl Document {
             references: parts.references.into_iter().collect(),
             positions: parts.positions.into_iter().collect(),
             stereo: StereoTable::from_records(parts.stereo.into_iter().collect()),
+            stereo_groups: StereoGroupTable::from_groups(parts.stereo_groups.into_iter().collect()),
         };
         if counts
             != (
@@ -2050,10 +2259,11 @@ impl Document {
                 content.references.len(),
                 content.positions.len(),
                 content.stereo.len(),
+                content.stereo_groups.len(),
             )
         {
             return Err(invalid(
-                "duplicate atom, bond, scene object, reference, position, or stereo record",
+                "duplicate atom, bond, scene object, reference, position, stereo record, or stereo group",
             ));
         }
         content
@@ -2099,6 +2309,7 @@ impl Document {
             next_atom: parts.next_atom,
             next_bond: parts.next_bond,
             next_object: parts.next_object,
+            next_group: parts.next_group,
             undo,
             redo,
         };
@@ -2121,6 +2332,7 @@ impl Document {
         if reuses_identifier(history().map(|set| set.atoms.as_slice()))
             || reuses_identifier(history().map(|set| set.bonds.as_slice()))
             || reuses_identifier(history().map(|set| set.objects.as_slice()))
+            || reuses_identifier(history().map(|set| set.stereo_groups.as_slice()))
         {
             return Err(invalid("history reuses a deleted identifier"));
         }
@@ -2166,7 +2378,17 @@ impl Document {
                     .map(|(id, _)| *id)
                     .chain(set.positions.iter().map(|(key, _)| key.instance))
             }));
-        if self.next_atom == 0
+        let group_ids = self
+            .content
+            .stereo_groups
+            .iter()
+            .map(|(id, _)| id)
+            .chain(history().flat_map(|set| set.stereo_groups.iter().map(|(id, _)| *id)));
+        if self.next_group == 0
+            || group_ids
+                .map(GroupId::serial)
+                .any(|serial| serial >= self.next_group)
+            || self.next_atom == 0
             || self.next_bond == 0
             || self.next_object == 0
             || atom_ids
@@ -2215,10 +2437,17 @@ impl Document {
                 .iter()
                 .map(|(key, state)| (key, *state))
                 .collect(),
+            stereo_groups: self
+                .content
+                .stereo_groups
+                .iter()
+                .map(|(id, group)| (id, group.clone()))
+                .collect(),
             selection: self.selection.clone(),
             next_atom: self.next_atom,
             next_bond: self.next_bond,
             next_object: self.next_object,
+            next_group: self.next_group,
             undo: self.undo.iter().cloned().collect(),
             redo: self.redo.clone(),
         }
@@ -2286,6 +2515,11 @@ impl Document {
         &self.content.stereo
     }
 
+    /// The enhanced-stereo groups (see [`crate::stereo_group`]).
+    pub const fn stereo_groups(&self) -> &StereoGroupTable {
+        &self.content.stereo_groups
+    }
+
     /// Directed references in deterministic order, separate from scene containment.
     pub fn references(&self) -> impl ExactSizeIterator<Item = SceneReference> + '_ {
         self.content.references.iter().copied()
@@ -2325,6 +2559,7 @@ impl Document {
             next_atom: self.next_atom,
             next_bond: self.next_bond,
             next_object: self.next_object,
+            next_group: self.next_group,
         }
     }
 
@@ -2343,6 +2578,7 @@ impl Document {
         self.next_atom = self.next_atom.max(reached.next_atom);
         self.next_bond = self.next_bond.max(reached.next_bond);
         self.next_object = self.next_object.max(reached.next_object);
+        self.next_group = self.next_group.max(reached.next_group);
         Ok(())
     }
 
@@ -2401,8 +2637,10 @@ impl Document {
             next_atom: self.next_atom,
             next_bond: self.next_bond,
             next_object: self.next_object,
+            next_group: self.next_group,
             created: Vec::with_capacity(commands.len()),
             cascaded: BTreeSet::new(),
+            group_notes: Vec::new(),
         };
         for (index, command) in commands.iter().enumerate() {
             draft.apply(command).map_err(|error| TransactionError {
@@ -2415,6 +2653,11 @@ impl Document {
             .stereo
             .validate(&draft.content.atoms, &draft.content.bonds)
             .map_err(whole)?;
+        draft
+            .content
+            .stereo_groups
+            .validate(&draft.content.stereo)
+            .map_err(whole)?;
         let after = match &selection.after {
             Some(request) => draft.resolve_selection(request).map_err(whole)?,
             None => draft.content.existing(&before),
@@ -2424,6 +2667,7 @@ impl Document {
             return Ok(Applied {
                 outcome: Outcome::Unchanged,
                 cleared: Vec::new(),
+                group_notes: Vec::new(),
             });
         }
         let cleared: Vec<StereoKey> = draft
@@ -2434,6 +2678,7 @@ impl Document {
                 self.content.stereo.get(*key).is_some() && draft.content.stereo.get(*key).is_none()
             })
             .collect();
+        let group_notes = report_existing(draft.group_notes, &self.content.stereo_groups);
         if self.revision >= MAX_EDIT_REVISION {
             return Err(whole(EditError::RevisionLimit));
         }
@@ -2442,6 +2687,7 @@ impl Document {
         self.next_atom = draft.next_atom;
         self.next_bond = draft.next_bond;
         self.next_object = draft.next_object;
+        self.next_group = draft.next_group;
         self.revision += 1;
         self.undo.push_back(changes);
         self.redo.clear();
@@ -2451,6 +2697,7 @@ impl Document {
         Ok(Applied {
             outcome: Outcome::Changed,
             cleared,
+            group_notes,
         })
     }
 
@@ -2576,6 +2823,11 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
     }
     replay(&mut next.positions, &set.positions, direction)?;
     replay(next.stereo.records_mut(), &set.stereo, direction)?;
+    replay(
+        next.stereo_groups.groups_mut(),
+        &set.stereo_groups,
+        direction,
+    )?;
     next.validate().map_err(|_| ())?;
     *content = next;
     Ok(())

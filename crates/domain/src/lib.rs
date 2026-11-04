@@ -18,6 +18,7 @@ pub mod settings;
 pub mod states;
 pub mod stereo;
 pub mod stereo_drawing;
+pub mod stereo_group;
 pub mod stereo_inspection;
 pub mod substructure;
 
