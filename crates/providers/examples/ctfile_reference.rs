@@ -6,7 +6,7 @@ use std::path::Path;
 
 use chemifree_application::Application;
 use chemifree_application::ctfile::{
-    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord,
+    CtAtom, CtBond, CtCodec, CtField, CtFormat, CtRadical, CtRecord, CtTab,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, V2000Codec};
 
@@ -42,6 +42,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 order: 1,
             }],
             fields: vec![],
+            ctab: CtTab::V2000,
+            chiral: false,
+            collections: vec![],
         };
         let mol = V2000Codec
             .write(CtFormat::Mol, std::slice::from_ref(&molecule))
