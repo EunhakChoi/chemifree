@@ -12,7 +12,8 @@ P25a-2b는 입체 표시와 명시된 입체 배치의 저장·설정·해제(MO
 
 P28a는 MOL V3000 코덱 핵심(CODEC-03.v3000-core, 구현)을 제공자 계층에서만 연결한다: 논리 줄 읽기·이어쓰기·블록 파서와 핵심 부분집합 쓰기이며 그 시점에는 연산·와이어·웹이 쓰지 않아 `document.import`·`document.export`가 V3000을 거절했고(P28b1이 연결했다, 아래), 근거는 `cargo test`가 도는 `check:check:rust`다(RDKit 대조는 손으로 돌리는 스크립트라 근거로 세지 않는다). SGroup·query·입체·그룹 매핑·V2000 하향은 CODEC-03.rest에 남는다.
 P28b1은 V3000 핵심 부분집합과 결합 표시를 `document.import`·`document.export`에 연결한다(CODEC-03.v3000-wire, 구현): 레코드의 V2000/V3000 판별, 방향족 결합, 쐐기·해시·물결·교차 표시의 입출력과 가져올 때의 배치 유도, `ctab` 요청 키, V2000 결합 입체 열 쓰기·읽기, 표시가 보여 주지 않는 입체에 대한 `accepted_losses` 동의다. 근거는 적합성 사례 `molfile-v3000-wedge-round-trip`·`stereo-molfile-export-consent`·`molfile-v3000-refusals-leave-document-unchanged`와 `cargo test`·계약 스모크이며, RDKit 대조는 여전히 손으로 돌리는 스크립트라 근거로 세지 않는다. query 원자·결합, dative, 입체 collection↔그룹 매핑, SGroup, 웹 선택은 CODEC-03.rest에 남는다. 이전 사례 `stereo-molfile-export-refused`는 `stereo-molfile-export-consent`로 바뀌었다.
-P28b2는 V3000 `COLLECTION` 블록과 향상된 입체 그룹(absolute·and·or)의 양방향 매핑, chiral 플래그 쓰기 규칙, `mol-v2000`·`mol-v3000` 형식 id 별칭을 더한다(CODEC-03.v3000-groups, 구현): 번호를 적힌 그대로(0·음수·int32 아무 값) 쓰고 읽으며, 저장 배치가 있으나 그룹에 속하지 않은 중심은 동의가 필요한 손실이다(Chemifree가 지어내지 않는 의도적 제품 선택이며 다른 프로그램의 해석에 대한 주장이 아니다). 근거는 적합성 사례 `molfile-v3000-stereo-groups-round-trip`·`molfile-v3000-collection-refusals-leave-document-unchanged`·`molfile-v3000-group-append-renumbers-colliding-number`와 `cargo test`·계약 스모크이며 RDKit 대조는 손으로 돌리는 partition 비교라 근거로 세지 않는다. V2000·CDX·CXSMILES의 그룹 매핑, query, dative, SGroup, 웹 선택은 남는다.
+P28b2는 V3000 `COLLECTION` 블록과 향상된 입체 그룹(absolute·and·or)의 양방향 매핑, chiral 플래그 쓰기 규칙, `mol-v2000`·`mol-v3000` 형식 id 별칭을 더한다(CODEC-03.v3000-groups, 구현): 번호를 적힌 그대로(0·음수·int32 아무 값) 쓰고 읽으며, 저장 배치가 있으나 그룹에 속하지 않은 중심은 동의가 필요한 손실이다(Chemifree가 지어내지 않는 의도적 제품 선택이며 다른 프로그램의 해석에 대한 주장이 아니다). 근거는 적합성 사례 `molfile-v3000-stereo-groups-round-trip`·`molfile-v3000-collection-refusals-leave-document-unchanged`·`molfile-v3000-group-append-renumbers-colliding-number`와 `cargo test`·계약 스모크이며 RDKit 대조는 손으로 돌리는 partition 비교라 근거로 세지 않는다. V2000·CDX·CXSMILES의 그룹 매핑, query, dative, SGroup은 남는다(웹 선택은 아래 P28c).
+P28c는 MOL·SDF 웹 패널을 V3000 연산에 연결한다(CODEC-03.v3000-web, 구현; Rust·계약 의미 변경 없음): 버전 선택(V2000 기본·V3000·Auto)을 `ctab` 키로 보내며 이는 페이지의 선택일 뿐 문서에 저장되지 않고, 기록된 방언을 `result.ctab`로 보여 주며, 내보내기 손실 동의(평이한 문장·`accepted_losses`·바뀐 다이제스트 재요청)와 V3000 거절 이유별 평이한 문장(계약의 이유 표와 대조)을 제공한다. 근거는 `check:test:client`뿐이고(순수 클라이언트 검사와 변이 확인), 브라우저 스모크 시나리오는 보조이며 근거로 세지 않는다. query·SGroup·R-group 지원은 주장하지 않는다(거절된다).
 
 P27b는 향상된 입체 그룹(absolute·and·or)의 와이어 노출을 연결한다: `document.transaction`의 명령 8개와 스냅샷 `stereo.groups`, 의미가 바뀔 때의 통지, SMILES 내보내기의 동의 손실 `stereo_group`(MODEL-03.8과 STEREO-01.1, 구현; 증거는 적합성 사례 12개와 `check:check:rust`·`check:test:contracts`·`check:test:client`)이다. 웹 표시·편집(P27c)은 STEREO-01.2(구현, 증거 `check:test:client`)로 구현했고, V3000·CDXML·CDX 등 형식 입출력(P28·P29)은 STEREO-01.rest(미구현)로 남는다. 번호 0·음수·생략은 진술한 대로 저장되고 그 밖의 뜻을 주장하지 않으며, AND의 비율과 어떤 형식과의 동등성도 주장하지 않는다. 적합성 사례는 정해진 입력에 대한 기대값만 확립하고 그룹의 화학적 의미를 판단하지 않는다.
 
@@ -20,7 +21,7 @@ P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 �
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다. P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 89개(implemented 43, partial 11, unverified 2, not_implemented 33) · conformance 사례 92개(passed 92: accept 70·reject 22, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 90개(implemented 44, partial 11, unverified 2, not_implemented 33) · conformance 사례 92개(passed 92: accept 70·reject 22, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

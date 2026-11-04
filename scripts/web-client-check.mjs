@@ -14,6 +14,10 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
+const {
+  CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
+  lossHeading, parseCtabChoice, writtenDialectMatches,
+} = await import('../apps/web/src/lib/ct-conversion.ts')
 const { readRuntime } = await import('../apps/web/src/lib/contract.ts')
 const searchRequests = await import('../apps/web/src/lib/substructure-requests.ts')
 
@@ -4904,4 +4908,170 @@ test('a settled Set number request resets the field only when it still holds wha
   assert.equal(settledDraft('7', '7', '7'), '7', 'accepted: the stored number is what was typed')
   assert.equal(settledDraft('71', '7', '-2'), '71', 'text typed while the request ran is kept')
   assert.equal(settledDraft('', '7', '-2'), '', 'so is a field the person cleared')
+})
+
+test('the version control maps to the ctab request key and anything else is the default', () => {
+  assert.deepEqual(CTAB_OPTIONS.map((option) => option.value), ['v2000', 'v3000', 'auto'])
+  assert.equal(parseCtabChoice('v2000'), 'v2000')
+  assert.equal(parseCtabChoice('v3000'), 'v3000')
+  assert.equal(parseCtabChoice('auto'), 'auto')
+  assert.equal(parseCtabChoice('mol-v3000'), 'v2000', 'an alias or unknown value is never passed on')
+  assert.equal(parseCtabChoice(''), 'v2000')
+  assert.deepEqual(ctabParameters('v3000'), { ctab: 'v3000' })
+  assert.deepEqual(ctabParameters('auto', 'a'.repeat(64)), { ctab: 'auto', accepted_losses: 'a'.repeat(64) })
+  assert.equal(writtenDialectMatches('v3000', 'v3000'), true)
+  assert.equal(writtenDialectMatches('v2000', 'v3000'), false, 'an explicit choice must come back as itself')
+  assert.equal(writtenDialectMatches('auto', 'v3000'), true)
+  assert.equal(writtenDialectMatches('auto', 'auto'), false)
+  assert.equal(writtenDialectMatches('v2000', undefined), false)
+})
+
+test('the export consent flow offers, re-offers on a changed digest and otherwise errors', () => {
+  const digest = 'd'.repeat(64)
+  assert.deepEqual(afterExportFailure('loss_consent_required', digest, undefined), { kind: 'offer', digest, changed: false })
+  assert.deepEqual(afterExportFailure('loss_consent_required', digest, 'e'.repeat(64)), { kind: 'offer', digest, changed: true })
+  assert.deepEqual(afterExportFailure('loss_consent_required', undefined, undefined), { kind: 'no-accept' }, 'no digest: the losses are shown, nothing can be accepted')
+  assert.deepEqual(afterExportFailure('loss_consent_changed', undefined, digest), { kind: 'ask-again' })
+  assert.deepEqual(afterExportFailure('loss_consent_changed', undefined, undefined), { kind: 'error' }, 'nothing was accepted to be void')
+  assert.deepEqual(afterExportFailure('v3000_group_member_not_drawn', undefined, undefined), { kind: 'error' })
+})
+
+test('a failed re-check at the Download click restarts the export for stale consent and errors otherwise', () => {
+  const digest = 'd'.repeat(64)
+  assert.equal(afterDownloadFailure('loss_consent_changed', digest), 'restart', 'the accepted digest no longer fits')
+  assert.equal(afterDownloadFailure('loss_consent_required', undefined), 'restart', 'new losses need consent')
+  assert.equal(afterDownloadFailure('loss_consent_changed', undefined), 'error', 'nothing was accepted to be void')
+  assert.equal(afterDownloadFailure('unreachable', digest), 'error')
+})
+
+test('a consent refusal without a digest still carries its losses, for an import and for an export', async () => {
+  const loss = { feature: 'stereo_group', source_path: 'groups[e1]', disposition: 'dropped', reason: 'No groups here.', semantic_impact: 'stereo' }
+  const refusal = (details) => () => json(200, { outcome: 'error', result: null, loss_report: [], diagnostics: [{
+    code: 'loss_consent_required', message: 'Accept.', details }] })
+  service({ '/api/v1/operations': [
+    refusal({ features: ['stereo_group'], losses: [loss] }),
+    refusal({ features: ['stereo_group'], losses: [loss] }),
+    refusal({}),
+  ] })
+  const client = new DocumentClient()
+  const preview = await client.previewCt('doc-1', 0, 'mol', 'x', 1).catch((failure) => failure)
+  assert.ok(preview instanceof ConsentRequired, 'an import refusal keeps its losses')
+  assert.equal(preview.digest, undefined)
+  assert.deepEqual(preview.losses, [loss])
+  const written = await client.exportCt('doc-1', 'mol', 'v2000').catch((failure) => failure)
+  assert.ok(written instanceof ConsentRequired)
+  assert.equal(written.digest, undefined)
+  assert.deepEqual(afterExportFailure(written.code, written.digest, undefined), { kind: 'no-accept' })
+  const bare = await client.exportCt('doc-1', 'mol', 'v2000').catch((failure) => failure)
+  assert.equal(bare.code, 'loss_consent_required', 'no loss list: the service message alone')
+  assert.equal(bare instanceof ConsentRequired, false)
+})
+
+test('an export sends ctab and the accepted digest, and a consent refusal reaches the page with the losses', async () => {
+  const digest = 'f'.repeat(64)
+  const snapshot = document('doc-1', 3)
+  const loss = { feature: 'stereo_ungrouped_centers', source_path: 'records[1].atoms[a2]', disposition: 'dropped', reason: 'No group.', semantic_impact: 'stereo' }
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'error', result: null, loss_report: [], diagnostics: [{ code: 'loss_consent_required', message: 'Accept.',
+      details: { features: ['stereo_ungrouped_centers'], losses: [loss], loss_digest: digest } }] }),
+    () => json(200, { outcome: 'partial', diagnostics: [], loss_report: [loss], result: {
+      content: 'x\n', ctab: 'v3000', records: [{ snapshot: { document: snapshot.document, session: snapshot.session, recovery: null } }] } }),
+    () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: {
+      content: 'x\n', ctab: 'v2000', records: [{ snapshot: { document: snapshot.document, session: snapshot.session, recovery: null } }] } }),
+  ] })
+  const client = new DocumentClient()
+  const refused = await client.exportCt('doc-1', 'mol', 'v3000').catch((failure) => failure)
+  assert.ok(refused instanceof ConsentRequired)
+  assert.equal(refused.digest, digest)
+  assert.deepEqual(refused.losses, [loss])
+  const written = await client.exportCt('doc-1', 'mol', 'v3000', digest)
+  assert.equal(written.ctab, 'v3000')
+  assert.equal(written.losses[0].feature, 'stereo_ungrouped_centers')
+  await assert.rejects(client.exportCt('doc-1', 'mol', 'v3000'), { code: 'incompatible_response' }, 'a V3000 request answered as V2000')
+  assert.deepEqual(scripted.writes.map((write) => [write.parameters.ctab, write.parameters.accepted_losses]),
+    [['v3000', undefined], ['v3000', digest], ['v3000', undefined]])
+})
+
+test('loss ids the page explains get a plain sentence and any other id is shown as it is', () => {
+  const ids = ['stereo_configuration_not_drawn', 'stereo_bond_configuration', 'stereo_group', 'stereo_ungrouped_centers',
+    'stereo_group_identity', 'chiral_flag', 'registry_number', 'isotope_validation', 'coordinate_precision', 'z_coordinate',
+    'stereo_unreadable', 'stereo_group_merged', 'stereo_group_number', 'extra_placement']
+  assert.deepEqual(Object.keys(LOSS_SENTENCES).sort(), [...ids].sort())
+  for (const id of ids) {
+    assert.notEqual(lossHeading(id), id, id)
+    assert.doesNotMatch(lossHeading(id), /_/, `${id} is worded in plain language`)
+  }
+  assert.doesNotMatch(lossHeading('stereo_group'), /V2000|SMILES|file/, 'stereo_group is raised by SMILES and MOL exports alike, so it names neither')
+  assert.equal(lossHeading('future_loss_kind'), 'future_loss_kind')
+  assert.equal(lossHeading('toString'), 'toString', 'only own entries count')
+})
+
+test('every refusal reason in the contract has a sentence or a documented generic fallback', () => {
+  const contract = readFileSync(new URL('../docs/CONTRACT.md', import.meta.url), 'utf8')
+  const opening = '`malformed_input` (`v3000_missing_prefix`'
+  const closing = 'and `resource_limit`.'
+  const start = contract.indexOf(opening)
+  assert.ok(start > 0, `CONTRACT.md no longer holds the V3000 reason list that starts with ${opening}; update this test with it`)
+  const end = contract.indexOf(closing, start)
+  assert.ok(end > start, `CONTRACT.md no longer ends the V3000 reason list with ${closing}; update this test with it`)
+  // The list is a run of `family` (`reason`, ...) groups. Each group runs from its family name to the next one;
+  // every backticked word in it other than the family is a reason and must be an identifier.
+  const families = ['malformed_input', 'dangling_reference', 'unsupported_feature', 'unsupported_format']
+  const listed = contract.slice(start, end)
+  const at = families.map((family) => {
+    const index = listed.indexOf('`' + family + '` (')
+    assert.ok(index >= 0, `the family ${family} is missing from the contract's reason list`)
+    return index
+  })
+  assert.deepEqual([...at].sort((x, y) => x - y), at, 'the families keep the order this test reads them in')
+  const reasons = new Set()
+  families.forEach((family, index) => {
+    const group = listed.slice(at[index] + family.length + 3, at[index + 1] ?? listed.length)
+    const names = [...group.matchAll(/`([^`]*)`/g)].map((m) => m[1])
+    assert.ok(names.length > 0, `the family ${family} lists no reason`)
+    for (const name of names) {
+      assert.match(name, /^[a-z0-9_]+$/, `${name} (family ${family}) is not a reason identifier`)
+      reasons.add(name)
+    }
+  })
+  reasons.add('resource_limit')
+  reasons.add('format_ctab_conflict')
+  assert.ok(contract.includes('`format_ctab_conflict`'), 'the contract names format_ctab_conflict')
+  assert.ok(reasons.size >= 55, `the contract lists many reasons (${reasons.size})`)
+  const worded = new Set(Object.keys(CT_REFUSAL_SENTENCES))
+  for (const reason of reasons) {
+    assert.ok(worded.has(reason) || CT_FALLBACK_REASONS.includes(reason), `${reason} has neither a sentence nor a documented fallback`)
+    for (const direction of ['import', 'export']) {
+      const sentence = ctRefusalSentence(reason, direction)
+      assert.notEqual(sentence, null, `${reason} ${direction}`)
+      assert.ok(sentence.endsWith(' Nothing was changed.'), `${reason} ${direction}`)
+      assert.equal(sentence.split('Nothing was').length - 1, 1, `${reason} ${direction} ends once`)
+      assert.doesNotMatch(sentence, /v3000_|_/, `${reason} is worded in plain language`)
+    }
+  }
+  for (const reason of [...worded, ...CT_FALLBACK_REASONS]) assert.ok(reasons.has(reason), `${reason} is not a reason the contract lists`)
+  assert.equal(CT_FALLBACK_REASONS.filter((reason) => worded.has(reason)).length, 0, 'a reason is worded or fallback, not both')
+  assert.equal(ctRefusalSentence('v3000_future_reason', 'import'), null, 'an unknown code shows the service message')
+  assert.equal(ctRefusalSentence('toString', 'export'), null, 'only own entries count')
+})
+
+test('a sentence that differs by direction names what the direction can do, and resource_limit names no number', () => {
+  assert.match(ctRefusalSentence('unsupported_bond', 'export'), /chosen MOL version.*aromatic bond needs V3000/)
+  assert.doesNotMatch(ctRefusalSentence('unsupported_bond', 'import'), /chosen|V3000|aromatic/)
+  assert.match(ctRefusalSentence('unsupported_atom', 'import'), /^The file holds/)
+  assert.match(ctRefusalSentence('unsupported_atom', 'export'), /^The drawing holds/)
+  assert.doesNotMatch(ctRefusalSentence('v3000_group_member_not_drawn', 'export'), /Nothing was written/)
+  assert.doesNotMatch(ctRefusalSentence('resource_limit', 'export'), /\d/, 'the service message carries the limit, the page does not copy it')
+  assert.match(ctRefusalSentence('invalid_line', 'import'), /MOL text is not valid/)
+  assert.match(ctRefusalSentence('invalid_line', 'export'), /drawing holds a value/)
+})
+
+test('a V3000 refusal reaches the page as its sentence with the service message after it', async () => {
+  service({ '/api/v1/operations': [() => json(200, { outcome: 'error', result: null, loss_report: [], diagnostics: [{
+    code: 'v3000_collection_member_not_stereocenter', message: 'Atom 3 is not a center.', details: { record: 1, line: 9 } }] })] })
+  const failure = await new DocumentClient().exportCt('doc-1', 'mol', 'v3000').catch((e) => e)
+  assert.equal(failure.code, 'v3000_collection_member_not_stereocenter')
+  assert.ok(failure.message.startsWith(CT_REFUSAL_SENTENCES.v3000_collection_member_not_stereocenter))
+  assert.equal(typeof CT_REFUSAL_SENTENCES.v3000_collection_member_not_stereocenter, 'string')
+  assert.ok(failure.message.endsWith('Service message: Atom 3 is not a center. Record 1. Line 9.'))
 })
