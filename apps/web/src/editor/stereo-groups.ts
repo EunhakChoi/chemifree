@@ -7,8 +7,9 @@
  * groups), the service enforces every rule, and these checks only keep the page from sending
  * what the contract says it will refuse. Everything is read from the snapshot's `stereo.groups`.
  *
- * No ratio is stated or implied for any kind, AND included. Groups are not drawn into exported
- * files, not compared with the drawing, and do not change CIP labels or identity.
+ * No ratio is stated or implied for any kind, AND included. The web page's own exports (SMILES,
+ * V2000) carry no groups; V3000 export through the operations does. Groups are not compared
+ * with the drawing, and do not change CIP labels or identity.
  */
 import { labelAt } from '@/editor/cip-labels'
 import type { Box } from '@/editor/label'
@@ -17,7 +18,7 @@ import { stereoOf, type StereoGroup, type StereoGroupKind } from '@/lib/stereo-c
 
 /** Said once above the group list; every sentence is true of this build (docs/CONTRACT.md). */
 export const GROUPS_NOTE =
-  'Groups are stored and edited here. They are not drawn into exported files yet (SMILES export reports a loss), not compared with the drawing, and do not change CIP labels or identity.'
+  'Groups are stored and edited here. The SMILES and MOL (V2000) exports of this page carry no groups and report a loss; V3000 export through the HTTP or CLI operations writes them, and this page does not offer it yet. They are not compared with the drawing, and do not change CIP labels or identity.'
 
 /** What is outside the groups, so a reader does not take silence for support. */
 export const GROUPS_NOT_EXAMINED =

@@ -748,8 +748,8 @@ const TRANSACTION_PARTS: [Entry; 43] = [
          each stored center, so no more than the 2,000-atom cap; at most one absolute group; a \
          stored number is any 32-bit signed integer. Nothing states a ratio, a chiral flag or \
          double-bond members. chem.cip, chem.identity, chem.substructure and chem.stereo \
-         ignore groups (chem.stereo says so); a SMILES, V2000 or V3000 MOL export needs consent to \
-         drop them and no format carries them yet.",
+         ignore groups (chem.stereo says so); a SMILES or V2000 MOL export needs consent to \
+         drop them, and a V3000 MOL export writes them as COLLECTION blocks.",
     )
     .carried_out_by(&[
         "create_stereo_group",
