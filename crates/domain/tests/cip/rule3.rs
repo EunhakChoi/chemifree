@@ -1308,3 +1308,61 @@ fn a_distinction_far_from_a_double_bond_is_refused_there_and_resolved_in_a_cente
     assert_eq!(bond, "unsupported:cip_digraph_limit");
     assert!(matches!(center.as_str(), "R" | "S"), "{center}");
 }
+
+/// What a request tells of a double bond: its state and the nodes charged to it.
+fn answer(report: &BondReport) -> (String, usize) {
+    (state_text(report.state), report.nodes)
+}
+
+#[test]
+fn the_nesting_bound_gives_every_bond_the_same_answer_in_any_request_order() {
+    // `nest(0, 4, inner)` holds descriptors nested one level past MAX_RULE_3_NESTING. A bond
+    // that was asked for after the descriptors below it were computed (a request in reverse
+    // order) used to be answered from the memo, past the bound that the same bond asked for
+    // alone or first is refused by. Whatever bonds are asked for, in whatever order, each gets
+    // the state and the work it gets alone.
+    let mut rng = Rng(0x00dd_ba11_cafe_f00d);
+    for inner in [1, 2] {
+        let (molecule, _) = nest(0, 4, inner);
+        let doubles: Vec<usize> = (0..molecule.bonds.len())
+            .filter(|&i| molecule.bonds[i].2 == BondOrder::Double)
+            .collect();
+        let built = molecule.build();
+        let limits = Limits::default();
+        let alone: Vec<(String, usize)> = doubles
+            .iter()
+            .map(|&bond| answer(&bond_reports(&built, &[bond], limits).unwrap()[0]))
+            .collect();
+        let refused: Vec<usize> = (0..doubles.len())
+            .filter(|&i| alone[i].0 == "unsupported:cip_digraph_limit")
+            .collect();
+        assert!(
+            refused.len() >= 2 && refused.len() < doubles.len(),
+            "inner {inner}: some bonds, not all, are past the bound: {refused:?}"
+        );
+        let mut orders: Vec<Vec<usize>> = vec![
+            (0..doubles.len()).collect(),
+            (0..doubles.len()).rev().collect(),
+        ];
+        for _ in 0..6 {
+            orders.push(rng.shuffled(doubles.len()));
+        }
+        for _ in 0..6 {
+            let mut subset = rng.shuffled(doubles.len());
+            subset.truncate(1 + rng.below(doubles.len()));
+            orders.push(subset);
+        }
+        for order in orders {
+            let asked: Vec<usize> = order.iter().map(|&i| doubles[i]).collect();
+            let reports = bond_reports(&built, &asked, limits).unwrap();
+            for (&i, report) in order.iter().zip(&reports) {
+                assert_eq!(
+                    answer(report),
+                    alone[i],
+                    "inner {inner}, bond {} asked in the order {order:?}",
+                    doubles[i]
+                );
+            }
+        }
+    }
+}
