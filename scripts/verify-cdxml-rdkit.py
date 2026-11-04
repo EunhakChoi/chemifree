@@ -54,7 +54,7 @@ def _load_sibling() -> Any:
 
 
 def _cdxml(fixture: dict[str, Any], reverse: bool) -> str | None:
-    """The drawing as CDXML; with `reverse` a `W<`/`H<` bond is written from its other end."""
+    """The drawing as CDXML; with `reverse` every marked bond is written from its other end with the matching `...End`/`...Begin` name."""
     parts = ['<CDXML><page id="1"><fragment id="2">']
     for index, (symbol, x, y) in enumerate(fixture["atoms"]):
         parts.append(
@@ -70,10 +70,13 @@ def _cdxml(fixture: dict[str, Any], reverse: bool) -> str | None:
         base = mark.rstrip("<")
         begin, end, display = first, second, _DISPLAY.get(base, "")
         if narrow_second:
-            if reverse:
-                begin, end, display = second, first, _DISPLAY[base]
-            else:
-                display = _REVERSED[base]
+            display = _REVERSED[base] if base in _REVERSED else display
+        if reverse and base:
+            # Every marked bond is written from its other end with the matching name, so the
+            # same picture is stated in the other form.
+            begin, end = second, first
+            if base in _REVERSED:
+                display = _DISPLAY[base] if narrow_second else _REVERSED[base]
         attribute = f' Display="{display}"' if display else ""
         parts.append(
             f'<b id="{100 + index}" B="{10 + begin}" E="{10 + end}" Order="{order}"{attribute}/>'
@@ -120,6 +123,7 @@ def main() -> int:
     problems = 0
     checked = 0
     skipped = 0
+    differing = 0
     for fixture in corpus["fixtures"]:
         name = fixture["name"]
         if "refused" in fixture:
@@ -127,12 +131,16 @@ def main() -> int:
         expected = sibling._canonical(
             rdkit.Chem.MolFromSmiles(sibling._smiles(fixture)), f"{name} (smiles)"
         )
+        first_text = None
         for reverse in (False, True):
             text = _cdxml(fixture, reverse)
             if text is None:
                 sys.stdout.write(f"{name}: skipped, a mark or bond kind with no CDXML form here\n")
                 skipped += 1
                 break
+            if reverse and first_text is not None and text != first_text:
+                differing += 1
+            first_text = text if not reverse else first_text
             seen = sibling._canonical(
                 rdkit.Chem.MolFromMolBlock(_molblock(text)), f"{name} (cdxml)"
             )
@@ -146,6 +154,10 @@ def main() -> int:
                 f"{'agrees' if agrees else 'DIFFERS'}; stated {expected}; RDKit {seen}"
                 f"{'' if ok else '  <-- PROBLEM'}\n"
             )
+    sys.stdout.write(f"{differing} reversed readings differ in form from the first pass\n")
+    if differing == 0:
+        sys.stdout.write("PROBLEM: the reversed pass repeats the first pass\n")
+        problems += 1
     sys.stdout.write(f"RDKit {rdkit.__version__}: {checked} readings, {skipped} skipped, {problems} problems\n")
     return 1 if problems else 0
 

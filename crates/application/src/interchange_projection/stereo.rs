@@ -839,6 +839,20 @@ mod tests {
     }
 
     #[test]
+    fn the_published_bond_ordering_example_is_read() {
+        // The public page's own example: four entries, 1 2 3 4, sixteen bytes, no count.
+        let example = [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0];
+        let mut losses = Vec::new();
+        read_node(&node(vec![binary(0x0431, &example)]), "n", &mut losses).unwrap();
+        assert_eq!(losses.len(), 1, "{losses:?}");
+        assert_eq!(losses[0].feature, "bond_ordering");
+        for entries in [1_usize, 3] {
+            let bytes: Vec<u8> = (0..entries).flat_map(|i| [i as u8 + 1, 0, 0, 0]).collect();
+            read_node(&node(vec![binary(0x0431, &bytes)]), "n", &mut Vec::new()).unwrap();
+        }
+    }
+
+    #[test]
     fn a_malformed_bond_ordering_is_refused() {
         let too_many = "1 ".repeat(MAX_ORDERING_ENTRIES + 1);
         for value in ["", "a b", "1 -2", too_many.as_str()] {
@@ -850,6 +864,15 @@ mod tests {
         }
         assert_eq!(
             member(vec![binary(0x0431, &[1, 0, 0])]).unwrap_err().code,
+            "invalid_stereo_attribute"
+        );
+        // The published CDXObjectIDArray has no count: the length is implicit and each entry is
+        // a 32-bit little-endian value, so a 16-bit count in front makes the length 2 + 4n
+        // and is not a layout that is read.
+        let mut prefixed = vec![4, 0];
+        prefixed.extend_from_slice(&[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0]);
+        assert_eq!(
+            member(vec![binary(0x0431, &prefixed)]).unwrap_err().code,
             "invalid_stereo_attribute"
         );
         assert_eq!(
