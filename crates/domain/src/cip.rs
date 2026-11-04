@@ -125,8 +125,13 @@
 //! computation met a cycle (a bond asked for while it was being computed) is the exception: its
 //! result depends on which bond of the cycle was asked for first, so it is not kept for the
 //! request but reused only while the stack of bonds being computed is the same, and a bond
-//! asked for later is computed afresh. The label, reason and charge of a bond are therefore
-//! the same whatever the order in which the bonds of a request are listed.
+//! asked for later is computed afresh. A kept descriptor records how many descriptors deep its
+//! computation went and is used only where that fits [`MAX_RULE_3_NESTING`] from the position
+//! it is asked at (a bond asked for after the descriptors below it, which would otherwise be
+//! answered from the memo, is refused as the same bond asked for alone is), and a charge counts
+//! a descriptor that does not fit from where it is met as missing, level by level from the
+//! item. The label, reason and charge of a bond are therefore the same whatever the order in
+//! which the bonds of a request are listed.
 
 mod bond;
 mod context;
