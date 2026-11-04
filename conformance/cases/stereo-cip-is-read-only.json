@@ -1,0 +1,712 @@
+{
+  "id": "stereo-cip-is-read-only",
+  "title": "Asking for labels changes nothing a document holds: not the revision, the undo and redo depth or the unsaved state, whatever edits come before and after, and a repeated request id is computed again",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "N",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 40.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 50.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 60.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 70.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 80.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a4",
+          "end": "a5",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a4",
+          "end": "a6",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a7",
+          "end": "a8",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a8",
+          "end": "a9",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "atom": "a2",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a1",
+              "implicit_hydrogen",
+              "a3",
+              "a4"
+            ],
+            "turn": "clockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-1",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-1",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a7",
+          "isotope": 13
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-2",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 2
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "update_bond",
+          "bond": "b7",
+          "order": "single"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-3",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 3
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 3
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 3,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "update_atom",
+          "atom": "a7",
+          "charge": 1
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-4",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 4
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 4
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 4,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a7",
+            "a8",
+            "a9"
+          ],
+          "delta": {
+            "x": 40,
+            "y": 25
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 5
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "read-5",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 5
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 5
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 5,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 5,
+      "expect": {
+        "document": {
+          "revision": 6
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "after-undo",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 6
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 6
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 4,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 6,
+      "expect": {
+        "document": {
+          "revision": 7
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "after-redo",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null,
+              "decided_by": "1a"
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 7
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 7
+        },
+        "session": {
+          "unsaved_changes": true,
+          "undo_depth": 5,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

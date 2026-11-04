@@ -13,6 +13,7 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod cip;
 mod import;
 mod interchange;
 mod smiles;
@@ -49,6 +50,10 @@ use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
 };
 use crate::{Application, CapabilityCatalog, DocumentRepository};
+use cip::CipParameters;
+pub use cip::{
+    AtomLabel, BondLabel, CipResult, EndLabel, Priority, REASONS as CIP_REASONS, reason_sentence,
+};
 use import::{ImportFormat, ImportRequest, Staged};
 use smiles::{SmilesExportParameters, SmilesImportParameters};
 use stereo::StereoParameters;
@@ -227,6 +232,8 @@ pub enum OperationResult {
     Substructure(Box<SubstructureResult>),
     /// `chem.stereo`: stored against drawn stereo, per item and scene instance.
     Stereo(Box<StereoResult>),
+    /// `chem.cip`: CIP descriptors of the stored configurations, per center and double bond.
+    Cip(Box<CipResult>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -678,9 +685,10 @@ const TRANSACTION_PARTS: [Entry; 34] = [
         "Records tetrahedral centers (3 or 4 neighbors) and double bonds as stated, apart from \
          the marks: no mark blocks a stated configuration. Only set_configuration_from_drawing \
          derives one from the marks, on request, replacing the stored record of each item it \
-         processes. chem.stereo compares a stored record with the drawing, read-only. Nothing is \
-         judged: no CIP labels, no check that a center is stereogenic, no groups, no comparison \
-         in chem.identity or chem.substructure (they do not read stereo), no stereo check in \
+         processes. chem.stereo compares a stored record with the drawing, read-only; it does not \
+         compute labels or judge stereogenicity. chem.cip computes CIP labels from stored \
+         configurations, read-only (its model and rules are named in the chem.cip entry). No groups, no comparison in \
+         chem.identity or chem.substructure (they do not read stereo), no stereo check in \
          chem.validate, and no stereo in MOL, SDF, SMILES, CDXML or CDX.",
     )
     .carried_out_by(&[
@@ -787,7 +795,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemStereo => (
             runs(
                 id,
-                "Read-only comparison of the stored stereo configurations with what each scene instance's drawing shows, per center and double bond, with advisory findings. Nothing is derived into the document and nothing is judged: no CIP label, no stereogenicity, no ring or strain plausibility.",
+                "Read-only comparison of the stored stereo configurations with what each scene instance's drawing shows, per center and double bond, with advisory findings. Nothing is derived into the document and nothing is judged: it computes no CIP label (chem.cip does), no stereogenicity, no ring or strain plausibility.",
+            ),
+            &[],
+        ),
+        Op::ChemCip => (
+            runs(
+                id, "", // the note is built from the active labeler: `cip::catalog_note`
             ),
             &[],
         ),
@@ -1668,7 +1682,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .into_iter()
                 .map(|operation| {
                     let row = self.row(operation);
-                    let mut support = row.entry.view(row.note, row.parts);
+                    let mut support = if operation == OperationId::ChemCip {
+                        let note = cip::catalog_note(self.cip_labeler.as_ref());
+                        row.entry.view(Some(&note), row.parts)
+                    } else {
+                        row.entry.view(row.note, row.parts)
+                    };
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -2155,6 +2174,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Op::ChemStereo => match parameters::<StereoParameters>(parameters_value) {
                 Ok(p) => self.stereo(known, p),
                 Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemCip => match parameters::<CipParameters>(parameters_value) {
+                Ok(p) => self.cip(known, p, cancel),
+                Err(invalid) => {
+                    // Malformed parameters never reach `cip()`; the reply still names the
+                    // labeler the operation would have used.
+                    let mut reply = known.invalid(invalid);
+                    reply.model_id = Some(self.cip_labeler.model_id().into());
+                    reply
+                }
             },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {

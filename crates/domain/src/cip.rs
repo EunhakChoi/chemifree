@@ -521,6 +521,9 @@ pub struct Candidates {
     pub centers: Vec<CenterReport>,
     /// Ascending by bond.
     pub double_bonds: Vec<BondReport>,
+    /// The digraph nodes the scan charged against the request limit, including those of units
+    /// examined and found not stereogenic, which are not listed.
+    pub nodes: usize,
 }
 
 /// Scans the graph for units that are stereogenic under Rules 1a to 3, or may be: an atom that
@@ -578,5 +581,6 @@ pub fn candidates(
             found.double_bonds.push(report);
         }
     }
+    found.nodes = used;
     Ok(found)
 }

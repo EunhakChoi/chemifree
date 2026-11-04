@@ -1,5 +1,5 @@
 {
-  "suite_version": 18,
+  "suite_version": 19,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -62,6 +62,19 @@
     "cases/stereo-drawn-and-stored-disagree.json",
     "cases/stereo-inspection-only-drawn-label-and-not-derivable.json",
     "cases/stereo-cip-label-from-stored-configuration.json",
+    "cases/stereo-cip-mirror-image.json",
+    "cases/stereo-cip-double-bond-e-z.json",
+    "cases/stereo-cip-isotope-only.json",
+    "cases/stereo-cip-renumbering.json",
+    "cases/stereo-cip-symmetric-and-meso.json",
+    "cases/stereo-cip-ring-ligands.json",
+    "cases/stereo-cip-unknown-and-unspecified.json",
+    "cases/stereo-cip-ambiguous.json",
+    "cases/stereo-cip-unsupported.json",
+    "cases/stereo-cip-every-reason.json",
+    "cases/stereo-cip-limits-and-errors.json",
+    "cases/stereo-cip-is-read-only.json",
+    "cases/stereo-cip-public-references.json",
     "cases/stereo-enhanced-group-membership.json",
     "cases/stereo-molfile-stereo-round-trip.json"
   ]

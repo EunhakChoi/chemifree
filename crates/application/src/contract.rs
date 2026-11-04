@@ -1671,7 +1671,7 @@ const IMPLICIT_HYDROGEN: &str = "implicit_hydrogen";
 const LONE_PAIR: &str = "lone_pair";
 
 /// A slot as the wire spells it: an atom id, `implicit_hydrogen`, or `lone_pair`.
-fn slot_name(slot: Slot) -> String {
+pub(crate) fn slot_name(slot: Slot) -> String {
     match slot {
         Slot::Atom(atom) => atom.to_string(),
         Slot::ImplicitHydrogen => IMPLICIT_HYDROGEN.to_owned(),

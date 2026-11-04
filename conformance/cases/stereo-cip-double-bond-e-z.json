@@ -1,0 +1,418 @@
+{
+  "id": "stereo-cip-double-bond-e-z",
+  "title": "A double bond stored relatively is E or Z by the higher substituent at each end, and a bond with two equal substituents at an end is not stereogenic",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "e"
+    },
+    {
+      "call": "transact",
+      "document": "e",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a3",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "bond": "b2",
+          "configuration": {
+            "begin_neighbor": "a1",
+            "end_neighbor": "a4",
+            "kind": "relative",
+            "relation": "opposite_sides"
+          },
+          "op": "set_bond_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "e",
+      "request": {
+        "contract": 1,
+        "request_id": "e",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [],
+          "bonds": [
+            {
+              "bond": "b2",
+              "state": "assigned",
+              "descriptor": "E",
+              "reason": null,
+              "ends": [
+                {
+                  "atom": "a2",
+                  "higher": "a1",
+                  "decided_by": "1a"
+                },
+                {
+                  "atom": "a3",
+                  "higher": "a4",
+                  "decided_by": "1a"
+                }
+              ],
+              "stored": {
+                "kind": "relative",
+                "begin_neighbor": "a1",
+                "end_neighbor": "a4",
+                "relation": "opposite_sides"
+              }
+            }
+          ]
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "create",
+      "bind": "z"
+    },
+    {
+      "call": "transact",
+      "document": "z",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a3",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "bond": "b2",
+          "configuration": {
+            "begin_neighbor": "a1",
+            "end_neighbor": "a4",
+            "kind": "relative",
+            "relation": "same_side"
+          },
+          "op": "set_bond_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "z",
+      "request": {
+        "contract": 1,
+        "request_id": "z",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [],
+          "bonds": [
+            {
+              "bond": "b2",
+              "state": "assigned",
+              "descriptor": "Z",
+              "reason": null,
+              "ends": [
+                {
+                  "atom": "a2",
+                  "higher": "a1",
+                  "decided_by": "1a"
+                },
+                {
+                  "atom": "a3",
+                  "higher": "a4",
+                  "decided_by": "1a"
+                }
+              ]
+            }
+          ]
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "create",
+      "bind": "t"
+    },
+    {
+      "call": "transact",
+      "document": "t",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 40.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a4",
+          "end": "a5",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "bond": "b3",
+          "configuration": {
+            "begin_neighbor": "a1",
+            "end_neighbor": "a5",
+            "kind": "relative",
+            "relation": "opposite_sides"
+          },
+          "op": "set_bond_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "t",
+      "request": {
+        "contract": 1,
+        "request_id": "t",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_stored_not_stereogenic"
+          },
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [],
+          "bonds": [
+            {
+              "bond": "b3",
+              "state": "none",
+              "descriptor": null,
+              "reason": null
+            }
+          ]
+        },
+        "document_revision": 1
+      }
+    }
+  ]
+}

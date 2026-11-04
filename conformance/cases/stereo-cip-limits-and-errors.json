@@ -1,0 +1,3720 @@
+{
+  "id": "stereo-cip-limits-and-errors",
+  "title": "Bad identifiers, scopes and lists are refused with the path of the first fault, a request over the node limit is refused whole with the numbers, and one atom over the item limit is unsupported, not none",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "F",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "Br",
+          "op": "add_atom",
+          "position": {
+            "x": 40.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "I",
+          "op": "add_atom",
+          "position": {
+            "x": 50.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 60.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 70.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 80.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a4",
+          "end": "a5",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a4",
+          "end": "a6",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a4",
+          "end": "a7",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a7",
+          "end": "a8",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a8",
+          "end": "a9",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "atom": "a2",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a1",
+              "implicit_hydrogen",
+              "a3",
+              "a4"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad0",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a2",
+            "a4",
+            "b3"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms[2]",
+            "details": {
+              "value": "b3"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad1",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a99"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms[0]",
+            "details": {
+              "value": "a99"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad2",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a2",
+            "x"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms[1]",
+            "details": {
+              "value": "x"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad3",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a01"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms[0]",
+            "details": {
+              "value": "a01"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad4",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            7
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms[0]",
+            "details": {
+              "value": 7
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad5",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "bonds": [
+            "b7",
+            "a1"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.bonds[1]",
+            "details": {
+              "value": "a1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad6",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "bonds": [
+            "b99"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.bonds[0]",
+            "details": {
+              "value": "b99"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad7",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": "a2"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms",
+            "details": {
+              "value": "a2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad8",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "scope": "everything"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.scope",
+            "details": {
+              "value": "everything"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "bad9",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "scope": 3
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "model_id": "chemifree-cip-1",
+        "result": null,
+        "document_revision": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.scope",
+            "details": {
+              "value": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "empty0",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": []
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.atoms"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "empty1",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "bonds": []
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters.bonds"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "extra",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "instance": "s1"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request",
+            "path": "parameters"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "nulls",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": null,
+          "bonds": null,
+          "scope": null
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "R",
+              "reason": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "create",
+      "bind": "g"
+    },
+    {
+      "call": "transact",
+      "document": "g",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$2",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$3",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$5",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$6",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$7",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$8",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$9",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$10",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$11",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 30
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$13",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$14",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$15",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$16",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$17",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$18",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$19",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$20",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$21",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$22",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$23",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 30
+          },
+          "bond_to": {
+            "atom": "$24",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 60
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$26",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$27",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$28",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$29",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$30",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$31",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$32",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$33",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$34",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$35",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$36",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 60
+          },
+          "bond_to": {
+            "atom": "$37",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 90
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$39",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$40",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$41",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$42",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$43",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$44",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$45",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$46",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$47",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$48",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$49",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 90
+          },
+          "bond_to": {
+            "atom": "$50",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 120
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$52",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$53",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$54",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$55",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$56",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$57",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$58",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$59",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$60",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$61",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$62",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 120
+          },
+          "bond_to": {
+            "atom": "$63",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 150
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$65",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$66",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$67",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$68",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$69",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$70",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$71",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$72",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$73",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$74",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$75",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 150
+          },
+          "bond_to": {
+            "atom": "$76",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 180
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$78",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$79",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$80",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$81",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$82",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$83",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$84",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$85",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$86",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$87",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$88",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 180
+          },
+          "bond_to": {
+            "atom": "$89",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 210
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$91",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$92",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$93",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$94",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$95",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$96",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$97",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$98",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$99",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$100",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$101",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 210
+          },
+          "bond_to": {
+            "atom": "$102",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 240
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$104",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$105",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$106",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$107",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$108",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$109",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$110",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$111",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$112",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$113",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$114",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 240
+          },
+          "bond_to": {
+            "atom": "$115",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 270
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$117",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$118",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$119",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$120",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$121",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$122",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$123",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$124",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$125",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$126",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$127",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 270
+          },
+          "bond_to": {
+            "atom": "$128",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 300
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$130",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$131",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$132",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$133",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$134",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$135",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$136",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$137",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$138",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$139",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$140",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 300
+          },
+          "bond_to": {
+            "atom": "$141",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 330
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$143",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$144",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$145",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$146",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$147",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$148",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$149",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$150",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$151",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$152",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$153",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 330
+          },
+          "bond_to": {
+            "atom": "$154",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 360
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 30,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$156",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 60,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$157",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 90,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$158",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 120,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$159",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 150,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$160",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 180,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$161",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 210,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$162",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 240,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$163",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 270,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$164",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 300,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$165",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 330,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$166",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 360,
+            "y": 360
+          },
+          "bond_to": {
+            "atom": "$167",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "a1",
+          "end": "a14",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a2",
+          "end": "a15",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a3",
+          "end": "a16",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a4",
+          "end": "a17",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a5",
+          "end": "a18",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a6",
+          "end": "a19",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a7",
+          "end": "a20",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a8",
+          "end": "a21",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a9",
+          "end": "a22",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a10",
+          "end": "a23",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a11",
+          "end": "a24",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a12",
+          "end": "a25",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a13",
+          "end": "a26",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a14",
+          "end": "a27",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a15",
+          "end": "a28",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a16",
+          "end": "a29",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a17",
+          "end": "a30",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a18",
+          "end": "a31",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a19",
+          "end": "a32",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a20",
+          "end": "a33",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a21",
+          "end": "a34",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a22",
+          "end": "a35",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a23",
+          "end": "a36",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a24",
+          "end": "a37",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a25",
+          "end": "a38",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a26",
+          "end": "a39",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a27",
+          "end": "a40",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a28",
+          "end": "a41",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a29",
+          "end": "a42",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a30",
+          "end": "a43",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a31",
+          "end": "a44",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a32",
+          "end": "a45",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a33",
+          "end": "a46",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a34",
+          "end": "a47",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a35",
+          "end": "a48",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a36",
+          "end": "a49",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a37",
+          "end": "a50",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a38",
+          "end": "a51",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a39",
+          "end": "a52",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a40",
+          "end": "a53",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a41",
+          "end": "a54",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a42",
+          "end": "a55",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a43",
+          "end": "a56",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a44",
+          "end": "a57",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a45",
+          "end": "a58",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a46",
+          "end": "a59",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a47",
+          "end": "a60",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a48",
+          "end": "a61",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a49",
+          "end": "a62",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a50",
+          "end": "a63",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a51",
+          "end": "a64",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a52",
+          "end": "a65",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a53",
+          "end": "a66",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a54",
+          "end": "a67",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a55",
+          "end": "a68",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a56",
+          "end": "a69",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a57",
+          "end": "a70",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a58",
+          "end": "a71",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a59",
+          "end": "a72",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a60",
+          "end": "a73",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a61",
+          "end": "a74",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a62",
+          "end": "a75",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a63",
+          "end": "a76",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a64",
+          "end": "a77",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a65",
+          "end": "a78",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a66",
+          "end": "a79",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a67",
+          "end": "a80",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a68",
+          "end": "a81",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a69",
+          "end": "a82",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a70",
+          "end": "a83",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a71",
+          "end": "a84",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a72",
+          "end": "a85",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a73",
+          "end": "a86",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a74",
+          "end": "a87",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a75",
+          "end": "a88",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a76",
+          "end": "a89",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a77",
+          "end": "a90",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a78",
+          "end": "a91",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a79",
+          "end": "a92",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a80",
+          "end": "a93",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a81",
+          "end": "a94",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a82",
+          "end": "a95",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a83",
+          "end": "a96",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a84",
+          "end": "a97",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a85",
+          "end": "a98",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a86",
+          "end": "a99",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a87",
+          "end": "a100",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a88",
+          "end": "a101",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a89",
+          "end": "a102",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a90",
+          "end": "a103",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a91",
+          "end": "a104",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a92",
+          "end": "a105",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a93",
+          "end": "a106",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a94",
+          "end": "a107",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a95",
+          "end": "a108",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a96",
+          "end": "a109",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a97",
+          "end": "a110",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a98",
+          "end": "a111",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a99",
+          "end": "a112",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a100",
+          "end": "a113",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a101",
+          "end": "a114",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a102",
+          "end": "a115",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a103",
+          "end": "a116",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a104",
+          "end": "a117",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a105",
+          "end": "a118",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a106",
+          "end": "a119",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a107",
+          "end": "a120",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a108",
+          "end": "a121",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a109",
+          "end": "a122",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a110",
+          "end": "a123",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a111",
+          "end": "a124",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a112",
+          "end": "a125",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a113",
+          "end": "a126",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a114",
+          "end": "a127",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a115",
+          "end": "a128",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a116",
+          "end": "a129",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a117",
+          "end": "a130",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a118",
+          "end": "a131",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a119",
+          "end": "a132",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a120",
+          "end": "a133",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a121",
+          "end": "a134",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a122",
+          "end": "a135",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a123",
+          "end": "a136",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a124",
+          "end": "a137",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a125",
+          "end": "a138",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a126",
+          "end": "a139",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a127",
+          "end": "a140",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a128",
+          "end": "a141",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a129",
+          "end": "a142",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a130",
+          "end": "a143",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a131",
+          "end": "a144",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a132",
+          "end": "a145",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a133",
+          "end": "a146",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a134",
+          "end": "a147",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a135",
+          "end": "a148",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a136",
+          "end": "a149",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a137",
+          "end": "a150",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a138",
+          "end": "a151",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a139",
+          "end": "a152",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a140",
+          "end": "a153",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a141",
+          "end": "a154",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a142",
+          "end": "a155",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a143",
+          "end": "a156",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a144",
+          "end": "a157",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a145",
+          "end": "a158",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a146",
+          "end": "a159",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a147",
+          "end": "a160",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a148",
+          "end": "a161",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a149",
+          "end": "a162",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a150",
+          "end": "a163",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a151",
+          "end": "a164",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a152",
+          "end": "a165",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a153",
+          "end": "a166",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a154",
+          "end": "a167",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a155",
+          "end": "a168",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "a156",
+          "end": "a169",
+          "order": "single"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "g",
+      "request": {
+        "contract": 1,
+        "request_id": "too-big",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a15",
+            "a16",
+            "a17",
+            "a18",
+            "a19",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a25",
+            "a28",
+            "a29",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34",
+            "a35",
+            "a36",
+            "a37",
+            "a38",
+            "a41",
+            "a42",
+            "a43",
+            "a44",
+            "a45",
+            "a46",
+            "a47",
+            "a48",
+            "a49",
+            "a50",
+            "a51",
+            "a54",
+            "a55",
+            "a56",
+            "a57",
+            "a58",
+            "a59",
+            "a60",
+            "a61",
+            "a62",
+            "a63",
+            "a64",
+            "a67",
+            "a68",
+            "a69",
+            "a70",
+            "a71",
+            "a72",
+            "a73",
+            "a74",
+            "a75",
+            "a76",
+            "a77",
+            "a80",
+            "a81",
+            "a82",
+            "a83",
+            "a84",
+            "a85",
+            "a86",
+            "a87",
+            "a88",
+            "a89",
+            "a90",
+            "a93",
+            "a94",
+            "a95",
+            "a96",
+            "a97",
+            "a98",
+            "a99",
+            "a100",
+            "a101",
+            "a102",
+            "a103",
+            "a106",
+            "a107",
+            "a108",
+            "a109",
+            "a110",
+            "a111",
+            "a112",
+            "a113",
+            "a114",
+            "a115",
+            "a116",
+            "a119",
+            "a120",
+            "a121",
+            "a122",
+            "a123",
+            "a124",
+            "a125",
+            "a126",
+            "a127",
+            "a128",
+            "a129",
+            "a132",
+            "a133",
+            "a134",
+            "a135",
+            "a136",
+            "a137",
+            "a138",
+            "a139",
+            "a140",
+            "a141",
+            "a142",
+            "a145",
+            "a146",
+            "a147",
+            "a148",
+            "a149",
+            "a150",
+            "a151",
+            "a152",
+            "a153",
+            "a154",
+            "a155"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "loss_report": [],
+        "model_id": "chemifree-cip-1",
+        "diagnostics": [
+          {
+            "code": "resource_limit",
+            "severity": "error",
+            "path": "parameters.atoms",
+            "details": {
+              "limit": 2000000,
+              "items": 121,
+              "item_limit": 20000,
+              "parameter": "atoms"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "g",
+      "request": {
+        "contract": 1,
+        "request_id": "one-atom",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {
+          "atoms": [
+            "a15"
+          ]
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [
+          {
+            "feature": "cip_descriptor",
+            "source_path": "atoms[a15]",
+            "disposition": "unknown",
+            "semantic_impact": "stereo",
+            "reason": "cip_digraph_limit: The comparison needs more digraph nodes or spheres than the limits allow."
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "named",
+          "atoms": [
+            {
+              "atom": "a15",
+              "state": "unsupported",
+              "descriptor": null,
+              "reason": "cip_digraph_limit",
+              "priority": null,
+              "decided_by": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    }
+  ]
+}

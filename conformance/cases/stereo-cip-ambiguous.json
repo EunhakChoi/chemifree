@@ -1,0 +1,307 @@
+{
+  "id": "stereo-cip-ambiguous",
+  "title": "A ligand double bond whose geometry is not stated makes Rule 3 ambiguous: the item has no descriptor, the outcome is partial and the other items are still labeled",
+  "requirements": [
+    "MODEL-03"
+  ],
+  "axis": "stereo",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "element": "Cl",
+          "op": "add_atom",
+          "position": {
+            "x": 0.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 10.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 20.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 30.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 40.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 50.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 60.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 70.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "N",
+          "op": "add_atom",
+          "position": {
+            "x": 80.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "hydrogens": {
+            "count": 1,
+            "mode": "specified"
+          },
+          "op": "add_atom",
+          "position": {
+            "x": 90.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 100.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "C",
+          "op": "add_atom",
+          "position": {
+            "x": 110.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 120.0,
+            "y": 0.0
+          }
+        },
+        {
+          "element": "O",
+          "op": "add_atom",
+          "position": {
+            "x": 130.0,
+            "y": 0.0
+          }
+        },
+        {
+          "begin": "a1",
+          "end": "a2",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a3",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a3",
+          "end": "a4",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a4",
+          "end": "a5",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a2",
+          "end": "a6",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a6",
+          "end": "a7",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a7",
+          "end": "a8",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a9",
+          "end": "a10",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a10",
+          "end": "a11",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a10",
+          "end": "a12",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "begin": "a12",
+          "end": "a13",
+          "op": "add_bond",
+          "order": "double"
+        },
+        {
+          "begin": "a12",
+          "end": "a14",
+          "op": "add_bond",
+          "order": "single"
+        },
+        {
+          "atom": "a2",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a1",
+              "implicit_hydrogen",
+              "a3",
+              "a6"
+            ],
+            "turn": "anticlockwise"
+          },
+          "op": "set_atom_configuration"
+        },
+        {
+          "atom": "a10",
+          "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": [
+              "a9",
+              "implicit_hydrogen",
+              "a11",
+              "a12"
+            ],
+            "turn": "clockwise"
+          },
+          "op": "set_atom_configuration"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "ambiguous",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-cip-1",
+        "loss_report": [
+          {
+            "feature": "cip_descriptor",
+            "source_path": "atoms[a2]",
+            "disposition": "unknown",
+            "semantic_impact": "stereo",
+            "reason": "cip_ligand_stereo_unspecified: Rule 3 has to place a ligand double bond whose geometry the document does not state, so the answer depends on information it does not have."
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "cip_scope"
+          },
+          {
+            "code": "cip_not_checked"
+          }
+        ],
+        "result": {
+          "model": "chemifree-cip-1",
+          "rules": [
+            "1a",
+            "1b",
+            "2",
+            "3"
+          ],
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "ambiguous",
+              "descriptor": null,
+              "reason": "cip_ligand_stereo_unspecified",
+              "priority": null,
+              "decided_by": null
+            },
+            {
+              "atom": "a10",
+              "state": "assigned",
+              "descriptor": "S",
+              "reason": null
+            }
+          ],
+          "bonds": []
+        },
+        "document_revision": 1
+      }
+    }
+  ]
+}
