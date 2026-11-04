@@ -1141,3 +1141,20 @@ fn the_example_in_the_contract_is_what_the_service_sends() {
     );
     assert_eq!(reply["result"]["notes"], blocks[1]["notes"]);
 }
+
+/// Notes are one per change of meaning, not one per feature and path: a client must not use
+/// the pair as a key (the web page keys its list by position as well).
+#[test]
+fn one_transaction_can_report_the_same_feature_and_path_twice() {
+    let (app, _directory, id) = grouped();
+    let reply = operate(
+        &app,
+        &id,
+        "twice",
+        2,
+        &json!([{"op": "merge_stereo_groups", "into": "e1", "from": "e2"},
+                {"op": "split_stereo_group", "group": "e1", "atoms": ["a1"], "number": 9}]),
+    );
+    let relation = note("stereo_group_relation", "groups[e1]", "dropped");
+    assert_eq!(features(&reply), [relation.clone(), relation]);
+}

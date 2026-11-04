@@ -10,7 +10,7 @@ use chemifree_application::{
     GraphicShapeDto, HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse,
     PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
     RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
-    SettingsSource, StereoView, TransactionSelections, TrashListResponse,
+    SettingsSource, StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -1030,15 +1030,19 @@ fn stereo_lines(stereo: &StereoView) -> Vec<String> {
         lines.push(line);
     }
     for group in &stereo.groups {
-        let stored = group
-            .stored_number
-            .map_or_else(|| "none".to_owned(), |number| number.to_string());
-        lines.push(format!(
-            "  stereo group {}  {}  stored number {stored}  {}",
-            group.id,
-            group.label,
-            group.members.join(" ")
-        ));
+        // The label already carries the interpreted number; say how it was stated, and nothing
+        // the group does not have: an absolute group has no number, an omitted one reads as 0.
+        let number = match (group.kind, group.stored_number) {
+            (StereoGroupKindDto::Absolute, _) => "absolute: no number".to_owned(),
+            (_, None) => "number omitted (reads as 0)".to_owned(),
+            (_, Some(stored)) => format!("number {stored}"),
+        };
+        let mut line = format!("  stereo group {}  {}  {number}", group.id, group.label);
+        if !group.members.is_empty() {
+            line.push_str("  ");
+            line.push_str(&group.members.join(" "));
+        }
+        lines.push(line);
     }
     lines
 }
@@ -1047,7 +1051,7 @@ fn stereo_lines(stereo: &StereoView) -> Vec<String> {
 mod tests {
     use chemifree_application::{
         Application, AtomStereoView, BondStereoView, CommandDto, RegistryEntryState, RelationDto,
-        StereoGroupKindDto, StereoGroupView, TurnDto,
+        TurnDto,
     };
     use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
     use serde_json::json;
@@ -1212,29 +1216,6 @@ mod tests {
         );
     }
 
-    fn group(
-        id: &str,
-        kind: StereoGroupKindDto,
-        stored: Option<i32>,
-        members: &[&str],
-    ) -> StereoGroupView {
-        let number = match kind {
-            StereoGroupKindDto::Absolute => None,
-            _ => Some(stored.unwrap_or(0)),
-        };
-        StereoGroupView {
-            id: id.into(),
-            kind,
-            stored_number: stored,
-            number,
-            label: match number {
-                None => "abs".into(),
-                Some(number) => format!("{}{number}", name(&kind)),
-            },
-            members: members.iter().map(|m| (*m).to_owned()).collect(),
-        }
-    }
-
     #[test]
     fn stated_configurations_print_one_line_each_in_canonical_order() {
         let stereo = StereoView {
@@ -1267,11 +1248,7 @@ mod tests {
                     configuration: BondConfigurationDto::Unknown {},
                 },
             ],
-            groups: vec![
-                group("e1", StereoGroupKindDto::Or, None, &["a1", "a7"]),
-                group("e2", StereoGroupKindDto::Absolute, None, &["a9"]),
-                group("e3", StereoGroupKindDto::And, Some(-2), &["a10"]),
-            ],
+            groups: Vec::new(),
         };
         assert_eq!(
             stereo_lines(&stereo),
@@ -1280,12 +1257,80 @@ mod tests {
                 "  stereo a7  center  a2 a8 a9 lone_pair  unknown",
                 "  stereo b5  double bond  a3 a4  opposite_sides",
                 "  stereo b6  double bond  unknown",
-                "  stereo group e1  or0  stored number none  a1 a7",
-                "  stereo group e2  abs  stored number none  a9",
-                "  stereo group e3  and-2  stored number -2  a10",
             ]
         );
         assert_eq!(stereo_lines(&StereoView::default()), Vec::<String>::new());
+    }
+
+    /// Three stated centers (`a1`, `a5`, `a9`) and one group on each: `or` with no number,
+    /// `absolute`, and `and` with the number -2.
+    fn grouped() -> StereoView {
+        let mut commands = Vec::new();
+        for block in 0..3 {
+            let (x, first) = (100.0 * f64::from(block), 4 * block);
+            commands
+                .push(json!({"op": "add_atom", "element": "C", "position": {"x": x, "y": 100.0}}));
+            for (dx, dy, element) in [(0.0, -30.0, "F"), (26.0, 15.0, "Cl"), (-26.0, 15.0, "Br")] {
+                commands.push(json!({"op": "add_atom", "element": element,
+                    "position": {"x": x + dx, "y": 100.0 + dy},
+                    "bond_to": {"atom": format!("${first}"), "order": "single"}}));
+            }
+        }
+        for block in 0..3 {
+            let first = 4 * block;
+            commands.push(
+                json!({"op": "set_atom_configuration", "atom": format!("${first}"),
+                "configuration": {"kind": "tetrahedral",
+                    "neighbors": [format!("${}", first + 1), format!("${}", first + 2),
+                                  format!("${}", first + 3), "implicit_hydrogen"],
+                    "turn": "clockwise"}}),
+            );
+        }
+        commands.push(
+            json!({"op": "create_stereo_group", "kind": "or", "atoms": ["a1"], "number": null}),
+        );
+        commands.push(json!({"op": "create_stereo_group", "kind": "absolute", "atoms": ["a5"], "number": null}));
+        commands.push(
+            json!({"op": "create_stereo_group", "kind": "and", "atoms": ["a9"], "number": -2}),
+        );
+        drawn(json!(commands)).document.stereo
+    }
+
+    #[test]
+    fn a_group_line_gives_the_label_the_service_built_and_how_the_number_was_stated() {
+        let stereo = grouped();
+        let lines = stereo_lines(&stereo);
+        let line = |index: usize, number: &str, members: &str| {
+            let group = &stereo.groups[index];
+            format!(
+                "  stereo group {}  {}  {number}  {members}",
+                group.id, group.label
+            )
+        };
+        assert_eq!(stereo.groups.len(), 3);
+        assert_eq!(
+            lines[lines.len() - 3..],
+            [
+                line(0, "number omitted (reads as 0)", "a1"),
+                line(1, "absolute: no number", "a5"),
+                line(2, "number -2", "a9"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_group_line_without_members_has_no_trailing_space() {
+        let mut stereo = grouped();
+        stereo.groups[0].members.clear();
+        let lines = stereo_lines(&stereo);
+        let first_group = lines
+            .iter()
+            .find(|l| l.contains("stereo group e1"))
+            .unwrap();
+        assert!(
+            first_group.ends_with("number omitted (reads as 0)"),
+            "{first_group:?}"
+        );
     }
 
     #[test]

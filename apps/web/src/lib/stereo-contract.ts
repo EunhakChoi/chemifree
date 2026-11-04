@@ -83,6 +83,9 @@ export interface StereoGroup {
   members: string[]
 }
 
+/** The note features the service sends; the one source of the type and of the validator. */
+export const NOTE_FEATURES = ['stereo_configuration', 'stereo_group_member', 'stereo_group', 'stereo_group_relation'] as const
+
 /**
  * What a transaction cleared of stereo because it changed what the record was about: one entry
  * per record, shaped like the contract's loss entries. Describes that request only.
@@ -101,11 +104,10 @@ export interface StereoNote {
  * change of what a group states: `stereo_group_member` (a member left), `stereo_group` (a group
  * disappeared) and `stereo_group_relation` (which centers belong together changed).
  */
-export type StereoNoteFeature = 'stereo_configuration' | 'stereo_group_member' | 'stereo_group' | 'stereo_group_relation'
-
+export type StereoNoteFeature = (typeof NOTE_FEATURES)[number]
 
 /** A document with no stated configuration, and what an older service's reply is read as. */
-export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds: [] })
+export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds: [], groups: [] })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -257,9 +259,15 @@ function isBondConfiguration(value: unknown, bond: GraphBond, neighbors: Readonl
   )
 }
 
-/** A document's stereo table, empty for an older service that has none. */
+/**
+ * A document's stereo table, empty for an older service that has none. An omitted group list
+ * reads as no groups (`groups` is additive within contract 1), so a snapshot from an older
+ * service and one from a current service with `groups: []` are the same table.
+ */
 export function stereoOf(document: { stereo?: StereoView }): Readonly<StereoView> {
-  return document.stereo ?? NO_STEREO
+  const { stereo } = document
+  if (stereo === undefined) return NO_STEREO
+  return stereo.groups === undefined ? { ...stereo, groups: [] } : stereo
 }
 
 /** The marks on a document's bonds and the configurations it states; nothing is derived. */
@@ -304,7 +312,18 @@ export function markName(mark: StereoMark, bond: { begin: string; end: string })
   }
 }
 
-const NOTE_FEATURES: readonly unknown[] = ['stereo_configuration', 'stereo_group_member', 'stereo_group', 'stereo_group_relation']
+/**
+ * What each note feature may carry, as the service emits it: the dispositions and the shape of
+ * `source_path`. A feature this build does not know is refused, as every other unknown value.
+ */
+const NOTE_SHAPES: Record<StereoNoteFeature, { dispositions: readonly unknown[]; path: RegExp }> = {
+  stereo_configuration: { dispositions: ['dropped'], path: /^(atoms\[a[1-9]\d*\]|bonds\[b[1-9]\d*\])$/ },
+  stereo_group_member: { dispositions: ['dropped'], path: /^atoms\[a[1-9]\d*\]$/ },
+  stereo_group: { dispositions: ['dropped'], path: /^groups\[e[1-9]\d*\]$/ },
+  stereo_group_relation: { dispositions: ['dropped', 'normalized'], path: /^groups\[e[1-9]\d*\]$/ },
+}
+
+const isNoteFeature = (value: unknown): value is StereoNoteFeature => NOTE_FEATURES.some((feature) => feature === value)
 
 /** Whether `value` is the `notes` list of a document reply, which holds only stereo notes. */
 export function isStereoNotes(value: unknown): value is StereoNote[] {
@@ -314,9 +333,10 @@ export function isStereoNotes(value: unknown): value is StereoNote[] {
       (note) =>
         isRecord(note) &&
         hasOnly(note, ['feature', 'source_path', 'disposition', 'reason', 'semantic_impact']) &&
-        NOTE_FEATURES.includes(note.feature) &&
+        isNoteFeature(note.feature) &&
         typeof note.source_path === 'string' &&
-        (note.disposition === 'dropped' || (note.feature === 'stereo_group_relation' && note.disposition === 'normalized')) &&
+        NOTE_SHAPES[note.feature].path.test(note.source_path) &&
+        NOTE_SHAPES[note.feature].dispositions.includes(note.disposition) &&
         typeof note.reason === 'string' &&
         note.semantic_impact === 'stereo',
     )
