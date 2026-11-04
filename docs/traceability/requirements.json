@@ -1129,8 +1129,24 @@
           "followups": []
         },
         {
+          "id": "STEREO-01.2",
+          "summary": "Stereo groups are shown and edited in the web editor: the Stereo panel's Group cell and group list read only from the snapshot (id, label, kind, the stored number as stated against the interpreted one, member count, member chips), one-click make absolute, group as AND or OR, add, remove, merge, split, set number and delete on the selected atoms in one transaction each (enabled only when the contract's preconditions hold, a disabled control saying why in text), a plain sentence for each of the twelve stereo_group refusal reasons, the reply's notes shown as for other stereo notes, and a Group labels canvas overlay that is off by default, not saved and never part of the document. The page states that groups are not drawn into exported files, not compared with the drawing and do not change CIP labels or identity, and claims no ratio for any kind. Nothing here maps groups to any file format.",
+          "status": "implemented",
+          "implementation": [
+            "apps/web/src/editor/stereo-groups.ts",
+            "apps/web/src/editor/group-label-layer.tsx",
+            "apps/web/src/components/stereo-groups-section.tsx",
+            "apps/web/src/components/stereo-panel.tsx",
+            "apps/web/src/hooks/use-document-editor.ts"
+          ],
+          "evidence": [
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "STEREO-01.rest",
-          "summary": "Group import and export in the formats that can carry them (V3000 collections, CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses, group normalization on import, and the web display and editing of groups.",
+          "summary": "Group import and export in the formats that can carry them (V3000 collections, CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses, and group normalization on import.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

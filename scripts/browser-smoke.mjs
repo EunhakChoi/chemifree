@@ -4095,6 +4095,7 @@ step = 'after short_wide_bond_is_selectable'
       const groupsOf = async () => (await read(groupsId)).document.stereo.groups
       const item = (id) => section.locator(`[data-testid="stereo-group"][data-group="${id}"]`)
       const action = (name) => section.getByRole('button', { name, exact: true })
+      const numberField = (id) => item(id).getByRole('textbox', { name: `Number of ${id}`, exact: true })
       const why = (name) => section.locator(`[data-action="${action_ids[name]}"] [data-testid="group-why"]`)
       const action_ids = { 'Make absolute': 'make_absolute', 'Group as AND': 'group_and', 'Group as OR': 'group_or', 'Add to group': 'add_to_group', 'Remove from group': 'remove_from_group', 'Merge groups': 'merge', 'Split selected out': 'split' }
       const newNumber = section.getByLabel('Number for a new or split group (empty for none)')
@@ -4104,6 +4105,9 @@ step = 'after short_wide_bond_is_selectable'
       const select = async (...points) => {
         await press('Select and move')
         await agreePage.locator('svg[data-structure-canvas]').scrollIntoViewIfNeeded()
+        // A click on empty space clears the selection; clicking a selected atom would keep the others.
+        const empty = await place({ x: 50, y: 40 })
+        await agreePage.mouse.click(empty.x, empty.y)
         for (const [index, point] of points.entries()) {
           const at = await place(point)
           if (index > 0) await agreePage.keyboard.down('Shift')
@@ -4179,7 +4183,7 @@ step = 'after short_wide_bond_is_selectable'
 
       // Numbers: a positive one, 0 and a negative one are accepted and kept as stated.
       const setNumber = async (text) => {
-        const input = item('e1').getByLabel('Number of e1')
+        const input = numberField('e1')
         await input.fill(text)
         await edit(groupsId, () => item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).click())
       }
@@ -4189,7 +4193,7 @@ step = 'after short_wide_bond_is_selectable'
       assert.deepEqual((await same())[0], { id: 'e1', kind: 'or', stored_number: 0, number: 0, label: 'or0', members: ['a2', 'a4'] })
       await setNumber('-2')
       assert.deepEqual((await same())[0], { id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2', 'a4'] })
-      const numberInput = item('e1').getByLabel('Number of e1')
+      const numberInput = numberField('e1')
       await numberInput.fill('2147483648')
       assert.equal(await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).isDisabled(), true)
       await numberInput.fill('abc')
@@ -4200,7 +4204,7 @@ step = 'after short_wide_bond_is_selectable'
       // Split a4 out into a new group numbered 7: both groups, and the reply's note.
       await select(A4)
       await newNumber.fill('7')
-      await eventually(async () => assert.equal(await action('Split selected out').isDisabled(), false))
+      await eventually(async () => assert.equal(await action('Split selected out').isDisabled(), false, await why('Split selected out').textContent({ timeout: 500 }).catch(() => '(no reason)')))
       await edit(groupsId, () => action('Split selected out').click())
       assert.deepEqual(await same(), [
         { id: 'e1', kind: 'or', stored_number: -2, number: -2, label: 'or-2', members: ['a2'] },
@@ -4213,11 +4217,11 @@ step = 'after short_wide_bond_is_selectable'
 
       // A taken number is refused with the sentence for it and the merge hint; nothing changes, and the field returns to the stored number.
       const held = await read(groupsId)
-      await item('e1').getByLabel('Number of e1').fill('7')
+      await numberField('e1').fill('7')
       await item('e1').getByRole('button', { name: 'Set the number of e1', exact: true }).click()
       await agreePage.getByText('Another group of this kind already has this number (a group with no number reads as 0). Choose a different number, or merge the two groups: select a member of each and press Merge groups. Nothing was changed.').waitFor()
       assert.deepEqual(await read(groupsId), held, 'a refused edit changes nothing')
-      await eventually(async () => assert.equal(await item('e1').getByLabel('Number of e1').inputValue(), '-2'))
+      await eventually(async () => assert.equal(await numberField('e1').inputValue(), '-2'))
       await dismiss()
 
       // Merge: a member of each group; e1 keeps its kind and number.
@@ -4284,7 +4288,7 @@ step = 'after short_wide_bond_is_selectable'
       await select(A2)
       await edit(groupsId, () => action('Make absolute').click())
       assert.deepEqual(await same(), [{ id: 'e3', kind: 'absolute', stored_number: null, number: null, label: 'abs', members: ['a2'] }], 'a deleted group id is not reused')
-      assert.equal(await item('e3').getByLabel('Number of e3').count(), 0, 'an absolute group has no number field')
+      assert.equal(await numberField('e3').count(), 0, 'an absolute group has no number field')
       await select(A4)
       assert.equal(await action('Make absolute').isDisabled(), true)
       assert.equal(await why('Make absolute').textContent(), 'The document already has an absolute group (e3); there is at most one.')
