@@ -241,6 +241,7 @@ pub const CT_REASON_FAMILIES: &[(&str, &str)] = &[
         "malformed_input",
     ),
     ("v3000_collection_drawing_unreadable", "unsupported_feature"),
+    ("v3000_group_member_not_drawn", "unsupported_feature"),
     ("v3000_unknown_atom_index", "dangling_reference"),
     ("v3000_unsupported_block", "unsupported_feature"),
     ("v3000_sgroup_not_supported", "unsupported_feature"),

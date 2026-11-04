@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chemifree_domain::document::{
-    Atom, AtomRef, BondOrder, BondRef, Command, Document, DocumentId, GroupId, GroupRef,
+    Atom, AtomId, AtomRef, BondOrder, BondRef, Command, Document, DocumentId, GroupId, GroupRef,
     NewAtomPositions, Point,
 };
 use chemifree_domain::element::Element;
@@ -235,6 +235,35 @@ pub(crate) fn import_commands(
     Ok(commands)
 }
 
+/// Whether a derived center is a stored tetrahedral configuration (a wavy mark derives
+/// `unknown`, which no group can hold). The one predicate of the import's member check and the
+/// export's refusal, so a file this writes is one this reader accepts.
+fn is_tetrahedral(state: &CenterState) -> bool {
+    matches!(state, CenterState::Tetrahedral { .. })
+}
+
+/// The group members whose written depiction would not derive a tetrahedral configuration:
+/// derived on the positions and marks as the file will hold them (the same drawing the consent
+/// comparison reads). A V3000 file with such a member is refused by this reader, so the export
+/// refuses instead of writing it; consent cannot cover it.
+pub(crate) fn undrawn_group_members(document: &Document, view: &DocumentView) -> Vec<String> {
+    let drawing = Drawing::of_document_shown(document, document.first_instance(), written_point);
+    let mut undrawn = Vec::new();
+    for group in &view.stereo.groups {
+        for member in &group.members {
+            let derives = AtomId::parse(member).is_some_and(|atom| {
+                drawing
+                    .derive_center(atom)
+                    .is_ok_and(|s| is_tetrahedral(&s))
+            });
+            if !derives {
+                undrawn.push(member.clone());
+            }
+        }
+    }
+    undrawn
+}
+
 fn kind_of(kind: CtCollectionKind) -> GroupKind {
     match kind {
         CtCollectionKind::Absolute => GroupKind::Absolute,
@@ -443,7 +472,7 @@ fn derived_configurations(
         }
         match drawing.derive_center(atom) {
             Ok(state) => {
-                if matches!(state, CenterState::Tetrahedral { .. }) {
+                if is_tetrahedral(&state) {
                     tetrahedral.insert(position);
                 }
                 readable.push(AtomRef::Created(position));

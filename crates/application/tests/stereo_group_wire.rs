@@ -877,28 +877,35 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
         json!(["stereo_configuration", "stereo_group"]),
         "{refused}"
     );
-    // V2000 has no groups: it needs consent. V3000 writes them as collections (the consent it
-    // can still need, for centers in no group, is another feature).
-    for ctab in ["v2000", "v3000"] {
-        let mol = call(
-            &app,
-            "mol",
-            "document.export",
-            &json!({"format": "mol", "ctab": ctab, "records": [{"document_id": id}]}),
-        );
-        assert_eq!(
-            mol["diagnostics"][0]["code"], "loss_consent_required",
-            "{mol}"
-        );
-        let features = mol["diagnostics"][0]["details"]["features"]
+    // V2000 has no groups: it needs consent. V3000 would write them as collections, but these
+    // members carry no wedge or hash, so it refuses (no consent covers that).
+    let v2000 = call(
+        &app,
+        "mol2",
+        "document.export",
+        &json!({"format": "mol", "ctab": "v2000", "records": [{"document_id": id}]}),
+    );
+    assert_eq!(
+        v2000["diagnostics"][0]["code"], "loss_consent_required",
+        "{v2000}"
+    );
+    assert!(
+        v2000["diagnostics"][0]["details"]["features"]
             .as_array()
-            .unwrap();
-        assert_eq!(
-            features.contains(&json!("stereo_group")),
-            ctab == "v2000",
-            "{ctab}: {mol}"
-        );
-    }
+            .unwrap()
+            .contains(&json!("stereo_group")),
+        "{v2000}"
+    );
+    let v3000 = call(
+        &app,
+        "mol3",
+        "document.export",
+        &json!({"format": "mol", "ctab": "v3000", "records": [{"document_id": id}]}),
+    );
+    assert_eq!(
+        v3000["diagnostics"][0]["code"], "v3000_group_member_not_drawn",
+        "{v3000}"
+    );
 }
 
 /// A reply without the snapshot it carries, which names the groups.

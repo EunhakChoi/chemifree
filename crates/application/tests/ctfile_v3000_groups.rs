@@ -914,3 +914,85 @@ fn an_unreadable_drawing_is_named_as_the_cause_not_the_member_atoms() {
     );
     assert_eq!(document(&app, &id)["revision"], 0);
 }
+
+/// A document whose center states a configuration by hand (no mark) and is in a group; with
+/// `mark` the wedge that shows it is drawn too.
+fn stated_center(app: &App, mark: bool) -> String {
+    let id = new_document(app, "Stated");
+    let at = |x: f64, y: f64, element: &str, to: Option<&str>| {
+        let mut c = json!({"op": "add_atom", "element": element, "position": {"x": x, "y": y}});
+        if let Some(to) = to {
+            c["bond_to"] = json!({"atom": to, "order": "single"});
+        }
+        c
+    };
+    let mut commands = vec![
+        at(100.0, 100.0, "C", None),
+        at(100.0, 70.0, "F", Some("$0")),
+        at(126.0, 115.0, "Cl", Some("$0")),
+        at(74.0, 115.0, "Br", Some("$0")),
+    ];
+    if mark {
+        commands.push(json!({"op": "set_bond_mark", "bond": "$2", "mark": {"kind": "wedge", "narrow": "begin"}}));
+        commands.push(json!({"op": "set_configuration_from_drawing", "atoms": ["$0"]}));
+    } else {
+        commands.push(
+            json!({"op": "set_atom_configuration", "atom": "$0", "configuration": {
+            "kind": "tetrahedral",
+            "neighbors": ["$3", "$1", "$2", "implicit_hydrogen"], "turn": "clockwise"}}),
+        );
+    }
+    commands.push(json!({"op": "create_stereo_group", "kind": "or", "atoms": ["$0"], "number": 1}));
+    transact(app, &id, 0, json!(commands));
+    id
+}
+
+#[test]
+fn a_group_member_the_written_marks_do_not_show_is_not_written_into_an_unreadable_file() {
+    let (app, _directory, _unused) = setup();
+    let undrawn = stated_center(&app, false);
+    let before = document(&app, &undrawn);
+    let refused = export(&app, &undrawn, json!({"ctab": "v3000"}));
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "v3000_group_member_not_drawn",
+        "consent cannot cover a file the reader refuses: {refused}"
+    );
+    assert!(
+        refused["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("a1"),
+        "{refused}"
+    );
+    assert_eq!(document(&app, &undrawn), before, "export is a read");
+    // The same through `auto` (a group makes it V3000) and the format id.
+    for extra in [json!({"ctab": "auto"}), json!({"format": "mol-v3000"})] {
+        let again = export(&app, &undrawn, extra);
+        assert_eq!(
+            again["diagnostics"][0]["code"], "v3000_group_member_not_drawn",
+            "{again}"
+        );
+    }
+    // V2000 is unchanged: the groups are a consent-dropped loss there, not a refusal.
+    let v2000 = export(&app, &undrawn, json!({"ctab": "v2000"}));
+    assert_eq!(
+        v2000["diagnostics"][0]["code"], "loss_consent_required",
+        "{v2000}"
+    );
+    // With the wedge drawn the member derives, and the file reads back to the same partition.
+    let drawn = stated_center(&app, true);
+    let written = export(&app, &drawn, json!({"ctab": "v3000"}));
+    assert_eq!(written["outcome"], "partial", "{written}");
+    let target = new_document(&app, "Back");
+    import(
+        &app,
+        &target,
+        0,
+        written["result"]["content"].as_str().unwrap(),
+    );
+    assert_eq!(
+        partition(&document(&app, &target)),
+        partition(&document(&app, &drawn))
+    );
+}

@@ -742,7 +742,8 @@ fn every_v3000_reason_in_the_source_has_a_family_and_the_table_lists_no_other() 
         }
     }
     // Reasons the application's projection owns (it reads the codec's record, not the file).
-    const PROJECTION_OWNED: [&str; 2] = [
+    const PROJECTION_OWNED: [&str; 3] = [
+        "v3000_group_member_not_drawn",
         "v3000_collection_member_not_stereocenter",
         "v3000_collection_drawing_unreadable",
     ];

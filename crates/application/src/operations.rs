@@ -1813,6 +1813,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Ok(record) => record,
                 Err(error) => return known.invalid(ct_failure(error)),
             };
+            if target == ct_projection::Target::V3000 {
+                let undrawn = ct_projection::undrawn_group_members(&domain, &snapshot.document);
+                if !undrawn.is_empty() {
+                    return known.invalid(ct_failure(CtError {
+                        code: "v3000_group_member_not_drawn",
+                        message: format!(
+                            "Group members {} have no wedge or hash that derives their stored configuration, so the collection would name atoms this reader refuses; draw the marks or remove the members from the group. Nothing was written.",
+                            undrawn.join(", ")
+                        ),
+                        record: index,
+                        line: None,
+                    }));
+                }
+            }
             losses.extend(ct_projection::molfile_stereo_losses(
                 &domain,
                 &snapshot.document,
