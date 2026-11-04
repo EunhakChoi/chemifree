@@ -122,11 +122,22 @@ impl Analysis {
     }
 
     /// The descriptors whose being read the same from any digraph decides whether this
-    /// analysis is: those the steady ties read, or all of them when there is none.
+    /// analysis is: none when a steady tie read none (that tie alone makes the bond not
+    /// stereogenic in every reading, the two hydrogens of a `=CH2` for one, so what another end
+    /// read does not matter), otherwise those the steady ties read, or all of them when there
+    /// is no steady tie.
+    ///
+    /// A steady tie that read something is not preferred over another that read something else:
+    /// which of two is "the smaller" would follow the bond identifiers, and so the answer would
+    /// follow the numbering. They are taken together, which can refuse a bond that either end
+    /// alone would have settled, never label one.
     pub(super) fn reads_that_matter(&self, ends: Option<[AtomId; 2]>) -> BTreeSet<BondId> {
         let steady = self.steady_ties(ends);
         if steady.is_empty() {
             return self.read.clone();
+        }
+        if steady.iter().any(|region| region.read.is_empty()) {
+            return BTreeSet::new();
         }
         steady
             .into_iter()
@@ -497,7 +508,17 @@ impl<'c, 'g> Oracle<'c, 'g> {
     }
 
     /// The analysis of `bond` with the bond between `ends` left out of the digraphs, not kept.
+    ///
+    /// Only [`Oracle::seen_from_inside`] asks, and it is asked by a double bond being labeled
+    /// ([`double_bond`], after its own analysis has finished; a center passes no ends and never
+    /// gets here). No descriptor is being computed then, so the stack is empty and this is the
+    /// computation a request for `bond` from the top would make: the same nesting bound, and no
+    /// outer computation whose `cycle_at` would have to be kept.
     fn analysis_without(&self, bond: BondId, ends: [AtomId; 2]) -> Result<Analysis, Interrupted> {
+        debug_assert!(
+            self.memory.borrow().stack.is_empty(),
+            "a descriptor is being computed while a unit asks how it reads from inside"
+        );
         self.memory.borrow_mut().stack.push(bond);
         let result = analyze(
             self.context,
@@ -515,6 +536,15 @@ impl<'c, 'g> Oracle<'c, 'g> {
 
     /// Whether the descriptors in `read`, and those they read in turn, are the same seen from
     /// inside the digraph of a double bond with ends `ends`.
+    ///
+    /// For a center (`ends` is `None`) nothing is ranked again: only a ring closure can differ,
+    /// and the walk follows analyses already computed, over bonds that are all in the closure of
+    /// the descriptors the center was charged for (a bond's reads are among its direct needs), so
+    /// it adds no work to count and `nodes`, `deps` and `over` stay empty.
+    ///
+    /// A bond that has no analysis kept (it was computed under a nesting limit) cannot be
+    /// reached with the item inside its cap: its cost counts as `cap + 1` wherever the item is
+    /// charged for it, and the item is a limit before `differs` is read.
     pub(super) fn seen_from_inside(
         &self,
         read: BTreeSet<BondId>,
@@ -542,6 +572,7 @@ impl<'c, 'g> Oracle<'c, 'g> {
                     .cloned()
             };
             let Some(found) = kept else {
+                // See above: the item is a limit whatever `differs` says.
                 seen.differs = true;
                 continue;
             };

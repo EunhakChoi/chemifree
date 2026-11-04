@@ -421,20 +421,25 @@ pub(super) fn rank_slots(
                     ranking.unsupported.push(reason);
                     continue;
                 }
-                Ok(_) if engine.nodes() > cap => {
-                    ranking.nodes = ranking.nodes.saturating_add(over);
-                    ranking.own_nodes = ranking.own_nodes.saturating_add(over);
-                    ranking.unsupported.push(Reason::DigraphLimit);
-                    continue;
-                }
                 Ok(found) => found,
             };
-            ranking.nodes = ranking.nodes.saturating_add(engine.nodes());
+            let nodes = engine.nodes();
+            if nodes > cap {
+                ranking.nodes = ranking.nodes.saturating_add(over);
+                ranking.own_nodes = ranking.own_nodes.saturating_add(over);
+                ranking.unsupported.push(Reason::DigraphLimit);
+                continue;
+            }
+            ranking.nodes = ranking.nodes.saturating_add(nodes);
             ranking.own_nodes = ranking.own_nodes.saturating_add(engine.arena.len());
             // What a comparison read is only kept when it finished: how far one that hit a
             // limit got follows the order its neighbors were visited in.
             ranking.read.extend(engine.requested().iter().copied());
             ranking.expanded.extend(engine.arena.expanded_atoms());
+            // The tie of an end of a double bond is steady only if it did not look at the bond's
+            // own atoms (see `Analysis::steady_ties`), which is read from `expanded`: a tie
+            // expands every node, so no atom it reached is missing there.
+            debug_assert!(ordering != Ordering::Equal || engine.arena.all_expanded());
             ranking.closes_ring |= engine.arena.closes_ring();
             if let Some(reason) = engine.refusal() {
                 ranking.unsupported.push(reason);
@@ -536,13 +541,15 @@ pub(super) fn center(
     .map_err(Stop::Interrupted)?;
     report.nodes = ranking.nodes;
     // Past the cap the item is a limit: see `rank_slots`.
-    if ranking.nodes <= item_cap
-        && oracle
+    if ranking.nodes <= item_cap {
+        let seen = oracle
             .seen_from_inside(ranking.read.clone(), None, 0)
-            .map_err(Stop::Interrupted)?
-            .differs
-    {
-        ranking.unsupported.push(Reason::Rule3NestedDescriptor);
+            .map_err(Stop::Interrupted)?;
+        // Nothing is ranked again for a center, so there is no work of this walk to charge.
+        debug_assert!(!seen.over && seen.nodes == 0 && seen.deps.is_empty());
+        if seen.differs {
+            ranking.unsupported.push(Reason::Rule3NestedDescriptor);
+        }
     }
     if let Some(&reason) = ranking.unsupported.iter().min() {
         report.state = State::Unsupported(reason);

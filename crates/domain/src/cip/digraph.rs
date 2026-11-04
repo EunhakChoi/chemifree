@@ -163,6 +163,13 @@ impl<'c, 'g> Arena<'c, 'g> {
     /// The atoms of the real nodes whose children were built: the atoms this arena looked at
     /// the neighbors of. What a comparison read of the molecule is within these atoms and
     /// their neighbors.
+    ///
+    /// A real node with no children is an atom with no neighbor but its parent and no
+    /// hydrogen, which no end of a double bond is (it has the partner, or the duplicate of its
+    /// parent); and a duplicate is always the child of an expanded node. So an atom of a double
+    /// bond that is in the digraph at all, as a real node or as a duplicate, is among these once
+    /// the digraph has been read to its last sphere (see [`Arena::all_expanded`]), which a tie
+    /// has been; an atom the model cannot expand is a refusal, which is not a tie.
     pub(super) fn expanded_atoms(&self) -> impl Iterator<Item = AtomId> + '_ {
         self.nodes
             .iter()
@@ -172,8 +179,28 @@ impl<'c, 'g> Arena<'c, 'g> {
             })
     }
 
+    /// Whether every real node has had its children built (an atom that cannot be expanded has
+    /// an empty list). A comparison that ended in a tie read every sphere to the last, and
+    /// building the next sphere builds the children of every node of this one, so it holds then.
+    pub(super) fn all_expanded(&self) -> bool {
+        self.nodes
+            .iter()
+            .all(|node| !matches!(node.kind, Kind::Real(_)) || node.children.is_some())
+    }
+
     /// Whether a ring closure is among the nodes: a duplicate of an atom on the path that is
     /// neither the far end of a multiple bond nor the parent a double bond leads back to.
+    ///
+    /// Exact for the nodes that were built. A duplicate is made in three ways: for a neighbor on
+    /// the path other than the parent, which is a ring closure and stands for an atom at most
+    /// two spheres above the node that was expanded (the parent is one sphere above it, the
+    /// path's atoms strictly higher), so at least three above the duplicate; for each bond
+    /// beyond the first to a neighbor, which stands for that neighbor, in the sphere of the
+    /// duplicate when the neighbor is not on the path, and at least three above it when it is (a
+    /// ring closed by a multiple bond); and for each bond beyond the first to the parent, which
+    /// stands for the parent, two spheres above it. A ring is only found if a node of it was
+    /// built; the comparison that asks has read as far as it needed to decide, which is as far
+    /// as its answer depends.
     pub(super) fn closes_ring(&self) -> bool {
         self.nodes.iter().any(|node| match node.kind {
             // A duplicate is one sphere below the atom that was expanded, so the atom it stands
@@ -397,5 +424,260 @@ mod tests {
             .collect();
         let expected = Kind::Duplicate { of: y, of_depth: 1 };
         assert_eq!(closure, vec![expected, expected]);
+        assert!(arena.closes_ring());
+    }
+
+    /// A bond given by the indices of its atoms and its order.
+    type Joint = (usize, usize, BondOrder);
+
+    /// Carbon atoms joined by the given bonds, as a document graph, and the identifiers of the
+    /// atoms in the order given.
+    fn graph_of(atoms: usize, bonds: &[Joint]) -> (MoleculeGraph, Vec<AtomId>) {
+        let mut document = Document::new(DocumentId::parse("digraph-test").unwrap(), "t").unwrap();
+        let adds: Vec<Command> = (0..atoms)
+            .map(|i| Command::AddAtom {
+                atom: Atom::from(Element::from_symbol("C").unwrap()),
+                positions: NewAtomPositions::Single(Point::new(i as f64, 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        document.apply(&adds).unwrap();
+        let ids: Vec<AtomId> = document.atoms().map(|(id, _)| id).collect();
+        let joins: Vec<Command> = bonds
+            .iter()
+            .map(|(begin, end, order)| Command::AddBond {
+                begin: AtomRef::Id(ids[*begin]),
+                end: AtomRef::Id(ids[*end]),
+                order: order.clone(),
+            })
+            .collect();
+        document.apply(&joins).unwrap();
+        (MoleculeGraph::from_document(&document), ids)
+    }
+
+    /// Whether the digraph of two ligands of `center`, read to its last sphere, closes a ring;
+    /// `None` when an atom of it is one the model refuses to expand (an aromatic system).
+    fn closes_ring_of(
+        atoms: usize,
+        bonds: &[Joint],
+        center: usize,
+        ligands: (usize, usize),
+    ) -> Option<bool> {
+        let (graph, ids) = graph_of(atoms, bonds);
+        let context = Context::new(&graph);
+        let mut arena = Arena::new(&context, ids[center], crate::cip::MAX_SPHERES);
+        arena
+            .roots(Slot::Atom(ids[ligands.0]), Slot::Atom(ids[ligands.1]))
+            .unwrap();
+        let mut index = 0;
+        while index < arena.len() {
+            arena.children(index).ok()?;
+            index += 1;
+        }
+        assert!(arena.all_expanded());
+        Some(arena.closes_ring())
+    }
+
+    /// A ring is found when it is closed by a single bond or a multiple one, at the entry atom or
+    /// the center, in a ring of three atoms (the least) or more, and a duplicate that stands for
+    /// the far end of a multiple bond or for the parent is never taken for one.
+    #[test]
+    fn a_ring_closes_a_ring_through_any_bond_and_a_multiple_bond_alone_does_not() {
+        use BondOrder::{Double, Single, Triple};
+        // Centers 0 with ligands 1 and 2.
+        let cases: [(&str, usize, &[Joint], bool); 10] = [
+            (
+                "chain",
+                4,
+                &[(0, 1, Single), (0, 2, Single), (1, 3, Single)],
+                false,
+            ),
+            (
+                "double bond to a leaf",
+                4,
+                &[(0, 1, Single), (0, 2, Single), (1, 3, Double)],
+                false,
+            ),
+            (
+                "triple bond to a leaf",
+                4,
+                &[(0, 1, Single), (0, 2, Single), (1, 3, Triple)],
+                false,
+            ),
+            (
+                "a double bond and a chain beyond it",
+                5,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Double),
+                    (3, 4, Single),
+                ],
+                false,
+            ),
+            // The ring is three atoms: the center, the ligand and one more.
+            (
+                "a three-membered ring through the center",
+                4,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Single),
+                    (3, 0, Single),
+                ],
+                true,
+            ),
+            // The entry atom 1 is in a three-membered ring 1-3-4.
+            (
+                "a three-membered ring at the entry atom",
+                5,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Single),
+                    (3, 4, Single),
+                    (4, 1, Single),
+                ],
+                true,
+            ),
+            (
+                "a ring closed by a double bond",
+                5,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Single),
+                    (3, 4, Single),
+                    (4, 1, Double),
+                ],
+                true,
+            ),
+            (
+                "a ring closed by a triple bond to the center",
+                5,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Single),
+                    (3, 4, Single),
+                    (4, 0, Triple),
+                ],
+                true,
+            ),
+            (
+                "two rings sharing a bond, one of them with a double bond",
+                6,
+                &[
+                    (0, 1, Single),
+                    (0, 2, Single),
+                    (1, 3, Single),
+                    (3, 4, Double),
+                    (4, 5, Single),
+                    (5, 1, Single),
+                ],
+                true,
+            ),
+            // The two ligands are joined: a ring through the center.
+            (
+                "the ligands joined",
+                3,
+                &[(0, 1, Single), (0, 2, Single), (1, 2, Double)],
+                true,
+            ),
+        ];
+        for (name, atoms, bonds, expected) in cases {
+            assert_eq!(
+                closes_ring_of(atoms, bonds, 0, (1, 2)),
+                Some(expected),
+                "{name}"
+            );
+        }
+    }
+
+    /// `closes_ring` is exactly "the part of the molecule the digraph reaches has a ring", for
+    /// any mix of single, double and triple bonds: the center and the atoms reachable from its
+    /// two ligands without passing through it form a graph with a cycle. 3,000 generated
+    /// molecules of up to 9 carbons.
+    #[test]
+    fn closes_ring_is_exactly_whether_the_reached_part_has_a_ring() {
+        let order_of = |weight: usize| match weight {
+            2 => BondOrder::Double,
+            3 => BondOrder::Triple,
+            _ => BondOrder::Single,
+        };
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let (mut rings, mut multiple_rings) = (0, 0);
+        for _ in 0..3_000 {
+            let atoms = 3 + next(7);
+            let mut bonds: Vec<Joint> = Vec::new();
+            let mut valence = vec![0_usize; atoms];
+            for _ in 0..(atoms + next(4)) {
+                let (a, b) = (next(atoms), next(atoms));
+                let weight = [1, 1, 1, 2, 3][next(5)];
+                let present = bonds
+                    .iter()
+                    .any(|&(x, y, _)| (x, y) == (a, b) || (x, y) == (b, a));
+                if a == b || present || valence[a] + weight > 4 || valence[b] + weight > 4 {
+                    continue;
+                }
+                valence[a] += weight;
+                valence[b] += weight;
+                bonds.push((a, b, order_of(weight)));
+            }
+            let neighbors = |atom: usize| -> Vec<usize> {
+                bonds
+                    .iter()
+                    .filter_map(|&(a, b, _)| match (a == atom, b == atom) {
+                        (true, _) => Some(b),
+                        (_, true) => Some(a),
+                        _ => None,
+                    })
+                    .collect()
+            };
+            let around = neighbors(0);
+            if around.len() < 2 {
+                continue;
+            }
+            // The atoms reached from the two ligands without passing through the center.
+            let mut reached = vec![false; atoms];
+            let mut pending = vec![around[0], around[1]];
+            while let Some(atom) = pending.pop() {
+                if atom == 0 || std::mem::replace(&mut reached[atom], true) {
+                    continue;
+                }
+                pending.extend(neighbors(atom));
+            }
+            reached[0] = true;
+            let vertices = reached.iter().filter(|&&r| r).count();
+            let edges = bonds
+                .iter()
+                .filter(|&&(a, b, _)| reached[a] && reached[b])
+                .count();
+            // The graph is connected, so it has a cycle exactly when it has as many edges as
+            // vertices or more.
+            let expected = edges >= vertices;
+            let Some(found) = closes_ring_of(atoms, &bonds, 0, (around[0], around[1])) else {
+                continue;
+            };
+            assert_eq!(found, expected, "{atoms} atoms, bonds {bonds:?}");
+            rings += usize::from(expected);
+            multiple_rings += usize::from(
+                expected
+                    && bonds.iter().any(|(a, b, order)| {
+                        reached[*a] && reached[*b] && *order != BondOrder::Single
+                    }),
+            );
+        }
+        // The generator reaches both kinds of molecule, rings with a multiple bond too.
+        assert!(
+            rings > 300 && multiple_rings > 150,
+            "{rings}, {multiple_rings}"
+        );
     }
 }

@@ -1015,6 +1015,25 @@ fn a_tied_end_makes_a_bond_not_stereogenic_whatever_the_other_end_cannot_say() {
     }
 }
 
+#[test]
+fn a_tie_that_reads_nothing_makes_the_bond_not_stereogenic_whatever_the_other_end_reads() {
+    // Each arm is CH2-C(isobutyl)=CH-CH3 with an E bond. The two arms tie at their carbon by
+    // Rule 3, which reads the descriptors of those inner bonds, and an inner bond separates its
+    // two substituents (the CH2 back toward the carbon, the isobutyl) only at the carbon's own
+    // substituents: the whole molecule has the other end of the labeled bond there and the
+    // digraph of the labeled bond has not, so the inner descriptors read differently from the
+    // bond. With =CH2 at the other end the bond is not stereogenic whatever they say, because
+    // its two hydrogens tie without reading any descriptor. RDKit 2022.03.2 gives `none`.
+    let arms = "(/C/C(CC(C)C)=C/C)\\C/C(CC(C)C)=C/C";
+    assert_eq!(bond_label(&format!("C=C{arms}"), 0, 1), "none");
+    // Beside an end that does not tie (CH3 and H) the tie of the arms is all that would make
+    // the bond not stereogenic, and it rests on those descriptors: refused (RDKit: `none`).
+    assert_eq!(
+        bond_label(&format!("C/C=C{arms}"), 1, 2),
+        "unsupported:cip_rule3_nested_descriptor"
+    );
+}
+
 /// The nodes a center is charged when its two ligands are the same cage or fused polycycle: the
 /// worst case for a tie, since both digraphs are read to their last sphere and classified. A
 /// deterministic count of the accounting in the module comment of `cip.rs`; a change to the

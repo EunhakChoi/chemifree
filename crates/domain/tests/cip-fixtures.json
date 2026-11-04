@@ -1462,6 +1462,34 @@
    ]
   },
   {
+   "name": "=CH2 on a carbon whose two equal arms hold double bonds that read differently from inside",
+   "smiles": "C=C(/C/C(CC(C)C)=C/C)\\C/C(CC(C)C)=C/C",
+   "source": "each arm is CH2-C(isobutyl)=CH-CH3 with an E bond, so the two arms tie by Rule 3 and the labeled bond is read through their descriptors, which the labeled bond's own atoms change (see the fixture before this one). The =CH2 end ties on its two hydrogens without reading anything, so the bond is not stereogenic in any reading and is `none` (RDKit agrees); the same arms beside a =CH-CH3 end are refused. The inner bonds do not depend on it and agree",
+   "expect": [
+    {
+     "bond": [
+      0,
+      1
+     ],
+     "label": "none"
+    },
+    {
+     "bond": [
+      3,
+      8
+     ],
+     "label": "E"
+    },
+    {
+     "bond": [
+      11,
+      16
+     ],
+     "label": "E"
+    }
+   ]
+  },
+  {
    "name": "center with two tied ligands that hold propenyl groups, three spheres of twins",
    "smiles": "F[C@H](C(C(/C=C/C)(/C=C/C)C)(C(/C=C/C)(/C=C/C)C)C)C(C(/C=C/C)(/C=C/C)C)(C(/C=C/C)(/C=C/C)C)C",
    "source": "the two ligands are equal in every respect, so the center is not stereogenic (RDKit agrees). Each quaternary carbon of a ligand asks whether two of its positions could differ, and the answer needs the descriptors of the propenyl bonds below it; the work of a descriptor is counted once for all of those questions (see cip.rs)",

@@ -48,7 +48,8 @@
 //! is a double bond, reaches an atom of that bond and reads differently once the bond is left
 //! out of the digraphs. A tie at one end of the ligand bond that is the same either way (no
 //! ring closes in it and it reaches no atom of the unit) makes the bond not stereogenic in
-//! every reading and is not refused. The check is made on the result of a unit, not inside the
+//! every reading: it is not refused when the tie read no descriptor (the two hydrogens of a
+//! `=CH2`), and when it did the descriptors it read are checked in the same way. The check is made on the result of a unit, not inside the
 //! descriptors kept for the request, so it does not change them. The refusal is narrow but not
 //! exact: some refused bonds agree with RDKit (`tests/cip-fixtures.json` and
 //! `scripts/verify-cip-rdkit.py` keep cases of both kinds).
@@ -120,7 +121,7 @@
 //! classification (could two positions of an atom in a tied ligand differ?) are charged each
 //! descriptor's cost once for the whole classification, and every pair of positions of an atom
 //! is asked, so the charge does not depend on the order the neighbors are listed in. The cost
-//! of the descriptors an engine needed is counted once for the sizes it was computed at. A descriptor whose
+//! of the descriptors an engine needed is counted once, after its comparison. A descriptor whose
 //! computation met a cycle (a bond asked for while it was being computed) is the exception: its
 //! result depends on which bond of the cycle was asked for first, so it is not kept for the
 //! request but reused only while the stack of bonds being computed is the same, and a bond
@@ -245,7 +246,8 @@ pub enum Reason {
     /// ranking reaches an atom of the labeled double bond and the same ranking without that
     /// bond reads differently, or when it passes through a ring that closes on itself (the
     /// digraph closes a ring where the unit enters it), unless a tie at one end of the ligand
-    /// bond makes it not stereogenic whichever way it is read. See the module documentation.
+    /// bond makes it not stereogenic whichever way it is read (a tie that read no descriptor,
+    /// or whose descriptors read the same either way). See the module documentation.
     Rule3NestedDescriptor,
     /// Only with [`State::Ambiguous`]: Rule 3 has to place a stereogenic ligand double bond
     /// whose geometry the document does not state (no record, or stored unknown).
