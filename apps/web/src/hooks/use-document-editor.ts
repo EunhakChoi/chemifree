@@ -89,6 +89,15 @@ export type EditSelection = { kind: 'group'; objects: string[] }
 const client = new DocumentClient()
 
 /**
+ * The view to show when an autosave reply describes the revision already on screen. The reply
+ * brings the new session state (the draft revision) but states no notes, so the notes of the
+ * edit that produced this revision stay until another reply replaces them.
+ */
+export function adoptedView(shown: DocumentResponse, reply: DocumentResponse): DocumentResponse {
+  return { ...reply, notes: shown.notes ?? [] }
+}
+
+/**
  * Same title, graph, stereo table, scene, and settings, whatever revision number names them. An
  * omitted stereo table is the empty one, so a service that states none equals one that states
  * an empty table, but not one that states configurations.
@@ -257,7 +266,7 @@ export function useDocumentEditor() {
       (response: DocumentResponse) => {
         const shown = currentRef.current
         const same = shown?.document.revision === response.document.revision && sameContent(shown.document, response.document)
-        if (same) setCurrent(response)
+        if (same) setCurrent(adoptedView(shown, response))
         return same
       },
       [setCurrent],

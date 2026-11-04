@@ -2256,7 +2256,17 @@ test('a reply holding marks and stated configurations is accepted as sent', () =
   assert.equal(isDocumentResponse(unknown), true, 'unknown is an explicit record, with a lone pair as a slot')
 })
 
-const { sameContent } = await import('../apps/web/src/hooks/use-document-editor.ts')
+const { sameContent, adoptedView } = await import('../apps/web/src/hooks/use-document-editor.ts')
+
+test('an autosave reply for the shown revision keeps the notes of the edit and takes the new session state', () => {
+  const note = { feature: 'group_membership', source_path: 'groups[e1]', disposition: 'normalized', reason: 'The members no longer belong together.', semantic_impact: 'stereo' }
+  const shown = { ...document('doc-1', 3), notes: [note] }
+  const reply = { ...document('doc-1', 3), notes: [], session: { ...document('doc-1', 3).session, draft_revision: 3 } }
+  const adopted = adoptedView(shown, reply)
+  assert.deepEqual(adopted.notes, [note], 'the draft written a second later does not clear the note the user is reading')
+  assert.equal(adopted.session.draft_revision, 3, 'the reply still supplies the session state')
+  assert.deepEqual(adoptedView({ ...shown, notes: undefined }, reply).notes, [])
+})
 
 test('a reopened copy counts as the same content only when its stereo configurations match', () => {
   const shown = stereoDrawing().document

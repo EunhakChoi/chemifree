@@ -4212,6 +4212,10 @@ step = 'after short_wide_bond_is_selectable'
       ])
       const notes = agreePage.getByTestId('stereo-notes')
       await notes.waitFor()
+      // The recovery draft is written about a second after an edit. Its reply states no notes, and it must not clear the ones the user is reading.
+      await agreePage.waitForFunction(() => document.querySelector('[data-testid="draft-state"]')?.getAttribute('data-state') === 'saved')
+      await raf()
+      await notes.waitFor({ timeout: 2000 })
       assert.ok((await notes.locator('li').count()) >= 1, 'the reply states that the members no longer belong together')
       await newNumber.fill('')
 
