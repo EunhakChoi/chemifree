@@ -492,7 +492,7 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
         losses.push(consent_loss(
             "stereo_marks",
             format!("bonds[{}]", marked.join(", ")),
-            "SMILES stereochemistry is not implemented; the drawn wedge, hash, wavy and crossed marks are not written.",
+            "SMILES stereo is not written; the drawn wedge, hash, wavy and crossed marks are not written.",
         ));
     }
     if !doc.stereo.atoms.is_empty() || !doc.stereo.bonds.is_empty() {
@@ -508,7 +508,7 @@ pub(crate) fn stereo_losses(doc: &DocumentView) -> Vec<Loss> {
         losses.push(consent_loss(
             "stereo_configuration",
             paths.join(", "),
-            "SMILES stereochemistry is not implemented; the stated configurations are not written, so mirror images and cis/trans forms give the same text.",
+            "SMILES stereo is not written; the stated configurations are not written, so mirror images and cis/trans forms give the same text.",
         ));
     }
     if !doc.stereo.groups.is_empty() {

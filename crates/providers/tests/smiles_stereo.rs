@@ -96,6 +96,11 @@ fn a_ring_label_stands_where_its_digit_is_written() {
     );
     // Two labels in the order written, not in numeric order: label 2 (partner C3) is written
     // before label 1 (partner C5).
+    // Written 1 then 2, but label 2 is closed first: the order is the digits', not the closers'.
+    assert_eq!(
+        centers("[C@]12(F)CC2CC1"),
+        [(0, [Atom(5), Atom(3), Atom(1), Atom(2)], ACW)]
+    );
     assert_eq!(
         centers("[C@]21(F)CC2CC1"),
         [(0, [Atom(3), Atom(5), Atom(1), Atom(2)], ACW)]
@@ -190,15 +195,49 @@ fn marks_the_drawing_cannot_hold_are_refused_with_their_span() {
         ("[C@H](F)(Cl)(Br)I", SmilesCode::StereoNeighborCount, 2, 1),
         ("C[C@@](F)", SmilesCode::StereoNeighborCount, 3, 2),
         // Three bonds and no hydrogen leave a lone pair, which is not read.
-        ("[S@](=O)(C)CC", SmilesCode::StereoCenterUnsupportedHere, 2, 1),
+        (
+            "[S@](=O)(C)CC",
+            SmilesCode::StereoCenterUnsupportedHere,
+            2,
+            1,
+        ),
         ("C[N@](C)CC", SmilesCode::StereoCenterUnsupportedHere, 3, 1),
+        // Four positions that the valence model does not accept: a neutral nitrogen with a
+        // hydrogen and three bonds, and a charged carbon.
+        (
+            "[N@H](F)(Cl)Br",
+            SmilesCode::StereoCenterUnsupportedHere,
+            2,
+            1,
+        ),
+        (
+            "[C@H+](F)(Cl)Br",
+            SmilesCode::StereoCenterUnsupportedHere,
+            2,
+            1,
+        ),
         // The valence model names no fourth position for a carbocation.
         ("C[C@+](F)Cl", SmilesCode::StereoCenterUnsupportedHere, 3, 1),
         // The other classes, whole with their digits.
         ("F[C@TH1H](Cl)Br", SmilesCode::StereoClassUnsupported, 3, 4),
-        ("F[C@SP2](Cl)(Br)I", SmilesCode::StereoClassUnsupported, 3, 4),
-        ("F[C@TB12](Cl)(Br)(I)N", SmilesCode::StereoClassUnsupported, 3, 5),
-        ("F[C@OH3](Cl)(Br)(I)N", SmilesCode::StereoClassUnsupported, 3, 4),
+        (
+            "F[C@SP2](Cl)(Br)I",
+            SmilesCode::StereoClassUnsupported,
+            3,
+            4,
+        ),
+        (
+            "F[C@TB12](Cl)(Br)(I)N",
+            SmilesCode::StereoClassUnsupported,
+            3,
+            5,
+        ),
+        (
+            "F[C@OH3](Cl)(Br)(I)N",
+            SmilesCode::StereoClassUnsupported,
+            3,
+            4,
+        ),
         ("F[C@AL1](Cl)Br", SmilesCode::StereoClassUnsupported, 3, 4),
         // A mark outside a bracket is not SMILES at all.
         ("C@C", SmilesCode::UnexpectedCharacter, 1, 1),
@@ -293,6 +332,7 @@ fn every_other_cx_field_is_refused_at_its_position() {
         // The number-less forms are not in the public description of the fields.
         ("F[C@H](Cl)Br |o:1|", 14),
         ("F[C@H](Cl)Br |&:1|", 14),
+        ("F[C@H](Cl)Br |o+1:1|", 14),
         ("F[C@H](Cl)Br |a:1,^1:2|", 18),
     ] {
         let (code, found, _) = refused(text);
@@ -316,7 +356,11 @@ fn malformed_blocks_are_refused_not_ignored() {
         ("F[C@H](Cl)Br |a:99999999999999999999|", 14),
     ] {
         let (code, found, _) = refused(text);
-        assert_eq!((code, found), (SmilesCode::CxsmilesMalformed, offset), "{text}");
+        assert_eq!(
+            (code, found),
+            (SmilesCode::CxsmilesMalformed, offset),
+            "{text}"
+        );
     }
 }
 
@@ -365,4 +409,16 @@ fn a_stereo_import_that_exceeds_the_command_bound_is_refused() {
 fn center_values_are_plain_data() {
     let center: SmilesCenter = read("F[C@H](Cl)Br").stereo.centers[0].clone();
     assert_eq!(center.span, Span::new(3, 1));
+}
+
+#[test]
+fn an_aromatic_atom_is_refused_for_what_it_is_not_for_a_lone_pair() {
+    let error = OpenSmilesCodec
+        .read("[c@]1(F)ccccc1")
+        .expect_err("aromatic centers are not read");
+    assert_eq!(error.code, SmilesCode::StereoCenterUnsupportedHere);
+    assert_eq!(
+        error.reason.as_deref(),
+        Some("an aromatic atom is not a tetrahedral center")
+    );
 }

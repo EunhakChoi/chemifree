@@ -37,10 +37,11 @@ fn header(token: &str) -> Option<(GroupKind, Option<i32>, &str)> {
         _ => return None,
     };
     let digits = &name[1..];
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+    // `o:` and `&:` (no number) fail here, as do digits too many for 32 bits and a sign:
+    // a group number is the digits as stated.
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    // A number that does not fit is not a group number the drawing can hold.
     let number: i32 = digits.parse().ok()?;
     Some((kind, Some(number), rest))
 }

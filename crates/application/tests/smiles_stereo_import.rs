@@ -36,7 +36,12 @@ fn import(app: &App, id: &str, revision: u64, source: &str) -> Value {
             .extend(extra.as_object().unwrap().clone());
         base
     };
-    let preview = call(app, &format!("p{revision}"), "document.import", params(json!({"preview": true})));
+    let preview = call(
+        app,
+        &format!("p{revision}"),
+        "document.import",
+        params(json!({"preview": true})),
+    );
     let Some(digest) = preview["result"]["preview_digest"].as_str() else {
         return preview;
     };
@@ -128,20 +133,19 @@ fn a_refused_text_leaves_the_document_unchanged() {
     let (app, _dir, id) = setup();
     import(&app, &id, 0, "CCO");
     let before = document(&app, &id);
-    for source in [
-        "F[C@H](Cl)Br |a:0|",
-        "F[C@H](Cl)Br |r|",
-        "F[C@H](Cl)Br |a:1",
-        "F[C@TH1H](Cl)Br",
-        "[S@](=O)(C)CC",
-        "F/C=C/F",
-        "C[C@H](F)",
+    for (source, family) in [
+        ("F[C@H](Cl)Br |a:0|", "invalid_chemistry"),
+        ("F[C@H](Cl)Br |r|", "unsupported_feature"),
+        ("F[C@H](Cl)Br |a:1", "malformed_input"),
+        ("F[C@TH1H](Cl)Br", "unsupported_feature"),
+        ("[S@](=O)(C)CC", "unsupported_feature"),
+        ("F/C=C/F", "unsupported_feature"),
+        ("C[C@H](F)", "unsupported_feature"),
     ] {
         let reply = import(&app, &id, 1, source);
         assert_eq!(reply["outcome"], "error", "{source}: {reply}");
         assert_eq!(
-            reply["diagnostics"][0]["details"]["family"].as_str().is_some(),
-            true,
+            reply["diagnostics"][0]["details"]["family"], family,
             "{source}: {reply}"
         );
         assert_eq!(document(&app, &id), before, "{source}");

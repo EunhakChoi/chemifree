@@ -1,0 +1,273 @@
+{
+  "id": "smiles-stereo-read-refusals-change-nothing",
+  "title": "A SMILES stereo mark or CXSMILES block the drawing cannot hold is refused with its code, family and position, and the document stays empty",
+  "requirements": [
+    "CODEC-05",
+    "CODEC-06",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r0",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@TH1H](Cl)Br",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_class_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 3
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "[S@](=O)(C)CC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_center_unsupported_here",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 2
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H]Cl",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "stereo_neighbor_count",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 3
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r3",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F/C=C/F",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r4",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)Br |r|",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "cxsmiles_field_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 14
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r5",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)Br |a:0|",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "cxsmiles_group_member_not_stereocenter",
+            "details": {
+              "class": "chemistry",
+              "family": "invalid_chemistry",
+              "offset": 16
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r6",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)Br |a:9|",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "cxsmiles_atom_out_of_range",
+            "details": {
+              "class": "syntax",
+              "family": "malformed_input",
+              "offset": 16
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r7",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)Br |a:1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "cxsmiles_malformed",
+            "details": {
+              "class": "syntax",
+              "family": "malformed_input",
+              "offset": 13
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": [],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          }
+        }
+      }
+    }
+  ]
+}

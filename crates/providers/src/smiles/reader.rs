@@ -90,6 +90,14 @@ struct Scanned {
     chirality: Option<(Turn, Span)>,
 }
 
+/// What follows the string's terminator: the offsets of the bars of a CXSMILES block, and the
+/// text after it that is not read.
+#[derive(Default)]
+struct Trailing {
+    block: Option<(usize, usize)>,
+    ignored_text: Option<Span>,
+}
+
 /// A bracket atom as written, before its semantics are checked.
 struct Bracket {
     element: Element,
@@ -741,28 +749,31 @@ fn dropped(feature: &str, span: Span, reason: &str, impact: SemanticImpact) -> L
 
 impl Reader<'_> {
     /// The text after the terminator, split into the CXSMILES block when it starts with `|`
-    /// (the offsets of its two bars) and the non-whitespace text that is not read: the first to
-    /// the last non-whitespace byte, after the block when there is one.
-    fn trailing(&self) -> Result<(Option<(usize, usize)>, Option<Span>), Fail> {
+    /// and the non-whitespace text that is not read: the first to the last non-whitespace
+    /// byte, after the block when there is one.
+    fn trailing(&self) -> Result<Trailing, Fail> {
         let blank = |c: char| u8::try_from(c).is_ok_and(tables::is_whitespace);
         let Some(rest) = self.source.get(self.position..) else {
-            return Ok((None, None));
+            return Ok(Trailing::default());
         };
         let trimmed = rest.trim_start_matches(blank);
         let mut start = self.position + (rest.len() - trimmed.len());
         let mut block = None;
         let mut text = trimmed;
-        if trimmed.starts_with('|') {
-            let Some(length) = trimmed[1..].find('|') else {
+        if let Some(inside) = trimmed.strip_prefix('|') {
+            let Some(length) = inside.find('|') else {
                 return Err(at(SmilesCode::CxsmilesMalformed, Span::new(start, 1)));
             };
             let close = start + 1 + length;
             block = Some((start, close));
-            text = trimmed[length + 2..].trim_start_matches(blank);
-            start = close + 1 + (trimmed.len() - length - 2 - text.len());
+            text = inside[length + 1..].trim_start_matches(blank);
+            start = close + 1 + (inside.len() - length - 1 - text.len());
         }
         let text = text.trim_end_matches(blank);
-        Ok((block, (!text.is_empty()).then(|| Span::new(start, text.len()))))
+        Ok(Trailing {
+            block,
+            ignored_text: (!text.is_empty()).then(|| Span::new(start, text.len())),
+        })
     }
 
     /// Decides every bond's kind: an unspecified bond joining two aromatic atoms is aromatic
@@ -789,7 +800,10 @@ impl Reader<'_> {
     }
 
     fn finish(self) -> Result<Parsed, Fail> {
-        let (block, ignored_text) = self.trailing()?;
+        let Trailing {
+            block,
+            ignored_text,
+        } = self.trailing()?;
         // One graph is built for the whole read: first with every bond single, which is enough to
         // find the rings, then with the bond kinds decided and, last, the radicals found.
         let mut graph = MoleculeGraph::from_parts(

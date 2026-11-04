@@ -1,0 +1,189 @@
+{
+  "id": "smiles-stereo-read-configuration-and-groups",
+  "title": "A SMILES text with @ marks and a CXSMILES o1 group is imported as stored configurations with no bond mark and one or group, and the CIP labels of the stored configurations are the hand-derived R and R of the public example",
+  "requirements": [
+    "CODEC-05",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)[C@H](Br)I |o1:1,3|",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "model_id": "chemifree-smiles-1",
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout"
+            }
+          ]
+        }
+      },
+      "document": "d",
+      "capture": {
+        "digest": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F[C@H](Cl)[C@H](Br)I |o1:1,3|",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            },
+            {
+              "id": "b4",
+              "mark": null
+            },
+            {
+              "id": "b5",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a2",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a1",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              },
+              {
+                "atom": "a4",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a5",
+                    "a6",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "anticlockwise"
+                }
+              }
+            ],
+            "bonds": [],
+            "groups": [
+              {
+                "kind": "or",
+                "number": 1,
+                "members": [
+                  "a2",
+                  "a4"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "label",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "result": {
+          "scope": "stored",
+          "atoms": [
+            {
+              "atom": "a2",
+              "state": "assigned",
+              "descriptor": "R"
+            },
+            {
+              "atom": "a4",
+              "state": "assigned",
+              "descriptor": "R"
+            }
+          ]
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 1,
+      "expect": {
+        "document": {
+          "revision": 2,
+          "atoms": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          }
+        }
+      }
+    }
+  ]
+}

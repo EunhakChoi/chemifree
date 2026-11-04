@@ -17,7 +17,7 @@ use chemifree_application::smiles::{SmilesCenter, SmilesCode, SmilesError, Smile
 use chemifree_domain::chemistry;
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::states::Hydrogens;
-use chemifree_domain::stereo::{Slot, Turn};
+use chemifree_domain::stereo::Turn;
 use chemifree_domain::stereo_drawing::fourth_position;
 
 /// The neighbour list of every atom, in text order, and the marks the atoms carry.
@@ -83,13 +83,13 @@ impl Neighborhoods {
             match (neighbors.len(), hydrogens) {
                 (4, 0) | (3, 1) => {}
                 (3, 0) => {
-                    return Err(refuse(SmilesCode::StereoCenterUnsupportedHere)
-                        .because("three bonds and no hydrogen leave a lone pair, which is not read"));
+                    return Err(refuse(SmilesCode::StereoCenterUnsupportedHere).because(
+                        "three bonds and no hydrogen leave a lone pair, which is not read",
+                    ));
                 }
                 (bonds, hydrogens) => {
-                    return Err(refuse(SmilesCode::StereoNeighborCount).because(format!(
-                        "{bonds} bonds and {hydrogens} hydrogens"
-                    )));
+                    return Err(refuse(SmilesCode::StereoNeighborCount)
+                        .because(format!("{bonds} bonds and {hydrogens} hydrogens")));
                 }
             }
             let orders: Vec<Option<u16>> = neighbors
@@ -105,17 +105,18 @@ impl Neighborhoods {
                 .collect();
             let id = AtomId::from_serial(u32::try_from(index + 1).unwrap_or(u32::MAX))
                 .ok_or_else(|| refuse(SmilesCode::StereoCenterUnsupportedHere))?;
-            let expected = (hydrogens == 1).then_some(Slot::ImplicitHydrogen);
-            match fourth_position(id, atom, &orders) {
-                Ok(position) if position == expected => {}
-                Ok(_) | Err(_) => {
-                    return Err(refuse(SmilesCode::StereoCenterUnsupportedHere)
-                        .because("the valence model gives this atom no tetrahedral neighbour set"));
-                }
+            // With the counts above settled, the valence model either names the one fourth
+            // position (the hydrogen) or finds no tetrahedral neighbour set at all.
+            if fourth_position(id, atom, &orders).is_err() {
+                return Err(refuse(SmilesCode::StereoCenterUnsupportedHere)
+                    .because("the valence model gives this atom no tetrahedral neighbour set"));
             }
             let mut slots: Vec<SmilesSlot> = neighbors.into_iter().map(SmilesSlot::Atom).collect();
             if hydrogens == 1 {
-                slots.insert(usize::from(self.preceded[index]), SmilesSlot::ImplicitHydrogen);
+                slots.insert(
+                    usize::from(self.preceded[index]),
+                    SmilesSlot::ImplicitHydrogen,
+                );
             }
             let slots: [SmilesSlot; 4] = slots
                 .try_into()

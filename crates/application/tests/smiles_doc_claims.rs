@@ -584,3 +584,38 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
             && smoke.contains("a refused re-preview keeps the retry")
     );
 }
+
+/// The "Stereo read" section names exactly the stereo refusal codes the codec has: a code the
+/// text cites exists, and a stereo or CXSMILES code of the codec is cited.
+#[test]
+fn the_stereo_read_section_cites_every_stereo_code_and_only_real_ones() {
+    let section = contract_section();
+    let start = section
+        .find("### Stereo read (P29c)")
+        .expect("the SMILES section has a Stereo read subsection");
+    let rest = &section[start..];
+    let end = rest[3..].find("\n### ").map_or(rest.len(), |at| at + 3);
+    let stereo = &rest[..end];
+    let stereo_like = |code: &str| {
+        code.starts_with("stereo_")
+            || code.starts_with("cxsmiles_")
+            || code == "directional_bond_unsupported"
+    };
+    for code in SmilesCode::ALL.iter().map(|code| code.as_str()) {
+        if stereo_like(code) && !code.starts_with("stereo_group") {
+            assert!(
+                stereo.contains(&format!("`{code}`")),
+                "the section does not cite `{code}`"
+            );
+        }
+    }
+    let known: Vec<&str> = SmilesCode::ALL.iter().map(|code| code.as_str()).collect();
+    for token in stereo.split('`').skip(1).step_by(2) {
+        if stereo_like(token) && !token.starts_with("stereo_group") && !token.contains([' ', ':']) {
+            assert!(
+                known.contains(&token),
+                "`{token}` is cited but is not a code of the codec"
+            );
+        }
+    }
+}
