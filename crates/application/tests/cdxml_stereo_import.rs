@@ -1128,6 +1128,30 @@ fn cdx_fans(extra: &[Vec<Vec<u8>>]) -> String {
 }
 
 #[test]
+fn a_binary_cip_label_is_noted_never_stored_and_never_changes_the_configuration() {
+    use common::prop;
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let wedge = prop(0x0601, &6_i16.to_le_bytes());
+    let (_, plain) = import(&application, "cdx", &cdx(&[], std::slice::from_ref(&wedge)));
+    let baseline = stereo_atoms(&plain);
+    assert_eq!(baseline.len(), 1);
+    for value in 0_u8..=6 {
+        let source = cdx(&[prop(0x0437, &[value])], std::slice::from_ref(&wedge));
+        let (_, created) = import(&application, "cdx", &source);
+        assert_eq!(stereo_atoms(&created), baseline, "value {value}");
+        assert!(features(&created).contains(&"cip_label_not_stored".to_owned()));
+    }
+    for bad in [vec![], vec![0, 0], vec![7]] {
+        let (preview, _) = import(&application, "cdx", &cdx(&[prop(0x0437, &bad)], &[]));
+        assert_eq!(
+            preview["diagnostics"][0]["code"], "invalid_stereo_attribute",
+            "{bad:?}"
+        );
+    }
+}
+
+#[test]
 fn binary_groups_match_their_cdxml_twins_and_258_stays_258() {
     use common::prop;
     let dir = tempfile::tempdir().unwrap();

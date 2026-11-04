@@ -2,7 +2,7 @@
 //! tree keeps for them. Only what the public sources confirm is read: the bond `Display` and
 //! `Display2` values and the atom `Geometry`, `BondOrdering`, `AS`, `EnhancedStereoType` and
 //! `EnhancedStereoGroupNum` attributes in CDXML, and the atom tags `0430`, `0431`, `0446` and
-//! `0447` in CDX, and the binary bond `Display` (`0601`, an `INT16`), which is decoded through
+//! `0447` (and `0437` as a hint) in CDX, and the binary bond `Display` (`0601`, an `INT16`), which is decoded through
 //! the same `LOOKS` table as the CDXML names. `Display2` and `DoublePosition` have no tag in the
 //! public sources used, so a binary bond that carries one stays an unread property and is
 //! refused, exactly as before.
@@ -51,6 +51,7 @@ fn carrier(owner: &ObjectKind, kind: &PropertyKind) -> Option<Carrier> {
         (ObjectKind::Node, PropertyKind::UnknownBinary(tag)) => match tag {
             0x0430 => Some(Carrier::Geometry),
             0x0431 => Some(Carrier::BondOrdering),
+            0x0437 => Some(Carrier::Label),
             0x0446 => Some(Carrier::EnhancedType),
             0x0447 => Some(Carrier::EnhancedNumber),
             _ => None,
@@ -194,6 +195,25 @@ fn enhanced_number(value: &PropertyValue, path: &str) -> Result<i32, Interchange
     }
 }
 
+/// The CDXML name of a binary `Atom_CIPStereochemistry` (`0437`, INT8) value, from the public
+/// enumeration: 0 `U`, 1 `N`, 2 `R`, 3 `S`, 4 `r`, 5 `s`, 6 `u`. The width is checked first.
+fn cip_name<'a>(bytes: &[u8], path: &str) -> Result<&'a str, InterchangeError> {
+    const NAMES: [&str; 7] = ["U", "N", "R", "S", "r", "s", "u"];
+    let [byte] = bytes else {
+        return Err(invalid(
+            path,
+            &format!(
+                "an atom CIP label of {} bytes where one is expected",
+                bytes.len()
+            ),
+        ));
+    };
+    NAMES
+        .get(usize::from(*byte))
+        .copied()
+        .ok_or_else(|| invalid(path, "an atom CIP label outside the public enumeration"))
+}
+
 fn check_geometry(value: &PropertyValue, path: &str) -> Result<(), InterchangeError> {
     let tetrahedral = match value {
         PropertyValue::Text(text) => text == "Tetrahedral",
@@ -291,8 +311,10 @@ pub(super) fn read_node(
                 ));
             }
             Carrier::Label => {
-                let PropertyValue::Text(label) = &property.value else {
-                    return Err(invalid(path, "an AS label of an unexpected kind"));
+                let label = match &property.value {
+                    PropertyValue::Text(label) => label.as_str(),
+                    PropertyValue::Bytes(bytes) => cip_name(bytes, &at)?,
+                    _ => return Err(invalid(path, "an AS label of an unexpected kind")),
                 };
                 losses.push(note(
                     at,
@@ -839,6 +861,34 @@ mod tests {
     }
 
     #[test]
+    fn a_binary_cip_label_is_a_hint_width_first_then_the_enumeration() {
+        for (value, name) in [
+            (0_u8, "U"),
+            (1, "N"),
+            (2, "R"),
+            (3, "S"),
+            (4, "r"),
+            (5, "s"),
+            (6, "u"),
+        ] {
+            let mut losses = Vec::new();
+            let membership =
+                read_node(&node(vec![binary(0x0437, &[value])]), "n", &mut losses).unwrap();
+            assert!(membership.is_none());
+            assert_eq!(losses.len(), 1, "{losses:?}");
+            assert_eq!(losses[0].feature, "cip_label_not_stored");
+            assert!(losses[0].reason.contains(name), "{}", losses[0].reason);
+        }
+        for bad in [&[][..], &[0, 0][..], &[7][..], &[255][..]] {
+            assert_eq!(
+                member(vec![binary(0x0437, bad)]).unwrap_err().code,
+                "invalid_stereo_attribute",
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_published_bond_ordering_example_is_read() {
         // The public page's own example: four entries, 1 2 3 4, sixteen bytes, no count.
         let example = [1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0];
@@ -1101,13 +1151,13 @@ mod tests {
             &ObjectKind::Node,
             &xml("ShowAtomEnhancedStereo")
         ));
-        for tag in [0x0430, 0x0431, 0x0446, 0x0447] {
+        for tag in [0x0430, 0x0431, 0x0437, 0x0446, 0x0447] {
             assert!(is_carrier(
                 &ObjectKind::Node,
                 &PropertyKind::UnknownBinary(tag)
             ));
         }
-        for tag in [0x0437, 0x0445, 0x0448] {
+        for tag in [0x0445, 0x0448] {
             assert!(!is_carrier(
                 &ObjectKind::Node,
                 &PropertyKind::UnknownBinary(tag)
