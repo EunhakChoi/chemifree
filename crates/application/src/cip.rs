@@ -15,12 +15,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use chemifree_domain::budget::Interrupt;
+use chemifree_domain::chemistry::{self, Finding};
 use chemifree_domain::cip::{
     self, BondReport, Candidates, CenterReport, Descriptor, Limits, Reason, State, Stop, Warning,
 };
-use chemifree_domain::document::{AtomId, BondId};
+use chemifree_domain::document::{Atom, AtomId, BondId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
+use chemifree_domain::states::{Hydrogens, Radical};
 use chemifree_domain::stereo::{CenterState, DoubleBondState, Slot, StereoKey, StereoState};
+use chemifree_domain::stereo_drawing::fourth_position;
 
 /// What `chem.cip` needs from a labeler.
 pub trait CipLabeler: Send + Sync {
@@ -274,7 +277,7 @@ fn warnings_fit(
     warnings: &[Warning],
     state: State,
     stored: bool,
-    slot_unusual_allowed: bool,
+    slot_unusual: SlotUnusual,
 ) -> bool {
     let distinct = warnings
         .iter()
@@ -283,7 +286,22 @@ fn warnings_fit(
     let not_stereogenic = warnings.contains(&Warning::StoredNotStereogenic);
     distinct
         && not_stereogenic == (state == State::None && stored)
-        && (slot_unusual_allowed || !warnings.contains(&Warning::SlotUnusual))
+        && match slot_unusual {
+            SlotUnusual::Never => !warnings.contains(&Warning::SlotUnusual),
+            SlotUnusual::Required => warnings.contains(&Warning::SlotUnusual),
+            SlotUnusual::Either => true,
+        }
+}
+
+/// Whether a `cip_slot_unusual` warning must, may not or may be on a center, from what the
+/// document says: the stored non-atom slot differs from the one the valence model names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SlotUnusual {
+    Never,
+    Required,
+    /// The center is one the built-in rules may stop at before they compare the slots (a state
+    /// `unsupported`), so the warning is neither required nor refused.
+    Either,
 }
 
 /// What a labeler's answer is checked against: the document's stored records, the neighbors of
@@ -292,6 +310,8 @@ pub struct Checker<'graph> {
     graph: &'graph MoleculeGraph,
     neighbors: BTreeMap<AtomId, BTreeSet<AtomId>>,
     ends: BTreeMap<BondId, (AtomId, AtomId)>,
+    atoms: BTreeMap<AtomId, &'graph Atom>,
+    orders: BTreeMap<AtomId, Vec<&'graph BondOrder>>,
 }
 
 impl<'graph> Checker<'graph> {
@@ -299,8 +319,11 @@ impl<'graph> Checker<'graph> {
         let mut neighbors: BTreeMap<AtomId, BTreeSet<AtomId>> =
             graph.atoms().map(|(id, _)| (id, BTreeSet::new())).collect();
         let mut ends = BTreeMap::new();
+        let mut orders: BTreeMap<AtomId, Vec<&BondOrder>> = BTreeMap::new();
         for (id, bond) in graph.bonds() {
             ends.insert(id, (bond.begin, bond.end));
+            orders.entry(bond.begin).or_default().push(&bond.order);
+            orders.entry(bond.end).or_default().push(&bond.order);
             if let Some(set) = neighbors.get_mut(&bond.begin) {
                 set.insert(bond.end);
             }
@@ -312,6 +335,8 @@ impl<'graph> Checker<'graph> {
             graph,
             neighbors,
             ends,
+            atoms: graph.atoms().collect(),
+            orders,
         }
     }
 
@@ -330,6 +355,43 @@ impl<'graph> Checker<'graph> {
     /// The atoms and bonds of the document.
     pub fn size(&self) -> usize {
         self.neighbors.len() + self.ends.len()
+    }
+
+    /// Whether the stored non-atom slot of the center `atom` differs from the one the valence
+    /// model names (`Some(true)`), agrees with it or is absent (`Some(false)`), or the center
+    /// is not one the model reads (`None`: the same structure tests as the built-in rules).
+    fn stored_slot_differs(&self, atom: AtomId, stored: Option<&CenterState>) -> Option<bool> {
+        let Some(stored) = stored else {
+            return Some(false);
+        };
+        let record = self.atoms.get(&atom)?;
+        if record.kind.element().is_none()
+            || !record.attachment_points.is_empty()
+            || record.radical != Radical::None
+            || record.hydrogens == Hydrogens::Unknown
+            || !(3..=4).contains(&self.neighbors.get(&atom)?.len())
+        {
+            return None;
+        }
+        let mut values = Vec::new();
+        for order in self.orders.get(&atom)? {
+            match order {
+                BondOrder::Single | BondOrder::Double | BondOrder::Triple => {
+                    values.push(chemistry::bond_order_value(order));
+                }
+                _ => return None,
+            }
+        }
+        if chemistry::assess(atom, record, &values).finding != Finding::Valid {
+            return None;
+        }
+        let derived = fourth_position(atom, record, &values).ok()?;
+        let stored_fourth = stored
+            .slots()
+            .iter()
+            .copied()
+            .find(|slot| !matches!(slot, Slot::Atom(_)));
+        Some(stored_fourth != derived)
     }
 
     /// Whether `higher` is one of the positions of `end` other than the double bond to `other`:
@@ -409,11 +471,16 @@ impl<'graph> Checker<'graph> {
             if !ranking_fits {
                 return Err(refused(&unit, Problem::Ranking));
             }
+            let slot_unusual = match self.stored_slot_differs(report.atom, stored.as_ref()) {
+                Some(true) if matches!(report.state, State::Unsupported(_)) => SlotUnusual::Either,
+                Some(true) => SlotUnusual::Required,
+                Some(false) | None => SlotUnusual::Never,
+            };
             if !warnings_fit(
                 &report.warnings,
                 report.state,
                 stored.is_some(),
-                stored.is_some(),
+                slot_unusual,
             ) {
                 return Err(refused(&unit, Problem::Warnings));
             }
@@ -468,7 +535,12 @@ impl<'graph> Checker<'graph> {
             if !ends_fit {
                 return Err(refused(&unit, Problem::Ranking));
             }
-            if !warnings_fit(&report.warnings, report.state, stored.is_some(), false) {
+            if !warnings_fit(
+                &report.warnings,
+                report.state,
+                stored.is_some(),
+                SlotUnusual::Never,
+            ) {
                 return Err(refused(&unit, Problem::Warnings));
             }
         }

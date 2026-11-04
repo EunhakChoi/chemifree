@@ -2173,7 +2173,13 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemCip => match parameters::<CipParameters>(parameters_value) {
                 Ok(p) => self.cip(known, p, cancel),
-                Err(invalid) => known.invalid(invalid),
+                Err(invalid) => {
+                    // Malformed parameters never reach `cip()`; the reply still names the
+                    // labeler the operation would have used.
+                    let mut reply = known.invalid(invalid);
+                    reply.model_id = Some(self.cip_labeler.model_id().into());
+                    reply
+                }
             },
             Op::DocumentTransaction => {
                 match parameters::<TransactionParameters>(parameters_value) {

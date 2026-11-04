@@ -2387,6 +2387,24 @@ fn every_error_reply_names_the_model() {
                       "operation": "chem.cip", "parameters": request(&built, &json!({}))});
     let cancelled =
         serde_json::to_value(app.execute_with(body.to_string().as_bytes(), &flag)).unwrap();
+    // Parameters that do not even read: no document, a document of the wrong type, an unknown
+    // field. They never reach the operation, and still name the labeler.
+    let no_document = call(&app, "no-document", &json!({}));
+    let wrong_type = call(&app, "wrong-type", &json!({"document_id": 3}));
+    let extra = call(
+        &app,
+        "extra-field",
+        &request(&built, &json!({"instance": "s1"})),
+    );
+    for (name, reply) in [
+        ("missing document_id", no_document),
+        ("document_id of the wrong type", wrong_type),
+        ("unknown field", extra),
+    ] {
+        assert_eq!(reply["diagnostics"][0]["code"], "invalid_request", "{name}");
+        assert_eq!(reply["diagnostics"][0]["path"], "parameters", "{name}");
+        assert_eq!(reply["model_id"], "chemifree-cip-1", "{name}: {reply}");
+    }
     for (name, reply) in [
         ("document_not_found", missing),
         ("invalid_request", bad),
@@ -2482,4 +2500,58 @@ fn a_stage_with_nothing_to_label_is_not_run() {
     call(&app, "bonds", &request(&built, &json!({"bonds": ["b7"]})));
     let stages: Vec<&str> = log.lock().unwrap().iter().map(|c| c.stage).collect();
     assert_eq!(stages, ["bonds"], "no center is named");
+}
+
+#[test]
+fn a_slot_unusual_warning_is_backed_by_the_document_in_both_directions() {
+    let ask = |smiles_text: &str, patch: fn(&mut Molecule), fix: CenterFix| {
+        let (mut probe, _) = Probe::new();
+        probe.centers = fix;
+        let (app, _directory) = application_with(probe);
+        let mut molecule = parse(smiles_text);
+        patch(&mut molecule);
+        let built = build(&app, &molecule);
+        call(&app, "slot", &request(&built, &json!({})))
+    };
+    let flag: CenterFix = Box::new(|reports| {
+        for report in reports.iter_mut() {
+            report.warnings.push(Warning::SlotUnusual);
+        }
+    });
+    let clear: CenterFix = Box::new(|reports| {
+        for report in reports.iter_mut() {
+            report.warnings.clear();
+        }
+    });
+    let keep: CenterFix = Box::new(|_| {});
+    let hydrogen = |molecule: &mut Molecule| molecule.centers[0].neighbors[1] = Neighbor::Hydrogen;
+    // The stored implicit hydrogen is the one the valence model names: no warning is true.
+    let reply = ask("N[C@@H](C)C(=O)O", |_| {}, flag);
+    assert_eq!(
+        refused(&reply),
+        ("warnings", "a2"),
+        "a warning the slots do not back"
+    );
+    // Four atoms and no non-atom slot at all.
+    let reply = ask(
+        "F[C@](Cl)(Br)I",
+        |_| {},
+        Box::new(|reports| reports[0].warnings.push(Warning::SlotUnusual)),
+    );
+    assert_eq!(
+        refused(&reply),
+        ("warnings", "a2"),
+        "a four-atom center has no slot to be unusual"
+    );
+    // A stored hydrogen on a three-coordinate nitrogen, where the model names the lone pair:
+    // the warning is required, and the honest answer has it.
+    let reply = ask("C[N@](CC)C(C)C", hydrogen, keep);
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert!(codes(&reply).contains(&"cip_slot_unusual"), "{reply}");
+    let reply = ask("C[N@](CC)C(C)C", hydrogen, clear);
+    assert_eq!(
+        refused(&reply),
+        ("warnings", "a2"),
+        "the built-in always raises it here"
+    );
 }
