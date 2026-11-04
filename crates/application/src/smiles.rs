@@ -7,6 +7,8 @@
 
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
+use chemifree_domain::stereo::Turn;
+use chemifree_domain::stereo_group::GroupKind;
 use serde::{Deserialize, Serialize};
 
 use crate::Loss;
@@ -58,6 +60,9 @@ pub enum ErrorClass {
     Syntax,
     /// The text may be valid SMILES, but the drawing or this implementation cannot hold it.
     Unsupported,
+    /// The text states something that contradicts itself or the chemistry it describes, such as a
+    /// stereo group member that is no stereocenter.
+    Chemistry,
     /// A bound of the reader or writer.
     Limit,
     /// The drawing cannot be written as SMILES that this reader accepts.
@@ -69,8 +74,22 @@ impl ErrorClass {
         match self {
             Self::Syntax => "syntax",
             Self::Unsupported => "unsupported",
+            Self::Chemistry => "chemistry",
             Self::Limit => "limit",
             Self::NotWritable => "not_writable",
+        }
+    }
+
+    /// The closed diagnostic family (`malformed_input`, `unsupported_feature`,
+    /// `invalid_chemistry`, `resource_limit`) a code of this class belongs to when a family is
+    /// asked for; `None` for a writer refusal, which is not an input diagnostic.
+    pub const fn family(self) -> Option<&'static str> {
+        match self {
+            Self::Syntax => Some("malformed_input"),
+            Self::Unsupported => Some("unsupported_feature"),
+            Self::Chemistry => Some("invalid_chemistry"),
+            Self::Limit => Some("resource_limit"),
+            Self::NotWritable => None,
         }
     }
 }
@@ -140,7 +159,15 @@ codes! {
     BondWithoutAtom = "bond_without_atom", Syntax, "A bond symbol needs an atom before it.";
     DotWithoutAtom = "dot_without_atom", Syntax, "A dot needs an atom before it.";
     RepeatedBondSymbol = "repeated_bond_symbol", Syntax, "Two bond symbols cannot follow each other.";
-    StereoUnsupported = "stereo_unsupported", Unsupported, "Stereochemistry (@, /, \\) is not supported yet.";
+    StereoClassUnsupported = "stereo_class_unsupported", Unsupported, "Only the tetrahedral marks @ and @@ are read; @TH, @AL, @SP, @TB and @OH classes are not supported.";
+    StereoCenterUnsupportedHere = "stereo_center_unsupported_here", Unsupported, "The drawing cannot hold a tetrahedral configuration on this atom.";
+    StereoNeighborCount = "stereo_neighbor_count", Unsupported, "A tetrahedral mark needs four neighbours counting one bracket hydrogen: three or four bonds.";
+    DirectionalBondUnsupported = "directional_bond_unsupported", Unsupported, "The directional bonds / and \\ (double bond configuration) are not read yet.";
+    CxsmilesMalformed = "cxsmiles_malformed", Syntax, "The CXSMILES block is not well formed: a bar, comma separated fields, a closing bar.";
+    CxsmilesAtomOutOfRange = "cxsmiles_atom_out_of_range", Syntax, "A CXSMILES atom index is beyond the atoms of the SMILES text.";
+    CxsmilesFieldUnsupported = "cxsmiles_field_unsupported", Unsupported, "Only the stereo group fields a:, o<n>: and &<n>: of a CXSMILES block are read.";
+    CxsmilesGroupMemberNotStereocenter = "cxsmiles_group_member_not_stereocenter", Chemistry, "A CXSMILES stereo group lists an atom that carries no @ or @@ mark in the text.";
+    CxsmilesMemberRepeated = "cxsmiles_member_repeated", Chemistry, "A CXSMILES atom index appears twice among the stereo groups; a center is in one group.";
     WildcardUnsupported = "wildcard_unsupported", Unsupported, "The wildcard atom * is not supported.";
     QuadrupleBondUnsupported = "quadruple_bond_unsupported", Unsupported, "The quadruple bond $ is not supported.";
     RingLabelExtendedUnsupported = "ring_label_extended_unsupported", Unsupported, "Ring labels written %(nnn) are not supported; use 0 to 99.";
@@ -240,6 +267,47 @@ pub struct SmilesRead {
     /// Non-whitespace text after the terminating whitespace, which the reader does not read.
     pub ignored_text: Option<Span>,
     pub losses: Vec<Loss>,
+    /// The configurations and enhanced groups the text states; empty for text without them.
+    pub stereo: SmilesStereo,
+}
+
+/// A neighbour position of a tetrahedral center in the order the text lists them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SmilesSlot {
+    /// An index into [`SmilesRead::atoms`].
+    Atom(usize),
+    /// The hydrogen of a bracket atom, which is a property of the center, not an atom.
+    ImplicitHydrogen,
+}
+
+/// One `@` or `@@` mark, resolved: the neighbours in OpenSMILES order and the direction the
+/// last three run when looking from the first toward the center (`@` is anticlockwise).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SmilesCenter {
+    /// Index into [`SmilesRead::atoms`].
+    pub atom: usize,
+    pub slots: [SmilesSlot; 4],
+    pub turn: Turn,
+    pub span: Span,
+}
+
+/// One enhanced stereo group of a CXSMILES block. Members are atom indexes in the text's atom
+/// order, every one of them a [`SmilesCenter`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SmilesGroup {
+    pub kind: GroupKind,
+    /// The digits the text gave after `o` or `&`; `None` for an absolute group.
+    pub number: Option<i32>,
+    pub atoms: Vec<usize>,
+    /// The field that opened the group.
+    pub span: Span,
+}
+
+/// What a SMILES text states about stereo, beyond its graph.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SmilesStereo {
+    pub centers: Vec<SmilesCenter>,
+    pub groups: Vec<SmilesGroup>,
 }
 
 /// Which string a writer produces.

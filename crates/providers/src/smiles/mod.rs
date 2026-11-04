@@ -3,12 +3,17 @@
 //!
 //! Reading and writing follow the OpenSMILES specification
 //! (<https://opensmiles.github.io/opensmiles/opensmiles.html>) for the subset the drawing can
-//! hold. Stereochemistry, query atoms, reaction SMILES and InChI are not implemented. The
-//! canonical form is Chemifree's own and is not the canonical form of any other toolkit.
+//! hold. The reader reads tetrahedral marks (`@`, `@@`) of bracket atoms and the enhanced stereo
+//! group fields of a CXSMILES block (`a:`, `o<n>:`, `&<n>:`); directional bonds, other mark
+//! classes and every other CX field are refused. The writers write no stereo. Query atoms,
+//! reaction SMILES and InChI are not implemented. The canonical form is Chemifree's own and is
+//! not the canonical form of any other toolkit.
 
 mod analysis;
+mod cx;
 mod emit;
 mod reader;
+mod stereo;
 mod tables;
 mod writer;
 

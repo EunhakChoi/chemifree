@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 23,
+  "suite_version": 24,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -559,7 +559,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "4c6ebc4c30b9adacb4762f1d48c0dfc12426ee0316dccee93dfbb900efc8ea89"
+      "case_sha256": "73093a7ee4e518f8b756de856247d75616904574efdd1b3c648ce7e17f767678"
     },
     {
       "id": "substructure-search-kekule-in-aromatic",
@@ -1260,21 +1260,50 @@
       "pending": null,
       "failure": null,
       "case_sha256": "1ab5f7e3ba16ebeecddaa5f165b0a9826ad711ea83165193edf3b3be446deecb"
+    },
+    {
+      "id": "smiles-stereo-read-configuration-and-groups",
+      "title": "A SMILES text with @ marks and a CXSMILES o1 group is imported as stored configurations with no bond mark and one or group, and the CIP labels of the stored configurations are the hand-derived R and R of the public example",
+      "requirements": [
+        "CODEC-05",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "8e94a1f01d2cd740e12e372a9a6fe9e802b7b160f1ff7c038121e9e8a7dd854c"
+    },
+    {
+      "id": "smiles-stereo-read-refusals-change-nothing",
+      "title": "A SMILES stereo mark or CXSMILES block the drawing cannot hold is refused with its code, family and position, and the document stays empty",
+      "requirements": [
+        "CODEC-05",
+        "CODEC-06",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "14a0738516e535e5abbe27ebe06c00cf6535830f11cc4e4f257421c3b9de1dd0"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 71,
+      "passed": 72,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 23,
+      "passed": 24,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 94,
+      "passed": 96,
       "failed": 0,
       "not_run": 0
     }

@@ -89,7 +89,7 @@
         "result": null,
         "diagnostics": [
           {
-            "code": "stereo_unsupported",
+            "code": "directional_bond_unsupported",
             "details": {
               "class": "unsupported",
               "offset": 1

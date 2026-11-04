@@ -128,8 +128,8 @@ def _fixtures() -> list[Fixture]:
         ),
         Fixture(
             "F/C=C/F",
-            Refused("stereo_unsupported"),
-            Refused("stereo_unsupported"),
+            Refused("directional_bond_unsupported"),
+            Refused("directional_bond_unsupported"),
         ),
         Fixture("C=(O)", Refused("dangling_bond"), Refused("dangling_bond")),
         Fixture(

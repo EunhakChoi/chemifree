@@ -4,16 +4,22 @@
 //! document's graph as recorded or canonical text and returns the exact snapshot it wrote.
 
 use chemifree_domain::chemistry::VALENCE_MODEL;
+use std::collections::HashSet;
+
 use chemifree_domain::document::{AtomRef, Command, NewAtomPositions, Point};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::CHEMICAL_MODEL_ID;
 use chemifree_domain::states::AttachmentPoints;
+use chemifree_domain::stereo::{AtomConfiguration, SlotRef};
 
 use super::import::{ImportFormat, ImportRequest, Staged};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
 use super::*;
 use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto, SceneObjectView};
-use crate::smiles::{SmilesCodec, SmilesError, SmilesRead, SmilesStyle, Span};
+use crate::smiles::{
+    ErrorClass, SmilesCode, SmilesCodec, SmilesError, SmilesRead, SmilesSlot, SmilesStyle, Span,
+};
+use crate::stereo_projection::{self, GroupFault, GroupInput};
 
 /// Where new atoms go: a grid, in input order, below whatever the drawing already holds.
 const GRID_SPACING: f64 = 30.0;
@@ -162,6 +168,9 @@ pub struct SmilesExportResult {
 fn smiles_diagnostic(error: &SmilesError, source: Option<&str>) -> Diagnostic {
     let mut details = Map::new();
     details.insert("class".into(), error.code.class().as_str().into());
+    if let Some(family) = error.code.class().family() {
+        details.insert("family".into(), family.into());
+    }
     if let Some(reason) = &error.reason {
         details.insert("reason".into(), reason.clone().into());
     }
@@ -184,6 +193,105 @@ fn smiles_diagnostic(error: &SmilesError, source: Option<&str>) -> Diagnostic {
 struct SmilesImportFormat<'a> {
     codec: &'a dyn SmilesCodec,
     p: &'a SmilesImportParameters,
+}
+
+/// The commands of the whole import: atoms on a grid below `target`'s atoms, the bonds, the
+/// configurations the text's tetrahedral marks state (no marks: the atoms have no coordinates
+/// that could show them) and the enhanced stereo groups its CXSMILES block lists.
+fn import_commands(
+    read: &SmilesRead,
+    source: &str,
+    target: &DocumentView,
+    losses: &mut Vec<Loss>,
+) -> Result<Vec<Command>, Diagnostic> {
+    let mut commands = grid_commands(read, target)?;
+    let created = |slot: SmilesSlot| match slot {
+        SmilesSlot::Atom(index) => SlotRef::Atom(AtomRef::Created(index)),
+        SmilesSlot::ImplicitHydrogen => SlotRef::ImplicitHydrogen,
+    };
+    for center in &read.stereo.centers {
+        commands.push(Command::SetAtomConfiguration {
+            atom: AtomRef::Created(center.atom),
+            configuration: Some(AtomConfiguration::Tetrahedral {
+                neighbors: center.slots.map(created),
+                turn: center.turn,
+            }),
+        });
+    }
+    let groups = group_inputs(read);
+    let centers: HashSet<usize> = read.stereo.centers.iter().map(|c| c.atom).collect();
+    let group_commands = stereo_projection::group_commands(
+        &groups,
+        target,
+        Some(&centers),
+        |k| group_path(read, k),
+        losses,
+    )
+    .map_err(|fault| group_fault_diagnostic(fault, read, source))?;
+    commands.extend(group_commands);
+    Ok(commands)
+}
+
+/// A group the mapping cannot make, as the diagnostic of its own cause.
+fn group_fault_diagnostic(fault: GroupFault, read: &SmilesRead, source: &str) -> Diagnostic {
+    match fault {
+        GroupFault::NoFreeNumber => {
+            let mut details = Map::new();
+            details.insert("class".into(), ErrorClass::Limit.as_str().into());
+            details.insert("family".into(), "resource_limit".into());
+            diagnostic(
+                "resource_limit",
+                "No positive stereo group number is left to renumber a group that collides with one already in the document.",
+                details,
+            )
+        }
+        // The centers handed over are the text's own, so the drawing is always readable.
+        GroupFault::DrawingUnreadable => diagnostic(
+            "internal_error",
+            "The stereo groups of the text could not be mapped.",
+            Map::new(),
+        ),
+        GroupFault::MemberNotStereocenter { group, atom } => {
+            let error = SmilesError::at(
+                SmilesCode::CxsmilesGroupMemberNotStereocenter,
+                read.stereo.groups[group].span,
+            );
+            let mut found = smiles_diagnostic(&error, Some(source));
+            found.details.insert("group".into(), group.into());
+            found.details.insert("atom".into(), atom.into());
+            found
+        }
+    }
+}
+
+/// The file's groups as the mapping takes them.
+fn group_inputs(read: &SmilesRead) -> Vec<GroupInput> {
+    read.stereo
+        .groups
+        .iter()
+        .map(|group| GroupInput {
+            kind: group.kind,
+            number: group.number,
+            atoms: group.atoms.clone(),
+        })
+        .collect()
+}
+
+fn group_path(read: &SmilesRead, k: usize) -> String {
+    format!("source[{}]", read.stereo.groups[k].span.describe())
+}
+
+/// The group normalization losses of an import that has committed, from the document it made.
+fn replayed_group_losses(read: &SmilesRead, committed: &DocumentView) -> Vec<Loss> {
+    let created: Vec<String> = committed
+        .atoms
+        .iter()
+        .skip(committed.atoms.len().saturating_sub(read.atoms.len()))
+        .map(|atom| atom.id.clone())
+        .collect();
+    stereo_projection::replayed_group_losses(&group_inputs(read), committed, &created, |k| {
+        group_path(read, k)
+    })
 }
 
 /// Grid positions for new atoms, below `target`'s atoms, or `None` when one is out of range.
@@ -277,9 +385,12 @@ impl ImportFormat for SmilesImportFormat<'_> {
         losses.push(generated_layout());
         // A replayed import has committed already; its placement is not computed again.
         let commands = if replayed {
+            // The document is the one the commit produced: the losses the group mapping
+            // reported then are found again from it, so a replay reports what the import did.
+            losses.extend(replayed_group_losses(read, target));
             Vec::new()
         } else {
-            grid_commands(read, target)?
+            import_commands(read, &self.p.source, target, &mut losses)?
         };
         Ok(Staged {
             commands,
@@ -569,5 +680,53 @@ mod tests {
             started.elapsed()
         );
         assert_eq!(table.view(Span::new(16_382, 2)).character_offset, 8191);
+    }
+}
+
+#[cfg(test)]
+mod group_fault_tests {
+    use chemifree_domain::stereo_group::GroupKind;
+
+    use super::*;
+    use crate::smiles::{SmilesGroup, SmilesStereo};
+
+    fn read_with_group() -> SmilesRead {
+        SmilesRead {
+            atoms: Vec::new(),
+            bonds: Vec::new(),
+            ignored_text: None,
+            losses: Vec::new(),
+            stereo: SmilesStereo {
+                centers: Vec::new(),
+                groups: vec![SmilesGroup {
+                    kind: GroupKind::Or,
+                    number: Some(1),
+                    atoms: vec![0],
+                    span: Span::new(14, 4),
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn each_group_fault_has_its_own_diagnostic_with_class_family_and_place() {
+        let read = read_with_group();
+        let source = "F[C@H](Cl)Br |o1:0|";
+        let member = group_fault_diagnostic(
+            GroupFault::MemberNotStereocenter { group: 0, atom: 0 },
+            &read,
+            source,
+        );
+        assert_eq!(member.code, "cxsmiles_group_member_not_stereocenter");
+        assert_eq!(member.details["class"], "chemistry");
+        assert_eq!(member.details["family"], "invalid_chemistry");
+        assert_eq!(member.details["offset"], 14);
+        assert_eq!(member.details["group"], 0);
+        assert_eq!(member.details["atom"], 0);
+        let exhausted = group_fault_diagnostic(GroupFault::NoFreeNumber, &read, source);
+        assert_eq!(exhausted.code, "resource_limit");
+        assert_eq!(exhausted.details["family"], "resource_limit");
+        let unreadable = group_fault_diagnostic(GroupFault::DrawingUnreadable, &read, source);
+        assert_eq!(unreadable.code, "internal_error");
     }
 }

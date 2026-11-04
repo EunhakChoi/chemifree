@@ -92,6 +92,68 @@ fn stereo_loss(source_path: String, feature: &str, reason: &str) -> Loss {
     }
 }
 
+fn merged_loss(path: String) -> Loss {
+    stereo_loss(
+        path,
+        "stereo_group_merged",
+        "The document already has an absolute group; the file's absolute members joined it, so they now state the same thing as the document's own.",
+    )
+}
+
+fn number_loss(path: String, kind: GroupKind, stated: i32, free: i32) -> Loss {
+    stereo_loss(
+        path,
+        "stereo_group_number",
+        &format!(
+            "The document already has a {} group numbered {stated}; the file's group is numbered {free} instead and stays a separate group.",
+            kind.as_str()
+        ),
+    )
+}
+
+/// The normalization losses [`group_commands`] reported when the import committed, found again
+/// from the document the commit produced, for a replayed request (the document before the
+/// import is gone). `created` holds the ids of the atoms the import created, in order. A group
+/// that is not an absolute one whose number differs from the stated one was renumbered; an
+/// absolute group with members the import did not create absorbed the file's members.
+pub(crate) fn replayed_group_losses(
+    groups: &[GroupInput],
+    after: &DocumentView,
+    created: &[String],
+    group_path: impl Fn(usize) -> String,
+) -> Vec<Loss> {
+    let made: HashSet<&str> = created.iter().map(String::as_str).collect();
+    let mut losses = Vec::new();
+    for (k, group) in groups.iter().enumerate() {
+        let Some(member) = group
+            .atoms
+            .first()
+            .and_then(|&position| created.get(position))
+        else {
+            continue;
+        };
+        let Some(found) = after
+            .stereo
+            .groups
+            .iter()
+            .find(|candidate| candidate.members.contains(member))
+        else {
+            continue;
+        };
+        if group.kind == GroupKind::Absolute {
+            if found.members.iter().any(|id| !made.contains(id.as_str())) {
+                losses.push(merged_loss(group_path(k)));
+            }
+        } else {
+            let stated = group.number.unwrap_or(0);
+            if let Some(free) = found.stored_number.filter(|&free| free != stated) {
+                losses.push(number_loss(group_path(k), group.kind, stated, free));
+            }
+        }
+    }
+    losses
+}
+
 /// The commands that turn the file's groups into stereo groups, after the configurations they
 /// refer to. A member must be an atom whose marks derived a tetrahedral configuration; one that
 /// is not refuses the whole record, because dropping it would change which centers the file
@@ -162,11 +224,7 @@ pub(crate) fn group_commands(
         let kind = group.kind;
         if kind == GroupKind::Absolute {
             if let Some(existing) = existing_absolute {
-                losses.push(stereo_loss(
-                    path,
-                    "stereo_group_merged",
-                    "The document already has an absolute group; the file's absolute members joined it, so they now state the same thing as the document's own.",
-                ));
+                losses.push(merged_loss(path));
                 commands.push(Command::AddStereoGroupMembers {
                     group: GroupRef::Id(existing),
                     atoms,
@@ -188,14 +246,7 @@ pub(crate) fn group_commands(
             let numbers = reserved.entry(kind).or_default();
             let free = free_number(numbers).ok_or(GroupFault::NoFreeNumber)?;
             numbers.insert(free);
-            losses.push(stereo_loss(
-                path,
-                "stereo_group_number",
-                &format!(
-                    "The document already has a {} group numbered {stated}; the file's group is numbered {free} instead and stays a separate group.",
-                    kind.as_str()
-                ),
-            ));
+            losses.push(number_loss(path, kind, stated, free));
             free
         } else {
             stated

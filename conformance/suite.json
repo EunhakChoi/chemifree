@@ -1,5 +1,5 @@
 {
-  "suite_version": 23,
+  "suite_version": 24,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -94,6 +94,8 @@
     "cases/stereo-group-refusals.json",
     "cases/stereo-group-cip-and-identity-ignore-groups.json",
     "cases/stereo-group-smiles-export-needs-consent.json",
-    "cases/stereo-group-unrelated-edits-keep-groups.json"
+    "cases/stereo-group-unrelated-edits-keep-groups.json",
+    "cases/smiles-stereo-read-configuration-and-groups.json",
+    "cases/smiles-stereo-read-refusals-change-nothing.json"
   ]
 }

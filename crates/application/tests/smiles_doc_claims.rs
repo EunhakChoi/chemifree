@@ -286,7 +286,7 @@ fn documented_reading_claims_hold() {
     // "`$` is refused as `quadruple_bond_unsupported`", "`*` ... `wildcard_unsupported`"
     assert_eq!(refused("C$C"), "quadruple_bond_unsupported");
     assert_eq!(refused("*"), "wildcard_unsupported");
-    assert_eq!(refused("[C@H](F)Cl"), "stereo_unsupported");
+    assert_eq!(refused("[C@H](F)Cl"), "stereo_neighbor_count");
     assert_eq!(refused("[0C]"), "isotope_zero");
     assert_eq!(refused("[1000C]"), "isotope_out_of_range");
     // "Ending": text after whitespace is reported, leading whitespace and empty text are codes.
@@ -506,9 +506,9 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     assert!(bullet.contains("`C(.C)C`") && bullet.contains("`C.(C)C`"));
     assert_eq!(accepted("C(.C)C").bonds.len(), 1);
     assert_eq!(refusal("C.(C)C"), Some("branch_without_atom"));
-    // Two digits of hydrogens, and stereo, are refused.
+    // Two digits of hydrogens, and a directional bond, are refused.
     assert_eq!(refusal("[CH10]"), Some("invalid_hydrogen_count"));
-    assert_eq!(refusal("C[C@H](F)Cl"), Some("stereo_unsupported"));
+    assert_eq!(refusal("F/C=C/F"), Some("directional_bond_unsupported"));
     // The simple ions of the valence model need no consent; a metal does, and so does an
     // unlisted charge. This is what makes `[Na+].[Cl-]` a plain salt.
     assert!(bullet.contains("`[Na+].[Cl-]`"));
@@ -583,4 +583,39 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
         bullet.contains("Retry the same import")
             && smoke.contains("a refused re-preview keeps the retry")
     );
+}
+
+/// The "Stereo read" section names exactly the stereo refusal codes the codec has: a code the
+/// text cites exists, and a stereo or CXSMILES code of the codec is cited.
+#[test]
+fn the_stereo_read_section_cites_every_stereo_code_and_only_real_ones() {
+    let section = contract_section();
+    let start = section
+        .find("### Stereo read (P29c)")
+        .expect("the SMILES section has a Stereo read subsection");
+    let rest = &section[start..];
+    let end = rest[3..].find("\n### ").map_or(rest.len(), |at| at + 3);
+    let stereo = &rest[..end];
+    let stereo_like = |code: &str| {
+        code.starts_with("stereo_")
+            || code.starts_with("cxsmiles_")
+            || code == "directional_bond_unsupported"
+    };
+    for code in SmilesCode::ALL.iter().map(|code| code.as_str()) {
+        if stereo_like(code) && !code.starts_with("stereo_group") {
+            assert!(
+                stereo.contains(&format!("`{code}`")),
+                "the section does not cite `{code}`"
+            );
+        }
+    }
+    let known: Vec<&str> = SmilesCode::ALL.iter().map(|code| code.as_str()).collect();
+    for token in stereo.split('`').skip(1).step_by(2) {
+        if stereo_like(token) && !token.starts_with("stereo_group") && !token.contains([' ', ':']) {
+            assert!(
+                known.contains(&token),
+                "`{token}` is cited but is not a code of the codec"
+            );
+        }
+    }
 }

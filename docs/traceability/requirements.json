@@ -764,7 +764,7 @@
       "parts": [
         {
           "id": "CODEC-05.smiles",
-          "summary": "Bounded OpenSMILES subset: branches, ring labels, dot-disconnected parts, isotopes, charges, hydrogens and aromatic atoms are read; recorded-order and Chemifree-canonical text is written. Invalid text is refused with its position and a specific code; every written string is read back by the same reader. The canonical form is Chemifree's own (chemifree-smiles-canonical-1, bound to chemifree-chemical-graph-2), not another toolkit's. Stereo, query and reaction SMILES and InChI remain open.",
+          "summary": "Bounded OpenSMILES subset: branches, ring labels, dot-disconnected parts, isotopes, charges, hydrogens and aromatic atoms are read; recorded-order and Chemifree-canonical text is written. Invalid text is refused with its position and a specific code; every written string is read back by the same reader. The canonical form is Chemifree's own (chemifree-smiles-canonical-1, bound to chemifree-chemical-graph-2), not another toolkit's. The writers write no stereo; the stereo read is CODEC-05.smiles-stereo-read; query and reaction SMILES and InChI remain open.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/smiles.rs",
@@ -782,8 +782,25 @@
           "followups": []
         },
         {
+          "id": "CODEC-05.smiles-stereo-read",
+          "summary": "SMILES tetrahedral marks @ and @@ of bracket atoms are read as stored configurations with no bond mark (neighbour order after OpenSMILES: preceding atom, bracket hydrogen, ring labels in the order written, then branches and chain), in the same transaction as the atoms; marks the drawing cannot hold (a lone pair as the fourth position, an aromatic atom, other neighbour counts, a charged or hypervalent atom), the @TH, @AL, @SP, @TB and @OH classes and the directional bonds / and \\ are refused with a code, a closed diagnostic family and the span, never dropped. Checked by hand-worked neighbour orders, respellings giving one configuration, and a hand-run RDKit comparison of CIP labels (RDKit 2026.09.1). The writers write no stereo, so nothing here claims a round trip.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/smiles/stereo.rs",
+            "crates/providers/src/smiles/reader.rs",
+            "crates/application/src/smiles.rs",
+            "crates/application/src/operations/smiles.rs"
+          ],
+          "evidence": [
+            "case:smiles-stereo-read-configuration-and-groups",
+            "case:smiles-stereo-read-refusals-change-nothing",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "CODEC-05.rest",
-          "summary": "Stereo and query SMILES, reaction SMILES, InChI and other line notations remain open.",
+          "summary": "Stereo written to SMILES (@, @@, a CXSMILES block), the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI and other line notations remain open.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1234,7 +1251,7 @@
         },
         {
           "id": "STEREO-01.cdxml-groups-read",
-          "summary": "Enhanced stereo groups are read from CDXML (and from the CDX atom tags, for atoms whose marks are available): same kind and number is one group, Or 1 and And 1 stay separate, an omitted number is read as 0 and joins a stated 0, Absolute carries no number, negative and large numbers stay as stated, CDX group numbers are unsigned 16-bit; a member that is not a derived tetrahedral center refuses the file and nothing is created. No group is written to CDXML or CDX, and no CXSMILES or SMILES group is read.",
+          "summary": "Enhanced stereo groups are read from CDXML (and from the CDX atom tags, for atoms whose marks are available): same kind and number is one group, Or 1 and And 1 stay separate, an omitted number is read as 0 and joins a stated 0, Absolute carries no number, negative and large numbers stay as stated, CDX group numbers are unsigned 16-bit; a member that is not a derived tetrahedral center refuses the file and nothing is created. No group is written to CDXML or CDX; the CXSMILES groups are STEREO-01.cxsmiles-groups-read.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/interchange_projection.rs",
@@ -1265,8 +1282,24 @@
           "followups": []
         },
         {
+          "id": "STEREO-01.cxsmiles-groups-read",
+          "summary": "The CXSMILES fields a:, o<n>: and &<n>: after a SMILES text are read as enhanced stereo groups over the tagged centers (0-based atom indexes in the order atoms are written, the digits after o or & stored as the group number, same kind and number one group, a number-less o: or &: refused); every other field, a malformed block, an index that is no atom, no @ or @@ center, or listed twice is refused with its span and nothing is imported. A tagged center in no group states nothing. The groups map through the same group commands as V3000 and CDXML. Field syntax rests on the public RDKit Book examples, not on the functional specification, which has no CXSMILES; no CXSMILES is written.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/smiles/cx.rs",
+            "crates/application/src/operations/smiles.rs",
+            "crates/application/src/stereo_projection.rs"
+          ],
+          "evidence": [
+            "case:smiles-stereo-read-configuration-and-groups",
+            "case:smiles-stereo-read-refusals-change-nothing",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "STEREO-01.rest",
-          "summary": "Group import and export in the formats that can still carry them (CDXML and CDX group numbers, V2000 and CXSMILES), the per-format numbering and its losses there, and group normalization on import there. MOL V3000 collections are CODEC-03.v3000-groups.",
+          "summary": "Group export in the formats that can still carry them (CDXML and CDX group numbers, CXSMILES), V2000, the per-format numbering and its losses there, and group normalization on write. MOL V3000 collections are CODEC-03.v3000-groups; the CDXML, CDX and CXSMILES reads are separate parts.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
