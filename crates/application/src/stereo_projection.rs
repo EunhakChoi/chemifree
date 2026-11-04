@@ -221,39 +221,61 @@ fn unreadable_loss(source_path: String, reason: &str) -> Loss {
     }
 }
 
+/// Where a derivation loss is reported: the record as a whole, or the atom at this 0-based
+/// position among the atoms the import creates.
+pub(crate) type LossSite = Option<usize>;
+
 /// No configuration could be derived for the record at all (the scratch drawing was refused):
 /// the marks stay and one loss says why, so the import never silently stores less.
 fn unreadable_record(
-    prefix: &str,
+    site: &impl Fn(LossSite) -> String,
     cause: &str,
     losses: &mut Vec<Loss>,
 ) -> (Option<Command>, Option<HashSet<usize>>) {
     losses.push(unreadable_loss(
-        format!("{prefix}.atoms"),
+        site(None),
         &format!("The drawn marks could not be read into configurations ({cause}); the marks are kept and no configuration is stored."),
     ));
     (None, None)
 }
 
-/// The command that stores the configuration each marked center's drawing shows, and a loss
-/// for each center the drawing does not determine, at `prefix` + `.atoms[n]`. The derivation is
-/// the domain's own, run on a scratch document of the record alone (an import adds a separate
-/// component, so a center's neighbourhood is the same there); a center that does not derive
-/// keeps its mark and stores nothing, so one degenerate center never refuses the whole import.
-/// Also the positions of the atoms whose derived configuration is tetrahedral (a wavy mark
-/// derives `unknown`, which no group can hold).
+/// [`derived_configurations_at`] for a codec whose losses name `prefix` + `.atoms` for the
+/// record and `prefix` + `.atoms[n]` (1-based) for an atom.
 pub(crate) fn derived_configurations(
     commands: &[Command],
     prefix: &str,
     losses: &mut Vec<Loss>,
 ) -> (Option<Command>, Option<HashSet<usize>>) {
+    derived_configurations_at(
+        commands,
+        |site| match site {
+            None => format!("{prefix}.atoms"),
+            Some(position) => format!("{prefix}.atoms[{}]", position + 1),
+        },
+        losses,
+    )
+}
+
+/// The command that stores the configuration each marked center's drawing shows, and a loss
+/// for each center the drawing does not determine, at the path `site` gives (the codec owns its
+/// own paths). The derivation is
+/// the domain's own, run on a scratch document of the record alone (an import adds a separate
+/// component, so a center's neighbourhood is the same there); a center that does not derive
+/// keeps its mark and stores nothing, so one degenerate center never refuses the whole import.
+/// Also the positions of the atoms whose derived configuration is tetrahedral (a wavy mark
+/// derives `unknown`, which no group can hold).
+pub(crate) fn derived_configurations_at(
+    commands: &[Command],
+    site: impl Fn(LossSite) -> String,
+    losses: &mut Vec<Loss>,
+) -> (Option<Command>, Option<HashSet<usize>>) {
     let id = DocumentId::parse("scratch").expect("scratch identifier is valid");
     let mut scratch = match Document::new(id, "scratch") {
         Ok(scratch) => scratch,
-        Err(cause) => return unreadable_record(prefix, &cause.to_string(), losses),
+        Err(cause) => return unreadable_record(&site, &cause.to_string(), losses),
     };
     if let Err(cause) = scratch.apply(commands) {
-        return unreadable_record(prefix, &cause.to_string(), losses);
+        return unreadable_record(&site, &cause.to_string(), losses);
     }
     let instance = scratch.first_instance();
     let drawing = Drawing::of_document(&scratch, instance);
@@ -272,7 +294,7 @@ pub(crate) fn derived_configurations(
                 readable.push(AtomRef::Created(position));
             }
             Err(cause) => losses.push(unreadable_loss(
-                format!("{prefix}.atoms[{}]", position + 1),
+                site(Some(position)),
                 &format!("The drawn marks at this atom do not determine a configuration ({cause}); the marks are kept and no configuration is stored."),
             )),
         }

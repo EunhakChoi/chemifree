@@ -232,6 +232,9 @@ fn issue(error: InterchangeError) -> Diagnostic {
     if let Some(offset) = error.offset {
         details.insert("offset".into(), offset.into());
     }
+    if let Some(family) = interchange_projection::reason_family(error.code) {
+        details.insert("family".into(), family.into());
+    }
     Diagnostic {
         code: error.code,
         message: error.message,
