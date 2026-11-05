@@ -2371,13 +2371,28 @@ step = 'after scene_geometry_controls'
     await placement.click()
     await page.getByRole('option', { name: instance, exact: true }).click()
   }
-  const clickPoint = async (point) => {
+  const gesturePoint = async (point) => {
+    // Scene-list toggles may scroll the long inspector below the canvas. Raw
+    // mouse coordinates do not scroll automatically like locator clicks do.
+    await canvas.scrollIntoViewIfNeeded()
     const at = await screen(point)
+    const reachable = await canvas.evaluate((svg, pointer) => {
+      const box = svg.getBoundingClientRect()
+      const hit = document.elementFromPoint(pointer.x, pointer.y)
+      return pointer.x >= box.left && pointer.x <= box.right && pointer.y >= box.top && pointer.y <= box.bottom &&
+        pointer.x >= 0 && pointer.x < window.innerWidth && pointer.y >= 0 && pointer.y < window.innerHeight &&
+        hit !== null && svg.contains(hit)
+    }, at)
+    assert.equal(reachable, true, `gesture point (${point.x}, ${point.y}) must receive pointer input in the visible canvas`)
+    return at
+  }
+  const clickPoint = async (point) => {
+    const at = await gesturePoint(point)
     await page.mouse.click(at.x, at.y)
   }
   const dragPoint = async (from, to) => {
-    const start = await screen(from)
-    const end = await screen(to)
+    const start = await gesturePoint(from)
+    const end = await gesturePoint(to)
     await page.mouse.move(start.x, start.y)
     await page.mouse.down()
     await page.mouse.move(end.x, end.y, { steps: 5 })
@@ -2426,7 +2441,8 @@ step = 'after scene_geometry_controls'
   await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
   assert.deepEqual(moveGeometry((await openDoc()).document), moveGeometry(original))
 
-  await clickPoint({ x: 70, y: 70 })
+  await canvas.focus()
+  await page.keyboard.press('Escape')
   await clickPoint({ x: 100, y: 220 })
   await page.keyboard.down('Shift')
   await clickPoint({ x: 115, y: 220 })
