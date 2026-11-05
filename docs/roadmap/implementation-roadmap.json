@@ -1272,7 +1272,7 @@
    "depends_on": [
     "P09"
    ],
-   "note": "제한된 웹 viewport 완료(#150). 탭 로컬 중심·배율(CSS px/point, 1/4096–32), 포인터 고정 zoom·pan·geometry.viewBox fit·100% reset, 역 SVG 좌표와 화면 px 기준 hit/drag를 제공한다. 편집·resize는 중심·배율을 유지하고 문서 전환·reload는 fit이다. 뷰는 모델 명령·revision·dirty·Undo·저장에 들어가지 않는다. 툴바, Pan view(H), Ctrl/⌘+wheel, 가운데 버튼/Space 드래그, 포커스 키와 한 포인터 터치를 지원한다. Pinch·다중 터치·회전·관성·뷰 영속화는 미구현이며 P32의 추가 선택·정렬·문서 변환은 후속 범위다. 최종 로컬 client 351개·conformance 99개·브라우저 스모크와 PR/main CI 통과. 두 리뷰의 지적 3건은 수정했다. 샌드박스 밖 data-page 진단은 격리 검증으로 세지 않는다. 상세: docs/verification/p31-viewport-completion.md.",
+   "note": "제한된 웹 viewport 완료(#150). 탭 로컬 중심·배율(CSS px/point, 1/4096–32), 포인터 고정 zoom·pan·geometry.viewBox fit·100% reset, 역 SVG 좌표와 화면 px 기준 hit/drag를 제공한다. 편집·resize는 중심·배율을 유지하고 문서 전환·reload는 fit이다. 뷰는 모델 명령·revision·dirty·Undo·저장에 들어가지 않는다. 툴바, Pan view(H), Ctrl/⌘+wheel, 가운데 버튼/Space 드래그, 포커스 키와 한 포인터 터치를 지원한다. Pinch·다중 터치·회전·관성·뷰 영속화는 미구현이며 P31 도입 당시 후속이던 bounded P32 선택·정렬·문서 변환은 현재 해당 완료 기록의 근거로 납품됐다. 최종 로컬 client 351개·conformance 99개·브라우저 스모크와 PR/main CI 통과. 두 리뷰의 지적 3건은 수정했다. 샌드박스 밖 data-page 진단은 격리 검증으로 세지 않는다. 상세: docs/verification/p31-viewport-completion.md.",
    "delivered": {
     "prs": [
      150
