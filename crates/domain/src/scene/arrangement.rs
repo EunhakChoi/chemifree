@@ -300,7 +300,9 @@ pub(crate) fn plan(
                             DistributionAxis::Horizontal,
                             source.value,
                             target.value,
-                            target.subtract(source).displacement(),
+                            // These are the actual translation anchors. An interval
+                            // containing zero does not prove distinct centers equal.
+                            target.value - source.value,
                         )
                     }
                     AlignMode::Right => (
@@ -322,7 +324,7 @@ pub(crate) fn plan(
                             DistributionAxis::Vertical,
                             source.value,
                             target.value,
-                            target.subtract(source).displacement(),
+                            target.value - source.value,
                         )
                     }
                     AlignMode::Bottom => (
