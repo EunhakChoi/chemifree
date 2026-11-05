@@ -735,6 +735,63 @@ fn unrepresentable_center_ties_are_stable_and_improving_moves_keep_undo_redo() {
 }
 
 #[test]
+fn post_translation_union_center_drift_refuses_atomically_and_preserves_history_on_both_axes() {
+    assert_eq!(
+        EditError::ArrangementCenterUnstable.reason(),
+        Some("arrangement_center_unstable")
+    );
+    for mode in [AlignMode::HorizontalCenter, AlignMode::VerticalCenter] {
+        let (first_low, first_high) = (-0.9999999999999933, 50000.00000000068);
+        let (second_low, second_high) = (-99998.9999999989, -1.3e-322);
+        let rectangles = if mode == AlignMode::VerticalCenter {
+            [
+                (0.0, first_low, 1.0, first_high),
+                (2.0, second_low, 3.0, second_high),
+            ]
+        } else {
+            [
+                (first_low, 0.0, first_high, 1.0),
+                (second_low, 2.0, second_high, 3.0),
+            ]
+        };
+        let mut document = with_redo(drawings(&rectangles));
+        let before = document.clone();
+        let geometry = [bounds(&document, 2), bounds(&document, 3)];
+        let arrangement = ObjectArrangement::Align(mode);
+        for _ in 0..3 {
+            assert_eq!(
+                document
+                    .object_arrangement(&ids(&[2, 3]), arrangement)
+                    .unwrap_err(),
+                EditError::ArrangementCenterUnstable,
+                "{mode:?}: preview must refuse a plan that would change on repetition"
+            );
+            let error = document
+                .apply(&[
+                    Command::Rename {
+                        title: "Must roll back before unstable arrangement".into(),
+                    },
+                    arrange(&[2, 3], arrangement),
+                ])
+                .unwrap_err();
+            assert_eq!(
+                (error.index, error.error),
+                (Some(1), EditError::ArrangementCenterUnstable)
+            );
+            assert_eq!(
+                document, before,
+                "{mode:?}: rejection preserves geometry, selection, revision, history and redo"
+            );
+        }
+        document.redo().unwrap();
+        assert_eq!([bounds(&document, 2), bounds(&document, 3)], geometry);
+        document.undo().unwrap();
+        assert_eq!([bounds(&document, 2), bounds(&document, 3)], geometry);
+        assert_eq!(document.redo_depth(), before.redo_depth());
+    }
+}
+
+#[test]
 fn touching_decimal_intervals_have_exact_zero_gap_and_preserve_redo() {
     for axis in [DistributionAxis::Horizontal, DistributionAxis::Vertical] {
         let rectangles = match axis {
