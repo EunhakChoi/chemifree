@@ -208,7 +208,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || activePlacement === null} />} onClick={() => void prepareCopy()}>Copy fragment…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => openPaste()}>Paste fragment…</DialogTrigger>
       </div>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-lg">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden transition-none sm:max-w-lg">
         <DialogHeader className="shrink-0 pr-8">
           <DialogTitle>{mode === 'copy' ? 'Copy native fragment' : 'Paste native fragment'}</DialogTitle>
         </DialogHeader>
