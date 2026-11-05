@@ -141,6 +141,7 @@ scripts/
   traceability-check.mjs  Traceability check (and its tests in traceability-check.test.mjs)
 docs/
   TRACEABILITY.ko.md What the traceability files, runner, and check establish
+  testing-practice.md How tests are shown to fail, kept deterministic, compared with oracles, and run isolated
   traceability/     Requirement parts and declaration counts
   roadmap/          Implementation roadmap (PR plan)
   verification/     Run records, including conformance-report.json, and review history
