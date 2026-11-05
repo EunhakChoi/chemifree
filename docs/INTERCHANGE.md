@@ -129,7 +129,15 @@ including fixed-point CDX quantization. A mismatch requires `stereo_configuratio
 consent; stored double-bond statements require `double_bond_configuration` consent.
 An absolute/and/or group is emitted only when every member's written drawing derives
 the stored tetrahedral state; otherwise `stereo_group` reports the whole omitted group.
-A member subset is never silently kept. Output numbers 1–127 are preserved; others
+A member subset is never silently kept. Written group members receive
+`ShowAtomEnhancedStereo=yes` (`0445=true`). The drawing stores no enhanced-stereo
+indicator visibility setting, so this is an explicit export choice, reported once
+when any group is written as `enhanced_stereo_display` (`normalized`, `rendering`,
+no consent required): "The drawing stores no enhanced-stereo indicator visibility
+setting. This export explicitly shows indicators for written stereo groups."
+No flag or display normalization is emitted if no group is written. Configuration
+and group roundtrip checks exclude this visibility setting; the drawing model does
+not preserve it. Output numbers 1–127 are preserved; others
 receive the lowest free positive number per kind after existing valid numbers are
 reserved (`stereo_group_number`, informational normalization). A full number space
 is refused as `stereo_group_limit`. Group IDs are informational `stereo_group_identity`

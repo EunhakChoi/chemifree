@@ -441,6 +441,16 @@ fn write_groups(
                 .collect(),
         );
     }
+    if !output.is_empty() {
+        let mut display = loss(
+            "document.stereo.groups",
+            "enhanced_stereo_display",
+            SemanticImpact::Rendering,
+            "The drawing stores no enhanced-stereo indicator visibility setting. This export explicitly shows indicators for written stereo groups.",
+        );
+        display.disposition = LossDisposition::Normalized;
+        losses.push(display);
+    }
     for group in output {
         let kind = GroupKind::from(group.kind);
         let number = match kind {
@@ -568,6 +578,74 @@ mod tests {
     }
 
     #[test]
+    fn written_groups_show_indicators_with_one_explicit_rendering_normalization() {
+        let mut document = two_centers();
+        for format in [InterchangeFormat::Cdxml, InterchangeFormat::Cdx] {
+            let projection = project(&ExportSnapshot::capture(&document), format).unwrap();
+            assert!(
+                !projection
+                    .losses
+                    .iter()
+                    .any(|loss| loss.feature == "enhanced_stereo_display"),
+                "No group is written, so no indicator visibility is chosen."
+            );
+            assert!(output_nodes(&projection).iter().all(|node| {
+                !node
+                    .properties
+                    .iter()
+                    .any(|property| property.kind == PropertyKind::ShowAtomEnhancedStereo)
+            }));
+        }
+        document
+            .apply(&[
+                Command::CreateStereoGroup {
+                    kind: GroupKind::And,
+                    number: Some(1),
+                    atoms: vec![AtomRef::Id(AtomId::parse("a1").unwrap())],
+                },
+                Command::CreateStereoGroup {
+                    kind: GroupKind::Or,
+                    number: Some(1),
+                    atoms: vec![AtomRef::Id(AtomId::parse("a5").unwrap())],
+                },
+            ])
+            .unwrap();
+        for format in [InterchangeFormat::Cdxml, InterchangeFormat::Cdx] {
+            let projection = project(&ExportSnapshot::capture(&document), format).unwrap();
+            let display: Vec<_> = projection
+                .losses
+                .iter()
+                .filter(|loss| loss.feature == "enhanced_stereo_display")
+                .collect();
+            assert_eq!(display, vec![&Loss {
+                feature: "enhanced_stereo_display".into(),
+                source_path: "document.stereo.groups".into(),
+                disposition: LossDisposition::Normalized,
+                reason: "The drawing stores no enhanced-stereo indicator visibility setting. This export explicitly shows indicators for written stereo groups.".into(),
+                semantic_impact: SemanticImpact::Rendering,
+                consent: LossConsent::NotRequired,
+            }], "The display choice is reported once, even for multiple groups.");
+            let flags: Vec<_> = output_nodes(&projection)
+                .iter()
+                .flat_map(|node| {
+                    node.properties
+                        .iter()
+                        .filter(|property| property.kind == PropertyKind::ShowAtomEnhancedStereo)
+                        .map(move |property| (node.id, property.value.clone()))
+                })
+                .collect();
+            assert_eq!(
+                flags,
+                vec![
+                    (Some(4), PropertyValue::Integer(1)),
+                    (Some(8), PropertyValue::Integer(1)),
+                ],
+                "Only the two written group members receive the true indicator flag."
+            );
+        }
+    }
+
+    #[test]
     fn renumbering_reserves_later_valid_numbers_before_allocating() {
         let mut document = two_centers();
         document
@@ -631,6 +709,13 @@ mod tests {
         assert_eq!(group_losses.len(), 1);
         assert_eq!(group_losses[0].consent, LossConsent::Required);
         assert_eq!(group_losses[0].disposition, LossDisposition::Dropped);
+        assert!(
+            !projection
+                .losses
+                .iter()
+                .any(|loss| loss.feature == "enhanced_stereo_display"),
+            "An entirely omitted group makes no indicator visibility choice."
+        );
         assert!(
             !projection
                 .losses
