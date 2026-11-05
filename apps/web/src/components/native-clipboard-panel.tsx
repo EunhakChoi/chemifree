@@ -40,6 +40,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
   const [status, setStatus] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
   const alive = useRef(true)
+  const copyText = useRef<HTMLTextAreaElement>(null)
   const request = useRef(0)
   const id = useId()
 
@@ -221,9 +222,13 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
           {(offer && !currentOffer || pending !== null && pending.generation !== editor.serviceGeneration) && <p>The service changed. Close this dialog and copy the fragment again.</p>}
           <FieldGroup><Field>
             <FieldLabel htmlFor={`${id}-copy`}>Native fragment text</FieldLabel>
-            <Textarea id={`${id}-copy`} className="field-sizing-fixed max-h-48 resize-y" value={currentOffer?.payload ?? ''} readOnly rows={7} spellCheck={false} onFocus={(event) => event.currentTarget.select()} />
+            <Textarea ref={copyText} id={`${id}-copy`} className="field-sizing-fixed max-h-48 resize-y" value={currentOffer?.payload ?? ''} readOnly rows={7} spellCheck={false} onFocus={(event) => event.currentTarget.select()} />
           </Field></FieldGroup>
           <DialogFooter className="mx-0 mb-0">
+            <Button variant="outline" disabled={busy || !currentOffer} onClick={() => {
+              copyText.current?.focus()
+              copyText.current?.select()
+            }}>Select native text</Button>
             <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>
           </DialogFooter>
         </> : <>

@@ -245,8 +245,11 @@ try {
 
   await page.getByRole('button', { name: 'Copy fragment…', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
-  await page.getByRole('textbox', { name: 'Native fragment text' }).focus()
+  await page.getByRole('button', { name: 'Select native text', exact: true }).focus()
+  await page.getByRole('button', { name: 'Select native text', exact: true }).press('Enter')
+  assert.equal(await page.getByRole('textbox', { name: 'Native fragment text' }).evaluate((element) => element === document.activeElement), true)
   assert.deepEqual(await page.getByRole('textbox', { name: 'Native fragment text' }).evaluate((element) => [element.selectionStart, element.selectionEnd]), [0, payload.length])
+  assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), 2, 'manual selection must not write the clipboard')
   const narrowCopy = await page.getByRole('dialog').boundingBox()
   assert.ok(narrowCopy && narrowCopy.y >= 0 && narrowCopy.y + narrowCopy.height <= 480, 'the copy dialog must fit the same narrow viewport')
   await page.getByRole('button', { name: 'Close', exact: true }).click()
