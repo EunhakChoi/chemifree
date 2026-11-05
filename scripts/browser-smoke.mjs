@@ -1964,8 +1964,8 @@ step = 'after placements_move_independently'
   await waitIdle()
 
   /** Problems with the drawing, measured on the rendered SVG. */
-  const drawingProblems = () =>
-    page.evaluate(async () => {
+  const drawingProblems = ({ fitted = true } = {}) =>
+    page.evaluate(async ({ fitted }) => {
       await document.fonts.ready
       const svg = document.querySelector('svg[data-structure-canvas]')
       const view = svg.viewBox.baseVal
@@ -1975,14 +1975,26 @@ step = 'after placements_move_independently'
         return { x, y, width, height }
       }
       // Within, beyond rounding.
-      const within = (inner, outer) =>
-        inner.x >= outer.x - 0.05 &&
-        inner.y >= outer.y - 0.05 &&
-        inner.x + inner.width <= outer.x + outer.width + 0.05 &&
-        inner.y + inner.height <= outer.y + outer.height + 0.05
+      const within = (inner, outer, extraX = 0, extraY = 0) =>
+        inner.x >= outer.x - 0.05 - extraX &&
+        inner.y >= outer.y - 0.05 - extraY &&
+        inner.x + inner.width <= outer.x + outer.width + 0.05 + extraX &&
+        inner.y + inner.height <= outer.y + outer.height + 0.05 + extraY
+      const matrix = svg.getScreenCTM()
+      const scaleX = Math.hypot(matrix.a, matrix.b)
+      const scaleY = Math.hypot(matrix.c, matrix.d)
+      if (!(scaleX > 0 && scaleY > 0 && Number.isFinite(scaleX) && Number.isFinite(scaleY))) throw new Error('Invalid canvas scale')
+      // Chromium quantizes small SVG text bounds in CSS pixels. At fitted zoom only,
+      // allow half a CSS pixel per edge for measured text, converted through the actual
+      // SVG scale. Model boxes, dots, strokes and view containment retain strict checks.
+      // A separate 100% probe below checks the text with no pixel allowance.
+      const textExtraX = fitted ? 0.5 / scaleX : 0
+      const textExtraY = fitted ? 0.5 / scaleY : 0
+      const describeBox = ({ x, y, width, height }) =>
+        [x, y, width, height].map((value) => Number(value.toFixed(4))).join(',')
       const inView = (box) => within(box, view)
       if (svg.querySelector('[textLength], [lengthAdjust]')) problems.push('text is drawn at a forced length')
-      for (const part of svg.querySelectorAll('[data-frame], [data-frame-id]')) {
+      for (const part of fitted ? svg.querySelectorAll('[data-frame], [data-frame-id]') : []) {
         const name = part.getAttribute('data-frame') ?? `${part.getAttribute('data-frame-id')} ID`
         if (!inView(part.getBBox())) problems.push(`frame ${name} outside the view box`)
       }
@@ -2004,6 +2016,8 @@ step = 'after placements_move_independently'
             name: part.getAttribute('data-chunk') ?? part.getAttribute('data-mark'),
             box: part.getBBox(),
             reserved: part.hasAttribute('data-box') ? boxOf(part) : boxOf(label),
+            font: getComputedStyle(part).fontFamily,
+            text: part.tagName === 'text',
           })),
           // Where each run of the label's text (not its marks) is drawn, left and right, in
           // reading order: from its first character's cell to its last's.
@@ -2031,10 +2045,10 @@ step = 'after placements_move_independently'
             if (gap > 2 || gap < -1) problems.push(`${where} ${id}: ${gap.toFixed(1)} pt between ${before.part} and ${after.part}`)
           }
           if (drawn.width === 0 || drawn.height === 0) problems.push(`${where} ${id}: empty label`)
-          if (!inView(box)) problems.push(`${where} ${id}: label outside the view box`)
+          if (fitted && !inView(box)) problems.push(`${where} ${id}: label outside the view box`)
           for (const part of parts) {
-            if (!within(part.box, part.reserved) || !within(part.reserved, box)) {
-              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it`)
+            if (!within(part.box, part.reserved, part.text ? textExtraX : 0, part.text ? textExtraY : 0) || !within(part.reserved, box)) {
+              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it; actual=[${describeBox(part.box)}] reserved=[${describeBox(part.reserved)}] label=[${describeBox(box)}] scale=${svg.getAttribute('data-viewport-scale')} font=${part.font}`)
             }
           }
         }
@@ -2057,7 +2071,16 @@ step = 'after placements_move_independently'
         }
       }
       return problems
-    })
+    }, { fitted })
+  const assertDrawingContainment = async () => {
+    await page.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
+    await page.waitForFunction(() => Number(document.querySelector('svg[data-structure-canvas]').getAttribute('data-viewport-scale')) === 1)
+    // At 100% the complete drawing may extend beyond the viewport. Check all label
+    // geometry without viewport containment, then restore Fit and check that as well.
+    assert.deepEqual(await drawingProblems({ fitted: false }), [], 'strict label containment at 100%')
+    await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+    assert.deepEqual(await drawingProblems(), [], 'fitted drawing containment')
+  }
   /** The states as drawn in the first placement and named for assistive technology. */
   const drawnStates = async () => {
     const first = page.locator('g[data-instance="s1"]')
@@ -2096,8 +2119,7 @@ step = 'after placements_move_independently'
     b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
   }
   assert.deepEqual(await drawnStates(), expected, 'drawn as recorded; the inferred nitrogen shows no count')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   await page.screenshot({ path: join(outDir, 'editor-states.png') })
   const recorded = await statesDoc()
 
@@ -2106,14 +2128,12 @@ step = 'after placements_move_independently'
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'after a page reload')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   await closeShown()
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'reopened from storage')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   const reopened = await statesDoc()
   assert.deepEqual([reopened.atoms, reopened.bonds], [recorded.atoms, recorded.bonds])
 }
