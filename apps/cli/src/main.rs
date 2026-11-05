@@ -1,3 +1,5 @@
+mod inchi_config;
+
 use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -31,6 +33,9 @@ struct Args {
     /// Directory for saved documents. Defaults to the platform user-data directory.
     #[arg(long, global = true, env = "CHEMIFREE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Optional native InChI registration; absent or rejected registration leaves the host usable.
+    #[command(flatten)]
+    inchi: inchi_config::InchiArgs,
     /// Separately selected directory containing authorized local DATA.
     #[arg(long, global = true, env = "CHEMIFREE_MODEL_DATA_ROOT")]
     model_data_root: Option<PathBuf>,
@@ -310,7 +315,8 @@ fn main() -> ExitCode {
         eprintln!("error: no user data directory found; pass --data-dir or set CHEMIFREE_DATA_DIR");
         return ExitCode::FAILURE;
     };
-    // Construction performs no I/O; status and capabilities never touch storage.
+    // Document store construction performs no I/O. An explicitly selected optional native
+    // provider is checked below; without that opt-in no library is accessed.
     let registry = configure_selected_registry(
         args.model_data_root.as_deref(),
         args.model_trusted_registry.as_deref(),
@@ -321,6 +327,7 @@ fn main() -> ExitCode {
         .with_smiles_codec(OpenSmilesCodec)
         .with_preferences(FilePreferenceStore::new(&data_dir))
         .with_data_registry(registry);
+    let application = args.inchi.configure(application);
 
     match args.command {
         Command::Status { json } => {

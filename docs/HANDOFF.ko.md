@@ -2,6 +2,13 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P30 진행 중 인계
+
+- `chem.inchi`가 Application 소유 포트와 선택적 Linux native provider로 Standard InChI/InChIKey를 생성한다. HTTP/CLI 조립은 `--inchi-library`, `--inchi-version 1.07.5`, `--inchi-sha256`를 함께 요구하고 `--inchi-timeout-seconds`(기본 5, 1–60)를 받는다. 같은 이름의 `CHEMIFREE_INCHI_*` 환경변수도 지원한다. 버전은 등록값이며 런타임 감지가 아니다. SHA는 사용자가 제시한 바이트와의 일치만 확인한다. 미설정·로딩 실패는 `inchi_unavailable`이며 다른 호스트 기능은 유지된다.
+- ordinary 결합·제한된 원자가·저장된 사면체/이중결합 0D 입체만 매핑한다. AND/OR 그룹은 거절하고 도면 mark·absolute 그룹 메타데이터·native 경고는 digest 동의가 필요하다. 표준 정규화는 안내이며 canonical SMILES·동일성·입체 완전 보존을 주장하지 않는다. 원시 경고 메시지는 동의에 묶고 시간 정보가 바뀔 수 있는 native log는 진단 전용이다.
+- native timeout은 협조적이며 로딩·멈춘 C 호출·mutex 대기를 끊지 못한다. unsafe는 별도 `crates/inchi-native/src/platform.rs`에 한정된다. 외부 원본 DLL을 엔진으로 쓰지 않는다. 전용 웹 패널·InChI import·다른 플랫폼은 미구현이다. 상세 계약은 CONTRACT.md의 Standard InChI 절이다.
+- 현재 확인: native 경계 9/9, 공식 공개 1.07.5 실행 파일과 direct native 6개 및 Application/provider 4개(사면체 2·알켄 2) InChI/Key 정확 비교 통과. 같은 공식 배포본의 별도 실행 파일 비교이며 독립 화학 엔진 비교가 아니다. 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4도 통과했다. 전체 게이트·두 리뷰는 아직 확인 전이므로 P30은 `in_progress`다. 무시된 opt-in 시험은 실행 증거가 아니다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
@@ -169,7 +176,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 95개(implemented 48, partial 12, unverified 2, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 96개(implemented 48, partial 12, unverified 3, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
@@ -178,7 +185,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다. 그 밖의 후보:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
-2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지하고 SMILES 이중결합 방향 `/`·`\` 읽기와 쓰기, InChI 및 고급 필드는 별도 작업으로 진행한다(`@`·`@@`와 CXSMILES 그룹 읽기는 P29c). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
+2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지하고 SMILES 이중결합 방향 `/`·`\` 읽기와 쓰기, InChI import 및 고급 필드는 별도 작업으로 진행한다(`@`·`@@`와 CXSMILES 그룹 읽기는 P29c). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 제한된 원자가·물성·방향족·그래프 동등성 검사와 부분구조 검색을 유지하고 더 넓은 모델을 검증한다. 고리·차수·수소 개수 같은 질의 조건은 먼저 기록 상태가 필요하다.
 4. 편집기 확장: P31 viewport 검사·리뷰 마무리, 고리 템플릿과 추가 장면 객체.
 5. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.
