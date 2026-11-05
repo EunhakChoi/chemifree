@@ -2088,6 +2088,7 @@ step = 'after placements_move_independently'
     b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
   }
   assert.deepEqual(await drawnStates(), expected, 'drawn as recorded; the inferred nitrogen shows no count')
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
   assert.deepEqual(await drawingProblems(), [])
   await page.screenshot({ path: join(outDir, 'editor-states.png') })
   const recorded = await statesDoc()
@@ -2097,11 +2098,13 @@ step = 'after placements_move_independently'
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'after a page reload')
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
   assert.deepEqual(await drawingProblems(), [])
   await closeShown()
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'reopened from storage')
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
   assert.deepEqual(await drawingProblems(), [])
   const reopened = await statesDoc()
   assert.deepEqual([reopened.atoms, reopened.bonds], [recorded.atoms, recorded.bonds])
@@ -2631,6 +2634,7 @@ step = 'after document_style_and_preferences'
   await page.mouse.click(middle.x, middle.y)
   await page.getByRole('heading', { name: 'Bond b1' }).waitFor()
   assert.equal(await page.locator('[data-bond="b1"]').count(), 0, 'no bond ink crosses the overlapping label boxes')
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
   const highlightFits = await page.evaluate(() => {
     const svg = document.querySelector('svg[data-structure-canvas]')
     const line = svg.querySelector('[data-underlay="b1"]')
@@ -4600,6 +4604,164 @@ step = 'after short_wide_bond_is_selectable'
   } finally {
     await agreePage.close()
   }
+}
+
+// Viewport controls are local presentation state; editing always uses document coordinates.
+{
+  step = 'viewport pan zoom keyboard and document-coordinate editing'
+  const created = await apiWrite('/api/v1/documents', { request_id: 'viewport-create', title: 'Viewport coordinates' })
+  const id = created.body.document.id
+  const fixture = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'viewport-fixture', expected_revision: 0, commands: [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'O', position: { x: 130, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_graphic', shape: 'arrow', points: [{ x: 200, y: 160 }, { x: 250, y: 160 }] },
+    ],
+  })
+  assert.equal(fixture.status, 200, JSON.stringify(fixture.body))
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  const canvas = page.locator('svg[data-structure-canvas]')
+  const controls = page.getByRole('toolbar', { name: 'Canvas view' })
+  const viewState = () => canvas.evaluate((svg) => ({
+    box: [...svg.getAttribute('viewBox').split(/\s+/).map(Number)], scale: Number(svg.dataset.viewportScale),
+  }))
+  const initial = (await api(`/api/v1/documents/${id}`)).document
+  await controls.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
+  assert.equal((await viewState()).scale, 1)
+  assert.equal(await controls.getByTestId('zoom-level').textContent(), '100%')
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  assert.equal((await viewState()).scale, 1.25)
+  await controls.getByRole('button', { name: 'Zoom out', exact: true }).click()
+  assert.equal((await viewState()).scale, 1)
+
+  // Focused-canvas shortcuts work; an arrow in a text input must not navigate the canvas.
+  const unchanged = await viewState()
+  await page.getByLabel('Document title').focus()
+  await page.keyboard.press('ArrowRight')
+  assert.deepEqual(await viewState(), unchanged)
+  await canvas.focus()
+  await page.keyboard.press('+')
+  assert.equal((await viewState()).scale, 1.25)
+  const beforeArrow = await viewState()
+  await page.keyboard.press('ArrowRight')
+  const afterArrow = await viewState()
+  assert.ok(Math.abs(afterArrow.box[0] - beforeArrow.box[0] - 32) < 1e-6, '40 CSS pixels at 1.25px/pt pans by 32pt')
+  await page.keyboard.press('0')
+  assert.equal((await viewState()).scale, 1)
+  await page.keyboard.press('f')
+
+  // Ctrl-wheel zoom anchors the exact document point underneath the pointer.
+  await canvas.scrollIntoViewIfNeeded()
+  const rect = await canvas.boundingBox()
+  assert.ok(rect && rect.width > 0 && rect.height > 0)
+  // Chromium reports WheelEvent.clientX/Y as integer CSS pixels. Request that same
+  // point so the invariant compares the actual event anchor, rather than a nearby
+  // fractional Playwright mouse coordinate that the wheel event cannot represent.
+  const anchor = { x: Math.round(rect.x + rect.width * 0.65), y: Math.round(rect.y + rect.height * 0.4) }
+  const worldAt = () => canvas.evaluate((svg, at) => {
+    const world = new DOMPoint(at.x, at.y).matrixTransform(svg.getScreenCTM().inverse())
+    return { x: world.x, y: world.y }
+  }, anchor)
+  const anchored = await worldAt()
+  const oldScale = (await viewState()).scale
+  await page.mouse.move(anchor.x, anchor.y)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -120)
+  await page.keyboard.up('Control')
+  await page.waitForFunction((scale) => Number(document.querySelector('svg[data-structure-canvas]').dataset.viewportScale) > scale, oldScale)
+  const stillAnchored = await worldAt()
+  assert.ok(Math.abs(stillAnchored.x - anchored.x) < 0.02 && Math.abs(stillAnchored.y - anchored.y) < 0.02,
+    'zoom preserves the world point at an off-center pointer anchor')
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, initial, 'zoom and keyboard pan change no document state or revision')
+
+  // Pan captures a graphic before its selection handler can treat the gesture as an edit.
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  await tool('Pan view')
+  const graphicAt = await screen({ x: 225, y: 160 })
+  const beforePan = await viewState()
+  await page.mouse.move(graphicAt.x, graphicAt.y)
+  await page.mouse.down()
+  await page.mouse.move(graphicAt.x + 45, graphicAt.y + 20, { steps: 4 })
+  await page.mouse.up()
+  const afterPan = await viewState()
+  assert.ok(Math.abs(afterPan.box[0] - beforePan.box[0] + 45 / beforePan.scale) < 0.05)
+  assert.ok(Math.abs(afterPan.box[1] - beforePan.box[1] + 20 / beforePan.scale) < 0.05)
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, initial, 'panning across graphics changes neither selection nor content')
+
+  // At a known non-unit zoom, a new atom still lands at the chosen document coordinates.
+  await controls.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  await page.getByRole('button', { name: 'Element N', exact: true }).click()
+  const target = await screen({ x: 200, y: 120 })
+  const added = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await page.mouse.click(target.x, target.y)
+  assert.equal((await added).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const edited = (await api(`/api/v1/documents/${id}`)).document
+  const nitrogen = edited.atoms.find((atom) => atom.id === 'a3')
+  assert.equal(nitrogen.element, 'N')
+  assert.ok(Math.abs(nitrogen.position.x - 200) <= 0.02 && Math.abs(nitrogen.position.y - 120) <= 0.02,
+    `zoomed click stores world coordinates: ${JSON.stringify(nitrogen.position)}`)
+  assert.deepEqual(edited.atoms.slice(0, 2), initial.atoms)
+  const saving = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/save`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  assert.equal((await saving).status(), 200)
+  await closeShown()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Revision 2').waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, edited, 'save/reopen retains document coordinates, independent of transient zoom')
+  results.viewport_navigation_and_zoomed_edit = true
+
+  // Cancel an atom drag after its preview moved; release must not send an edit.
+  step = 'viewport pointer cancellation'
+  await tool('Select and move')
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  const first = await screen({ x: 100, y: 100 })
+  let writes = 0
+  const countWrite = (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1/documents/${id}/transactions`) writes += 1
+  }
+  page.on('request', countWrite)
+  await canvas.evaluate((svg) => svg.addEventListener('pointerdown', (event) => { svg.dataset.smokePointer = String(event.pointerId) }, { once: true }))
+  await page.mouse.move(first.x, first.y)
+  await page.mouse.down()
+  await page.mouse.move(first.x + 35, first.y + 10, { steps: 4 })
+  await canvas.dispatchEvent('pointercancel', { pointerId: Number(await canvas.getAttribute('data-smoke-pointer')), pointerType: 'mouse', isPrimary: true })
+  await page.mouse.up()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  assert.equal(writes, 0, 'pointer cancellation releases ownership without committing the drag')
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, edited)
+  page.off('request', countWrite)
+  results.viewport_pointer_cancel_no_edit = true
+
+  // A very wide, valid drawing must fit on a narrow display only when Fit is requested.
+  step = 'viewport narrow fit'
+  const wide = await apiWrite('/api/v1/documents', { request_id: 'viewport-wide-create', title: 'Wide viewport' })
+  const wideId = wide.body.document.id
+  const wideDrawing = await apiWrite(`/api/v1/documents/${wideId}/transactions`, {
+    request_id: 'viewport-wide-draw', expected_revision: 0, commands: [
+      { op: 'add_atom', element: 'N', position: { x: -40000, y: 0 } },
+      { op: 'add_atom', element: 'O', position: { x: 40000, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
+    ],
+  })
+  assert.equal(wideDrawing.status, 200)
+  await page.reload()
+  await page.locator(`li[data-document-id="${wideId}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.setViewportSize({ width: 320, height: 800 })
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  const narrowFits = await canvas.evaluate((svg) => {
+    const view = svg.viewBox.baseVal
+    const rect = svg.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0 && view.x < -40000 && view.x + view.width > 40000 &&
+      view.y < 0 && view.y + view.height > 0 &&
+      document.documentElement.scrollWidth <= window.innerWidth
+  })
+  assert.equal(narrowFits, true, 'explicit Fit includes both distant atoms without horizontal page overflow')
+  assert.deepEqual((await api(`/api/v1/documents/${wideId}`)).document, wideDrawing.body.document, 'Fit changes no coordinates or revision')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  results.viewport_narrow_fit = true
 }
 
 // Layout: mobile widths without horizontal overflow, and system dark mode.

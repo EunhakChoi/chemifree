@@ -2857,14 +2857,15 @@ test('the ink of every mark stays within the reach the view box and placement fr
   }
 })
 
-test('a marked bond is found where a plain one is, and its narrow end gives way to the atom', () => {
+test('a marked bond includes its visible width, and its narrow end gives way to the atom', () => {
   const marked = {
     ...document('doc-hit', 1).document,
     atoms: [atomWith('a1', 'C', 0, 0), atomWith('a2', 'C', 30, 0)],
     bonds: [{ ...bondWith('b1', 'a1', 'a2'), mark: { kind: 'wedge', narrow: 'begin' } }],
   }
   assert.deepEqual(hitTest(marked, pt(15, 4.9)), { kind: 'bond', id: 'b1' })
-  assert.equal(hitTest(marked, pt(15, 5.1)), null)
+  assert.deepEqual(hitTest(marked, pt(15, 5.1)), { kind: 'bond', id: 'b1' })
+  assert.equal(hitTest(marked, pt(15, 10)), null)
   assert.deepEqual(hitTest(marked, pt(1, 0.5)), { kind: 'atom', id: 'a1' })
 })
 
@@ -5078,3 +5079,6 @@ test('a V3000 refusal reaches the page as its sentence with the service message 
 
 // Focused drawing-export envelope, loss consent and binary transport checks.
 await import('./web-interchange-export-check.mjs')
+
+// Viewport transformations and CSS-pixel picking tolerances.
+await import('./web-viewport-check.mjs')

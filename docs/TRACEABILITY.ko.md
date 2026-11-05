@@ -33,6 +33,8 @@ P29g는 [형식별 표](CONTRACT.md#stereo-interchange-evidence-p29g)와 [codec 
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
+P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·100% reset, 역 SVG 좌표 변환과 CSS px 기준 hit/drag 범위를 더한다. 뷰 상태는 문서·명령·revision·Undo·저장에 들어가지 않고 편집·resize에서 유지되며 문서 ID 변경·새로고침은 초기 fit이다. Pan view(H)의 한 포인터 터치와 툴바는 있지만 pinch·다중 터치는 없다. 로드맵은 `in_progress`, 요구사항의 새 `OPS-01.viewport`·`RENDER-01.viewport` 부분은 최종 검사·리뷰 전 `unverified`로 둔다(요구사항 상태 어휘에는 `in_progress`가 없다). 구현 경로와 검증 후보 `scripts/web-viewport-check.mjs`·브라우저 스모크를 연결하지만 여기서 실행 통과나 P31 완료를 주장하지 않는다.
+
 ## 파일
 
 | 파일 | 내용 |

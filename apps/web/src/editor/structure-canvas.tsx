@@ -1,6 +1,8 @@
-import { memo, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { useCanvasViewport } from '@/hooks/use-canvas-viewport'
 import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
@@ -43,9 +45,9 @@ export type { DrawnOrder } from '@/editor/bond-gestures'
 /** What the bond tool draws: a kind of bond, or a stereo mark on a single bond. */
 export type DrawnKind = DrawnOrder | 'wedge' | 'hash' | 'wavy'
 
-export type Tool = 'select' | 'atom' | 'bond' | 'erase'
+export type Tool = 'select' | 'atom' | 'bond' | 'erase' | 'pan'
 
-/** Below this pointer travel (pt) a press is a click, not a drag. */
+/** Below this pointer travel in CSS pixels a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
 
 /**
@@ -94,6 +96,19 @@ interface Drawing {
 const sameLocated = (a: Located | null, b: Located | null) =>
   a === b || (a !== null && b !== null && a.instance === b.instance && sameHit(a.hit, b.hit))
 
+/** A missing, non-finite or singular screen transform cannot locate an edit. */
+function pointerPosition(svg: SVGSVGElement | null, event: { clientX: number; clientY: number }): Position | null {
+  const matrix = svg?.getScreenCTM()
+  if (!matrix || ![matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f].every(Number.isFinite) || matrix.a * matrix.d - matrix.b * matrix.c === 0) return null
+  try {
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    return Number.isFinite(point.x) && Number.isFinite(point.y) ? { x: round(point.x), y: round(point.y) } : null
+  } catch {
+    // A detached or singular SVG has no document-space pointer location.
+    return null
+  }
+}
+
 interface StructureCanvasProps {
   document: DocumentView
   tool: Tool
@@ -141,11 +156,10 @@ export function StructureCanvas({
 }: StructureCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<Drag | null>(null)
-  /** Every start and end of a gesture goes through here, so the parent can wait for a release. */
-  const setDrag = (next: Drag | null) => {
-    if ((next === null) !== (drag.current === null)) onDragging?.(next !== null)
-    drag.current = next
-  }
+  const pointer = useRef<{ id: number; start: Position; last: Position; pan: boolean } | null>(null)
+  const space = useRef(false)
+  const setDrag = (next: Drag | null) => { drag.current = next }
+  const [interacting, setInteracting] = useState(false)
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
 
@@ -210,6 +224,9 @@ export function StructureCanvas({
     [document.scene, document.bonds, drawings, groupLabels],
   )
 
+  const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box)
+  const unitsPerPixel = 1 / viewport.scale
+
   function drawingOf(instance: string | null) {
     return drawings.find((drawing) => drawing.id === instance) ?? drawings[0]
   }
@@ -218,7 +235,7 @@ export function StructureCanvas({
   function locate(point: Position, ignore?: ReadonlySet<string>, only?: string | null): Located {
     for (const drawing of [...drawings].reverse()) {
       if (only !== undefined && drawing.id !== only) continue
-      const hit = hitTest(drawing.view, point, ignore, drawing.atoms, drawing.labels)
+      const hit = hitTest(drawing.view, point, ignore, drawing.atoms, drawing.labels, unitsPerPixel, drawing.strokes)
       if (hit) return { hit, instance: drawing.id }
     }
     return { hit: null, instance: only === undefined ? placementAt(document, point) : only }
@@ -230,12 +247,115 @@ export function StructureCanvas({
     return { op: 'add_atom', element, ...placement }
   }
 
-  function toDocument(event: PointerEvent<SVGSVGElement>): Position {
+  function toDocument(event: { clientX: number; clientY: number }): Position | null {
+    return pointerPosition(svgRef.current, event)
+  }
+
+  function cancelPointer() {
+    const active = pointer.current
+    pointer.current = null
+    setInteracting(false)
+    setDrag(null)
+    setPreview(null)
+    if (active) {
+      onDragging?.(false)
+      const svg = svgRef.current
+      if (svg?.hasPointerCapture(active.id)) svg.releasePointerCapture(active.id)
+    }
+  }
+
+  const cancelFromWindow = useEffectEvent(() => cancelPointer())
+
+  useEffect(() => {
+    function onBlur() { space.current = false; cancelFromWindow() }
+    function keyDown(event: globalThis.KeyboardEvent) {
+      if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target
+      if (target instanceof Element && target.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return
+      if (window.document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      event.preventDefault()
+      space.current = true
+    }
+    function keyUp(event: globalThis.KeyboardEvent) { if (event.key === ' ') space.current = false }
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('keydown', keyDown)
+    window.addEventListener('keyup', keyUp)
+    return () => {
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('keydown', keyDown)
+      window.removeEventListener('keyup', keyUp)
+      space.current = false
+      if (pointer.current) onDragging?.(false)
+      pointer.current = null
+      drag.current = null
+    }
+  }, [onDragging])
+
+  useEffect(() => {
     const svg = svgRef.current
-    const matrix = svg?.getScreenCTM()
-    if (!svg || !matrix) return { x: 0, y: 0 }
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
-    return { x: round(point.x), y: round(point.y) }
+    if (!svg) return
+    const canvas = svg
+    function wheel(event: WheelEvent) {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      if (pointer.current || !pointerPosition(canvas, event)) return
+      const rect = canvas.getBoundingClientRect()
+      const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1)
+      zoom(Math.exp(-Math.max(-500, Math.min(500, pixels)) * 0.002), { x: event.clientX - rect.left, y: event.clientY - rect.top })
+    }
+    // React's wheel listener is passive; browser zoom must be prevented for this gesture.
+    svg.addEventListener('wheel', wheel, { passive: false })
+    return () => svg.removeEventListener('wheel', wheel)
+  }, [zoom])
+
+  function onKeyDown(event: KeyboardEvent<SVGSVGElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    const key = event.key.toLowerCase()
+    if (key === ' ') {
+      event.preventDefault()
+      space.current = true
+      return
+    }
+    if (key === 'escape') { cancelPointer(); return }
+    if (pointer.current) return
+    if (key === '+' || key === '=') zoom(1.25)
+    else if (key === '-') zoom(0.8)
+    else if (key === 'f') fit()
+    else if (key === '0') zoom(1 / viewport.scale)
+    else if (key === 'arrowleft') pan({ x: 40, y: 0 })
+    else if (key === 'arrowright') pan({ x: -40, y: 0 })
+    else if (key === 'arrowup') pan({ x: 0, y: 40 })
+    else if (key === 'arrowdown') pan({ x: 0, y: -40 })
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  /** Capture navigation before a graphic's own selection handler can see the press. */
+  function onPointerDownCapture(event: PointerEvent<SVGSVGElement>) {
+    if (pointer.current || disabled || (event.button !== 0 && event.button !== 1)) {
+      event.stopPropagation()
+      return
+    }
+    if (!toDocument(event)) { event.stopPropagation(); return }
+    const pan = event.button === 1 || space.current || tool === 'pan'
+    const start = { x: event.clientX, y: event.clientY }
+    pointer.current = { id: event.pointerId, start, last: start, pan }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      pointer.current = null
+      event.stopPropagation()
+      return
+    }
+    event.currentTarget.focus({ preventScroll: true })
+    setInteracting(true)
+    onDragging?.(true)
+    if (pan) {
+      event.preventDefault()
+      event.stopPropagation()
+      setHover(null)
+    }
   }
 
   function movableAtoms(ids: ReadonlySet<string>) {
@@ -252,9 +372,9 @@ export function StructureCanvas({
   }
 
   function onPointerDown(event: PointerEvent<SVGSVGElement>) {
-    if (disabled || event.button !== 0) return
-    event.currentTarget.setPointerCapture(event.pointerId)
+    if (pointer.current?.id !== event.pointerId || pointer.current.pan) return
     const point = toDocument(event)
+    if (!point) return
     const { hit, instance } = locate(point)
     if (tool === 'select') {
       if (!hit) {
@@ -293,7 +413,15 @@ export function StructureCanvas({
   }
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
+    const active = pointer.current
+    if (active && active.id !== event.pointerId) return
+    if (active?.pan) {
+      pan({ x: event.clientX - active.last.x, y: event.clientY - active.last.y })
+      active.last = { x: event.clientX, y: event.clientY }
+      return
+    }
     const point = toDocument(event)
+    if (!point) { if (active) cancelPointer(); return }
     const gesture = drag.current
     if (!gesture) {
       const located = disabled ? null : locate(point)
@@ -301,7 +429,7 @@ export function StructureCanvas({
       setHover((current) => (sameLocated(current, next) ? current : next))
       return
     }
-    if (distance(point, gesture.start) < DRAG_THRESHOLD) return
+    if (!active || distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) return
     if (gesture.kind === 'move' && gesture.atoms.length > 0) {
       setPreview({
         kind: 'move',
@@ -318,15 +446,16 @@ export function StructureCanvas({
   }
 
   function finish(event: PointerEvent<SVGSVGElement>) {
+    const active = pointer.current
+    if (!active || active.id !== event.pointerId) return
     const gesture = drag.current
-    setDrag(null)
-    setPreview(null)
+    const point = toDocument(event)
+    cancelPointer()
     // Busy is checked when a gesture starts, not here: a request queued meanwhile (e.g. a
     // field's blur) must not swallow it. The parent applies the commands to the latest
     // document and drops them if what they name is gone.
-    if (!gesture) return
-    const point = toDocument(event)
-    const dragged = distance(point, gesture.start) >= DRAG_THRESHOLD
+    if (active.pan || !gesture || !point) return
+    const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
     const intent = markIntent(gesture, point, dragged)
     if (intent) {
       onMark(intent)
@@ -503,7 +632,7 @@ export function StructureCanvas({
           .map((bond) => {
             const a = position(drawing, bond.begin)
             const b = position(drawing, bond.end)
-            return <line key={bond.id} data-underlay={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={bondUnderlay(bond.order, drawing.lineWidth, drawing.spacing)} strokeLinecap="round" />
+            return <line key={bond.id} data-underlay={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={bondUnderlay(bond.order, drawing.lineWidth, drawing.spacing, unitsPerPixel, bond.mark)} strokeLinecap="round" />
           })}
         {document.atoms
           .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
@@ -511,9 +640,9 @@ export function StructureCanvas({
             const p = position(drawing, atom.id)
             const label = labelBox(drawing.labels, atom.id, p)
             return label ? (
-              <rect key={atom.id} {...label} rx={3} strokeWidth={1} />
+              <rect key={atom.id} {...label} rx={3 * unitsPerPixel} strokeWidth={unitsPerPixel} />
             ) : (
-              <circle key={atom.id} cx={p.x} cy={p.y} r={8} strokeWidth={1} />
+              <circle key={atom.id} cx={p.x} cy={p.y} r={8 * unitsPerPixel} strokeWidth={unitsPerPixel} />
             )
           })}
       </g>
@@ -529,31 +658,46 @@ export function StructureCanvas({
   )
 
   return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+      <div role="toolbar" aria-label="Canvas view" className="flex flex-wrap items-center gap-1">
+        <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(1.25)}>Zoom in</Button>
+        <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(0.8)}>Zoom out</Button>
+        <Button size="sm" variant="outline" onClick={() => { cancelPointer(); fit() }}>Fit drawing</Button>
+        <Button size="sm" variant="outline" onClick={() => { cancelPointer(); zoom(1 / viewport.scale) }}>Reset zoom (100%)</Button>
+        <output aria-label="Zoom level" data-testid="zoom-level" className="px-1 text-xs tabular-nums">{viewport.scale < 0.01 ? Number((viewport.scale * 100).toFixed(3)) : Math.round(viewport.scale * 100)}%</output>
+      </div>
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden rounded-lg bg-card ring-1 ring-border">
     <svg
       ref={svgRef}
       role="group"
       data-structure-canvas=""
       aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
-      viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+      viewBox={canvasViewBox}
+      data-viewport-scale={viewport.scale}
+      tabIndex={0}
+      aria-keyshortcuts="+ - 0 F ArrowLeft ArrowRight ArrowUp ArrowDown Space"
+      aria-describedby="canvas-view-help"
+      onKeyDown={onKeyDown}
+      onKeyUp={(event) => { if (event.key === ' ') { space.current = false; event.preventDefault() } }}
+      onBlur={() => { space.current = false; cancelPointer() }}
       className={cn(
-        'block h-full w-full touch-none select-none rounded-lg border bg-card',
-        tool === 'select' ? 'cursor-default' : 'cursor-crosshair',
+        'block h-full w-full touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        tool === 'pan' ? 'cursor-grab' : tool === 'select' ? 'cursor-default' : 'cursor-crosshair',
         disabled && 'cursor-progress',
       )}
+      onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
-      onPointerCancel={() => {
-        setDrag(null)
-        setPreview(null)
-      }}
+      onPointerCancel={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
+      onLostPointerCapture={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
       onPointerLeave={() => setHover(null)}
     >
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'graphic') return (
-          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} onPointerDown={(event) => {
-            if (tool !== 'select' || disabled) return
+          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
+            if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
             event.stopPropagation()
             const next = event.shiftKey ? new Set(selection) : new Set<string>()
             if (event.shiftKey && next.has(object.id)) next.delete(object.id)
@@ -591,13 +735,17 @@ export function StructureCanvas({
         />
       )}
     </svg>
+      </div>
+      <p id="canvas-view-help" className="text-xs text-muted-foreground">Ctrl/⌘ + wheel: zoom at pointer. Focus canvas: +/− zoom, 0 reset, F fit, arrows pan. Hold Space or middle-drag to pan; Pan view (H) also works with touch. View changes are not saved.</p>
+    </div>
   )
 }
 
-function SceneGraphic({ object, selected, lineWidth, onPointerDown }: {
+function SceneGraphic({ object, selected, lineWidth, unitsPerPixel, onPointerDown }: {
   object: Extract<SceneObject, { kind: 'graphic' }>
   selected: boolean
   lineWidth: number
+  unitsPerPixel: number
   onPointerDown: (event: PointerEvent<SVGGElement>) => void
 }) {
   const [a, b] = object.points
@@ -611,13 +759,13 @@ function SceneGraphic({ object, selected, lineWidth, onPointerDown }: {
     <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
       {object.shape === 'rectangle' ? (
         <>
-          <rect {...rect} fill="none" stroke="transparent" strokeWidth={Math.max(10, underlay)} />
+          <rect {...rect} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
           {selected && <rect {...rect} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
           <rect {...rect} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
         </>
       ) : (
         <>
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={Math.max(10, underlay)} />
+          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
           {selected && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-primary/40" strokeWidth={underlay} />}
           <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-foreground" strokeWidth={lineWidth} />
           {object.shape === 'arrow' && length > 0 && selected && <polygon points={head} className="fill-primary/40 stroke-primary/40" strokeWidth={underlay} />}
