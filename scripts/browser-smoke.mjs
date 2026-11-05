@@ -2343,7 +2343,23 @@ step = 'after scene_geometry_controls'
   await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
   const toggle = (object) => page.getByRole('button', { name: `Select scene object ${object}`, exact: true })
   const placement = page.getByRole('combobox', { name: 'Atom and bond movement placement', exact: true })
+  const assertPlacementReachable = async () => {
+    await placement.scrollIntoViewIfNeeded()
+    const reachable = await placement.evaluate((trigger) => {
+      const canvasRoot = trigger.closest('[data-slot="field"]')?.parentElement
+      if (!canvasRoot) throw new Error('The movement field has no canvas container.')
+      const container = canvasRoot.getBoundingClientRect()
+      const box = trigger.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      return {
+        fitsCanvas: box.left >= container.left - 1 && box.right <= container.right + 1,
+        receivesPointer: hit !== null && trigger.contains(hit),
+      }
+    })
+    assert.deepEqual(reachable, { fitsCanvas: true, receivesPointer: true }, 'the movement selector stays inside the canvas column and receives its own pointer input')
+  }
   const choosePlacement = async (instance) => {
+    await assertPlacementReachable()
     await placement.click()
     await page.getByRole('option', { name: instance, exact: true }).click()
   }
@@ -2372,6 +2388,10 @@ step = 'after scene_geometry_controls'
   assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'placement change preserves independent scene selection')
   assert.equal(await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).isDisabled(), false, 'clearing the graph targets re-enables scene geometry actions')
   await choosePlacement('s2')
+  await page.setViewportSize({ width: 320, height: 800 })
+  await assertPlacementReachable()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
 
   await dragPoint({ x: 90, y: 90 }, { x: 220, y: 230 })
   assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'complete graphic geometry is enclosed')
