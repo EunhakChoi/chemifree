@@ -144,14 +144,16 @@ These are repository workflow rules, not guarantees about review service behavio
 
 Each PR receives exactly two reviews:
 
-1. **One Codex review.** The automatic review on PR creation counts; do not send
-   another request while it is pending or after it completes. If no automatic
-   review was triggered, request the one review with a standalone PR comment
-   containing exactly `@codex review`. Avoid the bot mention in PR descriptions
-   and ordinary progress comments. Keep the 15-minute deadline, including queue
-   time, measured from PR creation or the actual manual request. Record service
-   errors or timeouts honestly; a reaction, silence, or a pending job is not a
-   completed review.
+1. **One completed Codex review.** The automatic review on PR creation counts.
+   If none was triggered, request it with a standalone PR comment containing
+   exactly `@codex review`. Avoid the bot mention in PR descriptions and
+   ordinary progress comments. Keep the 15-minute deadline, including queue
+   time, measured from PR creation or the actual manual request. A reaction,
+   silence, a service error, or a pending job is not a completed review. If the
+   service fails or times out, run one independent local `codex review` instead;
+   record its result and the service failure. Do not send a second GitHub review
+   request while an earlier one may still be running. A late service result after
+   the fallback is supplementary, not another required review.
 2. **One independent subagent review.** Use a fresh context without the
    implementer's conversation. Give the reviewer the user request, applicable
    rules, relevant requirements and decisions, and the diff. Focus on abstract or

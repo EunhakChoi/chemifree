@@ -52,7 +52,8 @@ Keep unsupported and untested behavior explicit; link follow-up plan IDs. -->
 checks arbitrary interpretations of abstract or undecided requirements and code
 quality (policy consistency for docs). Address findings without another review
 round; record later fixes and their checks. The Codex deadline is 15 minutes
-including queue time. Record errors/timeouts as such, not as completed reviews.
+including queue time. On a service error or timeout, record it and use one
+independent local `codex review` as the fallback.
 The evidence may live in a PR comment without another documentation commit. -->
 
 | Reviewer | Trigger / request link | Reviewed full head SHA / local diff | Requested / deadline / completed (UTC) | Elapsed | Result / findings / fixes / evidence |
