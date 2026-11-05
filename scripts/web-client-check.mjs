@@ -5510,3 +5510,133 @@ test('concurrent Check again calls share one in-flight native paste request', as
   assert.deepEqual((await first).mapping, fixture.pasted.mapping)
   assert.equal(scripted.writes.length, 1)
 })
+
+function nativeCutSnapshot() {
+  const snapshot = structuredClone(nativeClipboardFixture().source)
+  snapshot.document.revision = 3
+  snapshot.document.atoms = []
+  snapshot.document.bonds = []
+  snapshot.document.scene.instances = snapshot.document.scene.instances.map((instance) => ({ ...instance, positions: [] }))
+  snapshot.document.selection = { objects: [], atoms: [], bonds: [] }
+  snapshot.session.undo_depth = 3
+  snapshot.notes = []
+  return snapshot
+}
+
+test('native cut freezes exactly one delete_atoms command and selection history across outcome checks', async () => {
+  const snapshot = nativeCutSnapshot()
+  const scripted = service({ '/transactions': [lost, lost, () => json(200, snapshot)] })
+  const atoms = ['a1', 'a2']
+  const before = { objects: [], atoms: ['a1', 'a2'], bonds: ['b1'] }
+  const attempt = new DocumentClient().createClipboardCut('doc-1', 2, atoms, before)
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_unconfirmed' })
+  atoms.push('a99')
+  before.atoms.length = 0
+  const confirmed = await attempt.send()
+  assert.equal(confirmed.document.revision, 3)
+  assert.deepEqual(confirmed.document.selection, { objects: [], atoms: [], bonds: [] })
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  // The generic service helper records operation parameters; a transaction's
+  // complete body is checked separately below through its actual fetch boundary.
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 3, 'a confirmed cut never issues another deletion')
+})
+
+test('native cut sends exact frozen transaction fields and shares concurrent checks', async () => {
+  const snapshot = nativeCutSnapshot()
+  const bodies = []
+  globalThis.fetch = async (path, init = {}) => {
+    if (path === '/api/v1/session') return json(200, { header: 'x-chemifree-session', token: 'cut-process' })
+    assert.equal(path, '/api/v1/documents/doc-1/transactions')
+    bodies.push(JSON.parse(init.body))
+    return json(200, snapshot)
+  }
+  const atoms = ['a1', 'a2']
+  const before = { objects: [], atoms: ['a1', 'a2'], bonds: ['b1'] }
+  const attempt = new DocumentClient().createClipboardCut('doc-1', 2, atoms, before)
+  atoms.push('a99')
+  before.bonds.length = 0
+  const first = attempt.send()
+  const concurrent = attempt.send()
+  assert.equal(concurrent, first)
+  const confirmed = await first
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(bodies.length, 1)
+  assert.equal(typeof bodies[0].request_id, 'string')
+  assert.deepEqual({ ...bodies[0], request_id: 'captured' }, {
+    request_id: 'captured', expected_revision: 2,
+    commands: [{ op: 'delete_atoms', atoms: ['a1', 'a2'] }],
+    selection_before: { objects: [], atoms: ['a1', 'a2'], bonds: ['b1'] },
+    selection_after: { objects: [], atoms: [], bonds: [] },
+  })
+})
+
+test('native cut polls an in-progress deletion using its original request ID', async () => {
+  const scripted = service({ '/transactions': [() => error(409, 'request_in_progress'), () => json(200, nativeCutSnapshot())] })
+  const attempt = new DocumentClient().createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+  assert.equal((await attempt.send()).document.revision, 3)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('native cut never starts its first deletion in a service different from preparation', async () => {
+  const scripted = service({ 'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1', 2))] })
+  const client = new DocumentClient()
+  await client.get('doc-1')
+  const attempt = client.createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_restarted' })
+  assert.equal(scripted.writes.filter((write) => write.path.endsWith('/doc-1/transactions')).length, 0)
+})
+
+test('native cut refuses to POST after another request discovers a new service generation', async () => {
+  const scripted = service({ '/transactions': [lost, lost] })
+  const client = new DocumentClient()
+  const attempt = client.createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_unconfirmed' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_restarted' })
+  assert.deepEqual(scripted.writes.filter((write) => write.path.endsWith('/doc-1/transactions')).map((write) => write.token), ['token-1', 'token-1'])
+})
+
+for (const [name, change] of [
+  ['different document', (snapshot) => { snapshot.document.id = 'another' }],
+  ['wrong revision', (snapshot) => { snapshot.document.revision = 2 }],
+  ['nonempty selection', (snapshot) => { snapshot.document.selection.objects = ['s1'] }],
+  ['retained atom', (snapshot) => {
+    const source = nativeClipboardFixture().source
+    snapshot.document.atoms = source.document.atoms
+    snapshot.document.bonds = source.document.bonds
+    snapshot.document.scene.instances = source.document.scene.instances
+  }],
+]) {
+  test(`native cut keeps ${name} success unresolved and checks the same deletion`, async () => {
+    const malformed = nativeCutSnapshot()
+    change(malformed)
+    const scripted = service({ '/transactions': [() => json(200, malformed), () => json(200, nativeCutSnapshot())] })
+    const attempt = new DocumentClient().createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+    await assert.rejects(attempt.send(), { code: 'clipboard_cut_unconfirmed' })
+    assert.equal((await attempt.send()).document.revision, 3)
+    assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+  })
+}
+
+test('native cut returns validated stereo removal notes without filtering them', async () => {
+  const snapshot = nativeCutSnapshot()
+  snapshot.notes = [{ feature: 'stereo_configuration', source_path: 'atoms[a1]', disposition: 'dropped', semantic_impact: 'stereo', reason: 'The configured atom was deleted.' }]
+  service({ '/transactions': [() => json(200, snapshot)] })
+  const attempt = new DocumentClient().createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+  assert.deepEqual((await attempt.send()).notes, snapshot.notes)
+})
+
+test('an unknown cut followed by revision conflict becomes terminal reconciliation rather than a fresh deletion', async () => {
+  const scripted = service({ '/transactions': [lost, lost, () => error(409, 'revision_conflict')] })
+  const attempt = new DocumentClient().createClipboardCut('doc-1', 2, ['a1', 'a2'], { objects: [], atoms: ['a1', 'a2'], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_reconcile' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_cut_reconcile' })
+  assert.equal(scripted.writes.length, 3)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
+})

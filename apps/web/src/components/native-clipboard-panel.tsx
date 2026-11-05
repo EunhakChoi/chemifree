@@ -6,23 +6,24 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import type { DocumentEditor } from '@/hooks/use-document-editor'
+import type { DocumentEditor, NativeClipboardCutPlan } from '@/hooks/use-document-editor'
 import { settingsOf, type DocumentView, type NativeClipboardCopy } from '@/lib/document-contract'
 
 interface NativeClipboardPanelProps {
   document: DocumentView
-  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copyFragment' | 'pasteFragment' | 'clipboardPending' | 'checkClipboardPaste' | 'clipboardNeedsReload' | 'reconcileClipboardPaste'>
+  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copyFragment' | 'prepareCut' | 'cutFragment' | 'clipboardAction' | 'pasteFragment' | 'clipboardPending' | 'checkClipboardPaste' | 'clipboardNeedsReload' | 'reconcileClipboardPaste'>
   activePlacement: string | null
 }
 
 interface CopyOffer {
   generation: number
   result: NativeClipboardCopy
+  cut?: NativeClipboardCutPlan
 }
 
 interface PendingAction {
   generation: number
-  action: 'copy' | 'read' | 'write' | 'paste' | 'check' | 'reconcile'
+  action: 'copy' | 'cut' | 'read' | 'write' | 'paste' | 'check' | 'reconcile'
 }
 
 function errorMessage(error: unknown): string {
@@ -31,7 +32,7 @@ function errorMessage(error: unknown): string {
 
 /** Explicit native-text transport. Clipboard permissions always have a manual-text fallback. */
 export function NativeClipboardPanel({ document, editor, activePlacement }: NativeClipboardPanelProps) {
-  const [mode, setMode] = useState<'copy' | 'paste' | null>(null)
+  const [mode, setMode] = useState<'copy' | 'cut' | 'paste' | null>(null)
   const [offer, setOffer] = useState<CopyOffer | null>(null)
   const [text, setText] = useState('')
   const [offsetX, setOffsetX] = useState('')
@@ -77,21 +78,27 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
     setPending(null)
   }
 
-  async function prepareCopy() {
+  async function prepareCopy(cutting = false) {
     const sequence = ++request.current
     const generation = editor.serviceGeneration
     const source = document.id
     const placement = activePlacement
-    setMode('copy')
+    setMode(cutting ? 'cut' : 'copy')
     setOffer(null)
     setError(null)
     setStatus(null)
     setPending({ generation, action: 'copy' })
     try {
       // Calling now lets the hook capture the selection and this placement at the press.
-      const result = await editor.copyFragment(source, placement)
-      if (!current(sequence, generation)) return
-      setOffer({ generation, result })
+      if (cutting) {
+        const plan = await editor.prepareCut(source, placement)
+        if (!current(sequence, generation)) return
+        setOffer({ generation, result: plan.copy, cut: plan })
+      } else {
+        const result = await editor.copyFragment(source, placement)
+        if (!current(sequence, generation)) return
+        setOffer({ generation, result })
+      }
     } catch (cause: unknown) {
       if (current(sequence, generation)) setError(errorMessage(cause))
     } finally {
@@ -129,6 +136,36 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
     } catch (cause: unknown) {
       if (current(sequence, generation)) setError(cause instanceof Error && cause.message.includes('unavailable')
         ? cause.message : 'Clipboard writing was denied or failed. Select and copy the native text manually.')
+    } finally {
+      if (current(sequence, generation)) setPending(null)
+    }
+  }
+
+  async function cutClipboard() {
+    if (!currentOffer || !offer?.cut || busy) return
+    const plan = offer.cut
+    const sequence = ++request.current
+    const generation = editor.serviceGeneration
+    let writeFailed = false
+    setPending({ generation, action: 'cut' })
+    setError(null)
+    setStatus(null)
+    try {
+      if (typeof navigator.clipboard?.writeText !== 'function') {
+        throw new Error('Browser clipboard writing is unavailable. The source was not cut. Select and copy the native text manually.')
+      }
+      // Start the browser write directly in this click, then give the promise to the
+      // hook immediately. It owns the source checks and may delete only after success.
+      const write = navigator.clipboard.writeText(currentOffer.payload).catch((cause: unknown) => {
+        writeFailed = true
+        throw cause
+      })
+      await editor.cutFragment(plan, write)
+      if (current(sequence, generation)) close()
+    } catch (cause: unknown) {
+      if (current(sequence, generation)) setError(writeFailed
+        ? 'Clipboard writing was denied or failed. The source was not cut. Select and copy the native text manually.'
+        : errorMessage(cause))
     } finally {
       if (current(sequence, generation)) setPending(null)
     }
@@ -189,34 +226,38 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
     }
   }
 
+  const clipboardAction = editor.clipboardAction ?? 'paste'
   const unresolved = editor.clipboardPending && <Alert>
     <AlertDescription className="flex flex-col gap-2">
       <p>{editor.clipboardNeedsReload
-        ? 'The original paste can no longer be confirmed by replay. It may already be present. Reload the document to reconcile its outcome.'
-        : 'The paste outcome is not confirmed. Check the original attempt before submitting another fragment.'}</p>
+        ? `The original ${clipboardAction} can no longer be confirmed by replay. ${clipboardAction === 'cut' ? 'The source may already have been removed.' : 'It may already be present.'} Reload the document to reconcile its outcome.`
+        : `The ${clipboardAction} outcome is not confirmed. Check the original attempt before making another change.`}</p>
       <Button size="sm" variant="outline" disabled={localBusy} onClick={() => void checkPaste(editor.clipboardNeedsReload)}>
-        {editor.clipboardNeedsReload ? 'Reload document to reconcile' : 'Check paste outcome'}
+        {editor.clipboardNeedsReload ? 'Reload document to reconcile' : `Check ${clipboardAction} outcome`}
       </Button>
     </AlertDescription>
   </Alert>
 
   return <section aria-label="Native fragment clipboard" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
     <h3 className="text-sm font-medium">Native fragment clipboard</h3>
-    <p className="text-xs text-muted-foreground">Copy selected atoms and bond endpoints from the movement placement. Scene objects and enhanced stereo groups are not supported. Paste requires one placement and matching document style. Cut and external formats are not available.</p>
+    <p className="text-xs text-muted-foreground">Copy selected atoms and bond endpoints from the movement placement. Scene objects and enhanced stereo groups are not supported. Paste requires one placement and matching document style. Cut supports complete graph components in one placement without incoming atom/bond references. External formats are not available.</p>
     <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) close() }}>
       <div className="flex flex-wrap gap-2">
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || activePlacement === null} />} onClick={() => void prepareCopy()}>Copy fragment…</DialogTrigger>
+        <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || activePlacement === null} />} onClick={() => void prepareCopy(true)}>Cut fragment…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => openPaste()}>Paste fragment…</DialogTrigger>
       </div>
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden transition-none sm:max-w-lg">
         <DialogHeader className="shrink-0 pr-8">
-          <DialogTitle>{mode === 'copy' ? 'Copy native fragment' : 'Paste native fragment'}</DialogTitle>
+          <DialogTitle>{mode === 'copy' ? 'Copy native fragment' : mode === 'cut' ? 'Cut native fragment' : 'Paste native fragment'}</DialogTitle>
         </DialogHeader>
         <div className="-mx-4 flex min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-4">
-          <DialogDescription>{mode === 'copy'
-            ? 'This text contains the captured graph fragment. Select it for manual copying if browser clipboard access is unavailable.'
+          <DialogDescription>{mode === 'cut'
+            ? 'Review the captured complete graph components. Cut to clipboard removes them only after a successful browser clipboard write and source revalidation. Manually copying this text never removes source content.'
+            : mode === 'copy' ? 'This text contains the captured graph fragment. Select it for manual copying if browser clipboard access is unavailable.'
             : 'Paste Chemifree native fragment text below. Reading the browser clipboard is optional and requires your click. Text is sent to the local service only when you press Paste fragment.'}</DialogDescription>
-        {mode === 'copy' ? <>
+        {mode === 'copy' || mode === 'cut' ? <>
+          {mode === 'cut' && unresolved}
           {currentOffer && <p role="status">{currentOffer.copied.atoms.length} atoms, {currentOffer.copied.bonds.length} bonds from {currentOffer.instance}, revision {currentOffer.snapshot.document.revision}.</p>}
           {currentOffer && currentOffer.boundaryBonds.length > 0 && <p>{currentOffer.boundaryBonds.length} crossing bonds omitted; the copied fragment ends at those boundaries.</p>}
           {(offer && !currentOffer || pending !== null && pending.generation !== editor.serviceGeneration) && <p>The service changed. Close this dialog and copy the fragment again.</p>}
@@ -229,7 +270,9 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
               copyText.current?.focus()
               copyText.current?.select()
             }}>Select native text</Button>
-            <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>
+            {mode === 'cut'
+              ? <Button disabled={busy || !currentOffer || !offer?.cut} onClick={() => void cutClipboard()}>Cut to clipboard</Button>
+              : <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>}
           </DialogFooter>
         </> : <>
           {mode === 'paste' && unresolved}
@@ -262,7 +305,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
         </div>
       </DialogContent>
     </Dialog>
-    {mode !== 'paste' && unresolved}
+    {(mode === null || mode === 'copy') && unresolved}
     {mode === null && error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
   </section>
 }
