@@ -693,7 +693,7 @@
     },
     {
       "id": "stereo-smiles-export-needs-consent",
-      "title": "SMILES text carries no stereo, so a drawing that holds any is exported only after consent to a digest of what is dropped, and the digest does not survive a change",
+      "title": "Recorded SMILES preserves the stated center, requires consent for the omitted mark, and binds consent to the output",
       "requirements": [
         "MODEL-03",
         "CODEC-05"
@@ -703,7 +703,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "af7baa412303b2fc61314b961f0d5c392f5b8785e2feb43c005bae04448c1c87"
+      "case_sha256": "83262ab9474333dea32c3f6e6c76349b5f15059928f33ef479317f758fbbde86"
     },
     {
       "id": "stereo-molfile-export-consent",
@@ -1235,7 +1235,7 @@
     },
     {
       "id": "stereo-group-smiles-export-needs-consent",
-      "title": "SMILES has no enhanced stereo groups, so a drawing that holds any group, a one-member group included, is exported only after consent to the dropped groups, listed with the stereo configurations",
+      "title": "Canonical SMILES requires consent for omitted groups; recorded SMILES writes supported groups",
       "requirements": [
         "STEREO-01",
         "MODEL-03",
@@ -1246,7 +1246,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "f1b474516daa80a32d779c43ac6efdcc65cf4bd45c37436ad235f99ebf9e4994"
+      "case_sha256": "76ecc33a423075edf947a71d1fc17ee0a261d413fff96e799256cbc8780c596e"
     },
     {
       "id": "stereo-group-unrelated-edits-keep-groups",

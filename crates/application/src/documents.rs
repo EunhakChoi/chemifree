@@ -15,7 +15,7 @@ use chemifree_domain::scene::TransactionSelection;
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::stereo_drawing::DeriveError;
-use chemifree_domain::stereo_group::{GroupKind, GroupNote, LeaveCause};
+use chemifree_domain::stereo_group::{GroupKind, GroupNote, LeaveCause, StereoGroupTable};
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
@@ -799,6 +799,21 @@ impl<R: DocumentRepository> Documents<R> {
         Ok((
             self.respond(session),
             MoleculeGraph::from_document(&session.document),
+        ))
+    }
+
+    /// Captures the graph and enhanced stereo groups at the same revision without cloning the
+    /// document's undo and redo histories.
+    pub(crate) fn graph_and_groups_snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(DocumentResponse, MoleculeGraph, StereoGroupTable), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((
+            self.respond(session),
+            MoleculeGraph::from_document(&session.document),
+            session.document.stereo_groups().clone(),
         ))
     }
 

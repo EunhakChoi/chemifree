@@ -5,7 +5,9 @@
 //! (<https://opensmiles.github.io/opensmiles/opensmiles.html>) for the subset the drawing can
 //! hold. The reader reads tetrahedral marks (`@`, `@@`) of bracket atoms and the enhanced stereo
 //! group fields of a CXSMILES block (`a:`, `o<n>:`, `&<n>:`); directional bonds, other mark
-//! classes and every other CX field are refused. The writers write no stereo. Query atoms,
+//! classes and every other CX field are refused. The recorded writer preserves supported
+//! tetrahedral configurations and enhanced stereo groups, reporting other stereo as losses;
+//! canonical writing remains stereo-insensitive. Query atoms,
 //! reaction SMILES and InChI are not implemented. The canonical form is Chemifree's own and is
 //! not the canonical form of any other toolkit.
 
@@ -21,6 +23,7 @@ use chemifree_application::smiles::{
     SmilesCodec, SmilesError, SmilesLimits, SmilesRead, SmilesStyle, SmilesWrite,
 };
 use chemifree_domain::graph::MoleculeGraph;
+use chemifree_domain::stereo_group::StereoGroupTable;
 
 /// The longest input the reader accepts, in UTF-8 bytes, and the longest text a writer returns.
 pub const MAX_INPUT_BYTES: usize = 16 * 1024;
@@ -46,6 +49,14 @@ impl SmilesCodec for OpenSmilesCodec {
     }
 
     fn write(&self, graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, SmilesError> {
-        writer::write(graph, style)
+        writer::write(graph, style, &StereoGroupTable::default())
+    }
+    fn write_with_groups(
+        &self,
+        graph: &MoleculeGraph,
+        style: SmilesStyle,
+        groups: &StereoGroupTable,
+    ) -> Result<SmilesWrite, SmilesError> {
+        writer::write(graph, style, groups)
     }
 }

@@ -1085,15 +1085,15 @@ try {
       const missing = await both(() => request('op-stereo-key', 'document.transaction', {
         document_id: httpDoc, expected_revision: 1, commands: [{ op: 'set_bond_mark', bond: 'b1' }] }), 200)
       assert.equal(missing.outcome, 'error', 'a missing mark key is a malformed command, not a clear')
-      // SMILES carries no stereo: refused until the consent digest of what is dropped is sent.
+      // Recorded SMILES preserves the configuration, but the drawn mark needs loss consent.
       const smiles = (id) => request('op-stereo-smiles', 'document.export', { format: 'smiles', document_id: id, style: 'recorded' })
       const needsConsent = await both(smiles)
       assert.deepEqual(
         [needsConsent.outcome, needsConsent.diagnostics[0].code, needsConsent.diagnostics[0].details.features],
-        ['error', 'loss_consent_required', ['stereo_marks', 'stereo_configuration']])
+        ['error', 'loss_consent_required', ['stereo_marks']])
       const consented = await both((id) => request('op-stereo-smiles-ok', 'document.export', {
         format: 'smiles', document_id: id, style: 'recorded', accepted_losses: needsConsent.diagnostics[0].details.loss_digest }))
-      assert.deepEqual([consented.outcome, consented.result.content], ['partial', 'C(F)(Cl)Br'])
+      assert.deepEqual([consented.outcome, consented.result.content], ['partial', '[C@H](F)(Cl)Br'])
       const molfile = await both((id) => request('op-stereo-mol', 'document.export', { format: 'mol', records: [{ document_id: id }] }))
       // A MOL file writes the mark (bond stereo column 1) and asks no consent: the stated
       // configuration is the one the wedge shows.
@@ -1170,7 +1170,11 @@ try {
         document_id: httpDoc, expected_revision: 6, commands: [{ op: 'create_stereo_group', kind: 'or', atoms: ['a1'] }] }), 200)
       assert.equal(unreadGroup.outcome, 'error', 'a missing number key is a malformed command, not a clear')
       const groupConsent = await both((id) => request('op-group-smiles', 'document.export', { format: 'smiles', document_id: id, style: 'recorded' }))
-      assert.deepEqual(groupConsent.diagnostics[0].details.features, ['stereo_marks', 'stereo_configuration', 'stereo_group'])
+      assert.deepEqual(groupConsent.diagnostics[0].details.features, ['stereo_marks'])
+      const groupWritten = await both((id) => request('op-group-smiles-ok', 'document.export', {
+        format: 'smiles', document_id: id, style: 'recorded', accepted_losses: groupConsent.diagnostics[0].details.loss_digest }))
+      assert.match(groupWritten.result.content, /\|o1:0\|$/)
+      assert.ok(groupWritten.loss_report.some((loss) => loss.feature === 'stereo_group_identity'))
       // V3000 writes the group as a COLLECTION block (the center is in a group, so no consent), the
       // `mol-v3000` format id names the same dialect, V2000 still needs consent for the group, and
       // an id that disagrees with `ctab` is refused.

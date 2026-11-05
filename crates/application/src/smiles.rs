@@ -8,7 +8,7 @@
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo::Turn;
-use chemifree_domain::stereo_group::GroupKind;
+use chemifree_domain::stereo_group::{GroupKind, StereoGroupTable};
 use serde::{Deserialize, Serialize};
 
 use crate::Loss;
@@ -372,4 +372,21 @@ pub trait SmilesCodec: Send + Sync {
     /// A [`SmilesError`] of class `not_writable` or `limit` when no string that this codec's
     /// reader accepts states the graph.
     fn write(&self, graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, SmilesError>;
+
+    /// Writes a graph and the enhanced stereo groups captured from the same document.
+    /// Recorded output reports every omitted stereo mark, configuration or group in its
+    /// losses; callers must not separately declare stereo lost when this method preserves it.
+    /// Canonical output follows [`Self::write`]; its document-level stereo losses remain the
+    /// caller's responsibility.
+    ///
+    /// # Errors
+    ///
+    /// A [`SmilesError`] when the graph and groups cannot be written within the codec's bounds
+    /// and read back with the stereo the output claims to preserve.
+    fn write_with_groups(
+        &self,
+        graph: &MoleculeGraph,
+        style: SmilesStyle,
+        groups: &StereoGroupTable,
+    ) -> Result<SmilesWrite, SmilesError>;
 }

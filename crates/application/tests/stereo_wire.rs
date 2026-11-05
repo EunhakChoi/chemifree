@@ -950,7 +950,7 @@ fn a_conversion_over_a_marked_ring_bond_is_refused_whole_without_a_command_index
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn stereo_made_through_the_wire_needs_consent_to_leave_in_smiles_and_is_written_as_marks_in_mol() {
+fn stereo_made_through_the_wire_needs_consent_in_canonical_smiles_and_is_written_as_marks_in_mol() {
     let (app, _directory) = application();
     let id = created(&app);
     ok(transact(
@@ -964,7 +964,7 @@ fn stereo_made_through_the_wire_needs_consent_to_leave_in_smiles_and_is_written_
         &app,
         "smiles",
         "document.export",
-        &json!({"document_id": id, "format": "smiles", "style": "recorded"}),
+        &json!({"document_id": id, "format": "smiles", "style": "canonical"}),
     );
     assert_eq!(
         refused["diagnostics"][0]["code"], "loss_consent_required",

@@ -1,4 +1,4 @@
-"""Compare Chemifree's SMILES stereo read (P29c) with an independent RDKit.
+"""Compare SMILES stereo reading and recorded writing with an independent RDKit.
 
 Hand-run, like verify-v3000-rdkit.py; not part of `npm run check`. Build the CLI and pass its
 absolute path:
@@ -11,7 +11,8 @@ through `document.import` and `chem.cip` labels the configurations it stored. At
 text is RDKit atom k and Chemifree atom `a(k+1)`, so labels are compared per atom, never as
 sets; an atom RDKit labels and Chemifree does not, or the reverse, fails. Enhanced stereo
 groups of a CXSMILES text are compared as (kind, member atoms) partitions, never by number,
-because RDKit renumbers.
+because RDKit renumbers. RDKit also parses recorded exports; their atom order is
+mapped back to the imported input before comparing labels and groups.
 
 Refused fixtures state the code Chemifree must refuse with; the script also records what RDKit
 makes of the text, which is not an oracle for a refusal. The RDKit used is printed: the groups
@@ -150,7 +151,16 @@ def _chemifree(session: Session, text: str) -> dict[str, Any]:
         if item["state"] == "assigned"
     }
     stored = len(snapshot["result"]["document"]["stereo"]["atoms"])
-    return {"labels": labels, "groups": sorted(groups), "stored": stored}
+    written = session.ask(
+        "document.export",
+        {"document_id": document, "format": "smiles", "style": "recorded"},
+    )
+    return {
+        "labels": labels,
+        "groups": sorted(groups),
+        "stored": stored,
+        "written": written,
+    }
 
 
 def _rdkit(text: str) -> dict[str, Any]:
@@ -194,13 +204,51 @@ def _check(session: Session) -> list[str]:
             continue
         if ours["labels"] != theirs["labels"]:
             failures.append(
-                f"{fixture.text}: CIP labels differ: Chemifree {ours['labels']}, RDKit {theirs['labels']}"
+                f"{fixture.text}: CIP labels differ: "
+                f"Chemifree {ours['labels']}, "
+                f"RDKit {theirs['labels']}"
             )
         if ours["groups"] != sorted(fixture.groups):
-            failures.append(f"{fixture.text}: groups {ours['groups']}, expected {fixture.groups}")
+            failures.append(
+                f"{fixture.text}: groups {ours['groups']}, "
+                f"expected {fixture.groups}"
+            )
         if theirs["groups"] != sorted(fixture.groups):
-            failures.append(f"{fixture.text}: RDKit groups {theirs['groups']}, expected {fixture.groups}")
-        _LOGGER.info("%s: %s groups=%s", fixture.text, ours["labels"], ours["groups"])
+            failures.append(
+                f"{fixture.text}: RDKit groups {theirs['groups']}, "
+                f"expected {fixture.groups}"
+            )
+        written = ours["written"]
+        if written["outcome"] not in ("ok", "partial"):
+            failures.append(
+                f"{fixture.text}: recorded export refused: {written}"
+            )
+            continue
+        result = written["result"]
+        reread = _rdkit(result["content"])
+        if not reread["parsed"]:
+            failures.append(
+                f"{fixture.text}: RDKit refused recorded output "
+                f"{result['content']!r}"
+            )
+            continue
+        order = [int(atom[1:]) - 1 for atom in result["atom_order"]]
+        labels = {
+            order[atom]: label for atom, label in reread["labels"].items()
+        }
+        groups = sorted(
+            (kind, tuple(sorted(order[atom] for atom in members)))
+            for kind, members in reread["groups"]
+        )
+        if labels != theirs["labels"] or groups != theirs["groups"]:
+            failures.append(
+                f"{fixture.text}: RDKit read recorded output "
+                f"{result['content']!r} as "
+                f"labels {labels}, groups {groups}; expected {theirs}"
+            )
+        _LOGGER.info(
+            "%s: %s groups=%s", fixture.text, ours["labels"], ours["groups"]
+        )
     for spellings in RESPELLINGS:
         results = [_chemifree(session, text)["labels"] for text in spellings]
         # The stereocenter is the one labeled atom; the label is a property of the molecule.
