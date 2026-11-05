@@ -25,6 +25,8 @@ P29c는 SMILES·CXSMILES 입체 읽기만 더한다: CODEC-05.smiles-stereo-read
 
 P29e는 기존 CODEC-01·CODEC-02·STEREO-01 부분의 범위에 제한된 CDXML/CDX 도면 내보내기를 더한다. 확인된 typed carrier 네 개와 엄격한 opaque 보존, 첫 배치의 표시·실제 출력 위치에서 유도하는 그룹, 1–127 번호 정규화와 손실 동의를 검사한다. 검증은 export 연산 7개, import 연산 34개, carrier 제공자 5개, application 단위 25개다. 추적 근거는 기존 `check:check:rust`이며 이 개수 자체를 새 적합성 사례로 세지 않는다. P29는 `in_progress`이고 방향 결합 SMILES와 전체 형식 호환은 미완료다.
 
+P29f는 기존 CODEC-01·CODEC-02의 제한된 도면 export에 웹 패널을 연결한다. 명시적 손실 동의 전 다운로드 없음, 도면·형식·service generation 변경 시 미리보기·제안 무효화, 내려받기 직전 snapshot·바이트·손실 재검증과 CDX 바이너리 저장을 검사 대상으로 둔다. 구현 경로와 `check:test:client`를 기존 부분에 더하며 부분 상태·개수와 공개 선언 수는 바꾸지 않는다. 브라우저 smoke는 보조 기록이며 이 갱신은 최종 검사 통과를 주장하지 않는다. P29g가 남아 P29는 `in_progress`다.
+
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 95개(implemented 48, partial 12, unverified 2, not_implemented 33) · conformance 사례 96개(passed 96: accept 72·reject 24, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
