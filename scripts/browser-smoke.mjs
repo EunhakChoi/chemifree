@@ -1553,14 +1553,22 @@ if (runningAsRoot) {
   await relistedAfterCopy
   await crashApi()
   docId = after.document.id
-  const edited = page.waitForResponse(
-    (r) => r.request().method() === 'POST' && r.url().endsWith(`/${docId}/transactions`) && r.status() === 200,
-  )
-  await drawPair()
-  await edited
+  const restartedTitle = 'After restart edited'
+  const isRename = (response) => response.request().method() === 'POST' &&
+    response.url().endsWith(`/${docId}/transactions`) &&
+    response.request().postDataJSON().commands.some((command) => command.op === 'rename' && command.title === restartedTitle)
+  const unauthorized = page.waitForResponse((response) => isRename(response) && response.status() === 401)
+  const edited = page.waitForResponse((response) => isRename(response) && response.status() === 200)
+  // A fixed canvas click can cycle an existing bond instead of creating atoms.
+  // Rename makes this lifecycle probe independent of the current drawing and viewport.
+  await retitle(restartedTitle)
+  await unauthorized
+  const committed = await (await edited).json()
+  assert.equal(committed.document.title, restartedTitle, 'the explicit edit was retried after the old session was refused')
+  assert.equal(committed.document.revision, after.document.revision + 1, 'the restart edit commits exactly once')
   await notice.waitFor({ state: 'detached' })
   const restartedCopy = await openDoc()
-  assert.ok(restartedCopy.document.atoms.length > after.document.atoms.length, 'the edit was retried on the restarted service')
+  assert.deepEqual(restartedCopy.document, committed.document, 'the restarted service retains the committed edit')
   results.copy_notice_ends_when_the_service_restarts = true
   step = 'after copy_notice_ends_when_the_service_restarts'
 }
