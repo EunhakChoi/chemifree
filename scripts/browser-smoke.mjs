@@ -4110,6 +4110,10 @@ step = 'after short_wide_bond_is_selectable'
       assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.')
       assert.match(await panel.textContent(), /CIP labels describe the stored configuration, not the drawing\./)
       assert.doesNotMatch(await agreePage.locator('body').textContent(), /No CIP label is computed/)
+      await eventually(async () => {
+        const current = await read(cipId)
+        assert.equal(current.session.draft_revision, current.document.revision)
+      })
       const untouched = await read(cipId)
 
       await atomSwitch.click()
@@ -4389,6 +4393,10 @@ step = 'after short_wide_bond_is_selectable'
 
       // Group labels: off by default, drawn beside each member on the canvas while the switch is on,
       // never part of the document, and stacked clear of a CIP label.
+      await eventually(async () => {
+        const current = await read(groupsId)
+        assert.equal(current.session.draft_revision, current.document.revision)
+      })
       const beforeLabels = await read(groupsId)
       assert.equal(await labels.count(), 0)
       await groupSwitch.click()
