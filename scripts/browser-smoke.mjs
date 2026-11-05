@@ -2936,7 +2936,7 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
   const offer = panel.getByRole('group', { name: 'Losses to accept before writing' })
   await offer.waitFor()
-  await offer.getByText('Enhanced stereo groups, which this output cannot carry.').waitFor()
+  await offer.getByText('One or more enhanced stereo groups are omitted; the reported reason identifies the affected groups.').waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'no file before consent')
 
   // Choosing V3000 voids that offer; the group is written, the center outside it needs consent.
@@ -2944,7 +2944,7 @@ step = 'after short_wide_bond_is_selectable'
   await offer.waitFor({ state: 'hidden' })
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
   await offer.waitFor()
-  await offer.getByText('Stored stereo centers that are in no group: the file states nothing about them.').waitFor()
+  await offer.getByText('Stored tetrahedral centers without an enhanced stereo group: the drawing may carry their configuration, but another reader’s enhanced stereo interpretation is uncertain.').waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Download MOL' }).count(), 0, 'no file before consent')
   await offer.getByRole('button', { name: 'Accept these losses and preview MOL' }).click()
   await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
@@ -3010,6 +3010,155 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await refusedPanel.getByRole('button', { name: 'Download MOL' }).count(), 0)
   assert.deepEqual((await api(`/api/v1/documents/${refusedId}`)).document, before, 'a refused export leaves the drawing unchanged')
   results.ctfile_v3000_version_consent_roundtrip = true
+}
+
+// Drawing export preserves supported stereo, asks before losing it, and downloads binary CDX.
+{
+  step = 'CDXML and CDX drawing export consent and binary download'
+  const build = async (key, keepMark) => {
+    const created = await apiWrite('/api/v1/documents', { request_id: `ix-${key}-create`, title: `Interchange ${key}` })
+    const id = created.body.document.id
+    const commands = [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'F', position: { x: 100, y: 70 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Cl', position: { x: 126, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Br', position: { x: 74, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'set_bond_mark', bond: '$2', mark: { kind: 'wedge', narrow: 'begin' } },
+      { op: 'set_configuration_from_drawing', atoms: ['$0'] },
+      { op: 'create_stereo_group', kind: 'absolute', atoms: ['$0'], number: null },
+      ...(keepMark ? [] : [{ op: 'set_bond_mark', bond: '$2', mark: null }]),
+    ]
+    const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+      request_id: `ix-${key}-draw`, expected_revision: 0, commands,
+    })
+    assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+    return { id, drawing: drawn.body }
+  }
+  const open = async (id) => {
+    await page.reload()
+    await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+    return page.getByRole('complementary', { name: 'CDXML and CDX export' })
+  }
+  const supported = await build('supported', true)
+  let panel = await open(supported.id)
+  assert.match(await panel.getByTestId('interchange-export-note').textContent(), /exporter does not add wedges/)
+  assert.match(await panel.getByTestId('interchange-export-note').textContent(), /whole group is omitted/)
+  const before = (await api(`/api/v1/documents/${supported.id}`)).document
+  await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download CDXML', exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('interchange-export-offer').count(), 0, 'representable grouped stereo needs no loss acceptance')
+  await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0, 'a different format replaces the old preview')
+  const downloadReady = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).click()
+  const binaryFile = await downloadReady
+  assert.equal(binaryFile.suggestedFilename(), 'chemifree.cdx')
+  const binaryPath = join(work, 'interchange-supported.cdx')
+  await binaryFile.saveAs(binaryPath)
+  const bytes = readFileSync(binaryPath)
+  assert.equal(bytes.subarray(0, 8).toString('ascii'), 'VjCD0100', 'download contains CDX bytes, never the base64 transport text')
+  const writtenRead = await apiWrite('/api/v1/operations', {
+    contract: 1, request_id: 'ix-supported-read', profile: 'preserve-semantics', operation: 'document.import',
+    parameters: { mode: 'read', format: 'cdx', source: bytes.toString('base64') },
+  })
+  assert.equal(writtenRead.status, 200, JSON.stringify(writtenRead.body))
+  const choice = writtenRead.body.result.choices[0]
+  const writtenPreview = await apiWrite('/api/v1/operations', {
+    contract: 1, request_id: 'ix-supported-preview', profile: 'preserve-semantics', operation: 'document.import',
+    parameters: { mode: 'preview', format: 'cdx', source: bytes.toString('base64'), title: 'Read back', page_id: choice.page_id, fragment_id: choice.fragment_id },
+  })
+  assert.deepEqual(writtenPreview.body.result.document.stereo, before.stereo, 'downloaded binary retains the center and absolute group')
+  assert.deepEqual((await api(`/api/v1/documents/${supported.id}`)).document, before, 'export changes no drawing')
+
+  const omitted = await build('stored-only', false)
+  panel = await open(omitted.id)
+  await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
+  const offer = panel.getByTestId('interchange-export-offer')
+  await offer.waitFor()
+  await offer.locator('[data-feature="stereo_configuration"]').waitFor()
+  await offer.locator('[data-feature="stereo_group"]').waitFor()
+  assert.doesNotMatch(await offer.textContent(), /groups themselves are|which this output cannot carry/, 'headings must not claim all formats lose all groups, or omitted groups survived')
+  assert.equal(await panel.getByRole('button', { name: /^Download / }).count(), 0, 'no download before loss consent')
+  await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
+  await offer.getByRole('button', { name: 'Accept these losses and preview CDX', exact: true }).waitFor()
+  assert.equal(await offer.getByRole('button', { name: 'Accept these losses and preview CDXML', exact: true }).count(), 0, 'acceptance is scoped to the selected format')
+  await offer.getByRole('button', { name: 'Accept these losses and preview CDX', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
+  let changedDigest = false
+  const staleDigest = async (route) => {
+    const request = route.request().postDataJSON()
+    if (changedDigest || request?.operation !== 'document.export' || request.parameters.document_id !== omitted.id || request.parameters.accepted_losses === undefined) return route.continue()
+    changedDigest = true
+    await route.continue({ postData: JSON.stringify({ ...request, parameters: { ...request.parameters, accepted_losses: '0'.repeat(64) } }) })
+  }
+  await page.route('**/api/v1/operations', staleDigest)
+  let unexpectedDownloads = 0
+  const countDownload = () => { unexpectedDownloads += 1 }
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).click()
+  await offer.getByText('The losses changed since you accepted them. Review them again.', { exact: true }).waitFor()
+  assert.equal(unexpectedDownloads, 0, 'stale consent never downloads a file')
+  assert.equal(await panel.getByRole('button', { name: 'Download CDX', exact: true }).count(), 0)
+  await page.unroute('**/api/v1/operations', staleDigest)
+  page.off('download', countDownload)
+  results.interchange_export_consent_binary_and_groups = true
+
+  // Hold a verified response while the user edits; its already-produced bytes must not download.
+  step = 'CDX drawing export delayed response after edit'
+  panel = await open(supported.id)
+  await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
+  let arrive
+  const arrived = new Promise((resolve) => { arrive = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const holdExport = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.export' || request.parameters.document_id !== supported.id) return route.continue()
+    const response = await route.fetch()
+    arrive()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdExport)
+  unexpectedDownloads = 0
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download CDX', exact: true }).click()
+  await arrived
+  await tool('Select and move')
+  const point = await atomScreen(supported.drawing, 'a2')
+  await page.mouse.click(point.x, point.y)
+  const edit = page.waitForResponse((response) => response.url().endsWith(`/documents/${supported.id}/transactions`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  assert.equal((await edit).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const settled = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor().then(() => 'refused'),
+  ])
+  release()
+  assert.equal(await settled, 'refused')
+  assert.equal(unexpectedDownloads, 0, 'a delayed pre-edit result cannot download')
+  await page.unroute('**/api/v1/operations', holdExport)
+  page.off('download', countDownload)
+  results.interchange_export_response_race = true
+
+  // A prepared result from a dead process is invalid, even if the document ID is reused.
+  step = 'CDXML drawing export service restart'
+  const restart = await build('restart', true)
+  panel = await open(restart.id)
+  await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download CDXML', exact: true }).waitFor()
+  await crashApi()
+  unexpectedDownloads = 0
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download CDXML', exact: true }).click()
+  await panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor()
+  assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0)
+  assert.equal(unexpectedDownloads, 0, 'a new service process must not download an older prepared result')
+  page.off('download', countDownload)
+  results.interchange_export_service_generation = true
 }
 
 // SMILES text keeps its line breaks, previews before anything changes, asks for consent only for

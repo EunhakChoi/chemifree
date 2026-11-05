@@ -3,7 +3,8 @@
 The rich CDXML tree is available through operation contract 1 in the Rust
 application, HTTP and CLI. The browser can preview a selected page and molecule
 and create a new editable drawing after the user accepts its loss report. The HTTP/CLI
-operation also exports a current drawing through the bounded P29e profile below. A bounded
+operation also exports a current drawing through the bounded P29e profile below;
+P29f adds a web preview, loss-consent and download panel for that same profile. A bounded
 CDX codec feeds the same tree and operations; see [CDX](#cdx-binary-codec).
 
 `chemifree_domain::interchange::Document` is an ordered tree independent of the
@@ -110,7 +111,8 @@ and fragment; additional placements, native IDs, scene objects/references, selec
 and settings have explicit losses. Supported element atoms, coordinates, charge,
 isotope, radical states and single/double/triple/aromatic bonds are written. Query
 atoms, dative/query/unknown bonds and unknown radicals are refused. Unwritten stated
-hydrogens and attachment points require consent. No web drawing-export control is added.
+hydrogens and attachment points require consent. P29f adds the web drawing-export
+controls described below; it does not broaden the codec or projection profile.
 
 Four properties have verified typed cross-format encodings: bond `BondDisplay`
 (`Display`, tag `0601`, INT16 0–14), node `EnhancedStereoType` (`0446`, UINT8 0–4),
@@ -148,6 +150,26 @@ same flow. Export changes neither source drawing nor history. Tests exercised fo
 this slice: `cdxml_stereo_export` (7), `cdxml_stereo_import` (34),
 `stereo_carrier_typing` (5), and application unit tests (25). Full-format compatibility,
 double-bond E/Z derivation and a general scene export remain outside this profile.
+
+### Web drawing-export panel (P29f)
+
+The **CDXML and CDX export** panel prepares either format and shows its losses. Required
+losses need the explicit `Accept these losses and preview CDXML`/`CDX` action; no
+download is offered before acceptance succeeds. An invalid or missing consent digest
+cannot authorize a file. A changed digest asks for a new review. Informational loss
+headings separately describe omitted group IDs, omitted groups and uncertainty about
+ungrouped centers, without claiming all group content was preserved or every format
+lacks group support.
+
+Prepared results and offers belong to the full displayed snapshot, chosen format and
+service generation. Edits, another drawing/format or a noticed restart invalidate them;
+a delayed response cannot revive an old result. Download makes a fresh export request
+and compares its snapshot, content and losses with the prepared result. CDXML downloads
+as UTF-8 text; CDX is decoded from canonical transport base64 into binary bytes, never
+saved as a base64 text file. The files are `chemifree.cdxml`/`chemifree.cdx`. The panel
+synthesizes no marks or labels and retains all P29e semantic limits and loss rules.
+P29 remains `in_progress` pending P29g. Client and browser checks are defined, but their
+final verification is not asserted by this documentation update.
 
 ## CDX binary codec
 

@@ -430,6 +430,23 @@ export function useDocumentEditor() {
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format'], ctab: CtabChoice, acceptedLosses?: string) =>
       client.exportCt(id, format, ctab, acceptedLosses), []),
+    exportInterchange: useCallback(async (id: string, format: InterchangeFormat, acceptedLosses?: string) => {
+      const drawing = currentRef.current?.document
+      const generation = serviceGenerationRef.current
+      const stillShown = () => drawing !== undefined && currentRef.current !== null &&
+        serviceGenerationRef.current === generation && sameConversionSnapshot(currentRef.current.document, drawing)
+      const stale = () => new ApiError('preview_changed', 'The drawing or service changed. Write the export again.', 200)
+      if (drawing?.id !== id || !stillShown()) throw stale()
+      try {
+        const reply = await client.exportInterchange(id, format, acceptedLosses)
+        if (!stillShown() || !sameConversionSnapshot(drawing, reply.snapshot)) throw stale()
+        return reply
+      } catch (failure) {
+        // Consent for a drawing that is no longer shown must not become an active offer.
+        if (!stillShown()) throw stale()
+        throw failure
+      }
+    }, []),
     importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
       importDocument(input, snapshot, generation, () => client.importCt(input)), [importDocument]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>

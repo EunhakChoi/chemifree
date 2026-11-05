@@ -4993,15 +4993,15 @@ test('an export sends ctab and the accepted digest, and a consent refusal reache
 })
 
 test('loss ids the page explains get a plain sentence and any other id is shown as it is', () => {
-  const ids = ['stereo_configuration_not_drawn', 'stereo_bond_configuration', 'stereo_group', 'stereo_ungrouped_centers',
-    'stereo_group_identity', 'chiral_flag', 'registry_number', 'isotope_validation', 'coordinate_precision', 'z_coordinate',
+  const ids = ['stereo_configuration_not_drawn', 'stereo_configuration', 'stereo_bond_configuration', 'double_bond_configuration', 'stereo_group', 'stereo_ungrouped_centers',
+    'stereo_group_identity', 'chiral_flag', 'registry_number', 'isotope_validation', 'coordinate_precision', 'precision', 'z_coordinate',
     'stereo_unreadable', 'stereo_group_merged', 'stereo_group_number', 'extra_placement']
   assert.deepEqual(Object.keys(LOSS_SENTENCES).sort(), [...ids].sort())
   for (const id of ids) {
     assert.notEqual(lossHeading(id), id, id)
     assert.doesNotMatch(lossHeading(id), /_/, `${id} is worded in plain language`)
   }
-  assert.doesNotMatch(lossHeading('stereo_group'), /V2000|SMILES|file/, 'stereo_group is raised by SMILES and MOL exports alike, so it names neither')
+  assert.doesNotMatch(lossHeading('stereo_group'), /V2000|SMILES|file/, 'stereo_group is shared by several export profiles, so its heading names no format')
   assert.equal(lossHeading('future_loss_kind'), 'future_loss_kind')
   assert.equal(lossHeading('toString'), 'toString', 'only own entries count')
 })
@@ -5075,3 +5075,6 @@ test('a V3000 refusal reaches the page as its sentence with the service message 
   assert.equal(typeof CT_REFUSAL_SENTENCES.v3000_collection_member_not_stereocenter, 'string')
   assert.ok(failure.message.endsWith('Service message: Atom 3 is not a center. Record 1. Line 9.'))
 })
+
+// Focused drawing-export envelope, loss consent and binary transport checks.
+await import('./web-interchange-export-check.mjs')

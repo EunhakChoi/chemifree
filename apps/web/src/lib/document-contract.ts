@@ -1303,6 +1303,14 @@ export interface InterchangeChoice {
 /** CDXML travels as text; CDX travels as canonical base64 of its bytes. */
 export type InterchangeFormat = 'cdxml' | 'cdx'
 
+/** A drawing export is bound to the exact snapshot the service wrote. CDX content is base64. */
+export interface InterchangeExport {
+  content: string
+  format: InterchangeFormat
+  snapshot: DocumentView
+  losses: CtLoss[]
+}
+
 export interface InterchangeInput {
   format: InterchangeFormat
   source: string
@@ -1611,6 +1619,62 @@ function smilesReply(value: unknown): { result: Record<string, unknown>; losses:
     throw new ApiError('incompatible_response', 'The service returned an incompatible SMILES response.', 200)
   }
   return { result: value.result, losses: value.loss_report, model: value.model_id }
+}
+
+/** The drawing export branch accepts only the documented loss vocabulary. */
+function isDrawingExportLoss(value: unknown): value is CtLoss {
+  return isLoss(value) && value.feature.length > 0 && value.source_path.length > 0 &&
+    ['retained', 'normalized', 'dropped', 'rejected', 'unknown'].includes(value.disposition) &&
+    ['none', 'chemistry', 'document', 'geometry', 'stereo', 'rendering', 'unknown'].includes(value.semantic_impact)
+}
+
+function isCanonicalBase64(value: string): boolean {
+  if (value.length === 0 || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return false
+  try {
+    return btoa(atob(value)) === value
+  } catch {
+    // Invalid padding and unused padding bits must not reach the download decoder.
+    return false
+  }
+}
+
+function drawingExportReply(value: unknown, request: string): {
+  result: Record<string, unknown>
+  losses: CtLoss[]
+  revision: number
+} {
+  const incompatible = () => new ApiError('incompatible_response', 'The service returned an incompatible drawing export.', 200)
+  if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' ||
+      value.request_id !== request || value.operation !== 'document.export' || value.profile !== 'preserve-semantics' ||
+      !Array.isArray(value.diagnostics)) {
+    throw incompatible()
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const problem: unknown = value.diagnostics[0]
+    if (value.result !== null || !isRecord(problem) || typeof problem.code !== 'string' || typeof problem.message !== 'string') {
+      throw incompatible()
+    }
+    if (problem.code === 'loss_consent_required') {
+      const details = problem.details
+      if (!isRecord(details) || typeof details.loss_digest !== 'string' || !/^[a-f0-9]{64}$/.test(details.loss_digest) ||
+          !Array.isArray(details.losses) || details.losses.length === 0 || !details.losses.every(isDrawingExportLoss) ||
+          !Array.isArray(details.features) || !details.features.every((feature): feature is string => typeof feature === 'string') ||
+          !sameJson(details.features, [...new Set(details.losses.map((loss) => loss.feature))])) {
+        throw incompatible()
+      }
+      throw new ConsentRequired(problem.message, details.features, details.losses, details.loss_digest)
+    }
+    throw new ApiError(problem.code, problem.message, 200, {
+      currentRevision: isRecord(problem.details) && isCount(problem.details.current_revision)
+        ? problem.details.current_revision : undefined,
+    })
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || value.diagnostics.length !== 0 ||
+      !isRecord(value.result) || !isCount(value.document_revision) ||
+      !Array.isArray(value.loss_report) || !value.loss_report.every(isDrawingExportLoss)) {
+    throw incompatible()
+  }
+  return { result: value.result, losses: value.loss_report, revision: value.document_revision }
 }
 
 /** Client for the local document API. Writes carry the per-process session token. */
@@ -1937,6 +2001,35 @@ export class DocumentClient {
     const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
     if (snapshot.id !== documentId) throw new ApiError('incompatible_response', 'The export used a different drawing.', 200)
     return { content: result.content, style, snapshot, losses: reply.losses, model: reply.model }
+  }
+
+  /** Writes the editable drawing as bounded CDXML text or canonical-base64 CDX bytes. */
+  async exportInterchange(
+    documentId: string,
+    format: InterchangeFormat,
+    acceptedLosses?: string,
+  ): Promise<InterchangeExport> {
+    if (acceptedLosses !== undefined && !/^[a-f0-9]{64}$/.test(acceptedLosses)) {
+      throw new ApiError('invalid_request', 'The export loss consent digest is invalid.', 0)
+    }
+    const request = requestId()
+    const reply = drawingExportReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.export',
+      parameters: {
+        format, document_id: documentId,
+        ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }),
+      },
+    }, 'reload'), request)
+    const { result } = reply
+    if (typeof result.content !== 'string' || result.content.length === 0 || !isRecord(result.snapshot) ||
+        (format === 'cdx' && !isCanonicalBase64(result.content))) {
+      throw new ApiError('incompatible_response', 'The service returned invalid drawing export content.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== reply.revision) {
+      throw new ApiError('incompatible_response', 'The export used a different drawing or revision.', 200)
+    }
+    return { content: result.content, format, snapshot, losses: reply.losses }
   }
 
   async exportCt(

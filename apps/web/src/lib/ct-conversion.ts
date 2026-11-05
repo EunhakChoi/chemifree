@@ -68,24 +68,27 @@ export function afterDownloadFailure(code: string, sentDigest: string | undefine
 
 /**
  * One plain sentence per loss id the page explains, worded to be true for every format that can
- * raise the id (`stereo_group` comes from SMILES and V2000 exports; the others only from MOL and
- * SDF). An id not listed is shown as it is, never hidden.
+ * raise the id, including MOL, SDF, SMILES, CDXML and CDX. An id not listed is shown as it is,
+ * never hidden. The service's reason describes which part of this particular output is lost.
  */
 export const LOSS_SENTENCES: Readonly<Record<string, string>> = {
   stereo_configuration_not_drawn: 'A stored atom configuration that the wedges, hashes and positions do not show; a reader of the file gets another configuration or none.',
+  stereo_configuration: 'A stored configuration that this output does not retain; the reported reason describes the drawing or format limit.',
   stereo_bond_configuration: 'A stored double-bond configuration that neither a crossed mark nor the positions show.',
-  stereo_group: 'Enhanced stereo groups, which this output cannot carry.',
-  stereo_ungrouped_centers: 'Stored stereo centers that are in no group: the file states nothing about them.',
-  stereo_group_identity: 'The group names (e1, e2, ...) are not written; the groups themselves are.',
+  double_bond_configuration: 'A stored double-bond configuration that this interchange output does not retain; a drawn mark can still be kept.',
+  stereo_group: 'One or more enhanced stereo groups are omitted; the reported reason identifies the affected groups.',
+  stereo_ungrouped_centers: 'Stored tetrahedral centers without an enhanced stereo group: the drawing may carry their configuration, but another reader’s enhanced stereo interpretation is uncertain.',
+  stereo_group_identity: 'Native group identifiers (e1, e2, ...) are not embedded; group content is accounted for separately.',
   chiral_flag: 'The chiral flag: whether the file states absolute stereochemistry.',
   registry_number: 'A registry number in the counts line, which the drawing does not keep.',
   isotope_validation: 'An isotope mass that was not checked against known isotopes.',
-  coordinate_precision: 'Coordinates rounded to four decimals.',
+  coordinate_precision: 'Written coordinates are rounded to the output format’s precision.',
+  precision: 'Values are rounded to the output format’s precision; the reported reason identifies the affected values.',
   z_coordinate: 'A nonzero z coordinate, which the editor does not store.',
   stereo_unreadable: 'Wedges or hashes whose configuration could not be derived and were kept as marks only.',
   stereo_group_merged: 'A file group joined the absolute group the document already has.',
-  stereo_group_number: 'A group number the document already uses was replaced by the smallest unused one.',
-  extra_placement: 'Extra placements of the same structure, which the file cannot hold.',
+  stereo_group_number: 'A stereo group number was changed or omitted; the reported reason describes the normalization.',
+  extra_placement: 'Additional placements of the same structure are omitted by this output profile.',
 }
 
 /** The heading for a loss: the plain sentence when the page has one, else the id itself. */
