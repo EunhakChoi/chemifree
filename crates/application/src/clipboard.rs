@@ -6,7 +6,7 @@ use chemifree_domain::clipboard::{
 use chemifree_domain::document::{Atom, AtomId, Bond, BondId, Document, DocumentId, Point, Vector};
 use chemifree_domain::element::Element;
 use chemifree_domain::settings::Settings;
-use chemifree_domain::states::AtomKind;
+use chemifree_domain::states::{AtomKind, QueryAtom};
 use chemifree_domain::stereo::{CenterState, DoubleBondState, Slot, StereoKey, StereoState};
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +55,52 @@ struct AtomData {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum KindData {
     Element { symbol: String },
-    Query { query: QueryDto },
+    Query { query: QueryData },
+}
+
+// Native records carry complete state. The public edit QueryDto intentionally
+// defaults list.negated, so it cannot deserialize this whole-record format.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum QueryData {
+    Any {},
+    AnyHeavy {},
+    Heteroatom {},
+    Halogen {},
+    List {
+        elements: Vec<String>,
+        negated: bool,
+    },
+}
+
+impl From<&QueryAtom> for QueryData {
+    fn from(query: &QueryAtom) -> Self {
+        match query {
+            QueryAtom::Any => Self::Any {},
+            QueryAtom::AnyHeavy => Self::AnyHeavy {},
+            QueryAtom::Heteroatom => Self::Heteroatom {},
+            QueryAtom::Halogen => Self::Halogen {},
+            QueryAtom::List { elements, negated } => Self::List {
+                elements: elements
+                    .iter()
+                    .map(|element| element.symbol().to_owned())
+                    .collect(),
+                negated: *negated,
+            },
+        }
+    }
+}
+
+impl From<QueryData> for QueryDto {
+    fn from(query: QueryData) -> Self {
+        match query {
+            QueryData::Any {} => Self::Any {},
+            QueryData::AnyHeavy {} => Self::AnyHeavy {},
+            QueryData::Heteroatom {} => Self::Heteroatom {},
+            QueryData::Halogen {} => Self::Halogen {},
+            QueryData::List { elements, negated } => Self::List { elements, negated },
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -256,6 +301,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                 Element::from_symbol(&symbol).ok_or_else(|| invalid("Unknown element symbol"))?,
             ),
             KindData::Query { query } => {
+                let query: QueryDto = query.into();
                 AtomKind::Query(contract::query_atom(&query).map_err(invalid)?)
             }
         };

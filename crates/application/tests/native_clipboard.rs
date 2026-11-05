@@ -548,3 +548,59 @@ fn paste_coordinate_failure_changes_neither_destination_nor_its_existing_selecti
     assert_refusal(&result, "clipboard_fragment_invalid");
     assert_eq!(snapshot(&app, &id), before);
 }
+
+#[test]
+fn native_list_queries_require_explicit_negation_and_round_trip_both_values() {
+    let (app, _directory) = application();
+    let source_id = create(&app, "Query source");
+    edit(
+        &app,
+        &source_id,
+        json!([
+            {"op":"add_atom","query":{"kind":"list","elements":["N","O"],"negated":false},"position":{"x":0,"y":0}},
+            {"op":"add_atom","query":{"kind":"list","elements":["F","Cl"],"negated":true},"position":{"x":10,"y":0}}
+        ]),
+    );
+    let copied = call(
+        &app,
+        "document.clipboard_copy",
+        json!({"document_id":source_id,
+        "selection":{"atoms":["a1","a2"]},"instance":"s1"}),
+    );
+    assert_eq!(copied["outcome"], "ok", "{copied}");
+    let text = copied["result"]["payload"].as_str().unwrap();
+    let mut payload: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(payload["atoms"][0]["kind"]["query"]["negated"], false);
+    assert_eq!(payload["atoms"][1]["kind"]["query"]["negated"], true);
+    let destination = create(&app, "Query destination");
+    let pasted = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&destination, 0, text),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    assert_eq!(
+        pasted["result"]["snapshot"]["document"]["atoms"][0]["query"],
+        json!({"kind":"list","elements":["N","O"],"negated":false})
+    );
+    assert_eq!(
+        pasted["result"]["snapshot"]["document"]["atoms"][1]["query"],
+        json!({"kind":"list","elements":["F","Cl"],"negated":true})
+    );
+    payload["atoms"][1]["kind"]["query"]
+        .as_object_mut()
+        .unwrap()
+        .remove("negated");
+    let before = snapshot(&app, &destination);
+    let rejected = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&destination, 1, &payload.to_string()),
+    );
+    assert_refusal(&rejected, "clipboard_fragment_invalid");
+    assert_eq!(
+        snapshot(&app, &destination),
+        before,
+        "an omitted negation must never default to a different query or partially paste"
+    );
+}
