@@ -1,5 +1,6 @@
 //! Read-only resolution of the exact union targeted by `move_selection`.
 
+use chemifree_domain::scene::SelectionScope;
 use serde::Deserialize;
 
 use super::*;
@@ -27,6 +28,23 @@ pub struct EffectiveSelectionScope {
     pub objects: Vec<String>,
     pub positions: Vec<ScopePosition>,
     pub graphics: Vec<String>,
+}
+
+impl From<&SelectionScope> for EffectiveSelectionScope {
+    fn from(scope: &SelectionScope) -> Self {
+        Self {
+            objects: scope.objects.iter().map(ToString::to_string).collect(),
+            positions: scope
+                .positions
+                .iter()
+                .map(|key| ScopePosition {
+                    instance: key.instance.to_string(),
+                    atom: key.atom.to_string(),
+                })
+                .collect(),
+            graphics: scope.graphics.iter().map(ToString::to_string).collect(),
+        }
+    }
 }
 
 /// The scope and the exact immutable view used to resolve it. No history or selection edit.
@@ -77,18 +95,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             };
         let revision = snapshot.document.revision;
-        let effective = EffectiveSelectionScope {
-            objects: scope.objects.iter().map(ToString::to_string).collect(),
-            positions: scope
-                .positions
-                .iter()
-                .map(|key| ScopePosition {
-                    instance: key.instance.to_string(),
-                    atom: key.atom.to_string(),
-                })
-                .collect(),
-            graphics: scope.graphics.iter().map(ToString::to_string).collect(),
-        };
+        let effective = EffectiveSelectionScope::from(&scope);
         known.reply(
             Outcome::Ok,
             Some(revision),

@@ -1,7 +1,7 @@
 //! Document editing sessions: working copies, revisions, idempotent replays, saves, recovery
 //! drafts, and copies.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
@@ -12,7 +12,9 @@ use chemifree_domain::document::{
     MAX_TITLE_CHARS, Numbering, ObjectId, Outcome, RevisionsExhausted, TransactionError,
     validated_title,
 };
-use chemifree_domain::scene::{Selection, SelectionScope, TransactionSelection};
+use chemifree_domain::scene::{
+    ArrangementPlan, ObjectArrangement, Selection, SelectionScope, TransactionSelection,
+};
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::stereo_drawing::DeriveError;
@@ -796,6 +798,25 @@ impl<R: DocumentRepository> Documents<R> {
                 ..rejected_edit(TransactionError { index: None, error })
             })?;
         Ok((self.respond(session), scope))
+    }
+
+    /// Captures a checked rigid arrangement and its exact view without editing or copying history.
+    pub(crate) fn arrangement_plan(
+        &self,
+        id: &str,
+        objects: &BTreeSet<ObjectId>,
+        arrangement: ObjectArrangement,
+    ) -> Result<(DocumentResponse, ArrangementPlan), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let plan = session
+            .document
+            .object_arrangement(objects, arrangement)
+            .map_err(|error| ApplicationError {
+                current_revision: Some(session.document.revision()),
+                ..rejected_edit(TransactionError { index: None, error })
+            })?;
+        Ok((self.respond(session), plan))
     }
 
     /// The view and graph are taken under the same lock, so later computation can be checked

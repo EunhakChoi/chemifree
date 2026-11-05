@@ -13,6 +13,7 @@
 //! representable and whether it runs; the dispatcher below runs exactly the operations it marks
 //! executable.
 
+mod arrangement;
 mod cip;
 mod import;
 mod inchi;
@@ -52,6 +53,11 @@ use crate::properties::{
     self, ComponentView, MassDataView, PropertiesError, PropertiesScope, PropertyKind,
 };
 use crate::{Application, CapabilityCatalog, DocumentRepository};
+use arrangement::ArrangementParameters;
+pub use arrangement::{
+    ArrangementAxis, ArrangementBounds, ArrangementPlanResult, ArrangementTranslationView,
+    ArrangementUnitView,
+};
 use cip::CipParameters;
 pub use cip::{
     AtomLabel, BondLabel, CipResult, EndLabel, Priority, REASONS as CIP_REASONS, reason_sentence,
@@ -219,6 +225,8 @@ pub enum OperationResult {
     Document(Box<DocumentResult>),
     /// `document.selection_scope`: read-only movement targets at an exact snapshot.
     SelectionScope(Box<SelectionScopeResult>),
+    /// `document.arrangement_plan`: checked rigid object translations at an exact snapshot.
+    ArrangementPlan(Box<ArrangementPlanResult>),
     /// `document.close`.
     Closed(ClosedResult),
     InterchangeRead(Box<InterchangeReadResult>),
@@ -538,7 +546,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 44] = [
+const TRANSACTION_PARTS: [Entry; 45] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -556,6 +564,10 @@ const TRANSACTION_PARTS: [Entry; 44] = [
     runs(
         "move_selection",
         "Moves the union of selected object subtrees, explicit atoms and bond endpoints once; graph targets use the named instance or the only instance. Transaction selection snapshots remain independent.",
+    ),
+    runs(
+        "arrange_objects",
+        "Rigid geometry-only alignment or equal-gap distribution of outermost selected scene objects, with shared preflight and atomic history. No partial atom/bond targets or rendered label bounds.",
     ),
     runs(
         "delete_atoms",
@@ -720,6 +732,7 @@ const TRANSACTION_PARTS: [Entry; 44] = [
         "delete_objects",
         "move_objects",
         "move_selection",
+        "arrange_objects",
         "add_reference",
         "remove_reference",
     ]),
@@ -810,6 +823,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Read-only effective movement scope for an explicit selection and optional scene instance, with its exact document snapshot. Expands containment, never directed references, and changes no selection or history.",
+            ),
+            &[],
+        ),
+        Op::DocumentArrangementPlan => (
+            runs(
+                id,
+                "Read-only checked plan for six geometry-only alignments and two equal-gap distributions of outermost selected scene objects. Returns ordered rigid units, original bounds, deltas, scopes and the exact snapshot; no model edit.",
             ),
             &[],
         ),
@@ -2286,6 +2306,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentSelectionScope => match parameters::<SelectionScopeParameters>(parameters_value) {
                 Ok(parameters) => self.resolve_selection_scope(known, parameters),
+                Err(error) => known.invalid(error),
+            },
+            Op::DocumentArrangementPlan => match parameters::<ArrangementParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_arrangement_plan(known, parameters),
                 Err(error) => known.invalid(error),
             },
             Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {
