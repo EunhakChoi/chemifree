@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 24,
+  "suite_version": 25,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -1289,21 +1289,64 @@
       "pending": null,
       "failure": null,
       "case_sha256": "14a0738516e535e5abbe27ebe06c00cf6535830f11cc4e4f257421c3b9de1dd0"
+    },
+    {
+      "id": "cdxml-drawing-export-stereo-groups-round-trip",
+      "title": "CDXML drawing export preserves wedge-derived clockwise configurations and absolute/and/or partitions, reserves And 1 while renumbering And -3 to 2 and Or 128 to 1, leaves the source unchanged, and imports into a copy that survives reopening",
+      "requirements": [
+        "CODEC-01",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "35a6199af17459cd37564435de513163548b10f8d9f88c440374be1de9e5264c"
+    },
+    {
+      "id": "cdx-drawing-export-stereo-groups-round-trip",
+      "title": "CDX drawing export preserves wedge-derived clockwise configurations and absolute/and/or partitions, reserves And 1 while renumbering And -3 to 2 and Or 128 to 1, leaves the source unchanged, and imports into a copy that survives reopening",
+      "requirements": [
+        "CODEC-02",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "7efc124165f2d4664aba14b8fd056c386547c27e048456a82e7c18413a5a964e"
+    },
+    {
+      "id": "cdxml-cdx-drawing-export-stereo-loss-consent",
+      "title": "CDXML/CDX exports refuse a stored-only center and its complete two-member group until exact loss consent, preserve the other drawn center without a singleton group, invalidate consent across formats and coordinate changes, and never edit the source",
+      "requirements": [
+        "CODEC-01",
+        "CODEC-02",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f92b028e59619b282a71134b071c432a416f0c26d1aed0c34f1a4cd120ca738f"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 72,
+      "passed": 74,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 24,
+      "passed": 25,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 96,
+      "passed": 99,
       "failed": 0,
       "not_run": 0
     }
