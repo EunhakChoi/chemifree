@@ -670,11 +670,11 @@ export function StructureCanvas({
         <output aria-label="Zoom level" data-testid="zoom-level" className="px-1 text-xs tabular-nums">{viewport.scale < 0.01 ? Number((viewport.scale * 100).toFixed(3)) : Math.round(viewport.scale * 100)}%</output>
       </div>
       {document.scene && (document.scene.instances.length > 1 || activePlacement === null) && (
-        <Field orientation="horizontal">
+        <Field className="min-w-0">
           <FieldLabel htmlFor="canvas-movement-placement">Atom and bond movement placement</FieldLabel>
           <Select value={activePlacement} items={document.scene?.instances.map((instance) => ({ value: instance.id, label: instance.id }))}
             onValueChange={(value) => { if (typeof value === 'string') switchPlacement(value) }}>
-            <SelectTrigger id="canvas-movement-placement" aria-label="Atom and bond movement placement" size="sm"><SelectValue placeholder="Choose placement" /></SelectTrigger>
+            <SelectTrigger id="canvas-movement-placement" aria-label="Atom and bond movement placement" size="sm" className="w-full min-w-0"><SelectValue placeholder="Choose placement" /></SelectTrigger>
             <SelectContent><SelectGroup>
               {document.scene?.instances.map((instance) => <SelectItem key={instance.id} value={instance.id}>{instance.id}</SelectItem>)}
             </SelectGroup></SelectContent>
