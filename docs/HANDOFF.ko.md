@@ -12,21 +12,28 @@
 ## P32a 제한된 구현 인계
 
 - `document.selection_scope`가 `{ document_id, selection, instance? }`를 받아 정확한 snapshot과 `{ objects, positions: [{ instance, atom }], graphics }`를 읽기 전용으로 반환한다. `move_selection`은 같은 union을 한 트랜잭션에서 이동한다. 그룹 포함 트리·선택한 원자·선택한 결합 끝점을 합치고 중복은 한 번만 이동하며 참조·연결 성분은 따라가지 않는다. 원자/결합 이동은 복수 배치에서 instance를 명시한다.
-- 이동 대상 selection과 이력의 selection_before/after는 별개다. 좌표 초과·미상 대상은 앞선 명령까지 전체 rollback하며 빈 대상·0 delta는 검증 뒤 revision/history/redo를 바꾸지 않는다. P32는 `in_progress`이며 웹 복합 선택·박스 선택·정렬/분배 UI·snapping은 미구현이며 공유 회전·반사 primitive는 P32c 절에 있다. 상세 계약은 CONTRACT.md의 Effective selection scope and movement 절이다.
+- 이동 대상 selection과 이력의 selection_before/after는 별개다. 좌표 초과·미상 대상은 앞선 명령까지 전체 rollback하며 빈 대상·0 delta는 검증 뒤 revision/history/redo를 바꾸지 않는다. P32는 `in_progress`이며 일반 canvas 복합/박스 선택·snapping은 미구현이며 제한된 Scene 웹 제어 후보는 P32d, 공유 회전·반사 primitive는 P32c 절에 있다. 상세 계약은 CONTRACT.md의 Effective selection scope and movement 절이다.
 - P32a 도입 시 카탈로그는 연산 29개(기본 실행 19개), transaction 44개(명령 33·capability 11), scene_tree 명령 9개였다. 현재 수는 P32c 절에 있다. 전용 conformance 두 사례는 scope/중복 이동/undo·no-op·redo/원자적 거절을 고정하며 clean isolated suite28에서 모두 통과했다. OPS-01.selection-scope는 이 제한된 구현 범위의 case 근거로 implemented이고, 전체 P32 및 최종 리뷰/CI 완료와는 구분한다.
 
 ## P32b 제한된 구현 인계
 
 - 읽기 전용 `document.arrangement_plan`과 트랜잭션 명령 `arrange_objects`가 기존 scene object의 outermost 단위를 기하 경계 기준으로 정렬/분배한다. mode는 align_left/horizontal_center/right/top/vertical_center/bottom(실제 문자열은 각각 align_ 접두사)와 distribute_horizontal/vertical이다. 그룹은 강체 단위이며 부분 원자/결합은 받지 않는다. 경계는 원자 위치와 graphic 두 점만 쓰고 글자·stroke·화살촉은 제외한다.
 - 정렬은 전체 union 경계를 기준으로 2개 이상, 분배는 leading edge→ID 순서의 3개 이상이며 양끝을 고정하고 동일한 edge 간격을 만든다. 음수 간격·빈 기하·대상 부족·미상 객체·최종 좌표 초과는 전체 거절하고 이미 배치된 결과는 no-op이다. 미리보기는 snapshot과 단위별 원래 bounds/delta/translation/scope를 보여 주며 commit token이 아니다. delta는 보고용 근삿값이고 실제 좌표는 translation의 axis/source/target으로 `좌표 + target - source`의 정확한 합을 구한 뒤 binary64로 한 번만 최근접·ties-to-even 반올림한다. 정지 단위의 translation은 null이며 다른 축은 유지한다. delta를 단순히 더하면 상쇄 오차로 실제 결과와 달라질 수 있다.
-- P32b 도입 시 연산 30개(기본 실행 20), transaction 45개(명령 34·capability 11), scene_tree 명령 10개였다. 현재 수는 P32c 절에 있다. P32b 전용 accept/reject 두 사례는 clean isolated suite28에서 모두 통과했고 OPS-01.object-arrangement는 제한된 범위의 case 근거로 implemented다. 전체 P32 및 최종 리뷰/CI 완료 주장은 아니다. P32는 계속 in_progress이고 웹 제어·박스 선택·snapping은 미구현이며 공유 회전·반사 primitive는 P32c가 더한다.
+- P32b 도입 시 연산 30개(기본 실행 20), transaction 45개(명령 34·capability 11), scene_tree 명령 10개였다. 현재 수는 P32c 절에 있다. P32b 전용 accept/reject 두 사례는 clean isolated suite28에서 모두 통과했고 OPS-01.object-arrangement는 제한된 범위의 case 근거로 implemented다. 전체 P32 및 최종 리뷰/CI 완료 주장은 아니다. P32는 계속 in_progress이고 박스 선택·snapping은 미구현이며 제한된 Scene 웹 제어 후보는 P32d, 공유 회전·반사 primitive는 P32c가 더한다.
 
 ## P32c 제한된 구현 인계
 
 - `document.transform_plan`이 `{ document_id, selection, instance?, pivot: { x, y }, transform }`으로 기존 authoritative union을 읽기 전용으로 검사한다. snapshot·scope·대상별 before/after 좌표와 `drawing_stereo_may_change`를 반환하며 미리보기는 commit token이 아니다. `{ op: "transform_selection", selection, instance?, pivot, transform }`은 같은 계획을 해당 명령 위치의 도면에 원자적으로 적용한다. 명령 대상과 이력 selection_before/after는 별개이고 parent/child·object/atom·atom/bond 중복은 한 번만 변환한다.
 - transform은 `{ type: "rotate", degrees }`, `{ type: "reflect_horizontal" }`, `{ type: "reflect_vertical" }`다. 명시 pivot은 일반 유한 좌표 범위이며 양의 회전은 y-down page에서 시계 방향이다. degree는 modulo360, 항등/quarter turn은 trig 없이 endpoint 합을 한 번 반올림한다. 수평 축 반사는 y=pivot.y에서 y만, 수직 축 반사는 x=pivot.x에서 x만 뒤집는다. line/arrow와 원자 위치는 임의 각도 회전이 가능하지만 rectangle은 자손·퇴화 도형도 정확한 quarter turn만 받는다. 비표현 각도는 transform_rectangle_unsupported로 전체 거절하며 AABB로 바꾸지 않는다. 대각선 반사·implicit pivot은 없다.
 - stored 배치·mark·enhanced group·화학 그래프·hierarchy·reference는 그대로다. 반사/부분 회전은 그림과 stored 입체의 일치를 바꿀 수 있지만 이를 기하 명령이 재유도·수정하지 않는다. `drawing_stereo_may_change`는 graph 위치가 실제 바뀐다는 보수적 안내이며 실제 입체 비교·transaction note·loss가 아니다. 실제 일치는 `chem.stereo`로 검사한다. 미상 대상·비유한 각도·최종 좌표 초과·rectangle 제한은 앞선 명령까지 rollback하고 유효한 빈 대상·항등/no-op은 revision/history/selection/redo를 유지한다.
-- 현재 카탈로그는 연산 31개(기본 실행 21), transaction 46개(명령 35·capability 11), scene_tree 명령 11개다. 기록된 clean isolated conformance suite28은 105/105 통과(accept77·reject28, failed0·not_run0)이며 P32a/b/c 전용 accept/reject 여섯 사례를 모두 포함한다. `selection-transform-plan-history`·`selection-transform-refusal-atomic`의 실제 실행을 OPS-01.selection-transform implemented 근거로 연결했다. 부모 작업자가 공유 lock + private copy + MemoryMax=6G + swap0에서 실행하고 보고서를 docs/verification/conformance-report.json에 내보냈다. 이 확인은 전체 P32·최종 리뷰·브라우저·CI 완료 주장이 아니다. P32는 계속 `in_progress`; 웹 transform/복합 선택·박스 선택·snapping·cleanup은 미구현이다.
+- 현재 카탈로그는 연산 31개(기본 실행 21), transaction 46개(명령 35·capability 11), scene_tree 명령 11개다. 기록된 clean isolated conformance suite28은 105/105 통과(accept77·reject28, failed0·not_run0)이며 P32a/b/c 전용 accept/reject 여섯 사례를 모두 포함한다. `selection-transform-plan-history`·`selection-transform-refusal-atomic`의 실제 실행을 OPS-01.selection-transform implemented 근거로 연결했다. 부모 작업자가 공유 lock + private copy + MemoryMax=6G + swap0에서 실행하고 보고서를 docs/verification/conformance-report.json에 내보냈다. 이 확인은 전체 P32·최종 리뷰·브라우저·CI 완료 주장이 아니다. P32는 계속 `in_progress`; P32d가 제한된 Scene 웹 제어 후보를 더하지만 일반 canvas 복합/박스 선택·snapping·cleanup은 미구현이다.
+
+## P32d 웹 Scene 제어 후보 인계
+
+- 웹 **Scene → Arrange and transform scene objects**에 align_left/horizontal_center/right/top/vertical_center/bottom 여섯 제어, 수평/수직 equal-gap distribute, 시계/반시계 90° 회전, 수평/수직 축 반사 제어를 연결한 후보 구현이다. Scene 목록에서 고른 whole scene object/group 단위만 다룬다. 선택한 조상이 있으면 자손은 별도 단위로 세지 않고, 경계는 원자 위치·graphic 두 점만 사용하여 label/stroke는 제외한다.
+- 회전/반사는 누르는 시점의 Scene 선택을 잡아 두고, 큐에서 적용할 최신 도면의 선택 geometry 경계 중심을 다시 계산해 명시 pivot으로 보낸다. 수평 축 반사는 중심 위/아래를, 수직 축 반사는 좌/우를 뒤집는다. 원자/결합 선택이 섞인 geometry 제어는 비활성화한다. 미상 대상은 전체 요청을 보내지 않고 lapse하며, 기하 없음·단위 부족·빈 arrangement 단위는 클라이언트에서 막고 음수 간격·좌표·rectangle 등 최종 규칙은 서버의 기존 원자적 검증을 따른다. frontend bounds/pivot은 요청 구성용이며 서버 계획/좌표 검증을 대체하지 않는다.
+- sibling Group은 Scene 객체만 묶고 독립된 atom/bond 선택은 유지한다. 성공 뒤 잡아 둔 grouped member 선택을 새 group으로 대체하면서 대기 중 다른 live 선택은 보존하도록 선택 병합을 둔다. Transform은 stored stereo/mark/group을 바꾸지 않으며 그림이 stored 입체와 어긋날 수 있다는 안내와 기존 stereo inspection을 이용한다. Undo/Redo·no-op·revision·request replay는 기존 transaction 경로를 사용한다.
+- 현재 P32d client/browser 검사는 진행 중이며 이 문단은 통과·리뷰·CI 완료를 주장하지 않는다. `OPS-01.scene-controls`는 `unverified`, evidence는 비어 있다. 기존 suite28의105/105(accept77·reject28)는 서버 primitive 근거이고 새 웹 제어 검증으로 재사용하지 않는다. 카탈로그/명령/적합성 사례 수는 P32c와 같고 P32는 계속 `in_progress`다. 임의 각도·사용자 지정 pivot·대각선 반사 UI, 일반 Scene box/복합 canvas gesture, snapping·cleanup은 미구현이다.
 
 ## 프로젝트와 현재 기준
 
@@ -195,7 +202,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 101개(implemented 54, partial 12, unverified 2, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 102개(implemented 54, partial 12, unverified 3, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
