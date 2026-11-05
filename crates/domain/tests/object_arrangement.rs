@@ -669,6 +669,72 @@ fn center_alignment_retains_one_ulp_moves_and_rounds_midpoint_ties_on_both_axes(
 }
 
 #[test]
+fn unrepresentable_center_ties_are_stable_and_improving_moves_keep_undo_redo() {
+    let above = 1.0_f64.next_up();
+    for mode in [AlignMode::HorizontalCenter, AlignMode::VerticalCenter] {
+        for (low, high, changes) in [(1.0, above, false), (1.0_f64.next_down(), 1.0, true)] {
+            let vertical = mode == AlignMode::VerticalCenter;
+            let rectangles = if vertical {
+                [(0.0, 1.0, 2.0, above.next_up()), (3.0, low, 4.0, high)]
+            } else {
+                [(1.0, 0.0, above.next_up(), 2.0), (low, 3.0, high, 4.0)]
+            };
+            let mut document = with_redo(drawings(&rectangles));
+            let before = document.clone();
+            let original = [bounds(&document, 2), bounds(&document, 3)];
+            let arrangement = ObjectArrangement::Align(mode);
+            let plan = document
+                .object_arrangement(&ids(&[2, 3]), arrangement)
+                .unwrap();
+            assert_eq!(plan.units[1].translation.is_some(), changes, "{mode:?}");
+            assert_eq!(
+                document.apply(&[arrange(&[2, 3], arrangement)]).unwrap(),
+                if changes {
+                    Outcome::Changed
+                } else {
+                    Outcome::Unchanged
+                },
+                "{mode:?}"
+            );
+            if changes {
+                let mut expected = original[1];
+                if vertical {
+                    expected.top = 1.0;
+                    expected.bottom = above;
+                } else {
+                    expected.left = 1.0;
+                    expected.right = above;
+                }
+                assert_eq!(bounds(&document, 2), original[0]);
+                assert_eq!(bounds(&document, 3), expected);
+                document.undo().unwrap();
+                assert_eq!([bounds(&document, 2), bounds(&document, 3)], original);
+                document.redo().unwrap();
+                assert_eq!(bounds(&document, 3), expected);
+            } else {
+                assert_eq!(document, before, "a half-ULP tie must preserve redo");
+            }
+
+            let mut document = with_redo(document);
+            let stable = document.clone();
+            // The adjacent-float span has no representable pose centered exactly
+            // on the target. Neither direction may toggle it on repeated presses.
+            for _ in 0..4 {
+                let repeated = document
+                    .object_arrangement(&ids(&[2, 3]), arrangement)
+                    .unwrap();
+                assert!(repeated.units.iter().all(|unit| unit.translation.is_none()));
+                assert_eq!(
+                    document.apply(&[arrange(&[2, 3], arrangement)]).unwrap(),
+                    Outcome::Unchanged
+                );
+                assert_eq!(document, stable, "{mode:?}: stable midpoint tie");
+            }
+        }
+    }
+}
+
+#[test]
 fn touching_decimal_intervals_have_exact_zero_gap_and_preserve_redo() {
     for axis in [DistributionAxis::Horizontal, DistributionAxis::Vertical] {
         let rectangles = match axis {
