@@ -17,6 +17,8 @@ import {
   type InterchangeFormat,
   type InterchangeInput,
   type ListQuery,
+  type NativeClipboardCopy,
+  type NativeClipboardPasteAttempt,
   type SettingsSource,
   type TrashListResponse,
 } from '@/lib/document-contract'
@@ -156,6 +158,10 @@ export function useDocumentEditor() {
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
+  // An unanswered paste must be checked with its original request, never resubmitted.
+  const clipboardAttempt = useRef<{ attempt: NativeClipboardPasteAttempt; documentId: string; generation: number; terminalConflict?: boolean } | null>(null)
+  const [clipboardPending, setClipboardPending] = useState(false)
+  const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -212,11 +218,16 @@ export function useDocumentEditor() {
    * when this task was queued, never one from a request that failed while it waited. A task
    * given `ownFailure` reports its failure there instead of to the page.
    */
-  const run = useCallback((task: () => Promise<void>, ownFailure?: (failure: ApiError) => void) => {
+  const run = useCallback((task: () => Promise<void>, ownFailure?: (failure: ApiError) => void, checkClipboard = false) => {
     setPending((count) => count + 1)
     const failuresSeen = failures.current
     const next = queue.current
-      .then(task)
+      .then(async () => {
+        if (clipboardAttempt.current && !checkClipboard) {
+          throw new ApiError('clipboard_paste_unconfirmed', 'Check the pending paste outcome before making another change.', 0)
+        }
+        await task()
+      })
       .then(
         () => {
           if (failures.current === failuresSeen) setError(null)
@@ -264,6 +275,44 @@ export function useDocumentEditor() {
     [run, setCurrent],
   )
 
+  const clipboardTask = useCallback(<T,>(task: () => Promise<T>, checking = false): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      void run(async () => { resolve(await task()) }, reject, checking)
+    }), [run])
+
+  const finishClipboardPaste = useCallback(async () => {
+    const pendingPaste = clipboardAttempt.current
+    if (!pendingPaste) return
+    try {
+      const reply = await pendingPaste.attempt.send()
+      // Another request may discover a restart while this old-process reply is held.
+      // A successful old reply cannot confirm what the new process currently contains.
+      if (pendingPaste.generation !== serviceGenerationRef.current) {
+        throw new ApiError('clipboard_paste_restarted', 'The service changed before this paste was confirmed. Reload the drawing to reconcile its outcome.', 0)
+      }
+      clipboardAttempt.current = null
+      setClipboardPending(false)
+      setClipboardNeedsReload(false)
+      if (currentRef.current?.document.id === pendingPaste.documentId) {
+        setCurrent(reply.snapshot)
+        adoptSelection(selectionIds(reply.snapshot.document.selection))
+      }
+    } catch (failure) {
+      const error = asApiError(failure)
+      const uncertain = error.code === 'clipboard_paste_unconfirmed' || error.code === 'clipboard_paste_restarted' || error.code === 'clipboard_paste_reconcile'
+      if (uncertain) {
+        pendingPaste.terminalConflict = error.code === 'clipboard_paste_reconcile'
+        setClipboardPending(true)
+        setClipboardNeedsReload(error.code !== 'clipboard_paste_unconfirmed')
+      } else {
+        clipboardAttempt.current = null
+        setClipboardPending(false)
+        setClipboardNeedsReload(false)
+      }
+      throw error
+    }
+  }, [setCurrent, adoptSelection])
+
   const id = () => currentRef.current?.document.id ?? ''
   const revision = (document: DocumentResponse) => document.document.revision
 
@@ -295,7 +344,7 @@ export function useDocumentEditor() {
             } catch (failure) {
               reject(failure)
             }
-          })
+          }, reject)
         }),
       [run, setCurrent],
     ),
@@ -387,6 +436,68 @@ export function useDocumentEditor() {
     trash,
     current,
     serviceGeneration,
+    clipboardPending,
+    clipboardNeedsReload,
+    copyFragment: useCallback((documentId: string, instance: string | null): Promise<NativeClipboardCopy> => {
+      const pressed = new Set(selectionRef.current)
+      return clipboardTask(async () => {
+        const shown = currentRef.current?.document
+        if (!shown || shown.id !== documentId || !instance ||
+            !shown.scene?.instances.some((placement) => placement.id === instance)) {
+          throw new ApiError('clipboard_instance_invalid', 'Choose an existing source placement and copy again.', 0)
+        }
+        const selected = selectionSnapshot(pressed, shown)
+        if (selectionIds(selected).size !== pressed.size) {
+          throw new ApiError('clipboard_selection_unknown', 'The captured selection changed. Select the fragment again.', 0)
+        }
+        const generation = serviceGenerationRef.current
+        const result = await client.clipboardCopy(documentId, selected, instance)
+        if (serviceGenerationRef.current !== generation || currentRef.current?.document.id !== documentId ||
+            !sameConversionSnapshot(shown, result.snapshot.document)) {
+          throw new ApiError('clipboard_source_changed', 'The drawing or service changed. Prepare the fragment again.', 0)
+        }
+        return result
+      })
+    }, [clipboardTask]),
+    pasteFragment: useCallback((documentId: string, payload: string, offset: { x: number; y: number }): Promise<void> => {
+      const pressed = new Set(selectionRef.current)
+      const capturedOffset = { ...offset }
+      return clipboardTask(async () => {
+        const shown = currentRef.current?.document
+        if (!shown || shown.id !== documentId) {
+          throw new ApiError('clipboard_destination_changed', 'The destination changed. Open Paste fragment again.', 0)
+        }
+        const before = selectionSnapshot(pressed, shown)
+        if (selectionIds(before).size !== pressed.size) {
+          throw new ApiError('clipboard_selection_unknown', 'The captured selection changed. Open Paste fragment again.', 0)
+        }
+        clipboardAttempt.current = {
+          attempt: client.createClipboardPaste(documentId, shown.revision, payload, capturedOffset, before),
+          documentId,
+          generation: serviceGenerationRef.current,
+        }
+        await finishClipboardPaste()
+      })
+    }, [clipboardTask, finishClipboardPaste]),
+    checkClipboardPaste: useCallback(() => clipboardTask(finishClipboardPaste, true), [clipboardTask, finishClipboardPaste]),
+    reconcileClipboardPaste: useCallback(() => clipboardTask(async () => {
+      const unresolved = clipboardAttempt.current
+      if (!unresolved) return
+      // A read in the old process cannot prove that a request still running there will not
+      // commit later. A confirmed new process or terminal revision conflict permits a read
+      // to reconcile the drawing without pretending that the original paste failed.
+      if (!unresolved.terminalConflict && serviceGenerationRef.current === unresolved.generation) {
+        throw new ApiError('clipboard_paste_unconfirmed', 'Check the paste outcome in the original service first.', 0)
+      }
+      const fresh = await client.get(unresolved.documentId)
+      if (currentRef.current?.document.id === unresolved.documentId) setCurrent(fresh)
+      clipboardAttempt.current = null
+      setClipboardPending(false)
+      setClipboardNeedsReload(false)
+      if (currentRef.current?.document.id === unresolved.documentId) {
+        adoptSelection(selectionIds(fresh.document.selection))
+      }
+    }, true), [clipboardTask, setCurrent, adoptSelection]),
     inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),
     inspectIdentity: useCallback((...args: Parameters<DocumentClient['inspectIdentity']>) => client.inspectIdentity(...args), []),
     searchSubstructure: useCallback((...args: Parameters<DocumentClient['searchSubstructure']>) => client.searchSubstructure(...args), []),
@@ -397,16 +508,20 @@ export function useDocumentEditor() {
     /** Holds later document edits until a dependent preference write has finished. */
     reserveStyle: useCallback(() => {
       let reached = () => {}
+      let refused: (failure: ApiError) => void = () => {}
       let release = () => {}
-      const ready = new Promise<void>((resolve) => { reached = () => resolve() })
+      const ready = new Promise<void>((resolve, reject) => {
+        reached = () => resolve()
+        refused = reject
+      })
       const released = new Promise<void>((resolve) => { release = () => resolve() })
       void run(async () => {
         reached()
         await released
-      })
+      }, refused)
       return { ready, release }
     }, [run]),
-    busy: pending > 0,
+    busy: pending > 0 || clipboardPending,
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
     readInterchange: useCallback((source: string, format: InterchangeFormat) => client.readInterchange(source, format), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
