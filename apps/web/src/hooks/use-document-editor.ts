@@ -19,6 +19,7 @@ import {
   type ListQuery,
   type NativeClipboardCopy,
   type NativeClipboardCutAttempt,
+  type NativeClipboardMolImportAttempt,
   type NativeClipboardPasteAttempt,
   type SelectionView,
   type SettingsSource,
@@ -102,7 +103,8 @@ type ClipboardMutation = {
   documentId: string
   generation: number
   terminalConflict?: boolean
-} & ({ kind: 'paste'; attempt: NativeClipboardPasteAttempt } | { kind: 'cut'; attempt: NativeClipboardCutAttempt })
+} & ({ kind: 'paste'; attempt: NativeClipboardPasteAttempt } | { kind: 'cut'; attempt: NativeClipboardCutAttempt } |
+  { kind: 'mol_import'; attempt: NativeClipboardMolImportAttempt })
 
 function requireCutEligible(copy: NativeClipboardCopy) {
   const source = copy.snapshot.document
@@ -193,7 +195,7 @@ export function useDocumentEditor() {
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
-  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | null>(null)
+  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | null>(null)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -328,7 +330,9 @@ export function useDocumentEditor() {
       setClipboardAction(null)
       if (currentRef.current?.document.id === pendingPaste.documentId) {
         setCurrent(snapshot)
-        adoptSelection(selectionIds(snapshot.document.selection))
+        adoptSelection(pendingPaste.kind === 'mol_import'
+          ? selectionIds(selectionSnapshot(selectionRef.current, snapshot.document))
+          : selectionIds(snapshot.document.selection))
       }
     } catch (failure) {
       const error = asApiError(failure)
@@ -559,6 +563,24 @@ export function useDocumentEditor() {
         await finishClipboardMutation()
       })
     }, [clipboardTask, finishClipboardMutation]),
+    importClipboardMol: useCallback((input: CtImport, snapshot: DocumentView, generation: number): Promise<void> => {
+      const frozen = { ...input }
+      return clipboardTask(async () => {
+        const shown = currentRef.current?.document
+        if (frozen.format !== 'mol' || frozen.record !== 1 || frozen.documentId !== snapshot.id || frozen.revision !== snapshot.revision ||
+            !shown || generation !== serviceGenerationRef.current || !sameConversionSnapshot(shown, snapshot)) {
+          throw new ApiError('preview_changed', 'The drawing or service changed. Preview the MOL text again before importing.', 0)
+        }
+        clipboardAttempt.current = {
+          kind: 'mol_import',
+          attempt: client.createClipboardMolImport(frozen),
+          documentId: frozen.documentId,
+          generation,
+        }
+        setClipboardAction('mol_import')
+        await finishClipboardMutation()
+      })
+    }, [clipboardTask, finishClipboardMutation]),
     checkClipboardPaste: useCallback(() => clipboardTask(finishClipboardMutation, true), [clipboardTask, finishClipboardMutation]),
     reconcileClipboardPaste: useCallback(() => clipboardTask(async () => {
       const unresolved = clipboardAttempt.current
@@ -576,7 +598,9 @@ export function useDocumentEditor() {
       setClipboardNeedsReload(false)
       setClipboardAction(null)
       if (currentRef.current?.document.id === unresolved.documentId) {
-        adoptSelection(selectionIds(fresh.document.selection))
+        adoptSelection(unresolved.kind === 'mol_import'
+          ? selectionIds(selectionSnapshot(selectionRef.current, fresh.document))
+          : selectionIds(fresh.document.selection))
       }
     }, true), [clipboardTask, setCurrent, adoptSelection]),
     inspectProperties: useCallback((...args: Parameters<DocumentClient['inspectProperties']>) => client.inspectProperties(...args), []),

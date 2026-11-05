@@ -76,6 +76,8 @@ jobs:
         run: npm run test:browser:routes
       - name: Native clipboard dialogs
         run: npm run test:browser:clipboard
+      - name: MOL text clipboard bridge
+        run: npm run test:browser:mol-clipboard
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke

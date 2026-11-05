@@ -146,6 +146,14 @@ export interface NativeClipboardCutAttempt {
   send(): Promise<DocumentResponse>
 }
 
+/** A MOL import already bound to its inspected source, destination and consent digest. */
+export interface NativeClipboardMolImportAttempt {
+  send(): Promise<DocumentResponse>
+}
+
+/** Clipboard MOL intake matches the existing 200 KiB web file-import limit. */
+export const MAX_CLIPBOARD_MOL_BYTES = 200 * 1024
+
 export interface SelectionSnapshots {
   before?: SelectionView
   after?: SelectionView
@@ -1724,7 +1732,7 @@ function drawingExportReply(value: unknown, request: string): {
 }
 
 function clipboardIncompatible(): ApiError {
-  return new ApiError('incompatible_response', 'The local service returned an incompatible native clipboard reply.', 200)
+  return new ApiError('incompatible_response', 'The local service returned an incompatible clipboard reply.', 200)
 }
 
 function clipboardId(value: unknown, prefix: 'a' | 'b' | 's'): value is string {
@@ -1971,11 +1979,12 @@ export class DocumentClient {
 
   /** Freeze one clipboard mutation body, process generation and request ID for every outcome check. */
   private clipboardAttempt<T>(
-    kind: 'paste' | 'cut',
+    kind: 'paste' | 'cut' | 'mol_import',
     path: string,
     body: Record<string, unknown>,
     parse: (value: unknown, request: string) => T,
   ): { send(): Promise<T> } {
+    const action = kind === 'mol_import' ? 'MOL import' : kind
     const request = requestId()
     const preparedSession = this.token
     let sentTo: string | undefined
@@ -2003,7 +2012,7 @@ export class DocumentClient {
           if (!(failure instanceof ApiError)) throw failure
           if (failure.code === 'service_restarted') {
             restartedAttempt = true
-            throw new ApiError(`clipboard_${kind}_restarted`, `The service restarted before this ${kind} was confirmed. Reload the drawing to reconcile it; this attempt will not be resent.`, failure.status)
+            throw new ApiError(`clipboard_${kind}_restarted`, `The service restarted before this ${action} was confirmed. Reload the drawing to reconcile it; this attempt will not be resent.`, failure.status)
           }
           if (outcomeOpen(failure) || failure.code === 'incompatible_response') uncertain = sentTo !== undefined
           if (failure.status === 0 && !askedAgain) { askedAgain = true; continue }
@@ -2015,10 +2024,10 @@ export class DocumentClient {
           // A definitive revision refusal proves this request is no longer running, but
           // its earlier commit may have outlived the replay record: reread, never repeat.
           if (uncertain && failure.code === 'revision_conflict') {
-            refused = new ApiError(`clipboard_${kind}_reconcile`, `The original ${kind} can no longer be confirmed by replay. It may already have completed. Reload the drawing before making another change.`, failure.status)
+            refused = new ApiError(`clipboard_${kind}_reconcile`, `The original ${action} can no longer be confirmed by replay. It may already have completed. Reload the drawing before making another change.`, failure.status)
             throw refused
           }
-          if (uncertain) throw new ApiError(`clipboard_${kind}_unconfirmed`, `The service has not confirmed this ${kind}. Check again asks about the same attempt without repeating it.`, failure.status)
+          if (uncertain) throw new ApiError(`clipboard_${kind}_unconfirmed`, `The service has not confirmed this ${action}. Check again asks about the same attempt without repeating it.`, failure.status)
           refused = failure
           throw failure
         }
@@ -2082,6 +2091,42 @@ export class DocumentClient {
           snapshot.document.atoms.some((atom) => removed.includes(atom.id))) throw clipboardIncompatible()
       // document() validates every note; return them all, including normal removal of
       // copied stereo records. Eligibility and user-visible reporting belong to the hook.
+      return snapshot
+    })
+  }
+
+  /** Create only after the user accepts the inspected clipboard MOL preview and its losses. */
+  createClipboardMolImport(input: CtImport): NativeClipboardMolImportAttempt {
+    if (input.format !== 'mol' || input.record !== 1 || !isCount(input.revision) || !/^[a-f0-9]{64}$/.test(input.digest)) {
+      throw new ApiError('invalid_request', 'Clipboard MOL import requires the inspected first MOL record and its consent digest.', 400)
+    }
+    if (new TextEncoder().encode(input.source).byteLength > MAX_CLIPBOARD_MOL_BYTES) {
+      throw new ApiError('invalid_request', 'Clipboard MOL text exceeds 200 KiB.', 400)
+    }
+    const documentId = input.documentId
+    const revision = input.revision
+    const parameters = {
+      document_id: documentId, expected_revision: revision, format: 'mol', record: 1,
+      source: input.source, preview_digest: input.digest, accept_loss: true,
+    }
+    return this.clipboardAttempt('mol_import', '/api/v1/operations', {
+      contract: 1, profile: 'preserve-semantics', operation: 'document.import', parameters,
+    }, (value, request) => {
+      if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' || value.request_id !== request ||
+          value.operation !== 'document.import' || value.profile !== 'preserve-semantics' ||
+          !Array.isArray(value.diagnostics) || !Array.isArray(value.loss_report)) throw clipboardIncompatible()
+      if (value.outcome === 'error' || value.outcome === 'unsupported') {
+        const diagnostic: unknown = value.diagnostics[0]
+        if (value.result !== null || value.loss_report.length !== 0 || !isRecord(diagnostic) ||
+            typeof diagnostic.code !== 'string' || typeof diagnostic.message !== 'string' || !isRecord(diagnostic.details)) throw clipboardIncompatible()
+      } else if ((value.outcome !== 'ok' && value.outcome !== 'partial') || value.diagnostics.length !== 0 ||
+          (value.outcome === 'ok') !== (value.loss_report.length === 0) || !value.loss_report.every(isDrawingExportLoss)) {
+        throw clipboardIncompatible()
+      }
+      const { result } = ctReply(value, 'import')
+      const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result })
+      if (snapshot.document.id !== documentId || !isCount(value.document_revision) || snapshot.document.revision !== value.document_revision ||
+          (snapshot.document.revision !== revision && snapshot.document.revision !== revision + 1)) throw clipboardIncompatible()
       return snapshot
     })
   }

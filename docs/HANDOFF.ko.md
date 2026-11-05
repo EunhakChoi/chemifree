@@ -69,6 +69,13 @@
 - OS clipboard와 document 삭제는 하나의 원자적 transaction이 아니다. write 뒤 거절이면 copy만 남고 Cut 삭제는 없으며 이전 clipboard 복원·자동 paste-back을 하지 않는다. document Undo/Redo만 기존 ID·selection을 복구하며 clipboard는 바꾸지 않는다. 미확정 삭제는 동일 request ID/body/process로만 확인하고 확인 중 clipboard를 다시 쓰지 않는다. service restart/terminal conflict는 명시 reload/reconcile, old-process held success는 generation guard를 따른다.
 - 기존 P33a/P33b 실행 근거를 새 Cut 검증으로 재사용하지 않는다. fb72ee9의 격리 targeted frontend lint/typecheck·client395개·web build와 dedicated clipboard browser가 통과했다. 전체 npm run check는 진행 중이며 full browser/CI 통과나 P33 완료는 주장하지 않는다. P33은 in_progress다. crossing boundary·여러 source placement·scene clone·외부 clipboard format·전역 Ctrl/Cmd+X는 미구현이다.
 
+## P33d 명시 MOL-text clipboard bridge 후보 인계
+
+- 기존 MOL/SDF panel의 V2000/V3000/Auto와 loss-consent export를 거친 MOL 전체 도면 text에 별도 clipboard dialog를 연결한다. transient 선택 fragment가 아니며 기존 first-placement projection과 손실/거절 규칙을 유지한다. 준비 후 직접 Copy to clipboard 클릭 또는 Select MOL text/read-only text 수동 복사를 제공하며 backend await 뒤 자동 write를 하지 않는다.
+- Import MOL text 열기는 빈 form이며 Read clipboard 클릭이나 수동 입력 뒤 Preview MOL text 때만 local service에 보낸다. UTF-8 200 KiB, format mol·record1만 받고 형식 추측은 없다. counts와 모든 losses를 보고 별도 import 확인이 정확한 source bytes·destination snapshot/revision·service generation·preview digest에 동의한다.
+- 기존 MOL import의 단일 destination placement·좌표 변환·fresh IDs·live selection·history 동작을 유지한다. native Paste offset/동일-style 조건/새 대상 자동 선택을 추가하지 않는다. 미확정 import는 native Cut/Paste와 같은 immutable request/body/process 회복 gate를 사용하고 MOL panel에서 Check MOL import outcome/명시 reload를 제공한다. 지연 old-process success는 generation guard로 막으며 확인 중 clipboard를 다시 읽거나 쓰지 않는다.
+- 기존 파일 입력/download는 유지하며 SDF·SMILES·CDXML/CDX·HTML/custom MIME clipboard·external Cut·scene clone·global shortcut은 추가하지 않는다. P33은 in_progress다. 새 client/browser 회귀는 작성 중이며 이 작업에서는 tests/build/browser/lint를 실행하지 않았고 기존 P33a/b/c 근거를 P33d 통과로 세지 않는다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
