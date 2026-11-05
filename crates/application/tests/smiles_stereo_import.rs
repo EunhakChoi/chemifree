@@ -219,3 +219,66 @@ fn an_import_next_to_an_existing_absolute_group_still_fits_the_bound_it_was_coun
     let done = import(&app, &id, 1, &text);
     assert_eq!(done["document_revision"], 2, "{done}");
 }
+
+#[test]
+fn recorded_export_preserves_imported_centers_and_groups_without_stereo_consent() {
+    let (app, _dir, id) = setup();
+    let source = "F[C@H](Cl)[C@@H](Br)I |o1:1,3|";
+    let imported = import(&app, &id, 0, source);
+    assert_eq!(imported["document_revision"], 1, "{imported}");
+    let before = document(&app, &id);
+    let written = call(
+        &app,
+        "recorded",
+        "document.export",
+        json!({"document_id": id, "format": "smiles", "style": "recorded"}),
+    );
+    assert_eq!(written["outcome"], "partial", "{written}");
+    assert_eq!(written["result"]["snapshot"]["document"], before);
+    assert_eq!(written["result"]["content"], source);
+    assert!(
+        written["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|loss| {
+                !["stereo_configuration", "stereo_marks", "stereo_group"]
+                    .contains(&loss["feature"].as_str().unwrap())
+            }),
+        "preserved stereo must not be reported as lost: {written}"
+    );
+    assert_eq!(document(&app, &id), before);
+}
+
+#[test]
+fn accepting_attachment_loss_preserves_the_same_snapshots_stereo() {
+    let (app, _dir, id) = setup();
+    let source = "F[C@H](Cl)Br |a:1|";
+    let imported = import(&app, &id, 0, source);
+    assert_eq!(imported["document_revision"], 1, "{imported}");
+    let edited = call(
+        &app,
+        "attachment",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 1, "commands": [
+            {"op": "update_atom", "atom": "a2", "attachment_points": [1]}
+        ]}),
+    );
+    assert_eq!(edited["outcome"], "ok", "{edited}");
+    let before = document(&app, &id);
+    let parameters = json!({"document_id": id, "format": "smiles", "style": "recorded"});
+    let refused = call(&app, "refused", "document.export", parameters.clone());
+    let details = &refused["diagnostics"][0]["details"];
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "loss_consent_required",
+        "{refused}"
+    );
+    assert_eq!(details["features"], json!(["attachment_points"]));
+    let mut accepted = parameters;
+    accepted["accepted_losses"] = details["loss_digest"].clone();
+    let written = call(&app, "accepted", "document.export", accepted);
+    assert_eq!(written["outcome"], "partial", "{written}");
+    assert_eq!(written["result"]["snapshot"]["document"], before);
+    assert_eq!(written["result"]["content"], source);
+    assert_eq!(document(&app, &id), before);
+}

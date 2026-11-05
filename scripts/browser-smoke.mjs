@@ -4110,6 +4110,10 @@ step = 'after short_wide_bond_is_selectable'
       assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.')
       assert.match(await panel.textContent(), /CIP labels describe the stored configuration, not the drawing\./)
       assert.doesNotMatch(await agreePage.locator('body').textContent(), /No CIP label is computed/)
+      await agreePage.waitForFunction(async (id) => {
+        const current = await (await fetch(`/api/v1/documents/${id}`)).json()
+        return current.session.draft_revision === current.document.revision
+      }, cipId)
       const untouched = await read(cipId)
 
       await atomSwitch.click()
@@ -4261,7 +4265,7 @@ step = 'after short_wide_bond_is_selectable'
       }
 
       // Honest text, ungrouped state, and every action disabled with its reason while nothing is selected.
-      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. The SMILES and MOL (V2000) exports of this page carry no groups and report a loss; MOL (V3000) export from this page writes them as COLLECTION entries when you choose V3000 or Auto, and reading a V3000 file with such collections creates groups. Query features, S-groups and R-groups are refused, not read. They are not compared with the drawing, and do not change CIP labels or identity.')
+      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. Recorded SMILES writes supported groups; canonical SMILES and MOL (V2000) export require consent to drop them. MOL (V3000) writes groups as COLLECTION entries when you choose V3000 or Auto, and reading a V3000 file with such collections creates groups. Query features, S-groups and R-groups are refused, not read. They are not compared with the drawing, and do not change CIP labels or identity.')
       assert.equal(await section.getByTestId('groups-not-examined').textContent(), 'Not examined or unsupported: double bonds cannot be grouped; centers stored unknown cannot be members; group meaning is ignored by CIP labels, identity and substructure search.')
       assert.equal(await section.getByTestId('groups-empty').count(), 1)
       assert.deepEqual(await groupsOf(), [])
@@ -4389,6 +4393,10 @@ step = 'after short_wide_bond_is_selectable'
 
       // Group labels: off by default, drawn beside each member on the canvas while the switch is on,
       // never part of the document, and stacked clear of a CIP label.
+      await agreePage.waitForFunction(async (id) => {
+        const current = await (await fetch(`/api/v1/documents/${id}`)).json()
+        return current.session.draft_revision === current.document.revision
+      }, groupsId)
       const beforeLabels = await read(groupsId)
       assert.equal(await labels.count(), 0)
       await groupSwitch.click()

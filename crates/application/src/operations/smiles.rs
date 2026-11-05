@@ -499,17 +499,10 @@ fn without_attachment_points(graph: &MoleculeGraph) -> Option<(MoleculeGraph, Lo
     if marked.is_empty() {
         return None;
     }
-    let stripped = MoleculeGraph::from_parts(
-        graph
-            .atoms()
-            .map(|(id, atom)| {
-                let mut atom = atom.clone();
-                atom.attachment_points = AttachmentPoints::default();
-                (id, atom)
-            })
-            .collect(),
-        graph.bonds().map(|(id, bond)| (id, bond.clone())).collect(),
-    );
+    let mut stripped = graph.clone();
+    for (_, atom) in stripped.atoms_mut() {
+        atom.attachment_points = AttachmentPoints::default();
+    }
     let loss = Loss {
         consent: LossConsent::Required,
         feature: "attachment_points".into(),
@@ -558,17 +551,18 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             return known.not_running();
         };
         debug_assert_eq!(p.format, "smiles", "the dispatcher routes only SMILES here");
-        let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
-            Ok(captured) => captured,
-            Err(error) => {
-                return known.reply(
-                    Outcome::Error,
-                    error.current_revision,
-                    None,
-                    vec![failure(&error)],
-                );
-            }
-        };
+        let (snapshot, graph, groups) =
+            match self.documents.graph_and_groups_snapshot(&p.document_id) {
+                Ok(captured) => captured,
+                Err(error) => {
+                    return known.reply(
+                        Outcome::Error,
+                        error.current_revision,
+                        None,
+                        vec![failure(&error)],
+                    );
+                }
+            };
         let mut losses = Vec::new();
         ct_projection::drawing_losses(
             &snapshot.document,
@@ -576,16 +570,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ct_projection::Target::Smiles,
             &mut losses,
         );
-        // Stereo marks and configurations are not written; the caller consents to that.
-        losses.extend(ct_projection::stereo_losses(&snapshot.document));
-        // Attachment points are the one state a SMILES string drops with the caller's consent.
+        // Recorded stereo is accounted for by the codec, including partial preservation.
+        // Canonical output still omits all document stereo under its existing graph model.
+        if p.style == SmilesStyle::Canonical {
+            losses.extend(ct_projection::stereo_losses(&snapshot.document));
+        }
+        // Attachment points have no SMILES form and require the caller's consent.
         let stripped = without_attachment_points(&graph);
         let written = match &stripped {
             Some((graph, loss)) => {
                 losses.push(loss.clone());
-                codec.write(graph, p.style)
+                codec.write_with_groups(graph, p.style, &groups)
             }
-            None => codec.write(&graph, p.style),
+            None => codec.write_with_groups(&graph, p.style, &groups),
         };
         let written = match written {
             Ok(written) => written,

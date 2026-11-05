@@ -823,10 +823,10 @@ fn unrelated_edits_keep_the_groups_and_say_nothing() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
+fn a_canonical_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
     let (app, _directory, id) = grouped();
     let export = |request: &str, extra: Value| {
-        let mut parameters = json!({"document_id": id, "format": "smiles", "style": "recorded"});
+        let mut parameters = json!({"document_id": id, "format": "smiles", "style": "canonical"});
         for (key, value) in extra.as_object().unwrap() {
             parameters[key] = value.clone();
         }
@@ -857,7 +857,7 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
     let text = group_loss["reason"].as_str().unwrap();
     assert!(!text.contains("1:1") && !text.contains("ratio"), "{text}");
 
-    // A singleton counts: SMILES has no groups at all.
+    // A singleton counts: canonical SMILES also omits its group.
     let (single, _directory, one) = four_centers();
     ok(transact(
         &single,
@@ -870,7 +870,7 @@ fn a_smiles_export_needs_consent_to_drop_the_groups_and_names_them_all() {
         &single,
         "single",
         "document.export",
-        &json!({"document_id": one, "format": "smiles", "style": "recorded"}),
+        &json!({"document_id": one, "format": "smiles", "style": "canonical"}),
     );
     assert_eq!(
         refused["diagnostics"][0]["details"]["features"],

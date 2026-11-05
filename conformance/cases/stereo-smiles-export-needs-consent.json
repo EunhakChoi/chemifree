@@ -1,6 +1,6 @@
 {
   "id": "stereo-smiles-export-needs-consent",
-  "title": "SMILES text carries no stereo, so a drawing that holds any is exported only after consent to a digest of what is dropped, and the digest does not survive a change",
+  "title": "Recorded SMILES preserves the stated center, requires consent for the omitted mark, and binds consent to the output",
   "requirements": [
     "MODEL-03",
     "CODEC-05"
@@ -114,8 +114,7 @@
             "code": "loss_consent_required",
             "details": {
               "features": [
-                "stereo_marks",
-                "stereo_configuration"
+                "stereo_marks"
               ]
             }
           }
@@ -142,7 +141,7 @@
       "expect": {
         "outcome": "partial",
         "result": {
-          "content": "C(F)(Cl)Br",
+          "content": "[C@H](F)(Cl)Br",
           "style": "recorded"
         },
         "loss_report": {
@@ -150,12 +149,6 @@
             {
               "feature": "stereo_marks",
               "source_path": "bonds[b2]",
-              "disposition": "dropped",
-              "semantic_impact": "stereo"
-            },
-            {
-              "feature": "stereo_configuration",
-              "source_path": "atoms[a1]",
               "disposition": "dropped",
               "semantic_impact": "stereo"
             }

@@ -6,7 +6,7 @@ P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계
 
 P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
 
-P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다(canonical 형식은 Chemifree 자체 형식이며 다른 도구와 호환되지 않는다). 입체 쓰기, query/반응 SMILES와 InChI는 후속 범위다(`@`·`@@`와 CXSMILES 그룹 읽기는 아래 P29c). 입체 표시·배치가 있는 도면을 SMILES로 쓰면 `stereo_marks`·`stereo_configuration` 손실에 동의가 필요하고 텍스트에는 입체가 없다.
+P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다. P29c는 사면체와 CX 그룹 읽기를, P29d는 기록형 사면체와 지원 그룹 쓰기를 더한다. Canonical 입체와 지원 밖 입체는 손실 동의가 필요하다. `/`·`\` 방향 결합, query/반응 SMILES와 InChI는 후속 범위다.
 
 P25a-2b는 입체 표시와 명시된 입체 배치의 저장·설정·해제(MODEL-03.1, 구현)를, P25a-3a는 요청이 있을 때만 도면에서 배치를 읽어 저장하는 `set_configuration_from_drawing`(MODEL-03.2, 구현)을, P25a-3b는 저장 배치와 도면을 비교하는 읽기 전용 `chem.stereo`(MODEL-03.3, 구현)를 연결한다. P25b-1은 웹 편집기에서 쐐기·해시 쐐기·물결 결합 표시를 그리고 같은 Undo 단계에 도면에서 읽은 배치를 저장하는 제스처(MODEL-03.4, 구현)를, P25b-2는 웹 편집기가 입체가 있는 도면에서 `chem.stereo`를 스스로 불러 요약 줄·Stereo 패널·캔버스 링으로 저장 배치와 도면의 일치를 보이고 한 번의 클릭으로 갱신·저장·제거하는 표시(MODEL-03.5, 구현; 증거는 `check:test:client`이며 브라우저 스모크는 본문에서만 언급한다)를 연결한다. P26b는 저장된 배치에서 R/S/E/Z를 읽기 전용으로 계산하는 `chem.cip`(`chemifree-cip-1`, 규칙 1a·1b·2·3만, MODEL-03.6, 부분; 증거는 적합성 사례 14개와 `check:check:rust`·`check:test:contracts`)을 연결한다. 규칙 4a–5·의사비대칭 r/s·헤테로방향족·축/평면, 동위원소·대칭·분할·고급 그룹, 거울상·뒤집기 명령, crossed 캔버스 도구는 MODEL-03.rest(미구현)로 남고, 형식별 입체 입출력(CODEC-03, CODEC-05)은 근거 사례로만 연결되며 구현 표시가 아니다. P26c는 CIP의 웹 표시(원자·결합 레이블 스위치 둘, 기본 꺼짐, 저장 배치의 레이블만, MODEL-03.7, 구현; 증거는 `check:test:client`이고 브라우저 스모크는 증거 검사가 아니다)를 연결한다. P25와 P26은 진행 중이다.
 
@@ -21,7 +21,7 @@ P24는 한정된 부분구조 검색(`chem.substructure`)과 원자 대응을 �
 
 P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투영을 연결한다(P29b는 그 투영에 공개 근거가 확인하는 입체 읽기를 더했다: CODEC-01.cdxml-stereo-read, CODEC-02.cdx-stereo-atoms(원자 태그와 결합 Display, partial), STEREO-01.cdxml-groups-read; 바이너리 결합 Display(0x0601)는 읽고 Display2·DoublePosition과 내보내기는 아직 없다). P23은 같은 공통 모델에 한정된 CDX 바이너리 코덱을 연결한다(CODEC-02는 partial). 고급 객체와 일반 장면 렌더링은 후속 범위다.
 
-P29c는 SMILES·CXSMILES 입체 읽기만 더한다: CODEC-05.smiles-stereo-read(`@`·`@@`를 표 없는 저장 배치로, 거절은 코드·계열·span과 함께), STEREO-01.cxsmiles-groups-read(`a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로, 문법 근거는 공개 RDKit Book 예시뿐이고 기능 명세에는 CXSMILES가 없다). 증거는 적합성 사례 두 개와 `cargo test`이며 RDKit 대조(`scripts/verify-smiles-stereo-rdkit.py`)는 수동이라 근거로 세지 않는다. `/`·`\` 읽기와 입체 쓰기는 CODEC-05.rest·STEREO-01.rest에 남는다.
+P29c는 SMILES·CXSMILES 입체 읽기만 더한다: CODEC-05.smiles-stereo-read(`@`·`@@`를 표 없는 저장 배치로, 거절은 코드·계열·span과 함께), STEREO-01.cxsmiles-groups-read(`a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로, 문법 근거는 공개 RDKit Book 예시뿐이고 기능 명세에는 CXSMILES가 없다). 증거는 적합성 사례 두 개와 `cargo test`이며 RDKit 대조(`scripts/verify-smiles-stereo-rdkit.py`)는 수동이라 근거로 세지 않는다. 이중결합 방향 `/`·`\` 읽기와 쓰기 및 남은 입체 형식은 CODEC-05.rest·STEREO-01.rest에 남는다.
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 95개(implemented 48, partial 12, unverified 2, not_implemented 33) · conformance 사례 96개(passed 96: accept 72·reject 24, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 

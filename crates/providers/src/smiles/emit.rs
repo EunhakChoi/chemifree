@@ -14,6 +14,7 @@
 
 use chemifree_application::smiles::{SmilesCode, SmilesError};
 use chemifree_domain::document::BondOrder;
+use chemifree_domain::stereo::Turn;
 
 use super::{MAX_BRANCH_DEPTH, MAX_RING_LABEL};
 
@@ -27,6 +28,7 @@ pub(super) struct Item {
     pub isotope: Option<u16>,
     pub hydrogens: u16,
     pub bracket: bool,
+    pub turn: Option<Turn>,
 }
 
 /// A bond between two items. Only single, double, triple and aromatic bonds can be written;
@@ -42,6 +44,9 @@ pub(super) struct Emitted {
     pub text: String,
     /// The item written at each position of the text.
     pub order: Vec<usize>,
+    /// Neighbours in the exact order the reader encounters them, excluding bracket H.
+    pub neighbors: Vec<Vec<usize>>,
+    pub preceded: Vec<bool>,
 }
 
 fn atom_text(item: &Item) -> String {
@@ -53,6 +58,11 @@ fn atom_text(item: &Item) -> String {
         text.push_str(&mass.to_string());
     }
     text.push_str(item.symbol);
+    match item.turn {
+        Some(Turn::Anticlockwise) => text.push('@'),
+        Some(Turn::Clockwise) => text.push_str("@@"),
+        None => {}
+    }
     match item.hydrogens {
         0 => {}
         1 => text.push('H'),
@@ -222,6 +232,8 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
     let mut taken = [false; MAX_RING_LABEL + 1];
     let mut label_of = vec![0_usize; links.len()];
     let mut depth = 0_usize;
+    let mut neighbors = vec![Vec::new(); items.len()];
+    let mut preceded = vec![false; items.len()];
     while let Some(step) = work.pop() {
         match step {
             Work::Dot => text.push('.'),
@@ -239,19 +251,33 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
             Work::Atom(atom, via) => {
                 if let Some(link) = via {
                     text.push_str(bond_text(&links[link], items)?);
+                    let edge = &links[link];
+                    neighbors[atom].push(if edge.begin == atom {
+                        edge.end
+                    } else {
+                        edge.begin
+                    });
+                    preceded[atom] = true;
                 }
                 text.push_str(&atom_text(&items[atom]));
                 order.push(atom);
-                let mut closing: Vec<usize> =
-                    walk.closes[atom].iter().map(|l| label_of[*l]).collect();
-                closing.sort_unstable();
-                for label in closing {
+                let mut closing: Vec<usize> = walk.closes[atom].to_vec();
+                closing.sort_unstable_by_key(|&link| label_of[link]);
+                for link in closing {
+                    let label = label_of[link];
+                    let edge = &links[link];
+                    neighbors[atom].push(if edge.begin == atom {
+                        edge.end
+                    } else {
+                        edge.begin
+                    });
                     text.push_str(&label_text(label));
                     taken[label] = false;
                 }
                 let mut opening = walk.opens[atom].clone();
                 opening.sort_unstable();
-                for (_, link) in opening {
+                for (other, link) in opening {
+                    neighbors[atom].push(other);
                     let Some(label) = (1..=MAX_RING_LABEL).find(|label| !taken[*label]) else {
                         return Err(SmilesError::new(SmilesCode::RingLabelLimit));
                     };
@@ -260,6 +286,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
                     text.push_str(bond_text(&links[link], items)?);
                     text.push_str(&label_text(label));
                 }
+                neighbors[atom].extend(walk.children[atom].iter().map(|&(child, _)| child));
                 if let Some((&(last, last_link), earlier)) = walk.children[atom].split_last() {
                     work.push(Work::Atom(last, Some(last_link)));
                     for &(child, link) in earlier.iter().rev() {
@@ -271,5 +298,10 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
             }
         }
     }
-    Ok(Emitted { text, order })
+    Ok(Emitted {
+        text,
+        order,
+        neighbors,
+        preceded,
+    })
 }

@@ -1,6 +1,6 @@
 {
   "id": "stereo-group-smiles-export-needs-consent",
-  "title": "SMILES has no enhanced stereo groups, so a drawing that holds any group, a one-member group included, is exported only after consent to the dropped groups, listed with the stereo configurations",
+  "title": "Canonical SMILES requires consent for omitted groups; recorded SMILES writes supported groups",
   "requirements": [
     "STEREO-01",
     "MODEL-03",
@@ -189,7 +189,7 @@
         "operation": "document.export",
         "parameters": {
           "format": "smiles",
-          "style": "recorded"
+          "style": "canonical"
         }
       },
       "expect": {
@@ -221,14 +221,14 @@
         "operation": "document.export",
         "parameters": {
           "format": "smiles",
-          "style": "recorded",
+          "style": "canonical",
           "accepted_losses": null
         }
       },
       "expect": {
         "outcome": "partial",
         "result": {
-          "style": "recorded"
+          "style": "canonical"
         },
         "loss_report": {
           "$contains": [
@@ -244,6 +244,37 @@
       "document": "d",
       "substitute": {
         "/parameters/accepted_losses": "digest"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "recorded",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "[C@H](F)(Cl)Br.[C@H](F)(Cl)Br |a:0|",
+          "style": "recorded"
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_group_identity",
+              "source_path": "groups[e1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
       }
     }
   ]

@@ -516,9 +516,9 @@ fn consent_features(refusal: &Value) -> Vec<&str> {
 }
 
 #[test]
-fn smiles_export_of_stereo_needs_consent_in_both_styles_and_then_writes_the_graph_alone() {
+fn canonical_smiles_export_needs_consent_and_writes_the_graph_alone() {
     let (app, _directory) = app_with(&[full(1, true), full(2, false)]);
-    for style in ["recorded", "canonical"] {
+    for style in ["canonical"] {
         let refused = export_smiles(&app, "first", 1, style, None);
         assert_eq!(refused["outcome"], "error", "{style}: {refused}");
         assert_eq!(

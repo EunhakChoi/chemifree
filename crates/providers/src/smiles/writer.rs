@@ -4,15 +4,20 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use chemifree_application::smiles::{SmilesCode, SmilesError, SmilesStyle, SmilesWrite};
+use chemifree_application::smiles::{
+    SmilesCode, SmilesError, SmilesSlot, SmilesStyle, SmilesWrite,
+};
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
-use chemifree_domain::chemistry::Finding;
+use chemifree_domain::chemistry::{self, Finding};
 use chemifree_domain::document::{
     Atom, AtomId, BondId, BondOrder, MAX_CHARGE, MAX_COMMANDS, MAX_ISOTOPE_MASS_NUMBER, MIN_CHARGE,
 };
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::{self, ChemicalForm, IdentityError};
 use chemifree_domain::states::{Hydrogens, Radical};
+use chemifree_domain::stereo::{CenterState, Slot, StereoKey, StereoState, Turn};
+use chemifree_domain::stereo_drawing;
+use chemifree_domain::stereo_group::{GroupKind, StereoGroupTable};
 
 use super::MAX_INPUT_BYTES;
 use super::analysis::{self, is_writable_order};
@@ -126,19 +131,23 @@ struct Rendered {
     order: Vec<usize>,
     bracket: Vec<bool>,
     parsed: Parsed,
+    neighbors: Vec<Vec<usize>>,
+    preceded: Vec<bool>,
 }
 
-fn items(plans: &[Plan], bracket: &[bool]) -> Vec<Item> {
+fn items(plans: &[Plan], bracket: &[bool], turns: &[Option<Turn>]) -> Vec<Item> {
     plans
         .iter()
         .zip(bracket)
-        .map(|(plan, &bracket)| Item {
+        .zip(turns)
+        .map(|((plan, &bracket), &turn)| Item {
             symbol: plan.symbol,
             aromatic: plan.aromatic,
             charge: plan.charge,
             isotope: plan.isotope,
             hydrogens: plan.hydrogens,
             bracket,
+            turn,
         })
         .collect()
 }
@@ -146,7 +155,20 @@ fn items(plans: &[Plan], bracket: &[bool]) -> Vec<Item> {
 /// Emits the plans, reads the text back, and brackets every bare atom that read back with other
 /// hydrogens or another radical, until the text reads back exactly.
 fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, Fail> {
-    let mut bracket: Vec<bool> = plans.iter().map(|plan| !plan.may_be_bare()).collect();
+    render_with_turns(plans, links, max_bytes, &vec![None; plans.len()])
+}
+
+fn render_with_turns(
+    plans: &[Plan],
+    links: &[Link],
+    max_bytes: usize,
+    turns: &[Option<Turn>],
+) -> Result<Rendered, Fail> {
+    let mut bracket: Vec<bool> = plans
+        .iter()
+        .zip(turns)
+        .map(|(plan, turn)| !plan.may_be_bare() || turn.is_some())
+        .collect();
     // The first pass finds every bare atom that reads back differently; the second, with those
     // bracketed, must read back exactly.
     for repaired in [false, true] {
@@ -160,7 +182,7 @@ fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, 
                 plan.id
             )));
         }
-        let emitted = emit::emit(&items(plans, &bracket), links)?;
+        let emitted = emit::emit(&items(plans, &bracket, turns), links)?;
         if emitted.text.len() > max_bytes {
             return Err(fail(SmilesCode::OutputTooLong));
         }
@@ -175,6 +197,8 @@ fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, 
                 order: emitted.order,
                 bracket,
                 parsed,
+                neighbors: emitted.neighbors,
+                preceded: emitted.preceded,
             });
         }
         if repaired {
@@ -274,7 +298,11 @@ fn compare(
     Ok(bracketed)
 }
 
-pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesWrite, Fail> {
+pub(super) fn write(
+    graph: &MoleculeGraph,
+    style: SmilesStyle,
+    groups: &StereoGroupTable,
+) -> Result<SmilesWrite, Fail> {
     if graph.atoms().len() == 0 {
         return Err(fail(SmilesCode::EmptyGraph));
     }
@@ -286,12 +314,12 @@ pub(super) fn write(graph: &MoleculeGraph, style: SmilesStyle) -> Result<SmilesW
         return Err(fail(SmilesCode::BondEndpointsInvalid));
     }
     match style {
-        SmilesStyle::Recorded => recorded(graph),
+        SmilesStyle::Recorded => recorded(graph, groups),
         SmilesStyle::Canonical => canonical(graph),
     }
 }
 
-fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
+fn recorded(graph: &MoleculeGraph, groups: &StereoGroupTable) -> Result<SmilesWrite, Fail> {
     if graph.atoms().len() + graph.bonds().len() > MAX_COMMANDS {
         return Err(fail(SmilesCode::CommandLimit));
     }
@@ -415,8 +443,8 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
             order: bond.order.clone(),
         })
         .collect();
-    let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
-    let mut losses = Vec::new();
+    let initial = render(&plans, &links, MAX_INPUT_BYTES)?;
+    let (rendered, mut losses) = recorded_stereo(graph, groups, &plans, &links, initial)?;
     let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
     let name = |ids: Vec<AtomId>| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
     losses.extend(aggregate(
@@ -461,6 +489,215 @@ fn recorded(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
         folded_hydrogens: Vec::new(),
         losses,
     })
+}
+
+/// Writes only configurations whose complete neighbour set is expressible by the reader.
+/// The emitted walk, including ring-label reuse and depth repair, decides the permutation.
+fn recorded_stereo(
+    graph: &MoleculeGraph,
+    groups: &StereoGroupTable,
+    plans: &[Plan],
+    links: &[Link],
+    initial: Rendered,
+) -> Result<(Rendered, Vec<Loss>), Fail> {
+    let index: HashMap<AtomId, usize> = plans
+        .iter()
+        .enumerate()
+        .map(|(i, plan)| (plan.id, i))
+        .collect();
+    let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
+    let mut turns = vec![None; plans.len()];
+    let mut retained = BTreeMap::new();
+    let mut losses = Vec::new();
+    for (key, state) in graph.stereo().iter() {
+        let supported = match (key, state) {
+            (
+                StereoKey::Center(atom),
+                StereoState::Center(center @ CenterState::Tetrahedral { .. }),
+            ) => index.get(&atom).and_then(|&at| {
+                if plans[at].aromatic {
+                    return None;
+                }
+                let neighbors = &initial.neighbors[at];
+                if !matches!((neighbors.len(), plans[at].hydrogens), (4, 0) | (3, 1)) {
+                    return None;
+                }
+                let orders: Vec<Option<u16>> = neighbors
+                    .iter()
+                    .map(|&other| {
+                        links
+                            .iter()
+                            .find(|link| {
+                                (link.begin == at && link.end == other)
+                                    || (link.end == at && link.begin == other)
+                            })
+                            .and_then(|link| chemistry::bond_order_value(&link.order))
+                    })
+                    .collect();
+                if stereo_drawing::fourth_position(atom, source[&atom], &orders).is_err() {
+                    return None;
+                }
+                let mut slots: Vec<Slot> = neighbors
+                    .iter()
+                    .map(|&other| Slot::Atom(plans[other].id))
+                    .collect();
+                if plans[at].hydrogens == 1 {
+                    slots.insert(usize::from(initial.preceded[at]), Slot::ImplicitHydrogen);
+                }
+                let slots: [Slot; 4] = slots.try_into().ok()?;
+                let turn = center.turn_for_order(slots).ok().flatten()?;
+                Some((at, atom, *center, turn))
+            }),
+            _ => None,
+        };
+        if let Some((at, atom, center, turn)) = supported {
+            turns[at] = Some(turn);
+            retained.insert(atom, center);
+        } else {
+            let path = match key {
+                StereoKey::Center(atom) => format!("atoms[{atom}]"),
+                StereoKey::DoubleBond(bond) => format!("bonds[{bond}]"),
+            };
+            losses.push(stereo_loss("stereo_configuration", path,
+                "This configuration is not a supported tetrahedral center; unknown, lone-pair and double-bond configurations are not written."));
+        }
+    }
+    let marked: Vec<String> = graph
+        .bonds()
+        .filter(|(_, bond)| bond.mark.is_some())
+        .map(|(id, _)| id.to_string())
+        .collect();
+    losses.extend(aggregate("stereo_marks", "bonds", &marked,
+        "Drawn wedge, hash, wavy and crossed marks are not written; only supported stored tetrahedral configurations are emitted.",
+        LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::Required));
+    if plans.len() + links.len() + retained.len() > MAX_COMMANDS {
+        return Err(fail(SmilesCode::CommandLimit));
+    }
+    let mut rendered = if retained.is_empty() {
+        initial
+    } else {
+        render_with_turns(plans, links, MAX_INPUT_BYTES, &turns)?
+    };
+    let position: HashMap<AtomId, usize> = rendered
+        .order
+        .iter()
+        .enumerate()
+        .map(|(at, &i)| (plans[i].id, at))
+        .collect();
+    let mut fields = Vec::new();
+    let mut emitted_groups = Vec::new();
+    let mut expected_groups = Vec::new();
+    let mut used_numbers: BTreeSet<(GroupKind, i32)> = groups
+        .iter()
+        .filter_map(|(_, group)| {
+            group
+                .interpreted_number()
+                .filter(|number| *number >= 0)
+                .map(|number| (group.kind(), number))
+        })
+        .collect();
+    for (id, group) in groups.iter() {
+        if group.members().is_empty()
+            || group
+                .members()
+                .iter()
+                .any(|atom| !retained.contains_key(atom))
+        {
+            losses.push(stereo_loss("stereo_group", format!("groups[{id}]"),
+                "The complete group cannot be written: every member must carry a supported tetrahedral mark."));
+            continue;
+        }
+        let mut members: Vec<usize> = group.members().iter().map(|atom| position[atom]).collect();
+        members.sort_unstable();
+        let number = group.interpreted_number().map(|number| {
+            if number >= 0 {
+                return number;
+            }
+            // There are at most MAX_COMMANDS groups, so an unused positive i32 exists.
+            let replacement = (1..=i32::MAX)
+                .find(|candidate| !used_numbers.contains(&(group.kind(), *candidate)))
+                .expect("bounded group count leaves an unused positive number");
+            used_numbers.insert((group.kind(), replacement));
+            replacement
+        });
+        let header = match group.kind() {
+            GroupKind::Absolute => "a".to_owned(),
+            GroupKind::And => format!("&{}", number.unwrap_or(0)),
+            GroupKind::Or => format!("o{}", number.unwrap_or(0)),
+        };
+        fields.push(format!(
+            "{header}:{}",
+            members
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+        expected_groups.push((group.kind(), number, members));
+        emitted_groups.push(id.to_string());
+        if group.kind() != GroupKind::Absolute && group.stored_number() != number {
+            losses.push(Loss {
+                consent: LossConsent::NotRequired,
+                feature: "stereo_group_number".into(),
+                source_path: format!("groups[{id}]"),
+                disposition: LossDisposition::Normalized,
+                reason: "An unstated number is written as 0; a negative number is replaced by an unused positive number while preserving the group and its members.".into(),
+                semantic_impact: SemanticImpact::Stereo,
+            });
+        }
+    }
+    losses.extend(aggregate(
+        "stereo_group_identity", "groups", &emitted_groups,
+        "Group identifiers are not stored in CXSMILES; a reader assigns its own identifiers while preserving the emitted kind, number and members.",
+        LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::NotRequired,
+    ));
+    if plans.len() + links.len() + retained.len() + fields.len() > MAX_COMMANDS {
+        return Err(fail(SmilesCode::CommandLimit));
+    }
+    if !fields.is_empty() {
+        rendered.text.push_str(&format!(" |{}|", fields.join(",")));
+    }
+    if rendered.text.len() > MAX_INPUT_BYTES {
+        return Err(fail(SmilesCode::OutputTooLong));
+    }
+    let parsed = reader::parse(&rendered.text).map_err(|error| {
+        fail(SmilesCode::ReadbackMismatch)
+            .because(format!("stereo readback: {}", error.code.as_str()))
+    })?;
+    let mut actual = BTreeMap::new();
+    for center in &parsed.read.stereo.centers {
+        let slots = center.slots.map(|slot| match slot {
+            SmilesSlot::Atom(at) => Slot::Atom(plans[rendered.order[at]].id),
+            SmilesSlot::ImplicitHydrogen => Slot::ImplicitHydrogen,
+        });
+        let state = CenterState::tetrahedral(slots, center.turn)
+            .map_err(|_| fail(SmilesCode::ReadbackMismatch))?;
+        actual.insert(plans[rendered.order[center.atom]].id, state);
+    }
+    let actual_groups: Vec<_> = parsed
+        .read
+        .stereo
+        .groups
+        .iter()
+        .map(|group| (group.kind, group.number, group.atoms.clone()))
+        .collect();
+    if actual != retained || actual_groups != expected_groups {
+        return Err(fail(SmilesCode::ReadbackMismatch)
+            .because("a tetrahedral configuration or enhanced group differs"));
+    }
+    rendered.parsed = parsed;
+    Ok((rendered, losses))
+}
+
+fn stereo_loss(feature: &str, source_path: String, reason: &str) -> Loss {
+    Loss {
+        consent: LossConsent::Required,
+        feature: feature.into(),
+        source_path,
+        disposition: LossDisposition::Dropped,
+        reason: reason.into(),
+        semantic_impact: SemanticImpact::Stereo,
+    }
 }
 
 /// Stated hydrogens written bare read back as inferred; with `report_inferred_as_stated`,
