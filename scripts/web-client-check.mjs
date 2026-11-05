@@ -5640,3 +5640,143 @@ test('an unknown cut followed by revision conflict becomes terminal reconciliati
   assert.equal(scripted.writes.length, 3)
   assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
 })
+
+function clipboardMolInput() {
+  return {
+    documentId: 'doc-1', revision: 2, format: 'mol', record: 1, digest: 'c'.repeat(64),
+    source: 'Clipboard MOL\r\n  Chemifree\r\n\r\n  0  0  0  0  0  0            999 V2000\r\nM  END\r\n',
+  }
+}
+
+function clipboardMolReply(scripted, snapshot, losses = []) {
+  const reply = nativeClipboardReply(scripted, 'document.import', snapshot, snapshot.document.revision)
+  reply.outcome = losses.length === 0 ? 'ok' : 'partial'
+  reply.loss_report = losses
+  return reply
+}
+
+test('clipboard MOL import freezes only its exact previewed record and explicit consent parameters', async () => {
+  const input = clipboardMolInput()
+  const initial = structuredClone(input)
+  input.offset = { x: 900, y: 900 }
+  input.selection_after = { objects: [], atoms: ['a99'], bonds: [] }
+  const snapshot = document('doc-1', 2)
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => json(200, clipboardMolReply(scripted, snapshot))] })
+  const attempt = new DocumentClient().createClipboardMolImport(input)
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_unconfirmed' })
+  input.source = 'different source'
+  input.digest = 'd'.repeat(64)
+  input.documentId = 'different-document'
+  input.revision = 99
+  const confirmed = await attempt.send()
+  assert.equal(confirmed.document.revision, 2, 'an empty MOL import may be an unchanged transaction')
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 3)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), Array(3).fill({
+    document_id: 'doc-1', expected_revision: 2, format: 'mol', source: initial.source,
+    record: 1, preview_digest: 'c'.repeat(64), accept_loss: true,
+  }), 'clipboard import adds neither native selection_after nor offset nor arbitrary input properties')
+})
+
+test('clipboard MOL import accepts a loss-accounted committed revision and shares concurrent checks', async () => {
+  const snapshot = document('doc-1', 3)
+  const losses = [{ feature: 'isotope_validation', source_path: 'atoms[1].isotope', disposition: 'unknown', semantic_impact: 'chemistry', reason: 'The isotope was retained without external validation.' }]
+  const scripted = service({ '/api/v1/operations': [() => json(200, clipboardMolReply(scripted, snapshot, losses))] })
+  const attempt = new DocumentClient().createClipboardMolImport(clipboardMolInput())
+  const first = attempt.send()
+  assert.equal(attempt.send(), first)
+  assert.equal((await first).document.revision, 3)
+  assert.equal(scripted.writes.length, 1)
+})
+
+test('clipboard MOL import retains structured loss-consent refusal without silently reaccepting it', async () => {
+  const scripted = service({ '/api/v1/operations': [() => json(200, {
+    ...nativeClipboardReply(scripted, 'document.import', null, 2), outcome: 'error',
+    diagnostics: [{ code: 'loss_consent_required', message: 'Inspect the changed losses.', details: {
+      losses: [{ feature: 'stereo', source_path: 'molecule', disposition: 'unknown', semantic_impact: 'stereo', reason: 'Not retained.' }],
+      features: ['stereo'], loss_digest: 'e'.repeat(64),
+    } }],
+  })] })
+  const attempt = new DocumentClient().createClipboardMolImport(clipboardMolInput())
+  const failure = await attempt.send().catch((error) => error)
+  assert.equal(failure instanceof ConsentRequired, true)
+  assert.equal(failure.digest, 'e'.repeat(64))
+  await assert.rejects(attempt.send(), { code: 'loss_consent_required' })
+  assert.equal(scripted.writes.length, 1)
+})
+
+for (const [name, change] of [
+  ['request ID', (reply) => { reply.request_id = 'another-attempt' }],
+  ['operation', (reply) => { reply.operation = 'document.transaction' }],
+  ['contract', (reply) => { reply.contract = 2 }],
+  ['profile', (reply) => { reply.profile = 'another-profile' }],
+  ['envelope revision', (reply) => { reply.document_revision = 99 }],
+  ['destination document', (reply) => { reply.result.document.id = 'another-document' }],
+  ['snapshot revision jump', (reply) => { reply.result.document.revision = 5; reply.document_revision = 5 }],
+  ['loss invariant', (reply) => { reply.outcome = 'partial'; reply.loss_report = [] }],
+]) {
+  test(`clipboard MOL import keeps malformed ${name} replies uncertain and checks the original import`, async () => {
+    const snapshot = document('doc-1', 3)
+    const scripted = service({ '/api/v1/operations': [
+      () => {
+        const malformed = structuredClone(clipboardMolReply(scripted, snapshot))
+        change(malformed)
+        return json(200, malformed)
+      },
+      () => json(200, clipboardMolReply(scripted, snapshot)),
+    ] })
+    const attempt = new DocumentClient().createClipboardMolImport(clipboardMolInput())
+    await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_unconfirmed' })
+    assert.equal((await attempt.send()).document.revision, 3)
+    assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+  })
+}
+
+test('clipboard MOL import never posts if another request replaced its prepared service before first send', async () => {
+  const scripted = service({ 'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1', 2))] })
+  const client = new DocumentClient()
+  await client.get('doc-1')
+  const attempt = client.createClipboardMolImport(clipboardMolInput())
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_restarted' })
+  assert.equal(scripted.writes.filter((write) => write.path.endsWith('/operations')).length, 0)
+})
+
+test('a sent clipboard MOL import never auto retries in a restarted service', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, lost] })
+  const client = new DocumentClient()
+  const attempt = client.createClipboardMolImport(clipboardMolInput())
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_unconfirmed' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_restarted' })
+  assert.deepEqual(scripted.writes.filter((write) => write.path.endsWith('/operations')).map((write) => write.token), ['token-1', 'token-1'])
+})
+
+test('clipboard MOL import polls in-progress with the same request ID and terminal conflict requires reread', async () => {
+  const scripted = service({ '/api/v1/operations': [
+    () => error(409, 'request_in_progress'),
+    () => error(409, 'revision_conflict'),
+  ] })
+  const attempt = new DocumentClient().createClipboardMolImport(clipboardMolInput())
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_reconcile' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_mol_import_reconcile' })
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('clipboard MOL import enforces first MOL record, preview digest and UTF-8 intake cap before posting', () => {
+  let writes = 0
+  globalThis.fetch = async () => { writes += 1; throw new Error('No request expected.') }
+  const client = new DocumentClient()
+  const input = clipboardMolInput()
+  assert.throws(() => client.createClipboardMolImport({ ...input, format: 'sdf' }), { code: 'invalid_request' })
+  assert.throws(() => client.createClipboardMolImport({ ...input, record: 2 }), { code: 'invalid_request' })
+  assert.throws(() => client.createClipboardMolImport({ ...input, digest: 'not-a-digest' }), { code: 'invalid_request' })
+  assert.throws(() => client.createClipboardMolImport({ ...input, source: '한'.repeat(70 * 1024) }), { code: 'invalid_request' })
+  client.createClipboardMolImport({ ...input, source: 'x'.repeat(200 * 1024) })
+  assert.equal(writes, 0)
+})
