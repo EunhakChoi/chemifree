@@ -136,6 +136,47 @@ The editor projection (`document.import`, modes `preview` and `create`) reads bo
 
 *Verification.* `crates/application/tests/cdxml_stereo_import.rs` draws the 23 shared corpus drawings (`tests/data/stereo-fixtures.json`) as CDXML and checks each stored configuration against the hand-stated expectation, then the display values, the consent-loss shapes, the hints, the groups (`Or` 1 against `And` 1, omitted, 0, 127, 128, 258, negative and `i32::MAX` numbers) and the refusals; unit tests in `interchange_projection/stereo.rs` pin the CDX byte reads. `scripts/verify-cdxml-rdkit.py` (hand-run, not part of `npm run check`) reads the same CDXML with its own small parser, builds a molfile and compares the canonical isomeric SMILES with RDKit; the conformance cases `cdxml-stereo-import-marks` and `cdxml-stereo-import-refusals` run the operations. Not claimed: any CIP, validation or equivalence with another program's CDXML reader, E/Z from coordinates, `DoublePosition`, `Display2` in binary CDX, query atoms.
 
+### Stereo interchange evidence (P29g)
+
+This table describes the bounded profiles, not full-format compatibility. Drawing and
+configuration retention are separate from group-indicator visibility. CDXML/CDX group
+export deliberately writes node `ShowAtomEnhancedStereo=yes` / `0x0445=true` because
+the drawing stores no visibility preference: one `enhanced_stereo_display` loss
+(`normalized`, `rendering`, no consent) reports that choice whenever groups are emitted.
+No flag or visibility-normalization loss is emitted when no group is written; the
+configuration/group corpus comparisons exclude this display setting.
+
+| Profile | Supported stereo | Normalization | Consent or refusal | Evidence |
+| --- | --- | --- | --- | --- |
+| CDXML drawing export/import | Wedge/hash narrow ends, wavy/crossed marks, bounded drawing-derived configurations, complete supported absolute/and/or groups | Numbers outside 1–127 to distinct free positive numbers per kind; visibility explicitly shown | Consent for mismatched/stored-only configurations, stored double-bond statements, omitted whole groups and originally ungrouped-center uncertainty; unsupported selected chemistry refused | [Operation checks](../crates/application/tests/cdxml_stereo_export.rs), [corpus](../crates/application/tests/stereo_codec_corpus.rs), [roundtrip case](../conformance/cases/cdxml-drawing-export-stereo-groups-round-trip.json) |
+| CDX drawing export/import | Same bounded semantics, binary typed carriers | Same number/visibility policy; fixed-point coordinate rounding | Same stereo consent; precision consent; invalid/out-of-range or unsupported content refused; unknown extensions retain opaque policy | [Carrier checks](../crates/providers/tests/stereo_carrier_typing.rs), [corpus](../crates/application/tests/stereo_codec_corpus.rs), [roundtrip case](../conformance/cases/cdx-drawing-export-stereo-groups-round-trip.json) |
+| Recorded SMILES / CXSMILES | Supported tetrahedral `@`/`@@` in actual emitted neighbor order, complete supported groups; readback verified | Hydrogen representation; unstated group number as 0 and negative numbers to free positive numbers | Unwritten marks/configurations/groups need consent. Directional `/` and `\` input remains `directional_bond_unsupported` (named deferred slice **P29c2**); lone-pair fourth-position marks are refused as `stereo_center_unsupported_here`; stored lone-pair configurations cannot be written and require loss consent | [Reader checks](../crates/providers/tests/smiles_stereo.rs), [writer checks](../crates/providers/tests/smiles_stereo_writer.rs) |
+| Canonical SMILES | Stereo-insensitive bounded chemical graph | Existing canonical graph normalization | Consent for omitted stereo; no claim of stereo-canonical text or another toolkit's canonical form | [Writer checks](../crates/providers/tests/smiles_writer.rs), [application checks](../crates/application/tests/smiles_stereo_import.rs) |
+| MOL/SDF V2000 | Supported marks and configurations derived from the written depiction; no enhanced groups | Narrow endpoint first, four-decimal coordinates | Consent for omitted groups and configurations not carried by the output; unsupported CTAB fields refused | [MOL stereo checks](../crates/application/tests/stereo_read.rs), [V3000 wire checks including V2000](../crates/application/tests/ctfile_v3000_wire.rs) |
+| MOL/SDF V3000 | Supported marks/configurations and absolute/and/or collections | Signed int32 group numbers retained; explicit chiral-flag rule | Undrawn group member refuses export; originally ungrouped centers and uncarried stored configurations need consent; advanced CTAB fields refused | [Collection checks](../crates/application/tests/ctfile_v3000_groups.rs), [provider checks](../crates/providers/tests/ctfile_v3000.rs) |
+
+The conformance suite is version 25 with **99/99 passed** (74 accept, 25 reject),
+including [CDXML/CDX exact loss consent](../conformance/cases/cdxml-cdx-drawing-export-stereo-loss-consent.json).
+The two [codec corpus tests](../crates/application/tests/stereo_codec_corpus.rs) passed:
+23 existing independently checked drawings × 2 source codecs × 2 output codecs = 92
+roundtrip paths, plus four hand-declared partitions on the public two-center drawing
+× 4 codec paths = 16 group paths. Graph, configuration, group partition and drawn marks
+are compared separately. The original 23-drawing corpus is unchanged; those four
+partitions are explicit added test statements, not recovered legacy group data. These
+counts do not establish arbitrary chemistry, external reader compatibility or visibility retention.
+
+Separate no-network checks with RDKit 2022.03.2 passed: the [drawing comparison](../scripts/verify-stereo-rdkit.py)
+checked 23 fixtures with 0 problems; the [SMILES stereo comparison](../scripts/verify-smiles-stereo-rdkit.py)
+checked 24 fixtures with 0 failures; the [V3000 comparison](../scripts/verify-v3000-rdkit.py)
+agreed for its supported core, marks and group partitions. RDKit skips the unrecognized
+`STERAC-128` collection, so that negative number is **not** independently verified by
+that comparison. RDKit did not independently parse the CDXML/CDX outputs. These manual
+comparisons are separate from conformance and do not change the format profiles.
+P29 is `done` for this documented bounded profile: P29f npm run check, browser smoke
+and both required reviews completed. P29c2 directional bonds remain an unimplemented
+follow-up under the open P21 roadmap row; SMILES lone-pair centers, other stereo classes/CX
+fields, stereo canonical output and general stereo/format compatibility remain unsupported.
+
 ## Valence inspection
 
 `chem.validate` uses the independent, bounded policy `chemifree-valence-3`. The snapshot and its atom assessments are captured under one session lock. Each assessment names the local atom ID, the sum of drawn integral covalent bond orders (or null), additional non-vertex hydrogens (or null), `valid`, `invalid`, or `unsupported`, and a nullable reason. Every non-valid atom also has a `valence_diagnostic` warning. An isotope does not alter valence; a drawn hydrogen is a vertex and its bond contributes to the sum. Stated non-vertex hydrogen counts are preserved. An unsupported state is reported, never converted to a guessed bond or hydrogen count. The operation neither edits the document nor changes selection, history, or revision. Its request ID does not freeze a read: a repeated request inspects the then-current working copy.
@@ -989,7 +1030,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
 
 - **Web editor, CDXML and CDX drawing export** (client policy, P29f; the bounded service profile remains P29e). The **CDXML and CDX export** panel offers `Preview CDXML export` and `Preview CDX export` for the current drawing. A preview prepares a file and lists losses; it does not modify the drawing or add stereo marks. Required losses appear in a separate offer, with an explicit `Accept these losses and preview CDXML` or `CDX` action; until acceptance succeeds there is no download button. Informational losses need no acceptance. A changed digest clears the prepared file and asks for a fresh review; an offer with no valid digest cannot be accepted. Headings distinguish an omitted group from an omitted native group ID and from uncertain interpretation of originally ungrouped stored centers; they do not assert that every format loses every group, that an omitted group survived, or that a group has a mixture ratio.
 
-  Preparation, loss offers, retries and download are bound to the complete displayed conversion snapshot and the current service generation. Matching document ID and revision alone is insufficient. An edit, opening another drawing, a new format preview, or a noticed restart invalidates the earlier result. The download action sends another export request with the same format and accepted digest and requires the same snapshot, content and losses before downloading; a delayed pre-edit reply cannot authorize a download. CDXML becomes a UTF-8 Blob, while canonical base64 CDX is decoded into binary bytes before the Blob is built; files are named `chemifree.cdxml` and `chemifree.cdx`. A service restart needs a fresh preview, without silently retrying prior acceptance against the new process. The panel retains the service's limits: first placement only, groups only when every written depiction derives its stored member, no invented wedges or CIP/geometry metadata, and explicit losses/refusals for unsupported content. Full scene export, double-bond E/Z derivation and general interoperability remain outside this UI. P29 remains `in_progress` pending P29g; the presence of these controls is not a validation-complete or release-complete claim.
+  Preparation, loss offers, retries and download are bound to the complete displayed conversion snapshot and the current service generation. Matching document ID and revision alone is insufficient. An edit, opening another drawing, a new format preview, or a noticed restart invalidates the earlier result. The download action sends another export request with the same format and accepted digest and requires the same snapshot, content and losses before downloading; a delayed pre-edit reply cannot authorize a download. CDXML becomes a UTF-8 Blob, while canonical base64 CDX is decoded into binary bytes before the Blob is built; files are named `chemifree.cdxml` and `chemifree.cdx`. A service restart needs a fresh preview, without silently retrying prior acceptance against the new process. The panel retains the service's limits: first placement only, groups only when every written depiction derives its stored member, no invented wedges or CIP/geometry metadata, and explicit losses/refusals for unsupported content. Full scene export, double-bond E/Z derivation and general interoperability remain outside this UI. P29g records completion of the documented bounded profile with P29f checks and reviews complete; these controls do not establish full format compatibility or release completion.
 
 ## Consistency, idempotency, and saving
 

@@ -521,7 +521,7 @@
         },
         {
           "id": "CODEC-01.cdxml-stereo-read",
-          "summary": "CDXML stereo import (P29b), from what the public sources confirm: bond Display values (wedge and hashed wedge with the narrow end at B for ...Begin and at E for ...End, wavy; Solid plain; Bold, Dash, Dot and DashDot as plain bonds with a no-consent note; Wavy on a double bond the crossed mark; Hash, HollowWedge*, WavyWedge* and any mark on a non-single bond or in Display2 imported plain with a consent-required stereo_mark_unplaceable loss; any other value refused), the atom Geometry, BondOrdering and AS hints noted and never stored, configurations derived from the marks and positions as the MOL import does (a center that does not derive keeps its mark and reports stereo_unreadable), and EnhancedStereoType with EnhancedStereoGroupNum (any 32-bit integer, omitted as 0, Or 1 and And 1 separate, Or 2 and Or 258 two groups) mapped to P27 groups in the same transaction, a member that is no derived tetrahedral center refusing the file. Double-bond E/Z is not derived, CIP labels are never stored, DoublePosition and a bond CIP attribute stay refused, The P29e bounded drawing export writes confirmed marks and enhanced groups with per-loss digest consent; no marks or CIP labels are synthesized. P29f exposes the same bounded drawing export in the web panel: explicit digest consent before download, complete snapshot/format/service-generation freshness, download revalidation and decoded binary CDX; codec semantics are unchanged.",
+          "summary": "CDXML stereo import (P29b), from what the public sources confirm: bond Display values (wedge and hashed wedge with the narrow end at B for ...Begin and at E for ...End, wavy; Solid plain; Bold, Dash, Dot and DashDot as plain bonds with a no-consent note; Wavy on a double bond the crossed mark; Hash, HollowWedge*, WavyWedge* and any mark on a non-single bond or in Display2 imported plain with a consent-required stereo_mark_unplaceable loss; any other value refused), the atom Geometry, BondOrdering and AS hints noted and never stored, configurations derived from the marks and positions as the MOL import does (a center that does not derive keeps its mark and reports stereo_unreadable), and EnhancedStereoType with EnhancedStereoGroupNum (any 32-bit integer, omitted as 0, Or 1 and And 1 separate, Or 2 and Or 258 two groups) mapped to P27 groups in the same transaction, a member that is no derived tetrahedral center refusing the file. Double-bond E/Z is not derived, CIP labels are never stored, DoublePosition and a bond CIP attribute stay refused, The P29e bounded drawing export writes confirmed marks and enhanced groups with per-loss digest consent; no marks or CIP labels are synthesized. P29f exposes the same bounded drawing export in the web panel: explicit digest consent before download, complete snapshot/format/service-generation freshness, download revalidation and decoded binary CDX; codec semantics are unchanged. P29g adds named normalization/roundtrip and exact-consent conformance cases plus separate graph/configuration/partition/mark corpus checks; group-indicator visibility is explicit normalized output (0445), never claimed retained.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/interchange_projection.rs",
@@ -540,7 +540,9 @@
             "case:cdxml-stereo-import-refusals",
             "check:check:rust",
             "check:test:contracts",
-            "check:test:client"
+            "check:test:client",
+            "case:cdxml-drawing-export-stereo-groups-round-trip",
+            "case:cdxml-cdx-drawing-export-stereo-loss-consent"
           ],
           "followups": []
         },
@@ -553,7 +555,6 @@
           "evidence": [],
           "followups": [
             "P22",
-            "P29",
             "P48",
             "P80"
           ]
@@ -590,7 +591,7 @@
         },
         {
           "id": "CODEC-02.cdx-stereo-atoms",
-          "summary": "CDX stereo import (P29b): atom tags and the bond Display 0601 (INT16 0 to 14, one table with CDXML). Geometry 0430 (one byte, 7 tetrahedral), BondOrdering 0431 (32-bit entries, no count), CIP 0437 (INT8 0 to 6, a hint never stored), EnhancedStereoType 0446 (one byte) and EnhancedStereoGroupNum 0447 (two bytes little-endian read as unsigned 16-bit, so 128 and 258 stay as written) are read through the same projection as CDXML. The tags of Display2 and DoublePosition and of the atom label are not in the public sources used, so a bond that carries them is refused as before; an atom with an enhanced stereo type in a fragment with no readable mark has nothing to derive a center from, so the file is refused rather than guessed. P29e adds bounded drawing export of marks and groups whose output drawing derives every stored member; unknown carriers retain strict opaque preservation. P29f exposes the same bounded drawing export in the web panel: explicit digest consent before download, complete snapshot/format/service-generation freshness, download revalidation and decoded binary CDX; codec semantics are unchanged.",
+          "summary": "CDX stereo import (P29b): atom tags and the bond Display 0601 (INT16 0 to 14, one table with CDXML). Geometry 0430 (one byte, 7 tetrahedral), BondOrdering 0431 (32-bit entries, no count), CIP 0437 (INT8 0 to 6, a hint never stored), EnhancedStereoType 0446 (one byte) and EnhancedStereoGroupNum 0447 (two bytes little-endian read as unsigned 16-bit, so 128 and 258 stay as written) are read through the same projection as CDXML. The tags of Display2 and DoublePosition and of the atom label are not in the public sources used, so a bond that carries them is refused as before; an atom with an enhanced stereo type in a fragment with no readable mark has nothing to derive a center from, so the file is refused rather than guessed. P29e adds bounded drawing export of marks and groups whose output drawing derives every stored member; unknown carriers retain strict opaque preservation. P29f exposes the same bounded drawing export in the web panel: explicit digest consent before download, complete snapshot/format/service-generation freshness, download revalidation and decoded binary CDX; codec semantics are unchanged. P29g adds named normalization/roundtrip and exact-consent conformance cases plus separate graph/configuration/partition/mark corpus checks; group-indicator visibility is explicit normalized output (0445), never claimed retained.",
           "status": "partial",
           "implementation": [
             "crates/application/src/interchange_projection.rs",
@@ -607,10 +608,12 @@
           ],
           "evidence": [
             "check:check:rust",
-            "check:test:client"
+            "check:test:client",
+            "case:cdx-drawing-export-stereo-groups-round-trip",
+            "case:cdxml-cdx-drawing-export-stereo-loss-consent"
           ],
           "followups": [
-            "P29"
+            "P23"
           ]
         },
         {
@@ -621,7 +624,7 @@
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P29",
+            "P23",
             "P48",
             "P80"
           ]
@@ -735,7 +738,6 @@
             "P20",
             "P24",
             "P28",
-            "P29",
             "P48",
             "P68",
             "P78"
@@ -833,7 +835,7 @@
         },
         {
           "id": "CODEC-05.rest",
-          "summary": "Unsupported stereo writing, the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open.",
+          "summary": "Unsupported stereo writing, the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading/writing is the explicitly deferred P29c2 scope; lone-pair fourth-position SMILES marks remain refused.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -841,7 +843,6 @@
           "followups": [
             "P18",
             "P21",
-            "P29",
             "P30",
             "P48",
             "P56"
@@ -1284,7 +1285,7 @@
         },
         {
           "id": "STEREO-01.cdxml-groups-read",
-          "summary": "Enhanced stereo groups are read from CDXML (and from the CDX atom tags, for atoms whose marks are available): same kind and number is one group, Or 1 and And 1 stay separate, an omitted number is read as 0 and joins a stated 0, Absolute carries no number, negative and large numbers stay as stated, CDX group numbers are unsigned 16-bit; a member that is not a derived tetrahedral center refuses the file and nothing is created. P29e drawing export writes a group only when all members derive from the written drawing, otherwise reports the whole omitted group for consent; output numbers outside 1–127 are normalized per kind without merging, and native IDs have informational losses. The CXSMILES groups are STEREO-01.cxsmiles-groups-read.",
+          "summary": "Enhanced stereo groups are read from CDXML (and from the CDX atom tags, for atoms whose marks are available): same kind and number is one group, Or 1 and And 1 stay separate, an omitted number is read as 0 and joins a stated 0, Absolute carries no number, negative and large numbers stay as stated, CDX group numbers are unsigned 16-bit; a member that is not a derived tetrahedral center refuses the file and nothing is created. P29e drawing export writes a group only when all members derive from the written drawing, otherwise reports the whole omitted group for consent; output numbers outside 1–127 are normalized per kind without merging, and native IDs have informational losses. The CXSMILES groups are STEREO-01.cxsmiles-groups-read. P29g adds named normalization/roundtrip and exact-consent conformance cases plus separate graph/configuration/partition/mark corpus checks; group-indicator visibility is explicit normalized output (0445), never claimed retained.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/interchange_projection.rs",
@@ -1296,7 +1297,10 @@
           "evidence": [
             "case:cdxml-stereo-import-marks",
             "case:cdxml-stereo-import-refusals",
-            "check:check:rust"
+            "check:check:rust",
+            "case:cdxml-drawing-export-stereo-groups-round-trip",
+            "case:cdx-drawing-export-stereo-groups-round-trip",
+            "case:cdxml-cdx-drawing-export-stereo-loss-consent"
           ],
           "followups": []
         },
@@ -1341,8 +1345,7 @@
           "evidence": [],
           "followups": [
             "P27",
-            "P28",
-            "P29"
+            "P28"
           ]
         }
       ]

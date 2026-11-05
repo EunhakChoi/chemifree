@@ -1,5 +1,5 @@
 {
-  "suite_version": 24,
+  "suite_version": 25,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -96,6 +96,9 @@
     "cases/stereo-group-smiles-export-needs-consent.json",
     "cases/stereo-group-unrelated-edits-keep-groups.json",
     "cases/smiles-stereo-read-configuration-and-groups.json",
-    "cases/smiles-stereo-read-refusals-change-nothing.json"
+    "cases/smiles-stereo-read-refusals-change-nothing.json",
+    "cases/cdxml-drawing-export-stereo-groups-round-trip.json",
+    "cases/cdx-drawing-export-stereo-groups-round-trip.json",
+    "cases/cdxml-cdx-drawing-export-stereo-loss-consent.json"
   ]
 }
