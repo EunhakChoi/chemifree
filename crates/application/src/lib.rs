@@ -3,6 +3,7 @@
 mod active_data;
 mod active_registry;
 pub mod cip;
+mod clipboard;
 mod contract;
 mod ct_projection;
 pub mod ctfile;
@@ -112,7 +113,8 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, ArrangementAxis, ArrangementBounds,
     ArrangementPlanResult, ArrangementTranslationView, ArrangementUnitView, AtomDrawnView,
     AtomInspection, AtomLabel, AtomPair, BondDrawnView, BondInspection, BondLabel, BondPair,
-    CIP_REASONS, CipResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
+    CIP_REASONS, CipResult, ClipboardCopyResult, ClipboardIdMapping, ClipboardMapping,
+    ClipboardPasteResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
     EndLabel, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityStereo,
     IdentityView, InchiResult, InterchangeExportResult, InterchangeMapping,
     InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,

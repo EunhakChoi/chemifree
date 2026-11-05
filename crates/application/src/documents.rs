@@ -64,6 +64,12 @@ enum Mutation {
     ImportCtfile {
         fingerprint: String,
     },
+    ClipboardPaste {
+        expected_revision: u64,
+        payload: String,
+        offset: crate::contract::PointDto,
+        selection_before: Option<crate::contract::SelectionDto>,
+    },
     AromaticityConversion {
         expected_revision: u64,
         conversion: AromaticityConversion,
@@ -1072,6 +1078,86 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_reporting(&domain_commands, &domain_selection);
             edit_notes(&session.document, result)
         })
+    }
+
+    /// Native copy captures its source graph and snapshot under one lock.
+    pub(crate) fn clipboard_copy(
+        &self,
+        id: &str,
+        selection: &Selection,
+        instance: ObjectId,
+    ) -> Result<
+        (
+            DocumentResponse,
+            chemifree_domain::clipboard::CopiedFragment,
+        ),
+        ApplicationError,
+    > {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let copied =
+            chemifree_domain::clipboard::copy_fragment(&session.document, selection, instance)
+                .map_err(|error| ApplicationError {
+                    current_revision: Some(session.document.revision()),
+                    ..crate::clipboard::domain_refusal(error)
+                })?;
+        Ok((self.respond(session), copied))
+    }
+
+    /// Validate and apply the complete native fragment within the ordinary mutation/replay gate.
+    pub(crate) fn clipboard_paste(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        request: crate::clipboard::Paste<'_>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let selection = contract::to_selection(&TransactionSelections {
+            before: request.selection_before.clone(),
+            after: None,
+        })?;
+        let mutation = Mutation::ClipboardPaste {
+            expected_revision: request.expected_revision,
+            payload: request.payload.into(),
+            offset: request.offset,
+            selection_before: request.selection_before,
+        };
+        self.mutate(
+            id,
+            request_id,
+            request.expected_revision,
+            mutation,
+            |session| {
+                let plan = request
+                    .fragment
+                    .paste_commands(
+                        &session.document,
+                        chemifree_domain::document::Vector {
+                            dx: request.offset.x,
+                            dy: request.offset.y,
+                        },
+                    )
+                    .map_err(|error| ApplicationError {
+                        current_revision: Some(session.document.revision()),
+                        ..crate::clipboard::domain_refusal(error)
+                    })?;
+                if plan.selection.atoms.len() != request.fragment.atoms.len()
+                    || plan.selection.bonds.len() != request.fragment.bonds.len()
+                {
+                    return Err(crate::clipboard::refusal(
+                        "clipboard_mapping_invalid",
+                        "Paste plan does not identify the complete new fragment",
+                    ));
+                }
+                let result = session.document.apply_reporting(
+                    &plan.commands,
+                    &TransactionSelection {
+                        before: selection.before,
+                        after: Some(plan.selection),
+                    },
+                );
+                edit_notes(&session.document, result)
+            },
+        )
     }
 
     /// Check a previously completed import before looking at the document's current revision.

@@ -400,7 +400,7 @@ fn the_catalog_says_exactly_which_operations_run() {
     let id = created(&app);
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
-    assert_eq!(operations.len(), 31);
+    assert_eq!(operations.len(), 33);
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
@@ -479,6 +479,8 @@ fn the_catalog_says_exactly_which_operations_run() {
             "document.selection_scope",
             "document.arrangement_plan",
             "document.transform_plan",
+            "document.clipboard_copy",
+            "document.clipboard_paste",
             "document.transaction",
             "history.undo",
             "history.redo",

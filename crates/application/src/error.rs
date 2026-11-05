@@ -131,6 +131,8 @@ pub struct ApplicationError {
     pub invalid_stereo_group: Option<&'static str>,
     /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
     pub invalid_aromaticity: Option<&'static str>,
+    /// A bounded native clipboard refusal.
+    pub invalid_clipboard: Option<&'static str>,
     /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
     pub limit_ms: Option<u64>,
 }
@@ -150,6 +152,7 @@ impl ApplicationError {
             invalid_derivation: None,
             invalid_stereo_group: None,
             invalid_aromaticity: None,
+            invalid_clipboard: None,
             limit_ms: None,
         }
     }
@@ -184,6 +187,7 @@ impl ApplicationError {
             .or(self.invalid_derivation.map(NotDerivable::code))
             .or(self.invalid_stereo_group)
             .or(self.invalid_aromaticity)
+            .or(self.invalid_clipboard)
     }
 }
 
