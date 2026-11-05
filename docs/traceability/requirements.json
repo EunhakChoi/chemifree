@@ -1095,7 +1095,7 @@
         },
         {
           "id": "OPS-01.native-clipboard",
-          "summary": "P33a bounded backend native graph clipboard: explicit source placement, selected atoms/bond endpoints and induced internal bonds, crossing-bond report, exact recorded states/marks and self-contained 0D stereo; refuse scene selections, selected enhanced groups and stereo boundaries. Strict versioned data-only JSON with required native fields and 64 KiB limit; paste fresh mapped IDs atomically into one matching-style destination placement with replay and selection-aware Undo/Redo. Targeted domain10/application10/operations11 and scoped clippy passed; new conformance cases are authored but not yet execution evidence. No operating-system/browser clipboard, cut, scene-tree/reference clone or external formats; P33 stays in progress.",
+          "summary": "P33a bounded backend native graph clipboard: explicit source placement, selected atoms/bond endpoints and induced internal bonds, crossing-bond report, exact recorded states/marks and self-contained 0D stereo; refuse scene selections, selected enhanced groups and stereo boundaries. Strict versioned data-only JSON with required native fields and 64 KiB limit; paste fresh mapped IDs atomically into one matching-style destination placement with replay and selection-aware Undo/Redo. Targeted domain10/application10/operations11 and scoped clippy passed; clean isolated conformance suite29 passed 107/107 (accept78/reject29, failed0/not_run0), including both native clipboard cases. Full check/browser/CI completion is not claimed. No operating-system/browser clipboard, cut, scene-tree/reference clone or external formats; P33 stays in progress.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/clipboard.rs",
@@ -1104,7 +1104,9 @@
             "crates/application/src/documents.rs"
           ],
           "evidence": [
-            "check:check:rust"
+            "check:check:rust",
+            "case:native-clipboard-copy-paste-history",
+            "case:native-clipboard-refusals-atomic"
           ],
           "followups": []
         },

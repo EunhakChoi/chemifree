@@ -58,7 +58,7 @@
 - 카탈로그는 연산 33개(기본 실행 23개)다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
 - P33은 `in_progress`다. OS/browser clipboard transport·웹 copy/paste 제어·cut·scene hierarchy 복사·외부 clipboard 형식은 미구현이며, 이번 backend 부분을 전체 clipboard 완료로 보고하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
 
-- suite29에 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례를 추가했다. 작성만 했으며 실행하지 않았다. 현재 커밋된 conformance report는 suite28/105개 기록이므로 최종 검증에서 실제 실행·record 갱신과 집계 동기화가 필요하다.
+- clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
 
 ## 프로젝트와 현재 기준
 
@@ -227,7 +227,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 105개(implemented 55, partial 12, unverified 5, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 105개(implemented 55, partial 12, unverified 5, not_implemented 33) · conformance 사례 107개(passed 107: accept 78·reject 29, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
