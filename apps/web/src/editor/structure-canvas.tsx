@@ -754,7 +754,7 @@ function SceneGraphic({ object, selected, lineWidth, unitsPerPixel, onPointerDow
   const uy = length > 0 ? (b.y - a.y) / length : 0
   const head = `${b.x},${b.y} ${b.x - ux * 6 - uy * 3},${b.y - uy * 6 + ux * 3} ${b.x - ux * 6 + uy * 3},${b.y - uy * 6 - ux * 3}`
   const rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
-  const underlay = graphicUnderlay(lineWidth)
+  const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
   return (
     <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
       {object.shape === 'rectangle' ? (

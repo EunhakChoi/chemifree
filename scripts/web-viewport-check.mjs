@@ -8,7 +8,7 @@ const {
   MIN_SCALE, MAX_SCALE, clampScale, fitViewport, panViewport, zoomViewport,
   clientToWorld, worldToClient, svgViewBox,
 } = await import('../apps/web/src/editor/viewport.ts')
-const { hitTest, atomIndex, bondUnderlay, bondStrokes } = await import('../apps/web/src/editor/geometry.ts')
+const { hitTest, atomIndex, bondUnderlay, bondStrokes, graphicUnderlay } = await import('../apps/web/src/editor/geometry.ts')
 const { DEFAULT_SETTINGS } = await import('../apps/web/src/lib/document-contract.ts')
 
 const size = { width: 800, height: 400 }
@@ -18,6 +18,20 @@ function closePoint(actual, expected) {
   assert.ok(Math.abs(actual.x - expected.x) < 1e-9, `x: ${actual.x} != ${expected.x}`)
   assert.ok(Math.abs(actual.y - expected.y) < 1e-9, `y: ${actual.y} != ${expected.y}`)
 }
+
+for (const [scale, thin, wide] of [[0.25, 32, 32], [1, 8, 10], [32, 1.3875, 4.1875]]) {
+  test(`graphic outlines and arrowheads retain a visible screen halo at scale ${scale}`, () => {
+    assert.equal(graphicUnderlay(1.2, 1 / scale), thin)
+    assert.equal(graphicUnderlay(4, 1 / scale), wide)
+    assert.ok((thin - 1.2) * scale >= 6, 'The selected outline extends at least 3 CSS pixels beyond each side of the ink.')
+    assert.ok((wide - 4) * scale >= 6, 'A wide foreground cannot hide its selected outline.')
+  })
+}
+
+test('graphic selection keeps the established 1x appearance for callers without a viewport', () => {
+  assert.equal(graphicUnderlay(1.2), 8)
+  assert.equal(graphicUnderlay(4), 10)
+})
 
 for (const [scale, singleWidth, tripleWidth] of [
   [0.25, 32, 32],
