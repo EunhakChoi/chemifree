@@ -23,7 +23,7 @@ P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투�
 
 P29c는 SMILES·CXSMILES 입체 읽기만 더한다: CODEC-05.smiles-stereo-read(`@`·`@@`를 표 없는 저장 배치로, 거절은 코드·계열·span과 함께), STEREO-01.cxsmiles-groups-read(`a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로, 문법 근거는 공개 RDKit Book 예시뿐이고 기능 명세에는 CXSMILES가 없다). 증거는 적합성 사례 두 개와 `cargo test`이며 RDKit 대조(`scripts/verify-smiles-stereo-rdkit.py`)는 수동이라 근거로 세지 않는다. 이중결합 방향 `/`·`\` 읽기와 쓰기 및 남은 입체 형식은 CODEC-05.rest·STEREO-01.rest에 남는다.
 
-P29e는 기존 CODEC-01·CODEC-02·STEREO-01 부분의 범위에 제한된 CDXML/CDX 도면 내보내기를 더한다. 확인된 typed carrier 네 개와 엄격한 opaque 보존, 첫 배치의 표시·실제 출력 위치에서 유도하는 그룹, 1–127 번호 정규화와 손실 동의를 검사한다. 검증은 export 연산 7개, import 연산 34개, carrier 제공자 5개, application 단위 25개다. 추적 근거는 기존 `check:check:rust`이며 이 개수 자체를 새 적합성 사례로 세지 않는다. P29는 `in_progress`이고 방향 결합 SMILES와 전체 형식 호환은 미완료다.
+P29e는 기존 CODEC-01·CODEC-02·STEREO-01 부분의 범위에 제한된 CDXML/CDX 도면 내보내기를 더한다. 확인된 typed carrier 네 개와 엄격한 opaque 보존, 첫 배치의 표시·실제 출력 위치에서 유도하는 그룹, 1–127 번호 정규화와 손실 동의를 검사한다. 도면이 향상 입체 표시 가시성을 저장하지 않으므로 출력 그룹 구성원의 `0445=true`는 보존이 아니라 명시적 선택이며, 그룹을 쓸 때 한 번의 `enhanced_stereo_display`(`normalized`·`rendering`, 동의 불필요)로 보고한다. 배치·그룹 왕복 검사는 이 가시성 설정을 포함하지 않는다. 검증은 export 연산 7개, import 연산 34개, carrier 제공자 5개, application 단위 25개다. 추적 근거는 기존 `check:check:rust`이며 이 개수 자체를 새 적합성 사례로 세지 않는다. P29는 `in_progress`이고 방향 결합 SMILES와 전체 형식 호환은 미완료다.
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 95개(implemented 48, partial 12, unverified 2, not_implemented 33) · conformance 사례 96개(passed 96: accept 72·reject 24, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 

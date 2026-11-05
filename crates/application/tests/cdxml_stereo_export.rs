@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chemifree_application::{Application, transport_base64};
+use chemifree_domain::interchange::{Content, PropertyKind, PropertyValue};
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
@@ -194,11 +195,34 @@ fn grouped_configurations_roundtrip_without_invented_cip_or_geometry_carriers() 
         let written = export(&app, original["id"].as_str().unwrap(), format, None);
         // Returning content without accepted_losses proves these notes need no consent.
         assert_eq!(written["outcome"], "partial", "{written}");
+        let display: Vec<_> = written["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|loss| loss["feature"] == "enhanced_stereo_display")
+            .collect();
+        assert_eq!(
+            display,
+            vec![&json!({
+                "feature": "enhanced_stereo_display",
+                "source_path": "document.stereo.groups",
+                "disposition": "normalized",
+                "reason": "The drawing stores no enhanced-stereo indicator visibility setting. This export explicitly shows indicators for written stereo groups.",
+                "semantic_impact": "rendering"
+            })],
+            "{format}: indicator visibility is chosen and reported once without consent"
+        );
         assert_eq!(
             loss(&written, "stereo_group_identity")["disposition"],
             "dropped"
         );
         if format == "cdxml" {
+            assert_eq!(
+                content(&written)
+                    .matches("ShowAtomEnhancedStereo=\"yes\"")
+                    .count(),
+                3
+            );
             for kind in ["Absolute", "And", "Or"] {
                 assert!(
                     content(&written).contains(&format!("EnhancedStereoType=\"{kind}\"")),
@@ -209,7 +233,43 @@ fn grouped_configurations_roundtrip_without_invented_cip_or_geometry_carriers() 
                 assert!(!content(&written).contains(absent), "{absent}: {written}");
             }
         }
+        let tree = if format == "cdxml" {
+            chemifree_providers::cdxml::read(content(&written))
+                .unwrap()
+                .document()
+                .clone()
+        } else {
+            let bytes = transport_base64::decode(content(&written)).unwrap();
+            chemifree_providers::cdx::read(&bytes)
+                .unwrap()
+                .document()
+                .clone()
+        };
+        let Content::Object(page) = &tree.root().children[0] else {
+            panic!("expected page")
+        };
+        let Content::Object(fragment) = &page.children[0] else {
+            panic!("expected fragment")
+        };
+        let flags: Vec<_> = fragment
+            .children
+            .iter()
+            .filter_map(|child| match child {
+                Content::Object(atom) => Some(atom),
+                _ => None,
+            })
+            .flat_map(|atom| atom.properties.iter())
+            .filter(|property| property.kind == PropertyKind::ShowAtomEnhancedStereo)
+            .map(|property| property.value.clone())
+            .collect();
+        assert_eq!(
+            flags,
+            vec![PropertyValue::Integer(1); 3],
+            "{format}: written members explicitly show indicators"
+        );
         let roundtrip = create_from(&app, format, content(&written));
+        // This compares stored configurations and groups. The drawing has no indicator
+        // visibility setting to preserve or compare; its export choice is reported above.
         assert_eq!(roundtrip["stereo"], original["stereo"], "{format}");
         assert_eq!(roundtrip["bonds"], original["bonds"], "{format}");
     }
