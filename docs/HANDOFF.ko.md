@@ -50,7 +50,7 @@
 - `document.clipboard_copy`와 `document.clipboard_paste`를 공통 Application 경계에 연결했다. copy는 scene object 선택을 거절하고 원자 선택·선택 결합 끝점과 그 원자 사이의 induced 내부 결합을 담으며 crossing 결합 ID를 별도 보고한다. source instance는 하나뿐이어도 명시해야 하고 copy는 읽기 전용이다.
 - payload는 `format: "chemifree.clipboard"`, `version: 1`의 data-only JSON 문자열이다. UTF-8 64 KiB, projected command 500개와 기존 domain 한도를 적용하며 미상 필드·중복 JSON 키·ID·끊긴 참조·부정합 상태를 거절한다. nullable isotope/query/mark도 키는 필수이며 null 값도 생략하지 않고 명시한다. 임의 명령을 실행하는 형식이 아니다.
 - 기록된 원자/결합 상태·mark와 완전한 저장 0D 입체는 보존한다. 이웃이 빠진 저장 입체와 선택 원자가 속한 enhanced stereo group은 전체 거절한다. paste는 단일 destination placement와 source/destination settings의 정확한 일치를 요구하고 명시한 offset을 적용하며 fresh atom/bond ID mapping을 돌려준다. 붙인 대상을 selection_after로 둔 한 원자적 transaction으로 Undo/Redo·revision·request replay 규칙을 따른다.
-- 카탈로그는 연산 33개(기본 실행 23개)다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
+- P33a 도입 시 카탈로그는 연산33개(기본 실행23개)였으며 현재 수는 P33e 절을 따른다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
 - P33은 `in_progress`다. P33a 도입 당시 backend-only였으며 P33b가 아래의 제한된 명시 browser clipboard/native-text 제어를 더한다. P33c가 단일 배치의 닫힌 graph fragment Cut을 더하며 scene hierarchy 복사·외부 clipboard 형식은 미구현이다. 전체 clipboard 완료를 뜻하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
 
 - clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
@@ -68,6 +68,13 @@
 - 별도 Cut to clipboard 클릭에서 plain-text write를 직접 시작하고 그 promise를 edit queue에서 기다린다. write 실패/불가이면 deletion request가 없다. 성공 뒤 source snapshot/revision·document·service generation이 준비 때와 정확히 같아야 frozen copied atom ID에 delete_atoms 하나를 보낸다. 수동 text 선택/복사에는 삭제 권한이 없다.
 - OS clipboard와 document 삭제는 하나의 원자적 transaction이 아니다. write 뒤 거절이면 copy만 남고 Cut 삭제는 없으며 이전 clipboard 복원·자동 paste-back을 하지 않는다. document Undo/Redo만 기존 ID·selection을 복구하며 clipboard는 바꾸지 않는다. 미확정 삭제는 동일 request ID/body/process로만 확인하고 확인 중 clipboard를 다시 쓰지 않는다. service restart/terminal conflict는 명시 reload/reconcile, old-process held success는 generation guard를 따른다.
 - 기존 P33a/P33b 실행 근거를 새 Cut 검증으로 재사용하지 않는다. fb72ee9의 격리 targeted frontend lint/typecheck·client395개·web build와 dedicated clipboard browser가 통과했다. 전체 npm run check는 진행 중이며 full browser/CI 통과나 P33 완료는 주장하지 않는다. P33은 in_progress다. crossing boundary·여러 source placement·scene clone·외부 clipboard format·전역 Ctrl/Cmd+X는 미구현이다.
+
+## P33d 명시 MOL-text clipboard bridge 후보 인계
+
+- 기존 MOL/SDF panel의 V2000/V3000/Auto와 loss-consent export를 거친 MOL 전체 도면 text에 별도 clipboard dialog를 연결한다. transient 선택 fragment가 아니며 기존 first-placement projection과 손실/거절 규칙을 유지한다. 준비 후 직접 Copy to clipboard 클릭 또는 Select MOL text/read-only text 수동 복사를 제공하며 backend await 뒤 자동 write를 하지 않는다.
+- Import MOL text 열기는 빈 form이며 Read clipboard 클릭이나 수동 입력 뒤 Preview MOL text 때만 local service에 보낸다. UTF-8 200 KiB, format mol·record1만 받고 형식 추측은 없다. counts와 모든 losses를 보고 별도 import 확인이 정확한 source bytes·destination snapshot/revision·service generation·preview digest에 동의한다.
+- 기존 MOL import의 단일 destination placement·좌표 변환·fresh IDs·live selection·history 동작을 유지한다. native Paste offset/동일-style 조건/새 대상 자동 선택을 추가하지 않는다. 미확정 import는 native Cut/Paste와 같은 immutable request/body/process 회복 gate를 사용하고 MOL panel에서 Check MOL import outcome/명시 reload를 제공한다. 지연 old-process success는 generation guard로 막으며 확인 중 clipboard를 다시 읽거나 쓰지 않는다.
+- 기존 파일 입력/download는 유지하며 SDF·SMILES·CDXML/CDX·HTML/custom MIME clipboard·external Cut·scene clone·global shortcut은 추가하지 않는다. P33은 in_progress다. 새 client/browser 회귀는 작성 중이며 이 작업에서는 tests/build/browser/lint를 실행하지 않았고 기존 P33a/b/c 근거를 P33d 통과로 세지 않는다.
 
 ## P33e graphic-only native scene forest backend 후보 인계
 
