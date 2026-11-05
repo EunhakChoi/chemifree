@@ -9,6 +9,12 @@
 - native timeout은 협조적이며 로딩·멈춘 C 호출·mutex 대기를 끊지 못한다. unsafe는 별도 `crates/inchi-native/src/platform.rs`에 한정된다. 외부 원본 DLL을 엔진으로 쓰지 않는다. 전용 웹 패널·InChI import·다른 플랫폼은 미구현이다. 상세 계약은 CONTRACT.md의 Standard InChI 절이다.
 - 현재 확인: native 경계 10/10, 공식 공개 1.07.5 실행 파일과 direct native 6개 및 Application/provider 4개(사면체 2·알켄 2) InChI/Key 정확 비교 통과. 같은 공식 배포본의 별도 실행 파일 비교이며 독립 화학 엔진 비교가 아니다. 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4도 통과했다. 최종 head의 전체 로컬 검사와 브라우저 smoke는 통과했고 [PR #149](https://github.com/EunhakChoi/chemifree/pull/149)의 Codex 공유 고리 참조 및 독립 subagent FIFO 시작 중단 지적은 회귀 검사와 함께 수정했다. 병합 커밋은 `853bb8c391b606028d70809d0f30ca76d68e0d62`이며 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42081222618)의 check·browser가 모두 통과해 제한된 Linux 생성 프로필의 P30은 `done`이다. 공식 비교는 명시적으로 로컬에서 실행했고 일반 CI에서는 opt-in 비교를 실행하지 않는다. 무시된 opt-in 시험은 실행 증거가 아니다.
 
+## P32a 진행 중 인계
+
+- `document.selection_scope`가 `{ document_id, selection, instance? }`를 받아 정확한 snapshot과 `{ objects, positions: [{ instance, atom }], graphics }`를 읽기 전용으로 반환한다. `move_selection`은 같은 union을 한 트랜잭션에서 이동한다. 그룹 포함 트리·선택한 원자·선택한 결합 끝점을 합치고 중복은 한 번만 이동하며 참조·연결 성분은 따라가지 않는다. 원자/결합 이동은 복수 배치에서 instance를 명시한다.
+- 이동 대상 selection과 이력의 selection_before/after는 별개다. 좌표 초과·미상 대상은 앞선 명령까지 전체 rollback하며 빈 대상·0 delta는 검증 뒤 revision/history/redo를 바꾸지 않는다. P32는 `in_progress`이며 웹 복합 선택·박스 선택·정렬·분배·회전·반사·snapping은 미구현이다. 상세 계약은 CONTRACT.md의 Effective selection scope and movement 절이다.
+- 카탈로그는 연산 29개(기본 실행 19개), transaction 44개(명령 33·capability 11), scene_tree 명령 9개다. 새 conformance 두 사례는 scope/중복 이동/undo·no-op·redo/원자적 거절을 고정한다. 최종 실행·리뷰·보고서 갱신 전이며 이 문단은 검사 통과 주장이 아니다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
@@ -176,7 +182,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 98개(implemented 51, partial 12, unverified 2, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 99개(implemented 51, partial 12, unverified 3, not_implemented 33) · conformance 사례 101개(passed 101: accept 75·reject 26, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

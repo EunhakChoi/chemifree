@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 25,
+  "suite_version": 26,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -1332,21 +1332,51 @@
       "pending": null,
       "failure": null,
       "case_sha256": "f92b028e59619b282a71134b071c432a416f0c26d1aed0c34f1a4cd120ca738f"
+    },
+    {
+      "id": "selection-scope-union-move-history",
+      "title": "Resolve union scope without following references, translate overlaps once in one placement, and preserve redo through no-op movement",
+      "requirements": [
+        "MODEL-01",
+        "OPS-01",
+        "OPS-02"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a664126047f988e8f4171aa2f8ea3f6d661ef87ce90b2df2c163b5d2cb30b34b"
+    },
+    {
+      "id": "selection-scope-refusal-atomic",
+      "title": "Unknown selection and coordinate overflow refuse the whole transaction including earlier edits and geometry movement",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6126eb08e89dc230bd41db8951cc977ea32048d90c2a9bbd026c46d5fee93e3e"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 74,
+      "passed": 75,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 25,
+      "passed": 26,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 99,
+      "passed": 101,
       "failed": 0,
       "not_run": 0
     }

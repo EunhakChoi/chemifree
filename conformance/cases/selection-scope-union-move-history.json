@@ -1,0 +1,1142 @@
+{
+  "id": "selection-scope-union-move-history",
+  "title": "Resolve union scope without following references, translate overlaps once in one placement, and preserve redo through no-op movement",
+  "requirements": [
+    "MODEL-01",
+    "OPS-01",
+    "OPS-02"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 10,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 20,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_bond",
+          "begin": "$0",
+          "end": "$1",
+          "order": "single"
+        },
+        {
+          "op": "add_bond",
+          "begin": "$1",
+          "end": "$2",
+          "order": "single"
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 30,
+              "y": 0
+            },
+            {
+              "x": 40,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "op": "add_instance",
+          "source": "s1",
+          "offset": {
+            "x": 100,
+            "y": 0
+          }
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s1",
+            "s2"
+          ]
+        },
+        {
+          "op": "add_reference",
+          "source": "s2",
+          "target": {
+            "kind": "atom",
+            "id": "a3"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 10,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 20,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 30,
+                    "y": 0
+                  },
+                  {
+                    "x": 40,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "selection-1",
+        "profile": "preserve-semantics",
+        "operation": "document.selection_scope",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s4",
+              "s1",
+              "s2",
+              "s2"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "instance": "s1"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "loss_report": [],
+        "result": {
+          "snapshot": {
+            "document": {
+              "revision": 1,
+              "selection": {
+                "objects": [],
+                "atoms": [],
+                "bonds": []
+              },
+              "scene": {
+                "instances": [
+                  {
+                    "id": "s1",
+                    "positions": [
+                      {
+                        "atom": "a1",
+                        "x": 0,
+                        "y": 0
+                      },
+                      {
+                        "atom": "a2",
+                        "x": 10,
+                        "y": 0
+                      },
+                      {
+                        "atom": "a3",
+                        "x": 20,
+                        "y": 0
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s3",
+                    "positions": [
+                      {
+                        "atom": "a1",
+                        "x": 100,
+                        "y": 0
+                      },
+                      {
+                        "atom": "a2",
+                        "x": 110,
+                        "y": 0
+                      },
+                      {
+                        "atom": "a3",
+                        "x": 120,
+                        "y": 0
+                      }
+                    ]
+                  }
+                ],
+                "objects": [
+                  {
+                    "id": "s4",
+                    "kind": "group",
+                    "children": [
+                      "s1",
+                      "s2"
+                    ]
+                  },
+                  {
+                    "id": "s1",
+                    "kind": "instance"
+                  },
+                  {
+                    "id": "s2",
+                    "kind": "graphic",
+                    "points": [
+                      {
+                        "x": 30,
+                        "y": 0
+                      },
+                      {
+                        "x": 40,
+                        "y": 0
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s3",
+                    "kind": "instance"
+                  }
+                ],
+                "references": [
+                  {
+                    "source": "s2",
+                    "target": {
+                      "kind": "atom",
+                      "id": "a3"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "effective": {
+            "objects": [
+              "s1",
+              "s2",
+              "s4"
+            ],
+            "positions": [
+              {
+                "instance": "s1",
+                "atom": "a1"
+              },
+              {
+                "instance": "s1",
+                "atom": "a2"
+              },
+              {
+                "instance": "s1",
+                "atom": "a3"
+              }
+            ],
+            "graphics": [
+              "s2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "selection-2",
+        "profile": "preserve-semantics",
+        "operation": "document.selection_scope",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s2"
+            ],
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {
+          "effective": {
+            "objects": [
+              "s2"
+            ],
+            "positions": [],
+            "graphics": [
+              "s2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 10,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 20,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 30,
+                    "y": 0
+                  },
+                  {
+                    "x": 40,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "selection_before": {
+        "objects": [
+          "s2"
+        ],
+        "atoms": [],
+        "bonds": []
+      },
+      "selection_after": {
+        "objects": [],
+        "atoms": [],
+        "bonds": [
+          "b2"
+        ]
+      },
+      "commands": [
+        {
+          "op": "move_selection",
+          "selection": {
+            "objects": [
+              "s4",
+              "s1",
+              "s2",
+              "s2"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "instance": "s1",
+          "delta": {
+            "x": 7,
+            "y": -3
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": [
+              "b2"
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 7,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 17,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 27,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 37,
+                    "y": -3
+                  },
+                  {
+                    "x": 47,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "selection": {
+            "objects": [
+              "s2"
+            ],
+            "atoms": [],
+            "bonds": []
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 10,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 20,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 30,
+                    "y": 0
+                  },
+                  {
+                    "x": 40,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "move_selection",
+          "selection": {
+            "objects": [
+              "s4",
+              "s1",
+              "s2",
+              "s2"
+            ],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "instance": "s1",
+          "delta": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "move_selection",
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "delta": {
+            "x": 7,
+            "y": -3
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "selection": {
+            "objects": [
+              "s2"
+            ],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 10,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 20,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 30,
+                    "y": 0
+                  },
+                  {
+                    "x": 40,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": [
+              "b2"
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 7,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 17,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 27,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 37,
+                    "y": -3
+                  },
+                  {
+                    "x": 47,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 4
+    },
+    {
+      "call": "close",
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 4,
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": [
+              "b2"
+            ]
+          },
+          "bonds": [
+            {
+              "id": "b1",
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "begin": "a2",
+              "end": "a3",
+              "order": "single"
+            }
+          ],
+          "scene": {
+            "instances": [
+              {
+                "id": "s1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 7,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 17,
+                    "y": -3
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 27,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a2",
+                    "x": 110,
+                    "y": 0
+                  },
+                  {
+                    "atom": "a3",
+                    "x": 120,
+                    "y": 0
+                  }
+                ]
+              }
+            ],
+            "objects": [
+              {
+                "id": "s4",
+                "kind": "group",
+                "children": [
+                  "s1",
+                  "s2"
+                ]
+              },
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 37,
+                    "y": -3
+                  },
+                  {
+                    "x": 47,
+                    "y": -3
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "instance"
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "atom",
+                  "id": "a3"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

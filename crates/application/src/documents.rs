@@ -9,9 +9,10 @@ use std::{panic, thread};
 use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{
     Applied, AtomId, Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS,
-    MAX_TITLE_CHARS, Numbering, Outcome, RevisionsExhausted, TransactionError, validated_title,
+    MAX_TITLE_CHARS, Numbering, ObjectId, Outcome, RevisionsExhausted, TransactionError,
+    validated_title,
 };
-use chemifree_domain::scene::TransactionSelection;
+use chemifree_domain::scene::{Selection, SelectionScope, TransactionSelection};
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
 use chemifree_domain::stereo_drawing::DeriveError;
@@ -775,6 +776,26 @@ impl<R: DocumentRepository> Documents<R> {
         let session = self.session(&mut sessions, id)?;
         let findings = chemifree_domain::chemistry::inspect_valence(&session.document);
         Ok((self.respond(session), findings))
+    }
+
+    /// Resolves movement geometry and its exact response snapshot under the same session lock.
+    /// Neither history nor document content is copied or edited to compute the scope.
+    pub(crate) fn selection_scope(
+        &self,
+        id: &str,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+    ) -> Result<(DocumentResponse, SelectionScope), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let scope = session
+            .document
+            .selection_scope(selection, instance)
+            .map_err(|error| ApplicationError {
+                current_revision: Some(session.document.revision()),
+                ..rejected_edit(TransactionError { index: None, error })
+            })?;
+        Ok((self.respond(session), scope))
     }
 
     /// The view and graph are taken under the same lock, so later computation can be checked

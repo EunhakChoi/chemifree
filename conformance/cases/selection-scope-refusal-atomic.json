@@ -1,0 +1,217 @@
+{
+  "id": "selection-scope-refusal-atomic",
+  "title": "Unknown selection and coordinate overflow refuse the whole transaction including earlier edits and geometry movement",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "title": "Scope rollback"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 30,
+              "y": 0
+            },
+            {
+              "x": 40,
+              "y": 0
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "selection-3",
+        "profile": "preserve-semantics",
+        "operation": "document.selection_scope",
+        "parameters": {
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a999"
+            ],
+            "bonds": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "selection_unknown"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "move_selection",
+          "selection": {
+            "objects": [
+              "s1",
+              "s2"
+            ],
+            "atoms": [],
+            "bonds": []
+          },
+          "delta": {
+            "x": 100000,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "title": "Scope rollback",
+          "revision": 1,
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 30,
+                    "y": 0
+                  },
+                  {
+                    "x": 40,
+                    "y": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "move_selection",
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a999"
+            ],
+            "bonds": []
+          },
+          "delta": {
+            "x": 1,
+            "y": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "selection_unknown"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "title": "Scope rollback",
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

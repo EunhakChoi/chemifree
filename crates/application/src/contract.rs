@@ -435,6 +435,14 @@ pub enum CommandDto {
         #[serde(default)]
         instance: Option<String>,
     },
+    /// Moves the union of existing selected objects, atoms and bond endpoints once.
+    /// The movement targets are independent of transaction selection_before/after.
+    MoveSelection {
+        selection: SelectionDto,
+        delta: PointDto,
+        #[serde(default)]
+        instance: Option<String>,
+    },
     /// `query` is required with order `query` and refused with any other.
     UpdateBond {
         bond: String,
@@ -956,6 +964,18 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             delta: vector(*delta),
             instance: instance.as_deref().map(instance_id).transpose()?,
         },
+        CommandDto::MoveSelection {
+            selection,
+            delta,
+            instance,
+        } => Command::MoveSelection {
+            selection: exact_selection(selection).map_err(|message| Refusal {
+                scene: Some(SceneError::SelectionUnknown),
+                ..message.into()
+            })?,
+            instance: instance.as_deref().map(instance_id).transpose()?,
+            delta: vector(*delta),
+        },
         CommandDto::UpdateBond { bond, order, query } => Command::UpdateBond {
             bond: bond_id(bond)?,
             order: bond_order(*order, query.as_ref())?,
@@ -1368,7 +1388,7 @@ fn vector(delta: PointDto) -> Vector {
     }
 }
 
-fn instance_id(value: &str) -> Result<ObjectId, String> {
+pub(crate) fn instance_id(value: &str) -> Result<ObjectId, String> {
     ObjectId::parse(value).ok_or_else(|| format!("{value:?} is not a scene instance identifier"))
 }
 
@@ -1396,28 +1416,29 @@ fn reference_view(reference: SceneReference) -> ReferenceDto {
     }
 }
 
+pub(crate) fn exact_selection(value: &SelectionDto) -> Result<Selection, String> {
+    Ok(Selection {
+        objects: value
+            .objects
+            .iter()
+            .map(|id| instance_id(id))
+            .collect::<Result<_, _>>()?,
+        atoms: value
+            .atoms
+            .iter()
+            .map(|id| atom_id(id))
+            .collect::<Result<_, _>>()?,
+        bonds: value
+            .bonds
+            .iter()
+            .map(|id| bond_id(id))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
 pub(crate) fn to_selection(
     selection: &TransactionSelections,
 ) -> Result<TransactionSelection, ApplicationError> {
-    fn before(value: &SelectionDto) -> Result<Selection, String> {
-        Ok(Selection {
-            objects: value
-                .objects
-                .iter()
-                .map(|id| instance_id(id))
-                .collect::<Result<_, _>>()?,
-            atoms: value
-                .atoms
-                .iter()
-                .map(|id| atom_id(id))
-                .collect::<Result<_, _>>()?,
-            bonds: value
-                .bonds
-                .iter()
-                .map(|id| bond_id(id))
-                .collect::<Result<_, _>>()?,
-        })
-    }
     fn after(value: &SelectionDto) -> Result<SelectionRequest, String> {
         Ok(SelectionRequest {
             objects: value
@@ -1439,7 +1460,7 @@ pub(crate) fn to_selection(
     }
     let result = || -> Result<TransactionSelection, String> {
         Ok(TransactionSelection {
-            before: selection.before.as_ref().map(before).transpose()?,
+            before: selection.before.as_ref().map(exact_selection).transpose()?,
             after: selection.after.as_ref().map(after).transpose()?,
         })
     };

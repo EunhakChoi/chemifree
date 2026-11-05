@@ -21,7 +21,7 @@ use crate::element::Element;
 use crate::scene::{
     DeleteMode, Graphic, MAX_DEPTH, MAX_OBJECTS, MAX_REFERENCES, ObjectKind, ObjectRef,
     ReferenceTarget, SceneError, SceneObject, SceneReference, SceneTree, Selection,
-    SelectionRequest, TransactionSelection,
+    SelectionRequest, SelectionScope, TransactionSelection,
 };
 use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
@@ -440,6 +440,15 @@ pub enum Command {
     /// both a group and something inside it are listed.
     MoveObjects {
         objects: Vec<ObjectId>,
+        delta: Vector,
+    },
+    /// Moves the union of selected object subtrees, explicit atoms and selected bond
+    /// endpoints once. Explicit graph targets use the named instance, or the only one.
+    /// This selection determines geometry targets; transaction selection before/after
+    /// independently controls the selection recorded with history.
+    MoveSelection {
+        selection: Selection,
+        instance: Option<ObjectId>,
         delta: Vector,
     },
     /// Adds or removes a directed scene reference without assigning chemical meaning to it.
@@ -1193,6 +1202,53 @@ impl Content {
         Ok(())
     }
 
+    fn selection_scope(
+        &self,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+    ) -> Result<SelectionScope, EditError> {
+        self.check_selection(selection)?;
+        // Even a scene-only or empty selection must not silently accept a bad placement.
+        if let Some(instance) = instance {
+            self.require_instance(instance)?;
+        }
+        let mut scope = SelectionScope {
+            objects: self.scene.subtrees(&selection.objects),
+            ..SelectionScope::default()
+        };
+        for object in &scope.objects {
+            match self.scene.get(*object)? {
+                SceneObject::Instance => {
+                    scope
+                        .positions
+                        .extend(
+                            self.instance_positions(*object)
+                                .map(|(atom, _)| PositionKey {
+                                    instance: *object,
+                                    atom,
+                                }),
+                        );
+                }
+                SceneObject::Graphic(_) => {
+                    scope.graphics.insert(*object);
+                }
+                SceneObject::Group { .. } => {}
+            }
+        }
+        let mut atoms = selection.atoms.clone();
+        for id in &selection.bonds {
+            let bond = self.bonds.get(id).ok_or(EditError::UnknownBond(*id))?;
+            atoms.extend([bond.begin, bond.end]);
+        }
+        if !atoms.is_empty() {
+            let instance = self.target_instance(instance)?;
+            scope
+                .positions
+                .extend(atoms.into_iter().map(|atom| PositionKey { instance, atom }));
+        }
+        Ok(scope)
+    }
+
     /// `selection` less what does not exist here.
     fn existing(&self, selection: &Selection) -> Selection {
         Selection {
@@ -1930,6 +1986,27 @@ impl Draft {
                 let instances = self.content.scene.translate(&unique(objects)?, *delta)?;
                 self.translate_instances(&instances, *delta)?;
             }
+            Command::MoveSelection {
+                selection,
+                instance,
+                delta,
+            } => {
+                let scope = self.content.selection_scope(selection, *instance)?;
+                if !delta.dx.is_finite() || !delta.dy.is_finite() {
+                    return Err(EditError::CoordinateOutOfRange);
+                }
+                for key in &scope.positions {
+                    self.translate(key.instance, [key.atom], *delta)?;
+                }
+                for id in &scope.graphics {
+                    self.content.scene.require(*id, ObjectKind::Graphic)?;
+                    if let Some(SceneObject::Graphic(graphic)) =
+                        self.content.scene.objects.get_mut(id)
+                    {
+                        *graphic = graphic.translated(*delta)?;
+                    }
+                }
+            }
             Command::AddReference { reference } => {
                 if !self.content.scene.objects.contains_key(&reference.source)
                     || !self.content.target_exists(reference.target)
@@ -2526,6 +2603,22 @@ impl Document {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// Resolves the exact unique geometry targets of a selection without changing it.
+    /// Selected scene subtrees may span placements; explicit atoms and selected-bond
+    /// endpoints use only `instance` (or the sole instance when omitted). Graph targets
+    /// do not implicitly select their containing scene groups or other placements.
+    ///
+    /// # Errors
+    /// Refuses unknown selected objects, atoms or bonds, a missing/incorrect explicit
+    /// instance, or an omitted instance for graph targets when several placements exist.
+    pub fn selection_scope(
+        &self,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+    ) -> Result<SelectionScope, EditError> {
+        self.content.selection_scope(selection, instance)
     }
 
     /// Every atom's position in `instance`, by atom; empty for an unknown instance.

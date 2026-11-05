@@ -17,6 +17,7 @@ mod cip;
 mod import;
 mod inchi;
 mod interchange;
+mod selection_scope;
 mod smiles;
 mod stereo;
 mod substructure;
@@ -58,6 +59,8 @@ pub use cip::{
 use import::{ImportFormat, ImportRequest, Staged};
 use inchi::InchiParameters;
 pub use inchi::InchiResult;
+use selection_scope::SelectionScopeParameters;
+pub use selection_scope::{EffectiveSelectionScope, ScopePosition, SelectionScopeResult};
 use smiles::{SmilesExportParameters, SmilesImportParameters};
 use stereo::StereoParameters;
 pub use stereo::{
@@ -214,6 +217,8 @@ pub enum OperationResult {
     /// `history.redo`, and `document.save`: the document and its session afterwards. Boxed:
     /// a document view is much larger than the other results.
     Document(Box<DocumentResult>),
+    /// `document.selection_scope`: read-only movement targets at an exact snapshot.
+    SelectionScope(Box<SelectionScopeResult>),
     /// `document.close`.
     Closed(ClosedResult),
     InterchangeRead(Box<InterchangeReadResult>),
@@ -533,7 +538,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 43] = [
+const TRANSACTION_PARTS: [Entry; 44] = [
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \
@@ -547,6 +552,10 @@ const TRANSACTION_PARTS: [Entry; 43] = [
     runs(
         "move_atoms",
         "Translates atoms by a delta in one scene instance.",
+    ),
+    runs(
+        "move_selection",
+        "Moves the union of selected object subtrees, explicit atoms and bond endpoints once; graph targets use the named instance or the only instance. Transaction selection snapshots remain independent.",
     ),
     runs(
         "delete_atoms",
@@ -710,6 +719,7 @@ const TRANSACTION_PARTS: [Entry; 43] = [
         "reorder",
         "delete_objects",
         "move_objects",
+        "move_selection",
         "add_reference",
         "remove_reference",
     ]),
@@ -794,6 +804,13 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         ),
         Op::DocumentSnapshot => (
             runs(id, "Reads an open or stored document and its session."),
+            &[],
+        ),
+        Op::DocumentSelectionScope => (
+            runs(
+                id,
+                "Read-only effective movement scope for an explicit selection and optional scene instance, with its exact document snapshot. Expands containment, never directed references, and changes no selection or history.",
+            ),
             &[],
         ),
         Op::DocumentTransaction => (
@@ -2266,6 +2283,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Op::DocumentSnapshot => match parameters::<SnapshotParameters>(parameters_value) {
                 Ok(p) => known.document(self.document(&p.document_id)),
                 Err(invalid) => known.invalid(invalid),
+            },
+            Op::DocumentSelectionScope => match parameters::<SelectionScopeParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_selection_scope(known, parameters),
+                Err(error) => known.invalid(error),
             },
             Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {
                 Ok(p) => match self.documents.inspect_valence(&p.document_id) {
