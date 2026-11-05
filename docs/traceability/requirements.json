@@ -819,8 +819,8 @@
         },
         {
           "id": "CODEC-05.inchi",
-          "summary": "Optional Linux Standard InChI/InChIKey generation via chem.inchi and an explicitly registered public 1.07.5 library. Declared version, checked SHA-256, effective finite cooperative timeout, stored 0D tetrahedral/double-bond stereo, refusal of unsupported graph and AND/OR groups, loss-bound consent for omitted marks/absolute group metadata and opaque native warnings, and honest unavailable states. Native boundaries 9/9, six direct native and four application/provider exact comparisons with the separately executed official 1.07.5 executable passed (same distribution, not an independent chemical engine). Consent tests 6/6, CLI configuration integration 7/7 and API/CLI configuration modules 4/4 each passed; full gates and reviews remain pending. No InChI import, web panel or complete stereo/equality claim.",
-          "status": "unverified",
+          "summary": "Optional Linux Standard InChI/InChIKey generation via chem.inchi and an explicitly registered public 1.07.5 library. Declared version, checked SHA-256, effective finite cooperative timeout, stored 0D tetrahedral/double-bond stereo, refusal of unsupported graph and AND/OR groups, loss-bound consent for omitted marks/absolute group metadata and opaque native warnings, and honest unavailable states. Native boundaries 9/9, six direct native and four application/provider exact comparisons with the separately executed official 1.07.5 executable passed (same distribution, not an independent chemical engine). Consent tests 6/6, CLI configuration integration 7/7 and API/CLI configuration modules 4/4 each passed; full local checks, browser smoke and merged-main check/browser CI passed. Codex and independent subagent findings were fixed with regressions (PR #149). Official comparisons are local opt-in evidence from the same distribution; ordinary CI does not run them. This closes only the bounded Linux generator profile. No InChI import, web panel or complete stereo/equality claim.",
+          "status": "implemented",
           "implementation": [
             "crates/application/src/inchi.rs",
             "crates/application/src/operations/inchi.rs",
@@ -828,14 +828,14 @@
             "crates/inchi-native/src/lib.rs",
             "crates/inchi-native/src/platform.rs"
           ],
-          "evidence": [],
-          "followups": [
-            "P30"
-          ]
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": []
         },
         {
           "id": "CODEC-05.rest",
-          "summary": "Unsupported stereo writing, the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading/writing is the explicitly deferred P29c2 scope; lone-pair fourth-position SMILES marks remain refused.",
+          "summary": "Unsupported stereo writing, the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading/writing is the explicitly deferred P29c2 scope; lone-pair fourth-position SMILES marks remain refused. InChI import and dedicated UI remain unsupported and are outside the completed bounded generator; broader text import/export UX is tracked by P48.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -843,7 +843,6 @@
           "followups": [
             "P18",
             "P21",
-            "P30",
             "P48",
             "P56"
           ]
@@ -1232,7 +1231,6 @@
             "P17",
             "P24",
             "P26",
-            "P30",
             "P77",
             "P86"
           ]

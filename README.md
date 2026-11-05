@@ -210,7 +210,7 @@ Use the CLI's current help when adding components; `components.json` resolves th
 Read [AGENTS.md](AGENTS.md) and [the contribution guide](.github/CONTRIBUTING.md) before contributing. Do not use original application DLLs as the execution engine. Keep credentials, local data, generated outputs, and caches outside this public repository. Each PR receives one Codex review and one independent subagent review. Scaffolding verification does not establish chemical correctness or compatibility with any other application.
 
 
-### Optional Standard InChI (P30, in progress)
+### Optional Standard InChI (bounded P30)
 
 On Linux, both hosts accept `--inchi-library /absolute/path/libinchi.so --inchi-version 1.07.5 --inchi-sha256 <64 lowercase hex>`, together, and optional `--inchi-timeout-seconds 5` (1–60). Equivalent variables are `CHEMIFREE_INCHI_LIBRARY`, `CHEMIFREE_INCHI_VERSION`, `CHEMIFREE_INCHI_SHA256` and `CHEMIFREE_INCHI_TIMEOUT_SECONDS`. Select a trusted build from the [official public release](https://github.com/IUPAC-InChI/InChI/releases/tag/v1.07.5); nothing is downloaded, discovered or bundled. The version is registered, not detected; SHA-256 checks selected bytes against your expected digest and does not prove provenance. The native timeout is cooperative and cannot interrupt library loading or a hung C call.
 
