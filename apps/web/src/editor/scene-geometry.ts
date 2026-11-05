@@ -1,4 +1,5 @@
 import type { ArrangementMode, Command, DocumentView, Position, SelectionTransform } from '@/lib/document-contract'
+import { selectionTransform } from '@/editor/selection-geometry'
 
 interface GeometryBounds {
   left: number
@@ -88,11 +89,5 @@ export function sceneGeometryCommands(document: DocumentView, selected: Readonly
     if (geometry.hasEmptyUnits || geometry.objects.length < required) return null
     return [{ op: 'arrange_objects', objects: geometry.objects, mode: action.mode }]
   }
-  const { left, top, right, bottom } = geometry.bounds
-  return [{
-    op: 'transform_selection',
-    selection: { objects: geometry.objects, atoms: [], bonds: [] },
-    pivot: { x: (left + right) / 2, y: (top + bottom) / 2 },
-    transform: action.transform,
-  }]
+  return selectionTransform(document, new Set(geometry.objects), null, action.transform)
 }

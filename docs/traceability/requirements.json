@@ -1047,7 +1047,7 @@
         },
         {
           "id": "OPS-01.scene-controls",
-          "summary": "P32d candidate web Scene controls expose six geometry-bound alignments, two equal-edge-gap distributions, clockwise/counterclockwise quarter-turn rotation and horizontal/vertical axis reflection for whole scene objects. Selected ancestor/descendant units collapse once; rotation/reflection submits an explicit pivot at the current selected geometry-bounds center. Bounds exclude labels/strokes. Atom/bond or mixed graph geometry targets are disabled; missing targets lapse as a whole, empty geometry and insufficient arrangement units are gated, and queued actions recompute against the latest document while retaining the selection captured at press. Sibling grouping preserves independent atom/bond selection and replaces grouped member selection with the created group without discarding unrelated live choices. Existing authoritative server validation, history and stored-stereo limits remain; P32d itself has no arbitrary-angle/custom-pivot/diagonal-reflection UI or mixed graph geometry controls. Bounded mixed canvas selection/movement is tracked separately as unverified P32e; snapping and cleanup remain absent. Client/browser checks and review are in progress; no verified P32d evidence is recorded yet.",
+          "summary": "P32d candidate web Scene controls expose six geometry-bound alignments, two equal-edge-gap distributions, clockwise/counterclockwise quarter-turn rotation and horizontal/vertical axis reflection for whole scene objects. Selected ancestor/descendant units collapse once; rotation/reflection submits an explicit pivot at the current selected geometry-bounds center. Bounds exclude labels/strokes. At P32d introduction all geometry controls excluded explicit atom/bond targets; P32f supersedes that restriction for the four transform buttons, while alignment/distribution remain disabled for partial graph targets; missing targets lapse as a whole, empty geometry and insufficient arrangement units are gated, and queued actions recompute against the latest document while retaining the selection captured at press. Sibling grouping preserves independent atom/bond selection and replaces grouped member selection with the created group without discarding unrelated live choices. Existing authoritative server validation, history and stored-stereo limits remain; P32d itself has no arbitrary-angle/custom-pivot/diagonal-reflection UI; mixed selection transforms are tracked separately as unverified P32f. Bounded mixed canvas selection/movement is tracked separately as unverified P32e; snapping and cleanup remain absent. Client/browser checks and review are in progress; no verified P32d evidence is recorded yet.",
           "status": "unverified",
           "implementation": [
             "apps/web/src/components/document-workspace.tsx",
@@ -1062,7 +1062,7 @@
         },
         {
           "id": "OPS-01.canvas-selection",
-          "summary": "P32e candidate bounded mixed canvas selection/movement adds Shift-click atom/bond/graphic toggles and inclusive empty-canvas marquee selection of active-placement atom centers plus graphics whose two defining points are fully contained; Shift-marquee adds, and bonds/groups/whole placements are not implicitly box-selected. A captured mixed scene/atom/bond selection previews deduplicated per-placement geometry and submits one existing move_selection union command. The visible active movement placement is distinct from the shared graph: changing it clears atom/bond selection but retains scene-object choices; a missing placement never silently falls back to a remaining one. Captured targets/placement are revalidated when queued, and an expired reference lapses the whole action. Existing transaction selection/history/replay and authoritative server bounds remain; no backend/operation/catalog/scientific behavior changes. P32d arrangement/transform controls still accept only whole scene objects. Client/browser verification is pending and no P32e execution evidence is recorded. No lasso, edge-intersection selection, cross-placement graph selection, mixed atom arrangement/rotation, snapping or cleanup.",
+          "summary": "P32e candidate bounded mixed canvas selection/movement adds Shift-click atom/bond/graphic toggles and inclusive empty-canvas marquee selection of active-placement atom centers plus graphics whose two defining points are fully contained; Shift-marquee adds, and bonds/groups/whole placements are not implicitly box-selected. A captured mixed scene/atom/bond selection previews deduplicated per-placement geometry and submits one existing move_selection union command. The visible active movement placement is distinct from the shared graph: changing it clears atom/bond selection but retains scene-object choices; a missing placement never silently falls back to a remaining one. Captured targets/placement are revalidated when queued, and an expired reference lapses the whole action. Existing transaction selection/history/replay and authoritative server bounds remain; no backend/operation/catalog/scientific behavior changes. At P32e introduction transform buttons remained scene-object-only; P32f supersedes that restriction for quarter turns and reflections. Alignment/distribution still accept only whole scene objects. Client/browser verification is pending and no P32e execution evidence is recorded. No lasso, edge-intersection selection, cross-placement graph selection, mixed atom arrangement, snapping or cleanup.",
           "status": "unverified",
           "implementation": [
             "apps/web/src/editor/selection-geometry.ts",
@@ -1070,6 +1070,21 @@
             "apps/web/src/editor/commands.ts",
             "apps/web/src/components/document-workspace.tsx",
             "apps/web/src/hooks/use-document-editor.ts"
+          ],
+          "evidence": [],
+          "followups": [
+            "P32"
+          ]
+        },
+        {
+          "id": "OPS-01.mixed-selection-transform",
+          "summary": "P32f candidate web quarter-turn and horizontal/vertical axis-reflection buttons transform a captured mixed scene/atom/bond selection with one existing transform_selection command. Explicit graph targets retain the captured active placement; scene placements retain their own position sets. The latest queued snapshot resolves deduplicated subtree/atom/bond-endpoint geometry and its bounds-center pivot, excluding labels/strokes/arrowheads. Missing targets or required placement, document change or empty geometry lapse the whole action; later live selection or placement changes do not redirect it. Repeated valid presses compose against queued geometry. Stored stereo, marks, groups, graph data, hierarchy and references remain unchanged; geometry can disagree with stored stereo. Alignment/distribution remain scene-object-only. No backend/catalog change, custom-angle/pivot UI, diagonal reflection, snapping or cleanup. Client/browser and final review/CI evidence remains unverified; existing server conformance is not new web execution evidence.",
+          "status": "unverified",
+          "implementation": [
+            "apps/web/src/components/document-workspace.tsx",
+            "apps/web/src/editor/selection-geometry.ts",
+            "apps/web/src/editor/scene-geometry.ts",
+            "apps/web/src/editor/structure-canvas.tsx"
           ],
           "evidence": [],
           "followups": [
