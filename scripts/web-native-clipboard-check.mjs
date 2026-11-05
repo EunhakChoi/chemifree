@@ -98,6 +98,12 @@ try {
   let pasteConflict = false
   let transactionsReceived = 0
   let readsReceived = 0
+  let serviceToken = 'clipboard-service'
+  let rejectInspection = false
+  let holdPaste = false
+  let heldPaste
+  let pasteReceived
+  const pasteReady = new Promise((resolve) => { pasteReceived = resolve })
   const pastedReplies = new Map()
   function nativePayload(source, selected, instance) {
     return JSON.stringify({ format: 'chemifree.clipboard', version: 1, settings,
@@ -115,7 +121,7 @@ try {
   const reply = (route, value) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(value) })
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname
-    if (path === '/api/v1/session') return reply(route, { header: 'x-chemifree-session', token: 'clipboard-service' })
+    if (path === '/api/v1/session') return reply(route, { header: 'x-chemifree-session', token: serviceToken })
     if (path === '/api/v1/documents' || path === '/api/v1/trash') return reply(route, { api_version: 'v1', documents: [], unreadable: [] })
     const documentMatch = path.match(/^\/api\/v1\/documents\/(alpha|beta)$/)
     if (documentMatch) { readsReceived += 1; return reply(route, documents[documentMatch[1]]) }
@@ -131,6 +137,9 @@ try {
     assert.equal(path, '/api/v1/operations', `unexpected request ${path}`)
     const request = route.request().postDataJSON()
     operations.push(request)
+    if (request.operation === 'chem.identity' && rejectInspection) return route.fulfill({
+      status: 401, contentType: 'application/json', body: JSON.stringify({ api_version: 'v1', code: 'unauthorized', message: 'The service restarted.' }),
+    })
     if (request.operation === 'document.clipboard_copy') {
       const source = structuredClone(documents[request.parameters.document_id])
       const selected = request.parameters.selection.atoms
@@ -150,17 +159,19 @@ try {
       const next = structuredClone(documents.beta)
       next.document.revision = request.parameters.expected_revision + 1
       const source = JSON.parse(request.parameters.payload).atoms[0]
+      const target = `a${next.document.atoms.length + 1}`
       const position = { x: source.position.x + request.parameters.offset.x, y: source.position.y + request.parameters.offset.y }
-      next.document.atoms.push({ ...atom('a3', position.x), position })
-      next.document.scene.instances[0].positions.push({ atom: 'a3', ...position })
-      next.document.selection = { objects: [], atoms: ['a3'], bonds: [] }
+      next.document.atoms.push({ ...atom(target, position.x), position })
+      next.document.scene.instances[0].positions.push({ atom: target, ...position })
+      next.document.selection = { objects: [], atoms: [target], bonds: [] }
       next.session.saved_revision = next.document.revision
       next.session.undo_depth = 1
       documents.beta = next
-      confirmed = envelope(request, { snapshot: next, mapping: { atoms: [{ source: source.id, target: 'a3' }], bonds: [] } })
+      confirmed = envelope(request, { snapshot: next, mapping: { atoms: [{ source: source.id, target }], bonds: [] } })
       pastedReplies.set(request.request_id, confirmed)
     }
     if (pasteFails > 0) { pasteFails -= 1; return route.abort('failed') }
+    if (holdPaste) { heldPaste = () => reply(route, confirmed); pasteReceived(); return }
     return reply(route, confirmed)
   })
   await page.addInitScript(() => {
@@ -313,6 +324,40 @@ try {
   assert.equal(operations.filter((item) => item.operation === 'document.clipboard_paste').length, 6)
   assert.equal(documents.beta.document.atoms.length, 3)
   assert.equal(await page.getByRole('button', { name: 'Paste fragment…', exact: true }).isEnabled(), true)
+
+  // Hold an otherwise valid success from the original process while another real-client
+  // request detects a restart. The old reply must neither replace the shown drawing nor
+  // clear the unresolved gate; only explicit new-process reconciliation may release it.
+  const restartedDrawing = structuredClone(documents.beta)
+  restartedDrawing.document.title = 'Restarted drawing'
+  pasteConflict = false
+  holdPaste = true
+  await page.getByRole('button', { name: 'Paste fragment…', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Native fragment text' }).fill(payload)
+  await page.getByRole('button', { name: 'Paste fragment', exact: true }).click()
+  await pasteReady
+  assert.equal(documents.beta.document.atoms.length, 4, 'the held old-process success is a committed, valid paste')
+  documents.beta = restartedDrawing
+  serviceToken = 'restarted-clipboard-service'
+  rejectInspection = true
+  assert.equal(await page.evaluate(() => window.clipboardHarness.editor.inspectIdentity('beta', 'recorded', null)
+    .then(() => 'unexpected success', (error) => error.code)), 'service_restarted')
+  await page.waitForFunction(() => window.clipboardHarness.editor.serviceGeneration === 1)
+  await heldPaste()
+  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
+  assert.deepEqual(await page.evaluate(() => ({
+    atoms: window.clipboardHarness.editor.current.document.atoms.map((item) => item.id),
+    revision: window.clipboardHarness.editor.current.document.revision,
+    selection: [...window.clipboardHarness.editor.selection],
+    pending: window.clipboardHarness.editor.clipboardPending,
+    needsReload: window.clipboardHarness.editor.clipboardNeedsReload,
+  })), { atoms: ['a1', 'a2', 'a3'], revision: 4, selection: ['a3'], pending: true, needsReload: true })
+  const pasteCountBeforeRestartReconcile = operations.filter((item) => item.operation === 'document.clipboard_paste').length
+  assert.equal(pasteCountBeforeRestartReconcile, 7)
+  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
+  await page.waitForFunction(() => !window.clipboardHarness.editor.clipboardPending)
+  assert.equal(await page.evaluate(() => window.clipboardHarness.editor.current.document.title), 'Restarted drawing')
+  assert.equal(operations.filter((item) => item.operation === 'document.clipboard_paste').length, pasteCountBeforeRestartReconcile)
   assert.deepEqual(pageErrors, [])
   console.log('Native clipboard panel, explicit permissions, cancellation and real-hook queue/replay checks passed.')
 } finally {

@@ -285,6 +285,11 @@ export function useDocumentEditor() {
     if (!pendingPaste) return
     try {
       const reply = await pendingPaste.attempt.send()
+      // Another request may discover a restart while this old-process reply is held.
+      // A successful old reply cannot confirm what the new process currently contains.
+      if (pendingPaste.generation !== serviceGenerationRef.current) {
+        throw new ApiError('clipboard_paste_restarted', 'The service changed before this paste was confirmed. Reload the drawing to reconcile its outcome.', 0)
+      }
       clipboardAttempt.current = null
       setClipboardPending(false)
       setClipboardNeedsReload(false)
