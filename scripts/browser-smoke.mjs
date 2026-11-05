@@ -4706,7 +4706,7 @@ step = 'after short_wide_bond_is_selectable'
   await page.mouse.click(target.x, target.y)
   assert.equal((await added).status(), 200)
   await page.getByLabel('Revision 2').waitFor()
-  const edited = (await api(`/api/v1/documents/${id}`)).document
+  let edited = (await api(`/api/v1/documents/${id}`)).document
   const nitrogen = edited.atoms.find((atom) => atom.id === 'a3')
   assert.equal(nitrogen.element, 'N')
   assert.ok(Math.abs(nitrogen.position.x - 200) <= 0.02 && Math.abs(nitrogen.position.y - 120) <= 0.02,
@@ -4720,6 +4720,66 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByLabel('Revision 2').waitFor()
   assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, edited, 'save/reopen retains document coordinates, independent of transient zoom')
   results.viewport_navigation_and_zoomed_edit = true
+
+  // P31 acceptance: move an existing atom after both zoom and pan, using an expected
+  // world delta calculated from fixed CSS-pixel travel and an explicitly chosen scale.
+  step = 'viewport zoomed and panned atom move survives save'
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  await controls.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  assert.equal((await viewState()).scale, 1.5625, 'two 1.25 zoom steps from 100%')
+  await tool('Pan view')
+  const panStart = await screen({ x: 225, y: 160 })
+  const moveViewBeforePan = await viewState()
+  await page.mouse.move(panStart.x, panStart.y)
+  await page.mouse.down()
+  await page.mouse.move(panStart.x + 50, panStart.y + 30, { steps: 4 })
+  await page.mouse.up()
+  const moveView = await viewState()
+  assert.ok(Math.abs(moveView.box[0] - moveViewBeforePan.box[0] + 32) < 1e-6,
+    '50 CSS pixels at 1.5625px/pt changes the view origin by -32pt')
+  assert.ok(Math.abs(moveView.box[1] - moveViewBeforePan.box[1] + 19.2) < 1e-6)
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, edited, 'navigation before the move records no edit')
+  await tool('Select and move')
+  const oxygenStart = await screen({ x: 130, y: 100 })
+  await page.mouse.click(oxygenStart.x, oxygenStart.y)
+  await page.getByRole('heading', { name: 'Atom a2', exact: true }).waitFor()
+  const unchangedAtoms = edited.atoms.filter((atom) => atom.id !== 'a2')
+  assert.deepEqual(edited.atoms.find((atom) => atom.id === 'a2').position, { x: 130, y: 100 })
+  const movedResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST' &&
+    response.request().postDataJSON().commands.some((command) => command.op === 'move_atoms'))
+  await page.mouse.move(oxygenStart.x, oxygenStart.y)
+  await page.mouse.down()
+  await page.mouse.move(oxygenStart.x + 40, oxygenStart.y - 20, { steps: 5 })
+  await page.mouse.up()
+  const committedMove = await movedResponse
+  assert.equal(committedMove.status(), 200)
+  await page.getByLabel('Revision 3').waitFor()
+  const moveRequest = committedMove.request().postDataJSON()
+  assert.deepEqual(moveRequest.selection_before.atoms, ['a2'], 'the drag acts on the selected oxygen')
+  const moved = (await api(`/api/v1/documents/${id}`)).document
+  const expectedPosition = { x: 130 + 40 / 1.5625, y: 100 - 20 / 1.5625 }
+  const movedOxygen = moved.atoms.find((atom) => atom.id === 'a2')
+  assert.ok(Math.abs(movedOxygen.position.x - expectedPosition.x) <= 0.01 &&
+    Math.abs(movedOxygen.position.y - expectedPosition.y) <= 0.01,
+  `40,-20 CSS pixels must move 25.6,-12.8pt despite pan: ${JSON.stringify(movedOxygen.position)}`)
+  assert.deepEqual(moved.atoms.filter((atom) => atom.id !== 'a2'), unchangedAtoms, 'the carbon and nitrogen remain unchanged')
+  assert.deepEqual(moved.bonds, edited.bonds, 'the existing bond endpoints and chemistry remain unchanged')
+  assert.deepEqual(moved.selection, { atoms: ['a2'], bonds: [], objects: [] }, 'only the moved atom remains selected')
+  await page.getByRole('heading', { name: 'Atom a2', exact: true }).waitFor()
+  assert.deepEqual(await viewState(), moveView, 'moving the atom does not refit or pan the viewport')
+  const savingMove = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/save`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  assert.equal((await savingMove).status(), 200)
+  await closeShown()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  await page.getByLabel('Revision 3').waitFor()
+  assert.deepEqual((await api(`/api/v1/documents/${id}`)).document, moved,
+    'save/reopen preserves the zoomed move coordinates, selection and unrelated atoms')
+  edited = moved
+  results.viewport_zoomed_pan_move_save_coordinates = true
 
   // Cancel an atom drag after its preview moved; release must not send an edit.
   step = 'viewport pointer cancellation'
