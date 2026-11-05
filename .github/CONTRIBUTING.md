@@ -70,16 +70,9 @@ dependencies to copy into the repository or substitutes for engineering judgment
 - Distinguish data availability, representation, parsing, and executable chemistry.
   Expose only capabilities that actually work through their application path.
 
-## Scientific behavior and independent inputs
+## Scientific behavior
 
-Implement product code independently from the existing public source, approved
-public functional specifications, and independent references. Follow the input
-boundaries in AGENTS.md. Do not use original application binaries, decompilations,
-investigation evidence, or private vendor payloads as implementation material.
-
-Keep separately authorized local DATA outside the public repository and release
-artifacts. Public tests must run without it. A typed loader passing fixture tests
-does not establish a working prediction engine or compatibility with real DATA.
+Do not use original application DLLs as the execution engine.
 
 Scientific results must identify the relevant method, model/data version, units,
 precision policy, and limitations. Preserve raw representations where the contract
@@ -145,45 +138,49 @@ behavior changes, update the contract, capability status, traceability, conforma
 cases, roadmap, and handoff where affected. Do not mark a whole feature complete
 when only its representation, loader, or one sub-operation is implemented.
 
-## Codex review policy
+## PR review policy
 
 These are repository workflow rules, not guarantees about review service behavior.
 
-1. The first review starts automatically when a PR is opened. Count it as round 1;
-   do not send a duplicate manual request while it is pending.
-2. Request each later review with a standalone PR comment containing exactly
-   `@codex review`. Commit pushes and resolved threads are not review requests.
-   Avoid the bot mention in PR descriptions and ordinary progress comments.
-3. Each round has a 15-minute deadline, including queue time. Measure from PR
-   creation for the automatic round, or from the actual manual request comment,
-   to completion. Service errors and timeouts count as failed rounds. A tool error
-   that creates no GitHub request does not consume a round; verify that fact.
-4. A PR gets at most three rounds in total, including the automatic round. New
-   commits, resumed sessions, and different agents do not reset that count.
-5. A passing result must be a completed review of the current full head SHA, with
-   no outstanding findings. A reaction, a pending job, silence, or approval of an
-   older SHA is insufficient. Resolve each finding with a fix or an evidenced
-   explanation; disagreement alone does not waive the passing-review gate.
-6. If no passing result exists by the end of round 3, close the PR without merging.
-   Examine all findings, decide the intended behavior, and create a new branch
-   from the latest main with a fresh implementation of the unmerged change.
-   Do not reuse, rename, rebase, cherry-pick, or repackage the failed branch's
-   implementation. Already merged code remains the baseline. Link the closed and
-   replacement PRs and explain which findings became design requirements.
-7. A round that times out remains failed if a late result arrives. If a PR is
-   closed, its late review does not reopen or authorize merging it.
+Each PR receives exactly two reviews:
 
-Record each round's number, trigger link, full head SHA, UTC request/deadline/
-completion times, elapsed time, result, and finding disposition in the PR. If a
-batch keeps a repository review log, update it without claiming a future result.
-Do not create recursive documentation commits solely to record their own review;
-the final PR comment can record the reviewed SHA and merge evidence.
+1. **One Codex review.** The automatic review on PR creation counts; do not send
+   another request while it is pending or after it completes. If no automatic
+   review was triggered, request the one review with a standalone PR comment
+   containing exactly `@codex review`. Avoid the bot mention in PR descriptions
+   and ordinary progress comments. Keep the 15-minute deadline, including queue
+   time, measured from PR creation or the actual manual request. Record service
+   errors or timeouts honestly; a reaction, silence, or a pending job is not a
+   completed review.
+2. **One independent subagent review.** Use a fresh context without the
+   implementer's conversation. Give the reviewer the user request, applicable
+   rules, relevant requirements and decisions, and the diff. Focus on abstract or
+   undecided requirements that the implementation may have filled in arbitrarily,
+   unsupported assumptions, and compliance with the applicable code-quality skills.
+   For documentation changes, check that the policy matches the user request and
+   is consistent across the affected documents.
+
+Address findings from both reviews with fixes or an evidenced explanation, and
+run the checks appropriate to those fixes. Do not request another review solely
+because findings were fixed or the head changed. The former three-round workflow,
+forced PR closure, and requirement to discard and reimplement a reviewed change
+no longer apply.
+
+Record the reviewer, reviewed full head SHA (or local diff for the subagent),
+request/completion times, result, and finding disposition in the PR. Record the
+Codex deadline and any failure without claiming a completed review. Review fixes
+may follow the recorded reviewed SHA; identify those fixes and their verification
+in the same record. A final PR comment can hold this evidence without a recursive
+documentation commit just to describe its own review. Earlier review histories
+describe the policy in force at the time, not the current workflow.
 
 ## Merge and handoff
 
-Merge only when the current head has a passing completed review, no unresolved
-findings, and successful required CI jobs (`check` and `browser` in the current
-workflow). These are merge rules; a checked template box does not enforce them.
+Merge after the one Codex review and one independent subagent review are
+completed, their findings are addressed, and the current head has successful
+required CI jobs (`check` and `browser` in the current workflow). Review fixes do
+not need a further review. These are merge rules; a checked template box does not
+enforce them.
 Do not bypass checks or treat a canceled, skipped, or running job as successful.
 
 After merging, verify CI for that actual main merge commit. A failed main run is

@@ -204,4 +204,4 @@ Use the CLI's current help when adding components; `components.json` resolves th
 
 [MIT](LICENSE), Copyright (c) 2026 EunhakChoi. Third-party components and fonts retain [their own notices](THIRD_PARTY_NOTICES.md).
 
-Read [AGENTS.md](AGENTS.md) before contributing. Product code is authored independently from public specifications and independent sources. Keep original binaries, decompilations, private datasets, local models, credentials, database files, caches, and investigation evidence outside this public repository. Scaffolding verification does not establish chemical correctness or compatibility with any other application.
+Read [AGENTS.md](AGENTS.md) and [the contribution guide](.github/CONTRIBUTING.md) before contributing. Do not use original application DLLs as the execution engine. Keep credentials, local data, generated outputs, and caches outside this public repository. Each PR receives one Codex review and one independent subagent review. Scaffolding verification does not establish chemical correctness or compatibility with any other application.
