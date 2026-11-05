@@ -168,8 +168,33 @@ and compares its snapshot, content and losses with the prepared result. CDXML do
 as UTF-8 text; CDX is decoded from canonical transport base64 into binary bytes, never
 saved as a base64 text file. The files are `chemifree.cdxml`/`chemifree.cdx`. The panel
 synthesizes no marks or labels and retains all P29e semantic limits and loss rules.
-P29 remains `in_progress` pending P29g. Client and browser checks are defined, but their
-final verification is not asserted by this documentation update.
+P29f passed npm run check and the browser smoke, with Codex and independent subagent
+reviews completed. P29g records completion of the documented bounded profile below.
+
+### P29g profile evidence
+
+The [per-format support/normalization/consent/refusal table](CONTRACT.md#stereo-interchange-evidence-p29g)
+compares CDXML, CDX, recorded/canonical SMILES and V2000/V3000. CDXML/CDX roundtrip
+comparisons cover graph, configurations, membership partitions and marks separately.
+They do not treat `0445` visibility as retained: written groups explicitly show indicators
+and report one informational `enhanced_stereo_display` normalization; no written group
+means no such flag or report.
+
+[Conformance](verification/conformance-report.json) passed 99/99 cases (suite 25),
+including two named format roundtrips and one exact-consent/whole-group-omission case.
+The two [codec corpus tests](../crates/application/tests/stereo_codec_corpus.rs) passed
+92 drawing paths (23 × 2 inputs × 2 outputs) and 16 paths for four hand-declared group
+partitions. The original 23 drawings remain unchanged. RDKit 2022.03.2 separately
+reported 0 problems for 23 drawing fixtures and 0 failures for 24 SMILES fixtures;
+its supported V3000 core/marks/group comparison agreed, except that it skips the
+unrecognized negative `STERAC-128` collection. It did not independently parse CDXML/CDX
+output. See the table's linked checks for the exact evidence and exclusions.
+SMILES directional bonds remain the named deferred **P29c2** scope; bracket marks with
+a lone-pair fourth position remain refused, and recorded export requires consent to
+omit a stored lone-pair configuration. P29 is `done` for this documented bounded profile. P29c2 remains an unimplemented
+follow-up under the open P21 roadmap row. Other stereo classes/CX fields, stereo canonical
+output, CDXML/CDX E/Z derivation and full scene interoperability remain unsupported;
+this is not a claim of full chemical or format compatibility.
 
 ## CDX binary codec
 

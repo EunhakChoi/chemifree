@@ -930,7 +930,7 @@
     "P18",
     "P13"
    ],
-   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(#96으로 병합). 입체, query/반응 SMILES, InChI는 후속이다. canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다."
+   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(#96으로 병합). 입체, query/반응 SMILES, InChI는 후속이다. canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다. P29의 bounded 프로필 완료와 별도로 SMILES 방향 결합 읽기·쓰기 후속 P29c2는 이 열린 행에 남는다. 현재 /와 역슬래시는 directional_bond_unsupported로 거절하며 고립 전자쌍 중심과 다른 stereo class/CX 필드는 계속 미지원이다."
   },
   {
    "phase": "chemistry",
@@ -1150,11 +1150,11 @@
     "CODEC-05",
     "STEREO-01"
    ],
-   "scope": "각 코덱에서 그려진 입체·화학 배치·enhanced 그룹을 연결하고 형식별 보존·정규화·손실 프로필을 구현한다.",
+   "scope": "문서화된 bounded 프로필에서 CDX·CDXML·기록형 SMILES의 그려진 입체·저장 배치·enhanced 그룹을 연결하고, 형식별 보존·정규화·손실을 구현한다. SMILES 방향 결합 P29c2와 일반 형식 호환은 별도 후속이다.",
    "acceptance": "기존 독립 stereo corpus를 코덱별로 실행해 그래프·배치·멤버십·표시를 별도로 대조한다.",
    "kind": "core",
    "id": "P29",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -1167,7 +1167,16 @@
     "P21",
     "P23"
    ],
-   "note": "첫 납품 P29a는 코드 이동뿐이었다. P29b(가져오기만, 진행 중이며 P29 완료가 아니다)는 CDXML·CDX 가져오기에서 공개 근거가 확인하는 입체만 읽는다: 결합 `Display`·`Display2`(Solid·Dash·Hash·WedgedHashBegin/End·Bold·WedgeBegin/End·Wavy·HollowWedgeBegin/End·WavyWedgeBegin/End·Dot·DashDot, 이중결합의 Wavy는 crossed; Begin은 B 원자, End는 E 원자가 뾰족한 끝이고 목록 밖 값은 거절), 원자 `Geometry`·`BondOrdering`·`AS`(저장하지 않고 손실로만 알림, CIP 라벨은 배치로 저장하지 않음), `EnhancedStereoType`·`EnhancedStereoGroupNum`(int32 그대로, 생략=0, Or 1과 And 1은 별개 그룹, CDX 0447은 부호 없는 16비트로 읽어 128·258이 그대로임)을 읽고, 표시와 위치에서 배치를 MOL과 같은 중립 투영으로 유도하며, 그룹 멤버가 유도된 사면체 중심이 아니면 파일 전체를 거절한다. 이중결합 E/Z는 유도하지 않는다. 바이너리 CDX의 결합 Display `0x0601`은 공개 Bond_Display 페이지(INT16 0–14)대로 CDXML과 같은 표로 읽고 Display2·DoublePosition 태그는 공개 근거에 없어 거절을 유지한다. P29c(SMILES·CXSMILES **읽기만**, 진행 중이며 P29 완료가 아니다)는 괄호 원자의 사면체 표 `@`·`@@`를 표 없이 저장 배치로 읽고(이웃 순서는 OpenSMILES: 앞 원자, 괄호 수소, 고리 번호를 쓴 순서, 가지·사슬), CXSMILES `a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로 읽는다. 고립 전자쌍을 넷째 자리로 갖는 표, 방향족 원자, 다른 이웃 수, `@TH`·`@AL`·`@SP`·`@TB`·`@OH` 부류, 방향 결합 `/`·`\\`, 다른 CX 필드는 거절한다(이중결합 `/`·`\\` 읽기는 후속). P29d는 기록형 SMILES 사면체와 CX 그룹 쓰기·되읽기 검증을 더한다. canonical은 입체 손실을 보고한다. P29e는 확인된 typed carrier 네 개와 CDXML·CDX 도면 내보내기를 더한다: 첫 배치의 표시를 쓰고 출력 좌표에서 모든 구성원의 저장 사면체 배치를 유도할 수 있는 그룹만 쓴다. 번호 1–127 밖은 종류별 빈 양수로 정규화하며, 미보존 배치·그룹은 정확한 출력 바이트에 묶인 손실 동의가 필요하다. 알려지지 않은 확장 보존 규칙은 유지하고 표시·CIP를 지어내지 않는다. P29f는 같은 프로필의 웹 내보내기 패널을 더한다: 필수 손실 명시 동의 뒤 다운로드, 전체 snapshot·형식·service generation 변경 시 무효화, 다운로드 직전 내용·손실·snapshot 재검증, CDX base64의 바이너리 해독. P29e 의미를 넓히지 않으며 최종 검증 통과를 이 기록으로 주장하지 않는다. P29g와 방향 결합 후속이 남아 P29는 in_progress다."
+   "note": "첫 납품 P29a는 코드 이동뿐이었다. P29b(가져오기만, 진행 중이며 P29 완료가 아니다)는 CDXML·CDX 가져오기에서 공개 근거가 확인하는 입체만 읽는다: 결합 `Display`·`Display2`(Solid·Dash·Hash·WedgedHashBegin/End·Bold·WedgeBegin/End·Wavy·HollowWedgeBegin/End·WavyWedgeBegin/End·Dot·DashDot, 이중결합의 Wavy는 crossed; Begin은 B 원자, End는 E 원자가 뾰족한 끝이고 목록 밖 값은 거절), 원자 `Geometry`·`BondOrdering`·`AS`(저장하지 않고 손실로만 알림, CIP 라벨은 배치로 저장하지 않음), `EnhancedStereoType`·`EnhancedStereoGroupNum`(int32 그대로, 생략=0, Or 1과 And 1은 별개 그룹, CDX 0447은 부호 없는 16비트로 읽어 128·258이 그대로임)을 읽고, 표시와 위치에서 배치를 MOL과 같은 중립 투영으로 유도하며, 그룹 멤버가 유도된 사면체 중심이 아니면 파일 전체를 거절한다. 이중결합 E/Z는 유도하지 않는다. 바이너리 CDX의 결합 Display `0x0601`은 공개 Bond_Display 페이지(INT16 0–14)대로 CDXML과 같은 표로 읽고 Display2·DoublePosition 태그는 공개 근거에 없어 거절을 유지한다. P29c(SMILES·CXSMILES **읽기만**, 진행 중이며 P29 완료가 아니다)는 괄호 원자의 사면체 표 `@`·`@@`를 표 없이 저장 배치로 읽고(이웃 순서는 OpenSMILES: 앞 원자, 괄호 수소, 고리 번호를 쓴 순서, 가지·사슬), CXSMILES `a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로 읽는다. 고립 전자쌍을 넷째 자리로 갖는 표, 방향족 원자, 다른 이웃 수, `@TH`·`@AL`·`@SP`·`@TB`·`@OH` 부류, 방향 결합 `/`·`\\`, 다른 CX 필드는 거절한다(이중결합 `/`·`\\` 읽기는 후속). P29d는 기록형 SMILES 사면체와 CX 그룹 쓰기·되읽기 검증을 더한다. canonical은 입체 손실을 보고한다. P29e는 확인된 typed carrier 네 개와 CDXML·CDX 도면 내보내기를 더한다: 첫 배치의 표시를 쓰고 출력 좌표에서 모든 구성원의 저장 사면체 배치를 유도할 수 있는 그룹만 쓴다. 번호 1–127 밖은 종류별 빈 양수로 정규화하며, 미보존 배치·그룹은 정확한 출력 바이트에 묶인 손실 동의가 필요하다. 알려지지 않은 확장 보존 규칙은 유지하고 결합 표시·CIP를 생성하지 않는다. P29f는 같은 프로필의 웹 내보내기 패널을 더한다: 필수 손실 명시 동의 뒤 다운로드, 전체 snapshot·형식·service generation 변경 시 무효화, 다운로드 직전 내용·손실·snapshot 재검증, CDX base64의 바이너리 해독. P29e 의미를 넓히지 않으며 최종 검증 통과를 이 기록으로 주장하지 않는다. P29g가 형식별 통합 근거를 확인해 문서화된 bounded 범위의 P29를 완료했다. P29g 근거: suite25 99/99 통과(74 accept·25 reject), 기존23개 도면의 코덱92경로와 별도4partition의16경로를 두 corpus 테스트에서 대조했다. 0445 가시성은 enhanced_stereo_display 정규화이며 보존 축이 아니다. RDKit2022.03.2 별도 대조는 도면23·SMILES24와 지원V3000 core/marks/partition에서 실패가 없었지만 음수 STERAC-128은 건너뛰고 CDXML/CDX 출력 독립판독은 하지 않았다. 방향 결합은 미구현 후속 P29c2이고 lone-pair 넷째 자리 SMILES 표는 거절을 유지한다. P29f의 npm run check·브라우저 smoke와 Codex·독립 subagent 리뷰 두 건은 완료했다. P29는 이 제한된 프로필의 완료이며 전체 호환·출시 완료를 주장하지 않는다. SMILES의 고립 전자쌍 중심, 다른 stereo class/CX 필드, canonical 입체 출력, CDXML/CDX E/Z 유도와 전체 장면 호환은 미지원이다. P29c2는 열린 P21의 이름 있는 미구현 후속으로 추적한다. 납품 메타데이터의 P29f main CI 실행은 기록 시 queued이며, P29g 병합 전에 성공을 확인한다.",
+   "delivered": {
+    "prs": [
+     145,
+     146,
+     147
+    ],
+    "merge_commit": "9bea1231ad25df22f2451d2d8cf7987e4a0f5dc4",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42071079196"
+   }
   },
   {
    "phase": "stereo",

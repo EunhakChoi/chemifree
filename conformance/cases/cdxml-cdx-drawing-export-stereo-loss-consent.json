@@ -1,0 +1,1702 @@
+{
+  "id": "cdxml-cdx-drawing-export-stereo-loss-consent",
+  "title": "CDXML/CDX exports refuse a stored-only center and its complete two-member group until exact loss consent, preserve the other drawn center without a singleton group, invalidate consent across formats and coordinate changes, and never edit the source",
+  "requirements": [
+    "CODEC-01",
+    "CODEC-02",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-11",
+        "profile": "preserve-semantics",
+        "operation": "document.create",
+        "parameters": {
+          "title": "Drawing stereo"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 0
+      },
+      "bind": "source"
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 100,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 100,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 126,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 74,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 200,
+            "y": 100
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "F",
+          "position": {
+            "x": 200,
+            "y": 70
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Cl",
+          "position": {
+            "x": 226,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "Br",
+          "position": {
+            "x": 174,
+            "y": 115
+          },
+          "bond_to": {
+            "atom": "$4",
+            "order": "single"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b5",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "set_configuration_from_drawing",
+          "atoms": [
+            "a1",
+            "a5"
+          ]
+        },
+        {
+          "op": "create_stereo_group",
+          "kind": "and",
+          "number": 4,
+          "atoms": [
+            "a1",
+            "a5"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null,
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              },
+              "begin": "a1",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "mark": null,
+              "begin": "a1",
+              "end": "a4",
+              "order": "single"
+            },
+            {
+              "id": "b4",
+              "mark": null,
+              "begin": "a5",
+              "end": "a6",
+              "order": "single"
+            },
+            {
+              "id": "b5",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              },
+              "begin": "a5",
+              "end": "a7",
+              "order": "single"
+            },
+            {
+              "id": "b6",
+              "mark": null,
+              "begin": "a5",
+              "end": "a8",
+              "order": "single"
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              },
+              {
+                "atom": "a5",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a6",
+                    "a7",
+                    "a8",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "bonds": [],
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 4,
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          },
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 100
+              }
+            },
+            {
+              "id": "a2",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 70
+              }
+            },
+            {
+              "id": "a3",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 126,
+                "y": 115
+              }
+            },
+            {
+              "id": "a4",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 74,
+                "y": 115
+              }
+            },
+            {
+              "id": "a5",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 100
+              }
+            },
+            {
+              "id": "a6",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 70
+              }
+            },
+            {
+              "id": "a7",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 226,
+                "y": 115
+              }
+            },
+            {
+              "id": "a8",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 174,
+                "y": 115
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_mark",
+          "bond": "b2",
+          "mark": null
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null,
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "mark": null,
+              "begin": "a1",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "mark": null,
+              "begin": "a1",
+              "end": "a4",
+              "order": "single"
+            },
+            {
+              "id": "b4",
+              "mark": null,
+              "begin": "a5",
+              "end": "a6",
+              "order": "single"
+            },
+            {
+              "id": "b5",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              },
+              "begin": "a5",
+              "end": "a7",
+              "order": "single"
+            },
+            {
+              "id": "b6",
+              "mark": null,
+              "begin": "a5",
+              "end": "a8",
+              "order": "single"
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              },
+              {
+                "atom": "a5",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a6",
+                    "a7",
+                    "a8",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 4,
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          },
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 100
+              }
+            },
+            {
+              "id": "a2",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 70
+              }
+            },
+            {
+              "id": "a3",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 126,
+                "y": 115
+              }
+            },
+            {
+              "id": "a4",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 74,
+                "y": 115
+              }
+            },
+            {
+              "id": "a5",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 100
+              }
+            },
+            {
+              "id": "a6",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 70
+              }
+            },
+            {
+              "id": "a7",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 226,
+                "y": 115
+              }
+            },
+            {
+              "id": "a8",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 174,
+                "y": 115
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-12",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdxml"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source",
+      "capture": {
+        "cdxml-consent": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-13",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdxml",
+          "accepted_losses": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_changed",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-14",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdxml",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 2,
+        "result": {
+          "snapshot": {
+            "document": {
+              "revision": 2,
+              "stereo": {
+                "atoms": [
+                  {
+                    "atom": "a1",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a2",
+                        "a3",
+                        "a4",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  },
+                  {
+                    "atom": "a5",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a6",
+                        "a7",
+                        "a8",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  }
+                ],
+                "groups": [
+                  {
+                    "kind": "and",
+                    "stored_number": 4,
+                    "members": [
+                      "a1",
+                      "a5"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_configuration",
+              "source_path": "document.atoms[a1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            },
+            {
+              "feature": "stereo_group",
+              "source_path": "document.stereo.groups[e1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      },
+      "document": "source",
+      "capture": {
+        "cdxml-content": "/result/content"
+      },
+      "substitute": {
+        "/parameters/accepted_losses": "cdxml-consent"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-15",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdxml",
+          "source": null,
+          "title": "Omitted group",
+          "page_id": 2,
+          "fragment_id": 3
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "bonds": [
+              {
+                "id": "b1",
+                "mark": null,
+                "begin": "a1",
+                "end": "a2",
+                "order": "single"
+              },
+              {
+                "id": "b2",
+                "mark": null,
+                "begin": "a1",
+                "end": "a3",
+                "order": "single"
+              },
+              {
+                "id": "b3",
+                "mark": null,
+                "begin": "a1",
+                "end": "a4",
+                "order": "single"
+              },
+              {
+                "id": "b4",
+                "mark": null,
+                "begin": "a5",
+                "end": "a6",
+                "order": "single"
+              },
+              {
+                "id": "b5",
+                "mark": {
+                  "kind": "wedge",
+                  "narrow": "begin"
+                },
+                "begin": "a5",
+                "end": "a7",
+                "order": "single"
+              },
+              {
+                "id": "b6",
+                "mark": null,
+                "begin": "a5",
+                "end": "a8",
+                "order": "single"
+              }
+            ],
+            "stereo": {
+              "atoms": [
+                {
+                  "atom": "a5",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a6",
+                      "a7",
+                      "a8",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  }
+                }
+              ],
+              "bonds": [],
+              "groups": []
+            },
+            "atoms": [
+              {
+                "id": "a1",
+                "element": "C",
+                "charge": 0,
+                "position": {
+                  "x": 100,
+                  "y": 100
+                }
+              },
+              {
+                "id": "a2",
+                "element": "F",
+                "charge": 0,
+                "position": {
+                  "x": 100,
+                  "y": 70
+                }
+              },
+              {
+                "id": "a3",
+                "element": "Cl",
+                "charge": 0,
+                "position": {
+                  "x": 126,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a4",
+                "element": "Br",
+                "charge": 0,
+                "position": {
+                  "x": 74,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a5",
+                "element": "C",
+                "charge": 0,
+                "position": {
+                  "x": 200,
+                  "y": 100
+                }
+              },
+              {
+                "id": "a6",
+                "element": "F",
+                "charge": 0,
+                "position": {
+                  "x": 200,
+                  "y": 70
+                }
+              },
+              {
+                "id": "a7",
+                "element": "Cl",
+                "charge": 0,
+                "position": {
+                  "x": 226,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a8",
+                "element": "Br",
+                "charge": 0,
+                "position": {
+                  "x": 174,
+                  "y": 115
+                }
+              }
+            ]
+          }
+        }
+      },
+      "substitute": {
+        "/parameters/source": "cdxml-content"
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null,
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "mark": null,
+              "begin": "a1",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "mark": null,
+              "begin": "a1",
+              "end": "a4",
+              "order": "single"
+            },
+            {
+              "id": "b4",
+              "mark": null,
+              "begin": "a5",
+              "end": "a6",
+              "order": "single"
+            },
+            {
+              "id": "b5",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              },
+              "begin": "a5",
+              "end": "a7",
+              "order": "single"
+            },
+            {
+              "id": "b6",
+              "mark": null,
+              "begin": "a5",
+              "end": "a8",
+              "order": "single"
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              },
+              {
+                "atom": "a5",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a6",
+                    "a7",
+                    "a8",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 4,
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          },
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 100
+              }
+            },
+            {
+              "id": "a2",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 70
+              }
+            },
+            {
+              "id": "a3",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 126,
+                "y": 115
+              }
+            },
+            {
+              "id": "a4",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 74,
+                "y": 115
+              }
+            },
+            {
+              "id": "a5",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 100
+              }
+            },
+            {
+              "id": "a6",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 70
+              }
+            },
+            {
+              "id": "a7",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 226,
+                "y": 115
+              }
+            },
+            {
+              "id": "a8",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 174,
+                "y": 115
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-16",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_changed",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source",
+      "substitute": {
+        "/parameters/accepted_losses": "cdxml-consent"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-17",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source",
+      "capture": {
+        "cdx-consent": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-18",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "accepted_losses": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_changed",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-19",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 2,
+        "result": {
+          "snapshot": {
+            "document": {
+              "revision": 2,
+              "stereo": {
+                "atoms": [
+                  {
+                    "atom": "a1",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a2",
+                        "a3",
+                        "a4",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  },
+                  {
+                    "atom": "a5",
+                    "configuration": {
+                      "kind": "tetrahedral",
+                      "neighbors": [
+                        "a6",
+                        "a7",
+                        "a8",
+                        "implicit_hydrogen"
+                      ],
+                      "turn": "clockwise"
+                    }
+                  }
+                ],
+                "groups": [
+                  {
+                    "kind": "and",
+                    "stored_number": 4,
+                    "members": [
+                      "a1",
+                      "a5"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_configuration",
+              "source_path": "document.atoms[a1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            },
+            {
+              "feature": "stereo_group",
+              "source_path": "document.stereo.groups[e1]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      },
+      "document": "source",
+      "capture": {
+        "cdx-content": "/result/content"
+      },
+      "substitute": {
+        "/parameters/accepted_losses": "cdx-consent"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-20",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "mode": "preview",
+          "format": "cdx",
+          "source": null,
+          "title": "Omitted group",
+          "page_id": 2,
+          "fragment_id": 3
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "document": {
+            "bonds": [
+              {
+                "id": "b1",
+                "mark": null,
+                "begin": "a1",
+                "end": "a2",
+                "order": "single"
+              },
+              {
+                "id": "b2",
+                "mark": null,
+                "begin": "a1",
+                "end": "a3",
+                "order": "single"
+              },
+              {
+                "id": "b3",
+                "mark": null,
+                "begin": "a1",
+                "end": "a4",
+                "order": "single"
+              },
+              {
+                "id": "b4",
+                "mark": null,
+                "begin": "a5",
+                "end": "a6",
+                "order": "single"
+              },
+              {
+                "id": "b5",
+                "mark": {
+                  "kind": "wedge",
+                  "narrow": "begin"
+                },
+                "begin": "a5",
+                "end": "a7",
+                "order": "single"
+              },
+              {
+                "id": "b6",
+                "mark": null,
+                "begin": "a5",
+                "end": "a8",
+                "order": "single"
+              }
+            ],
+            "stereo": {
+              "atoms": [
+                {
+                  "atom": "a5",
+                  "configuration": {
+                    "kind": "tetrahedral",
+                    "neighbors": [
+                      "a6",
+                      "a7",
+                      "a8",
+                      "implicit_hydrogen"
+                    ],
+                    "turn": "clockwise"
+                  }
+                }
+              ],
+              "bonds": [],
+              "groups": []
+            },
+            "atoms": [
+              {
+                "id": "a1",
+                "element": "C",
+                "charge": 0,
+                "position": {
+                  "x": 100,
+                  "y": 100
+                }
+              },
+              {
+                "id": "a2",
+                "element": "F",
+                "charge": 0,
+                "position": {
+                  "x": 100,
+                  "y": 70
+                }
+              },
+              {
+                "id": "a3",
+                "element": "Cl",
+                "charge": 0,
+                "position": {
+                  "x": 126,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a4",
+                "element": "Br",
+                "charge": 0,
+                "position": {
+                  "x": 74,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a5",
+                "element": "C",
+                "charge": 0,
+                "position": {
+                  "x": 200,
+                  "y": 100
+                }
+              },
+              {
+                "id": "a6",
+                "element": "F",
+                "charge": 0,
+                "position": {
+                  "x": 200,
+                  "y": 70
+                }
+              },
+              {
+                "id": "a7",
+                "element": "Cl",
+                "charge": 0,
+                "position": {
+                  "x": 226,
+                  "y": 115
+                }
+              },
+              {
+                "id": "a8",
+                "element": "Br",
+                "charge": 0,
+                "position": {
+                  "x": 174,
+                  "y": 115
+                }
+              }
+            ]
+          }
+        }
+      },
+      "substitute": {
+        "/parameters/source": "cdx-content"
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null,
+              "begin": "a1",
+              "end": "a2",
+              "order": "single"
+            },
+            {
+              "id": "b2",
+              "mark": null,
+              "begin": "a1",
+              "end": "a3",
+              "order": "single"
+            },
+            {
+              "id": "b3",
+              "mark": null,
+              "begin": "a1",
+              "end": "a4",
+              "order": "single"
+            },
+            {
+              "id": "b4",
+              "mark": null,
+              "begin": "a5",
+              "end": "a6",
+              "order": "single"
+            },
+            {
+              "id": "b5",
+              "mark": {
+                "kind": "wedge",
+                "narrow": "begin"
+              },
+              "begin": "a5",
+              "end": "a7",
+              "order": "single"
+            },
+            {
+              "id": "b6",
+              "mark": null,
+              "begin": "a5",
+              "end": "a8",
+              "order": "single"
+            }
+          ],
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              },
+              {
+                "atom": "a5",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a6",
+                    "a7",
+                    "a8",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 4,
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          },
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 100
+              }
+            },
+            {
+              "id": "a2",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 100,
+                "y": 70
+              }
+            },
+            {
+              "id": "a3",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 126,
+                "y": 115
+              }
+            },
+            {
+              "id": "a4",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 74,
+                "y": 115
+              }
+            },
+            {
+              "id": "a5",
+              "element": "C",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 100
+              }
+            },
+            {
+              "id": "a6",
+              "element": "F",
+              "charge": 0,
+              "position": {
+                "x": 200,
+                "y": 70
+              }
+            },
+            {
+              "id": "a7",
+              "element": "Cl",
+              "charge": 0,
+              "position": {
+                "x": 226,
+                "y": 115
+              }
+            },
+            {
+              "id": "a8",
+              "element": "Br",
+              "charge": 0,
+              "position": {
+                "x": 174,
+                "y": 115
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "move_atoms",
+          "atoms": [
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+            "a8"
+          ],
+          "delta": {
+            "x": 1,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "atoms": [
+              {
+                "atom": "a1",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a2",
+                    "a3",
+                    "a4",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              },
+              {
+                "atom": "a5",
+                "configuration": {
+                  "kind": "tetrahedral",
+                  "neighbors": [
+                    "a6",
+                    "a7",
+                    "a8",
+                    "implicit_hydrogen"
+                  ],
+                  "turn": "clockwise"
+                }
+              }
+            ],
+            "groups": [
+              {
+                "kind": "and",
+                "stored_number": 4,
+                "members": [
+                  "a1",
+                  "a5"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "step-21",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "cdx",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_changed",
+            "details": {
+              "features": [
+                "stereo_configuration",
+                "stereo_group"
+              ],
+              "losses": {
+                "$contains": [
+                  {
+                    "feature": "stereo_configuration",
+                    "source_path": "document.atoms[a1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  },
+                  {
+                    "feature": "stereo_group",
+                    "source_path": "document.stereo.groups[e1]",
+                    "disposition": "dropped",
+                    "semantic_impact": "stereo"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "document": "source",
+      "substitute": {
+        "/parameters/accepted_losses": "cdx-consent"
+      }
+    }
+  ]
+}
