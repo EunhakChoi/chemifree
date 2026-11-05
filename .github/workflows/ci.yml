@@ -74,6 +74,8 @@ jobs:
         run: npx playwright-core install --with-deps chromium
       - name: Route-expiry guard (#8)
         run: npm run test:browser:routes
+      - name: Native clipboard dialogs
+        run: npm run test:browser:clipboard
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke

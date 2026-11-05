@@ -115,6 +115,32 @@ export interface SelectionView {
   bonds: string[]
 }
 
+/** Native clipboard transport is plain text; its contents are validated again by the server. */
+export const MAX_NATIVE_CLIPBOARD_BYTES = 64 * 1024
+
+export interface NativeClipboardCopy {
+  snapshot: DocumentResponse
+  instance: string
+  copied: SelectionView
+  boundaryBonds: string[]
+  payload: string
+}
+
+export interface NativeClipboardPaste {
+  snapshot: DocumentResponse
+  mapping: { atoms: NativeClipboardIdMapping[]; bonds: NativeClipboardIdMapping[] }
+}
+
+export interface NativeClipboardIdMapping {
+  source: string
+  target: string
+}
+
+/** Retain this exact attempt for Check again; creating another attempt means another paste. */
+export interface NativeClipboardPasteAttempt {
+  send(): Promise<NativeClipboardPaste>
+}
+
 export interface SelectionSnapshots {
   before?: SelectionView
   after?: SelectionView
@@ -1692,6 +1718,89 @@ function drawingExportReply(value: unknown, request: string): {
   return { result: value.result, losses: value.loss_report, revision: value.document_revision }
 }
 
+function clipboardIncompatible(): ApiError {
+  return new ApiError('incompatible_response', 'The local service returned an incompatible native clipboard reply.', 200)
+}
+
+function clipboardId(value: unknown, prefix: 'a' | 'b' | 's'): value is string {
+  if (typeof value !== 'string' || !new RegExp(`^${prefix}[1-9][0-9]*$`).test(value)) return false
+  return Number(value.slice(1)) <= 0xffff_ffff
+}
+
+function clipboardTextFits(value: string): boolean {
+  return new TextEncoder().encode(value).byteLength <= MAX_NATIVE_CLIPBOARD_BYTES
+}
+
+function clipboardSelection(selection: SelectionView): SelectionView {
+  return { objects: [...selection.objects], atoms: [...selection.atoms], bonds: [...selection.bonds] }
+}
+
+function sameClipboardIds(first: readonly string[], second: readonly string[]): boolean {
+  return first.length === second.length && new Set(first).size === first.length && first.every((id) => second.includes(id))
+}
+
+function clipboardReply(value: unknown, request: string, operation: string): { result: Record<string, unknown>; revision: number; losses: unknown[] } {
+  if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' || value.request_id !== request ||
+      value.operation !== operation || value.profile !== 'preserve-semantics' || !Array.isArray(value.diagnostics) || !Array.isArray(value.loss_report)) {
+    throw clipboardIncompatible()
+  }
+  if (value.outcome === 'error' || value.outcome === 'unsupported') {
+    const problem: unknown = value.diagnostics[0]
+    if (value.result !== null || !isRecord(problem) || typeof problem.code !== 'string' || typeof problem.message !== 'string' ||
+        !isRecord(problem.details) || value.loss_report.length !== 0) throw clipboardIncompatible()
+    throw new ApiError(problem.code, problem.message, 200, {
+      currentRevision: isCount(problem.details.current_revision) ? problem.details.current_revision : undefined,
+      stateReason: typeof problem.details.reason === 'string' ? problem.details.reason : undefined,
+    })
+  }
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) || !isCount(value.document_revision) ||
+      value.diagnostics.length !== 0 || (value.outcome === 'ok') !== (value.loss_report.length === 0)) throw clipboardIncompatible()
+  return { result: value.result, revision: value.document_revision, losses: value.loss_report }
+}
+
+interface ClipboardPayloadIds {
+  atoms: string[]
+  bonds: { id: string; begin: string; end: string }[]
+}
+
+/** Read only the native structural identifiers needed to verify a service mapping, never commands. */
+function clipboardPayloadIds(text: string): ClipboardPayloadIds {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw clipboardIncompatible()
+  }
+  if (!isRecord(value) || value.format !== 'chemifree.clipboard' || value.version !== 1 ||
+      !hasOnly(value, ['format', 'version', 'settings', 'atoms', 'bonds', 'stereo']) || !isRecord(value.settings) ||
+      !Array.isArray(value.atoms) || !Array.isArray(value.bonds) || !Array.isArray(value.stereo)) throw clipboardIncompatible()
+  const atoms: string[] = []
+  for (const atom of value.atoms) {
+    if (!isRecord(atom) || !clipboardId(atom.id, 'a') || atoms.includes(atom.id)) throw clipboardIncompatible()
+    atoms.push(atom.id)
+  }
+  const bonds: ClipboardPayloadIds['bonds'] = []
+  for (const bond of value.bonds) {
+    if (!isRecord(bond) || !clipboardId(bond.id, 'b') || !clipboardId(bond.begin, 'a') || !clipboardId(bond.end, 'a') ||
+        !atoms.includes(bond.begin) || !atoms.includes(bond.end) || bond.begin === bond.end || bonds.some((entry) => entry.id === bond.id)) throw clipboardIncompatible()
+    bonds.push({ id: bond.id, begin: bond.begin, end: bond.end })
+  }
+  if (atoms.length === 0) throw clipboardIncompatible()
+  return { atoms, bonds }
+}
+
+function clipboardMappings(value: unknown, sources: readonly string[], prefix: 'a' | 'b', targets: readonly string[]): NativeClipboardIdMapping[] {
+  if (!Array.isArray(value) || value.length !== sources.length) throw clipboardIncompatible()
+  const mappings: NativeClipboardIdMapping[] = []
+  for (const item of value) {
+    if (!isRecord(item) || !clipboardId(item.source, prefix) || !clipboardId(item.target, prefix) ||
+        !sources.includes(item.source) || mappings.some((prior) => prior.source === item.source || prior.target === item.target)) throw clipboardIncompatible()
+    mappings.push({ source: item.source, target: item.target })
+  }
+  if (!sameClipboardIds(mappings.map((item) => item.target), targets)) throw clipboardIncompatible()
+  return mappings
+}
+
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
   private token: Promise<{ header: string; token: string }> | null = null
@@ -1820,6 +1929,116 @@ export class DocumentClient {
 
   private static document(value: unknown): DocumentResponse {
     return documentResponse(value)
+  }
+
+  /** Copies an exact structural selection without changing its source document. */
+  async clipboardCopy(id: string, selection: SelectionView, instance: string): Promise<NativeClipboardCopy> {
+    const requested = clipboardSelection(selection)
+    const request = requestId()
+    const { result, revision, losses } = clipboardReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.clipboard_copy',
+      parameters: { document_id: id, selection: requested, instance },
+    }, 'reload'), request, 'document.clipboard_copy')
+    if (!isRecord(result.snapshot) || result.instance !== instance || !isSelection(result.copied) ||
+        result.copied.objects.length !== 0 || typeof result.payload !== 'string' || !clipboardTextFits(result.payload) ||
+        !isStringArray(result.boundary_bonds) || losses.length !== 0 || requested.objects.length !== 0) throw clipboardIncompatible()
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+    const copied = result.copied
+    if (snapshot.document.id !== id || snapshot.document.revision !== revision || snapshot.notes?.length ||
+        !snapshot.document.scene?.instances.some((placement) => placement.id === instance) ||
+        !copied.atoms.every((atom) => clipboardId(atom, 'a')) || !copied.bonds.every((bond) => clipboardId(bond, 'b')) ||
+        !result.boundary_bonds.every((bond) => clipboardId(bond, 'b'))) throw clipboardIncompatible()
+    const atoms = new Set(requested.atoms)
+    for (const id of requested.bonds) {
+      const bond = snapshot.document.bonds.find((bond) => bond.id === id)
+      if (!bond) throw clipboardIncompatible()
+      atoms.add(bond.begin)
+      atoms.add(bond.end)
+    }
+    const induced = snapshot.document.bonds.filter((bond) => atoms.has(bond.begin) && atoms.has(bond.end)).map((bond) => bond.id)
+    const boundary = snapshot.document.bonds.filter((bond) => atoms.has(bond.begin) !== atoms.has(bond.end)).map((bond) => bond.id)
+    const payload = clipboardPayloadIds(result.payload)
+    if (!sameClipboardIds(copied.atoms, [...atoms]) || !copied.atoms.every((id) => snapshot.document.atoms.some((atom) => atom.id === id)) ||
+        !sameClipboardIds(copied.bonds, induced) || !sameClipboardIds(result.boundary_bonds, boundary) ||
+        !sameClipboardIds(payload.atoms, copied.atoms) || !sameClipboardIds(payload.bonds.map((bond) => bond.id), copied.bonds)) throw clipboardIncompatible()
+    return { snapshot, instance, copied, boundaryBonds: result.boundary_bonds, payload: result.payload }
+  }
+
+  /** Freeze one paste body and request ID; every send checks only that attempt's outcome. */
+  createClipboardPaste(id: string, expectedRevision: number, payload: string, offset: Position, selectionBefore: SelectionView): NativeClipboardPasteAttempt {
+    if (!clipboardTextFits(payload)) throw new ApiError('invalid_command', 'Native clipboard text exceeds 64 KiB.', 400, { stateReason: 'clipboard_byte_limit' })
+    const request = requestId()
+    const parameters = { document_id: id, expected_revision: expectedRevision, payload,
+      offset: { x: offset.x, y: offset.y }, selection_before: clipboardSelection(selectionBefore) }
+    let sentTo: string | undefined
+    let uncertain = false
+    let restartedAttempt = false
+    let settled: NativeClipboardPaste | undefined
+    let refused: ApiError | undefined
+    let inFlight: Promise<NativeClipboardPaste> | undefined
+    const sendOnce = async (): Promise<NativeClipboardPaste> => {
+      let askedAgain = false
+      for (let checks = 0; ; ) {
+        try {
+          const value = await this.write('/api/v1/operations', {
+            contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.clipboard_paste', parameters,
+          }, 'reload', (token) => {
+            if (sentTo !== undefined && sentTo !== token) throw restarted(401)
+            sentTo = token
+          })
+          const { result, revision, losses } = clipboardReply(value, request, 'document.clipboard_paste')
+          if (!isRecord(result.snapshot) || !isRecord(result.mapping)) throw clipboardIncompatible()
+          const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+          const selection = snapshot.document.selection
+          if (snapshot.document.id !== id || revision !== expectedRevision + 1 || snapshot.document.revision !== revision ||
+              !selection || selection.objects.length !== 0 || !isStereoNotes(losses) || !sameJson(losses, snapshot.notes ?? [])) throw clipboardIncompatible()
+          const source = clipboardPayloadIds(payload)
+          const atoms = clipboardMappings(result.mapping.atoms, source.atoms, 'a', selection.atoms)
+          const bonds = clipboardMappings(result.mapping.bonds, source.bonds.map((bond) => bond.id), 'b', selection.bonds)
+          const mappedAtom = new Map(atoms.map((entry) => [entry.source, entry.target]))
+          const mappedBond = new Map(bonds.map((entry) => [entry.source, entry.target]))
+          if (atoms.some((entry) => !snapshot.document.atoms.some((atom) => atom.id === entry.target)) ||
+              source.bonds.some((sourceBond) => {
+                const bond = snapshot.document.bonds.find((bond) => bond.id === mappedBond.get(sourceBond.id))
+                return !bond || bond.begin !== mappedAtom.get(sourceBond.begin) || bond.end !== mappedAtom.get(sourceBond.end)
+              })) throw clipboardIncompatible()
+          uncertain = false
+          settled = { snapshot, mapping: { atoms, bonds } }
+          return settled
+        } catch (failure) {
+          if (!(failure instanceof ApiError)) throw failure
+          if (failure.code === 'service_restarted') {
+            restartedAttempt = true
+            throw new ApiError('clipboard_paste_restarted', 'The service restarted before this paste was confirmed. Reload the drawing to reconcile it; this attempt will not be resent.', failure.status)
+          }
+          if (outcomeOpen(failure) || failure.code === 'incompatible_response') uncertain = sentTo !== undefined
+          if (failure.status === 0 && !askedAgain) { askedAgain = true; continue }
+          if (failure.code === 'request_in_progress' && checks < OUTCOME_CHECKS) {
+            checks += 1
+            await pause(OUTCOME_CHECK_INTERVAL_MS)
+            continue
+          }
+          // A terminal revision precondition reply means no request with this ID is still
+          // running. Its replay may have expired after committing: reread, never repaste.
+          if (uncertain && failure.code === 'revision_conflict') {
+            refused = new ApiError('clipboard_paste_reconcile', 'The original paste can no longer be confirmed by replay. It may already be present. Reload the drawing before making another change.', failure.status)
+            throw refused
+          }
+          if (uncertain) throw new ApiError('clipboard_paste_unconfirmed', 'The service has not confirmed this paste. Check again asks about the same attempt without pasting twice.', failure.status)
+          refused = failure
+          throw failure
+        }
+      }
+    }
+    return {
+      send: () => {
+        if (settled) return Promise.resolve(settled)
+        if (restartedAttempt) return Promise.reject(new ApiError('clipboard_paste_restarted', 'The service restarted; reload before another paste.', 401))
+        if (refused) return Promise.reject(refused)
+        inFlight ??= sendOnce().finally(() => { inFlight = undefined })
+        return inFlight
+      },
+    }
   }
 
   /** The server returns the actual inspected snapshot, not just its potentially reused revision. */

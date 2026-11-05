@@ -60,6 +60,13 @@
 
 - clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
 
+## P33b 명시적 native clipboard 웹 대화상자 후보 인계
+
+- Copy fragment는 누른 document·selection·source placement를 잡고 기존 edit queue 뒤에서 전체를 확인한다. prepare는 읽기 전용이며 완료 후 두 번째 Copy to clipboard 클릭에서만 native JSON plain text를 쓴다. 선택 가능한 read-only text가 수동 복사 대안이다.
+- Paste fragment 열기는 clipboard를 읽지 않는다. 명시 Read clipboard 클릭 또는 일반 textarea 붙여넣기를 거쳐 별도 submit 때 local service에 보낸다. pt 단위 x/y offset은 각 축에 destination bond length 한 개로 시작하며 viewport 재배치·연속 paste 자동 이동은 없다. 한 destination placement·정확한 settings 일치와 기존 원자적 거절 규칙을 유지한다.
+- paste의 payload·offset·document·selection-before는 제출 때 고정하고 expected revision은 큐 실행 때 최신 값을 쓴다. lost reply는 동일 request ID/body로만 확인한다. 미확정 상태는 후속 document queue action을 잠그고 Check paste outcome을 제공하며 service restart 뒤에는 새 process로 재전송하지 않고 명시 reload로 reconcile한다.
+- background clipboard read·전역 Ctrl/Cmd+C/V/X 가로채기·payload logging/storage·Cut·scene clone·외부 clipboard format은 없다. 닫기/문서 전환 시 임시 dialog text를 버리며 OS clipboard는 지우지 않는다. 기존 P33a suite29 107/107은 새 웹 동작 실행 근거가 아니다. 이번 변경의 client/browser·typecheck/lint/build는 담당 검증자가 격리 sandbox에서 실행할 예정이며 아직 통과로 보고하지 않는다. P33은 계속 in_progress다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

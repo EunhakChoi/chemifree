@@ -5365,3 +5365,148 @@ test('transform controls require a scene tree while legacy atom movement remains
   delete drawing.scene
   assert.equal(selectionTransform(drawing, new Set(['a1']), null, { type: 'reflect_horizontal' }), null)
 })
+
+function nativeClipboardFixture() {
+  const source = groupedScene()
+  source.document.settings = { ...DEFAULT_SETTINGS }
+  source.notes = []
+  const payload = JSON.stringify({
+    format: 'chemifree.clipboard', version: 1, settings: DEFAULT_SETTINGS,
+    atoms: [
+      { id: 'a1', kind: { type: 'element', symbol: 'C' }, charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x: 50, y: 100 } },
+      { id: 'a2', kind: { type: 'element', symbol: 'O' }, charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x: 80, y: 100 } },
+    ],
+    bonds: [{ id: 'b1', begin: 'a1', end: 'a2', order: 'single', query: null, mark: null }], stereo: [],
+  })
+  const pasted = structuredClone(source)
+  pasted.document.revision = 3
+  pasted.document.atoms = [
+    { id: 'a5', element: 'C', charge: 0, isotope: null, position: { x: 60, y: 120 } },
+    { id: 'a6', element: 'O', charge: 0, isotope: null, position: { x: 90, y: 120 } },
+  ]
+  pasted.document.bonds = [{ id: 'b5', begin: 'a5', end: 'a6', order: 'single' }]
+  pasted.document.scene.instances = [{ id: 's1', page: 'p1', molecule: 'm1', positions: [{ atom: 'a5', x: 60, y: 120 }, { atom: 'a6', x: 90, y: 120 }] }]
+  pasted.document.scene.roots = ['s1']
+  pasted.document.scene.objects = [{ kind: 'instance', id: 's1', parent: null, molecule: 'm1' }]
+  pasted.document.selection = { objects: [], atoms: ['a5', 'a6'], bonds: ['b5'] }
+  pasted.session.undo_depth = 3
+  return {
+    payload, source,
+    selection: { objects: [], atoms: ['a1', 'a2'], bonds: [] },
+    copied: { snapshot: source, instance: 's2', copied: { objects: [], atoms: ['a1', 'a2'], bonds: ['b1'] }, boundary_bonds: [], payload },
+    pasted: { snapshot: pasted, mapping: { atoms: [{ source: 'a1', target: 'a5' }, { source: 'a2', target: 'a6' }], bonds: [{ source: 'b1', target: 'b5' }] } },
+  }
+}
+
+function nativeClipboardReply(scripted, operation, result, revision = 3) {
+  return {
+    contract: 1, envelope: 'operation_result', request_id: scripted.writes.at(-1).requestId,
+    profile: 'preserve-semantics', operation, outcome: 'ok', model_id: null,
+    document_revision: revision, result, diagnostics: [], loss_report: [],
+  }
+}
+
+test('native copy validates its exact induced graph, instance and payload before returning text', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_copy', fixture.copied, 2))] })
+  const copied = await new DocumentClient().clipboardCopy('doc-1', fixture.selection, 's2')
+  assert.equal(copied.snapshot.document.id, 'doc-1')
+  assert.deepEqual(copied.copied, { objects: [], atoms: ['a1', 'a2'], bonds: ['b1'] })
+  assert.deepEqual(copied.boundaryBonds, [])
+  assert.equal(copied.payload, fixture.payload)
+  assert.deepEqual(scripted.writes[0].parameters, { document_id: 'doc-1', selection: fixture.selection, instance: 's2' })
+})
+
+for (const [name, change] of [
+  ['wrong snapshot', (reply) => { reply.snapshot.document.id = 'another-document' }],
+  ['missing induced bond', (reply) => { reply.copied.bonds = [] }],
+  ['invented boundary bond', (reply) => { reply.boundary_bonds = ['b1'] }],
+  ['oversized Unicode payload', (reply) => { reply.payload = '한'.repeat(22000) }],
+]) {
+  test(`native copy refuses ${name}`, async () => {
+    const fixture = nativeClipboardFixture()
+    change(fixture.copied)
+    const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_copy', fixture.copied, 2))] })
+    await assert.rejects(new DocumentClient().clipboardCopy('doc-1', fixture.selection, 's2'), { code: 'incompatible_response' })
+  })
+}
+
+test('an unresolved native paste keeps one request body and ID for Check again and caches confirmation', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => json(200, nativeClipboardReply(scripted, 'document.clipboard_paste', fixture.pasted))] })
+  const client = new DocumentClient()
+  const before = { objects: [], atoms: [], bonds: [] }
+  const offset = { x: 10, y: 20 }
+  const attempt = client.createClipboardPaste('doc-1', 2, fixture.payload, offset, before)
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_unconfirmed' })
+  offset.x = 900
+  before.atoms.push('a99')
+  const confirmed = await attempt.send()
+  assert.deepEqual(confirmed.mapping, fixture.pasted.mapping)
+  assert.equal(confirmed.snapshot.document.revision, 3)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), Array(3).fill({
+    document_id: 'doc-1', expected_revision: 2, payload: fixture.payload,
+    offset: { x: 10, y: 20 }, selection_before: { objects: [], atoms: [], bonds: [] },
+  }))
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 3, 'confirmed attempts do not issue another paste')
+})
+
+test('native paste retries request_in_progress with the same ID', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => error(409, 'request_in_progress'), () => json(200, nativeClipboardReply(scripted, 'document.clipboard_paste', fixture.pasted))] })
+  const attempt = new DocumentClient().createClipboardPaste('doc-1', 2, fixture.payload, { x: 10, y: 20 }, { objects: [], atoms: [], bonds: [] })
+  assert.deepEqual((await attempt.send()).mapping, fixture.pasted.mapping)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('native paste never reissues to a restarted service, including after another request notices the restart', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost] })
+  const client = new DocumentClient()
+  const attempt = client.createClipboardPaste('doc-1', 2, fixture.payload, { x: 10, y: 20 }, { objects: [], atoms: [], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_unconfirmed' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_restarted' })
+  assert.deepEqual(scripted.writes.filter((write) => write.path.endsWith('/operations')).map((write) => write.token), ['token-1', 'token-1'])
+})
+
+test('native paste treats malformed successful mappings as unresolved and checks the same attempt again', async () => {
+  const fixture = nativeClipboardFixture()
+  const malformed = structuredClone(fixture.pasted)
+  malformed.mapping.atoms[0].target = 'a99'
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, nativeClipboardReply(scripted, 'document.clipboard_paste', malformed)),
+    () => json(200, nativeClipboardReply(scripted, 'document.clipboard_paste', fixture.pasted)),
+  ] })
+  const attempt = new DocumentClient().createClipboardPaste('doc-1', 2, fixture.payload, { x: 10, y: 20 }, { objects: [], atoms: [], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_unconfirmed' })
+  assert.deepEqual((await attempt.send()).mapping, fixture.pasted.mapping)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('a refusal after an unknown native paste outcome does not pretend the original failed', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => json(409, { api_version: 'v1', code: 'revision_conflict', message: 'changed', current_revision: 3 })] })
+  const attempt = new DocumentClient().createClipboardPaste('doc-1', 2, fixture.payload, { x: 10, y: 20 }, { objects: [], atoms: [], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_reconcile' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_paste_reconcile' })
+  assert.equal(scripted.writes.length, 3, 'terminal conflict is reconciled by reading, never another paste POST')
+  assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
+})
+
+
+test('concurrent Check again calls share one in-flight native paste request', async () => {
+  const fixture = nativeClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_paste', fixture.pasted))] })
+  const attempt = new DocumentClient().createClipboardPaste('doc-1', 2, fixture.payload, { x: 10, y: 20 }, { objects: [], atoms: [], bonds: [] })
+  const first = attempt.send()
+  const second = attempt.send()
+  assert.equal(second, first)
+  assert.deepEqual((await first).mapping, fixture.pasted.mapping)
+  assert.equal(scripted.writes.length, 1)
+})

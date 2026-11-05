@@ -84,6 +84,7 @@ import { DocumentStyleButton, PreferencesButton } from '@/components/style-setti
 import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
+import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
@@ -828,6 +829,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onGroupLabelsChange={setGroupLabels}
           />
           <ValenceInspector document={document} editor={editor} />
+          <NativeClipboardPanel key={`clipboard-${document.id}`} document={document} editor={editor} activePlacement={activePlacement} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
           <InterchangeExportPanel key={`interchange-export-${document.id}`} document={document} editor={editor} />
           <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />
