@@ -1,5 +1,5 @@
 {
-  "suite_version": 27,
+  "suite_version": 28,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -103,6 +103,8 @@
     "cases/selection-scope-union-move-history.json",
     "cases/selection-scope-refusal-atomic.json",
     "cases/object-arrangement-plan-history.json",
-    "cases/object-arrangement-refusal-atomic.json"
+    "cases/object-arrangement-refusal-atomic.json",
+    "cases/selection-transform-plan-history.json",
+    "cases/selection-transform-refusal-atomic.json"
   ]
 }

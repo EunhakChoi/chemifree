@@ -999,33 +999,51 @@
         },
         {
           "id": "OPS-01.selection-scope",
-          "summary": "P32a candidate read-only document.selection_scope and atomic move_selection resolve the deterministic union of selected scene subtrees, atom positions and bond endpoints in the selected placement. Overlaps move once, references/connectivity are not followed, other placements and chemistry stay, invalid targets/coordinate overflow roll back the transaction, and empty/zero movement preserves revision/history/redo. The movement selection is independent of history selection_before/after. Final checks/reviews and conformance report are pending. No new web selection, alignment, rotation, reflection or distribution.",
-          "status": "unverified",
+          "summary": "Bounded P32a read-only document.selection_scope and atomic move_selection resolve the deterministic union of selected scene subtrees, atom positions and bond endpoints in the selected placement. Overlaps move once, references/connectivity are not followed, other placements and chemistry stay, invalid targets/coordinate overflow roll back the transaction, and empty/zero movement preserves revision/history/redo. The movement selection is independent of history selection_before/after. Both dedicated conformance cases passed in clean isolated suite 28; this records bounded functionality, not full P32 completion or a final CI/review claim. P32a itself adds no web controls; P32b/P32c extend the shared alignment and geometry-transform primitives separately.",
+          "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
             "crates/domain/src/scene.rs",
             "crates/application/src/operations/selection_scope.rs",
             "crates/application/src/contract.rs"
           ],
-          "evidence": [],
-          "followups": [
-            "P32"
-          ]
+          "evidence": [
+            "case:selection-scope-union-move-history",
+            "case:selection-scope-refusal-atomic"
+          ],
+          "followups": []
         },
         {
           "id": "OPS-01.object-arrangement",
-          "summary": "P32b candidate geometry-only document.arrangement_plan and atomic arrange_objects: six union-bound alignments and horizontal/vertical equal-edge-gap distribution of outermost scene units. Descendants of selected ancestors are absorbed into rigid groups, leading-edge/ID order is deterministic, endpoints stay fixed, and too few units, empty geometry, negative gap or coordinate overflow refuse whole. No-op preserves history/redo; plans include original bounds/nominal deltas/translation anchors/scopes and exact snapshot, not a commit token. Anchors reconstruct each moved coordinate with exact coordinate + target - source summed before one binary64 ties-even rounding; null leaves stationary units untouched. Final checks/reviews pending; no web controls, partial atom targets, rotation/reflection or snapping.",
-          "status": "unverified",
+          "summary": "Bounded P32b geometry-only document.arrangement_plan and atomic arrange_objects: six union-bound alignments and horizontal/vertical equal-edge-gap distribution of outermost scene units. Descendants of selected ancestors are absorbed into rigid groups, leading-edge/ID order is deterministic, endpoints stay fixed, and too few units, empty geometry, negative gap or coordinate overflow refuse whole. No-op preserves history/redo; plans include original bounds/nominal deltas/translation anchors/scopes and exact snapshot, not a commit token. Anchors reconstruct each moved coordinate with exact coordinate + target - source summed before one binary64 ties-even rounding; null leaves stationary units untouched. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; no arrangement web controls, partial atom arrangement targets or snapping. P32c adds separate geometry rotation/reflection primitives.",
+          "status": "implemented",
           "implementation": [
             "crates/domain/src/scene/arrangement.rs",
             "crates/domain/src/document.rs",
             "crates/application/src/operations/arrangement.rs",
             "crates/application/src/contract.rs"
           ],
-          "evidence": [],
-          "followups": [
-            "P32"
-          ]
+          "evidence": [
+            "case:object-arrangement-plan-history",
+            "case:object-arrangement-refusal-atomic"
+          ],
+          "followups": []
+        },
+        {
+          "id": "OPS-01.selection-transform",
+          "summary": "Bounded P32c document.transform_plan and atomic transform_selection use the existing exact selected union and explicit finite pivot for geometry-only rotation and horizontal/vertical axis reflection. Positive degrees are clockwise in page coordinates; modulo-360 identities and quarter turns avoid trigonometric drift. Arbitrary rotations support atoms, lines and arrows; any selected rectangle, including descendants/degenerate rectangles, requires an exact quarter turn. Plans report immutable snapshot/scope and exact before/after geometry; drawing_stereo_may_change is only an advisory that graph positions change, not a stereo assessment or loss. Hierarchy, references, marks, stored configurations/groups and other placements remain unchanged; invalid/unsupported/out-of-range targets roll back the whole edit. Empty/identity no-op preserves revision/history/redo. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; no web controls, diagonal reflection, implicit pivot, snapping or cleanup.",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/scene/transform.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/operations/transform.rs",
+            "crates/application/src/contract.rs"
+          ],
+          "evidence": [
+            "case:selection-transform-plan-history",
+            "case:selection-transform-refusal-atomic"
+          ],
+          "followups": []
         },
         {
           "id": "OPS-01.rest",

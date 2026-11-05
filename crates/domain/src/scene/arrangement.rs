@@ -214,15 +214,12 @@ impl ExactSum {
         }
         self.parts = parts;
     }
-    pub(super) fn rounded_value(&self) -> f64 {
-        self.rounded().value
-    }
     fn is_negative(&self) -> bool {
         self.parts.last().is_some_and(|part| *part < 0.0)
     }
     // Collapse the nonoverlapping expansion from largest to smallest. A remaining
     // same-sign tail resolves a halfway case without double rounding (ties to even).
-    fn nearest(&self) -> f64 {
+    pub(super) fn nearest(&self) -> f64 {
         let mut parts = self.parts.iter().rev();
         let Some(&first) = parts.next() else {
             return 0.0;

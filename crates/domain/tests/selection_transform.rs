@@ -616,3 +616,119 @@ fn transform_is_one_history_step_and_undo_redo_restore_geometry_and_transaction_
     assert_eq!(graphics(&document), transformed_graphics);
     assert_eq!(document.selection(), &after);
 }
+
+#[test]
+fn quarter_turns_round_midpoint_tails_once_for_both_axes_and_signs() {
+    // 1 + 2^-53 is exactly halfway between 1 and its successor. The
+    // additional 2^-107 must select the successor even though summing the
+    // two small terms first would round away that deciding tail.
+    let half_ulp = 2.0_f64.powi(-53);
+    let tail = 2.0_f64.powi(-107);
+    let successor = 1.0_f64.next_up();
+    for (degrees, input, pivot, expected) in [
+        // The smaller pivot component is just below a half ULP at this
+        // magnitude. Retaining its tail must select the lower x endpoint.
+        (
+            90.0,
+            point(0.0, -2048.0),
+            point(32768.00000000002, 3.6379788070917125e-12),
+            point(34816.00000000002, -32768.00000000002),
+        ),
+        (
+            90.0,
+            point(0.0, -1.0),
+            point(half_ulp, tail),
+            point(successor, -half_ulp),
+        ),
+        (
+            90.0,
+            point(0.0, 1.0),
+            point(-half_ulp, -tail),
+            point(-successor, half_ulp),
+        ),
+        (
+            90.0,
+            point(1.0, 0.0),
+            point(-tail, half_ulp),
+            point(half_ulp, successor),
+        ),
+        (
+            90.0,
+            point(-1.0, 0.0),
+            point(tail, -half_ulp),
+            point(-half_ulp, -successor),
+        ),
+        (
+            270.0,
+            point(0.0, 1.0),
+            point(half_ulp, -tail),
+            point(successor, half_ulp),
+        ),
+        (
+            270.0,
+            point(0.0, -1.0),
+            point(-half_ulp, tail),
+            point(-successor, -half_ulp),
+        ),
+        (
+            270.0,
+            point(-1.0, 0.0),
+            point(tail, half_ulp),
+            point(-half_ulp, successor),
+        ),
+        (
+            270.0,
+            point(1.0, 0.0),
+            point(-tail, -half_ulp),
+            point(half_ulp, -successor),
+        ),
+        // An absent tail ties to the even endpoint; an opposite-sign tail
+        // stays below the midpoint. Neither may be rounded upward.
+        (
+            90.0,
+            point(0.0, -1.0),
+            point(half_ulp, 0.0),
+            point(1.0, -half_ulp),
+        ),
+        (
+            90.0,
+            point(0.0, -1.0),
+            point(half_ulp, -tail),
+            point(1.0, -half_ulp),
+        ),
+    ] {
+        let mut document = empty();
+        document
+            .apply(&[
+                Command::AddAtom {
+                    atom: Atom::from(Element::from_symbol("C").unwrap()),
+                    positions: NewAtomPositions::Single(input),
+                    bond_to: None,
+                },
+                add_graphic(GraphicShape::Line, [input, input]),
+            ])
+            .unwrap();
+        let selected = selection(&[1, 2], &[], &[]);
+        let before = document.clone();
+        let plan = document
+            .selection_transform(&selected, None, pivot, rotate(degrees))
+            .unwrap();
+        assert_eq!(document, before, "preview must remain read-only");
+        assert_eq!(
+            plan.positions[0].after, expected,
+            "{degrees} degrees, input {input:?}, pivot {pivot:?}"
+        );
+        assert_eq!(plan.graphics[0].after.points, [expected, expected]);
+        assert_eq!(
+            document
+                .apply(&[command(selected.clone(), None, pivot, rotate(degrees))])
+                .unwrap(),
+            Outcome::Changed
+        );
+        let applied = document
+            .selection_transform(&selected, None, pivot, rotate(0.0))
+            .unwrap();
+        assert_eq!(applied.positions[0].before, expected);
+        assert_eq!(applied.graphics[0].before.points, [expected, expected]);
+    }
+}

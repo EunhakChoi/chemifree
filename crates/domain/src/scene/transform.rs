@@ -57,7 +57,7 @@ fn affine(terms: &[f64]) -> f64 {
     for value in terms {
         sum.add(*value);
     }
-    sum.rounded_value()
+    sum.nearest()
 }
 
 impl PreparedTransform {

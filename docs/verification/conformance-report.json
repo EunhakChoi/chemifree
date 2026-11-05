@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 27,
+  "suite_version": 28,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -1392,21 +1392,52 @@
       "pending": null,
       "failure": null,
       "case_sha256": "0cadbd0a5bd30b449b65f54d6287ba57ea4eef031734b335dbadbdd0d5525270"
+    },
+    {
+      "id": "selection-transform-plan-history",
+      "title": "Checked union rotation and axis reflection retain stored stereo, references, other placements and selection history",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "MODEL-01",
+        "STEREO-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "6b52fad672ed73cfe590c730997b14d073bc2bc10fe385d35412e36ba7da5e90"
+    },
+    {
+      "id": "selection-transform-refusal-atomic",
+      "title": "Unsupported rectangle rotations, identity target errors, coordinate overflow and malformed reflection requests are atomic refusals",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "3a91b79fda80d4106fd4fef84c4d3697115a426b9625499f025f3e27e8b982c1"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 76,
+      "passed": 77,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 27,
+      "passed": 28,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 103,
+      "passed": 105,
       "failed": 0,
       "not_run": 0
     }

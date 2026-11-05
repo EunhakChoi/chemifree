@@ -1,0 +1,819 @@
+{
+  "id": "selection-transform-refusal-atomic",
+  "title": "Unsupported rectangle rotations, identity target errors, coordinate overflow and malformed reflection requests are atomic refusals",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "title": "Transform rollback"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 1,
+              "y": 1
+            },
+            {
+              "x": 3,
+              "y": 2
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": -100000,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s1",
+            "s2"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-refusal-0",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s4"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 45
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "transform_rectangle_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "transform_selection",
+          "selection": {
+            "objects": [
+              "s4"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 45
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "transform_rectangle_unsupported"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-refusal-1",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {
+            "atoms": [
+              "a999"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "selection_unknown"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "transform_selection",
+          "selection": {
+            "atoms": [
+              "a999"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "selection_unknown"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-refusal-2",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s1",
+              "s3"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0.5,
+            "y": 0
+          },
+          "transform": {
+            "type": "reflect_vertical"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command"
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "transform_selection",
+          "selection": {
+            "objects": [
+              "s1",
+              "s3"
+            ]
+          },
+          "instance": "s1",
+          "pivot": {
+            "x": 0.5,
+            "y": 0
+          },
+          "transform": {
+            "type": "reflect_vertical"
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-refusal-3",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {},
+          "instance": "s999",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "object_unknown"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "transform_selection",
+          "selection": {},
+          "instance": "s999",
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "rotate",
+            "degrees": 0
+          }
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "object_unknown"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-invalid-0",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {},
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "reflect_diagonal"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request"
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "transform-invalid-1",
+        "profile": "preserve-semantics",
+        "operation": "document.transform_plan",
+        "parameters": {
+          "selection": {},
+          "pivot": {
+            "x": 0,
+            "y": 0
+          },
+          "transform": {
+            "type": "reflect_horizontal",
+            "degrees": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_request"
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Transform rollback",
+          "atoms": [
+            {
+              "id": "a1",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scene": {
+            "objects": {
+              "$contains": [
+                {
+                  "id": "s4",
+                  "kind": "group",
+                  "children": [
+                    "s1",
+                    "s2"
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "shape": "rectangle",
+                  "points": [
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 2
+                    }
+                  ]
+                },
+                {
+                  "id": "s3",
+                  "shape": "line",
+                  "points": [
+                    {
+                      "x": -100000,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}
