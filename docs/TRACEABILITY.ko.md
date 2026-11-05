@@ -6,7 +6,7 @@ P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계
 
 P20은 한정된 V2000 MOL/SDF 입출력과 레코드별 손실 보고를 연결한다. 고급 CTfile 기능과 다른 형식은 후속 범위다.
 
-P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다. P29c는 사면체와 CX 그룹 읽기를, P29d는 기록형 사면체와 지원 그룹 쓰기를 더한다. Canonical 입체와 지원 밖 입체는 손실 동의가 필요하다. `/`·`\` 방향 결합, query/반응 SMILES와 InChI import는 후속 범위다. P30 진행 중인 `chem.inchi`는 명시적으로 등록한 공개 InChI 1.07.5 Linux provider의 제한된 Standard InChI/InChIKey 생성이며 버전·SHA·옵션·경고·손실을 보고한다. 미설정/로딩 오류는 unavailable이며 공식 배포본의 별도 실행 파일과 native 6개·Application 4개 정확 비교는 통과했으며 독립 화학 엔진 비교가 아니다. 전체 게이트·리뷰 완료 전에는 완료로 보지 않는다.
+P21은 한정된 OpenSMILES 읽기와 기록 순서·canonical SMILES 쓰기를 연결한다. P29c는 사면체와 CX 그룹 읽기를, P29d는 기록형 사면체와 지원 그룹 쓰기를 더한다. Canonical 입체와 지원 밖 입체는 손실 동의가 필요하다. `/`·`\` 방향 결합, query/반응 SMILES와 InChI import는 후속 범위다. P30의 `chem.inchi`는 명시적으로 등록한 공개 InChI 1.07.5 Linux provider의 제한된 Standard InChI/InChIKey 생성이며 버전·SHA·옵션·경고·손실을 보고한다. 미설정/로딩 오류는 unavailable이며 공식 배포본의 별도 실행 파일과 native 6개·Application 4개 정확 비교는 통과했으며 독립 화학 엔진 비교가 아니다. 최종 로컬 검사·브라우저 smoke와 [PR #149의 두 리뷰 및 수정](https://github.com/EunhakChoi/chemifree/pull/149)은 완료했다. 공식 비교는 로컬 opt-in 실행 근거이며 일반 CI의 자동 비교가 아니다. [병합 후 main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42081222618)의 check·browser가 통과해 P30의 제한된 Linux 생성 프로필을 완료로 기록한다. CODEC-05.inchi만 implemented로 바꾸고 CODEC-05·CHEM-02 및 미구현 catch-all은 partial/미구현 상태를 유지한다. InChI import·웹 패널 등 전체 UX는 열린 P48 범위에 남으며 더 넓은 화학 지원·다른 플랫폼·강제 중단·공식 비교의 CI 자동화는 납품 범위 밖이다.
 
 P25a-2b는 입체 표시와 명시된 입체 배치의 저장·설정·해제(MODEL-03.1, 구현)를, P25a-3a는 요청이 있을 때만 도면에서 배치를 읽어 저장하는 `set_configuration_from_drawing`(MODEL-03.2, 구현)을, P25a-3b는 저장 배치와 도면을 비교하는 읽기 전용 `chem.stereo`(MODEL-03.3, 구현)를 연결한다. P25b-1은 웹 편집기에서 쐐기·해시 쐐기·물결 결합 표시를 그리고 같은 Undo 단계에 도면에서 읽은 배치를 저장하는 제스처(MODEL-03.4, 구현)를, P25b-2는 웹 편집기가 입체가 있는 도면에서 `chem.stereo`를 스스로 불러 요약 줄·Stereo 패널·캔버스 링으로 저장 배치와 도면의 일치를 보이고 한 번의 클릭으로 갱신·저장·제거하는 표시(MODEL-03.5, 구현; 증거는 `check:test:client`이며 브라우저 스모크는 본문에서만 언급한다)를 연결한다. P26b는 저장된 배치에서 R/S/E/Z를 읽기 전용으로 계산하는 `chem.cip`(`chemifree-cip-1`, 규칙 1a·1b·2·3만, MODEL-03.6, 부분; 증거는 적합성 사례 14개와 `check:check:rust`·`check:test:contracts`)을 연결한다. 규칙 4a–5·의사비대칭 r/s·헤테로방향족·축/평면, 동위원소·대칭·분할·고급 그룹, 거울상·뒤집기 명령, crossed 캔버스 도구는 MODEL-03.rest(미구현)로 남고, 형식별 입체 입출력(CODEC-03, CODEC-05)은 근거 사례로만 연결되며 구현 표시가 아니다. P26c는 CIP의 웹 표시(원자·결합 레이블 스위치 둘, 기본 꺼짐, 저장 배치의 레이블만, MODEL-03.7, 구현; 증거는 `check:test:client`이고 브라우저 스모크는 증거 검사가 아니다)를 연결한다. P25와 P26은 진행 중이다.
 
@@ -33,11 +33,11 @@ P32a는 읽기 전용 `document.selection_scope`와 원자적 `move_selection`�
 
 P32b는 `document.arrangement_plan`과 `arrange_objects`로 outermost scene 단위의 geometry-only 정렬 6종·동일 간격 분배 2종을 연결한다. union 경계, 끝 단위 고정, 그룹 강체 이동, 음수 간격 거절과 no-op/원자적 rollback을 검사한다. P32a의 101개 사례는 유지하며 새 후보 두 사례는 실행 보고서 갱신 전이다. OPS-01.object-arrangement는 unverified/P32 후속이며 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 100개(implemented 48, partial 12, unverified 7, not_implemented 33) · conformance 사례 103개(passed 103: accept 76·reject 27, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 100개(implemented 51, partial 12, unverified 4, not_implemented 33) · conformance 사례 103개(passed 103: accept 76·reject 27, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
-P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·100% reset, 역 SVG 좌표 변환과 CSS px 기준 hit/drag 범위를 더한다. 뷰 상태는 문서·명령·revision·Undo·저장에 들어가지 않고 편집·resize에서 유지되며 문서 ID 변경·새로고침은 초기 fit이다. Pan view(H)의 한 포인터 터치와 툴바는 있지만 pinch·다중 터치는 없다. 로드맵은 `in_progress`, 요구사항의 새 `OPS-01.viewport`·`RENDER-01.viewport` 부분은 최종 검사·리뷰 전 `unverified`로 둔다(요구사항 상태 어휘에는 `in_progress`가 없다). 구현 경로와 검증 후보 `scripts/web-viewport-check.mjs`·브라우저 스모크를 연결하지만 여기서 실행 통과나 P31 완료를 주장하지 않는다.
+P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·100% reset, 역 SVG 좌표 변환과 CSS px 기준 hit/drag 범위를 더한다. 뷰 상태는 문서·명령·revision·Undo·저장에 들어가지 않고 편집·resize에서 유지되며 문서 ID 변경·새로고침은 초기 fit이다. Pan view(H)의 한 포인터 터치와 툴바는 있지만 pinch·다중 터치는 없다. 로드맵은 이 제한된 뷰포트 범위를 `done`으로 기록하고 `OPS-01.viewport`·`RENDER-01.viewport`를 구현된 부분으로 연결한다. `scripts/web-viewport-check.mjs`, 브라우저 smoke, 리뷰 및 병합 후 CI의 실제 근거와 제한은 [P31 완료 기록](verification/p31-viewport-completion.md)에 있다. 상위 요구사항과 P32의 선택·변환 범위는 열린 상태다.
 
 ## 파일
 

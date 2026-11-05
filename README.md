@@ -187,7 +187,7 @@ The API binds IPv4 loopback and sets no CORS permissions. Writes require an allo
 
 The web canvas has Zoom in/out, Fit drawing, Reset zoom (100%), and Pan view (`H`). Ctrl/⌘ + wheel zooms at the pointer; ordinary wheel scrolling remains available. With the canvas focused, `+`/`−` zoom, `F` fits, `0` resets scale, and arrow keys pan. Hold Space while dragging, middle-drag, or use Pan view with one mouse/touch pointer. Pinch and other multi-touch gestures are not implemented.
 
-The viewport belongs only to the current browser tab/canvas. View changes send no document commands, create no undo entry, and do not change saved coordinates or dirty state. Opening another document or reloading starts fitted; edits and resizing keep the current center and scale. Fit uses the full geometry bounds, including the empty drawing frame; 100% means one CSS pixel per document point and keeps the current center. Scale is bounded to 1/4096–32 CSS pixels per point. Selection tolerances and the click/drag threshold use screen pixels. P31 remains `in_progress`; its final checks and reviews are pending. See [the viewport contract](docs/CONTRACT.md#browser-canvas-viewport-p31).
+The viewport belongs only to the current browser tab/canvas. View changes send no document commands, create no undo entry, and do not change saved coordinates or dirty state. Opening another document or reloading starts fitted; edits and resizing keep the current center and scale. Fit uses the full geometry bounds, including the empty drawing frame; 100% means one CSS pixel per document point and keeps the current center. Scale is bounded to 1/4096–32 CSS pixels per point. Selection tolerances and the click/drag threshold use screen pixels. The bounded P31 scope is complete in [PR #150](https://github.com/EunhakChoi/chemifree/pull/150); [merged-main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42084338264) passed both jobs. See [the viewport contract](docs/CONTRACT.md#browser-canvas-viewport-p31).
 
 ## UI components and lint
 
@@ -218,7 +218,7 @@ Use the CLI's current help when adding components; `components.json` resolves th
 Read [AGENTS.md](AGENTS.md) and [the contribution guide](.github/CONTRIBUTING.md) before contributing. Do not use original application DLLs as the execution engine. Keep credentials, local data, generated outputs, and caches outside this public repository. Each PR receives one Codex review and one independent subagent review. Scaffolding verification does not establish chemical correctness or compatibility with any other application.
 
 
-### Optional Standard InChI (P30, in progress)
+### Optional Standard InChI (bounded P30)
 
 On Linux, both hosts accept `--inchi-library /absolute/path/libinchi.so --inchi-version 1.07.5 --inchi-sha256 <64 lowercase hex>`, together, and optional `--inchi-timeout-seconds 5` (1–60). Equivalent variables are `CHEMIFREE_INCHI_LIBRARY`, `CHEMIFREE_INCHI_VERSION`, `CHEMIFREE_INCHI_SHA256` and `CHEMIFREE_INCHI_TIMEOUT_SECONDS`. Select a trusted build from the [official public release](https://github.com/IUPAC-InChI/InChI/releases/tag/v1.07.5); nothing is downloaded, discovered or bundled. The version is registered, not detected; SHA-256 checks selected bytes against your expected digest and does not prove provenance. The native timeout is cooperative and cannot interrupt library loading or a hung C call.
 
