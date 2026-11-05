@@ -982,6 +982,22 @@
           "followups": []
         },
         {
+          "id": "OPS-01.viewport",
+          "summary": "Candidate P31 web-only viewport separates navigation from document edits and selection: per-tab/canvas center and scale, keyboard and mouse pan/anchored zoom/fit/reset, one-pointer Pan view touch, inverse SVG coordinates, 3 CSS-pixel drag threshold and scale-adjusted hit testing. Navigation sends no commands, changes no revision/undo/dirty/saved coordinates, preserves the view across edits and resize, and resets on document identity/reload. No pinch or multi-touch. Final checks and reviews are pending; not a completion claim.",
+          "status": "unverified",
+          "implementation": [
+            "apps/web/src/editor/viewport.ts",
+            "apps/web/src/hooks/use-canvas-viewport.ts",
+            "apps/web/src/editor/geometry.ts",
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [],
+          "followups": [
+            "P31"
+          ]
+        },
+        {
           "id": "OPS-01.rest",
           "summary": "Further selection scope, specialized objects, grouping and containment beyond the current scene tree.",
           "status": "not_implemented",
@@ -1474,6 +1490,22 @@
             "check:test:client"
           ],
           "followups": []
+        },
+        {
+          "id": "RENDER-01.viewport",
+          "summary": "Candidate P31 transient web viewport fits existing geometry.viewBox bounds including empty geometry and labels/placement frames, has uniform 1/4096..32 CSS px per point scale, anchored clamped zoom, screen-space hit tolerances, and finite zero-size/invalid-transform behavior. The view is not persisted or exported and creates no model commands. Final checks and reviews are pending; general transforms, printing, physical-size calibration, pinch and multi-touch are outside this slice.",
+          "status": "unverified",
+          "implementation": [
+            "apps/web/src/editor/viewport.ts",
+            "apps/web/src/hooks/use-canvas-viewport.ts",
+            "apps/web/src/editor/geometry.ts",
+            "apps/web/src/editor/structure-canvas.tsx",
+            "apps/web/src/components/document-workspace.tsx"
+          ],
+          "evidence": [],
+          "followups": [
+            "P31"
+          ]
         },
         {
           "id": "RENDER-01.rest",
