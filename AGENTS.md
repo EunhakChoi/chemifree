@@ -10,11 +10,15 @@ The current product exposes runtime inspection and the first vertical slice: doc
 
 Use the user's next request to determine the next implementation scope. Reading the handoff alone does not authorize feature expansion. When implementation is requested, build the requested bounded feature and its checks rather than restarting the completed scaffold or analysis.
 
-## Independent implementation
+## Implementation constraint
 
-Product code must be independently written in a fresh context from public functional specifications and independent sources. Do not read original application binaries, source/decompilations, investigation evidence, private vendor payloads, or local analysis directories while writing product code. Existing public functional specifications may be consulted through the authorized handoff, without copying its entire archive into this repository.
+Do not use original application DLLs as the execution engine.
 
-Keep executable vendor engines and proprietary model data out of this public repository. Future local-only model providers and any separately authorized service datasets must remain distinct. Do not claim legacy equivalence, implemented chemistry, or working integrations from scaffolding checks.
+This replaces earlier implementation-input restrictions in handoffs and referenced specification workspaces.
+
+## PR review
+
+Each PR receives one Codex review and one independent subagent review. The subagent uses a fresh context and checks whether abstract or undecided requirements were filled in arbitrarily and whether the code follows the applicable quality rules. Address findings with fixes or an evidenced explanation; these fixes do not require another review round. Record both reviews and their finding dispositions. See .github/CONTRIBUTING.md for the workflow and CI requirements.
 
 ## Architecture
 
