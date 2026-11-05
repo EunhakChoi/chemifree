@@ -231,6 +231,7 @@ version = "0.1.0"
 dependencies = [
  "chemifree-application",
  "chemifree-domain",
+ "chemifree-inchi-native",
  "getrandom",
  "roxmltree",
  "rustix",
