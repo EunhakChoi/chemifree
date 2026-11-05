@@ -2,12 +2,12 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
-## P30 진행 중 인계
+## P30 제한된 프로필 완료 인계
 
 - `chem.inchi`가 Application 소유 포트와 선택적 Linux native provider로 Standard InChI/InChIKey를 생성한다. HTTP/CLI 조립은 `--inchi-library`, `--inchi-version 1.07.5`, `--inchi-sha256`를 함께 요구하고 `--inchi-timeout-seconds`(기본 5, 1–60)를 받는다. 같은 이름의 `CHEMIFREE_INCHI_*` 환경변수도 지원한다. 버전은 등록값이며 런타임 감지가 아니다. SHA는 사용자가 제시한 바이트와의 일치만 확인한다. 미설정·로딩 실패는 `inchi_unavailable`이며 다른 호스트 기능은 유지된다.
 - ordinary 결합·제한된 원자가·저장된 사면체/이중결합 0D 입체만 매핑한다. AND/OR 그룹은 거절하고 도면 mark·absolute 그룹 메타데이터·native 경고는 digest 동의가 필요하다. 표준 정규화는 안내이며 canonical SMILES·동일성·입체 완전 보존을 주장하지 않는다. 원시 경고 메시지는 동의에 묶고 시간 정보가 바뀔 수 있는 native log는 진단 전용이다.
 - native timeout은 협조적이며 로딩·멈춘 C 호출·mutex 대기를 끊지 못한다. unsafe는 별도 `crates/inchi-native/src/platform.rs`에 한정된다. 외부 원본 DLL을 엔진으로 쓰지 않는다. 전용 웹 패널·InChI import·다른 플랫폼은 미구현이다. 상세 계약은 CONTRACT.md의 Standard InChI 절이다.
-- 현재 확인: native 경계 9/9, 공식 공개 1.07.5 실행 파일과 direct native 6개 및 Application/provider 4개(사면체 2·알켄 2) InChI/Key 정확 비교 통과. 같은 공식 배포본의 별도 실행 파일 비교이며 독립 화학 엔진 비교가 아니다. 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4도 통과했다. 전체 게이트·두 리뷰는 아직 확인 전이므로 P30은 `in_progress`다. 무시된 opt-in 시험은 실행 증거가 아니다.
+- 현재 확인: native 경계 10/10, 공식 공개 1.07.5 실행 파일과 direct native 6개 및 Application/provider 4개(사면체 2·알켄 2) InChI/Key 정확 비교 통과. 같은 공식 배포본의 별도 실행 파일 비교이며 독립 화학 엔진 비교가 아니다. 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4도 통과했다. 최종 head의 전체 로컬 검사와 브라우저 smoke는 통과했고 [PR #149](https://github.com/EunhakChoi/chemifree/pull/149)의 Codex 공유 고리 참조 및 독립 subagent FIFO 시작 중단 지적은 회귀 검사와 함께 수정했다. 병합 커밋은 `853bb8c391b606028d70809d0f30ca76d68e0d62`이며 [main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42081222618)의 check·browser가 모두 통과해 제한된 Linux 생성 프로필의 P30은 `done`이다. 공식 비교는 명시적으로 로컬에서 실행했고 일반 CI에서는 opt-in 비교를 실행하지 않는다. 무시된 opt-in 시험은 실행 증거가 아니다.
 
 ## 프로젝트와 현재 기준
 
@@ -176,7 +176,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 98개(implemented 48, partial 12, unverified 5, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 98개(implemented 49, partial 12, unverified 4, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
