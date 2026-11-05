@@ -26,6 +26,14 @@ pub(crate) struct Paste<'a> {
     pub fragment: &'a Fragment,
 }
 
+// Read the common header before imposing the closed version-1 body schema.
+// Future versions may have different body fields; they remain unsupported.
+#[derive(Deserialize)]
+struct Header {
+    format: String,
+    version: u64,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Payload {
@@ -286,14 +294,18 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
     }
     let value =
         crate::json::parse_strict(text.as_bytes()).map_err(|error| invalid(error.to_string()))?;
-    let payload: Payload =
-        serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
-    if payload.format != "chemifree.clipboard" || payload.version != 1 {
+    if !value.is_object() {
+        return Err(invalid("Native clipboard data must be a JSON object"));
+    }
+    let header = Header::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
+    if header.format != "chemifree.clipboard" || header.version != 1 {
         return Err(refusal(
             "clipboard_format_unsupported",
             "Expected chemifree.clipboard version 1",
         ));
     }
+    let payload: Payload =
+        serde_json::from_value(value).map_err(|error| invalid(error.to_string()))?;
     let mut atoms = Vec::with_capacity(payload.atoms.len());
     for entry in payload.atoms {
         let kind = match entry.kind {

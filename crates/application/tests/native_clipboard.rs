@@ -347,6 +347,11 @@ fn malformed_native_payloads_are_refused_as_data_without_touching_destination() 
     dangling["bonds"][0]["end"] = json!("a999");
     let mut unsupported = parsed.clone();
     unsupported["version"] = json!(2);
+    let mut future_extra = unsupported.clone();
+    future_extra["future_extension"] = json!({"new_body_shape":true});
+    let future_missing = json!({"format":"chemifree.clipboard","version":2});
+    let malformed_current = json!({"format":"chemifree.clipboard","version":1});
+    let malformed_header = json!({"format":"chemifree.clipboard","version":"1"});
     let mut missing_isotope = parsed.clone();
     missing_isotope["atoms"][0]
         .as_object_mut()
@@ -370,6 +375,10 @@ fn malformed_native_payloads_are_refused_as_data_without_touching_destination() 
         (duplicate_bond.to_string(), "clipboard_duplicate_bond"),
         (dangling.to_string(), "clipboard_fragment_invalid"),
         (unsupported.to_string(), "clipboard_format_unsupported"),
+        (future_extra.to_string(), "clipboard_format_unsupported"),
+        (future_missing.to_string(), "clipboard_format_unsupported"),
+        (malformed_current.to_string(), "clipboard_fragment_invalid"),
+        (malformed_header.to_string(), "clipboard_fragment_invalid"),
         (missing_isotope.to_string(), "clipboard_fragment_invalid"),
         (missing_query.to_string(), "clipboard_fragment_invalid"),
         (missing_mark.to_string(), "clipboard_fragment_invalid"),
