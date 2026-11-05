@@ -2454,7 +2454,13 @@ step = 'after scene_geometry_controls'
   const groupResponse = await groupMove
   assert.equal(groupResponse.status(), 200)
   await waitIdle()
-  assert.deepEqual(groupResponse.request().postDataJSON().commands, [{
+  const groupCommands = groupResponse.request().postDataJSON().commands
+  // Request selection arrays are sets; scene.objects is in drawing order, so
+  // a parent precedes its selected child even when its identifier is larger.
+  assert.deepEqual(groupCommands.map((command) => ({
+    ...command,
+    selection: { ...command.selection, objects: [...command.selection.objects].sort() },
+  })), [{
     op: 'move_selection', selection: { objects: ['s2', 's4'], atoms: ['a1'], bonds: ['b1'] }, instance: 's2', delta: { x: 10, y: 15 },
   }], 'dragging an effectively selected graphic preserves its selected parent instead of replacing selection')
   assert.deepEqual(moveGeometry((await openDoc()).document), expectedMoved, 'group, instance, atom and bond overlap moves every target once')
