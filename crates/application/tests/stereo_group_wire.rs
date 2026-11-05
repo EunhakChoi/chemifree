@@ -1066,8 +1066,8 @@ fn the_catalog_lists_the_group_commands_and_the_capability_that_they_carry_out()
     let catalog = &reply["result"]["operations"];
     assert_eq!(
         catalog.as_array().unwrap().len(),
-        27,
-        "the operation count stays"
+        28,
+        "the catalog includes the optional InChI operation"
     );
     let transaction = catalog
         .as_array()
