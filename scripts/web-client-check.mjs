@@ -15,6 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { groupableSceneObjects, mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { sceneGeometry, sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
+const { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove } = await import('../apps/web/src/editor/selection-geometry.ts')
 const {
   CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
   lossHeading, parseCtabChoice, writtenDialectMatches,
@@ -5197,4 +5198,114 @@ test('mixed graph selection keeps sibling grouping enabled while geometry action
   assert.equal(sceneGeometryCommands(drawing, pressed, { kind: 'arrange', mode: 'align_left' }), null)
   assert.equal(sceneGeometryCommands(drawing, pressed, { kind: 'transform', transform: { type: 'rotate', degrees: 90 } }), null)
   assert.equal(groupableSceneObjects(drawing, new Set(['s2', 's5', 'a1'])), null, 'different scene parents still cannot be grouped')
+})
+
+
+test('changing graph movement placement retains scene objects and clears explicit atom and bond targets', () => {
+  const drawing = geometryDrawing()
+  const pressed = new Set(['s3', 's5', 'a1', 'b1'])
+  assert.deepEqual(sceneOnlySelection(drawing, pressed), new Set(['s3', 's5']))
+  assert.deepEqual(pressed, new Set(['s3', 's5', 'a1', 'b1']), 'the captured selection must not be mutated')
+})
+
+test('marquee uses inclusive atom centers in its active placement without promoting instances or groups', () => {
+  const drawing = geometryDrawing()
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 0, y: 0 }, { x: 110, y: 220 }, new Set(), false, true),
+    new Set(['a1', 'a2', 's2']), 'a box spanning both placements still takes graph targets only from s4')
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 100, y: 200 }, { x: 110, y: 220 }, new Set(), false, true),
+    new Set(['a1', 'a2']), 'atom centers on either edge are included')
+  assert.deepEqual(marqueeSelection(drawing, 's1', { x: 100, y: 200 }, { x: 110, y: 220 }, new Set(), false, true),
+    new Set(), 'coordinates in the other placement do not select its atoms')
+})
+
+test('marquee includes a graphic only when both points are contained and accepts reverse box direction', () => {
+  const drawing = geometryDrawing()
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 30, y: 15 }, { x: 20, y: 5 }, new Set(), false, true), new Set(['s2']))
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 20, y: 5 }, { x: 29.99, y: 15 }, new Set(), false, true), new Set(), 'partially enclosed graphic is excluded')
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 70, y: 0 }, { x: 50, y: -10 }, new Set(), false, true), new Set(['s5']), 'rectangle corner order is preserved by containment')
+})
+
+test('Shift marquee unions with the captured selection and a subthreshold plain press only clears selection', () => {
+  const drawing = geometryDrawing()
+  const pressed = new Set(['s3', 'b1'])
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 20, y: 5 }, { x: 30, y: 15 }, pressed, true, true), new Set(['s3', 'b1', 's2']))
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 0, y: 0 }, { x: 110, y: 220 }, pressed, true, false), pressed)
+  assert.deepEqual(marqueeSelection(drawing, 's4', { x: 0, y: 0 }, { x: 110, y: 220 }, pressed, false, false), new Set())
+  assert.deepEqual(pressed, new Set(['s3', 'b1']))
+})
+
+test('mixed selection geometry deduplicates atom and bond endpoints per placement and expands groups once', () => {
+  const drawing = geometryDrawing()
+  const scope = selectionGeometry(drawing, new Set(['s3', 's1', 's2', 's4', 'a1', 'b1']), 's4')
+  assert.deepEqual(scope.objects, new Set(['s3', 's1', 's2', 's4']))
+  assert.deepEqual(scope.positions, new Map([
+    ['s1', new Set(['a1', 'a2'])],
+    ['s4', new Set(['a1', 'a2'])],
+  ]))
+  assert.deepEqual(scope.graphics, new Set(['s2']), 'the referenced rectangle s5 is outside containment scope')
+})
+
+test('one mixed move keeps captured raw targets and the explicit graph placement', () => {
+  const drawing = geometryDrawing()
+  const pressed = new Set(['s3', 's1', 'a1', 'b1'])
+  const before = structuredClone(drawing)
+  assert.deepEqual(selectionMove(drawing, pressed, 's4', { x: 10, y: -5 }), [{
+    op: 'move_selection',
+    selection: { objects: ['s1', 's3'], atoms: ['a1'], bonds: ['b1'] },
+    instance: 's4', delta: { x: 10, y: -5 },
+  }])
+  assert.deepEqual(drawing, before, 'planning a drag does not change positions or selection')
+  assert.deepEqual(selectionMove(drawing, new Set(['s5']), null, { x: 0, y: 1 }), [{
+    op: 'move_selection', selection: { objects: ['s5'], atoms: [], bonds: [] }, delta: { x: 0, y: 1 },
+  }], 'scene-only movement needs no active graph placement')
+})
+
+test('mixed movement lapses as a whole when captured targets or its placement no longer exist', () => {
+  const drawing = geometryDrawing()
+  assert.equal(selectionGeometry(drawing, new Set(['a1']), null), null, 'two graph placements need explicit context')
+  assert.equal(selectionGeometry(drawing, new Set(['s3']), 's999'), null, 'even scene-only scope validates an explicit placement')
+  assert.equal(selectionMove(drawing, new Set(['s3', 'a999']), 's4', { x: 1, y: 1 }), null)
+  assert.equal(selectionMove(drawing, new Set(['s3', 'b999']), 's4', { x: 1, y: 1 }), null)
+  assert.equal(selectionMove(drawing, new Set(['s3', 's999']), 's4', { x: 1, y: 1 }), null)
+  assert.equal(selectionMove(drawing, new Set(['s3']), 's999', { x: 1, y: 1 }), null)
+  assert.equal(selectionMove(drawing, new Set(['s6']), 's4', { x: 1, y: 1 }), null, 'empty group geometry cannot produce a move')
+  assert.equal(selectionMove(drawing, new Set(), 's4', { x: 1, y: 1 }), null)
+})
+
+test('legacy movement without scene instances keeps the existing atom-move adapter', () => {
+  const drawing = geometryDrawing()
+  delete drawing.scene
+  delete drawing.molecule
+  assert.deepEqual(selectionMove(drawing, new Set(['a1', 'b1']), null, { x: -3, y: 7 }), [{
+    op: 'move_atoms', atoms: ['a1', 'a2'], delta: { x: -3, y: 7 },
+  }])
+  assert.deepEqual(marqueeSelection(drawing, null, { x: 0, y: 0 }, { x: 10, y: 20 }, new Set(), false, true), new Set(['a1', 'a2']))
+})
+
+
+test('a missing active graph placement never silently falls back to the sole remaining placement', () => {
+  const drawing = geometryDrawing()
+  drawing.scene.instances = [drawing.scene.instances[0]]
+  drawing.scene.objects = drawing.scene.objects.filter((object) => object.id !== 's4')
+  drawing.scene.roots = drawing.scene.roots.filter((id) => id !== 's4')
+  assert.equal(selectionGeometry(drawing, new Set(['a1']), null), null)
+  assert.equal(selectionMove(drawing, new Set(['a1']), null, { x: 1, y: 2 }), null)
+  assert.equal(selectionMove(drawing, new Set(['s3', 'a1']), 's4', { x: 1, y: 2 }), null)
+  assert.deepEqual(selectionMove(drawing, new Set(['a1']), 's1', { x: 1, y: 2 }), [{
+    op: 'move_selection', selection: { objects: [], atoms: ['a1'], bonds: [] }, instance: 's1', delta: { x: 1, y: 2 },
+  }], 'an explicit surviving placement remains editable')
+  assert.deepEqual(selectionMove(drawing, new Set(['s5']), null, { x: 1, y: 2 }), [{
+    op: 'move_selection', selection: { objects: ['s5'], atoms: [], bonds: [] }, delta: { x: 1, y: 2 },
+  }], 'independent scene objects remain movable without graph context')
+})
+
+
+test('a placement-only service retains the existing move_atoms entry adapter', () => {
+  const drawing = geometryDrawing()
+  delete drawing.scene.objects
+  delete drawing.scene.roots
+  delete drawing.scene.references
+  assert.deepEqual(selectionMove(drawing, new Set(['a1', 'b1']), 's4', { x: 2, y: 3 }), [{
+    op: 'move_atoms', atoms: ['a1', 'a2'], instance: 's4', delta: { x: 2, y: 3 },
+  }])
 })

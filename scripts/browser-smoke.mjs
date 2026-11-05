@@ -2286,6 +2286,132 @@ step = 'after scene_group_and_queued_delete_selection'
 }
 step = 'after scene_geometry_controls'
 
+
+// Mixed selection has one explicit graph movement placement. A marquee spanning
+// several drawings takes graph targets only from that placement, and group/atom/
+// bond/instance overlap contributes each geometry point just once to the drag.
+{
+  step = 'mixed marquee and group drag in one movement placement'
+  await closeShown()
+  const created = await apiWrite('/api/v1/documents', { request_id: 'mixed-selection-create', title: 'Mixed selection gestures' })
+  docId = created.body.document.id
+  const id = docId
+  const seeded = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'mixed-selection-fixture', expected_revision: 0, commands: [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'O', position: { x: 130, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_instance', source: 's1', offset: { x: 0, y: 120 } },
+      { op: 'add_graphic', shape: 'line', points: [{ x: 180, y: 220 }, { x: 210, y: 220 }] },
+      { op: 'group', objects: ['s2', 's3'] },
+    ],
+  })
+  assert.equal(seeded.status, 200, JSON.stringify(seeded.body))
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open', exact: true }).click()
+  await page.getByLabel('Revision 1').waitFor()
+  await tool('Select and move')
+  const canvas = page.locator('svg[data-structure-canvas]')
+  const controls = page.getByRole('toolbar', { name: 'Canvas view' })
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  const toggle = (object) => page.getByRole('button', { name: `Select scene object ${object}`, exact: true })
+  const placement = page.getByRole('combobox', { name: 'Atom and bond movement placement', exact: true })
+  const choosePlacement = async (instance) => {
+    await placement.click()
+    await page.getByRole('option', { name: instance, exact: true }).click()
+  }
+  const clickPoint = async (point) => {
+    const at = await screen(point)
+    await page.mouse.click(at.x, at.y)
+  }
+  const dragPoint = async (from, to) => {
+    const start = await screen(from)
+    const end = await screen(to)
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(end.x, end.y, { steps: 5 })
+    await page.mouse.up()
+  }
+  const moveGeometry = (document) => ({
+    instances: document.scene.instances.map((instance) => ({ id: instance.id, positions: instance.positions })),
+    line: document.scene.objects.find((object) => object.id === 's3').points,
+  })
+  const original = (await openDoc()).document
+  await clickPoint({ x: 100, y: 220 })
+  await page.getByRole('heading', { name: 'Atom a1', exact: true }).waitFor()
+  await toggle('s3').click()
+  await choosePlacement('s1')
+  assert.equal(await page.getByRole('heading', { name: 'Atom a1', exact: true }).count(), 0, 'placement change clears explicit graph targets')
+  assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'placement change preserves independent scene selection')
+  assert.equal(await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).isDisabled(), false, 'clearing the graph targets re-enables scene geometry actions')
+  await choosePlacement('s2')
+
+  await dragPoint({ x: 90, y: 90 }, { x: 220, y: 230 })
+  assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'complete graphic geometry is enclosed')
+  assert.equal(await toggle('s1').getAttribute('aria-pressed'), 'false', 'marquee does not promote graph atoms to a placement')
+  assert.equal(await toggle('s2').getAttribute('aria-pressed'), 'false')
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'false', 'marquee does not promote contained objects to a group')
+  assert.equal((await openDoc()).document.revision, 1, 'selection changes make no edit')
+  const firstMove = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await dragPoint({ x: 100, y: 220 }, { x: 110, y: 235 })
+  const firstResponse = await firstMove
+  assert.equal(firstResponse.status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  assert.deepEqual(firstResponse.request().postDataJSON().commands, [{
+    op: 'move_selection', selection: { objects: ['s3'], atoms: ['a1', 'a2'], bonds: [] }, instance: 's2', delta: { x: 10, y: 15 },
+  }], 'marquee captures active-placement atoms and full graphics in one transaction command')
+  const expectedMoved = {
+    instances: [
+      { id: 's1', positions: [{ atom: 'a1', x: 100, y: 100 }, { atom: 'a2', x: 130, y: 100 }] },
+      { id: 's2', positions: [{ atom: 'a1', x: 110, y: 235 }, { atom: 'a2', x: 140, y: 235 }] },
+    ],
+    line: [{ x: 190, y: 235 }, { x: 220, y: 235 }],
+  }
+  assert.deepEqual(moveGeometry((await openDoc()).document), expectedMoved)
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  assert.deepEqual(moveGeometry((await openDoc()).document), moveGeometry(original))
+
+  await clickPoint({ x: 70, y: 70 })
+  await clickPoint({ x: 100, y: 220 })
+  await page.keyboard.down('Shift')
+  await clickPoint({ x: 115, y: 220 })
+  await page.keyboard.up('Shift')
+  await toggle('s4').click()
+  await toggle('s2').click()
+  const groupMove = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await dragPoint({ x: 195, y: 220 }, { x: 205, y: 235 })
+  const groupResponse = await groupMove
+  assert.equal(groupResponse.status(), 200)
+  await waitIdle()
+  assert.deepEqual(groupResponse.request().postDataJSON().commands, [{
+    op: 'move_selection', selection: { objects: ['s2', 's4'], atoms: ['a1'], bonds: ['b1'] }, instance: 's2', delta: { x: 10, y: 15 },
+  }], 'dragging an effectively selected graphic preserves its selected parent instead of replacing selection')
+  assert.deepEqual(moveGeometry((await openDoc()).document), expectedMoved, 'group, instance, atom and bond overlap moves every target once')
+
+  const beforeCancel = (await openDoc()).document
+  let writes = 0
+  const countWrite = (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1/documents/${id}/transactions`) writes += 1
+  }
+  page.on('request', countWrite)
+  const lineAt = await screen({ x: 205, y: 235 })
+  await page.mouse.move(lineAt.x, lineAt.y)
+  await page.mouse.down()
+  await page.mouse.move(lineAt.x + 1, lineAt.y + 1)
+  await page.mouse.up()
+  await canvas.evaluate((svg) => svg.addEventListener('pointerdown', (event) => { svg.dataset.smokePointer = String(event.pointerId) }, { once: true }))
+  await page.mouse.move(lineAt.x, lineAt.y)
+  await page.mouse.down()
+  await page.mouse.move(lineAt.x + 35, lineAt.y + 10, { steps: 4 })
+  await canvas.dispatchEvent('pointercancel', { pointerId: Number(await canvas.getAttribute('data-smoke-pointer')), pointerType: 'mouse', isPrimary: true })
+  await page.mouse.up()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  assert.equal(writes, 0, 'subthreshold graphic presses and cancelled mixed drags make no transaction')
+  assert.deepEqual((await openDoc()).document, beforeCancel)
+  page.off('request', countWrite)
+  results.mixed_marquee_placement_and_group_drag = true
+}
+step = 'after mixed_marquee_placement_and_group_drag'
+
 // Document style and preferences: a document's style is changed in its Document style dialog (two quick
 // presses while the first request is held both count), the canvas follows it (measured from the
 // DOM: font size and family, carbon labels, stroke width, label boxes holding the drawn text, the
@@ -4819,7 +4945,7 @@ step = 'after short_wide_bond_is_selectable'
   assert.deepEqual(edited.atoms.find((atom) => atom.id === 'a2').position, { x: 130, y: 100 })
   const movedResponse = page.waitForResponse((response) =>
     response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST' &&
-    response.request().postDataJSON().commands.some((command) => command.op === 'move_atoms'))
+    response.request().postDataJSON().commands.some((command) => command.op === 'move_selection'))
   await page.mouse.move(oxygenStart.x, oxygenStart.y)
   await page.mouse.down()
   await page.mouse.move(oxygenStart.x + 40, oxygenStart.y - 20, { steps: 5 })
@@ -4829,6 +4955,8 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByLabel('Revision 3').waitFor()
   const moveRequest = committedMove.request().postDataJSON()
   assert.deepEqual(moveRequest.selection_before.atoms, ['a2'], 'the drag acts on the selected oxygen')
+  assert.deepEqual(moveRequest.commands[0].selection, { objects: [], atoms: ['a2'], bonds: [] })
+  assert.equal(moveRequest.commands[0].instance, 's1', 'P31 world-coordinate motion retains its explicit graph placement')
   const moved = (await api(`/api/v1/documents/${id}`)).document
   const expectedPosition = { x: 130 + 40 / 1.5625, y: 100 - 20 / 1.5625 }
   const movedOxygen = moved.atoms.find((atom) => atom.id === 'a2')

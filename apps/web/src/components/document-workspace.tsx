@@ -623,7 +623,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   useEffect(() => {
     function onKeyDown(event: globalThis.KeyboardEvent) {
       const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (target?.closest('input, textarea, select, [role="combobox"], [role="listbox"], [role="option"], [contenteditable="true"]')) return
       // While a dialog is open the editor is inert, even before focus has moved into it.
       if (window.document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       const mod = event.metaKey || event.ctrlKey
@@ -783,7 +783,10 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             bondKind={bondKind}
             selection={selected}
             onSelectionChange={setSelection}
-            onCommands={(commands) => void editor.apply((latest) => stillApplicable(commands, latest))}
+            onCommands={(commands, before) => void editor.apply(
+              (latest) => latest.id === document.id ? stillApplicable(commands, latest) : null,
+              before === undefined ? undefined : { kind: 'gesture', before },
+            )}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             rings={rings}
             cipLabels={labels}

@@ -84,8 +84,8 @@ export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 /** What committing an import came to; a refusal is the caller's to show. */
 export type ImportResult = { committed: true } | { committed: false; failure: ApiError | null }
 
-/** Grouping replaces the members selected at the press with the newly created group. */
-export type EditSelection = { kind: 'group'; objects: string[] }
+/** Grouping replaces selected scene members; a drag supplies its own press-time history selection. */
+export type EditSelection = { kind: 'group'; objects: string[] } | { kind: 'gesture'; before: ReadonlySet<string> }
 
 const client = new DocumentClient()
 
@@ -563,7 +563,7 @@ export function useDocumentEditor() {
       (edit: Edit, selectionEdit?: EditSelection) => {
         const shown = currentRef.current?.document
         // Capture at the press, before a caller can clear selection and before the queue runs.
-        const pressed = new Set(selectionRef.current)
+        const pressed = new Set(selectionEdit?.kind === 'gesture' ? selectionEdit.before : selectionRef.current)
         let groupSource: DocumentView | undefined
         const snapshots = (document: DocumentView) => {
           const before = selectionSnapshot(pressed, document)

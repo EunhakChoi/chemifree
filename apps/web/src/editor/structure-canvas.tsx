@@ -2,6 +2,9 @@ import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type Keyboa
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove, type SelectionGeometry } from '@/editor/selection-geometry'
 import { useCanvasViewport } from '@/hooks/use-canvas-viewport'
 import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
@@ -55,13 +58,13 @@ const DRAG_THRESHOLD = 3
  * service without scene instances.
  */
 type Drag =
-  | { kind: 'move'; start: Position; atoms: string[]; instance: string | null }
+  | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
   | { kind: 'bond'; start: Position; fromAtom: string | null; instance: string | null }
-  | { kind: 'marquee'; start: Position; additive: boolean }
+  | { kind: 'marquee'; start: Position; additive: boolean; pressed: Set<string>; instance: string | null }
   | { kind: 'click'; start: Position; hit: Hit; instance: string | null }
 
 type Preview =
-  | { kind: 'move'; atoms: ReadonlySet<string>; delta: Position; instance: string | null }
+  | { kind: 'move'; scope: SelectionGeometry; delta: Position }
   | { kind: 'bond'; from: Position; to: Position }
   | { kind: 'marquee'; from: Position; to: Position }
   | null
@@ -114,10 +117,10 @@ interface StructureCanvasProps {
   tool: Tool
   element: string
   bondKind: DrawnKind
-  /** Selected atom (`a…`) and bond (`b…`) identifiers. */
+  /** Selected scene objects, atoms and bonds; graph movement uses the active placement. */
   selection: ReadonlySet<string>
   onSelectionChange: (selection: Set<string>) => void
-  onCommands: (commands: Command[]) => void
+  onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
   /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
@@ -162,6 +165,16 @@ export function StructureCanvas({
   const [interacting, setInteracting] = useState(false)
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
+  const [requestedPlacement, setRequestedPlacement] = useState<string | null>(() => document.scene?.instances[0]?.id ?? null)
+  const activePlacement = document.scene?.instances.some((instance) => instance.id === requestedPlacement) ? requestedPlacement : null
+  const selectedGeometry = selectionGeometry(document, selection, activePlacement)
+
+  function switchPlacement(instance: string) {
+    cancelPointer()
+    if (instance !== activePlacement) onSelectionChange(sceneOnlySelection(document, selection))
+    setRequestedPlacement(instance)
+  }
+
 
   // Derived per document, not per render: pointer moves re-render the canvas.
   const atoms = useMemo(() => atomIndex(document), [document])
@@ -271,7 +284,7 @@ export function StructureCanvas({
     function keyDown(event: globalThis.KeyboardEvent) {
       if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey) return
       const target = event.target
-      if (target instanceof Element && target.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return
+      if (target instanceof Element && target.closest('input, textarea, select, button, [role="combobox"], [role="listbox"], [role="option"], [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return
       if (window.document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       event.preventDefault()
       space.current = true
@@ -358,17 +371,27 @@ export function StructureCanvas({
     }
   }
 
-  function movableAtoms(ids: ReadonlySet<string>) {
-    const moving = new Set<string>()
-    for (const id of ids) {
-      if (atoms.has(id)) moving.add(id)
-      const bond = document.bonds.find((candidate) => candidate.id === id)
-      if (bond) {
-        moving.add(bond.begin)
-        moving.add(bond.end)
-      }
+  function selectTarget(id: string, kind: 'atom' | 'bond' | 'graphic', instance: string | null, point: Position, additive: boolean) {
+    const changingPlacement = kind !== 'graphic' && instance !== activePlacement
+    const current = changingPlacement ? sceneOnlySelection(document, selection) : new Set(selection)
+    if (kind !== 'graphic') setRequestedPlacement(instance)
+    const scope = selectionGeometry(document, current, instance)
+    const positions = scope?.positions.get(instance)
+    const bond = kind === 'bond' ? document.bonds.find((bond) => bond.id === id) : undefined
+    const covered = kind === 'graphic' ? scope?.graphics.has(id)
+      : kind === 'atom' ? positions?.has(id)
+      : bond !== undefined && positions?.has(bond.begin) && positions.has(bond.end)
+    let next = current
+    const deselected = additive && next.has(id)
+    if (additive) {
+      if (deselected) next.delete(id)
+      else next.add(id)
+    } else if (!covered) {
+      next = new Set([id])
     }
-    return [...moving]
+    onSelectionChange(next)
+    const moving = selectionGeometry(document, next, instance)
+    if (!deselected && moving) setDrag({ kind: 'move', start: point, selected: new Set(next), instance, scope: moving })
   }
 
   function onPointerDown(event: PointerEvent<SVGSVGElement>) {
@@ -378,18 +401,10 @@ export function StructureCanvas({
     const { hit, instance } = locate(point)
     if (tool === 'select') {
       if (!hit) {
-        setDrag({ kind: 'marquee', start: point, additive: event.shiftKey })
+        setDrag({ kind: 'marquee', start: point, additive: event.shiftKey, pressed: new Set(selection), instance: activePlacement })
         return
       }
-      let next = new Set(selection)
-      if (event.shiftKey) {
-        if (next.has(hit.id)) next.delete(hit.id)
-        else next.add(hit.id)
-      } else if (!next.has(hit.id)) {
-        next = new Set([hit.id])
-      }
-      onSelectionChange(next)
-      setDrag({ kind: 'move', start: point, atoms: next.has(hit.id) ? movableAtoms(next) : [], instance })
+      selectTarget(hit.id, hit.kind, instance, point, event.shiftKey)
     } else if (tool === 'bond' && hit?.kind !== 'bond') {
       setDrag({ kind: 'bond', start: point, fromAtom: hit?.kind === 'atom' ? hit.id : null, instance })
     } else {
@@ -430,12 +445,11 @@ export function StructureCanvas({
       return
     }
     if (!active || distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) return
-    if (gesture.kind === 'move' && gesture.atoms.length > 0) {
+    if (gesture.kind === 'move') {
       setPreview({
         kind: 'move',
-        atoms: new Set(gesture.atoms),
+        scope: gesture.scope,
         delta: { x: round(point.x - gesture.start.x), y: round(point.y - gesture.start.y) },
-        instance: gesture.instance,
       })
     } else if (gesture.kind === 'bond') {
       const target = bondTarget(gesture, point)
@@ -462,7 +476,7 @@ export function StructureCanvas({
       return
     }
     const commands = gestureCommands(gesture, point, dragged)
-    if (commands.length > 0) onCommands(commands)
+    if (commands.length > 0) onCommands(commands, gesture.kind === 'move' ? gesture.selected : undefined)
   }
 
   /**
@@ -484,25 +498,12 @@ export function StructureCanvas({
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
     switch (gesture.kind) {
       case 'move': {
-        if (!dragged || gesture.atoms.length === 0) return []
+        if (!dragged) return []
         const delta = { x: round(point.x - gesture.start.x), y: round(point.y - gesture.start.y) }
-        const move: Command =
-          gesture.instance === null
-            ? { op: 'move_atoms', atoms: gesture.atoms, delta }
-            : { op: 'move_atoms', atoms: gesture.atoms, delta, instance: gesture.instance }
-        return [move]
+        return selectionMove(document, gesture.selected, gesture.instance, delta) ?? []
       }
       case 'marquee': {
-        const left = Math.min(gesture.start.x, point.x)
-        const right = Math.max(gesture.start.x, point.x)
-        const top = Math.min(gesture.start.y, point.y)
-        const bottom = Math.max(gesture.start.y, point.y)
-        const inside = drawings.flatMap((drawing) =>
-          drawing.view.atoms
-            .filter(({ position: { x, y } }) => dragged && x >= left && x <= right && y >= top && y <= bottom)
-            .map((atom) => atom.id),
-        )
-        onSelectionChange(new Set([...(gesture.additive ? selection : []), ...inside]))
+        onSelectionChange(marqueeSelection(document, gesture.instance, gesture.start, point, gesture.pressed, gesture.additive, dragged))
         return []
       }
       case 'bond':
@@ -562,7 +563,7 @@ export function StructureCanvas({
   /** An atom's position in a drawing, moved by the drag preview in the drag's placement. */
   const position = (drawing: Drawing, id: string) => {
     const atom = drawing.atoms.get(id)!
-    if (preview?.kind === 'move' && preview.instance === drawing.id && preview.atoms.has(id)) {
+    if (preview?.kind === 'move' && preview.scope.positions.get(drawing.id)?.has(id)) {
       return { x: atom.position.x + preview.delta.x, y: atom.position.y + preview.delta.y }
     }
     return atom.position
@@ -628,14 +629,14 @@ export function StructureCanvas({
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
       <g className="fill-primary/15 stroke-primary/40">
         {document.bonds
-          .filter((bond) => selection.has(bond.id) || hovered(drawing, 'bond', bond.id))
+          .filter((bond) => (drawing.id === activePlacement && selection.has(bond.id)) || (selectedGeometry?.positions.get(drawing.id)?.has(bond.begin) && selectedGeometry.positions.get(drawing.id)?.has(bond.end)) || hovered(drawing, 'bond', bond.id))
           .map((bond) => {
             const a = position(drawing, bond.begin)
             const b = position(drawing, bond.end)
             return <line key={bond.id} data-underlay={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={bondUnderlay(bond.order, drawing.lineWidth, drawing.spacing, unitsPerPixel, bond.mark)} strokeLinecap="round" />
           })}
         {document.atoms
-          .filter((atom) => selection.has(atom.id) || hovered(drawing, 'atom', atom.id))
+          .filter((atom) => selectedGeometry?.positions.get(drawing.id)?.has(atom.id) || hovered(drawing, 'atom', atom.id))
           .map((atom) => {
             const p = position(drawing, atom.id)
             const label = labelBox(drawing.labels, atom.id, p)
@@ -649,7 +650,7 @@ export function StructureCanvas({
       <DrawingLayer
         drawing={drawing}
         several={drawings.length > 1}
-        moved={preview?.kind === 'move' && preview.instance === drawing.id ? preview : null}
+        moved={preview?.kind === 'move' ? { atoms: preview.scope.positions.get(drawing.id) ?? new Set<string>(), delta: preview.delta } : null}
       />
       <AgreementRings rings={ringsAt(drawing)} />
       <CipLabelLayer labels={cipAt(drawing)} />
@@ -666,6 +667,19 @@ export function StructureCanvas({
         <Button size="sm" variant="outline" onClick={() => { cancelPointer(); zoom(1 / viewport.scale) }}>Reset zoom (100%)</Button>
         <output aria-label="Zoom level" data-testid="zoom-level" className="px-1 text-xs tabular-nums">{viewport.scale < 0.01 ? Number((viewport.scale * 100).toFixed(3)) : Math.round(viewport.scale * 100)}%</output>
       </div>
+      {document.scene && (document.scene.instances.length > 1 || activePlacement === null) && (
+        <Field orientation="horizontal">
+          <FieldLabel htmlFor="canvas-movement-placement">Atom and bond movement placement</FieldLabel>
+          <Select value={activePlacement} items={document.scene?.instances.map((instance) => ({ value: instance.id, label: instance.id }))}
+            onValueChange={(value) => { if (typeof value === 'string') switchPlacement(value) }}>
+            <SelectTrigger id="canvas-movement-placement" aria-label="Atom and bond movement placement" size="sm"><SelectValue placeholder="Choose placement" /></SelectTrigger>
+            <SelectContent><SelectGroup>
+              {document.scene?.instances.map((instance) => <SelectItem key={instance.id} value={instance.id}>{instance.id}</SelectItem>)}
+            </SelectGroup></SelectContent>
+          </Select>
+        </Field>
+      )}
+      <p className="text-xs text-muted-foreground" role="status">Atom and bond movement: {activePlacement ?? (document.scene ? 'choose a placement' : 'drawing')}. Graph edits affect every placement. Switching placement clears atom and bond selection.</p>
       <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden rounded-lg bg-card ring-1 ring-border">
     <svg
       ref={svgRef}
@@ -696,13 +710,16 @@ export function StructureCanvas({
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'graphic') return (
-          <SceneGraphic key={object.id} object={object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
+          <SceneGraphic key={object.id} object={preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
+            ...object, points: [
+              { x: object.points[0].x + preview.delta.x, y: object.points[0].y + preview.delta.y },
+              { x: object.points[1].x + preview.delta.x, y: object.points[1].y + preview.delta.y },
+            ],
+          } : object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
             if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
             event.stopPropagation()
-            const next = event.shiftKey ? new Set(selection) : new Set<string>()
-            if (event.shiftKey && next.has(object.id)) next.delete(object.id)
-            else next.add(object.id)
-            onSelectionChange(next)
+            const point = toDocument(event)
+            if (point) selectTarget(object.id, 'graphic', activePlacement, point, event.shiftKey)
           }} />
         )
         const drawing = drawings.find((item) => item.id === object.id)
@@ -736,7 +753,7 @@ export function StructureCanvas({
       )}
     </svg>
       </div>
-      <p id="canvas-view-help" className="text-xs text-muted-foreground">Ctrl/⌘ + wheel: zoom at pointer. Focus canvas: +/− zoom, 0 reset, F fit, arrows pan. Hold Space or middle-drag to pan; Pan view (H) also works with touch. View changes are not saved.</p>
+      <p id="canvas-view-help" className="text-xs text-muted-foreground">Ctrl/⌘ + wheel: zoom at pointer. Focus canvas: +/− zoom, 0 reset, F fit, arrows pan. Hold Space or middle-drag to pan; Pan view (H) also works with touch. View changes are not saved. Select: Shift-click toggles; drag empty canvas to select atom centers in the active placement and fully contained graphics. Shift-drag adds to the selection. Select whole placements and groups in Scene.</p>
     </div>
   )
 }
