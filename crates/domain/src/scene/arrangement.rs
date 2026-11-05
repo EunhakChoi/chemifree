@@ -310,7 +310,10 @@ fn center_displacement(low: f64, high: f64, source: f64, target: f64) -> f64 {
     }
 }
 
-fn check_center_stability(units: &[ArrangementUnit], axis: DistributionAxis) -> Result<(), EditError> {
+fn check_center_stability(
+    units: &[ArrangementUnit],
+    axis: DistributionAxis,
+) -> Result<(), EditError> {
     let mut ranges = Vec::with_capacity(units.len());
     let mut union_low = f64::INFINITY;
     let mut union_high = f64::NEG_INFINITY;
